@@ -1,0 +1,1933 @@
+﻿Goal ID,단계,영역,목표,짧은 Goal 프롬프트,상세 지시서,결과 문서,선행 Goal,완료 기준,프롬프트 글자 수
+G0-001,Phase 0 - 설계/테스트 정책 확정,설계,설계 산출물 확정,"HeadlessDCGO.Engine Goal G0-001만 수행하라.
+목표: 설계 산출물 확정
+상세 지시서: docs/goal-specs/G0-001_설계_산출물_확정.md
+선행 Goal: 없음
+결과 문서: docs/test-results/goals/G0-001_design_artifacts_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 문서와 CSV가 검증됨",docs/goal-specs/G0-001_설계_산출물_확정.md,docs/test-results/goals/G0-001_design_artifacts_unit_test_results.md,없음,문서와 CSV가 검증됨,336
+G0-002,Phase 0 - 설계/테스트 정책 확정,테스트,테스트 정책 확정,"HeadlessDCGO.Engine Goal G0-002만 수행하라.
+목표: 테스트 정책 확정
+상세 지시서: docs/goal-specs/G0-002_테스트_정책_확정.md
+선행 Goal: G0-001
+결과 문서: docs/test-results/goals/G0-002_test_policy_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 테스트 정책 문서가 검증됨",docs/goal-specs/G0-002_테스트_정책_확정.md,docs/test-results/goals/G0-002_test_policy_unit_test_results.md,G0-001,테스트 정책 문서가 검증됨,337
+G0-003,Phase 0 - 설계/테스트 정책 확정,단계 완료 게이트,Phase 1 착수 게이트 검증,"HeadlessDCGO.Engine Goal G0-003만 수행하라.
+목표: Phase 1 착수 게이트 검증
+상세 지시서: docs/goal-specs/G0-003_phase_1_착수_게이트_검증.md
+선행 Goal: G0-002
+결과 문서: docs/test-results/goals/G0-003_phase1_gate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Phase 1 착수 가능 판정",docs/goal-specs/G0-003_phase_1_착수_게이트_검증.md,docs/test-results/goals/G0-003_phase1_gate_unit_test_results.md,G0-002,Phase 1 착수 가능 판정,355
+G1A-001,Phase 1 - Unity 대체 기반 구현,런타임,Runtime DTO 모델 고정,"HeadlessDCGO.Engine Goal G1A-001만 수행하라.
+목표: Runtime DTO 모델 고정
+상세 지시서: docs/goal-specs/G1A-001_runtime_dto_모델_고정.md
+선행 Goal: G0-003
+결과 문서: docs/test-results/goals/G1A-001_runtime_models_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Runtime DTO 테스트 통과",docs/goal-specs/G1A-001_runtime_dto_모델_고정.md,docs/test-results/goals/G1A-001_runtime_models_unit_test_results.md,G0-003,Runtime DTO 테스트 통과,363
+G1A-002,Phase 1 - Unity 대체 기반 구현,런타임,Match lifecycle 계약,"HeadlessDCGO.Engine Goal G1A-002만 수행하라.
+목표: Match lifecycle 계약
+상세 지시서: docs/goal-specs/G1A-002_match_lifecycle_계약.md
+선행 Goal: G1A-001
+결과 문서: docs/test-results/goals/G1A-002_match_lifecycle_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: lifecycle 테스트 통과",docs/goal-specs/G1A-002_match_lifecycle_계약.md,docs/test-results/goals/G1A-002_match_lifecycle_unit_test_results.md,G1A-001,lifecycle 테스트 통과,365
+G1A-003,Phase 1 - Unity 대체 기반 구현,런타임,Action 입력 결과 계약,"HeadlessDCGO.Engine Goal G1A-003만 수행하라.
+목표: Action 입력 결과 계약
+상세 지시서: docs/goal-specs/G1A-003_action_입력_결과_계약.md
+선행 Goal: G1A-001
+결과 문서: docs/test-results/goals/G1A-003_action_contract_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: action 계약 테스트 통과",docs/goal-specs/G1A-003_action_입력_결과_계약.md,docs/test-results/goals/G1A-003_action_contract_unit_test_results.md,G1A-001,action 계약 테스트 통과,359
+G1A-004,Phase 1 - Unity 대체 기반 구현,런타임,Observation LegalAction 계약,"HeadlessDCGO.Engine Goal G1A-004만 수행하라.
+목표: Observation LegalAction 계약
+상세 지시서: docs/goal-specs/G1A-004_observation_legalaction_계약.md
+선행 Goal: G1A-001
+결과 문서: docs/test-results/goals/G1A-004_observation_legal_action_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: observation legal action 테스트 통과",docs/goal-specs/G1A-004_observation_legalaction_계약.md,docs/test-results/goals/G1A-004_observation_legal_action_unit_test_results.md,G1A-001,observation legal action 테스트 통과,405
+G1A-005,Phase 1 - Unity 대체 기반 구현,런타임,Runtime aggregate 결과 문서,"HeadlessDCGO.Engine Goal G1A-005만 수행하라.
+목표: Runtime aggregate 결과 문서
+상세 지시서: docs/goal-specs/G1A-005_runtime_aggregate_결과_문서.md
+선행 Goal: G1A-002; G1A-003; G1A-004
+결과 문서: docs/test-results/goals/G1A-005_runtime_aggregate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Runtime 영역 완료",docs/goal-specs/G1A-005_runtime_aggregate_결과_문서.md,docs/test-results/goals/G1A-005_runtime_aggregate_unit_test_results.md,G1A-002; G1A-003; G1A-004,Runtime 영역 완료,392
+G1B-001,Phase 1 - Unity 대체 기반 구현,상태/존,Stable ID와 entity registry,"HeadlessDCGO.Engine Goal G1B-001만 수행하라.
+목표: Stable ID와 entity registry
+상세 지시서: docs/goal-specs/G1B-001_stable_id와_entity_registry.md
+선행 Goal: G1A-001
+결과 문서: docs/test-results/goals/G1B-001_stable_ids_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: stable id 테스트 통과",docs/goal-specs/G1B-001_stable_id와_entity_registry.md,docs/test-results/goals/G1B-001_stable_ids_unit_test_results.md,G1A-001,stable id 테스트 통과,376
+G1B-002,Phase 1 - Unity 대체 기반 구현,상태/존,MatchState PlayerState,"HeadlessDCGO.Engine Goal G1B-002만 수행하라.
+목표: MatchState PlayerState
+상세 지시서: docs/goal-specs/G1B-002_matchstate_playerstate.md
+선행 Goal: G1B-001
+결과 문서: docs/test-results/goals/G1B-002_match_player_state_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: state 모델 테스트 통과",docs/goal-specs/G1B-002_matchstate_playerstate.md,docs/test-results/goals/G1B-002_match_player_state_unit_test_results.md,G1B-001,state 모델 테스트 통과,375
+G1B-003,Phase 1 - Unity 대체 기반 구현,상태/존,ZoneState,"HeadlessDCGO.Engine Goal G1B-003만 수행하라.
+목표: ZoneState
+상세 지시서: docs/goal-specs/G1B-003_zonestate.md
+선행 Goal: G1B-002
+결과 문서: docs/test-results/goals/G1B-003_zone_state_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: zone state 테스트 통과",docs/goal-specs/G1B-003_zonestate.md,docs/test-results/goals/G1B-003_zone_state_unit_test_results.md,G1B-002,zone state 테스트 통과,343
+G1B-004,Phase 1 - Unity 대체 기반 구현,상태/존,CardInstanceState,"HeadlessDCGO.Engine Goal G1B-004만 수행하라.
+목표: CardInstanceState
+상세 지시서: docs/goal-specs/G1B-004_cardinstancestate.md
+선행 Goal: G1B-003
+결과 문서: docs/test-results/goals/G1B-004_card_instance_state_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: card instance state 테스트 통과",docs/goal-specs/G1B-004_cardinstancestate.md,docs/test-results/goals/G1B-004_card_instance_state_unit_test_results.md,G1B-003,card instance state 테스트 통과,377
+G1B-005,Phase 1 - Unity 대체 기반 구현,상태/존,ZoneMover,"HeadlessDCGO.Engine Goal G1B-005만 수행하라.
+목표: ZoneMover
+상세 지시서: docs/goal-specs/G1B-005_zonemover.md
+선행 Goal: G1B-003; G1B-004
+결과 문서: docs/test-results/goals/G1B-005_zone_mover_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: zone mover 테스트 통과",docs/goal-specs/G1B-005_zonemover.md,docs/test-results/goals/G1B-005_zone_mover_unit_test_results.md,G1B-003; G1B-004,zone mover 테스트 통과,352
+G1B-006,Phase 1 - Unity 대체 기반 구현,상태/존,State snapshot fingerprint,"HeadlessDCGO.Engine Goal G1B-006만 수행하라.
+목표: State snapshot fingerprint
+상세 지시서: docs/goal-specs/G1B-006_state_snapshot_fingerprint.md
+선행 Goal: G1B-005
+결과 문서: docs/test-results/goals/G1B-006_state_snapshot_fingerprint_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: state 결정성 테스트 통과",docs/goal-specs/G1B-006_state_snapshot_fingerprint.md,docs/test-results/goals/G1B-006_state_snapshot_fingerprint_unit_test_results.md,G1B-005,state 결정성 테스트 통과,392
+G1C-001,Phase 1 - Unity 대체 기반 구현,Unity 전역 접근 대체,EngineContext,"HeadlessDCGO.Engine Goal G1C-001만 수행하라.
+목표: EngineContext
+상세 지시서: docs/goal-specs/G1C-001_enginecontext.md
+선행 Goal: G1A-002
+결과 문서: docs/test-results/goals/G1C-001_engine_context_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: EngineContext 테스트 통과",docs/goal-specs/G1C-001_enginecontext.md,docs/test-results/goals/G1C-001_engine_context_unit_test_results.md,G1A-002,EngineContext 테스트 통과,358
+G1C-002,Phase 1 - Unity 대체 기반 구현,Unity 전역 접근 대체,GManagerBridge,"HeadlessDCGO.Engine Goal G1C-002만 수행하라.
+목표: GManagerBridge
+상세 지시서: docs/goal-specs/G1C-002_gmanagerbridge.md
+선행 Goal: G1C-001
+결과 문서: docs/test-results/goals/G1C-002_gmanager_bridge_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: GManagerBridge 테스트 통과",docs/goal-specs/G1C-002_gmanagerbridge.md,docs/test-results/goals/G1C-002_gmanager_bridge_unit_test_results.md,G1C-001,GManagerBridge 테스트 통과,362
+G1C-003,Phase 1 - Unity 대체 기반 구현,Unity 전역 접근 대체,ContinuousContext,"HeadlessDCGO.Engine Goal G1C-003만 수행하라.
+목표: ContinuousContext
+상세 지시서: docs/goal-specs/G1C-003_continuouscontext.md
+선행 Goal: G1C-001
+결과 문서: docs/test-results/goals/G1C-003_continuous_context_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: ContinuousContext 테스트 통과",docs/goal-specs/G1C-003_continuouscontext.md,docs/test-results/goals/G1C-003_continuous_context_unit_test_results.md,G1C-001,ContinuousContext 테스트 통과,374
+G1C-004,Phase 1 - Unity 대체 기반 구현,Unity 전역 접근 대체,Unity-only exclusion policy,"HeadlessDCGO.Engine Goal G1C-004만 수행하라.
+목표: Unity-only exclusion policy
+상세 지시서: docs/goal-specs/G1C-004_unity_only_exclusion_policy.md
+선행 Goal: G1C-002; G1C-003
+결과 문서: docs/test-results/goals/G1C-004_unity_exclusion_policy_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Unity-only exclusion 테스트 통과",docs/goal-specs/G1C-004_unity_only_exclusion_policy.md,docs/test-results/goals/G1C-004_unity_exclusion_policy_unit_test_results.md,G1C-002; G1C-003,Unity-only exclusion 테스트 통과,410
+G1D-001,Phase 1 - Unity 대체 기반 구현,코루틴 대체,EngineTask contract,"HeadlessDCGO.Engine Goal G1D-001만 수행하라.
+목표: EngineTask contract
+상세 지시서: docs/goal-specs/G1D-001_enginetask_contract.md
+선행 Goal: G1A-002
+결과 문서: docs/test-results/goals/G1D-001_engine_task_contract_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: EngineTask 계약 테스트 통과",docs/goal-specs/G1D-001_enginetask_contract.md,docs/test-results/goals/G1D-001_engine_task_contract_unit_test_results.md,G1A-002,EngineTask 계약 테스트 통과,376
+G1D-002,Phase 1 - Unity 대체 기반 구현,코루틴 대체,WaitCondition,"HeadlessDCGO.Engine Goal G1D-002만 수행하라.
+목표: WaitCondition
+상세 지시서: docs/goal-specs/G1D-002_waitcondition.md
+선행 Goal: G1D-001
+결과 문서: docs/test-results/goals/G1D-002_wait_condition_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: wait condition 테스트 통과",docs/goal-specs/G1D-002_waitcondition.md,docs/test-results/goals/G1D-002_wait_condition_unit_test_results.md,G1D-001,wait condition 테스트 통과,359
+G1D-003,Phase 1 - Unity 대체 기반 구현,코루틴 대체,CoroutineAdapter,"HeadlessDCGO.Engine Goal G1D-003만 수행하라.
+목표: CoroutineAdapter
+상세 지시서: docs/goal-specs/G1D-003_coroutineadapter.md
+선행 Goal: G1D-002
+결과 문서: docs/test-results/goals/G1D-003_coroutine_adapter_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: CoroutineAdapter 테스트 통과",docs/goal-specs/G1D-003_coroutineadapter.md,docs/test-results/goals/G1D-003_coroutine_adapter_unit_test_results.md,G1D-002,CoroutineAdapter 테스트 통과,370
+G1D-004,Phase 1 - Unity 대체 기반 구현,코루틴 대체,TaskRunner 안정화,"HeadlessDCGO.Engine Goal G1D-004만 수행하라.
+목표: TaskRunner 안정화
+상세 지시서: docs/goal-specs/G1D-004_taskrunner_안정화.md
+선행 Goal: G1D-003
+결과 문서: docs/test-results/goals/G1D-004_task_runner_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: TaskRunner 테스트 통과",docs/goal-specs/G1D-004_taskrunner_안정화.md,docs/test-results/goals/G1D-004_task_runner_unit_test_results.md,G1D-003,TaskRunner 테스트 통과,354
+G1E-001,Phase 1 - Unity 대체 기반 구현,선택 처리 대체,Choice schema,"HeadlessDCGO.Engine Goal G1E-001만 수행하라.
+목표: Choice schema
+상세 지시서: docs/goal-specs/G1E-001_choice_schema.md
+선행 Goal: G1A-003
+결과 문서: docs/test-results/goals/G1E-001_choice_schema_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Choice 스키마 테스트 통과",docs/goal-specs/G1E-001_choice_schema.md,docs/test-results/goals/G1E-001_choice_schema_unit_test_results.md,G1A-003,Choice 스키마 테스트 통과,354
+G1E-002,Phase 1 - Unity 대체 기반 구현,선택 처리 대체,ChoiceResult validation,"HeadlessDCGO.Engine Goal G1E-002만 수행하라.
+목표: ChoiceResult validation
+상세 지시서: docs/goal-specs/G1E-002_choiceresult_validation.md
+선행 Goal: G1E-001
+결과 문서: docs/test-results/goals/G1E-002_choice_result_validation_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: ChoiceResult 테스트 통과",docs/goal-specs/G1E-002_choiceresult_validation.md,docs/test-results/goals/G1E-002_choice_result_validation_unit_test_results.md,G1E-001,ChoiceResult 테스트 통과,387
+G1E-003,Phase 1 - Unity 대체 기반 구현,선택 처리 대체,ScriptedChoiceProvider,"HeadlessDCGO.Engine Goal G1E-003만 수행하라.
+목표: ScriptedChoiceProvider
+상세 지시서: docs/goal-specs/G1E-003_scriptedchoiceprovider.md
+선행 Goal: G1E-002
+결과 문서: docs/test-results/goals/G1E-003_scripted_choice_provider_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Scripted provider 테스트 통과",docs/goal-specs/G1E-003_scriptedchoiceprovider.md,docs/test-results/goals/G1E-003_scripted_choice_provider_unit_test_results.md,G1E-002,Scripted provider 테스트 통과,390
+G1E-004,Phase 1 - Unity 대체 기반 구현,선택 처리 대체,PolicyChoiceProvider,"HeadlessDCGO.Engine Goal G1E-004만 수행하라.
+목표: PolicyChoiceProvider
+상세 지시서: docs/goal-specs/G1E-004_policychoiceprovider.md
+선행 Goal: G1E-002
+결과 문서: docs/test-results/goals/G1E-004_policy_choice_provider_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Policy provider 테스트 통과",docs/goal-specs/G1E-004_policychoiceprovider.md,docs/test-results/goals/G1E-004_policy_choice_provider_unit_test_results.md,G1E-002,Policy provider 테스트 통과,382
+G1E-005,Phase 1 - Unity 대체 기반 구현,선택 처리 대체,Choice pause resume contract,"HeadlessDCGO.Engine Goal G1E-005만 수행하라.
+목표: Choice pause resume contract
+상세 지시서: docs/goal-specs/G1E-005_choice_pause_resume_contract.md
+선행 Goal: G1E-003; G1E-004
+결과 문서: docs/test-results/goals/G1E-005_choice_pause_resume_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: choice pause resume 테스트 통과",docs/goal-specs/G1E-005_choice_pause_resume_contract.md,docs/test-results/goals/G1E-005_choice_pause_resume_unit_test_results.md,G1E-003; G1E-004,choice pause resume 테스트 통과,408
+G1F-001,Phase 1 - Unity 대체 기반 구현,효과 처리,Effect request context schema,"HeadlessDCGO.Engine Goal G1F-001만 수행하라.
+목표: Effect request context schema
+상세 지시서: docs/goal-specs/G1F-001_effect_request_context_schema.md
+선행 Goal: G1B-001; G1E-001
+결과 문서: docs/test-results/goals/G1F-001_effect_context_schema_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Effect context 테스트 통과",docs/goal-specs/G1F-001_effect_request_context_schema.md,docs/test-results/goals/G1F-001_effect_context_schema_unit_test_results.md,G1B-001; G1E-001,Effect context 테스트 통과,407
+G1F-002,Phase 1 - Unity 대체 기반 구현,효과 처리,EffectResolutionQueue,"HeadlessDCGO.Engine Goal G1F-002만 수행하라.
+목표: EffectResolutionQueue
+상세 지시서: docs/goal-specs/G1F-002_effectresolutionqueue.md
+선행 Goal: G1F-001
+결과 문서: docs/test-results/goals/G1F-002_effect_resolution_queue_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Effect queue 테스트 통과",docs/goal-specs/G1F-002_effectresolutionqueue.md,docs/test-results/goals/G1F-002_effect_resolution_queue_unit_test_results.md,G1F-001,Effect queue 테스트 통과,382
+G1F-003,Phase 1 - Unity 대체 기반 구현,효과 처리,EffectScheduler,"HeadlessDCGO.Engine Goal G1F-003만 수행하라.
+목표: EffectScheduler
+상세 지시서: docs/goal-specs/G1F-003_effectscheduler.md
+선행 Goal: G1F-002; G1E-005
+결과 문서: docs/test-results/goals/G1F-003_effect_scheduler_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: EffectScheduler 테스트 통과",docs/goal-specs/G1F-003_effectscheduler.md,docs/test-results/goals/G1F-003_effect_scheduler_unit_test_results.md,G1F-002; G1E-005,EffectScheduler 테스트 통과,375
+G1F-004,Phase 1 - Unity 대체 기반 구현,효과 처리,TimingWindowResolver contract,"HeadlessDCGO.Engine Goal G1F-004만 수행하라.
+목표: TimingWindowResolver contract
+상세 지시서: docs/goal-specs/G1F-004_timingwindowresolver_contract.md
+선행 Goal: G1F-003
+결과 문서: docs/test-results/goals/G1F-004_timing_window_contract_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Timing 계약 테스트 통과",docs/goal-specs/G1F-004_timingwindowresolver_contract.md,docs/test-results/goals/G1F-004_timing_window_contract_unit_test_results.md,G1F-003,Timing 계약 테스트 통과,394
+G1F-005,Phase 1 - Unity 대체 기반 구현,효과 처리,EffectRegistry contract,"HeadlessDCGO.Engine Goal G1F-005만 수행하라.
+목표: EffectRegistry contract
+상세 지시서: docs/goal-specs/G1F-005_effectregistry_contract.md
+선행 Goal: G1F-001
+결과 문서: docs/test-results/goals/G1F-005_effect_registry_contract_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: EffectRegistry 계약 테스트 통과",docs/goal-specs/G1F-005_effectregistry_contract.md,docs/test-results/goals/G1F-005_effect_registry_contract_unit_test_results.md,G1F-001,EffectRegistry 계약 테스트 통과,392
+G1F-006,Phase 1 - Unity 대체 기반 구현,효과 처리,Continuous Replacement query contract,"HeadlessDCGO.Engine Goal G1F-006만 수행하라.
+목표: Continuous Replacement query contract
+상세 지시서: docs/goal-specs/G1F-006_continuous_replacement_query_contract.md
+선행 Goal: G1F-005
+결과 문서: docs/test-results/goals/G1F-006_continuous_replacement_query_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Effect query 계약 테스트 통과",docs/goal-specs/G1F-006_continuous_replacement_query_contract.md,docs/test-results/goals/G1F-006_continuous_replacement_query_unit_test_results.md,G1F-005,Effect query 계약 테스트 통과,422
+G1G-001,Phase 1 - Unity 대체 기반 구현,세션/네트워크 대체,Player session model,"HeadlessDCGO.Engine Goal G1G-001만 수행하라.
+목표: Player session model
+상세 지시서: docs/goal-specs/G1G-001_player_session_model.md
+선행 Goal: G1B-001
+결과 문서: docs/test-results/goals/G1G-001_player_session_model_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: session 모델 테스트 통과",docs/goal-specs/G1G-001_player_session_model.md,docs/test-results/goals/G1G-001_player_session_model_unit_test_results.md,G1B-001,session 모델 테스트 통과,375
+G1G-002,Phase 1 - Unity 대체 기반 구현,세션/네트워크 대체,Action queue replay metadata,"HeadlessDCGO.Engine Goal G1G-002만 수행하라.
+목표: Action queue replay metadata
+상세 지시서: docs/goal-specs/G1G-002_action_queue_replay_metadata.md
+선행 Goal: G1G-001; G1A-003
+결과 문서: docs/test-results/goals/G1G-002_action_queue_replay_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: action queue 테스트 통과",docs/goal-specs/G1G-002_action_queue_replay_metadata.md,docs/test-results/goals/G1G-002_action_queue_replay_unit_test_results.md,G1G-001; G1A-003,action queue 테스트 통과,401
+G1G-003,Phase 1 - Unity 대체 기반 구현,세션/네트워크 대체,Photon dependency guard,"HeadlessDCGO.Engine Goal G1G-003만 수행하라.
+목표: Photon dependency guard
+상세 지시서: docs/goal-specs/G1G-003_photon_dependency_guard.md
+선행 Goal: G1G-002
+결과 문서: docs/test-results/goals/G1G-003_photon_dependency_guard_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Photon guard 테스트 통과",docs/goal-specs/G1G-003_photon_dependency_guard.md,docs/test-results/goals/G1G-003_photon_dependency_guard_unit_test_results.md,G1G-002,Photon guard 테스트 통과,386
+G1H-001,Phase 1 - Unity 대체 기반 구현,데이터 로딩,Card repository contract,"HeadlessDCGO.Engine Goal G1H-001만 수행하라.
+목표: Card repository contract
+상세 지시서: docs/goal-specs/G1H-001_card_repository_contract.md
+선행 Goal: G1B-001
+결과 문서: docs/test-results/goals/G1H-001_card_repository_contract_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Card repository 테스트 통과",docs/goal-specs/G1H-001_card_repository_contract.md,docs/test-results/goals/G1H-001_card_repository_contract_unit_test_results.md,G1B-001,Card repository 테스트 통과,392
+G1H-002,Phase 1 - Unity 대체 기반 구현,데이터 로딩,Card JSON loader,"HeadlessDCGO.Engine Goal G1H-002만 수행하라.
+목표: Card JSON loader
+상세 지시서: docs/goal-specs/G1H-002_card_json_loader.md
+선행 Goal: G1H-001
+결과 문서: docs/test-results/goals/G1H-002_card_json_loader_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Card JSON loader 테스트 통과",docs/goal-specs/G1H-002_card_json_loader.md,docs/test-results/goals/G1H-002_card_json_loader_unit_test_results.md,G1H-001,Card JSON loader 테스트 통과,369
+G1H-003,Phase 1 - Unity 대체 기반 구현,데이터 로딩,Deck list loader,"HeadlessDCGO.Engine Goal G1H-003만 수행하라.
+목표: Deck list loader
+상세 지시서: docs/goal-specs/G1H-003_deck_list_loader.md
+선행 Goal: G1H-001
+결과 문서: docs/test-results/goals/G1H-003_deck_list_loader_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Deck loader 테스트 통과",docs/goal-specs/G1H-003_deck_list_loader.md,docs/test-results/goals/G1H-003_deck_list_loader_unit_test_results.md,G1H-001,Deck loader 테스트 통과,364
+G1H-004,Phase 1 - Unity 대체 기반 구현,데이터 로딩,Banlist loader,"HeadlessDCGO.Engine Goal G1H-004만 수행하라.
+목표: Banlist loader
+상세 지시서: docs/goal-specs/G1H-004_banlist_loader.md
+선행 Goal: G1H-001
+결과 문서: docs/test-results/goals/G1H-004_banlist_loader_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Banlist loader 테스트 통과",docs/goal-specs/G1H-004_banlist_loader.md,docs/test-results/goals/G1H-004_banlist_loader_unit_test_results.md,G1H-001,Banlist loader 테스트 통과,361
+G1H-005,Phase 1 - Unity 대체 기반 구현,데이터 로딩,Unity asset exclusion guard,"HeadlessDCGO.Engine Goal G1H-005만 수행하라.
+목표: Unity asset exclusion guard
+상세 지시서: docs/goal-specs/G1H-005_unity_asset_exclusion_guard.md
+선행 Goal: G1H-002; G1H-003
+결과 문서: docs/test-results/goals/G1H-005_unity_asset_exclusion_guard_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Unity asset guard 테스트 통과",docs/goal-specs/G1H-005_unity_asset_exclusion_guard.md,docs/test-results/goals/G1H-005_unity_asset_exclusion_guard_unit_test_results.md,G1H-002; G1H-003,Unity asset guard 테스트 통과,412
+G1I-001,Phase 1 - Unity 대체 기반 구현,진단/결정성,Seeded random,"HeadlessDCGO.Engine Goal G1I-001만 수행하라.
+목표: Seeded random
+상세 지시서: docs/goal-specs/G1I-001_seeded_random.md
+선행 Goal: G1A-001
+결과 문서: docs/test-results/goals/G1I-001_seeded_random_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Seeded random 테스트 통과",docs/goal-specs/G1I-001_seeded_random.md,docs/test-results/goals/G1I-001_seeded_random_unit_test_results.md,G1A-001,Seeded random 테스트 통과,357
+G1I-002,Phase 1 - Unity 대체 기반 구현,진단/결정성,EngineTrace,"HeadlessDCGO.Engine Goal G1I-002만 수행하라.
+목표: EngineTrace
+상세 지시서: docs/goal-specs/G1I-002_enginetrace.md
+선행 Goal: G1A-001
+결과 문서: docs/test-results/goals/G1I-002_engine_trace_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: EngineTrace 테스트 통과",docs/goal-specs/G1I-002_enginetrace.md,docs/test-results/goals/G1I-002_engine_trace_unit_test_results.md,G1A-001,EngineTrace 테스트 통과,350
+G1I-003,Phase 1 - Unity 대체 기반 구현,진단/결정성,Log sink,"HeadlessDCGO.Engine Goal G1I-003만 수행하라.
+목표: Log sink
+상세 지시서: docs/goal-specs/G1I-003_log_sink.md
+선행 Goal: G1I-002
+결과 문서: docs/test-results/goals/G1I-003_log_sink_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Log sink 테스트 통과",docs/goal-specs/G1I-003_log_sink.md,docs/test-results/goals/G1I-003_log_sink_unit_test_results.md,G1I-002,Log sink 테스트 통과,337
+G1I-004,Phase 1 - Unity 대체 기반 구현,진단/결정성,Forbidden dependency scan,"HeadlessDCGO.Engine Goal G1I-004만 수행하라.
+목표: Forbidden dependency scan
+상세 지시서: docs/goal-specs/G1I-004_forbidden_dependency_scan.md
+선행 Goal: G1G-003; G1H-005
+결과 문서: docs/test-results/goals/G1I-004_forbidden_dependency_scan_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: forbidden dependency 테스트 통과",docs/goal-specs/G1I-004_forbidden_dependency_scan.md,docs/test-results/goals/G1I-004_forbidden_dependency_scan_unit_test_results.md,G1G-003; G1H-005,forbidden dependency 테스트 통과,409
+G1I-005,Phase 1 - Unity 대체 기반 구현,단계 완료 게이트,Phase 1 aggregate result,"HeadlessDCGO.Engine Goal G1I-005만 수행하라.
+목표: Phase 1 aggregate result
+상세 지시서: docs/goal-specs/G1I-005_phase_1_aggregate_result.md
+선행 Goal: G1A-005; G1B-006; G1C-004; G1D-004; G1E-005; G1F-006; G1G-003; G1H-005; G1I-004
+결과 문서: docs/test-results/goals/G1I-005_phase1_aggregate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Phase 2 착수 가능",docs/goal-specs/G1I-005_phase_1_aggregate_result.md,docs/test-results/goals/G1I-005_phase1_aggregate_unit_test_results.md,G1A-005; G1B-006; G1C-004; G1D-004; G1E-005; G1F-006; G1G-003; G1H-005; G1I-004,Phase 2 착수 가능,447
+G2A-001,Phase 2 - AS-IS 핵심 흐름 포팅,턴/페이즈 흐름,Phase enum과 state mapping 포팅,"HeadlessDCGO.Engine Goal G2A-001만 수행하라.
+목표: Phase enum과 state mapping 포팅
+상세 지시서: docs/goal-specs/G2A-001_phase_enum과_state_mapping_포팅.md
+선행 Goal: G1I-005
+결과 문서: docs/test-results/goals/G2A-001_phase_mapping_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: phase 매핑 테스트 통과",docs/goal-specs/G2A-001_phase_enum과_state_mapping_포팅.md,docs/test-results/goals/G2A-001_phase_mapping_unit_test_results.md,G1I-005,phase 매핑 테스트 통과,382
+G2A-002,Phase 2 - AS-IS 핵심 흐름 포팅,턴/페이즈 흐름,매치 setup과 선후공 흐름 포팅,"HeadlessDCGO.Engine Goal G2A-002만 수행하라.
+목표: 매치 setup과 선후공 흐름 포팅
+상세 지시서: docs/goal-specs/G2A-002_매치_setup과_선후공_흐름_포팅.md
+선행 Goal: G2A-001
+결과 문서: docs/test-results/goals/G2A-002_setup_first_player_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: setup 테스트 통과",docs/goal-specs/G2A-002_매치_setup과_선후공_흐름_포팅.md,docs/test-results/goals/G2A-002_setup_first_player_unit_test_results.md,G2A-001,setup 테스트 통과,366
+G2A-003,Phase 2 - AS-IS 핵심 흐름 포팅,턴/페이즈 흐름,Draw Unsuspend Breeding phase 포팅,"HeadlessDCGO.Engine Goal G2A-003만 수행하라.
+목표: Draw Unsuspend Breeding phase 포팅
+상세 지시서: docs/goal-specs/G2A-003_draw_unsuspend_breeding_phase_포팅.md
+선행 Goal: G2A-002
+결과 문서: docs/test-results/goals/G2A-003_early_phase_flow_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 초기 phase 테스트 통과",docs/goal-specs/G2A-003_draw_unsuspend_breeding_phase_포팅.md,docs/test-results/goals/G2A-003_early_phase_flow_unit_test_results.md,G2A-002,초기 phase 테스트 통과,393
+G2A-004,Phase 2 - AS-IS 핵심 흐름 포팅,턴/페이즈 흐름,Main phase와 memory pass 포팅,"HeadlessDCGO.Engine Goal G2A-004만 수행하라.
+목표: Main phase와 memory pass 포팅
+상세 지시서: docs/goal-specs/G2A-004_main_phase와_memory_pass_포팅.md
+선행 Goal: G2A-003
+결과 문서: docs/test-results/goals/G2A-004_main_phase_memory_pass_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: main phase 테스트 통과",docs/goal-specs/G2A-004_main_phase와_memory_pass_포팅.md,docs/test-results/goals/G2A-004_main_phase_memory_pass_unit_test_results.md,G2A-003,main phase 테스트 통과,389
+G2A-005,Phase 2 - AS-IS 핵심 흐름 포팅,턴/페이즈 흐름,End turn cleanup 포팅,"HeadlessDCGO.Engine Goal G2A-005만 수행하라.
+목표: End turn cleanup 포팅
+상세 지시서: docs/goal-specs/G2A-005_end_turn_cleanup_포팅.md
+선행 Goal: G2A-004
+결과 문서: docs/test-results/goals/G2A-005_end_turn_cleanup_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: end turn 테스트 통과",docs/goal-specs/G2A-005_end_turn_cleanup_포팅.md,docs/test-results/goals/G2A-005_end_turn_cleanup_unit_test_results.md,G2A-004,end turn 테스트 통과,367
+G2A-006,Phase 2 - AS-IS 핵심 흐름 포팅,턴/페이즈 흐름,Legal action dispatch hook 포팅,"HeadlessDCGO.Engine Goal G2A-006만 수행하라.
+목표: Legal action dispatch hook 포팅
+상세 지시서: docs/goal-specs/G2A-006_legal_action_dispatch_hook_포팅.md
+선행 Goal: G2A-005
+결과 문서: docs/test-results/goals/G2A-006_legal_action_dispatch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: legal dispatch 테스트 통과",docs/goal-specs/G2A-006_legal_action_dispatch_hook_포팅.md,docs/test-results/goals/G2A-006_legal_action_dispatch_unit_test_results.md,G2A-005,legal dispatch 테스트 통과,398
+G2B-001,Phase 2 - AS-IS 핵심 흐름 포팅,게임 컨텍스트,GameContext state accessor 포팅,"HeadlessDCGO.Engine Goal G2B-001만 수행하라.
+목표: GameContext state accessor 포팅
+상세 지시서: docs/goal-specs/G2B-001_gamecontext_state_accessor_포팅.md
+선행 Goal: G2A-002
+결과 문서: docs/test-results/goals/G2B-001_gamecontext_state_accessor_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: GameContext accessor 테스트 통과",docs/goal-specs/G2B-001_gamecontext_state_accessor_포팅.md,docs/test-results/goals/G2B-001_gamecontext_state_accessor_unit_test_results.md,G2A-002,GameContext accessor 테스트 통과,409
+G2B-002,Phase 2 - AS-IS 핵심 흐름 포팅,게임 컨텍스트,Visibility view 포팅,"HeadlessDCGO.Engine Goal G2B-002만 수행하라.
+목표: Visibility view 포팅
+상세 지시서: docs/goal-specs/G2B-002_visibility_view_포팅.md
+선행 Goal: G2B-001
+결과 문서: docs/test-results/goals/G2B-002_visibility_view_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: visibility 테스트 통과",docs/goal-specs/G2B-002_visibility_view_포팅.md,docs/test-results/goals/G2B-002_visibility_view_unit_test_results.md,G2B-001,visibility 테스트 통과,366
+G2C-001,Phase 2 - AS-IS 핵심 흐름 포팅,플레이어 상태,Player zone ownership 포팅,"HeadlessDCGO.Engine Goal G2C-001만 수행하라.
+목표: Player zone ownership 포팅
+상세 지시서: docs/goal-specs/G2C-001_player_zone_ownership_포팅.md
+선행 Goal: G2B-001
+결과 문서: docs/test-results/goals/G2C-001_player_zone_ownership_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: player zone 테스트 통과",docs/goal-specs/G2C-001_player_zone_ownership_포팅.md,docs/test-results/goals/G2C-001_player_zone_ownership_unit_test_results.md,G2B-001,player zone 테스트 통과,385
+G2C-002,Phase 2 - AS-IS 핵심 흐름 포팅,플레이어 상태,Memory security deck loss check 포팅,"HeadlessDCGO.Engine Goal G2C-002만 수행하라.
+목표: Memory security deck loss check 포팅
+상세 지시서: docs/goal-specs/G2C-002_memory_security_deck_loss_check_포팅.md
+선행 Goal: G2C-001
+결과 문서: docs/test-results/goals/G2C-002_player_terminal_checks_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: player terminal check 테스트 통과",docs/goal-specs/G2C-002_memory_security_deck_loss_check_포팅.md,docs/test-results/goals/G2C-002_player_terminal_checks_unit_test_results.md,G2C-001,player terminal check 테스트 통과,416
+G2D-001,Phase 2 - AS-IS 핵심 흐름 포팅,카드 컨트롤러,Card identity binding 포팅,"HeadlessDCGO.Engine Goal G2D-001만 수행하라.
+목표: Card identity binding 포팅
+상세 지시서: docs/goal-specs/G2D-001_card_identity_binding_포팅.md
+선행 Goal: G2C-001
+결과 문서: docs/test-results/goals/G2D-001_card_identity_binding_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: card identity 테스트 통과",docs/goal-specs/G2D-001_card_identity_binding_포팅.md,docs/test-results/goals/G2D-001_card_identity_binding_unit_test_results.md,G2C-001,card identity 테스트 통과,387
+G2D-002,Phase 2 - AS-IS 핵심 흐름 포팅,카드 컨트롤러,Zone movement event 포팅,"HeadlessDCGO.Engine Goal G2D-002만 수행하라.
+목표: Zone movement event 포팅
+상세 지시서: docs/goal-specs/G2D-002_zone_movement_event_포팅.md
+선행 Goal: G2D-001
+결과 문서: docs/test-results/goals/G2D-002_card_zone_movement_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: card movement 테스트 통과",docs/goal-specs/G2D-002_zone_movement_event_포팅.md,docs/test-results/goals/G2D-002_card_zone_movement_unit_test_results.md,G2D-001,card movement 테스트 통과,380
+G2D-003,Phase 2 - AS-IS 핵심 흐름 포팅,카드 컨트롤러,Suspend reveal state 포팅,"HeadlessDCGO.Engine Goal G2D-003만 수행하라.
+목표: Suspend reveal state 포팅
+상세 지시서: docs/goal-specs/G2D-003_suspend_reveal_state_포팅.md
+선행 Goal: G2D-002
+결과 문서: docs/test-results/goals/G2D-003_card_suspend_reveal_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: card state mutation 테스트 통과",docs/goal-specs/G2D-003_suspend_reveal_state_포팅.md,docs/test-results/goals/G2D-003_card_suspend_reveal_unit_test_results.md,G2D-002,card state mutation 테스트 통과,389
+G2D-004,Phase 2 - AS-IS 핵심 흐름 포팅,카드 컨트롤러,Digivolution source attach 포팅,"HeadlessDCGO.Engine Goal G2D-004만 수행하라.
+목표: Digivolution source attach 포팅
+상세 지시서: docs/goal-specs/G2D-004_digivolution_source_attach_포팅.md
+선행 Goal: G2D-003
+결과 문서: docs/test-results/goals/G2D-004_digivolution_source_attach_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 진화원 스택 테스트 통과",docs/goal-specs/G2D-004_digivolution_source_attach_포팅.md,docs/test-results/goals/G2D-004_digivolution_source_attach_unit_test_results.md,G2D-003,진화원 스택 테스트 통과,395
+G2E-001,Phase 2 - AS-IS 핵심 흐름 포팅,메인 페이즈 액션,PlayCardAction 포팅,"HeadlessDCGO.Engine Goal G2E-001만 수행하라.
+목표: PlayCardAction 포팅
+상세 지시서: docs/goal-specs/G2E-001_playcardaction_포팅.md
+선행 Goal: G2A-006; G2D-002
+결과 문서: docs/test-results/goals/G2E-001_play_card_action_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: play action 테스트 통과",docs/goal-specs/G2E-001_playcardaction_포팅.md,docs/test-results/goals/G2E-001_play_card_action_unit_test_results.md,G2A-006; G2D-002,play action 테스트 통과,375
+G2E-002,Phase 2 - AS-IS 핵심 흐름 포팅,메인 페이즈 액션,Digivolve action 포팅,"HeadlessDCGO.Engine Goal G2E-002만 수행하라.
+목표: Digivolve action 포팅
+상세 지시서: docs/goal-specs/G2E-002_digivolve_action_포팅.md
+선행 Goal: G2E-001; G2D-004
+결과 문서: docs/test-results/goals/G2E-002_digivolve_action_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: digivolve action 테스트 통과",docs/goal-specs/G2E-002_digivolve_action_포팅.md,docs/test-results/goals/G2E-002_digivolve_action_unit_test_results.md,G2E-001; G2D-004,digivolve action 테스트 통과,384
+G2E-003,Phase 2 - AS-IS 핵심 흐름 포팅,메인 페이즈 액션,Option activate action 포팅,"HeadlessDCGO.Engine Goal G2E-003만 수행하라.
+목표: Option activate action 포팅
+상세 지시서: docs/goal-specs/G2E-003_option_activate_action_포팅.md
+선행 Goal: G2E-001
+결과 문서: docs/test-results/goals/G2E-003_option_activate_action_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: option action 테스트 통과",docs/goal-specs/G2E-003_option_activate_action_포팅.md,docs/test-results/goals/G2E-003_option_activate_action_unit_test_results.md,G2E-001,option action 테스트 통과,390
+G2E-004,Phase 2 - AS-IS 핵심 흐름 포팅,메인 페이즈 액션,Attack action 연결 포팅,"HeadlessDCGO.Engine Goal G2E-004만 수행하라.
+목표: Attack action 연결 포팅
+상세 지시서: docs/goal-specs/G2E-004_attack_action_연결_포팅.md
+선행 Goal: G2A-006
+결과 문서: docs/test-results/goals/G2E-004_attack_action_dispatch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: attack action dispatch 테스트 통과",docs/goal-specs/G2E-004_attack_action_연결_포팅.md,docs/test-results/goals/G2E-004_attack_action_dispatch_unit_test_results.md,G2A-006,attack action dispatch 테스트 통과,387
+G2E-005,Phase 2 - AS-IS 핵심 흐름 포팅,메인 페이즈 액션,Pass와 Cheat guard 포팅,"HeadlessDCGO.Engine Goal G2E-005만 수행하라.
+목표: Pass와 Cheat guard 포팅
+상세 지시서: docs/goal-specs/G2E-005_pass와_cheat_guard_포팅.md
+선행 Goal: G2E-001
+결과 문서: docs/test-results/goals/G2E-005_pass_cheat_guard_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: pass guard 테스트 통과",docs/goal-specs/G2E-005_pass와_cheat_guard_포팅.md,docs/test-results/goals/G2E-005_pass_cheat_guard_unit_test_results.md,G2E-001,pass guard 테스트 통과,371
+G2F-001,Phase 2 - AS-IS 핵심 흐름 포팅,자동 효과 처리,Trigger event collection 포팅,"HeadlessDCGO.Engine Goal G2F-001만 수행하라.
+목표: Trigger event collection 포팅
+상세 지시서: docs/goal-specs/G2F-001_trigger_event_collection_포팅.md
+선행 Goal: G2A-006; G1F-006
+결과 문서: docs/test-results/goals/G2F-001_trigger_collection_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 트리거 수집 테스트 통과",docs/goal-specs/G2F-001_trigger_event_collection_포팅.md,docs/test-results/goals/G2F-001_trigger_collection_unit_test_results.md,G2A-006; G1F-006,트리거 수집 테스트 통과,392
+G2F-002,Phase 2 - AS-IS 핵심 흐름 포팅,자동 효과 처리,Mandatory effect ordering 포팅,"HeadlessDCGO.Engine Goal G2F-002만 수행하라.
+목표: Mandatory effect ordering 포팅
+상세 지시서: docs/goal-specs/G2F-002_mandatory_effect_ordering_포팅.md
+선행 Goal: G2F-001
+결과 문서: docs/test-results/goals/G2F-002_mandatory_effect_order_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 강제 효과 순서ing 테스트 통과",docs/goal-specs/G2F-002_mandatory_effect_ordering_포팅.md,docs/test-results/goals/G2F-002_mandatory_effect_order_unit_test_results.md,G2F-001,강제 효과 순서ing 테스트 통과,394
+G2F-003,Phase 2 - AS-IS 핵심 흐름 포팅,자동 효과 처리,Optional prompt queue 포팅,"HeadlessDCGO.Engine Goal G2F-003만 수행하라.
+목표: Optional prompt queue 포팅
+상세 지시서: docs/goal-specs/G2F-003_optional_prompt_queue_포팅.md
+선행 Goal: G2F-002; G1E-005
+결과 문서: docs/test-results/goals/G2F-003_optional_prompt_queue_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: optional prompt 테스트 통과",docs/goal-specs/G2F-003_optional_prompt_queue_포팅.md,docs/test-results/goals/G2F-003_optional_prompt_queue_unit_test_results.md,G2F-002; G1E-005,optional prompt 테스트 통과,398
+G2F-004,Phase 2 - AS-IS 핵심 흐름 포팅,자동 효과 처리,Security delayed trigger hook 포팅,"HeadlessDCGO.Engine Goal G2F-004만 수행하라.
+목표: Security delayed trigger hook 포팅
+상세 지시서: docs/goal-specs/G2F-004_security_delayed_trigger_hook_포팅.md
+선행 Goal: G2F-003
+결과 문서: docs/test-results/goals/G2F-004_security_delayed_trigger_hook_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: security delayed hook 테스트 통과",docs/goal-specs/G2F-004_security_delayed_trigger_hook_포팅.md,docs/test-results/goals/G2F-004_security_delayed_trigger_hook_unit_test_results.md,G2F-003,security delayed hook 테스트 통과,419
+G2G-001,Phase 2 - AS-IS 핵심 흐름 포팅,공격/배틀 처리,Attack declaration target 포팅,"HeadlessDCGO.Engine Goal G2G-001만 수행하라.
+목표: Attack declaration target 포팅
+상세 지시서: docs/goal-specs/G2G-001_attack_declaration_target_포팅.md
+선행 Goal: G2E-004
+결과 문서: docs/test-results/goals/G2G-001_attack_declaration_targets_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 공격 선언 테스트 통과",docs/goal-specs/G2G-001_attack_declaration_target_포팅.md,docs/test-results/goals/G2G-001_attack_declaration_targets_unit_test_results.md,G2E-004,공격 선언 테스트 통과,392
+G2G-002,Phase 2 - AS-IS 핵심 흐름 포팅,공격/배틀 처리,Block timing 포팅,"HeadlessDCGO.Engine Goal G2G-002만 수행하라.
+목표: Block timing 포팅
+상세 지시서: docs/goal-specs/G2G-002_block_timing_포팅.md
+선행 Goal: G2G-001; G1E-005
+결과 문서: docs/test-results/goals/G2G-002_block_timing_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: block timing 테스트 통과",docs/goal-specs/G2G-002_block_timing_포팅.md,docs/test-results/goals/G2G-002_block_timing_unit_test_results.md,G2G-001; G1E-005,block timing 테스트 통과,368
+G2G-003,Phase 2 - AS-IS 핵심 흐름 포팅,공격/배틀 처리,Battle DP deletion 포팅,"HeadlessDCGO.Engine Goal G2G-003만 수행하라.
+목표: Battle DP deletion 포팅
+상세 지시서: docs/goal-specs/G2G-003_battle_dp_deletion_포팅.md
+선행 Goal: G2G-002
+결과 문서: docs/test-results/goals/G2G-003_battle_dp_deletion_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: battle 테스트 통과",docs/goal-specs/G2G-003_battle_dp_deletion_포팅.md,docs/test-results/goals/G2G-003_battle_dp_deletion_unit_test_results.md,G2G-002,battle 테스트 통과,371
+G2G-004,Phase 2 - AS-IS 핵심 흐름 포팅,공격/배틀 처리,Security check 포팅,"HeadlessDCGO.Engine Goal G2G-004만 수행하라.
+목표: Security check 포팅
+상세 지시서: docs/goal-specs/G2G-004_security_check_포팅.md
+선행 Goal: G2G-003
+결과 문서: docs/test-results/goals/G2G-004_security_check_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 시큐리티 체크 테스트 통과",docs/goal-specs/G2G-004_security_check_포팅.md,docs/test-results/goals/G2G-004_security_check_unit_test_results.md,G2G-003,시큐리티 체크 테스트 통과,360
+G2G-005,Phase 2 - AS-IS 핵심 흐름 포팅,공격/배틀 처리,End attack trigger 포팅,"HeadlessDCGO.Engine Goal G2G-005만 수행하라.
+목표: End attack trigger 포팅
+상세 지시서: docs/goal-specs/G2G-005_end_attack_trigger_포팅.md
+선행 Goal: G2G-004; G2F-001
+결과 문서: docs/test-results/goals/G2G-005_end_attack_trigger_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: end attack 트리거 테스트 통과",docs/goal-specs/G2G-005_end_attack_trigger_포팅.md,docs/test-results/goals/G2G-005_end_attack_trigger_unit_test_results.md,G2G-004; G2F-001,end attack 트리거 테스트 통과,388
+G2Z-001,Phase 2 - AS-IS 핵심 흐름 포팅,단계 완료 게이트,Phase 2 aggregate result,"HeadlessDCGO.Engine Goal G2Z-001만 수행하라.
+목표: Phase 2 aggregate result
+상세 지시서: docs/goal-specs/G2Z-001_phase_2_aggregate_result.md
+선행 Goal: G2A-006; G2B-002; G2C-002; G2D-004; G2E-005; G2F-004; G2G-005
+결과 문서: docs/test-results/goals/G2Z-001_phase2_aggregate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Phase 3 착수 가능",docs/goal-specs/G2Z-001_phase_2_aggregate_result.md,docs/test-results/goals/G2Z-001_phase2_aggregate_unit_test_results.md,G2A-006; G2B-002; G2C-002; G2D-004; G2E-005; G2F-004; G2G-005,Phase 3 착수 가능,429
+G3A-001,Phase 3 - 공통 룰/효과 인프라 포팅,효과 계약,ICardEffect contract 포팅,"HeadlessDCGO.Engine Goal G3A-001만 수행하라.
+목표: ICardEffect contract 포팅
+상세 지시서: docs/goal-specs/G3A-001_icardeffect_contract_포팅.md
+선행 Goal: G2Z-001
+결과 문서: docs/test-results/goals/G3A-001_icard_effect_contract_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: effect 계약 테스트 통과",docs/goal-specs/G3A-001_icardeffect_contract_포팅.md,docs/test-results/goals/G3A-001_icard_effect_contract_unit_test_results.md,G2Z-001,effect 계약 테스트 통과,381
+G3A-002,Phase 3 - 공통 룰/효과 인프라 포팅,효과 계약,SkillInfo 포팅,"HeadlessDCGO.Engine Goal G3A-002만 수행하라.
+목표: SkillInfo 포팅
+상세 지시서: docs/goal-specs/G3A-002_skillinfo_포팅.md
+선행 Goal: G3A-001
+결과 문서: docs/test-results/goals/G3A-002_skill_info_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: SkillInfo 테스트 통과",docs/goal-specs/G3A-002_skillinfo_포팅.md,docs/test-results/goals/G3A-002_skill_info_unit_test_results.md,G3A-001,SkillInfo 테스트 통과,348
+G3B-001,Phase 3 - 공통 룰/효과 인프라 포팅,효과 컨텍스트,Hashtable 제거 adapter 포팅,"HeadlessDCGO.Engine Goal G3B-001만 수행하라.
+목표: Hashtable 제거 adapter 포팅
+상세 지시서: docs/goal-specs/G3B-001_hashtable_제거_adapter_포팅.md
+선행 Goal: G3A-002
+결과 문서: docs/test-results/goals/G3B-001_hashtable_replacement_adapter_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Hashtable 대체 효과 테스트 통과",docs/goal-specs/G3B-001_hashtable_제거_adapter_포팅.md,docs/test-results/goals/G3B-001_hashtable_replacement_adapter_unit_test_results.md,G3A-002,Hashtable 대체 효과 테스트 통과,395
+G3C-001,Phase 3 - 공통 룰/효과 인프라 포팅,조건 처리,Trigger condition helper 포팅,"HeadlessDCGO.Engine Goal G3C-001만 수행하라.
+목표: Trigger condition helper 포팅
+상세 지시서: docs/goal-specs/G3C-001_trigger_condition_helper_포팅.md
+선행 Goal: G3B-001
+결과 문서: docs/test-results/goals/G3C-001_trigger_condition_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 트리거 condition 테스트 통과",docs/goal-specs/G3C-001_trigger_condition_helper_포팅.md,docs/test-results/goals/G3C-001_trigger_condition_helpers_unit_test_results.md,G3B-001,트리거 condition 테스트 통과,397
+G3C-002,Phase 3 - 공통 룰/효과 인프라 포팅,조건 처리,CanUseEffects helper 포팅,"HeadlessDCGO.Engine Goal G3C-002만 수행하라.
+목표: CanUseEffects helper 포팅
+상세 지시서: docs/goal-specs/G3C-002_canuseeffects_helper_포팅.md
+선행 Goal: G3C-001
+결과 문서: docs/test-results/goals/G3C-002_can_use_effect_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: CanUseEffects 테스트 통과",docs/goal-specs/G3C-002_canuseeffects_helper_포팅.md,docs/test-results/goals/G3C-002_can_use_effect_helpers_unit_test_results.md,G3C-001,CanUseEffects 테스트 통과,386
+G3D-001,Phase 3 - 공통 룰/효과 인프라 포팅,요구사항 처리,MinMax DP Cost Level helper 포팅,"HeadlessDCGO.Engine Goal G3D-001만 수행하라.
+목표: MinMax DP Cost Level helper 포팅
+상세 지시서: docs/goal-specs/G3D-001_minmax_dp_cost_level_helper_포팅.md
+선행 Goal: G3C-002
+결과 문서: docs/test-results/goals/G3D-001_minmax_dp_cost_level_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: minmax 테스트 통과",docs/goal-specs/G3D-001_minmax_dp_cost_level_helper_포팅.md,docs/test-results/goals/G3D-001_minmax_dp_cost_level_unit_test_results.md,G3C-002,minmax 테스트 통과,391
+G3D-002,Phase 3 - 공통 룰/효과 인프라 포팅,요구사항 처리,Name color trait requirement 포팅,"HeadlessDCGO.Engine Goal G3D-002만 수행하라.
+목표: Name color trait requirement 포팅
+상세 지시서: docs/goal-specs/G3D-002_name_color_trait_requirement_포팅.md
+선행 Goal: G3D-001
+결과 문서: docs/test-results/goals/G3D-002_name_color_trait_requirements_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: requirement 테스트 통과",docs/goal-specs/G3D-002_name_color_trait_requirement_포팅.md,docs/test-results/goals/G3D-002_name_color_trait_requirements_unit_test_results.md,G3D-001,requirement 테스트 통과,407
+G3E-001,Phase 3 - 공통 룰/효과 인프라 포팅,비용 처리,Play cost helper 포팅,"HeadlessDCGO.Engine Goal G3E-001만 수행하라.
+목표: Play cost helper 포팅
+상세 지시서: docs/goal-specs/G3E-001_play_cost_helper_포팅.md
+선행 Goal: G3D-002
+결과 문서: docs/test-results/goals/G3E-001_play_cost_helper_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: play cost 테스트 통과",docs/goal-specs/G3E-001_play_cost_helper_포팅.md,docs/test-results/goals/G3E-001_play_cost_helper_unit_test_results.md,G3D-002,play cost 테스트 통과,368
+G3E-002,Phase 3 - 공통 룰/효과 인프라 포팅,비용 처리,Digivolution cost helper 포팅,"HeadlessDCGO.Engine Goal G3E-002만 수행하라.
+목표: Digivolution cost helper 포팅
+상세 지시서: docs/goal-specs/G3E-002_digivolution_cost_helper_포팅.md
+선행 Goal: G3E-001
+결과 문서: docs/test-results/goals/G3E-002_digivolution_cost_helper_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: digivolution cost 테스트 통과",docs/goal-specs/G3E-002_digivolution_cost_helper_포팅.md,docs/test-results/goals/G3E-002_digivolution_cost_helper_unit_test_results.md,G3E-001,digivolution cost 테스트 통과,400
+G3F-001,Phase 3 - 공통 룰/효과 인프라 포팅,대상/존 조회,Target filtering helper 포팅,"HeadlessDCGO.Engine Goal G3F-001만 수행하라.
+목표: Target filtering helper 포팅
+상세 지시서: docs/goal-specs/G3F-001_target_filtering_helper_포팅.md
+선행 Goal: G3D-002
+결과 문서: docs/test-results/goals/G3F-001_target_filtering_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: target filtering 테스트 통과",docs/goal-specs/G3F-001_target_filtering_helper_포팅.md,docs/test-results/goals/G3F-001_target_filtering_helpers_unit_test_results.md,G3D-002,target filtering 테스트 통과,397
+G3F-002,Phase 3 - 공통 룰/효과 인프라 포팅,대상/존 조회,Zone query helper 포팅,"HeadlessDCGO.Engine Goal G3F-002만 수행하라.
+목표: Zone query helper 포팅
+상세 지시서: docs/goal-specs/G3F-002_zone_query_helper_포팅.md
+선행 Goal: G3F-001
+결과 문서: docs/test-results/goals/G3F-002_zone_query_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: zone query 테스트 통과",docs/goal-specs/G3F-002_zone_query_helper_포팅.md,docs/test-results/goals/G3F-002_zone_query_helpers_unit_test_results.md,G3F-001,zone query 테스트 통과,373
+G3G-001,Phase 3 - 공통 룰/효과 인프라 포팅,키워드 효과,Keyword base batch 1 포팅,"HeadlessDCGO.Engine Goal G3G-001만 수행하라.
+목표: Keyword base batch 1 포팅
+상세 지시서: docs/goal-specs/G3G-001_keyword_base_batch_1_포팅.md
+선행 Goal: G3F-002
+결과 문서: docs/test-results/goals/G3G-001_keyword_base_batch1_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 키워드 base1 테스트 통과",docs/goal-specs/G3G-001_keyword_base_batch_1_포팅.md,docs/test-results/goals/G3G-001_keyword_base_batch1_unit_test_results.md,G3F-002,키워드 base1 테스트 통과,379
+G3G-002,Phase 3 - 공통 룰/효과 인프라 포팅,키워드 효과,Keyword base batch 2 포팅,"HeadlessDCGO.Engine Goal G3G-002만 수행하라.
+목표: Keyword base batch 2 포팅
+상세 지시서: docs/goal-specs/G3G-002_keyword_base_batch_2_포팅.md
+선행 Goal: G3G-001
+결과 문서: docs/test-results/goals/G3G-002_keyword_base_batch2_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 키워드 base2 테스트 통과",docs/goal-specs/G3G-002_keyword_base_batch_2_포팅.md,docs/test-results/goals/G3G-002_keyword_base_batch2_unit_test_results.md,G3G-001,키워드 base2 테스트 통과,379
+G3H-001,Phase 3 - 공통 룰/효과 인프라 포팅,수치/비용 변경,DP cost security attack modifier helper 포팅,"HeadlessDCGO.Engine Goal G3H-001만 수행하라.
+목표: DP cost security attack modifier helper 포팅
+상세 지시서: docs/goal-specs/G3H-001_dp_cost_security_attack_modifier_helper_포팅.md
+선행 Goal: G3E-002
+결과 문서: docs/test-results/goals/G3H-001_modifier_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 수치/비용 변경 헬퍼 테스트 통과",docs/goal-specs/G3H-001_dp_cost_security_attack_modifier_helper_포팅.md,docs/test-results/goals/G3H-001_modifier_helpers_unit_test_results.md,G3E-002,수치/비용 변경 헬퍼 테스트 통과,416
+G3H-002,Phase 3 - 공통 룰/효과 인프라 포팅,제한/불가 효과,Cannot restriction helper 포팅,"HeadlessDCGO.Engine Goal G3H-002만 수행하라.
+목표: Cannot restriction helper 포팅
+상세 지시서: docs/goal-specs/G3H-002_cannot_restriction_helper_포팅.md
+선행 Goal: G3H-001
+결과 문서: docs/test-results/goals/G3H-002_cannot_restriction_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 제한 테스트 통과",docs/goal-specs/G3H-002_cannot_restriction_helper_포팅.md,docs/test-results/goals/G3H-002_cannot_restriction_helpers_unit_test_results.md,G3H-001,제한 테스트 통과,389
+G3I-001,Phase 3 - 공통 룰/효과 인프라 포팅,대체 효과,Replacement prevention helper 포팅,"HeadlessDCGO.Engine Goal G3I-001만 수행하라.
+목표: Replacement prevention helper 포팅
+상세 지시서: docs/goal-specs/G3I-001_replacement_prevention_helper_포팅.md
+선행 Goal: G3H-002
+결과 문서: docs/test-results/goals/G3I-001_replacement_prevention_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 대체 효과 테스트 통과",docs/goal-specs/G3I-001_replacement_prevention_helper_포팅.md,docs/test-results/goals/G3I-001_replacement_prevention_helpers_unit_test_results.md,G3H-002,대체 효과 테스트 통과,404
+G3I-002,Phase 3 - 공통 룰/효과 인프라 포팅,상시 효과,Continuous effect evaluator 포팅,"HeadlessDCGO.Engine Goal G3I-002만 수행하라.
+목표: Continuous effect evaluator 포팅
+상세 지시서: docs/goal-specs/G3I-002_continuous_effect_evaluator_포팅.md
+선행 Goal: G3I-001
+결과 문서: docs/test-results/goals/G3I-002_continuous_effect_evaluator_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 상시 효과 테스트 통과",docs/goal-specs/G3I-002_continuous_effect_evaluator_포팅.md,docs/test-results/goals/G3I-002_continuous_effect_evaluator_unit_test_results.md,G3I-001,상시 효과 테스트 통과,397
+G3J-001,Phase 3 - 공통 룰/효과 인프라 포팅,효과 팩토리,CardEffectFactory binding 포팅,"HeadlessDCGO.Engine Goal G3J-001만 수행하라.
+목표: CardEffectFactory binding 포팅
+상세 지시서: docs/goal-specs/G3J-001_cardeffectfactory_binding_포팅.md
+선행 Goal: G3I-002
+결과 문서: docs/test-results/goals/G3J-001_card_effect_factory_binding_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: CardEffectFactory 테스트 통과",docs/goal-specs/G3J-001_cardeffectfactory_binding_포팅.md,docs/test-results/goals/G3J-001_card_effect_factory_binding_unit_test_results.md,G3I-002,CardEffectFactory 테스트 통과,405
+G3J-002,Phase 3 - 공통 룰/효과 인프라 포팅,효과 팩토리,PermanentEffectFactory binding 포팅,"HeadlessDCGO.Engine Goal G3J-002만 수행하라.
+목표: PermanentEffectFactory binding 포팅
+상세 지시서: docs/goal-specs/G3J-002_permanenteffectfactory_binding_포팅.md
+선행 Goal: G3J-001
+결과 문서: docs/test-results/goals/G3J-002_permanent_effect_factory_binding_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: PermanentEffectFactory 테스트 통과",docs/goal-specs/G3J-002_permanenteffectfactory_binding_포팅.md,docs/test-results/goals/G3J-002_permanent_effect_factory_binding_unit_test_results.md,G3J-001,PermanentEffectFactory 테스트 통과,425
+G3K-001,Phase 3 - 공통 룰/효과 인프라 포팅,효과 선택,Effect selection helper 포팅,"HeadlessDCGO.Engine Goal G3K-001만 수행하라.
+목표: Effect selection helper 포팅
+상세 지시서: docs/goal-specs/G3K-001_effect_selection_helper_포팅.md
+선행 Goal: G3J-002; G1E-005
+결과 문서: docs/test-results/goals/G3K-001_effect_selection_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: effect selection 테스트 통과",docs/goal-specs/G3K-001_effect_selection_helper_포팅.md,docs/test-results/goals/G3K-001_effect_selection_helpers_unit_test_results.md,G3J-002; G1E-005,effect selection 테스트 통과,406
+G3K-002,Phase 3 - 공통 룰/효과 인프라 포팅,타이밍/우선순위,Timing priority helper 포팅,"HeadlessDCGO.Engine Goal G3K-002만 수행하라.
+목표: Timing priority helper 포팅
+상세 지시서: docs/goal-specs/G3K-002_timing_priority_helper_포팅.md
+선행 Goal: G3K-001
+결과 문서: docs/test-results/goals/G3K-002_timing_priority_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: timing priority 테스트 통과",docs/goal-specs/G3K-002_timing_priority_helper_포팅.md,docs/test-results/goals/G3K-002_timing_priority_helpers_unit_test_results.md,G3K-001,timing priority 테스트 통과,393
+G3L-001,Phase 3 - 공통 룰/효과 인프라 포팅,턴 제한 플래그,Once per turn flag helper 포팅,"HeadlessDCGO.Engine Goal G3L-001만 수행하라.
+목표: Once per turn flag helper 포팅
+상세 지시서: docs/goal-specs/G3L-001_once_per_turn_flag_helper_포팅.md
+선행 Goal: G3K-002
+결과 문서: docs/test-results/goals/G3L-001_once_per_turn_flags_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: once flag 테스트 통과",docs/goal-specs/G3L-001_once_per_turn_flag_helper_포팅.md,docs/test-results/goals/G3L-001_once_per_turn_flags_unit_test_results.md,G3K-002,once flag 테스트 통과,389
+G3L-002,Phase 3 - 공통 룰/효과 인프라 포팅,진화원/부여/시큐리티 효과,Inherited granted security helper 포팅,"HeadlessDCGO.Engine Goal G3L-002만 수행하라.
+목표: Inherited granted security helper 포팅
+상세 지시서: docs/goal-specs/G3L-002_inherited_granted_security_helper_포팅.md
+선행 Goal: G3L-001
+결과 문서: docs/test-results/goals/G3L-002_inherited_granted_security_helpers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: inherited 헬퍼 테스트 통과",docs/goal-specs/G3L-002_inherited_granted_security_helper_포팅.md,docs/test-results/goals/G3L-002_inherited_granted_security_helpers_unit_test_results.md,G3L-001,inherited 헬퍼 테스트 통과,423
+G3Z-001,Phase 3 - 공통 룰/효과 인프라 포팅,단계 완료 게이트,Phase 3 aggregate result,"HeadlessDCGO.Engine Goal G3Z-001만 수행하라.
+목표: Phase 3 aggregate result
+상세 지시서: docs/goal-specs/G3Z-001_phase_3_aggregate_result.md
+선행 Goal: G3L-002
+결과 문서: docs/test-results/goals/G3Z-001_phase3_aggregate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Phase 4 착수 가능",docs/goal-specs/G3Z-001_phase_3_aggregate_result.md,docs/test-results/goals/G3Z-001_phase3_aggregate_unit_test_results.md,G3L-002,Phase 4 착수 가능,375
+G4A-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드풀,Card pool schema validation,"HeadlessDCGO.Engine Goal G4A-001만 수행하라.
+목표: Card pool schema validation
+상세 지시서: docs/goal-specs/G4A-001_card_pool_schema_validation.md
+선행 Goal: G3Z-001
+결과 문서: docs/test-results/goals/G4A-001_card_pool_schema_validation_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: card pool 스키마 테스트 통과",docs/goal-specs/G4A-001_card_pool_schema_validation.md,docs/test-results/goals/G4A-001_card_pool_schema_validation_unit_test_results.md,G3Z-001,card pool 스키마 테스트 통과,399
+G4A-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드풀,Effect binding coverage,"HeadlessDCGO.Engine Goal G4A-002만 수행하라.
+목표: Effect binding coverage
+상세 지시서: docs/goal-specs/G4A-002_effect_binding_coverage.md
+선행 Goal: G4A-001
+결과 문서: docs/test-results/goals/G4A-002_effect_binding_coverage_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: effect binding 커버리지 테스트 통과",docs/goal-specs/G4A-002_effect_binding_coverage.md,docs/test-results/goals/G4A-002_effect_binding_coverage_unit_test_results.md,G4A-001,effect binding 커버리지 테스트 통과,393
+G4A-003,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드풀,Missing behavior report,"HeadlessDCGO.Engine Goal G4A-003만 수행하라.
+목표: Missing behavior report
+상세 지시서: docs/goal-specs/G4A-003_missing_behavior_report.md
+선행 Goal: G4A-002
+결과 문서: docs/test-results/goals/G4A-003_missing_behavior_report_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: missing behavior report 테스트 통과",docs/goal-specs/G4A-003_missing_behavior_report.md,docs/test-results/goals/G4A-003_missing_behavior_report_unit_test_results.md,G4A-002,missing behavior report 테스트 통과,397
+G4B-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,키워드 효과,Blocker Jamming Reboot Piercing 포팅,"HeadlessDCGO.Engine Goal G4B-001만 수행하라.
+목표: Blocker Jamming Reboot Piercing 포팅
+상세 지시서: docs/goal-specs/G4B-001_blocker_jamming_reboot_piercing_포팅.md
+선행 Goal: G4A-002
+결과 문서: docs/test-results/goals/G4B-001_keyword_combat_batch1_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: combat 키워드1 테스트 통과",docs/goal-specs/G4B-001_blocker_jamming_reboot_piercing_포팅.md,docs/test-results/goals/G4B-001_keyword_combat_batch1_unit_test_results.md,G4A-002,combat 키워드1 테스트 통과,405
+G4B-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,키워드 효과,Rush Blitz Retaliation ArmorPurge 포팅,"HeadlessDCGO.Engine Goal G4B-002만 수행하라.
+목표: Rush Blitz Retaliation ArmorPurge 포팅
+상세 지시서: docs/goal-specs/G4B-002_rush_blitz_retaliation_armorpurge_포팅.md
+선행 Goal: G4B-001
+결과 문서: docs/test-results/goals/G4B-002_keyword_combat_batch2_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: combat 키워드2 테스트 통과",docs/goal-specs/G4B-002_rush_blitz_retaliation_armorpurge_포팅.md,docs/test-results/goals/G4B-002_keyword_combat_batch2_unit_test_results.md,G4B-001,combat 키워드2 테스트 통과,409
+G4B-003,Phase 4 - 개별 카드 효과와 카드풀 포팅,키워드 효과,Barrier Decoy Save MaterialSave 포팅,"HeadlessDCGO.Engine Goal G4B-003만 수행하라.
+목표: Barrier Decoy Save MaterialSave 포팅
+상세 지시서: docs/goal-specs/G4B-003_barrier_decoy_save_materialsave_포팅.md
+선행 Goal: G4B-002
+결과 문서: docs/test-results/goals/G4B-003_keyword_protection_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: protection 키워드 테스트 통과",docs/goal-specs/G4B-003_barrier_decoy_save_materialsave_포팅.md,docs/test-results/goals/G4B-003_keyword_protection_batch_unit_test_results.md,G4B-002,protection 키워드 테스트 통과,411
+G4B-004,Phase 4 - 개별 카드 효과와 카드풀 포팅,키워드 효과,Alliance Raid Collision Partition 포팅,"HeadlessDCGO.Engine Goal G4B-004만 수행하라.
+목표: Alliance Raid Collision Partition 포팅
+상세 지시서: docs/goal-specs/G4B-004_alliance_raid_collision_partition_포팅.md
+선행 Goal: G4B-003
+결과 문서: docs/test-results/goals/G4B-004_keyword_attack_variant_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: attack variant 키워드 테스트 통과",docs/goal-specs/G4B-004_alliance_raid_collision_partition_포팅.md,docs/test-results/goals/G4B-004_keyword_attack_variant_batch_unit_test_results.md,G4B-003,attack variant 키워드 테스트 통과,423
+G4B-005,Phase 4 - 개별 카드 효과와 카드풀 포팅,키워드 효과,Overclock Decode Link 계열 포팅,"HeadlessDCGO.Engine Goal G4B-005만 수행하라.
+목표: Overclock Decode Link 계열 포팅
+상세 지시서: docs/goal-specs/G4B-005_overclock_decode_link_계열_포팅.md
+선행 Goal: G4B-004
+결과 문서: docs/test-results/goals/G4B-005_keyword_special_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: special 키워드 테스트 통과",docs/goal-specs/G4B-005_overclock_decode_link_계열_포팅.md,docs/test-results/goals/G4B-005_keyword_special_batch_unit_test_results.md,G4B-004,special 키워드 테스트 통과,391
+G4C-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,트리거 효과,OnPlay OnDigivolve trigger 포팅,"HeadlessDCGO.Engine Goal G4C-001만 수행하라.
+목표: OnPlay OnDigivolve trigger 포팅
+상세 지시서: docs/goal-specs/G4C-001_onplay_ondigivolve_trigger_포팅.md
+선행 Goal: G4A-002
+결과 문서: docs/test-results/goals/G4C-001_onplay_ondigivolve_triggers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: on play digivolve 테스트 통과",docs/goal-specs/G4C-001_onplay_ondigivolve_trigger_포팅.md,docs/test-results/goals/G4C-001_onplay_ondigivolve_triggers_unit_test_results.md,G4A-002,on play digivolve 테스트 통과,407
+G4C-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,트리거 효과,WhenAttacking EndAttack trigger 포팅,"HeadlessDCGO.Engine Goal G4C-002만 수행하라.
+목표: WhenAttacking EndAttack trigger 포팅
+상세 지시서: docs/goal-specs/G4C-002_whenattacking_endattack_trigger_포팅.md
+선행 Goal: G4C-001
+결과 문서: docs/test-results/goals/G4C-002_attack_triggers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: attack 트리거 테스트 통과",docs/goal-specs/G4C-002_whenattacking_endattack_trigger_포팅.md,docs/test-results/goals/G4C-002_attack_triggers_unit_test_results.md,G4C-001,attack 트리거 테스트 통과,398
+G4C-003,Phase 4 - 개별 카드 효과와 카드풀 포팅,트리거 효과,Deletion Trash Move trigger 포팅,"HeadlessDCGO.Engine Goal G4C-003만 수행하라.
+목표: Deletion Trash Move trigger 포팅
+상세 지시서: docs/goal-specs/G4C-003_deletion_trash_move_trigger_포팅.md
+선행 Goal: G4C-002
+결과 문서: docs/test-results/goals/G4C-003_delete_trash_move_triggers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: delete trash move 테스트 통과",docs/goal-specs/G4C-003_deletion_trash_move_trigger_포팅.md,docs/test-results/goals/G4C-003_delete_trash_move_triggers_unit_test_results.md,G4C-002,delete trash move 테스트 통과,408
+G4C-004,Phase 4 - 개별 카드 효과와 카드풀 포팅,트리거 효과,Security trigger 포팅,"HeadlessDCGO.Engine Goal G4C-004만 수행하라.
+목표: Security trigger 포팅
+상세 지시서: docs/goal-specs/G4C-004_security_trigger_포팅.md
+선행 Goal: G4C-003
+결과 문서: docs/test-results/goals/G4C-004_security_triggers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: security 트리거 테스트 통과",docs/goal-specs/G4C-004_security_trigger_포팅.md,docs/test-results/goals/G4C-004_security_triggers_unit_test_results.md,G4C-003,security 트리거 테스트 통과,372
+G4C-005,Phase 4 - 개별 카드 효과와 카드풀 포팅,트리거 효과,OptionUse Suspend Link trigger 포팅,"HeadlessDCGO.Engine Goal G4C-005만 수행하라.
+목표: OptionUse Suspend Link trigger 포팅
+상세 지시서: docs/goal-specs/G4C-005_optionuse_suspend_link_trigger_포팅.md
+선행 Goal: G4C-004
+결과 문서: docs/test-results/goals/G4C-005_option_suspend_link_triggers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: option suspend link 테스트 통과",docs/goal-specs/G4C-005_optionuse_suspend_link_trigger_포팅.md,docs/test-results/goals/G4C-005_option_suspend_link_triggers_unit_test_results.md,G4C-004,option suspend link 테스트 통과,418
+G4D-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,수치/비용 변경,DP Cost SAttack modifiers 포팅,"HeadlessDCGO.Engine Goal G4D-001만 수행하라.
+목표: DP Cost SAttack modifiers 포팅
+상세 지시서: docs/goal-specs/G4D-001_dp_cost_sattack_modifiers_포팅.md
+선행 Goal: G4C-005
+결과 문서: docs/test-results/goals/G4D-001_dp_cost_sattack_modifiers_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: generic 수치/비용 변경 테스트 통과",docs/goal-specs/G4D-001_dp_cost_sattack_modifiers_포팅.md,docs/test-results/goals/G4D-001_dp_cost_sattack_modifiers_unit_test_results.md,G4C-005,generic 수치/비용 변경 테스트 통과,402
+G4D-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,제한/불가 효과,Cannot and immunity effects 포팅,"HeadlessDCGO.Engine Goal G4D-002만 수행하라.
+목표: Cannot and immunity effects 포팅
+상세 지시서: docs/goal-specs/G4D-002_cannot_and_immunity_effects_포팅.md
+선행 Goal: G4D-001
+결과 문서: docs/test-results/goals/G4D-002_cannot_immunity_effects_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: cannot immunity 테스트 통과",docs/goal-specs/G4D-002_cannot_and_immunity_effects_포팅.md,docs/test-results/goals/G4D-002_cannot_immunity_effects_unit_test_results.md,G4D-001,cannot immunity 테스트 통과,403
+G4D-003,Phase 4 - 개별 카드 효과와 카드풀 포팅,디지볼브 관련,Digivolution requirement effects 포팅,"HeadlessDCGO.Engine Goal G4D-003만 수행하라.
+목표: Digivolution requirement effects 포팅
+상세 지시서: docs/goal-specs/G4D-003_digivolution_requirement_effects_포팅.md
+선행 Goal: G4D-002
+결과 문서: docs/test-results/goals/G4D-003_digivolution_requirement_effects_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: digivolution requirement 테스트 통과",docs/goal-specs/G4D-003_digivolution_requirement_effects_포팅.md,docs/test-results/goals/G4D-003_digivolution_requirement_effects_unit_test_results.md,G4D-002,digivolution requirement 테스트 통과,431
+G4D-004,Phase 4 - 개별 카드 효과와 카드풀 포팅,진화원 조작,Source add trash reveal effects 포팅,"HeadlessDCGO.Engine Goal G4D-004만 수행하라.
+목표: Source add trash reveal effects 포팅
+상세 지시서: docs/goal-specs/G4D-004_source_add_trash_reveal_effects_포팅.md
+선행 Goal: G4D-003
+결과 문서: docs/test-results/goals/G4D-004_source_manipulation_effects_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: source manipulation 테스트 통과",docs/goal-specs/G4D-004_source_add_trash_reveal_effects_포팅.md,docs/test-results/goals/G4D-004_source_manipulation_effects_unit_test_results.md,G4D-003,source manipulation 테스트 통과,419
+G4E-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드별 효과,AD1 card-specific batch 포팅,"HeadlessDCGO.Engine Goal G4E-001만 수행하라.
+목표: AD1 card-specific batch 포팅
+상세 지시서: docs/goal-specs/G4E-001_ad1_card_specific_batch_포팅.md
+선행 Goal: G4D-004
+결과 문서: docs/test-results/goals/G4E-001_ad1_card_effect_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: AD1 batch 테스트 통과",docs/goal-specs/G4E-001_ad1_card_specific_batch_포팅.md,docs/test-results/goals/G4E-001_ad1_card_effect_batch_unit_test_results.md,G4D-004,AD1 batch 테스트 통과,387
+G4E-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드별 효과,BT card-specific batch 포팅,"HeadlessDCGO.Engine Goal G4E-002만 수행하라.
+목표: BT card-specific batch 포팅
+상세 지시서: docs/goal-specs/G4E-002_bt_card_specific_batch_포팅.md
+선행 Goal: G4E-001
+결과 문서: docs/test-results/goals/G4E-002_bt_card_effect_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: BT batch 테스트 통과",docs/goal-specs/G4E-002_bt_card_specific_batch_포팅.md,docs/test-results/goals/G4E-002_bt_card_effect_batch_unit_test_results.md,G4E-001,BT batch 테스트 통과,383
+G4E-003,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드별 효과,EX card-specific batch 포팅,"HeadlessDCGO.Engine Goal G4E-003만 수행하라.
+목표: EX card-specific batch 포팅
+상세 지시서: docs/goal-specs/G4E-003_ex_card_specific_batch_포팅.md
+선행 Goal: G4E-002
+결과 문서: docs/test-results/goals/G4E-003_ex_card_effect_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: EX batch 테스트 통과",docs/goal-specs/G4E-003_ex_card_specific_batch_포팅.md,docs/test-results/goals/G4E-003_ex_card_effect_batch_unit_test_results.md,G4E-002,EX batch 테스트 통과,383
+G4E-004,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드별 효과,LM P ST card-specific batch 포팅,"HeadlessDCGO.Engine Goal G4E-004만 수행하라.
+목표: LM P ST card-specific batch 포팅
+상세 지시서: docs/goal-specs/G4E-004_lm_p_st_card_specific_batch_포팅.md
+선행 Goal: G4E-003
+결과 문서: docs/test-results/goals/G4E-004_lm_p_st_card_effect_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: LM P ST batch 테스트 통과",docs/goal-specs/G4E-004_lm_p_st_card_specific_batch_포팅.md,docs/test-results/goals/G4E-004_lm_p_st_card_effect_batch_unit_test_results.md,G4E-003,LM P ST batch 테스트 통과,403
+G4E-005,Phase 4 - 개별 카드 효과와 카드풀 포팅,카드별 효과,Token and special cards batch 포팅,"HeadlessDCGO.Engine Goal G4E-005만 수행하라.
+목표: Token and special cards batch 포팅
+상세 지시서: docs/goal-specs/G4E-005_token_and_special_cards_batch_포팅.md
+선행 Goal: G4E-004
+결과 문서: docs/test-results/goals/G4E-005_token_special_card_effect_batch_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: token special 테스트 통과",docs/goal-specs/G4E-005_token_and_special_cards_batch_포팅.md,docs/test-results/goals/G4E-005_token_special_card_effect_batch_unit_test_results.md,G4E-004,token special 테스트 통과,413
+G4F-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,선택 처리 대체,Card effect choice integration,"HeadlessDCGO.Engine Goal G4F-001만 수행하라.
+목표: Card effect choice integration
+상세 지시서: docs/goal-specs/G4F-001_card_effect_choice_integration.md
+선행 Goal: G4E-005; G1E-005
+결과 문서: docs/test-results/goals/G4F-001_card_effect_choice_integration_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: card effect choice 테스트 통과",docs/goal-specs/G4F-001_card_effect_choice_integration.md,docs/test-results/goals/G4F-001_card_effect_choice_integration_unit_test_results.md,G4E-005; G1E-005,card effect choice 테스트 통과,422
+G4F-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,효과 순서,Card effect ordering integration,"HeadlessDCGO.Engine Goal G4F-002만 수행하라.
+목표: Card effect ordering integration
+상세 지시서: docs/goal-specs/G4F-002_card_effect_ordering_integration.md
+선행 Goal: G4F-001
+결과 문서: docs/test-results/goals/G4F-002_card_effect_ordering_integration_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: effect ordering 테스트 통과",docs/goal-specs/G4F-002_card_effect_ordering_integration.md,docs/test-results/goals/G4F-002_card_effect_ordering_integration_unit_test_results.md,G4F-001,effect ordering 테스트 통과,416
+G4G-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,데이터-동작 연결,Card text to behavior audit,"HeadlessDCGO.Engine Goal G4G-001만 수행하라.
+목표: Card text to behavior audit
+상세 지시서: docs/goal-specs/G4G-001_card_text_to_behavior_audit.md
+선행 Goal: G4F-002
+결과 문서: docs/test-results/goals/G4G-001_card_text_behavior_audit_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: behavior audit 테스트 통과",docs/goal-specs/G4G-001_card_text_to_behavior_audit.md,docs/test-results/goals/G4G-001_card_text_behavior_audit_unit_test_results.md,G4F-002,behavior audit 테스트 통과,397
+G4G-002,Phase 4 - 개별 카드 효과와 카드풀 포팅,커버리지,Card pool coverage threshold,"HeadlessDCGO.Engine Goal G4G-002만 수행하라.
+목표: Card pool coverage threshold
+상세 지시서: docs/goal-specs/G4G-002_card_pool_coverage_threshold.md
+선행 Goal: G4G-001
+결과 문서: docs/test-results/goals/G4G-002_card_pool_coverage_threshold_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 커버리지 threshold 테스트 통과",docs/goal-specs/G4G-002_card_pool_coverage_threshold.md,docs/test-results/goals/G4G-002_card_pool_coverage_threshold_unit_test_results.md,G4G-001,커버리지 threshold 테스트 통과,403
+G4Z-001,Phase 4 - 개별 카드 효과와 카드풀 포팅,단계 완료 게이트,Phase 4 aggregate result,"HeadlessDCGO.Engine Goal G4Z-001만 수행하라.
+목표: Phase 4 aggregate result
+상세 지시서: docs/goal-specs/G4Z-001_phase_4_aggregate_result.md
+선행 Goal: G4G-002
+결과 문서: docs/test-results/goals/G4Z-001_phase4_aggregate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Phase 5 착수 가능",docs/goal-specs/G4Z-001_phase_4_aggregate_result.md,docs/test-results/goals/G4Z-001_phase4_aggregate_unit_test_results.md,G4G-002,Phase 5 착수 가능,375
+G5A-001,Phase 5 - AI/RL 어댑터,관측값,Observation schema 확정,"HeadlessDCGO.Engine Goal G5A-001만 수행하라.
+목표: Observation schema 확정
+상세 지시서: docs/goal-specs/G5A-001_observation_schema_확정.md
+선행 Goal: G4Z-001
+결과 문서: docs/test-results/goals/G5A-001_observation_schema_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: observation 스키마 테스트 통과",docs/goal-specs/G5A-001_observation_schema_확정.md,docs/test-results/goals/G5A-001_observation_schema_unit_test_results.md,G4Z-001,observation 스키마 테스트 통과,380
+G5A-002,Phase 5 - AI/RL 어댑터,관측값,Hidden information masking,"HeadlessDCGO.Engine Goal G5A-002만 수행하라.
+목표: Hidden information masking
+상세 지시서: docs/goal-specs/G5A-002_hidden_information_masking.md
+선행 Goal: G5A-001
+결과 문서: docs/test-results/goals/G5A-002_hidden_information_masking_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: hidden masking 테스트 통과",docs/goal-specs/G5A-002_hidden_information_masking.md,docs/test-results/goals/G5A-002_hidden_information_masking_unit_test_results.md,G5A-001,hidden masking 테스트 통과,397
+G5A-003,Phase 5 - AI/RL 어댑터,관측값,Vector schema normalization,"HeadlessDCGO.Engine Goal G5A-003만 수행하라.
+목표: Vector schema normalization
+상세 지시서: docs/goal-specs/G5A-003_vector_schema_normalization.md
+선행 Goal: G5A-002
+결과 문서: docs/test-results/goals/G5A-003_vector_schema_normalization_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: vector 스키마 테스트 통과",docs/goal-specs/G5A-003_vector_schema_normalization.md,docs/test-results/goals/G5A-003_vector_schema_normalization_unit_test_results.md,G5A-002,vector 스키마 테스트 통과,396
+G5B-001,Phase 5 - AI/RL 어댑터,액션 인코딩,Legal action mask,"HeadlessDCGO.Engine Goal G5B-001만 수행하라.
+목표: Legal action mask
+상세 지시서: docs/goal-specs/G5B-001_legal_action_mask.md
+선행 Goal: G5A-003
+결과 문서: docs/test-results/goals/G5B-001_legal_action_mask_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: action mask 테스트 통과",docs/goal-specs/G5B-001_legal_action_mask.md,docs/test-results/goals/G5B-001_legal_action_mask_unit_test_results.md,G5A-003,action mask 테스트 통과,367
+G5B-002,Phase 5 - AI/RL 어댑터,액션 인코딩,Action encode decode,"HeadlessDCGO.Engine Goal G5B-002만 수행하라.
+목표: Action encode decode
+상세 지시서: docs/goal-specs/G5B-002_action_encode_decode.md
+선행 Goal: G5B-001
+결과 문서: docs/test-results/goals/G5B-002_action_encode_decode_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: action encode decode 테스트 통과",docs/goal-specs/G5B-002_action_encode_decode.md,docs/test-results/goals/G5B-002_action_encode_decode_unit_test_results.md,G5B-001,action encode decode 테스트 통과,385
+G5B-003,Phase 5 - AI/RL 어댑터,액션 인코딩,Invalid action handling,"HeadlessDCGO.Engine Goal G5B-003만 수행하라.
+목표: Invalid action handling
+상세 지시서: docs/goal-specs/G5B-003_invalid_action_handling.md
+선행 Goal: G5B-002
+결과 문서: docs/test-results/goals/G5B-003_invalid_action_handling_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: invalid action 테스트 통과",docs/goal-specs/G5B-003_invalid_action_handling.md,docs/test-results/goals/G5B-003_invalid_action_handling_unit_test_results.md,G5B-002,invalid action 테스트 통과,388
+G5C-001,Phase 5 - AI/RL 어댑터,보상,Terminal reward,"HeadlessDCGO.Engine Goal G5C-001만 수행하라.
+목표: Terminal reward
+상세 지시서: docs/goal-specs/G5C-001_terminal_reward.md
+선행 Goal: G5B-003
+결과 문서: docs/test-results/goals/G5C-001_terminal_reward_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: terminal reward 테스트 통과",docs/goal-specs/G5C-001_terminal_reward.md,docs/test-results/goals/G5C-001_terminal_reward_unit_test_results.md,G5B-003,terminal reward 테스트 통과,365
+G5C-002,Phase 5 - AI/RL 어댑터,보상,Shaping reward config,"HeadlessDCGO.Engine Goal G5C-002만 수행하라.
+목표: Shaping reward config
+상세 지시서: docs/goal-specs/G5C-002_shaping_reward_config.md
+선행 Goal: G5C-001
+결과 문서: docs/test-results/goals/G5C-002_shaping_reward_config_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: shaping reward 테스트 통과",docs/goal-specs/G5C-002_shaping_reward_config.md,docs/test-results/goals/G5C-002_shaping_reward_config_unit_test_results.md,G5C-001,shaping reward 테스트 통과,382
+G5D-001,Phase 5 - AI/RL 어댑터,RL 환경,RL environment reset,"HeadlessDCGO.Engine Goal G5D-001만 수행하라.
+목표: RL environment reset
+상세 지시서: docs/goal-specs/G5D-001_rl_environment_reset.md
+선행 Goal: G5C-002
+결과 문서: docs/test-results/goals/G5D-001_rl_environment_reset_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: RL reset 테스트 통과",docs/goal-specs/G5D-001_rl_environment_reset.md,docs/test-results/goals/G5D-001_rl_environment_reset_unit_test_results.md,G5C-002,RL reset 테스트 통과,373
+G5D-002,Phase 5 - AI/RL 어댑터,RL 환경,RL environment step,"HeadlessDCGO.Engine Goal G5D-002만 수행하라.
+목표: RL environment step
+상세 지시서: docs/goal-specs/G5D-002_rl_environment_step.md
+선행 Goal: G5D-001
+결과 문서: docs/test-results/goals/G5D-002_rl_environment_step_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: RL step 테스트 통과",docs/goal-specs/G5D-002_rl_environment_step.md,docs/test-results/goals/G5D-002_rl_environment_step_unit_test_results.md,G5D-001,RL step 테스트 통과,369
+G5E-001,Phase 5 - AI/RL 어댑터,정책 실행,Scripted policy runner,"HeadlessDCGO.Engine Goal G5E-001만 수행하라.
+목표: Scripted policy runner
+상세 지시서: docs/goal-specs/G5E-001_scripted_policy_runner.md
+선행 Goal: G5D-002
+결과 문서: docs/test-results/goals/G5E-001_scripted_policy_runner_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: scripted policy 테스트 통과",docs/goal-specs/G5E-001_scripted_policy_runner.md,docs/test-results/goals/G5E-001_scripted_policy_runner_unit_test_results.md,G5D-002,scripted policy 테스트 통과,386
+G5E-002,Phase 5 - AI/RL 어댑터,정책 실행,Self-play policy runner,"HeadlessDCGO.Engine Goal G5E-002만 수행하라.
+목표: Self-play policy runner
+상세 지시서: docs/goal-specs/G5E-002_self_play_policy_runner.md
+선행 Goal: G5E-001
+결과 문서: docs/test-results/goals/G5E-002_self_play_policy_runner_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: self-play 테스트 통과",docs/goal-specs/G5E-002_self_play_policy_runner.md,docs/test-results/goals/G5E-002_self_play_policy_runner_unit_test_results.md,G5E-001,self-play 테스트 통과,383
+G5F-001,Phase 5 - AI/RL 어댑터,배치 실행,Batch episode runner,"HeadlessDCGO.Engine Goal G5F-001만 수행하라.
+목표: Batch episode runner
+상세 지시서: docs/goal-specs/G5F-001_batch_episode_runner.md
+선행 Goal: G5E-002
+결과 문서: docs/test-results/goals/G5F-001_batch_episode_runner_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: batch runner 테스트 통과",docs/goal-specs/G5F-001_batch_episode_runner.md,docs/test-results/goals/G5F-001_batch_episode_runner_unit_test_results.md,G5E-002,batch runner 테스트 통과,377
+G5F-002,Phase 5 - AI/RL 어댑터,배치 실행,Parallel determinism verifier,"HeadlessDCGO.Engine Goal G5F-002만 수행하라.
+목표: Parallel determinism verifier
+상세 지시서: docs/goal-specs/G5F-002_parallel_determinism_verifier.md
+선행 Goal: G5F-001
+결과 문서: docs/test-results/goals/G5F-002_parallel_determinism_verifier_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: parallel determinism 테스트 통과",docs/goal-specs/G5F-002_parallel_determinism_verifier.md,docs/test-results/goals/G5F-002_parallel_determinism_verifier_unit_test_results.md,G5F-001,parallel determinism 테스트 통과,412
+G5G-001,Phase 5 - AI/RL 어댑터,학습 데이터셋,Transition dataset model,"HeadlessDCGO.Engine Goal G5G-001만 수행하라.
+목표: Transition dataset model
+상세 지시서: docs/goal-specs/G5G-001_transition_dataset_model.md
+선행 Goal: G5F-002
+결과 문서: docs/test-results/goals/G5G-001_transition_dataset_model_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: dataset 모델 테스트 통과",docs/goal-specs/G5G-001_transition_dataset_model.md,docs/test-results/goals/G5G-001_transition_dataset_model_unit_test_results.md,G5F-002,dataset 모델 테스트 통과,387
+G5G-002,Phase 5 - AI/RL 어댑터,학습 데이터셋,JSONL export validation,"HeadlessDCGO.Engine Goal G5G-002만 수행하라.
+목표: JSONL export validation
+상세 지시서: docs/goal-specs/G5G-002_jsonl_export_validation.md
+선행 Goal: G5G-001
+결과 문서: docs/test-results/goals/G5G-002_jsonl_export_validation_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: JSONL export 테스트 통과",docs/goal-specs/G5G-002_jsonl_export_validation.md,docs/test-results/goals/G5G-002_jsonl_export_validation_unit_test_results.md,G5G-001,JSONL export 테스트 통과,386
+G5Z-001,Phase 5 - AI/RL 어댑터,단계 완료 게이트,Phase 5 aggregate result,"HeadlessDCGO.Engine Goal G5Z-001만 수행하라.
+목표: Phase 5 aggregate result
+상세 지시서: docs/goal-specs/G5Z-001_phase_5_aggregate_result.md
+선행 Goal: G5G-002
+결과 문서: docs/test-results/goals/G5Z-001_phase5_aggregate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: Phase 6 착수 가능",docs/goal-specs/G5Z-001_phase_5_aggregate_result.md,docs/test-results/goals/G5Z-001_phase5_aggregate_unit_test_results.md,G5G-002,Phase 6 착수 가능,375
+G6A-001,Phase 6 - Parity/Regression 검증,시나리오,Scenario data model,"HeadlessDCGO.Engine Goal G6A-001만 수행하라.
+목표: Scenario data model
+상세 지시서: docs/goal-specs/G6A-001_scenario_data_model.md
+선행 Goal: G5Z-001
+결과 문서: docs/test-results/goals/G6A-001_scenario_data_model_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: scenario 모델 테스트 통과",docs/goal-specs/G6A-001_scenario_data_model.md,docs/test-results/goals/G6A-001_scenario_data_model_unit_test_results.md,G5Z-001,scenario 모델 테스트 통과,373
+G6A-002,Phase 6 - Parity/Regression 검증,시나리오,Scenario runner,"HeadlessDCGO.Engine Goal G6A-002만 수행하라.
+목표: Scenario runner
+상세 지시서: docs/goal-specs/G6A-002_scenario_runner.md
+선행 Goal: G6A-001
+결과 문서: docs/test-results/goals/G6A-002_scenario_runner_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: scenario runner 테스트 통과",docs/goal-specs/G6A-002_scenario_runner.md,docs/test-results/goals/G6A-002_scenario_runner_unit_test_results.md,G6A-001,scenario runner 테스트 통과,365
+G6B-001,Phase 6 - Parity/Regression 검증,리플레이,Replay export import,"HeadlessDCGO.Engine Goal G6B-001만 수행하라.
+목표: Replay export import
+상세 지시서: docs/goal-specs/G6B-001_replay_export_import.md
+선행 Goal: G6A-002
+결과 문서: docs/test-results/goals/G6B-001_replay_export_import_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: replay export import 테스트 통과",docs/goal-specs/G6B-001_replay_export_import.md,docs/test-results/goals/G6B-001_replay_export_import_unit_test_results.md,G6A-002,replay export import 테스트 통과,385
+G6B-002,Phase 6 - Parity/Regression 검증,리플레이,Golden trace comparison,"HeadlessDCGO.Engine Goal G6B-002만 수행하라.
+목표: Golden trace comparison
+상세 지시서: docs/goal-specs/G6B-002_golden_trace_comparison.md
+선행 Goal: G6B-001
+결과 문서: docs/test-results/goals/G6B-002_golden_trace_comparison_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: golden trace 테스트 통과",docs/goal-specs/G6B-002_golden_trace_comparison.md,docs/test-results/goals/G6B-002_golden_trace_comparison_unit_test_results.md,G6B-001,golden trace 테스트 통과,386
+G6B-003,Phase 6 - Parity/Regression 검증,리플레이,Deterministic fingerprint gate,"HeadlessDCGO.Engine Goal G6B-003만 수행하라.
+목표: Deterministic fingerprint gate
+상세 지시서: docs/goal-specs/G6B-003_deterministic_fingerprint_gate.md
+선행 Goal: G6B-002
+결과 문서: docs/test-results/goals/G6B-003_deterministic_fingerprint_gate_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: fingerprint gate 테스트 통과",docs/goal-specs/G6B-003_deterministic_fingerprint_gate.md,docs/test-results/goals/G6B-003_deterministic_fingerprint_gate_unit_test_results.md,G6B-002,fingerprint gate 테스트 통과,411
+G6C-001,Phase 6 - Parity/Regression 검증,AS-IS 비교,AS-IS parity harness,"HeadlessDCGO.Engine Goal G6C-001만 수행하라.
+목표: AS-IS parity harness
+상세 지시서: docs/goal-specs/G6C-001_as_is_parity_harness.md
+선행 Goal: G6B-003
+결과 문서: docs/test-results/goals/G6C-001_asis_parity_harness_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: AS-IS 비교 harness 테스트 통과",docs/goal-specs/G6C-001_as_is_parity_harness.md,docs/test-results/goals/G6C-001_asis_parity_harness_unit_test_results.md,G6B-003,AS-IS 비교 harness 테스트 통과,380
+G6C-002,Phase 6 - Parity/Regression 검증,AS-IS 비교,Setup parity scenarios,"HeadlessDCGO.Engine Goal G6C-002만 수행하라.
+목표: Setup parity scenarios
+상세 지시서: docs/goal-specs/G6C-002_setup_parity_scenarios.md
+선행 Goal: G6C-001
+결과 문서: docs/test-results/goals/G6C-002_setup_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: setup AS-IS 비교 테스트 통과",docs/goal-specs/G6C-002_setup_parity_scenarios.md,docs/test-results/goals/G6C-002_setup_parity_scenarios_unit_test_results.md,G6C-001,setup AS-IS 비교 테스트 통과,385
+G6C-003,Phase 6 - Parity/Regression 검증,AS-IS 비교,Phase memory parity scenarios,"HeadlessDCGO.Engine Goal G6C-003만 수행하라.
+목표: Phase memory parity scenarios
+상세 지시서: docs/goal-specs/G6C-003_phase_memory_parity_scenarios.md
+선행 Goal: G6C-002
+결과 문서: docs/test-results/goals/G6C-003_phase_memory_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: phase memory AS-IS 비교 테스트 통과",docs/goal-specs/G6C-003_phase_memory_parity_scenarios.md,docs/test-results/goals/G6C-003_phase_memory_parity_scenarios_unit_test_results.md,G6C-002,phase memory AS-IS 비교 테스트 통과,413
+G6C-004,Phase 6 - Parity/Regression 검증,AS-IS 비교,Movement parity scenarios,"HeadlessDCGO.Engine Goal G6C-004만 수행하라.
+목표: Movement parity scenarios
+상세 지시서: docs/goal-specs/G6C-004_movement_parity_scenarios.md
+선행 Goal: G6C-003
+결과 문서: docs/test-results/goals/G6C-004_movement_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: movement AS-IS 비교 테스트 통과",docs/goal-specs/G6C-004_movement_parity_scenarios.md,docs/test-results/goals/G6C-004_movement_parity_scenarios_unit_test_results.md,G6C-003,movement AS-IS 비교 테스트 통과,397
+G6C-005,Phase 6 - Parity/Regression 검증,AS-IS 비교,Main action parity scenarios,"HeadlessDCGO.Engine Goal G6C-005만 수행하라.
+목표: Main action parity scenarios
+상세 지시서: docs/goal-specs/G6C-005_main_action_parity_scenarios.md
+선행 Goal: G6C-004
+결과 문서: docs/test-results/goals/G6C-005_main_action_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: main action AS-IS 비교 테스트 통과",docs/goal-specs/G6C-005_main_action_parity_scenarios.md,docs/test-results/goals/G6C-005_main_action_parity_scenarios_unit_test_results.md,G6C-004,main action AS-IS 비교 테스트 통과,409
+G6C-006,Phase 6 - Parity/Regression 검증,AS-IS 비교,Combat parity scenarios,"HeadlessDCGO.Engine Goal G6C-006만 수행하라.
+목표: Combat parity scenarios
+상세 지시서: docs/goal-specs/G6C-006_combat_parity_scenarios.md
+선행 Goal: G6C-005
+결과 문서: docs/test-results/goals/G6C-006_combat_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: combat AS-IS 비교 테스트 통과",docs/goal-specs/G6C-006_combat_parity_scenarios.md,docs/test-results/goals/G6C-006_combat_parity_scenarios_unit_test_results.md,G6C-005,combat AS-IS 비교 테스트 통과,389
+G6C-007,Phase 6 - Parity/Regression 검증,AS-IS 비교,Security parity scenarios,"HeadlessDCGO.Engine Goal G6C-007만 수행하라.
+목표: Security parity scenarios
+상세 지시서: docs/goal-specs/G6C-007_security_parity_scenarios.md
+선행 Goal: G6C-006
+결과 문서: docs/test-results/goals/G6C-007_security_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: security AS-IS 비교 테스트 통과",docs/goal-specs/G6C-007_security_parity_scenarios.md,docs/test-results/goals/G6C-007_security_parity_scenarios_unit_test_results.md,G6C-006,security AS-IS 비교 테스트 통과,397
+G6C-008,Phase 6 - Parity/Regression 검증,AS-IS 비교,Representative effect parity scenarios,"HeadlessDCGO.Engine Goal G6C-008만 수행하라.
+목표: Representative effect parity scenarios
+상세 지시서: docs/goal-specs/G6C-008_representative_effect_parity_scenarios.md
+선행 Goal: G6C-007
+결과 문서: docs/test-results/goals/G6C-008_representative_effect_parity_scenarios_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: effect AS-IS 비교 테스트 통과",docs/goal-specs/G6C-008_representative_effect_parity_scenarios.md,docs/test-results/goals/G6C-008_representative_effect_parity_scenarios_unit_test_results.md,G6C-007,effect AS-IS 비교 테스트 통과,434
+G6D-001,Phase 6 - Parity/Regression 검증,커버리지,Card pool coverage report,"HeadlessDCGO.Engine Goal G6D-001만 수행하라.
+목표: Card pool coverage report
+상세 지시서: docs/goal-specs/G6D-001_card_pool_coverage_report.md
+선행 Goal: G6C-008
+결과 문서: docs/test-results/goals/G6D-001_card_pool_coverage_report_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 커버리지 report 테스트 통과",docs/goal-specs/G6D-001_card_pool_coverage_report.md,docs/test-results/goals/G6D-001_card_pool_coverage_report_unit_test_results.md,G6C-008,커버리지 report 테스트 통과,391
+G6D-002,Phase 6 - Parity/Regression 검증,회귀 테스트,Regression suite assembly,"HeadlessDCGO.Engine Goal G6D-002만 수행하라.
+목표: Regression suite assembly
+상세 지시서: docs/goal-specs/G6D-002_regression_suite_assembly.md
+선행 Goal: G6D-001
+결과 문서: docs/test-results/goals/G6D-002_regression_suite_assembly_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 회귀 테스트 suite 테스트 통과",docs/goal-specs/G6D-002_regression_suite_assembly.md,docs/test-results/goals/G6D-002_regression_suite_assembly_unit_test_results.md,G6D-001,회귀 테스트 suite 테스트 통과,392
+G6D-003,Phase 6 - Parity/Regression 검증,회귀 테스트,Regression result document,"HeadlessDCGO.Engine Goal G6D-003만 수행하라.
+목표: Regression result document
+상세 지시서: docs/goal-specs/G6D-003_regression_result_document.md
+선행 Goal: G6D-002
+결과 문서: docs/test-results/goals/G6D-003_regression_result_document_unit_test_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 회귀 테스트 결과 문서 통과",docs/goal-specs/G6D-003_regression_result_document.md,docs/test-results/goals/G6D-003_regression_result_document_unit_test_results.md,G6D-002,회귀 테스트 결과 문서 통과,391
+G6E-001,Phase 6 - Parity/Regression 검증,성능 측정,Episode throughput benchmark,"HeadlessDCGO.Engine Goal G6E-001만 수행하라.
+목표: Episode throughput benchmark
+상세 지시서: docs/goal-specs/G6E-001_episode_throughput_benchmark.md
+선행 Goal: G6D-003
+결과 문서: docs/test-results/goals/G6E-001_episode_throughput_benchmark_results.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: performance 성능 측정 문서화",docs/goal-specs/G6E-001_episode_throughput_benchmark.md,docs/test-results/goals/G6E-001_episode_throughput_benchmark_results.md,G6D-003,performance 성능 측정 문서화,393
+G6Z-001,Phase 6 - Parity/Regression 검증,단계 완료 게이트,Final completion report,"HeadlessDCGO.Engine Goal G6Z-001만 수행하라.
+목표: Final completion report
+상세 지시서: docs/goal-specs/G6Z-001_final_completion_report.md
+선행 Goal: G6E-001
+결과 문서: docs/test-results/goals/G6Z-001_final_completion_report.md
+
+규칙:
+- 먼저 상세 지시서를 읽고 그 범위만 수행하라.
+- 원본 DCGO/Assets 파일은 수정하지 말라.
+- Goal 밖 작업과 다음 Phase 선행 작업을 하지 말라.
+- 단위테스트와 결과 문서 없이는 완료로 말하지 말라.
+- 완료 기준: 완성 판정 가능",docs/goal-specs/G6Z-001_final_completion_report.md,docs/test-results/goals/G6Z-001_final_completion_report.md,G6E-001,완성 판정 가능,357

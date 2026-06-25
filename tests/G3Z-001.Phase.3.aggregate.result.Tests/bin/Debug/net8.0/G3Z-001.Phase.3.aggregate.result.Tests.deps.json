@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "G3Z-001.Phase.3.aggregate.result.Tests/1.0.0": {
+        "runtime": {
+          "G3Z-001.Phase.3.aggregate.result.Tests.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "G3Z-001.Phase.3.aggregate.result.Tests/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

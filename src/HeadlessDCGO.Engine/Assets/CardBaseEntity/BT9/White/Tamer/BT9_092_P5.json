@@ -1,0 +1,9 @@
+{
+  "sourcePath": "Assets/CardBaseEntity/BT9/White/Tamer/BT9_092_P5.asset",
+  "decision": "USE",
+  "category": "CardData",
+  "priority": "HIGH",
+  "migrationKind": "Convert Unity asset to JSON",
+  "portingAction": "Convert data loading to .NET file/JSON loader",
+  "todo": "Skeleton only. Convert Unity asset/data into .NET engine format later."
+}

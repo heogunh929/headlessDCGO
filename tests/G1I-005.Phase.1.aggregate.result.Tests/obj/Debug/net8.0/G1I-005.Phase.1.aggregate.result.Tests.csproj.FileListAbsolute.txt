@@ -1,0 +1,14 @@
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\bin\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.exe
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\bin\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.deps.json
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\bin\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.runtimeconfig.json
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\bin\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.dll
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\bin\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.pdb
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.GeneratedMSBuildEditorConfig.editorconfig
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.AssemblyInfoInputs.cache
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.AssemblyInfo.cs
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.csproj.CoreCompileInputs.cache
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.dll
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\refint\G1I-005.Phase.1.aggregate.result.Tests.dll
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.pdb
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\G1I-005.Phase.1.aggregate.result.Tests.genruntimeconfig.cache
+E:\headlessDCGO_new\tests\G1I-005.Phase.1.aggregate.result.Tests\obj\Debug\net8.0\ref\G1I-005.Phase.1.aggregate.result.Tests.dll

@@ -1,0 +1,7 @@
+// Source: Assets/Scripts/CardEffect/P/Black/P_159.cs
+// Decision: PORT
+// Category: CardEffect
+// Priority: HIGH
+// Migration: Port per-card effect source
+// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.P.Black
+// TODO: Skeleton only. Port or implement deterministic .NET logic later.

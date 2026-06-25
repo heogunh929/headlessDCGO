@@ -1,0 +1,14 @@
+{
+  "id": "card-bt2-001",
+  "cardNumber": " BT2-001 ",
+  "name": " Test Gabumon ",
+  "cardType": " Digimon ",
+  "playCost": "3",
+  "evolutionCost": 1,
+  "evolutionCondition": "blue level 2",
+  "effectBindingKey": "bt2-001-main",
+  "imagePath": "cards/bt2-001.png",
+  "audioPath": "audio/card.wav",
+  "nested": { "dp": 2000 },
+  "tags": ["rookie", "blue"]
+}

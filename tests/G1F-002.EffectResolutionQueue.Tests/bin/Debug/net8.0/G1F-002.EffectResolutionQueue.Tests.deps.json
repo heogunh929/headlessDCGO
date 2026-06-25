@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "G1F-002.EffectResolutionQueue.Tests/1.0.0": {
+        "dependencies": {
+          "HeadlessDCGO.Engine": "1.0.0"
+        },
+        "runtime": {
+          "G1F-002.EffectResolutionQueue.Tests.dll": {}
+        }
+      },
+      "HeadlessDCGO.Engine/1.0.0": {
+        "runtime": {
+          "HeadlessDCGO.Engine.dll": {
+            "assemblyVersion": "1.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "G1F-002.EffectResolutionQueue.Tests/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "HeadlessDCGO.Engine/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

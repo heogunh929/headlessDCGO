@@ -1,0 +1,6 @@
+# Source: Assets/ScriptTemplates/80-DCGO C# Script-NewEntityEffect.cs.txt
+# Decision: USE
+# Category: DataLoader
+# Priority: MEDIUM
+# Migration: Copy or normalize structured data
+# TODO: Skeleton only. Fill converted data later.

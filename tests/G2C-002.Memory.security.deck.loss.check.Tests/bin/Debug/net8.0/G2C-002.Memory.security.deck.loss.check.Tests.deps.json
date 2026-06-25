@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "G2C-002.Memory.security.deck.loss.check.Tests/1.0.0": {
+        "dependencies": {
+          "HeadlessDCGO.Engine": "1.0.0"
+        },
+        "runtime": {
+          "G2C-002.Memory.security.deck.loss.check.Tests.dll": {}
+        }
+      },
+      "HeadlessDCGO.Engine/1.0.0": {
+        "runtime": {
+          "HeadlessDCGO.Engine.dll": {
+            "assemblyVersion": "1.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "G2C-002.Memory.security.deck.loss.check.Tests/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "HeadlessDCGO.Engine/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

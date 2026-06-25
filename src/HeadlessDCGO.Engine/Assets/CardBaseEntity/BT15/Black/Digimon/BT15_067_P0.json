@@ -1,0 +1,9 @@
+{
+  "sourcePath": "Assets/CardBaseEntity/BT15/Black/Digimon/BT15_067_P0.asset",
+  "decision": "USE",
+  "category": "CardData",
+  "priority": "HIGH",
+  "migrationKind": "Convert Unity asset to JSON",
+  "portingAction": "Convert data loading to .NET file/JSON loader",
+  "todo": "Skeleton only. Convert Unity asset/data into .NET engine format later."
+}

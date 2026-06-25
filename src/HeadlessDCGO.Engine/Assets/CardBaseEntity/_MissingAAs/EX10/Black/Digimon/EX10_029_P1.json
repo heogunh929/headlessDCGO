@@ -1,0 +1,9 @@
+{
+  "sourcePath": "Assets/Editor/Missing AAs/EX10/Black/Digimon/EX10_029_P1.asset",
+  "decision": "USE",
+  "category": "CardData",
+  "priority": "HIGH",
+  "migrationKind": "Convert Unity asset to JSON",
+  "portingAction": "Convert data loading to .NET file/JSON loader",
+  "todo": "Skeleton only. Convert Unity asset/data into .NET engine format later."
+}

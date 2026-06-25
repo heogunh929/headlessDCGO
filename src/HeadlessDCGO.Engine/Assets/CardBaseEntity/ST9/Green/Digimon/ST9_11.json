@@ -1,0 +1,9 @@
+{
+  "sourcePath": "Assets/CardBaseEntity/ST9/Green/Digimon/ST9_11.asset",
+  "decision": "USE",
+  "category": "CardData",
+  "priority": "HIGH",
+  "migrationKind": "Convert Unity asset to JSON",
+  "portingAction": "Convert data loading to .NET file/JSON loader",
+  "todo": "Skeleton only. Convert Unity asset/data into .NET engine format later."
+}
