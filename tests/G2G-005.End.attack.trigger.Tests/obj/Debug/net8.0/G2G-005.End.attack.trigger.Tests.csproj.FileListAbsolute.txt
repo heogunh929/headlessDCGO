@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2G-005.End.attack.trigger.Tests\obj\Debug\net8.0\refi
 E:\headlessDCGO_new\tests\G2G-005.End.attack.trigger.Tests\obj\Debug\net8.0\G2G-005.End.attack.trigger.Tests.pdb
 E:\headlessDCGO_new\tests\G2G-005.End.attack.trigger.Tests\obj\Debug\net8.0\G2G-005.End.attack.trigger.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2G-005.End.attack.trigger.Tests\obj\Debug\net8.0\ref\G2G-005.End.attack.trigger.Tests.dll
+E:\headlessDCGO_new\tests\G2G-005.End.attack.trigger.Tests\obj\Debug\net8.0\G2G-005.End.attack.trigger.Tests.sourcelink.json

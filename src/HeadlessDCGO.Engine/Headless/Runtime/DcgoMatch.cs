@@ -167,6 +167,23 @@ public sealed class DcgoMatch
 
         if (_isTerminal)
         {
+            // (X-02) When terminal is reported by the rule query (e.g. EndTurnCheck) rather than via action
+            // metadata, lift the stored winner/reason outcome into the public match result.
+            if (_result.WinnerId is null
+                && !_result.IsDraw
+                && !_result.IsSurrender
+                && string.IsNullOrEmpty(_result.Reason)
+                && Context.RuleQueryService is ITerminalOutcomeSink outcomeSink
+                && outcomeSink.TryGetTerminalOutcome(out TerminalOutcome? outcome)
+                && outcome is not null)
+            {
+                _result = new MatchResult(
+                    outcome.WinnerPlayerId,
+                    outcome.IsDraw,
+                    IsSurrender: false,
+                    outcome.Reason);
+            }
+
             _result = _result with
             {
                 Reason = string.IsNullOrWhiteSpace(_result.Reason)

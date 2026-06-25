@@ -8,7 +8,7 @@
     "net8.0": []
   },
   "packageFolders": {
-    "C:\\Users\\HG\\.nuget\\packages\\": {}
+    "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d627835395da0cd3f0578af1a38813f1\\nuget": {}
   },
   "project": {
     "version": "1.0.0",
@@ -16,7 +16,7 @@
       "projectUniqueName": "E:\\headlessDCGO_new\\tests\\G2Z-001.Phase.2.aggregate.result.Tests\\G2Z-001.Phase.2.aggregate.result.Tests.csproj",
       "projectName": "G2Z-001.Phase.2.aggregate.result.Tests",
       "projectPath": "E:\\headlessDCGO_new\\tests\\G2Z-001.Phase.2.aggregate.result.Tests\\G2Z-001.Phase.2.aggregate.result.Tests.csproj",
-      "packagesPath": "C:\\Users\\HG\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d627835395da0cd3f0578af1a38813f1\\nuget",
       "outputPath": "E:\\headlessDCGO_new\\tests\\G2Z-001.Phase.2.aggregate.result.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [

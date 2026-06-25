@@ -235,19 +235,30 @@ public sealed class CardEffectFactoryBindingRegistry
         _rulesById[rule.Id] = rule;
     }
 
+    public IReadOnlyList<CardEffectFactoryBindingRule> Lookup(
+        CardRecord card,
+        string trigger,
+        HeadlessPlayerId controllerId,
+        EffectContext context)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(trigger);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var request = new CardEffectFactoryBindingRequest(card, trigger, card.Id, controllerId, context);
+        return Lookup(request);
+    }
+
+    [Obsolete(
+        "Use Lookup(card, trigger, controllerId, context). This overload assumes player 1 " +
+        "and is kept only for legacy/test callers (B-01).")]
     public IReadOnlyList<CardEffectFactoryBindingRule> Lookup(CardRecord card, string trigger)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(trigger);
 
-        var request = new CardEffectFactoryBindingRequest(
-            card,
-            trigger,
-            card.Id,
-            new HeadlessPlayerId(1),
-            new EffectContext(new HeadlessPlayerId(1), card.Id));
-
-        return Lookup(request);
+        var controllerId = new HeadlessPlayerId(1);
+        return Lookup(card, trigger, controllerId, new EffectContext(controllerId, card.Id));
     }
 
     public IReadOnlyList<CardEffectFactoryBindingRule> Lookup(CardEffectFactoryBindingRequest request)

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3K-001.Effect.selection.helper.Tests\obj\Debug\net8.0
 E:\headlessDCGO_new\tests\G3K-001.Effect.selection.helper.Tests\obj\Debug\net8.0\G3K-001.Effect.selection.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3K-001.Effect.selection.helper.Tests\obj\Debug\net8.0\G3K-001.Effect.selection.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3K-001.Effect.selection.helper.Tests\obj\Debug\net8.0\ref\G3K-001.Effect.selection.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3K-001.Effect.selection.helper.Tests\obj\Debug\net8.0\G3K-001.Effect.selection.helper.Tests.sourcelink.json

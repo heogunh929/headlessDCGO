@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3K-002.Timing.priority.helper.Tests\obj\Debug\net8.0\
 E:\headlessDCGO_new\tests\G3K-002.Timing.priority.helper.Tests\obj\Debug\net8.0\G3K-002.Timing.priority.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3K-002.Timing.priority.helper.Tests\obj\Debug\net8.0\G3K-002.Timing.priority.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3K-002.Timing.priority.helper.Tests\obj\Debug\net8.0\ref\G3K-002.Timing.priority.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3K-002.Timing.priority.helper.Tests\obj\Debug\net8.0\G3K-002.Timing.priority.helper.Tests.sourcelink.json

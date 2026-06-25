@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3I-002.Continuous.effect.evaluator.Tests\obj\Debug\ne
 E:\headlessDCGO_new\tests\G3I-002.Continuous.effect.evaluator.Tests\obj\Debug\net8.0\G3I-002.Continuous.effect.evaluator.Tests.pdb
 E:\headlessDCGO_new\tests\G3I-002.Continuous.effect.evaluator.Tests\obj\Debug\net8.0\G3I-002.Continuous.effect.evaluator.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3I-002.Continuous.effect.evaluator.Tests\obj\Debug\net8.0\ref\G3I-002.Continuous.effect.evaluator.Tests.dll
+E:\headlessDCGO_new\tests\G3I-002.Continuous.effect.evaluator.Tests\obj\Debug\net8.0\G3I-002.Continuous.effect.evaluator.Tests.sourcelink.json

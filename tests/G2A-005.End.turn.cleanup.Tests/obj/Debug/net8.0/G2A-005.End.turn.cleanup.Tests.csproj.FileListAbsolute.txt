@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2A-005.End.turn.cleanup.Tests\obj\Debug\net8.0\refint
 E:\headlessDCGO_new\tests\G2A-005.End.turn.cleanup.Tests\obj\Debug\net8.0\G2A-005.End.turn.cleanup.Tests.pdb
 E:\headlessDCGO_new\tests\G2A-005.End.turn.cleanup.Tests\obj\Debug\net8.0\G2A-005.End.turn.cleanup.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2A-005.End.turn.cleanup.Tests\obj\Debug\net8.0\ref\G2A-005.End.turn.cleanup.Tests.dll
+E:\headlessDCGO_new\tests\G2A-005.End.turn.cleanup.Tests\obj\Debug\net8.0\G2A-005.End.turn.cleanup.Tests.sourcelink.json

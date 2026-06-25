@@ -125,7 +125,11 @@ async Task EndTurnCleanupResetsAttackState()
     HeadlessPlayerId second = new(2);
     await AdvanceToMainAsync(match, first);
     await AddBattleCardAsync(match, first, "attacker", first, new Dictionary<string, object?>());
-    await ApplyActionAsync(match, HeadlessActionFactory.DeclareAttack(first, new HeadlessEntityId("attacker"), second));
+
+    // Establish a pending attack directly on the controller. Routing the declaration through the
+    // game loop would let the common loop (G3.5-005) auto-advance and clear the attack before the
+    // end-turn cleanup runs; this test isolates the end-turn attack-state reset.
+    match.Context.AttackController.DeclareAttack(first, new HeadlessEntityId("attacker"), second);
 
     StepResult endTurn = await ApplyActionAsync(match, HeadlessActionFactory.EndTurn(first));
     ActionProcessResult result = LastActionResult(endTurn);

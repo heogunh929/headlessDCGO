@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3J-002.PermanentEffectFactory.binding.Tests\obj\Debug
 E:\headlessDCGO_new\tests\G3J-002.PermanentEffectFactory.binding.Tests\obj\Debug\net8.0\G3J-002.PermanentEffectFactory.binding.Tests.pdb
 E:\headlessDCGO_new\tests\G3J-002.PermanentEffectFactory.binding.Tests\obj\Debug\net8.0\G3J-002.PermanentEffectFactory.binding.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3J-002.PermanentEffectFactory.binding.Tests\obj\Debug\net8.0\ref\G3J-002.PermanentEffectFactory.binding.Tests.dll
+E:\headlessDCGO_new\tests\G3J-002.PermanentEffectFactory.binding.Tests\obj\Debug\net8.0\G3J-002.PermanentEffectFactory.binding.Tests.sourcelink.json

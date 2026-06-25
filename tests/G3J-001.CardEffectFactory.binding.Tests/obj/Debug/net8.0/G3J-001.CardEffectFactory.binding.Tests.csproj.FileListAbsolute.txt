@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3J-001.CardEffectFactory.binding.Tests\obj\Debug\net8
 E:\headlessDCGO_new\tests\G3J-001.CardEffectFactory.binding.Tests\obj\Debug\net8.0\G3J-001.CardEffectFactory.binding.Tests.pdb
 E:\headlessDCGO_new\tests\G3J-001.CardEffectFactory.binding.Tests\obj\Debug\net8.0\G3J-001.CardEffectFactory.binding.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3J-001.CardEffectFactory.binding.Tests\obj\Debug\net8.0\ref\G3J-001.CardEffectFactory.binding.Tests.dll
+E:\headlessDCGO_new\tests\G3J-001.CardEffectFactory.binding.Tests\obj\Debug\net8.0\G3J-001.CardEffectFactory.binding.Tests.sourcelink.json

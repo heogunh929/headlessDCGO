@@ -120,10 +120,13 @@ async Task AttackProcessorDeclaresPendingAttackAndSuspendsAttacker()
     DcgoMatch match = await CreateConfiguredMatchAsync();
     LegalAction direct = AttackActions(match).Single(IsDirectAttack);
 
-    await match.ApplyActionAsync(direct);
-    StepResult step = await match.StepAsync();
+    // Process the declaration directly: once the common loop (G3.5-005) is wired, stepping through
+    // the game loop would auto-advance the attack pipeline past declaration. This test isolates the
+    // AttackPermanentAction declaration + suspend contract.
+    ActionProcessResult result = new AttackPermanentAction().Process(direct, match.Context);
 
     HeadlessAttackState attack = match.Context.AttackController.Current;
+    AssertTrue(result.IsSuccess, "declare success");
     AssertTrue(attack.IsPending, "attack pending");
     AssertFalse(attack.IsResolved, "attack resolved");
     AssertEqual(1, attack.AttackCount, "attack count");
@@ -131,15 +134,15 @@ async Task AttackProcessorDeclaresPendingAttackAndSuspendsAttacker()
     AssertEqual(Opponent, attack.DefendingPlayerId, "defending player");
     AssertEqual(null, attack.TargetId, "direct target");
     AssertTrue(attack.IsDirectAttack, "direct attack");
+    AssertEqual(AttackPhase.Declared, attack.Phase, "declared phase");
     AssertTrue(ReadInstanceBool(match, AttackerId, "isSuspended"), "attacker suspended");
 
-    GameEvent declared = step.Events.Single(e => e.Type == GameEventType.AttackDeclared);
-    AssertMetadata(declared.Metadata, HeadlessActionParameterKeys.ActionType, HeadlessActionTypes.DeclareAttack);
-    AssertMetadata(declared.Metadata, HeadlessActionParameterKeys.AttackerId, AttackerId.Value);
-    AssertMetadata(declared.Metadata, HeadlessActionParameterKeys.DefendingPlayerId, Opponent.Value);
-    AssertMetadata(declared.Metadata, HeadlessActionParameterKeys.IsDirectAttack, true);
-    AssertMetadata(declared.Metadata, "attackIntent", "AttackPermanentAction");
-    AssertMetadata(declared.Metadata, "attackerSuspended", true);
+    AssertMetadata(result.Metadata, HeadlessActionParameterKeys.ActionType, HeadlessActionTypes.DeclareAttack);
+    AssertMetadata(result.Metadata, HeadlessActionParameterKeys.AttackerId, AttackerId.Value);
+    AssertMetadata(result.Metadata, HeadlessActionParameterKeys.DefendingPlayerId, Opponent.Value);
+    AssertMetadata(result.Metadata, HeadlessActionParameterKeys.IsDirectAttack, true);
+    AssertMetadata(result.Metadata, "attackIntent", "AttackPermanentAction");
+    AssertMetadata(result.Metadata, "attackerSuspended", true);
 }
 
 async Task AttackProcessorRejectsSuspendedAttackerWithoutMutation()

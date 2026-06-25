@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2G-004.Security.check.Tests\obj\Debug\net8.0\refint\G
 E:\headlessDCGO_new\tests\G2G-004.Security.check.Tests\obj\Debug\net8.0\G2G-004.Security.check.Tests.pdb
 E:\headlessDCGO_new\tests\G2G-004.Security.check.Tests\obj\Debug\net8.0\G2G-004.Security.check.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2G-004.Security.check.Tests\obj\Debug\net8.0\ref\G2G-004.Security.check.Tests.dll
+E:\headlessDCGO_new\tests\G2G-004.Security.check.Tests\obj\Debug\net8.0\G2G-004.Security.check.Tests.sourcelink.json

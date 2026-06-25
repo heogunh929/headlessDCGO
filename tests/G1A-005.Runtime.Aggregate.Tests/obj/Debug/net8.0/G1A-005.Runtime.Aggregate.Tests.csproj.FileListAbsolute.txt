@@ -12,3 +12,4 @@ E:\headlessDCGO_new\tests\G1A-005.Runtime.Aggregate.Tests\obj\Debug\net8.0\refin
 E:\headlessDCGO_new\tests\G1A-005.Runtime.Aggregate.Tests\obj\Debug\net8.0\G1A-005.Runtime.Aggregate.Tests.pdb
 E:\headlessDCGO_new\tests\G1A-005.Runtime.Aggregate.Tests\obj\Debug\net8.0\G1A-005.Runtime.Aggregate.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1A-005.Runtime.Aggregate.Tests\obj\Debug\net8.0\ref\G1A-005.Runtime.Aggregate.Tests.dll
+E:\headlessDCGO_new\tests\G1A-005.Runtime.Aggregate.Tests\obj\Debug\net8.0\G1A-005.Runtime.Aggregate.Tests.sourcelink.json

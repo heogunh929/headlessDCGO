@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3H-001.DP.cost.security.attack.modifier.helper.Tests\
 E:\headlessDCGO_new\tests\G3H-001.DP.cost.security.attack.modifier.helper.Tests\obj\Debug\net8.0\G3H-001.DP.cost.security.attack.modifier.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3H-001.DP.cost.security.attack.modifier.helper.Tests\obj\Debug\net8.0\G3H-001.DP.cost.security.attack.modifier.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3H-001.DP.cost.security.attack.modifier.helper.Tests\obj\Debug\net8.0\ref\G3H-001.DP.cost.security.attack.modifier.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3H-001.DP.cost.security.attack.modifier.helper.Tests\obj\Debug\net8.0\G3H-001.DP.cost.security.attack.modifier.helper.Tests.sourcelink.json

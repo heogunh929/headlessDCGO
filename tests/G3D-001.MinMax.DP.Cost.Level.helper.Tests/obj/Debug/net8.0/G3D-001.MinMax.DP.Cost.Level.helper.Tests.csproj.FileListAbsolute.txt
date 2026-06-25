@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3D-001.MinMax.DP.Cost.Level.helper.Tests\obj\Debug\ne
 E:\headlessDCGO_new\tests\G3D-001.MinMax.DP.Cost.Level.helper.Tests\obj\Debug\net8.0\G3D-001.MinMax.DP.Cost.Level.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3D-001.MinMax.DP.Cost.Level.helper.Tests\obj\Debug\net8.0\G3D-001.MinMax.DP.Cost.Level.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3D-001.MinMax.DP.Cost.Level.helper.Tests\obj\Debug\net8.0\ref\G3D-001.MinMax.DP.Cost.Level.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3D-001.MinMax.DP.Cost.Level.helper.Tests\obj\Debug\net8.0\G3D-001.MinMax.DP.Cost.Level.helper.Tests.sourcelink.json

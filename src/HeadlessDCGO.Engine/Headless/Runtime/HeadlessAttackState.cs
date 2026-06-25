@@ -13,7 +13,8 @@ public sealed record HeadlessAttackState(
     bool IsDirectAttack,
     bool IsPending,
     bool IsResolved,
-    string Reason)
+    string Reason,
+    AttackPhase Phase = AttackPhase.None)
 {
     public static HeadlessAttackState Empty { get; } = new(
         AttackCount: 0,
@@ -26,5 +27,6 @@ public sealed record HeadlessAttackState(
         IsDirectAttack: false,
         IsPending: false,
         IsResolved: false,
-        Reason: string.Empty);
+        Reason: string.Empty,
+        Phase: AttackPhase.None);
 }

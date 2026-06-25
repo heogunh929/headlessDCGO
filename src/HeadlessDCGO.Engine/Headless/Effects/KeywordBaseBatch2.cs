@@ -395,7 +395,8 @@ public static class KeywordBaseBatch2Factory
             request,
             KeywordAliases(effect.Kind),
             QueryRole(effect.Kind),
-            QueryScopes(effect.Kind));
+            QueryScopes(effect.Kind),
+            effect);
     }
 
     public static IReadOnlyList<EffectBinding> RegisterBaseBatch2(

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3F-002.Zone.query.helper.Tests\obj\Debug\net8.0\refin
 E:\headlessDCGO_new\tests\G3F-002.Zone.query.helper.Tests\obj\Debug\net8.0\G3F-002.Zone.query.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3F-002.Zone.query.helper.Tests\obj\Debug\net8.0\G3F-002.Zone.query.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3F-002.Zone.query.helper.Tests\obj\Debug\net8.0\ref\G3F-002.Zone.query.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3F-002.Zone.query.helper.Tests\obj\Debug\net8.0\G3F-002.Zone.query.helper.Tests.sourcelink.json

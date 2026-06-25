@@ -208,22 +208,18 @@ async Task SecurityResolverIsDeterministicAndSourceScoped()
     AssertContains(resolverText, "ChoiceZone.Trash", "security destination zone");
 }
 
-async Task DeclareDirectAttackAsync(DcgoMatch match)
+Task DeclareDirectAttackAsync(DcgoMatch match)
 {
-    LegalAction direct = match.GetLegalActions(Player)
-        .Single(action => action.ActionType == HeadlessActionTypes.DeclareAttack &&
-            ReadBool(action.Parameters, HeadlessActionParameterKeys.IsDirectAttack));
-    await match.ApplyActionAsync(direct);
-    await match.StepAsync();
+    // Declare directly on the controller so the common loop (G3.5-005) does not auto-advance the
+    // attack; this keeps SecurityResolver under isolated test exactly as in Phase 2.
+    match.Context.AttackController.DeclareAttack(Player, AttackerId, Opponent, targetId: null, isDirectAttack: true);
+    return Task.CompletedTask;
 }
 
-async Task DeclareTargetAttackAsync(DcgoMatch match)
+Task DeclareTargetAttackAsync(DcgoMatch match)
 {
-    LegalAction targetAttack = match.GetLegalActions(Player)
-        .Single(action => action.ActionType == HeadlessActionTypes.DeclareAttack &&
-            ReadString(action.Parameters, HeadlessActionParameterKeys.AttackTargetId) == TargetId.Value);
-    await match.ApplyActionAsync(targetAttack);
-    await match.StepAsync();
+    match.Context.AttackController.DeclareAttack(Player, AttackerId, Opponent, TargetId, isDirectAttack: false);
+    return Task.CompletedTask;
 }
 
 async Task<DcgoMatch> CreateConfiguredMatchAsync(

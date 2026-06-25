@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3C-002.CanUseEffects.helper.Tests\obj\Debug\net8.0\re
 E:\headlessDCGO_new\tests\G3C-002.CanUseEffects.helper.Tests\obj\Debug\net8.0\G3C-002.CanUseEffects.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3C-002.CanUseEffects.helper.Tests\obj\Debug\net8.0\G3C-002.CanUseEffects.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3C-002.CanUseEffects.helper.Tests\obj\Debug\net8.0\ref\G3C-002.CanUseEffects.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3C-002.CanUseEffects.helper.Tests\obj\Debug\net8.0\G3C-002.CanUseEffects.helper.Tests.sourcelink.json

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3A-002.SkillInfo.Tests\obj\Debug\net8.0\refint\G3A-00
 E:\headlessDCGO_new\tests\G3A-002.SkillInfo.Tests\obj\Debug\net8.0\G3A-002.SkillInfo.Tests.pdb
 E:\headlessDCGO_new\tests\G3A-002.SkillInfo.Tests\obj\Debug\net8.0\G3A-002.SkillInfo.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3A-002.SkillInfo.Tests\obj\Debug\net8.0\ref\G3A-002.SkillInfo.Tests.dll
+E:\headlessDCGO_new\tests\G3A-002.SkillInfo.Tests\obj\Debug\net8.0\G3A-002.SkillInfo.Tests.sourcelink.json

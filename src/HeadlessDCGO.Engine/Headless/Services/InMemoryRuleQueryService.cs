@@ -4,11 +4,13 @@ namespace HeadlessDCGO.Engine.Headless.Services;
 public sealed class InMemoryRuleQueryService :
     IRuleQueryService,
     ITerminalStateController,
+    ITerminalOutcomeSink,
     IHeadlessMatchStateResettable,
     IHeadlessLegalActionController
 {
     private readonly List<LegalAction> _legalActions = new();
     private bool _isTerminal;
+    private TerminalOutcome? _terminalOutcome;
 
     public void SetLegalActions(IEnumerable<LegalAction> legalActions)
     {
@@ -42,6 +44,22 @@ public sealed class InMemoryRuleQueryService :
     public void SetTerminal(bool isTerminal)
     {
         _isTerminal = isTerminal;
+        if (!isTerminal)
+        {
+            _terminalOutcome = null;
+        }
+    }
+
+    public void SetTerminalOutcome(HeadlessPlayerId? winnerPlayerId, bool isDraw, string reason)
+    {
+        _isTerminal = true;
+        _terminalOutcome = new TerminalOutcome(winnerPlayerId, isDraw, reason ?? string.Empty);
+    }
+
+    public bool TryGetTerminalOutcome(out TerminalOutcome? outcome)
+    {
+        outcome = _terminalOutcome;
+        return _terminalOutcome is not null;
     }
 
     public IReadOnlyList<LegalAction> GetLegalActions(HeadlessPlayerId playerId)
@@ -70,5 +88,6 @@ public sealed class InMemoryRuleQueryService :
     {
         _legalActions.Clear();
         _isTerminal = false;
+        _terminalOutcome = null;
     }
 }

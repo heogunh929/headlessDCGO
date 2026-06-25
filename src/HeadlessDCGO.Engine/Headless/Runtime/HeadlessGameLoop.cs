@@ -15,6 +15,7 @@ public sealed class HeadlessGameLoop(
     private readonly IActionProcessor _actionProcessor = actionProcessor ?? new MetadataActionProcessor();
     private readonly HeadlessLegalActionDispatcher _legalActionDispatcher = new();
     private readonly ITraceSink _traceSink = traceSink ?? new NullTraceSink();
+    private readonly GameFlowProcessor _gameFlowProcessor = new();
     private ActionProcessResult? _lastActionResult;
     private LegalAction? _lastAction;
     private long _stepIndex;
@@ -80,21 +81,32 @@ public sealed class HeadlessGameLoop(
         }
 
         bool hadPendingEffects = Context.EffectScheduler.HasPendingEffects;
-        IReadOnlyList<EffectResult> effectResults = await Context.EffectScheduler
-            .ResolveAllAsync(cancellationToken)
+        FlowProcessResult flow = await _gameFlowProcessor
+            .RunToStableAsync(Context, cancellationToken)
             .ConfigureAwait(false);
+        int resolvedEffectCount = flow.ResolvedEffectCount;
 
         bool isTerminal = Context.RuleQueryService.IsTerminal();
         _stepIndex++;
         List<string> messages = new();
 
-        if (effectResults.Count > 0)
+        if (resolvedEffectCount > 0)
         {
-            messages.Add($"Resolved effects: {effectResults.Count}");
+            messages.Add($"Resolved effects: {resolvedEffectCount}");
             _traceSink.Record(
                 "effects",
                 "Resolved pending effects.",
-                new Dictionary<string, object?> { ["count"] = effectResults.Count });
+                new Dictionary<string, object?>
+                {
+                    ["count"] = resolvedEffectCount,
+                    ["flowIterations"] = flow.Iterations
+                });
+        }
+
+        if (flow.PausedForChoice)
+        {
+            messages.Add("Flow paused for pending choice.");
+            _traceSink.Record("runtime", "Flow processor paused for pending choice.");
         }
 
         if (isTerminal)
@@ -110,7 +122,7 @@ public sealed class HeadlessGameLoop(
             actionResult,
             _actionQueue.Count,
             hadPendingEffects,
-            effectResults.Count,
+            resolvedEffectCount,
             messages);
     }
 

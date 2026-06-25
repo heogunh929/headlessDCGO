@@ -3,6 +3,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 using System.Diagnostics.CodeAnalysis;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class AttackPermanentAction
@@ -215,6 +216,13 @@ public sealed class AttackPermanentAction
             ReadBool(attackerCard.Metadata, CannotAttackKey))
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack.");
+        }
+
+        // (X-04) Continuous effects from other cards can forbid this attacker from attacking.
+        CannotRestrictionResult attackRestriction = ContinuousRestrictionGate.EvaluateAttack(context, attackerId);
+        if (attackRestriction.IsRestricted)
+        {
+            return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack ({attackRestriction.Reason}).");
         }
 
         if (ReadBool(attacker.Metadata, EnteredThisTurnKey) && !ReadBool(attacker.Metadata, HasRushKey) && !ReadBool(attackerCard.Metadata, HasRushKey))

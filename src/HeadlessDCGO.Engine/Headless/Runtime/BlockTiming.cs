@@ -189,6 +189,12 @@ public sealed class BlockTiming
             return null;
         }
 
+        // (X-04) Continuous effects from other cards can forbid this Digimon from blocking.
+        if (ContinuousRestrictionGate.EvaluateBlock(context, blockerId, attack.AttackerId).IsRestricted)
+        {
+            return null;
+        }
+
         return new BlockerCandidate(
             blocker.InstanceId,
             blocker.DefinitionId,

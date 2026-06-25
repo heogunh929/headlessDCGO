@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3B-001.Hashtable.replacement.adapter.Tests\obj\Debug\
 E:\headlessDCGO_new\tests\G3B-001.Hashtable.replacement.adapter.Tests\obj\Debug\net8.0\G3B-001.Hashtable.replacement.adapter.Tests.pdb
 E:\headlessDCGO_new\tests\G3B-001.Hashtable.replacement.adapter.Tests\obj\Debug\net8.0\G3B-001.Hashtable.replacement.adapter.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3B-001.Hashtable.replacement.adapter.Tests\obj\Debug\net8.0\ref\G3B-001.Hashtable.replacement.adapter.Tests.dll
+E:\headlessDCGO_new\tests\G3B-001.Hashtable.replacement.adapter.Tests\obj\Debug\net8.0\G3B-001.Hashtable.replacement.adapter.Tests.sourcelink.json

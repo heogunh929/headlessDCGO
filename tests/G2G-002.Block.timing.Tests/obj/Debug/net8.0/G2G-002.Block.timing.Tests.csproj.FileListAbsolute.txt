@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2G-002.Block.timing.Tests\obj\Debug\net8.0\refint\G2G
 E:\headlessDCGO_new\tests\G2G-002.Block.timing.Tests\obj\Debug\net8.0\G2G-002.Block.timing.Tests.pdb
 E:\headlessDCGO_new\tests\G2G-002.Block.timing.Tests\obj\Debug\net8.0\G2G-002.Block.timing.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2G-002.Block.timing.Tests\obj\Debug\net8.0\ref\G2G-002.Block.timing.Tests.dll
+E:\headlessDCGO_new\tests\G2G-002.Block.timing.Tests\obj\Debug\net8.0\G2G-002.Block.timing.Tests.sourcelink.json

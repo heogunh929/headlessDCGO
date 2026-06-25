@@ -26,7 +26,10 @@ public sealed class EngineContext
         ILogSink logSink,
         EngineTaskRunner taskRunner,
         EffectScheduler effectScheduler,
-        ContinuousContext? continuousContext = null)
+        ContinuousContext? continuousContext = null,
+        EffectRegistry? effectRegistry = null,
+        GameEventQueue? gameEventQueue = null,
+        IHeadlessPlayerStatusController? playerStatusController = null)
     {
         ChoiceProvider = choiceProvider ?? throw new ArgumentNullException(nameof(choiceProvider));
         RandomSource = randomSource ?? throw new ArgumentNullException(nameof(randomSource));
@@ -41,6 +44,9 @@ public sealed class EngineContext
         LogSink = logSink ?? throw new ArgumentNullException(nameof(logSink));
         TaskRunner = taskRunner ?? throw new ArgumentNullException(nameof(taskRunner));
         EffectScheduler = effectScheduler ?? throw new ArgumentNullException(nameof(effectScheduler));
+        EffectRegistry = effectRegistry ?? new InMemoryEffectRegistry();
+        GameEventQueue = gameEventQueue ?? new GameEventQueue();
+        PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
             randomSeed: randomSource is IRandomStateReader randomStateReader ? randomStateReader.CurrentSeed : 0);
@@ -73,6 +79,12 @@ public sealed class EngineContext
     public EngineTaskRunner TaskRunner { get; }
 
     public EffectScheduler EffectScheduler { get; }
+
+    public EffectRegistry EffectRegistry { get; }
+
+    public GameEventQueue GameEventQueue { get; }
+
+    public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
     public ContinuousContext ContinuousContext { get; }
 
@@ -180,27 +192,39 @@ public sealed class EngineContext
         ResetIfSupported(ChoiceController);
         ResetIfSupported(AttackController);
         ResetIfSupported(MemoryController);
+        ResetIfSupported(GameEventQueue);
+        ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;
     }
 
     public static EngineContext CreateDefault(int randomSeed = 0)
     {
         GameRandomSource randomSource = new(randomSeed);
+        var cardInstanceRepository = new InMemoryCardInstanceRepository();
+        var logSink = new NullLogSink();
+
+        var effectRegistry = new InMemoryEffectRegistry();
+        var effectScheduler = new EffectScheduler(
+            new EffectResolutionQueue(),
+            CardEffectSchedulerResolver.Create(
+                effectRegistry,
+                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink)));
 
         return new EngineContext(
             new ScriptedChoiceProvider(),
             randomSource,
             new CardDatabase(),
-            new InMemoryCardInstanceRepository(),
+            cardInstanceRepository,
             new InMemoryZoneMover(randomSource),
             new InMemoryRuleQueryService(),
             new InMemoryHeadlessTurnController(),
             new InMemoryHeadlessChoiceController(),
             new InMemoryHeadlessAttackController(),
             new InMemoryHeadlessMemoryController(),
-            new NullLogSink(),
+            logSink,
             new EngineTaskRunner(),
-            new EffectScheduler());
+            effectScheduler,
+            effectRegistry: effectRegistry);
     }
 
     private void RegisterCoreServices()
@@ -218,6 +242,9 @@ public sealed class EngineContext
         RegisterService<ILogSink>(LogSink);
         RegisterService(TaskRunner);
         RegisterService(EffectScheduler);
+        RegisterService(EffectRegistry);
+        RegisterService(GameEventQueue);
+        RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }
 

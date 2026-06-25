@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2A-006.Legal.action.dispatch.hook.Tests\obj\Debug\net
 E:\headlessDCGO_new\tests\G2A-006.Legal.action.dispatch.hook.Tests\obj\Debug\net8.0\G2A-006.Legal.action.dispatch.hook.Tests.pdb
 E:\headlessDCGO_new\tests\G2A-006.Legal.action.dispatch.hook.Tests\obj\Debug\net8.0\G2A-006.Legal.action.dispatch.hook.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2A-006.Legal.action.dispatch.hook.Tests\obj\Debug\net8.0\ref\G2A-006.Legal.action.dispatch.hook.Tests.dll
+E:\headlessDCGO_new\tests\G2A-006.Legal.action.dispatch.hook.Tests\obj\Debug\net8.0\G2A-006.Legal.action.dispatch.hook.Tests.sourcelink.json

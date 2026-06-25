@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3D-002.Name.color.trait.requirement.Tests\obj\Debug\n
 E:\headlessDCGO_new\tests\G3D-002.Name.color.trait.requirement.Tests\obj\Debug\net8.0\G3D-002.Name.color.trait.requirement.Tests.pdb
 E:\headlessDCGO_new\tests\G3D-002.Name.color.trait.requirement.Tests\obj\Debug\net8.0\G3D-002.Name.color.trait.requirement.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3D-002.Name.color.trait.requirement.Tests\obj\Debug\net8.0\ref\G3D-002.Name.color.trait.requirement.Tests.dll
+E:\headlessDCGO_new\tests\G3D-002.Name.color.trait.requirement.Tests\obj\Debug\net8.0\G3D-002.Name.color.trait.requirement.Tests.sourcelink.json

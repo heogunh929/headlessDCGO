@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3F-001.Target.filtering.helper.Tests\obj\Debug\net8.0
 E:\headlessDCGO_new\tests\G3F-001.Target.filtering.helper.Tests\obj\Debug\net8.0\G3F-001.Target.filtering.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3F-001.Target.filtering.helper.Tests\obj\Debug\net8.0\G3F-001.Target.filtering.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3F-001.Target.filtering.helper.Tests\obj\Debug\net8.0\ref\G3F-001.Target.filtering.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3F-001.Target.filtering.helper.Tests\obj\Debug\net8.0\G3F-001.Target.filtering.helper.Tests.sourcelink.json

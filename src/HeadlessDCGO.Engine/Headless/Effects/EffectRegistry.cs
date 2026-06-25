@@ -132,7 +132,8 @@ public sealed record EffectBinding
         EffectRequest request,
         IReadOnlyList<string>? keywords = null,
         EffectQueryRole queryRoles = EffectQueryRole.None,
-        IReadOnlyList<string>? queryScopes = null)
+        IReadOnlyList<string>? queryScopes = null,
+        IHeadlessCardEffect? effect = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!AreValidRoles(queryRoles))
@@ -140,10 +141,18 @@ public sealed record EffectBinding
             throw new ArgumentOutOfRangeException(nameof(queryRoles), "Effect query roles must be known flag values.");
         }
 
+        if (effect is not null && effect.Definition.EffectId != request.EffectId)
+        {
+            throw new ArgumentException(
+                "Effect binding effect body id must match the binding request effect id.",
+                nameof(effect));
+        }
+
         Request = request;
         Keywords = CopyKeywords(keywords);
         QueryRoles = queryRoles;
         QueryScopes = CopyQueryScopes(queryScopes);
+        Effect = effect;
     }
 
     public EffectRequest Request { get; }
@@ -153,6 +162,8 @@ public sealed record EffectBinding
     public EffectQueryRole QueryRoles { get; }
 
     public IReadOnlyList<string> QueryScopes { get; }
+
+    public IHeadlessCardEffect? Effect { get; }
 
     public bool HasRole(EffectQueryRole role)
     {

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3G-002.Keyword.base.batch.2.Tests\obj\Debug\net8.0\re
 E:\headlessDCGO_new\tests\G3G-002.Keyword.base.batch.2.Tests\obj\Debug\net8.0\G3G-002.Keyword.base.batch.2.Tests.pdb
 E:\headlessDCGO_new\tests\G3G-002.Keyword.base.batch.2.Tests\obj\Debug\net8.0\G3G-002.Keyword.base.batch.2.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3G-002.Keyword.base.batch.2.Tests\obj\Debug\net8.0\ref\G3G-002.Keyword.base.batch.2.Tests.dll
+E:\headlessDCGO_new\tests\G3G-002.Keyword.base.batch.2.Tests\obj\Debug\net8.0\G3G-002.Keyword.base.batch.2.Tests.sourcelink.json

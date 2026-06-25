@@ -27,7 +27,7 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\HG\\.nuget\\packages\\": {}
+    "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\0bc6c86ddb7a99ab29c8480ba5ce9af0\\nuget": {}
   },
   "project": {
     "version": "1.0.0",
@@ -35,7 +35,7 @@
       "projectUniqueName": "E:\\headlessDCGO_new\\tests\\G3K-002.Timing.priority.helper.Tests\\G3K-002.Timing.priority.helper.Tests.csproj",
       "projectName": "G3K-002.Timing.priority.helper.Tests",
       "projectPath": "E:\\headlessDCGO_new\\tests\\G3K-002.Timing.priority.helper.Tests\\G3K-002.Timing.priority.helper.Tests.csproj",
-      "packagesPath": "C:\\Users\\HG\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\0bc6c86ddb7a99ab29c8480ba5ce9af0\\nuget",
       "outputPath": "E:\\headlessDCGO_new\\tests\\G3K-002.Timing.priority.helper.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [

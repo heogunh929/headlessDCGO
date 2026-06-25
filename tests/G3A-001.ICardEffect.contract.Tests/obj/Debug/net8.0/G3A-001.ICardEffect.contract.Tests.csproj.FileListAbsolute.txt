@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3A-001.ICardEffect.contract.Tests\obj\Debug\net8.0\re
 E:\headlessDCGO_new\tests\G3A-001.ICardEffect.contract.Tests\obj\Debug\net8.0\G3A-001.ICardEffect.contract.Tests.pdb
 E:\headlessDCGO_new\tests\G3A-001.ICardEffect.contract.Tests\obj\Debug\net8.0\G3A-001.ICardEffect.contract.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3A-001.ICardEffect.contract.Tests\obj\Debug\net8.0\ref\G3A-001.ICardEffect.contract.Tests.dll
+E:\headlessDCGO_new\tests\G3A-001.ICardEffect.contract.Tests\obj\Debug\net8.0\G3A-001.ICardEffect.contract.Tests.sourcelink.json

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2G-001.Attack.declaration.target.Tests\obj\Debug\net8
 E:\headlessDCGO_new\tests\G2G-001.Attack.declaration.target.Tests\obj\Debug\net8.0\G2G-001.Attack.declaration.target.Tests.pdb
 E:\headlessDCGO_new\tests\G2G-001.Attack.declaration.target.Tests\obj\Debug\net8.0\G2G-001.Attack.declaration.target.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2G-001.Attack.declaration.target.Tests\obj\Debug\net8.0\ref\G2G-001.Attack.declaration.target.Tests.dll
+E:\headlessDCGO_new\tests\G2G-001.Attack.declaration.target.Tests\obj\Debug\net8.0\G2G-001.Attack.declaration.target.Tests.sourcelink.json

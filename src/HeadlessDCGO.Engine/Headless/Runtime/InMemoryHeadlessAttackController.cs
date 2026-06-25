@@ -27,7 +27,8 @@ public sealed class InMemoryHeadlessAttackController : IHeadlessAttackController
             isDirectAttack || !targetId.HasValue,
             IsPending: true,
             IsResolved: false,
-            Reason: string.Empty);
+            Reason: string.Empty,
+            Phase: AttackPhase.Declared);
 
         return Current;
     }
@@ -64,7 +65,24 @@ public sealed class InMemoryHeadlessAttackController : IHeadlessAttackController
         {
             IsPending = false,
             IsResolved = true,
-            Reason = reason
+            Reason = reason,
+            Phase = AttackPhase.Resolved
+        };
+
+        return Current;
+    }
+
+    public HeadlessAttackState AdvancePhase(AttackPhase phase, string reason = "")
+    {
+        if (Current.Phase == AttackPhase.None && phase != AttackPhase.None)
+        {
+            return Current;
+        }
+
+        Current = Current with
+        {
+            Phase = phase,
+            Reason = string.IsNullOrWhiteSpace(reason) ? Current.Reason : reason.Trim()
         };
 
         return Current;

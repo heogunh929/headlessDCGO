@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2E-001.PlayCardAction.Tests\obj\Debug\net8.0\refint\G
 E:\headlessDCGO_new\tests\G2E-001.PlayCardAction.Tests\obj\Debug\net8.0\G2E-001.PlayCardAction.Tests.pdb
 E:\headlessDCGO_new\tests\G2E-001.PlayCardAction.Tests\obj\Debug\net8.0\G2E-001.PlayCardAction.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2E-001.PlayCardAction.Tests\obj\Debug\net8.0\ref\G2E-001.PlayCardAction.Tests.dll
+E:\headlessDCGO_new\tests\G2E-001.PlayCardAction.Tests\obj\Debug\net8.0\G2E-001.PlayCardAction.Tests.sourcelink.json

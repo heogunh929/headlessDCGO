@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3I-001.Replacement.prevention.helper.Tests\obj\Debug\
 E:\headlessDCGO_new\tests\G3I-001.Replacement.prevention.helper.Tests\obj\Debug\net8.0\G3I-001.Replacement.prevention.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3I-001.Replacement.prevention.helper.Tests\obj\Debug\net8.0\G3I-001.Replacement.prevention.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3I-001.Replacement.prevention.helper.Tests\obj\Debug\net8.0\ref\G3I-001.Replacement.prevention.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3I-001.Replacement.prevention.helper.Tests\obj\Debug\net8.0\G3I-001.Replacement.prevention.helper.Tests.sourcelink.json

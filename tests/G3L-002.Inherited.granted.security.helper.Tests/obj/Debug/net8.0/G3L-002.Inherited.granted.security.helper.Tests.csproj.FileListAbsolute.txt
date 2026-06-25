@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G3L-002.Inherited.granted.security.helper.Tests\obj\De
 E:\headlessDCGO_new\tests\G3L-002.Inherited.granted.security.helper.Tests\obj\Debug\net8.0\G3L-002.Inherited.granted.security.helper.Tests.pdb
 E:\headlessDCGO_new\tests\G3L-002.Inherited.granted.security.helper.Tests\obj\Debug\net8.0\G3L-002.Inherited.granted.security.helper.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G3L-002.Inherited.granted.security.helper.Tests\obj\Debug\net8.0\ref\G3L-002.Inherited.granted.security.helper.Tests.dll
+E:\headlessDCGO_new\tests\G3L-002.Inherited.granted.security.helper.Tests\obj\Debug\net8.0\G3L-002.Inherited.granted.security.helper.Tests.sourcelink.json

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2E-004.Attack.action.Tests\obj\Debug\net8.0\refint\G2
 E:\headlessDCGO_new\tests\G2E-004.Attack.action.Tests\obj\Debug\net8.0\G2E-004.Attack.action.Tests.pdb
 E:\headlessDCGO_new\tests\G2E-004.Attack.action.Tests\obj\Debug\net8.0\G2E-004.Attack.action.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2E-004.Attack.action.Tests\obj\Debug\net8.0\ref\G2E-004.Attack.action.Tests.dll
+E:\headlessDCGO_new\tests\G2E-004.Attack.action.Tests\obj\Debug\net8.0\G2E-004.Attack.action.Tests.sourcelink.json

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("G3F-001.Target.filtering.helper.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+59031f85fb920f944e811d4e26e6b65f9b858c9e")]
 [assembly: System.Reflection.AssemblyProductAttribute("G3F-001.Target.filtering.helper.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("G3F-001.Target.filtering.helper.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

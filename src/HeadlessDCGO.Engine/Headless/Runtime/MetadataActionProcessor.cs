@@ -436,9 +436,29 @@ public sealed class MetadataActionProcessor : IActionProcessor
 
         try
         {
+            ChoiceRequest pendingRequest = context.ChoiceController.PendingRequest!;
             ChoiceResult result = await context.ChoiceProvider
-                .ChooseAsync(context.ChoiceController.PendingRequest, cancellationToken)
+                .ChooseAsync(pendingRequest, cancellationToken)
                 .ConfigureAwait(false);
+
+            // Block-timing choices must flow through BlockTiming so the blocker selection is applied
+            // to the attack state (SelectBlocker); a plain ResolveChoice would clear the choice
+            // without ever updating the pending attack (G3.5-005).
+            if (pendingRequest.Type == ChoiceType.Blocker)
+            {
+                BlockTimingResult block = new BlockTiming().ResolveBlockChoice(context, result);
+                if (!block.IsSuccess)
+                {
+                    Dictionary<string, object?> blockFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    blockFailure["error"] = block.FailureReason;
+                    return ActionProcessResult.Failure("Block choice resolve failed.", blockFailure);
+                }
+
+                Dictionary<string, object?> blockMetadata = MetadataWithChoice(action, block.Choice);
+                blockMetadata[HeadlessActionParameterKeys.BlockerId] = block.BlockerId?.Value;
+                return ActionProcessResult.Success("Block choice resolved.", blockMetadata);
+            }
+
             HeadlessChoiceState choice = context.ChoiceController.ResolveChoice(result);
             return ActionProcessResult.Success("Choice resolved.", MetadataWithChoice(action, choice));
         }

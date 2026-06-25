@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2G-003.Battle.DP.deletion.Tests\obj\Debug\net8.0\refi
 E:\headlessDCGO_new\tests\G2G-003.Battle.DP.deletion.Tests\obj\Debug\net8.0\G2G-003.Battle.DP.deletion.Tests.pdb
 E:\headlessDCGO_new\tests\G2G-003.Battle.DP.deletion.Tests\obj\Debug\net8.0\G2G-003.Battle.DP.deletion.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2G-003.Battle.DP.deletion.Tests\obj\Debug\net8.0\ref\G2G-003.Battle.DP.deletion.Tests.dll
+E:\headlessDCGO_new\tests\G2G-003.Battle.DP.deletion.Tests\obj\Debug\net8.0\G2G-003.Battle.DP.deletion.Tests.sourcelink.json

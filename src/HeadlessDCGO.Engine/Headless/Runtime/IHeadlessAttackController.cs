@@ -19,6 +19,8 @@ public interface IHeadlessAttackController : IHeadlessMatchStateResettable
 
     HeadlessAttackState ResolveAttack(string reason = "");
 
+    HeadlessAttackState AdvancePhase(AttackPhase phase, string reason = "");
+
     HeadlessAttackState ClearAttack();
 
     HeadlessAttackState ResetTurnAttackState();

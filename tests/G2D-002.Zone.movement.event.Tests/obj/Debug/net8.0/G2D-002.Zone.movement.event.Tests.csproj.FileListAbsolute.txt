@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2D-002.Zone.movement.event.Tests\obj\Debug\net8.0\ref
 E:\headlessDCGO_new\tests\G2D-002.Zone.movement.event.Tests\obj\Debug\net8.0\G2D-002.Zone.movement.event.Tests.pdb
 E:\headlessDCGO_new\tests\G2D-002.Zone.movement.event.Tests\obj\Debug\net8.0\G2D-002.Zone.movement.event.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2D-002.Zone.movement.event.Tests\obj\Debug\net8.0\ref\G2D-002.Zone.movement.event.Tests.dll
+E:\headlessDCGO_new\tests\G2D-002.Zone.movement.event.Tests\obj\Debug\net8.0\G2D-002.Zone.movement.event.Tests.sourcelink.json

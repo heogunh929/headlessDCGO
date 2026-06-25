@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2A-003.Draw.Unsuspend.Breeding.phase.Tests\obj\Debug\
 E:\headlessDCGO_new\tests\G2A-003.Draw.Unsuspend.Breeding.phase.Tests\obj\Debug\net8.0\G2A-003.Draw.Unsuspend.Breeding.phase.Tests.pdb
 E:\headlessDCGO_new\tests\G2A-003.Draw.Unsuspend.Breeding.phase.Tests\obj\Debug\net8.0\G2A-003.Draw.Unsuspend.Breeding.phase.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2A-003.Draw.Unsuspend.Breeding.phase.Tests\obj\Debug\net8.0\ref\G2A-003.Draw.Unsuspend.Breeding.phase.Tests.dll
+E:\headlessDCGO_new\tests\G2A-003.Draw.Unsuspend.Breeding.phase.Tests\obj\Debug\net8.0\G2A-003.Draw.Unsuspend.Breeding.phase.Tests.sourcelink.json

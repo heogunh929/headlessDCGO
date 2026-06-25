@@ -12,3 +12,4 @@ E:\headlessDCGO_new\tests\G2Z-001.Phase.2.aggregate.result.Tests\obj\Debug\net8.
 E:\headlessDCGO_new\tests\G2Z-001.Phase.2.aggregate.result.Tests\obj\Debug\net8.0\G2Z-001.Phase.2.aggregate.result.Tests.pdb
 E:\headlessDCGO_new\tests\G2Z-001.Phase.2.aggregate.result.Tests\obj\Debug\net8.0\G2Z-001.Phase.2.aggregate.result.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2Z-001.Phase.2.aggregate.result.Tests\obj\Debug\net8.0\ref\G2Z-001.Phase.2.aggregate.result.Tests.dll
+E:\headlessDCGO_new\tests\G2Z-001.Phase.2.aggregate.result.Tests\obj\Debug\net8.0\G2Z-001.Phase.2.aggregate.result.Tests.sourcelink.json

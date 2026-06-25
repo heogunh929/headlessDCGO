@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1F-003.EffectScheduler.Tests\obj\Debug\net8.0\refint\
 E:\headlessDCGO_new\tests\G1F-003.EffectScheduler.Tests\obj\Debug\net8.0\G1F-003.EffectScheduler.Tests.pdb
 E:\headlessDCGO_new\tests\G1F-003.EffectScheduler.Tests\obj\Debug\net8.0\G1F-003.EffectScheduler.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1F-003.EffectScheduler.Tests\obj\Debug\net8.0\ref\G1F-003.EffectScheduler.Tests.dll
+E:\headlessDCGO_new\tests\G1F-003.EffectScheduler.Tests\obj\Debug\net8.0\G1F-003.EffectScheduler.Tests.sourcelink.json

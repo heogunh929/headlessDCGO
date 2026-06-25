@@ -47,7 +47,10 @@ public sealed class SecurityResolver
         IReadOnlyList<HeadlessEntityId> security = zoneReader!.GetCards(attack.DefendingPlayerId!.Value, ChoiceZone.Security);
         if (security.Count == 0)
         {
-            return SecurityResolutionResult.Failure("Defending player has no security cards to check.", attack);
+            return SecurityResolutionResult.Failure(
+                "Defending player has no security cards to check.",
+                attack,
+                defenderHasNoSecurity: true);
         }
 
         int checkCount = Math.Min(strike, security.Count);
@@ -226,11 +229,13 @@ public sealed record SecurityResolutionResult(
     int? Strike,
     IReadOnlyList<HeadlessEntityId> CheckedCardIds,
     IReadOnlyList<ZoneMoveResult> MovementResults,
-    bool AttackResolved)
+    bool AttackResolved,
+    bool DefenderHasNoSecurity = false)
 {
     public static SecurityResolutionResult Failure(
         string failureReason,
-        HeadlessAttackState attack)
+        HeadlessAttackState attack,
+        bool defenderHasNoSecurity = false)
     {
         return new SecurityResolutionResult(
             false,
@@ -240,7 +245,8 @@ public sealed record SecurityResolutionResult(
             null,
             Array.Empty<HeadlessEntityId>(),
             Array.Empty<ZoneMoveResult>(),
-            AttackResolved: false);
+            AttackResolved: false,
+            DefenderHasNoSecurity: defenderHasNoSecurity);
     }
 
     public static SecurityResolutionResult Success(
