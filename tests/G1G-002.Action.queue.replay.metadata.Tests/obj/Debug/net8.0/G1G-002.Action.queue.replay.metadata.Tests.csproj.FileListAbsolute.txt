@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1G-002.Action.queue.replay.metadata.Tests\obj\Debug\n
 E:\headlessDCGO_new\tests\G1G-002.Action.queue.replay.metadata.Tests\obj\Debug\net8.0\G1G-002.Action.queue.replay.metadata.Tests.pdb
 E:\headlessDCGO_new\tests\G1G-002.Action.queue.replay.metadata.Tests\obj\Debug\net8.0\G1G-002.Action.queue.replay.metadata.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1G-002.Action.queue.replay.metadata.Tests\obj\Debug\net8.0\ref\G1G-002.Action.queue.replay.metadata.Tests.dll
+E:\headlessDCGO_new\tests\G1G-002.Action.queue.replay.metadata.Tests\obj\Debug\net8.0\G1G-002.Action.queue.replay.metadata.Tests.sourcelink.json

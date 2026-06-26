@@ -1,6 +1,8 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using System.Globalization;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -109,7 +111,80 @@ public sealed class AttackPipeline
             context.AttackController.ResolveAttack($"Battle resolution failed: {battle.FailureReason}");
         }
 
+        // G3.5-RL-C2: Piercing — a surviving attacker that deleted the defender in battle also
+        // checks the defending player's security.
+        if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
+        {
+            await ApplyPiercingSecurityAsync(context, attack, cancellationToken).ConfigureAwait(false);
+        }
+
         return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved, battleResolved: true);
+    }
+
+    // G3.5-RL-C2: the security check a Piercing attacker performs after winning a battle. Mirrors a
+    // direct attack's security check (strike-count cards, no-security → defending player loses) but
+    // runs after the battle has already resolved the attack.
+    private static async Task ApplyPiercingSecurityAsync(
+        EngineContext context,
+        HeadlessAttackState attack,
+        CancellationToken cancellationToken)
+    {
+        if (attack.DefendingPlayerId is not HeadlessPlayerId defender ||
+            context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return;
+        }
+
+        int strike = ReadStrike(context, attack.AttackerId);
+        if (strike <= 0)
+        {
+            return;
+        }
+
+        if (zoneReader.GetCards(defender, ChoiceZone.Security).Count == 0)
+        {
+            context.PlayerStatusController.MarkLose(defender, "Piercing security check with no security to check.");
+            return;
+        }
+
+        int available = zoneReader.GetCards(defender, ChoiceZone.Security).Count;
+        int checkCount = Math.Min(strike, available);
+        for (int index = 0; index < checkCount; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<HeadlessEntityId> security = zoneReader.GetCards(defender, ChoiceZone.Security);
+            if (security.Count == 0)
+            {
+                break;
+            }
+
+            await context.ZoneMover.MoveAsync(
+                new ZoneMoveRequest(defender, security[0], ChoiceZone.Security, ChoiceZone.Trash, FaceUp: true),
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static int ReadStrike(EngineContext context, HeadlessEntityId? attackerId)
+    {
+        if (attackerId is not HeadlessEntityId id ||
+            !context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? attacker) ||
+            attacker is null)
+        {
+            return 1;
+        }
+
+        if (attacker.Metadata.TryGetValue(SecurityResolver.StrikeKey, out object? raw) && raw is not null)
+        {
+            return raw switch
+            {
+                int intValue => Math.Max(0, intValue),
+                long longValue when longValue is >= int.MinValue and <= int.MaxValue => Math.Max(0, (int)longValue),
+                string text when int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) => Math.Max(0, parsed),
+                _ => 1
+            };
+        }
+
+        return 1;
     }
 
     private static AttackAdvanceResult AdvanceEndAttack(EngineContext context, HeadlessAttackState attack)

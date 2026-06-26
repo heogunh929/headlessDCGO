@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1D-002.WaitCondition.Tests\obj\Debug\net8.0\refint\G1
 E:\headlessDCGO_new\tests\G1D-002.WaitCondition.Tests\obj\Debug\net8.0\G1D-002.WaitCondition.Tests.pdb
 E:\headlessDCGO_new\tests\G1D-002.WaitCondition.Tests\obj\Debug\net8.0\G1D-002.WaitCondition.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1D-002.WaitCondition.Tests\obj\Debug\net8.0\ref\G1D-002.WaitCondition.Tests.dll
+E:\headlessDCGO_new\tests\G1D-002.WaitCondition.Tests\obj\Debug\net8.0\G1D-002.WaitCondition.Tests.sourcelink.json

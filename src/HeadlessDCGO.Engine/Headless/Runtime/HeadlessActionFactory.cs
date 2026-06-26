@@ -336,6 +336,35 @@ public static class HeadlessActionFactory
         return Create(HeadlessActionTypes.ResolveChoice, playerId, actionId);
     }
 
+    /// <summary>
+    /// Builds a ResolveChoice action that carries the agent's selection (G3.5-RL-A2). When present,
+    /// <c>ResolveChoiceAsync</c> applies this selection directly instead of delegating to the
+    /// choice provider, so the policy — not a scripted provider — decides the outcome.
+    /// </summary>
+    public static LegalAction ResolveChoice(
+        HeadlessPlayerId playerId,
+        ChoiceResult result,
+        string? actionId = null)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        Dictionary<string, object?> parameters = new();
+        if (result.IsSkipped)
+        {
+            parameters[HeadlessActionParameterKeys.ChoiceSkipped] = true;
+        }
+        else if (result.SelectedCount is int selectedCount)
+        {
+            parameters[HeadlessActionParameterKeys.ChoiceSelectedCount] = selectedCount;
+        }
+        else
+        {
+            parameters[HeadlessActionParameterKeys.ChoiceSelectedIds] = result.SelectedIds.ToArray();
+        }
+
+        return Create(HeadlessActionTypes.ResolveChoice, playerId, actionId, parameters);
+    }
+
     public static LegalAction ClearChoice(HeadlessPlayerId playerId, string? actionId = null)
     {
         return Create(HeadlessActionTypes.ClearChoice, playerId, actionId);

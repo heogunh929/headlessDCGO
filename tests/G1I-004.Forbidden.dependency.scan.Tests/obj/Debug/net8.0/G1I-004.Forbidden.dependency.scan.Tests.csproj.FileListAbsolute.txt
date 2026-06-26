@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1I-004.Forbidden.dependency.scan.Tests\obj\Debug\net8
 E:\headlessDCGO_new\tests\G1I-004.Forbidden.dependency.scan.Tests\obj\Debug\net8.0\G1I-004.Forbidden.dependency.scan.Tests.pdb
 E:\headlessDCGO_new\tests\G1I-004.Forbidden.dependency.scan.Tests\obj\Debug\net8.0\G1I-004.Forbidden.dependency.scan.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1I-004.Forbidden.dependency.scan.Tests\obj\Debug\net8.0\ref\G1I-004.Forbidden.dependency.scan.Tests.dll
+E:\headlessDCGO_new\tests\G1I-004.Forbidden.dependency.scan.Tests\obj\Debug\net8.0\G1I-004.Forbidden.dependency.scan.Tests.sourcelink.json

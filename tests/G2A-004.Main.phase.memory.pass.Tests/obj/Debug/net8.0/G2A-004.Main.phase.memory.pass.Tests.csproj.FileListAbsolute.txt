@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2A-004.Main.phase.memory.pass.Tests\obj\Debug\net8.0\
 E:\headlessDCGO_new\tests\G2A-004.Main.phase.memory.pass.Tests\obj\Debug\net8.0\G2A-004.Main.phase.memory.pass.Tests.pdb
 E:\headlessDCGO_new\tests\G2A-004.Main.phase.memory.pass.Tests\obj\Debug\net8.0\G2A-004.Main.phase.memory.pass.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2A-004.Main.phase.memory.pass.Tests\obj\Debug\net8.0\ref\G2A-004.Main.phase.memory.pass.Tests.dll
+E:\headlessDCGO_new\tests\G2A-004.Main.phase.memory.pass.Tests\obj\Debug\net8.0\G2A-004.Main.phase.memory.pass.Tests.sourcelink.json

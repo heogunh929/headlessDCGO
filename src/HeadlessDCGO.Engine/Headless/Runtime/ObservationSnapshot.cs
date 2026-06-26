@@ -205,18 +205,29 @@ public sealed record ZoneObservation
 {
     private int _count;
     private IReadOnlyList<HeadlessEntityId> _cardIds = Array.Empty<HeadlessEntityId>();
+    private IReadOnlyList<CardObservation> _cards = Array.Empty<CardObservation>();
 
     public ZoneObservation(
         ChoiceZone Zone,
         int Count,
-        IReadOnlyList<HeadlessEntityId> CardIds)
+        IReadOnlyList<HeadlessEntityId> CardIds,
+        IReadOnlyList<CardObservation>? Cards = null)
     {
         this.Zone = Zone;
         this.CardIds = CardIds;
         this.Count = Count;
+        this.Cards = Cards ?? Array.Empty<CardObservation>();
     }
 
     public ChoiceZone Zone { get; init; }
+
+    // G3.5-RL-A4b: typed per-card features for cards visible to the observer (empty for hidden /
+    // count-only zones). The flat encoder draws from this; embedding policies can use it directly.
+    public IReadOnlyList<CardObservation> Cards
+    {
+        get => _cards;
+        init => _cards = (value ?? Array.Empty<CardObservation>()).ToArray();
+    }
 
     public int Count
     {

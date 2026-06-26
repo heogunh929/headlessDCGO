@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2D-001.Card.identity.binding.Tests\obj\Debug\net8.0\r
 E:\headlessDCGO_new\tests\G2D-001.Card.identity.binding.Tests\obj\Debug\net8.0\G2D-001.Card.identity.binding.Tests.pdb
 E:\headlessDCGO_new\tests\G2D-001.Card.identity.binding.Tests\obj\Debug\net8.0\G2D-001.Card.identity.binding.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2D-001.Card.identity.binding.Tests\obj\Debug\net8.0\ref\G2D-001.Card.identity.binding.Tests.dll
+E:\headlessDCGO_new\tests\G2D-001.Card.identity.binding.Tests\obj\Debug\net8.0\G2D-001.Card.identity.binding.Tests.sourcelink.json

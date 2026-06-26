@@ -104,8 +104,8 @@ public sealed class ActionEncoder(ActionEncodingOptions? options = null)
 
 public sealed record ActionEncodingOptions
 {
-    public static ActionEncodingOptions Default { get; } = new();
-
+    // NOTE: DefaultActionTypeOrder must be declared before Default. Static field initializers run
+    // in textual order, and Default's instance initializer reads DefaultActionTypeOrder.
     public static IReadOnlyList<string> DefaultActionTypeOrder { get; } = new[]
     {
         HeadlessActionTypes.NoOp,
@@ -137,6 +137,8 @@ public sealed record ActionEncodingOptions
         HeadlessActionTypes.AddMemory,
         HeadlessActionTypes.PayMemory
     };
+
+    public static ActionEncodingOptions Default { get; } = new();
 
     public IReadOnlyList<string> ActionTypeOrder { get; init; } = DefaultActionTypeOrder;
 

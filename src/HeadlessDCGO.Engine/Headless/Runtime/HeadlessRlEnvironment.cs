@@ -1,5 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // TODO: Replace terminal-only reward calculation once win/loss/scoring logic is ported.
@@ -15,14 +17,27 @@ public sealed class HeadlessRlEnvironment
         DcgoMatch? match = null,
         HeadlessRlEnvironmentOptions? options = null)
     {
-        _match = match ?? new DcgoMatch();
         _options = options ?? HeadlessRlEnvironmentOptions.Default;
+        _match = match ?? CreateDefaultMatch(_options);
         _observationEncoder = new ObservationEncoder(_options.ObservationEncoding);
         _actionEncoder = new ActionEncoder(_options.ActionEncoding);
         _rewardCalculator = _options.RewardCalculator;
     }
 
     public DcgoMatch Match => _match;
+
+    private static DcgoMatch CreateDefaultMatch(HeadlessRlEnvironmentOptions options)
+    {
+        IActionLegality? legality = options.EnforceAgentActionLegality
+            ? new LegalActionSetValidator()
+            : null;
+
+        return new DcgoMatch(
+            EngineContext.CreateDefault(),
+            new EngineTrace(),
+            actionProcessor: null,
+            actionLegality: legality);
+    }
 
     public async Task<RlStepResult> InitializeAsync(
         MatchConfig config,
@@ -113,6 +128,32 @@ public sealed class HeadlessRlEnvironment
         return await StepAsync(action, cancellationToken).ConfigureAwait(false);
     }
 
+    // G3.5-RL-A3: act via the fixed factored action space. The index is the position in the
+    // factored mask; out-of-mask indices are rejected (no state mutation) like other step paths.
+    public async Task<RlStepResult> StepByFactoredIndexAsync(
+        int factoredIndex,
+        FactoredActionSchema? schema = null,
+        CancellationToken cancellationToken = default)
+    {
+        FactoredActionMask mask = _match.EncodeFactoredActionMask(schema);
+        if (!mask.TryGetAction(factoredIndex, out LegalAction action))
+        {
+            return RejectMissingAction(
+                $"Rejected unknown factored action index: {factoredIndex}",
+                new Dictionary<string, object?>
+                {
+                    ["factoredIndex"] = factoredIndex
+                });
+        }
+
+        return await StepAsync(action, cancellationToken).ConfigureAwait(false);
+    }
+
+    public FactoredActionMask EncodeFactoredActionMask(FactoredActionSchema? schema = null)
+    {
+        return _match.EncodeFactoredActionMask(schema);
+    }
+
     public async Task<RlStepResult> StepAsync(
         LegalAction action,
         CancellationToken cancellationToken = default)
@@ -142,6 +183,17 @@ public sealed class HeadlessRlEnvironment
         }
 
         StepResult applyResult = await _match.ApplyActionAsync(action, cancellationToken).ConfigureAwait(false);
+
+        // Authoritative boundary rejected the action at apply: no state mutation, no loop step.
+        if (WasRejectedAtApply(applyResult))
+        {
+            RlStepResult rejected = Encode(applyResult);
+            return rejected with
+            {
+                Reward = rejected.Reward + _options.InvalidActionPenalty
+            };
+        }
+
         StepResult stepResult = await _match.StepAsync(cancellationToken).ConfigureAwait(false);
 
         return Encode(stepResult with
@@ -160,15 +212,33 @@ public sealed class HeadlessRlEnvironment
             result,
             _options.PerspectivePlayerId);
 
+        // G3.5-RL-A4: encode the perspective-filtered observation so a self-play agent never
+        // receives an opponent's hidden card identities. Single source of truth for the RL layer.
+        ObservationSnapshot observation = _match.GetObservation(ResolvePerspective());
+
         return new RlStepResult(
             stepResult.IsTerminal,
             stepResult.HasPendingChoice,
-            _observationEncoder.Encode(stepResult.Observation),
+            _observationEncoder.Encode(observation),
             _actionEncoder.Encode(stepResult.ActionMask),
             stepResult.Events,
             result,
             reward.Reward,
             reward.Discount);
+    }
+
+    // G3.5-RL-A4: the viewer whose private information is preserved. A fixed PerspectivePlayerId
+    // (single-agent training) takes precedence; otherwise the current turn player (self-play, where
+    // each decision is made from the acting player's view). Null only when no turn is established.
+    private HeadlessPlayerId? ResolvePerspective()
+    {
+        if (_options.PerspectivePlayerId is { } configured)
+        {
+            return configured;
+        }
+
+        HeadlessPlayerId? turnPlayer = _match.Context.TurnController.Current.TurnPlayerId;
+        return turnPlayer is { IsEmpty: false } ? turnPlayer : null;
     }
 
     private RlStepResult RejectMissingAction(
@@ -189,6 +259,11 @@ public sealed class HeadlessRlEnvironment
         {
             Reward = rejectedResult.Reward + _options.InvalidActionPenalty
         };
+    }
+
+    private static bool WasRejectedAtApply(StepResult applyResult)
+    {
+        return applyResult.Events.Any(gameEvent => gameEvent.Type == GameEventType.InvalidAction);
     }
 
     private static GameEvent CreateInvalidActionEvent(LegalAction action)
@@ -230,4 +305,11 @@ public sealed record HeadlessRlEnvironmentOptions
     public bool RejectActionsOutsideMask { get; init; }
 
     public double InvalidActionPenalty { get; init; }
+
+    /// <summary>
+    /// When true (default), a default-constructed match enforces the single authoritative
+    /// agent-action legality boundary (G3.5-RL-A1): actions outside the current legal set are
+    /// rejected at apply time without mutating state. Ignored when an external match is supplied.
+    /// </summary>
+    public bool EnforceAgentActionLegality { get; init; } = true;
 }

@@ -12,3 +12,4 @@ E:\headlessDCGO_new\tests\G0-002.TestPolicy.Tests\obj\Debug\net8.0\refint\G0-002
 E:\headlessDCGO_new\tests\G0-002.TestPolicy.Tests\obj\Debug\net8.0\G0-002.TestPolicy.Tests.pdb
 E:\headlessDCGO_new\tests\G0-002.TestPolicy.Tests\obj\Debug\net8.0\G0-002.TestPolicy.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G0-002.TestPolicy.Tests\obj\Debug\net8.0\ref\G0-002.TestPolicy.Tests.dll
+E:\headlessDCGO_new\tests\G0-002.TestPolicy.Tests\obj\Debug\net8.0\G0-002.TestPolicy.Tests.sourcelink.json

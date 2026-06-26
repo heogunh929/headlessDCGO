@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1C-001.EngineContext.Tests\obj\Debug\net8.0\refint\G1
 E:\headlessDCGO_new\tests\G1C-001.EngineContext.Tests\obj\Debug\net8.0\G1C-001.EngineContext.Tests.pdb
 E:\headlessDCGO_new\tests\G1C-001.EngineContext.Tests\obj\Debug\net8.0\G1C-001.EngineContext.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1C-001.EngineContext.Tests\obj\Debug\net8.0\ref\G1C-001.EngineContext.Tests.dll
+E:\headlessDCGO_new\tests\G1C-001.EngineContext.Tests\obj\Debug\net8.0\G1C-001.EngineContext.Tests.sourcelink.json

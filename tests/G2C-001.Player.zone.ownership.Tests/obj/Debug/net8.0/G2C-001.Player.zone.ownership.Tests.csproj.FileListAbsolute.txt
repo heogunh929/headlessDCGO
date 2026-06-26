@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2C-001.Player.zone.ownership.Tests\obj\Debug\net8.0\r
 E:\headlessDCGO_new\tests\G2C-001.Player.zone.ownership.Tests\obj\Debug\net8.0\G2C-001.Player.zone.ownership.Tests.pdb
 E:\headlessDCGO_new\tests\G2C-001.Player.zone.ownership.Tests\obj\Debug\net8.0\G2C-001.Player.zone.ownership.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2C-001.Player.zone.ownership.Tests\obj\Debug\net8.0\ref\G2C-001.Player.zone.ownership.Tests.dll
+E:\headlessDCGO_new\tests\G2C-001.Player.zone.ownership.Tests\obj\Debug\net8.0\G2C-001.Player.zone.ownership.Tests.sourcelink.json

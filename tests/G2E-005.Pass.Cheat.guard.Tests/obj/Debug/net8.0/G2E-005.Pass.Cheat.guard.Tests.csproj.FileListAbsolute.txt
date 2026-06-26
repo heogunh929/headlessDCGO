@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2E-005.Pass.Cheat.guard.Tests\obj\Debug\net8.0\refint
 E:\headlessDCGO_new\tests\G2E-005.Pass.Cheat.guard.Tests\obj\Debug\net8.0\G2E-005.Pass.Cheat.guard.Tests.pdb
 E:\headlessDCGO_new\tests\G2E-005.Pass.Cheat.guard.Tests\obj\Debug\net8.0\G2E-005.Pass.Cheat.guard.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2E-005.Pass.Cheat.guard.Tests\obj\Debug\net8.0\ref\G2E-005.Pass.Cheat.guard.Tests.dll
+E:\headlessDCGO_new\tests\G2E-005.Pass.Cheat.guard.Tests\obj\Debug\net8.0\G2E-005.Pass.Cheat.guard.Tests.sourcelink.json

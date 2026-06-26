@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1B-002.MatchState.PlayerState.Tests\obj\Debug\net8.0\
 E:\headlessDCGO_new\tests\G1B-002.MatchState.PlayerState.Tests\obj\Debug\net8.0\G1B-002.MatchState.PlayerState.Tests.pdb
 E:\headlessDCGO_new\tests\G1B-002.MatchState.PlayerState.Tests\obj\Debug\net8.0\G1B-002.MatchState.PlayerState.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1B-002.MatchState.PlayerState.Tests\obj\Debug\net8.0\ref\G1B-002.MatchState.PlayerState.Tests.dll
+E:\headlessDCGO_new\tests\G1B-002.MatchState.PlayerState.Tests\obj\Debug\net8.0\G1B-002.MatchState.PlayerState.Tests.sourcelink.json

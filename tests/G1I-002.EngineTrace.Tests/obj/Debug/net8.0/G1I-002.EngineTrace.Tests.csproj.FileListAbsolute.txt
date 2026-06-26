@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1I-002.EngineTrace.Tests\obj\Debug\net8.0\refint\G1I-
 E:\headlessDCGO_new\tests\G1I-002.EngineTrace.Tests\obj\Debug\net8.0\G1I-002.EngineTrace.Tests.pdb
 E:\headlessDCGO_new\tests\G1I-002.EngineTrace.Tests\obj\Debug\net8.0\G1I-002.EngineTrace.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1I-002.EngineTrace.Tests\obj\Debug\net8.0\ref\G1I-002.EngineTrace.Tests.dll
+E:\headlessDCGO_new\tests\G1I-002.EngineTrace.Tests\obj\Debug\net8.0\G1I-002.EngineTrace.Tests.sourcelink.json

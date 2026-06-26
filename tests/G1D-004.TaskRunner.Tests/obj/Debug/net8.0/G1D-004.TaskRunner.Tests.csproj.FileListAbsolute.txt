@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1D-004.TaskRunner.Tests\obj\Debug\net8.0\refint\G1D-0
 E:\headlessDCGO_new\tests\G1D-004.TaskRunner.Tests\obj\Debug\net8.0\G1D-004.TaskRunner.Tests.pdb
 E:\headlessDCGO_new\tests\G1D-004.TaskRunner.Tests\obj\Debug\net8.0\G1D-004.TaskRunner.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1D-004.TaskRunner.Tests\obj\Debug\net8.0\ref\G1D-004.TaskRunner.Tests.dll
+E:\headlessDCGO_new\tests\G1D-004.TaskRunner.Tests\obj\Debug\net8.0\G1D-004.TaskRunner.Tests.sourcelink.json

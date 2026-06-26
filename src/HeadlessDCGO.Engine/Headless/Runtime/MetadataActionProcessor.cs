@@ -437,9 +437,15 @@ public sealed class MetadataActionProcessor : IActionProcessor
         try
         {
             ChoiceRequest pendingRequest = context.ChoiceController.PendingRequest!;
-            ChoiceResult result = await context.ChoiceProvider
-                .ChooseAsync(pendingRequest, cancellationToken)
-                .ConfigureAwait(false);
+
+            // G3.5-RL-A2: when the action carries the agent's selection, apply it directly so the
+            // policy decides the outcome. Fall back to the choice provider only for legacy /
+            // effect-driven resolution that does not carry a selection.
+            ChoiceResult result = TryReadCarriedChoiceResult(action.Parameters, out ChoiceResult? carried) && carried is not null
+                ? carried
+                : await context.ChoiceProvider
+                    .ChooseAsync(pendingRequest, cancellationToken)
+                    .ConfigureAwait(false);
 
             // Block-timing choices must flow through BlockTiming so the blocker selection is applied
             // to the attack state (SelectBlocker); a plain ResolveChoice would clear the choice
@@ -476,6 +482,38 @@ public sealed class MetadataActionProcessor : IActionProcessor
     {
         HeadlessChoiceState choice = context.ChoiceController.ClearChoice();
         return ActionProcessResult.Success("Choice cleared.", MetadataWithChoice(action, choice));
+    }
+
+    // G3.5-RL-A2: read an agent-supplied selection from a ResolveChoice action.
+    // Returns false when no selection parameter is present (legacy provider-driven path).
+    private static bool TryReadCarriedChoiceResult(
+        IReadOnlyDictionary<string, object?> parameters,
+        out ChoiceResult? result)
+    {
+        bool hasSkip = parameters.ContainsKey(HeadlessActionParameterKeys.ChoiceSkipped);
+        bool hasCount = parameters.ContainsKey(HeadlessActionParameterKeys.ChoiceSelectedCount);
+        bool hasIds = parameters.ContainsKey(HeadlessActionParameterKeys.ChoiceSelectedIds);
+
+        if (!hasSkip && !hasCount && !hasIds)
+        {
+            result = null;
+            return false;
+        }
+
+        if (hasSkip && ReadBoolOrDefault(parameters, HeadlessActionParameterKeys.ChoiceSkipped, defaultValue: false))
+        {
+            result = ChoiceResult.Skip();
+            return true;
+        }
+
+        if (hasCount && TryReadInt(parameters, HeadlessActionParameterKeys.ChoiceSelectedCount, out int selectedCount))
+        {
+            result = ChoiceResult.SelectCount(selectedCount);
+            return true;
+        }
+
+        result = ChoiceResult.Select(ReadEntityIds(parameters, HeadlessActionParameterKeys.ChoiceSelectedIds));
+        return true;
     }
 
     private static async Task<ActionProcessResult> ShuffleDeckAsync(

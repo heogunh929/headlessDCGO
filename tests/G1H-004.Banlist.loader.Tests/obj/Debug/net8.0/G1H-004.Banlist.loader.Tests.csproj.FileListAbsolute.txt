@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1H-004.Banlist.loader.Tests\obj\Debug\net8.0\refint\G
 E:\headlessDCGO_new\tests\G1H-004.Banlist.loader.Tests\obj\Debug\net8.0\G1H-004.Banlist.loader.Tests.pdb
 E:\headlessDCGO_new\tests\G1H-004.Banlist.loader.Tests\obj\Debug\net8.0\G1H-004.Banlist.loader.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1H-004.Banlist.loader.Tests\obj\Debug\net8.0\ref\G1H-004.Banlist.loader.Tests.dll
+E:\headlessDCGO_new\tests\G1H-004.Banlist.loader.Tests\obj\Debug\net8.0\G1H-004.Banlist.loader.Tests.sourcelink.json

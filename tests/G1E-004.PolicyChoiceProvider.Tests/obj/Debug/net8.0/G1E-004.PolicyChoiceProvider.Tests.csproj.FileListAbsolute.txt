@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1E-004.PolicyChoiceProvider.Tests\obj\Debug\net8.0\re
 E:\headlessDCGO_new\tests\G1E-004.PolicyChoiceProvider.Tests\obj\Debug\net8.0\G1E-004.PolicyChoiceProvider.Tests.pdb
 E:\headlessDCGO_new\tests\G1E-004.PolicyChoiceProvider.Tests\obj\Debug\net8.0\G1E-004.PolicyChoiceProvider.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1E-004.PolicyChoiceProvider.Tests\obj\Debug\net8.0\ref\G1E-004.PolicyChoiceProvider.Tests.dll
+E:\headlessDCGO_new\tests\G1E-004.PolicyChoiceProvider.Tests\obj\Debug\net8.0\G1E-004.PolicyChoiceProvider.Tests.sourcelink.json

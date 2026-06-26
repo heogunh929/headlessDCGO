@@ -27,7 +27,7 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d627835395da0cd3f0578af1a38813f1\\nuget": {}
+    "C:\\Users\\HG\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
@@ -35,7 +35,7 @@
       "projectUniqueName": "E:\\headlessDCGO_new\\tests\\G3G-001.Keyword.base.batch.1.Tests\\G3G-001.Keyword.base.batch.1.Tests.csproj",
       "projectName": "G3G-001.Keyword.base.batch.1.Tests",
       "projectPath": "E:\\headlessDCGO_new\\tests\\G3G-001.Keyword.base.batch.1.Tests\\G3G-001.Keyword.base.batch.1.Tests.csproj",
-      "packagesPath": "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d627835395da0cd3f0578af1a38813f1\\nuget",
+      "packagesPath": "C:\\Users\\HG\\.nuget\\packages\\",
       "outputPath": "E:\\headlessDCGO_new\\tests\\G3G-001.Keyword.base.batch.1.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [

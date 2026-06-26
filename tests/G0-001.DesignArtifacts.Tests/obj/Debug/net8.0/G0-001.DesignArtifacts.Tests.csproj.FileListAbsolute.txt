@@ -12,3 +12,4 @@ E:\headlessDCGO_new\tests\G0-001.DesignArtifacts.Tests\obj\Debug\net8.0\refint\G
 E:\headlessDCGO_new\tests\G0-001.DesignArtifacts.Tests\obj\Debug\net8.0\G0-001.DesignArtifacts.Tests.pdb
 E:\headlessDCGO_new\tests\G0-001.DesignArtifacts.Tests\obj\Debug\net8.0\G0-001.DesignArtifacts.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G0-001.DesignArtifacts.Tests\obj\Debug\net8.0\ref\G0-001.DesignArtifacts.Tests.dll
+E:\headlessDCGO_new\tests\G0-001.DesignArtifacts.Tests\obj\Debug\net8.0\G0-001.DesignArtifacts.Tests.sourcelink.json

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1F-002.EffectResolutionQueue.Tests\obj\Debug\net8.0\r
 E:\headlessDCGO_new\tests\G1F-002.EffectResolutionQueue.Tests\obj\Debug\net8.0\G1F-002.EffectResolutionQueue.Tests.pdb
 E:\headlessDCGO_new\tests\G1F-002.EffectResolutionQueue.Tests\obj\Debug\net8.0\G1F-002.EffectResolutionQueue.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1F-002.EffectResolutionQueue.Tests\obj\Debug\net8.0\ref\G1F-002.EffectResolutionQueue.Tests.dll
+E:\headlessDCGO_new\tests\G1F-002.EffectResolutionQueue.Tests\obj\Debug\net8.0\G1F-002.EffectResolutionQueue.Tests.sourcelink.json

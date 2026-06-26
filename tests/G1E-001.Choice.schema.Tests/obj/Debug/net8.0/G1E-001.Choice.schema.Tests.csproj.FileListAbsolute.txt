@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1E-001.Choice.schema.Tests\obj\Debug\net8.0\refint\G1
 E:\headlessDCGO_new\tests\G1E-001.Choice.schema.Tests\obj\Debug\net8.0\G1E-001.Choice.schema.Tests.pdb
 E:\headlessDCGO_new\tests\G1E-001.Choice.schema.Tests\obj\Debug\net8.0\G1E-001.Choice.schema.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1E-001.Choice.schema.Tests\obj\Debug\net8.0\ref\G1E-001.Choice.schema.Tests.dll
+E:\headlessDCGO_new\tests\G1E-001.Choice.schema.Tests\obj\Debug\net8.0\G1E-001.Choice.schema.Tests.sourcelink.json

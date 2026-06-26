@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2A-001.Phase.enum.state.mapping.Tests\obj\Debug\net8.
 E:\headlessDCGO_new\tests\G2A-001.Phase.enum.state.mapping.Tests\obj\Debug\net8.0\G2A-001.Phase.enum.state.mapping.Tests.pdb
 E:\headlessDCGO_new\tests\G2A-001.Phase.enum.state.mapping.Tests\obj\Debug\net8.0\G2A-001.Phase.enum.state.mapping.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2A-001.Phase.enum.state.mapping.Tests\obj\Debug\net8.0\ref\G2A-001.Phase.enum.state.mapping.Tests.dll
+E:\headlessDCGO_new\tests\G2A-001.Phase.enum.state.mapping.Tests\obj\Debug\net8.0\G2A-001.Phase.enum.state.mapping.Tests.sourcelink.json

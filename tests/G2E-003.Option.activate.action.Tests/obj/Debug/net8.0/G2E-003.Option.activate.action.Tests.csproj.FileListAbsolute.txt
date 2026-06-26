@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2E-003.Option.activate.action.Tests\obj\Debug\net8.0\
 E:\headlessDCGO_new\tests\G2E-003.Option.activate.action.Tests\obj\Debug\net8.0\G2E-003.Option.activate.action.Tests.pdb
 E:\headlessDCGO_new\tests\G2E-003.Option.activate.action.Tests\obj\Debug\net8.0\G2E-003.Option.activate.action.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2E-003.Option.activate.action.Tests\obj\Debug\net8.0\ref\G2E-003.Option.activate.action.Tests.dll
+E:\headlessDCGO_new\tests\G2E-003.Option.activate.action.Tests\obj\Debug\net8.0\G2E-003.Option.activate.action.Tests.sourcelink.json

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("G2A-004.Main.phase.memory.pass.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6e1748cad86868138e3bcc6a093e523a38c3874b")]
 [assembly: System.Reflection.AssemblyProductAttribute("G2A-004.Main.phase.memory.pass.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("G2A-004.Main.phase.memory.pass.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2F-002.Mandatory.effect.ordering.Tests\obj\Debug\net8
 E:\headlessDCGO_new\tests\G2F-002.Mandatory.effect.ordering.Tests\obj\Debug\net8.0\G2F-002.Mandatory.effect.ordering.Tests.pdb
 E:\headlessDCGO_new\tests\G2F-002.Mandatory.effect.ordering.Tests\obj\Debug\net8.0\G2F-002.Mandatory.effect.ordering.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2F-002.Mandatory.effect.ordering.Tests\obj\Debug\net8.0\ref\G2F-002.Mandatory.effect.ordering.Tests.dll
+E:\headlessDCGO_new\tests\G2F-002.Mandatory.effect.ordering.Tests\obj\Debug\net8.0\G2F-002.Mandatory.effect.ordering.Tests.sourcelink.json

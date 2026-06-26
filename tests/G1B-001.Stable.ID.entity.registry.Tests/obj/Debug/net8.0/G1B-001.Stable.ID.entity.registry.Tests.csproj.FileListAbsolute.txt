@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1B-001.Stable.ID.entity.registry.Tests\obj\Debug\net8
 E:\headlessDCGO_new\tests\G1B-001.Stable.ID.entity.registry.Tests\obj\Debug\net8.0\G1B-001.Stable.ID.entity.registry.Tests.pdb
 E:\headlessDCGO_new\tests\G1B-001.Stable.ID.entity.registry.Tests\obj\Debug\net8.0\G1B-001.Stable.ID.entity.registry.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1B-001.Stable.ID.entity.registry.Tests\obj\Debug\net8.0\ref\G1B-001.Stable.ID.entity.registry.Tests.dll
+E:\headlessDCGO_new\tests\G1B-001.Stable.ID.entity.registry.Tests\obj\Debug\net8.0\G1B-001.Stable.ID.entity.registry.Tests.sourcelink.json

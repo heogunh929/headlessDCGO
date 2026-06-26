@@ -28,6 +28,9 @@ public sealed class EffectScheduler
 
     public int LastResolvedCount { get; private set; }
 
+    // G3.5-RL-B3: how many resolutions had no bound effect body (skeleton coverage gaps).
+    public int TotalUnboundCount { get; private set; }
+
     public void Enqueue(EffectRequest request)
     {
         Enqueue(request, EffectResolutionMode.Unknown);
@@ -48,6 +51,7 @@ public sealed class EffectScheduler
         TotalEnqueuedCount = 0;
         TotalResolvedCount = 0;
         LastResolvedCount = 0;
+        TotalUnboundCount = 0;
     }
 
     public async Task<EffectResult> ResolveNextAsync(CancellationToken cancellationToken = default)
@@ -97,6 +101,11 @@ public sealed class EffectScheduler
         }
 
         TotalResolvedCount++;
+        if (result.IsUnbound)
+        {
+            TotalUnboundCount++;
+        }
+
         LastResolvedCount = 1;
         return result;
     }

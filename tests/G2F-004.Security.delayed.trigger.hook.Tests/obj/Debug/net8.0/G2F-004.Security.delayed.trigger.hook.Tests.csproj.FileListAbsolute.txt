@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2F-004.Security.delayed.trigger.hook.Tests\obj\Debug\
 E:\headlessDCGO_new\tests\G2F-004.Security.delayed.trigger.hook.Tests\obj\Debug\net8.0\G2F-004.Security.delayed.trigger.hook.Tests.pdb
 E:\headlessDCGO_new\tests\G2F-004.Security.delayed.trigger.hook.Tests\obj\Debug\net8.0\G2F-004.Security.delayed.trigger.hook.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2F-004.Security.delayed.trigger.hook.Tests\obj\Debug\net8.0\ref\G2F-004.Security.delayed.trigger.hook.Tests.dll
+E:\headlessDCGO_new\tests\G2F-004.Security.delayed.trigger.hook.Tests\obj\Debug\net8.0\G2F-004.Security.delayed.trigger.hook.Tests.sourcelink.json

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1E-002.ChoiceResult.validation.Tests\obj\Debug\net8.0
 E:\headlessDCGO_new\tests\G1E-002.ChoiceResult.validation.Tests\obj\Debug\net8.0\G1E-002.ChoiceResult.validation.Tests.pdb
 E:\headlessDCGO_new\tests\G1E-002.ChoiceResult.validation.Tests\obj\Debug\net8.0\G1E-002.ChoiceResult.validation.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1E-002.ChoiceResult.validation.Tests\obj\Debug\net8.0\ref\G1E-002.ChoiceResult.validation.Tests.dll
+E:\headlessDCGO_new\tests\G1E-002.ChoiceResult.validation.Tests\obj\Debug\net8.0\G1E-002.ChoiceResult.validation.Tests.sourcelink.json

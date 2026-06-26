@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2B-001.GameContext.state.accessor.Tests\obj\Debug\net
 E:\headlessDCGO_new\tests\G2B-001.GameContext.state.accessor.Tests\obj\Debug\net8.0\G2B-001.GameContext.state.accessor.Tests.pdb
 E:\headlessDCGO_new\tests\G2B-001.GameContext.state.accessor.Tests\obj\Debug\net8.0\G2B-001.GameContext.state.accessor.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2B-001.GameContext.state.accessor.Tests\obj\Debug\net8.0\ref\G2B-001.GameContext.state.accessor.Tests.dll
+E:\headlessDCGO_new\tests\G2B-001.GameContext.state.accessor.Tests\obj\Debug\net8.0\G2B-001.GameContext.state.accessor.Tests.sourcelink.json

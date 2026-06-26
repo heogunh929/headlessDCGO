@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -50,8 +51,9 @@ public sealed class GameFlowProcessor
             iterations++;
             bool progressed = false;
 
-            // 1) Rule processing (DP cleanup, continuous effects). Wired in G3.5-007.
-            progressed |= RuleProcess(context);
+            // 1) Rule processing (state-based actions): cleanup of cards flagged for deletion
+            //    (G3.5-RL-C1). Deck-out loss is marked at draw time and consolidated by EndTurnCheck.
+            progressed |= await RuleProcessAsync(context, cancellationToken).ConfigureAwait(false);
 
             // 2) Auto-processing: collect triggers from pending game events (G3.5-006) and resolve
             //    the effect scheduler (G3.5-001/002).
@@ -90,10 +92,82 @@ public sealed class GameFlowProcessor
         return FlowProcessResult.Stable(progressedAny, resolvedTotal, iterations);
     }
 
-    private static bool RuleProcess(EngineContext context)
+    /// <summary>Marks a card instance for state-based deletion. Effects set this flag; the rule
+    /// process sweeps flagged cards off the field into the trash.</summary>
+    public const string PendingDeletionKey = "pendingDeletion";
+
+    private static readonly ChoiceZone[] FieldZones =
     {
-        // Placeholder: continuous/rule processing is wired in G3.5-007.
-        return false;
+        ChoiceZone.BattleArea,
+        ChoiceZone.BreedingArea
+    };
+
+    /// <summary>
+    /// (G3.5-RL-C1) State-based action pass. Sweeps cards flagged <see cref="PendingDeletionKey"/>
+    /// that still occupy a field zone into the trash and clears the flag — the uniform deletion path
+    /// for ported effects (the AS-IS rule timing's deletion cleanup). Returns true when it acts so
+    /// the common loop keeps iterating until the board is stable.
+    /// </summary>
+    private static async Task<bool> RuleProcessAsync(
+        EngineContext context,
+        CancellationToken cancellationToken)
+    {
+        if (context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return false;
+        }
+
+        bool progressed = false;
+        foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
+        {
+            if (playerId.IsEmpty)
+            {
+                continue;
+            }
+
+            foreach (ChoiceZone zone in FieldZones)
+            {
+                foreach (HeadlessEntityId cardId in zoneReader.GetCards(playerId, zone).ToArray())
+                {
+                    if (!IsPendingDeletion(context, cardId))
+                    {
+                        continue;
+                    }
+
+                    ClearPendingDeletion(context, cardId);
+                    await context.ZoneMover.MoveAsync(
+                        new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
+                        cancellationToken).ConfigureAwait(false);
+                    progressed = true;
+                }
+            }
+        }
+
+        return progressed;
+    }
+
+    private static bool IsPendingDeletion(EngineContext context, HeadlessEntityId cardId)
+    {
+        return context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) &&
+            instance is not null &&
+            instance.Metadata.TryGetValue(PendingDeletionKey, out object? raw) &&
+            raw is bool flag &&
+            flag;
+    }
+
+    private static void ClearPendingDeletion(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||
+            instance is null)
+        {
+            return;
+        }
+
+        Dictionary<string, object?> metadata = new(instance.Metadata, StringComparer.Ordinal)
+        {
+            [PendingDeletionKey] = false
+        };
+        context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
     }
 
     /// <summary>

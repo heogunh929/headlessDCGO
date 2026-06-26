@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1F-004.TimingWindowResolver.contract.Tests\obj\Debug\
 E:\headlessDCGO_new\tests\G1F-004.TimingWindowResolver.contract.Tests\obj\Debug\net8.0\G1F-004.TimingWindowResolver.contract.Tests.pdb
 E:\headlessDCGO_new\tests\G1F-004.TimingWindowResolver.contract.Tests\obj\Debug\net8.0\G1F-004.TimingWindowResolver.contract.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1F-004.TimingWindowResolver.contract.Tests\obj\Debug\net8.0\ref\G1F-004.TimingWindowResolver.contract.Tests.dll
+E:\headlessDCGO_new\tests\G1F-004.TimingWindowResolver.contract.Tests\obj\Debug\net8.0\G1F-004.TimingWindowResolver.contract.Tests.sourcelink.json

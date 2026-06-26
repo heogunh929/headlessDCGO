@@ -12,3 +12,4 @@ E:\headlessDCGO_new\tests\G0-003.Phase1Gate.Tests\obj\Debug\net8.0\refint\G0-003
 E:\headlessDCGO_new\tests\G0-003.Phase1Gate.Tests\obj\Debug\net8.0\G0-003.Phase1Gate.Tests.pdb
 E:\headlessDCGO_new\tests\G0-003.Phase1Gate.Tests\obj\Debug\net8.0\G0-003.Phase1Gate.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G0-003.Phase1Gate.Tests\obj\Debug\net8.0\ref\G0-003.Phase1Gate.Tests.dll
+E:\headlessDCGO_new\tests\G0-003.Phase1Gate.Tests\obj\Debug\net8.0\G0-003.Phase1Gate.Tests.sourcelink.json

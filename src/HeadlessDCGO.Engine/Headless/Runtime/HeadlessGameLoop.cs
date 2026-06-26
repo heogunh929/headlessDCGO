@@ -5,6 +5,7 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
 
 public sealed class HeadlessGameLoop(
     EngineContext context,
@@ -156,7 +157,8 @@ public sealed class HeadlessGameLoop(
 
     public ObservationSnapshot GetObservation(
         bool isTerminal,
-        IEnumerable<HeadlessPlayerId>? playerIds = null)
+        IEnumerable<HeadlessPlayerId>? playerIds = null,
+        HeadlessPlayerId? perspectivePlayerId = null)
     {
         return new ObservationSnapshot(
             _stepIndex,
@@ -175,9 +177,10 @@ public sealed class HeadlessGameLoop(
                 Context.EffectScheduler.PendingCount,
                 Context.EffectScheduler.TotalEnqueuedCount,
                 Context.EffectScheduler.TotalResolvedCount,
-                Context.EffectScheduler.LastResolvedCount),
+                Context.EffectScheduler.LastResolvedCount,
+                Context.EffectScheduler.TotalUnboundCount),
             Context.MemoryController.Current,
-            BuildPlayerObservations(playerIds ?? Array.Empty<HeadlessPlayerId>()));
+            BuildPlayerObservations(playerIds ?? Array.Empty<HeadlessPlayerId>(), perspectivePlayerId));
     }
 
     public ActionMask GetActionMask(IEnumerable<HeadlessPlayerId> playerIds)
@@ -222,7 +225,8 @@ public sealed class HeadlessGameLoop(
     }
 
     private IReadOnlyList<PlayerObservation> BuildPlayerObservations(
-        IEnumerable<HeadlessPlayerId> playerIds)
+        IEnumerable<HeadlessPlayerId> playerIds,
+        HeadlessPlayerId? perspectivePlayerId)
     {
         HeadlessPlayerId[] distinctPlayerIds = playerIds.Distinct().ToArray();
         if (distinctPlayerIds.Length == 0)
@@ -235,13 +239,19 @@ public sealed class HeadlessGameLoop(
         return distinctPlayerIds
             .Select(playerId => new PlayerObservation(
                 playerId,
-                BuildZoneObservations(zoneReader, playerId)))
+                BuildZoneObservations(zoneReader, playerId, perspectivePlayerId)))
             .ToArray();
     }
 
-    private static IReadOnlyList<ZoneObservation> BuildZoneObservations(
+    // G3.5-RL-A4: when a perspective viewer is supplied, hidden zones (Library/Hand/Security/
+    // DigitamaLibrary) of players other than the viewer are exposed as count-only — the card ids
+    // are withheld so a self-play agent cannot read its opponent's private information.
+    // A null perspective preserves the full ("god's-eye") view for debugging and legacy callers.
+    // G3.5-RL-A4b: visible cards additionally carry typed per-card features (DP/level/cost/...).
+    private IReadOnlyList<ZoneObservation> BuildZoneObservations(
         IZoneStateReader? zoneReader,
-        HeadlessPlayerId playerId)
+        HeadlessPlayerId playerId,
+        HeadlessPlayerId? perspectivePlayerId)
     {
         IReadOnlyDictionary<ChoiceZone, IReadOnlyList<HeadlessEntityId>> snapshot =
             zoneReader?.Snapshot(playerId) ??
@@ -254,9 +264,33 @@ public sealed class HeadlessGameLoop(
                     ? cards.ToArray()
                     : Array.Empty<HeadlessEntityId>();
 
-                return new ZoneObservation(zone, cardIds.Length, cardIds);
+                bool hiddenFromViewer =
+                    perspectivePlayerId is { } viewer &&
+                    viewer != playerId &&
+                    ZoneState.DefaultVisibility(zone) == ZoneVisibility.Hidden;
+
+                // Count is always preserved; only the card identities are withheld when hidden.
+                if (hiddenFromViewer)
+                {
+                    return new ZoneObservation(zone, cardIds.Length, Array.Empty<HeadlessEntityId>());
+                }
+
+                CardObservation[] cardObservations = cardIds.Select(BuildCardObservation).ToArray();
+                return new ZoneObservation(zone, cardIds.Length, cardIds, cardObservations);
             })
             .ToArray();
+    }
+
+    private CardObservation BuildCardObservation(HeadlessEntityId instanceId)
+    {
+        if (!Context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance) ||
+            instance is null)
+        {
+            return new CardObservation(instanceId, string.Empty, "Unknown", 0, 0, 0, 0, false, false, 0);
+        }
+
+        Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition);
+        return CardObservationView.Build(instance, definition);
     }
 }
 

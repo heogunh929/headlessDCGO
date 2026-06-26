@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1D-003.CoroutineAdapter.Tests\obj\Debug\net8.0\refint
 E:\headlessDCGO_new\tests\G1D-003.CoroutineAdapter.Tests\obj\Debug\net8.0\G1D-003.CoroutineAdapter.Tests.pdb
 E:\headlessDCGO_new\tests\G1D-003.CoroutineAdapter.Tests\obj\Debug\net8.0\G1D-003.CoroutineAdapter.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1D-003.CoroutineAdapter.Tests\obj\Debug\net8.0\ref\G1D-003.CoroutineAdapter.Tests.dll
+E:\headlessDCGO_new\tests\G1D-003.CoroutineAdapter.Tests\obj\Debug\net8.0\G1D-003.CoroutineAdapter.Tests.sourcelink.json

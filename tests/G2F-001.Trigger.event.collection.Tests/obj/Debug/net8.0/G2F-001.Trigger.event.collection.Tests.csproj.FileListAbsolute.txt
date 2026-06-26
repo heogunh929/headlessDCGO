@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2F-001.Trigger.event.collection.Tests\obj\Debug\net8.
 E:\headlessDCGO_new\tests\G2F-001.Trigger.event.collection.Tests\obj\Debug\net8.0\G2F-001.Trigger.event.collection.Tests.pdb
 E:\headlessDCGO_new\tests\G2F-001.Trigger.event.collection.Tests\obj\Debug\net8.0\G2F-001.Trigger.event.collection.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2F-001.Trigger.event.collection.Tests\obj\Debug\net8.0\ref\G2F-001.Trigger.event.collection.Tests.dll
+E:\headlessDCGO_new\tests\G2F-001.Trigger.event.collection.Tests\obj\Debug\net8.0\G2F-001.Trigger.event.collection.Tests.sourcelink.json

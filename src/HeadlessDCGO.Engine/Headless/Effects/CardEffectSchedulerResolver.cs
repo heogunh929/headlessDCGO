@@ -28,7 +28,9 @@ public static class CardEffectSchedulerResolver
             EffectBinding? binding = registry.Find(request.EffectId);
             if (binding?.Effect is not { } effect)
             {
-                return EffectResult.Success(
+                // G3.5-RL-B3: report unbound (skeleton) effects as a distinct, countable status
+                // instead of a silent success, while still letting the queue drain.
+                return EffectResult.Unbound(
                     "No card effect body bound to request; skipped.",
                     new Dictionary<string, object?>(StringComparer.Ordinal)
                     {

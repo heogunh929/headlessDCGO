@@ -27,7 +27,7 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d627835395da0cd3f0578af1a38813f1\\nuget": {}
+    "C:\\Users\\HG\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
@@ -35,7 +35,7 @@
       "projectUniqueName": "E:\\headlessDCGO_new\\tests\\G2E-004.Attack.action.Tests\\G2E-004.Attack.action.Tests.csproj",
       "projectName": "G2E-004.Attack.action.Tests",
       "projectPath": "E:\\headlessDCGO_new\\tests\\G2E-004.Attack.action.Tests\\G2E-004.Attack.action.Tests.csproj",
-      "packagesPath": "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\d627835395da0cd3f0578af1a38813f1\\nuget",
+      "packagesPath": "C:\\Users\\HG\\.nuget\\packages\\",
       "outputPath": "E:\\headlessDCGO_new\\tests\\G2E-004.Attack.action.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [

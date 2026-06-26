@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1E-003.ScriptedChoiceProvider.Tests\obj\Debug\net8.0\
 E:\headlessDCGO_new\tests\G1E-003.ScriptedChoiceProvider.Tests\obj\Debug\net8.0\G1E-003.ScriptedChoiceProvider.Tests.pdb
 E:\headlessDCGO_new\tests\G1E-003.ScriptedChoiceProvider.Tests\obj\Debug\net8.0\G1E-003.ScriptedChoiceProvider.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1E-003.ScriptedChoiceProvider.Tests\obj\Debug\net8.0\ref\G1E-003.ScriptedChoiceProvider.Tests.dll
+E:\headlessDCGO_new\tests\G1E-003.ScriptedChoiceProvider.Tests\obj\Debug\net8.0\G1E-003.ScriptedChoiceProvider.Tests.sourcelink.json

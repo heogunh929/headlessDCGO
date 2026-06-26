@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1B-003.ZoneState.Tests\obj\Debug\net8.0\refint\G1B-00
 E:\headlessDCGO_new\tests\G1B-003.ZoneState.Tests\obj\Debug\net8.0\G1B-003.ZoneState.Tests.pdb
 E:\headlessDCGO_new\tests\G1B-003.ZoneState.Tests\obj\Debug\net8.0\G1B-003.ZoneState.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1B-003.ZoneState.Tests\obj\Debug\net8.0\ref\G1B-003.ZoneState.Tests.dll
+E:\headlessDCGO_new\tests\G1B-003.ZoneState.Tests\obj\Debug\net8.0\G1B-003.ZoneState.Tests.sourcelink.json

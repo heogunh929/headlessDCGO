@@ -27,7 +27,7 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\0bc6c86ddb7a99ab29c8480ba5ce9af0\\nuget": {}
+    "C:\\Users\\HG\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
@@ -35,7 +35,7 @@
       "projectUniqueName": "E:\\headlessDCGO_new\\tests\\G1F-003.EffectScheduler.Tests\\G1F-003.EffectScheduler.Tests.csproj",
       "projectName": "G1F-003.EffectScheduler.Tests",
       "projectPath": "E:\\headlessDCGO_new\\tests\\G1F-003.EffectScheduler.Tests\\G1F-003.EffectScheduler.Tests.csproj",
-      "packagesPath": "C:\\Users\\HG\\AppData\\Local\\Temp\\cursor-sandbox-cache\\0bc6c86ddb7a99ab29c8480ba5ce9af0\\nuget",
+      "packagesPath": "C:\\Users\\HG\\.nuget\\packages\\",
       "outputPath": "E:\\headlessDCGO_new\\tests\\G1F-003.EffectScheduler.Tests\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [

@@ -9,6 +9,7 @@ public sealed class DcgoMatch
     private readonly List<GameEvent> _pendingEvents = new();
     private readonly ITraceSink _traceSink;
     private readonly HeadlessGameLoop _gameLoop;
+    private readonly IActionLegality? _actionLegality;
     private long _eventSequence;
     private MatchConfig _config = new();
     private MatchResult _result = new();
@@ -23,13 +24,15 @@ public sealed class DcgoMatch
     public DcgoMatch(
         EngineContext context,
         ITraceSink? traceSink = null,
-        IActionProcessor? actionProcessor = null)
+        IActionProcessor? actionProcessor = null,
+        IActionLegality? actionLegality = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         Context = context;
         Context.AttachMatch(this);
         _traceSink = traceSink ?? new NullTraceSink();
         _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor);
+        _actionLegality = actionLegality;
     }
 
     public EngineContext Context { get; }
@@ -218,6 +221,37 @@ public sealed class DcgoMatch
             throw new InvalidOperationException("Cannot apply actions after the match is terminal.");
         }
 
+        if (_actionLegality is not null)
+        {
+            LegalityVerdict verdict = _actionLegality.Validate(action, Context);
+            if (!verdict.IsLegal)
+            {
+                RecordEvent(
+                    GameEventType.InvalidAction,
+                    $"Rejected illegal action: {action.ActionType} ({verdict.Reason})",
+                    new Dictionary<string, object?>
+                    {
+                        [HeadlessActionParameterKeys.ActionId] = action.Id.Value,
+                        [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value,
+                        [HeadlessActionParameterKeys.ActionType] = action.ActionType,
+                        ["reason"] = verdict.Reason
+                    });
+
+                Context.LogSink.Info($"Rejected illegal action: {action.ActionType} ({verdict.Reason})");
+                _traceSink.Record(
+                    "action",
+                    $"Rejected illegal action: {action.ActionType}",
+                    new Dictionary<string, object?>
+                    {
+                        [HeadlessActionParameterKeys.ActionId] = action.Id.Value,
+                        [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value
+                    });
+
+                // Authoritative boundary: illegal action does not enter the queue and mutates no state.
+                return Task.FromResult(DrainStepResult());
+            }
+        }
+
         _gameLoop.EnqueueAction(action);
         RecordEvent(
             GameEventType.ActionQueued,
@@ -259,6 +293,13 @@ public sealed class DcgoMatch
         return _gameLoop.GetObservation(_isTerminal, _config.PlayerIds);
     }
 
+    // G3.5-RL-A4: perspective-filtered observation. Hidden zones of other players are count-only.
+    public ObservationSnapshot GetObservation(HeadlessPlayerId? perspectivePlayerId)
+    {
+        EnsureInitialized();
+        return _gameLoop.GetObservation(_isTerminal, _config.PlayerIds, perspectivePlayerId);
+    }
+
     public EncodedObservation EncodeObservation(ObservationEncodingOptions? options = null)
     {
         return new ObservationEncoder(options).Encode(GetObservation());
@@ -273,6 +314,17 @@ public sealed class DcgoMatch
     public EncodedActionMask EncodeActionMask(ActionEncodingOptions? options = null)
     {
         return new ActionEncoder(options).Encode(GetActionMask());
+    }
+
+    // G3.5-RL-A3: fixed factored action mask where each concrete legal action (per card / target /
+    // choice candidate) occupies a distinct index.
+    public FactoredActionMask EncodeFactoredActionMask(FactoredActionSchema? schema = null)
+    {
+        EnsureInitialized();
+        return FactoredActionEncoder.Encode(
+            GetActionMask().LegalActions,
+            FactoredPositionContext.FromContext(Context),
+            schema);
     }
 
     public bool IsTerminal()

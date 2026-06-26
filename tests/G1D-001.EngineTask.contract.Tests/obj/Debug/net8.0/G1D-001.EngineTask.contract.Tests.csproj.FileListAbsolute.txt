@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1D-001.EngineTask.contract.Tests\obj\Debug\net8.0\ref
 E:\headlessDCGO_new\tests\G1D-001.EngineTask.contract.Tests\obj\Debug\net8.0\G1D-001.EngineTask.contract.Tests.pdb
 E:\headlessDCGO_new\tests\G1D-001.EngineTask.contract.Tests\obj\Debug\net8.0\G1D-001.EngineTask.contract.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1D-001.EngineTask.contract.Tests\obj\Debug\net8.0\ref\G1D-001.EngineTask.contract.Tests.dll
+E:\headlessDCGO_new\tests\G1D-001.EngineTask.contract.Tests\obj\Debug\net8.0\G1D-001.EngineTask.contract.Tests.sourcelink.json

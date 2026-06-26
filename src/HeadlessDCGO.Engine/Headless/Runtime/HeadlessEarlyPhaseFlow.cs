@@ -58,10 +58,13 @@ public sealed class HeadlessEarlyPhaseFlow
                 if (GetZoneCount(context, currentTurnPlayerId, ChoiceZone.Library) == 0)
                 {
                     deckOut = true;
-                    if (context.RuleQueryService is ITerminalStateController terminalStateController)
-                    {
-                        terminalStateController.SetTerminal(true);
-                    }
+
+                    // G3.5-RL-C1: deck-out is a LOSS for the player who must draw from an empty deck.
+                    // Mark the loser so the common loop's terminal verdict carries the correct winner
+                    // (previously this set terminal with no loser, making it look like a draw).
+                    context.PlayerStatusController.MarkLose(
+                        currentTurnPlayerId,
+                        "Deck-out: required to draw from an empty deck.");
 
                     operations.Add("DeckOut");
                 }

@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1I-001.Seeded.random.Tests\obj\Debug\net8.0\refint\G1
 E:\headlessDCGO_new\tests\G1I-001.Seeded.random.Tests\obj\Debug\net8.0\G1I-001.Seeded.random.Tests.pdb
 E:\headlessDCGO_new\tests\G1I-001.Seeded.random.Tests\obj\Debug\net8.0\G1I-001.Seeded.random.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1I-001.Seeded.random.Tests\obj\Debug\net8.0\ref\G1I-001.Seeded.random.Tests.dll
+E:\headlessDCGO_new\tests\G1I-001.Seeded.random.Tests\obj\Debug\net8.0\G1I-001.Seeded.random.Tests.sourcelink.json

@@ -4,12 +4,16 @@ using System.Globalization;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
 
 public sealed class BattleResolver
 {
     public const string DpKey = "dp";
+    public const string DpModifiersKey = "dpModifiers";
     public const string DeletedByBattleKey = "deletedByBattle";
     public const string DpBeforeBattleKey = "dpBeforeBattle";
+    public const string PreventBattleDeletionKey = "preventBattleDeletion";
+    public const string HasPiercingKey = "hasPiercing";
 
     public async Task<BattleResolutionResult> ResolveAsync(
         EngineContext context,
@@ -32,13 +36,33 @@ public sealed class BattleResolver
             return BattleResolutionResult.Failure(validationFailure, attack);
         }
 
+        // G3.5-RL-C2: who is deleted is the DP comparison adjusted by battle keywords.
         int comparison = Math.Clamp(attacker!.Dp.CompareTo(defender!.Dp), -1, 1);
-        BattleParticipant[] deleted = comparison switch
+        var deleted = new List<BattleParticipant>();
+        switch (comparison)
         {
-            > 0 => new[] { defender },
-            < 0 => new[] { attacker },
-            _ => new[] { attacker, defender }
-        };
+            case > 0:
+                deleted.Add(defender);
+                break;
+            case < 0:
+                deleted.Add(attacker);
+                break;
+            default:
+                deleted.Add(attacker);
+                deleted.Add(defender);
+                break;
+        }
+
+        // NOTE: Jamming is intentionally NOT a mutual-deletion rule. In the original, Jamming is a
+        // conditional CanNotBeDestroyedByBattle that protects the ATTACKER only when it battles a
+        // Security Digimon. Security-Digimon battles are not modeled here yet (SecurityResolver only
+        // moves cards), so Jamming has no applicable surface and is deferred with security-card effects.
+
+        // PreventBattleDeletion (CanNotBeDeletedByBattle): flagged participants survive the battle.
+        deleted.RemoveAll(participant => HasFlag(participant, PreventBattleDeletionKey));
+
+        bool defenderDeletedNow = deleted.Contains(defender);
+        bool attackerSurvives = !deleted.Contains(attacker);
 
         var movementResults = new List<ZoneMoveResult>();
         foreach (BattleParticipant participant in deleted)
@@ -53,6 +77,10 @@ public sealed class BattleResolver
                 cancellationToken));
         }
 
+        // Piercing: when the attacker survives and deletes the defender in battle, it also checks
+        // the defending player's security (the AttackPipeline performs the follow-up check).
+        bool piercing = attackerSurvives && defenderDeletedNow && HasFlag(attacker, HasPiercingKey);
+
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");
         return BattleResolutionResult.Success(
             resolvedAttack,
@@ -61,7 +89,18 @@ public sealed class BattleResolver
             deleted.Select(participant => participant.InstanceId).ToArray(),
             movementResults,
             attackerDeleted: deleted.Any(participant => participant.InstanceId == attacker.InstanceId),
-            defenderDeleted: deleted.Any(participant => participant.InstanceId == defender.InstanceId));
+            defenderDeleted: defenderDeletedNow,
+            triggersPiercingSecurityCheck: piercing);
+    }
+
+    private static bool HasFlag(BattleParticipant participant, string key)
+    {
+        return ReadFlag(participant.Instance.Metadata, key) || ReadFlag(participant.Definition.Metadata, key);
+    }
+
+    private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        return metadata.TryGetValue(key, out object? raw) && raw is bool value && value;
     }
 
     private static string? ValidateBattle(
@@ -157,13 +196,24 @@ public sealed class BattleResolver
             return $"{role} '{instanceId}' is not a Digimon.";
         }
 
-        if (!TryReadDp(instance.Metadata, definition.Metadata, out int dp))
+        if (!TryReadDp(instance.Metadata, definition.Metadata, out int baseDp))
         {
             return $"{role} '{instanceId}' has no battle DP.";
         }
 
+        // G3.5-RL-B1: effective DP = base (printed) DP combined with typed DP modifiers using the
+        // original accumulation order. With no modifiers this equals the base DP (no behavior change).
+        int dp = DpCalculator.ComputeDp(baseDp, ReadDpModifiers(instance.Metadata));
+
         participant = new BattleParticipant(instanceId, instance.OwnerId, instance, definition, dp);
         return null;
+    }
+
+    private static IReadOnlyList<DpModifier> ReadDpModifiers(IReadOnlyDictionary<string, object?> metadata)
+    {
+        return metadata.TryGetValue(DpModifiersKey, out object? raw) && raw is IEnumerable<DpModifier> modifiers
+            ? modifiers.ToArray()
+            : Array.Empty<DpModifier>();
     }
 
     private static bool IsDigimon(CardRecord definition)
@@ -240,7 +290,8 @@ public sealed record BattleResolutionResult(
     IReadOnlyList<HeadlessEntityId> DeletedCardIds,
     IReadOnlyList<ZoneMoveResult> MovementResults,
     bool AttackerDeleted,
-    bool DefenderDeleted)
+    bool DefenderDeleted,
+    bool TriggersPiercingSecurityCheck = false)
 {
     public static BattleResolutionResult Failure(
         string failureReason,
@@ -265,7 +316,8 @@ public sealed record BattleResolutionResult(
         IReadOnlyList<HeadlessEntityId> deletedCardIds,
         IReadOnlyList<ZoneMoveResult> movementResults,
         bool attackerDeleted,
-        bool defenderDeleted)
+        bool defenderDeleted,
+        bool triggersPiercingSecurityCheck = false)
     {
         return new BattleResolutionResult(
             true,
@@ -276,6 +328,7 @@ public sealed record BattleResolutionResult(
             deletedCardIds.ToArray(),
             movementResults.ToArray(),
             AttackerDeleted: attackerDeleted,
-            DefenderDeleted: defenderDeleted);
+            DefenderDeleted: defenderDeleted,
+            TriggersPiercingSecurityCheck: triggersPiercingSecurityCheck);
     }
 }

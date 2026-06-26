@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1B-004.CardInstanceState.Tests\obj\Debug\net8.0\refin
 E:\headlessDCGO_new\tests\G1B-004.CardInstanceState.Tests\obj\Debug\net8.0\G1B-004.CardInstanceState.Tests.pdb
 E:\headlessDCGO_new\tests\G1B-004.CardInstanceState.Tests\obj\Debug\net8.0\G1B-004.CardInstanceState.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1B-004.CardInstanceState.Tests\obj\Debug\net8.0\ref\G1B-004.CardInstanceState.Tests.dll
+E:\headlessDCGO_new\tests\G1B-004.CardInstanceState.Tests\obj\Debug\net8.0\G1B-004.CardInstanceState.Tests.sourcelink.json

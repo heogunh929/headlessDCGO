@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G2A-002.setup.Tests\obj\Debug\net8.0\refint\G2A-002.se
 E:\headlessDCGO_new\tests\G2A-002.setup.Tests\obj\Debug\net8.0\G2A-002.setup.Tests.pdb
 E:\headlessDCGO_new\tests\G2A-002.setup.Tests\obj\Debug\net8.0\G2A-002.setup.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G2A-002.setup.Tests\obj\Debug\net8.0\ref\G2A-002.setup.Tests.dll
+E:\headlessDCGO_new\tests\G2A-002.setup.Tests\obj\Debug\net8.0\G2A-002.setup.Tests.sourcelink.json

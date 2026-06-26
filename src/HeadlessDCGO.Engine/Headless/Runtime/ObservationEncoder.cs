@@ -138,6 +138,7 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
         features.Add(new ObservationFeature("effects.totalEnqueued", effects.TotalEnqueuedCount));
         features.Add(new ObservationFeature("effects.totalResolved", effects.TotalResolvedCount));
         features.Add(new ObservationFeature("effects.lastResolvedCount", effects.LastResolvedCount));
+        features.Add(new ObservationFeature("effects.totalUnbound", effects.TotalUnboundCount));
     }
 
     private void AddMemoryFeatures(
@@ -176,6 +177,47 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
                 $"{playerPrefix}.zone.{zone}.count",
                 EncodeCount(count)));
         }
+
+        if (_options.IncludeCardFeatures)
+        {
+            AddCardFeatures(features, playerPrefix, player);
+        }
+    }
+
+    // G3.5-RL-A4b: fixed per-card feature slots for visible cards in the configured zones.
+    // Empty slots are zero-filled so the vector stays a fixed size.
+    private void AddCardFeatures(
+        List<ObservationFeature> features,
+        string playerPrefix,
+        PlayerObservation player)
+    {
+        foreach (ChoiceZone zone in _options.CardFeatureZones)
+        {
+            ZoneObservation? zoneSnapshot = player.FindZone(zone);
+            IReadOnlyList<CardObservation> cards = zoneSnapshot?.Cards ?? Array.Empty<CardObservation>();
+
+            for (int slot = 0; slot < _options.MaxCardsPerZone; slot++)
+            {
+                CardObservation? card = slot < cards.Count ? cards[slot] : null;
+                string prefix = $"{playerPrefix}.zone.{zone}.card.{slot}";
+
+                features.Add(new ObservationFeature($"{prefix}.present", Bool(card is not null)));
+                features.Add(new ObservationFeature($"{prefix}.dp", card?.Dp ?? 0));
+                features.Add(new ObservationFeature($"{prefix}.level", card?.Level ?? 0));
+                features.Add(new ObservationFeature($"{prefix}.playCost", card?.PlayCost ?? 0));
+                features.Add(new ObservationFeature($"{prefix}.evolutionCost", card?.EvolutionCost ?? 0));
+                features.Add(new ObservationFeature($"{prefix}.suspended", Bool(card?.IsSuspended ?? false)));
+                features.Add(new ObservationFeature($"{prefix}.stackDepth", card?.StackDepth ?? 0));
+                features.Add(new ObservationFeature($"{prefix}.isDigimon", Bool(IsType(card, "Digimon"))));
+                features.Add(new ObservationFeature($"{prefix}.isTamer", Bool(IsType(card, "Tamer"))));
+                features.Add(new ObservationFeature($"{prefix}.isOption", Bool(IsType(card, "Option"))));
+            }
+        }
+    }
+
+    private static bool IsType(CardObservation? card, string cardType)
+    {
+        return card is not null && string.Equals(card.CardType, cardType, StringComparison.OrdinalIgnoreCase);
     }
 
     private double EncodeCount(int count)
@@ -210,8 +252,8 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
 
 public sealed record ObservationEncodingOptions
 {
-    public static ObservationEncodingOptions Default { get; } = new();
-
+    // NOTE: DefaultZoneOrder must be declared before Default. Static field initializers run in
+    // textual order, and Default's instance initializer reads DefaultZoneOrder for its ZoneOrder.
     public static IReadOnlyList<ChoiceZone> DefaultZoneOrder { get; } = new[]
     {
         ChoiceZone.Library,
@@ -227,6 +269,15 @@ public sealed record ObservationEncodingOptions
         ChoiceZone.BreedingArea,
         ChoiceZone.DigitamaLibrary
     };
+
+    // Zones whose visible cards get per-card feature encoding (G3.5-RL-A4b). Defaults to the field.
+    // Declared before Default for static-init ordering (Default reads it).
+    public static IReadOnlyList<ChoiceZone> DefaultCardFeatureZones { get; } = new[]
+    {
+        ChoiceZone.BattleArea
+    };
+
+    public static ObservationEncodingOptions Default { get; } = new();
 
     public bool IncludeStepIndex { get; init; } = true;
 
@@ -255,6 +306,13 @@ public sealed record ObservationEncodingOptions
     public double CountNormalizer { get; init; } = 60d;
 
     public IReadOnlyList<ChoiceZone> ZoneOrder { get; init; } = DefaultZoneOrder;
+
+    // G3.5-RL-A4b: per-card feature encoding for visible cards.
+    public bool IncludeCardFeatures { get; init; } = true;
+
+    public IReadOnlyList<ChoiceZone> CardFeatureZones { get; init; } = DefaultCardFeatureZones;
+
+    public int MaxCardsPerZone { get; init; } = 8;
 }
 
 public sealed record ObservationFeature(string Name, double Value);

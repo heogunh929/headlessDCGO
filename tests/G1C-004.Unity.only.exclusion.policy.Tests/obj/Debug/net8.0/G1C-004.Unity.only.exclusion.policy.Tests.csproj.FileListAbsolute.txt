@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1C-004.Unity.only.exclusion.policy.Tests\obj\Debug\ne
 E:\headlessDCGO_new\tests\G1C-004.Unity.only.exclusion.policy.Tests\obj\Debug\net8.0\G1C-004.Unity.only.exclusion.policy.Tests.pdb
 E:\headlessDCGO_new\tests\G1C-004.Unity.only.exclusion.policy.Tests\obj\Debug\net8.0\G1C-004.Unity.only.exclusion.policy.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1C-004.Unity.only.exclusion.policy.Tests\obj\Debug\net8.0\ref\G1C-004.Unity.only.exclusion.policy.Tests.dll
+E:\headlessDCGO_new\tests\G1C-004.Unity.only.exclusion.policy.Tests\obj\Debug\net8.0\G1C-004.Unity.only.exclusion.policy.Tests.sourcelink.json

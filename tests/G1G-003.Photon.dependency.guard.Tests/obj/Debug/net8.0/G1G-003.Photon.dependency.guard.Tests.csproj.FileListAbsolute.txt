@@ -16,3 +16,4 @@ E:\headlessDCGO_new\tests\G1G-003.Photon.dependency.guard.Tests\obj\Debug\net8.0
 E:\headlessDCGO_new\tests\G1G-003.Photon.dependency.guard.Tests\obj\Debug\net8.0\G1G-003.Photon.dependency.guard.Tests.pdb
 E:\headlessDCGO_new\tests\G1G-003.Photon.dependency.guard.Tests\obj\Debug\net8.0\G1G-003.Photon.dependency.guard.Tests.genruntimeconfig.cache
 E:\headlessDCGO_new\tests\G1G-003.Photon.dependency.guard.Tests\obj\Debug\net8.0\ref\G1G-003.Photon.dependency.guard.Tests.dll
+E:\headlessDCGO_new\tests\G1G-003.Photon.dependency.guard.Tests\obj\Debug\net8.0\G1G-003.Photon.dependency.guard.Tests.sourcelink.json

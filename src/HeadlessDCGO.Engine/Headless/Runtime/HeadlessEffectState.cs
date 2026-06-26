@@ -5,7 +5,8 @@ public sealed record HeadlessEffectState(
     int PendingCount,
     int TotalEnqueuedCount,
     int TotalResolvedCount,
-    int LastResolvedCount)
+    int LastResolvedCount,
+    int TotalUnboundCount = 0)
 {
     public bool HasPendingEffects => PendingCount > 0;
 
@@ -13,5 +14,6 @@ public sealed record HeadlessEffectState(
         PendingCount: 0,
         TotalEnqueuedCount: 0,
         TotalResolvedCount: 0,
-        LastResolvedCount: 0);
+        LastResolvedCount: 0,
+        TotalUnboundCount: 0);
 }
