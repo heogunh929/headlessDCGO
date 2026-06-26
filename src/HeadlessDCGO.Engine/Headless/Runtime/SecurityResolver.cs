@@ -3,7 +3,9 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 using System.Globalization;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
 
 public sealed class SecurityResolver
 {
@@ -12,6 +14,7 @@ public sealed class SecurityResolver
     public const string SecurityCheckOrderKey = "securityCheckOrder";
     public const string SecurityCheckedPlayerIdKey = "securityCheckedPlayerId";
     public const string SecurityCheckAttackerIdKey = "securityCheckAttackerId";
+    public const string DpKey = "dp";
 
     public async Task<SecurityResolutionResult> ResolveAsync(
         EngineContext context,
@@ -56,11 +59,18 @@ public sealed class SecurityResolver
         int checkCount = Math.Min(strike, security.Count);
         var checkedCards = new List<HeadlessEntityId>();
         var movementResults = new List<ZoneMoveResult>();
+        int securityDigimonBattles = 0;
+        bool attackerDeletedBySecurity = false;
 
         for (int index = 0; index < checkCount; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             HeadlessEntityId checkedCardId = zoneReader.GetCards(attack.DefendingPlayerId.Value, ChoiceZone.Security)[0];
+
+            // W5: capture the revealed card's identity/DP before it leaves the security stack so a
+            // security Digimon can battle the attacker.
+            bool isSecurityDigimon = TryReadSecurityDigimonDp(context, checkedCardId, out int securityDp);
+
             MarkCheckedSecurityCard(context, checkedCardId, attack, index + 1);
             ZoneMoveResult move = await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(
@@ -72,6 +82,28 @@ public sealed class SecurityResolver
                 cancellationToken);
             checkedCards.Add(checkedCardId);
             movementResults.Add(move);
+
+            // W1: open the OnSecurityCheck timing window for each revealed security card.
+            TriggerEventEmitter.Emit(
+                context.GameEventQueue,
+                TriggerTimings.OnSecurityCheck,
+                actor: attack.DefendingPlayerId.Value,
+                subject: checkedCardId);
+
+            // W5: a revealed security Digimon battles the attacker. The security card is trashed by the
+            // check regardless (already moved above); the only persistent outcome is the attacker's
+            // fate. Mirrors AS-IS ISecurityCheck → IBattle(AttackingPermanent, DefendingCard).
+            if (isSecurityDigimon)
+            {
+                securityDigimonBattles++;
+                if (await ResolveSecurityDigimonBattleAsync(context, attack, securityDp, zoneReader, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    attackerDeletedBySecurity = true;
+                    // AS-IS StopSecurityCheck: with the attacker gone, no further security is checked.
+                    break;
+                }
+            }
         }
 
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Security check resolved.");
@@ -80,7 +112,9 @@ public sealed class SecurityResolver
             attack.DefendingPlayerId.Value,
             strike,
             checkedCards,
-            movementResults);
+            movementResults,
+            securityDigimonBattles,
+            attackerDeletedBySecurity);
     }
 
     private static string? ValidateSecurityCheck(
@@ -198,6 +232,110 @@ public sealed class SecurityResolver
         }
     }
 
+    /// <summary>
+    /// (W5) Resolves the battle between the attacker and a revealed security Digimon. Returns true when
+    /// the attacker is deleted (DP ≤ the security Digimon's DP) and not protected — in which case the
+    /// attacker is moved to the trash and the security check stops. The security Digimon itself is
+    /// already trashed by the check, so it has no field presence to delete here.
+    /// </summary>
+    private static async Task<bool> ResolveSecurityDigimonBattleAsync(
+        EngineContext context,
+        HeadlessAttackState attack,
+        int securityDp,
+        IZoneStateReader zoneReader,
+        CancellationToken cancellationToken)
+    {
+        if (attack.AttackerId is not HeadlessEntityId attackerId ||
+            attack.AttackingPlayerId is not HeadlessPlayerId attackerOwner ||
+            !zoneReader.GetCards(attackerOwner, ChoiceZone.BattleArea).Contains(attackerId) ||
+            !context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) ||
+            attacker is null ||
+            !context.CardRepository.TryGetCard(attacker.DefinitionId, out CardRecord? attackerCard) ||
+            attackerCard is null)
+        {
+            return false;
+        }
+
+        // Like a field battle (BattleResolver), an attacker with no defined DP cannot battle.
+        if (!TryReadDp(attacker.Metadata, attackerCard.Metadata, out int attackerDp))
+        {
+            return false;
+        }
+
+        // The attacker is deleted when it does not exceed the security Digimon's DP (equal DP deletes
+        // both; the security Digimon is already gone). Jamming / CanNotBeDeletedByBattle protects it.
+        if (attackerDp > securityDp ||
+            HasFlag(attacker.Metadata, attackerCard.Metadata, BattleResolver.PreventBattleDeletionKey))
+        {
+            return false;
+        }
+
+        var metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal)
+        {
+            [BattleResolver.DeletedByBattleKey] = true,
+            [BattleResolver.DpBeforeBattleKey] = attackerDp
+        };
+        context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
+
+        await context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(attackerOwner, attackerId, ChoiceZone.BattleArea, ChoiceZone.Trash),
+            cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static bool TryReadSecurityDigimonDp(
+        EngineContext context,
+        HeadlessEntityId cardId,
+        out int securityDp)
+    {
+        securityDp = 0;
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||
+            instance is null ||
+            !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) ||
+            definition is null ||
+            !IsDigimon(definition))
+        {
+            return false;
+        }
+
+        // A security Digimon with no defined DP cannot battle (mirrors BattleResolver's "no battle DP").
+        return TryReadDp(instance.Metadata, definition.Metadata, out securityDp);
+    }
+
+    private static bool TryReadDp(
+        IReadOnlyDictionary<string, object?> instanceMetadata,
+        IReadOnlyDictionary<string, object?> cardMetadata,
+        out int dp)
+    {
+        if (!TryReadInt(instanceMetadata, DpKey, out int baseDp) &&
+            !TryReadInt(cardMetadata, DpKey, out baseDp))
+        {
+            dp = 0;
+            return false;
+        }
+
+        IReadOnlyList<DpModifier> modifiers =
+            instanceMetadata.TryGetValue(BattleResolver.DpModifiersKey, out object? raw) && raw is IEnumerable<DpModifier> typed
+                ? typed.ToArray()
+                : Array.Empty<DpModifier>();
+
+        dp = DpCalculator.ComputeDp(baseDp, modifiers);
+        return true;
+    }
+
+    private static bool HasFlag(
+        IReadOnlyDictionary<string, object?> instanceMetadata,
+        IReadOnlyDictionary<string, object?> cardMetadata,
+        string key)
+    {
+        return ReadFlag(instanceMetadata, key) || ReadFlag(cardMetadata, key);
+    }
+
+    private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        return metadata.TryGetValue(key, out object? raw) && raw is bool value && value;
+    }
+
     private static void MarkCheckedSecurityCard(
         EngineContext context,
         HeadlessEntityId cardId,
@@ -230,7 +368,9 @@ public sealed record SecurityResolutionResult(
     IReadOnlyList<HeadlessEntityId> CheckedCardIds,
     IReadOnlyList<ZoneMoveResult> MovementResults,
     bool AttackResolved,
-    bool DefenderHasNoSecurity = false)
+    bool DefenderHasNoSecurity = false,
+    int SecurityDigimonBattles = 0,
+    bool AttackerDeletedBySecurity = false)
 {
     public static SecurityResolutionResult Failure(
         string failureReason,
@@ -254,7 +394,9 @@ public sealed record SecurityResolutionResult(
         HeadlessPlayerId checkedPlayerId,
         int strike,
         IReadOnlyList<HeadlessEntityId> checkedCardIds,
-        IReadOnlyList<ZoneMoveResult> movementResults)
+        IReadOnlyList<ZoneMoveResult> movementResults,
+        int securityDigimonBattles = 0,
+        bool attackerDeletedBySecurity = false)
     {
         return new SecurityResolutionResult(
             true,
@@ -264,6 +406,8 @@ public sealed record SecurityResolutionResult(
             strike,
             checkedCardIds.ToArray(),
             movementResults.ToArray(),
-            attack.IsResolved);
+            attack.IsResolved,
+            SecurityDigimonBattles: securityDigimonBattles,
+            AttackerDeletedBySecurity: attackerDeletedBySecurity);
     }
 }

@@ -216,6 +216,14 @@ public sealed class HeadlessRlEnvironment
         // receives an opponent's hidden card identities. Single source of truth for the RL layer.
         ObservationSnapshot observation = _match.GetObservation(ResolvePerspective());
 
+        // G3.5-RL-A5: build the factored mask from the SAME legal-action set carried in this step
+        // result (stepResult.ActionMask) and the current board positions, so the per-position mask and
+        // the type-based mask agree. No separate EncodeFactoredActionMask() round-trip needed.
+        FactoredActionMask factoredMask = FactoredActionEncoder.Encode(
+            stepResult.ActionMask.LegalActions,
+            FactoredPositionContext.FromContext(_match.Context),
+            _options.FactoredActionSchema);
+
         return new RlStepResult(
             stepResult.IsTerminal,
             stepResult.HasPendingChoice,
@@ -224,7 +232,8 @@ public sealed class HeadlessRlEnvironment
             stepResult.Events,
             result,
             reward.Reward,
-            reward.Discount);
+            reward.Discount,
+            factoredMask);
     }
 
     // G3.5-RL-A4: the viewer whose private information is preserved. A fixed PerspectivePlayerId
@@ -297,6 +306,9 @@ public sealed record HeadlessRlEnvironmentOptions
     public ObservationEncodingOptions ObservationEncoding { get; init; } = ObservationEncodingOptions.Default;
 
     public ActionEncodingOptions ActionEncoding { get; init; } = ActionEncodingOptions.Default;
+
+    /// <summary>(G3.5-RL-A5) Schema for the factored action mask carried on every <see cref="RlStepResult"/>.</summary>
+    public FactoredActionSchema FactoredActionSchema { get; init; } = FactoredActionSchema.Default;
 
     public HeadlessPlayerId? PerspectivePlayerId { get; init; }
 

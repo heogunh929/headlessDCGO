@@ -1,4 +1,0 @@
-E:\headlessDCGO_new\.tmp\g2a001-obj\Debug\net8.0\HeadlessDCGO.Engine.GeneratedMSBuildEditorConfig.editorconfig
-E:\headlessDCGO_new\.tmp\g2a001-obj\Debug\net8.0\HeadlessDCGO.Engine.AssemblyInfoInputs.cache
-E:\headlessDCGO_new\.tmp\g2a001-obj\Debug\net8.0\HeadlessDCGO.Engine.AssemblyInfo.cs
-E:\headlessDCGO_new\.tmp\g2a001-obj\Debug\net8.0\HeadlessDCGO.Engine.csproj.CoreCompileInputs.cache

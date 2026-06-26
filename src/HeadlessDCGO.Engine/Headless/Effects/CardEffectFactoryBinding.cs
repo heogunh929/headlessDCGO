@@ -249,17 +249,8 @@ public sealed class CardEffectFactoryBindingRegistry
         return Lookup(request);
     }
 
-    [Obsolete(
-        "Use Lookup(card, trigger, controllerId, context). This overload assumes player 1 " +
-        "and is kept only for legacy/test callers (B-01).")]
-    public IReadOnlyList<CardEffectFactoryBindingRule> Lookup(CardRecord card, string trigger)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(trigger);
-
-        var controllerId = new HeadlessPlayerId(1);
-        return Lookup(card, trigger, controllerId, new EffectContext(controllerId, card.Id));
-    }
+    // W3 (B-01): the player-1-hardcoded Lookup(card, trigger) overload was removed. All callers must
+    // pass the controlling player explicitly via Lookup(card, trigger, controllerId, context).
 
     public IReadOnlyList<CardEffectFactoryBindingRule> Lookup(CardEffectFactoryBindingRequest request)
     {

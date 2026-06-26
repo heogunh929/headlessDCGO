@@ -10,8 +10,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Player/context Lookup overload returns matched rules", LookupOverloadReturnsMatchedRules),
     ("Bind carries the requesting player's controller id", BindCarriesRequestingPlayerController),
     ("Lookup overload uses the supplied controller, not hardcoded player 1", LookupUsesSuppliedController),
-    ("Legacy two-argument Lookup is marked obsolete", LegacyLookupIsObsolete),
-    ("Legacy two-argument Lookup still matches rules", LegacyLookupStillMatches),
+    ("Hardcoded two-argument Lookup overload was removed (B-01)", LegacyLookupIsObsolete),
+    ("Lookup matches rules with an explicit controller (B-01 hardcode removed)", LegacyLookupStillMatches),
     ("Lookup overload validates the context argument", LookupOverloadValidatesContext),
     ("Binding source has no Unity dependency or placeholder", BindingSourceHasNoUnityOrPlaceholder),
 };
@@ -98,13 +98,12 @@ Task LookupUsesSuppliedController()
 
 Task LegacyLookupIsObsolete()
 {
+    // B-01: the player-1-hardcoded two-argument Lookup(card, trigger) overload has been removed.
     MethodInfo? method = typeof(CardEffectFactoryBindingRegistry).GetMethod(
         "Lookup",
         new[] { typeof(CardRecord), typeof(string) });
 
-    AssertTrue(method is not null, "legacy overload exists");
-    object[] attributes = method!.GetCustomAttributes(typeof(ObsoleteAttribute), inherit: false);
-    AssertTrue(attributes.Length > 0, "legacy overload is obsolete");
+    AssertTrue(method is null, "two-argument hardcoded overload no longer exists");
     return Task.CompletedTask;
 }
 
@@ -113,12 +112,13 @@ Task LegacyLookupStillMatches()
     CardEffectFactoryBindingRegistry registry = CreateRegistry();
     CardRecord card = CreateCard("BT-CARD");
 
-#pragma warning disable CS0618
-    IReadOnlyList<CardEffectFactoryBindingRule> rules = registry.Lookup(card, "OnPlay");
-#pragma warning restore CS0618
+    // B-01: the player-1-hardcoded overload was removed; lookups now pass the controller explicitly.
+    var controller = new HeadlessPlayerId(1);
+    IReadOnlyList<CardEffectFactoryBindingRule> rules =
+        registry.Lookup(card, "OnPlay", controller, new EffectContext(controller, card.Id));
 
-    AssertEqual(1, rules.Count, "legacy matched rule count");
-    AssertEqual("rule-blocker", rules[0].Id, "legacy matched rule id");
+    AssertEqual(1, rules.Count, "matched rule count");
+    AssertEqual("rule-blocker", rules[0].Id, "matched rule id");
     return Task.CompletedTask;
 }
 
@@ -150,8 +150,8 @@ Task BindingSourceHasNoUnityOrPlaceholder()
     AssertTrue(!text.Contains("UnityEngine", StringComparison.Ordinal), "no Unity dependency");
     AssertTrue(!text.Contains("TODO", StringComparison.Ordinal), "no TODO marker");
     AssertTrue(!text.Contains("NotImplementedException", StringComparison.Ordinal), "no NotImplementedException");
-    // The hardcoded player must only survive inside the isolated, obsolete legacy overload.
-    AssertTrue(text.Contains("[Obsolete(", StringComparison.Ordinal), "legacy overload isolated as obsolete");
+    // B-01: the player-1 hardcode is fully removed — no controller is assumed anywhere in the source.
+    AssertTrue(!text.Contains("new HeadlessPlayerId(1)", StringComparison.Ordinal), "no hardcoded controller");
     return Task.CompletedTask;
 }
 

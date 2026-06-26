@@ -5,6 +5,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
 
 public sealed class DigivolveAction
 {
@@ -88,12 +89,29 @@ public sealed class DigivolveAction
             payload.CardId,
             payload.TargetCardId);
 
+        // B1b: project the freshly attached sourceIds storage into the typed stack read-model and
+        // carry its typed depth forward (instead of trusting a raw count). The reader also asserts the
+        // stack is well-formed (DigiEgg..Top ordering), so a malformed attach surfaces here.
+        DigivolutionStack stack = DigivolutionStackReader.Read(
+            context.CardInstanceRepository,
+            context.CardRepository,
+            payload.CardId);
+
         Dictionary<string, object?> metadata = Metadata(action, payload, validation);
         metadata[HeadlessActionParameterKeys.PreviousMemory] = previousMemory.Current;
         metadata[HeadlessActionParameterKeys.Memory] = paidMemory.Current;
         metadata["removedTargetEventSequence"] = targetRemoval.Event.Sequence;
         metadata["movedDigivolveCardEventSequence"] = cardMovement.Event.Sequence;
         metadata[SourceIdsMetadataKey] = sourceIds.Select(id => id.Value).ToArray();
+        metadata["stackDepth"] = stack.Depth;
+        metadata["stackBaseDp"] = stack.BaseDp;
+
+        // W1: open the WhenDigivolving timing window for the card that just digivolved.
+        TriggerEventEmitter.Emit(
+            context.GameEventQueue,
+            TriggerTimings.WhenDigivolving,
+            actor: action.PlayerId,
+            subject: payload.CardId);
 
         return ActionProcessResult.Success("Card digivolved.", metadata);
     }

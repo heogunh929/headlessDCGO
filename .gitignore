@@ -1,1 +1,22 @@
-﻿/DCGO/
+# Original Unity DCGO project — large, local-only reference for AS-IS parity (not committed).
+/DCGO/
+
+# Locally pinned .NET SDK (~700MB) — provided by setup-dotnet on CI, present locally otherwise.
+/.dotnet/
+
+# Build output.
+[Bb]in/
+[Oo]bj/
+
+# Scratch / temporary working files.
+/.tmp/
+
+# IDE / editor.
+.vs/
+.idea/
+*.user
+*.suo
+*.swp
+
+# Test results.
+[Tt]est[Rr]esults/

@@ -37,6 +37,8 @@ public sealed record EffectResult
 
     public bool IsUnbound => Status == EffectResolutionStatus.Unbound;
 
+    public bool IsSuspended => Status == EffectResolutionStatus.Suspended;
+
     public string? Message { get; }
 
     public IReadOnlyDictionary<string, object?> Values { get; }
@@ -62,6 +64,15 @@ public sealed record EffectResult
         IReadOnlyDictionary<string, object?>? values = null)
     {
         return new EffectResult(Resolved: true, message, values, EffectResolutionStatus.Unbound);
+    }
+
+    // Suspended (W7): the effect paused waiting for an agent-driven choice. Resolved=false so the
+    // scheduler leaves it at the queue head (peek-not-dequeue) and re-runs it once the agent answers.
+    public static EffectResult Suspended(
+        string? message = null,
+        IReadOnlyDictionary<string, object?>? values = null)
+    {
+        return new EffectResult(Resolved: false, message, values, EffectResolutionStatus.Suspended);
     }
 
     private static IReadOnlyDictionary<string, object?> CopyValues(

@@ -202,25 +202,28 @@ public sealed class EngineContext
         GameRandomSource randomSource = new(randomSeed);
         var cardInstanceRepository = new InMemoryCardInstanceRepository();
         var logSink = new NullLogSink();
+        // Hoisted so the production mutation sink can apply zone moves / memory (W2-follow).
+        var zoneMover = new InMemoryZoneMover(randomSource);
+        var memoryController = new InMemoryHeadlessMemoryController();
 
         var effectRegistry = new InMemoryEffectRegistry();
         var effectScheduler = new EffectScheduler(
             new EffectResolutionQueue(),
             CardEffectSchedulerResolver.Create(
                 effectRegistry,
-                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink)));
+                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController)));
 
         return new EngineContext(
             new ScriptedChoiceProvider(),
             randomSource,
             new CardDatabase(),
             cardInstanceRepository,
-            new InMemoryZoneMover(randomSource),
+            zoneMover,
             new InMemoryRuleQueryService(),
             new InMemoryHeadlessTurnController(),
             new InMemoryHeadlessChoiceController(),
             new InMemoryHeadlessAttackController(),
-            new InMemoryHeadlessMemoryController(),
+            memoryController,
             logSink,
             new EngineTaskRunner(),
             effectScheduler,

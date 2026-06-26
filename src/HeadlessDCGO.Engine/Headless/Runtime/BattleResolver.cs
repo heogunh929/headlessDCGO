@@ -53,10 +53,11 @@ public sealed class BattleResolver
                 break;
         }
 
-        // NOTE: Jamming is intentionally NOT a mutual-deletion rule. In the original, Jamming is a
+        // NOTE: Jamming is intentionally NOT a mutual-deletion rule here. In the original, Jamming is a
         // conditional CanNotBeDestroyedByBattle that protects the ATTACKER only when it battles a
-        // Security Digimon. Security-Digimon battles are not modeled here yet (SecurityResolver only
-        // moves cards), so Jamming has no applicable surface and is deferred with security-card effects.
+        // Security Digimon. That surface lives in SecurityResolver (W5): the security-Digimon battle
+        // honours PreventBattleDeletion on the attacker, which is what Jamming applies. This field
+        // battle (attacker vs a battle-area Digimon) is unaffected by Jamming.
 
         // PreventBattleDeletion (CanNotBeDeletedByBattle): flagged participants survive the battle.
         deleted.RemoveAll(participant => HasFlag(participant, PreventBattleDeletionKey));

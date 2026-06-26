@@ -243,6 +243,12 @@ public static class EffectChoiceHelpers
         {
             throw;
         }
+        catch (HeadlessDCGO.Engine.Headless.Runtime.DeferredChoicePendingException)
+        {
+            // W7: not an error — the effect is suspending to surface the choice to the agent. Let it
+            // propagate so the resolver converts it into a Suspended result.
+            throw;
+        }
         catch (Exception ex)
         {
             return EffectChoiceResolution.Failure(

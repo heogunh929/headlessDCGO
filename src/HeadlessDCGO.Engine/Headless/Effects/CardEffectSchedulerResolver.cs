@@ -12,7 +12,9 @@ public static class CardEffectSchedulerResolver
     public static Func<EffectRequest, CancellationToken, Task<EffectResult>> Create(
         EffectRegistry registry,
         HeadlessCardEffectResolver? cardEffectResolver = null,
-        Func<EffectRequest, IEffectMutationSink>? sinkFactory = null)
+        Func<EffectRequest, IEffectMutationSink>? sinkFactory = null,
+        HeadlessDCGO.Engine.Headless.Runtime.IDeferredChoiceCoordinator? choiceCoordinator = null,
+        bool strictUnbound = false)
     {
         ArgumentNullException.ThrowIfNull(registry);
 
@@ -28,6 +30,21 @@ public static class CardEffectSchedulerResolver
             EffectBinding? binding = registry.Find(request.EffectId);
             if (binding?.Effect is not { } effect)
             {
+                // G3.5-RL-A4: strict gate — in test/dev a missing effect body is a hard FAILURE so the
+                // coverage gap is caught immediately during Phase 4 porting instead of silently
+                // draining as Unbound. Production keeps the lenient (countable) Unbound behaviour.
+                if (strictUnbound)
+                {
+                    return EffectResult.Failure(
+                        $"Strict effect gate: no card effect body bound to '{request.EffectId.Value}' (timing '{request.Timing}').",
+                        new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            ["effectId"] = request.EffectId.Value,
+                            ["timing"] = request.Timing,
+                            ["strictUnbound"] = true,
+                        });
+                }
+
                 // G3.5-RL-B3: report unbound (skeleton) effects as a distinct, countable status
                 // instead of a silent success, while still letting the queue drain.
                 return EffectResult.Unbound(
@@ -43,9 +60,37 @@ public static class CardEffectSchedulerResolver
             IEffectMutationSink sink = createSink(request)
                 ?? throw new InvalidOperationException("Effect mutation sink factory returned null.");
 
-            EffectResult result = await resolver
-                .ResolveAsync(effect, request, sink, cancellationToken)
-                .ConfigureAwait(false);
+            // W7: harvest any agent answer supplied for a prior suspension and rewind the replay cursor
+            // so this attempt replays choices in order.
+            choiceCoordinator?.BeginResolution();
+
+            EffectResult result;
+            try
+            {
+                result = await resolver
+                    .ResolveAsync(effect, request, sink, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (HeadlessDCGO.Engine.Headless.Runtime.DeferredChoicePendingException ex)
+            {
+                // W7: the effect asked the agent for a choice. Report Suspended (Resolved=false) so the
+                // scheduler leaves it queued and re-runs it once the agent answers. Do NOT flush the
+                // sink or complete the resolution — the effect has not finished.
+                return EffectResult.Suspended(
+                    ex.Message,
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["effectId"] = request.EffectId.Value,
+                        ["timing"] = request.Timing,
+                        ["deferredChoice"] = true,
+                    });
+            }
+
+            // W2-follow: apply any asynchronous operations (zone moves, draws) the sink deferred.
+            await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+            // W7: the effect ran to completion — discard its accumulated answers before the next one.
+            choiceCoordinator?.CompleteResolution();
 
             return WithSinkMetadata(result, sink);
         };

@@ -1,0 +1,42 @@
+name: CI
+
+# Build (compile) gate for the headless engine and the entire test suite.
+#
+# NOTE: tests are NOT executed on CI. ~81 of the test projects read the original Unity sources under
+# DCGO/ at runtime for AS-IS parity verification, and DCGO/ is git-ignored (large, local-only). So
+# CI guarantees that everything COMPILES (the key safety net while Phase 4 edits thousands of card
+# effect files), while the full test run is done locally via scripts/run-tests.* where DCGO/ exists.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    name: Build (compile gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build engine
+        run: dotnet build src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj -c Release --nologo
+
+      - name: Build all test projects
+        shell: bash
+        run: |
+          fail=0
+          for proj in $(find tests -name '*.Tests.csproj' | sort); do
+            echo "::group::build $proj"
+            if ! dotnet build "$proj" -c Release --nologo; then
+              echo "::error::build failed: $proj"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail

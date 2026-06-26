@@ -53,6 +53,15 @@ public sealed class AttackPipeline
 
     private AttackAdvanceResult AdvanceBlockTiming(EngineContext context)
     {
+        // W6: the counter timing window opens once per attack, before block timing (AS-IS
+        // AttackProcess: State=Counter → CounterTiming → Block). A global window (no subject filter) so
+        // any card's OnCounterTiming / [Counter] effect is collected and self-gates, mirroring the
+        // original StackSkillInfos(OnCounterTiming).
+        TriggerEventEmitter.Emit(
+            context.GameEventQueue,
+            TriggerTimings.OnCounter,
+            actor: context.AttackController.Current.AttackingPlayerId);
+
         BlockTimingResult block = _blockTiming.RequestBlockChoice(context);
         if (block.IsSuccess && block.ChoiceRequested)
         {

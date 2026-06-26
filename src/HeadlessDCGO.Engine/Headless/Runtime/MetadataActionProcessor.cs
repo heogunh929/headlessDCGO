@@ -603,6 +603,18 @@ public sealed class MetadataActionProcessor : IActionProcessor
         Dictionary<string, object?> metadata = MetadataWithTurn(action, turn);
         AddMainPhaseMetadata(metadata, mainPhase);
         AddEndTurnCleanupMetadata(metadata, cleanup);
+
+        // W1: open the turn-boundary timing windows so [End of Turn] / [Start of Turn] effects fire.
+        if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayer)
+        {
+            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayer);
+        }
+
+        if (turn.TurnPlayerId is HeadlessPlayerId startingPlayer)
+        {
+            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartTurn, actor: startingPlayer);
+        }
+
         return ActionProcessResult.Success(
             $"Turn advanced to player {turn.TurnPlayerId?.Value.ToString() ?? "<none>"} {turn.Phase}.",
             metadata);

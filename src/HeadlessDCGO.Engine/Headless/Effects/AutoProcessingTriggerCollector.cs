@@ -36,7 +36,11 @@ public sealed class AutoProcessingTriggerCollector
                 "Unknown game events cannot collect trigger candidates.");
         }
 
-        string timing = ResolveTiming(gameEvent);
+        return CollectForTiming(gameEvent, ResolveTiming(gameEvent));
+    }
+
+    private TriggerCollectionResult CollectForTiming(GameEvent gameEvent, string timing)
+    {
         IReadOnlyList<EffectRequest> effects = _effectQueryService.GetEffectsForTiming(timing);
         var triggers = new List<TimingWindowTrigger>(effects.Count);
         EffectResolutionMode mode = ResolveMode(gameEvent);
@@ -79,6 +83,51 @@ public sealed class AutoProcessingTriggerCollector
         }
 
         return result with { EnqueuedCount = result.Triggers.Count };
+    }
+
+    /// <summary>
+    /// W1: collects and enqueues triggers across every canonical timing a single structured event
+    /// opens (<see cref="TriggerTimingMap"/>), de-duplicating effects that match more than one
+    /// timing. This is what the live loop uses so a CardMoved/Attack event fires the right card
+    /// effects (OnPlay/OnDeletion/OnEnterField/...), not just an effect bound to the raw event name.
+    /// </summary>
+    public TriggerCollectionResult CollectAndEnqueueAll(
+        GameEvent gameEvent,
+        EffectScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(gameEvent);
+        ArgumentNullException.ThrowIfNull(scheduler);
+
+        if (gameEvent.Type == GameEventType.Unknown)
+        {
+            return TriggerCollectionResult.Failure(
+                gameEvent,
+                string.Empty,
+                "Unknown game events cannot collect trigger candidates.");
+        }
+
+        IReadOnlyList<string> timings = TriggerTimingMap.Derive(gameEvent);
+        var seen = new HashSet<HeadlessEntityId>();
+        var enqueuedTriggers = new List<TimingWindowTrigger>();
+
+        foreach (string timing in timings)
+        {
+            TriggerCollectionResult perTiming = CollectForTiming(gameEvent, timing);
+            foreach (TimingWindowTrigger trigger in perTiming.Triggers)
+            {
+                if (!seen.Add(trigger.Request.EffectId))
+                {
+                    continue;
+                }
+
+                scheduler.Enqueue(trigger.Request, trigger.Mode);
+                enqueuedTriggers.Add(trigger);
+            }
+        }
+
+        string primaryTiming = timings.Count > 0 ? timings[0] : gameEvent.Type.ToString();
+        return TriggerCollectionResult.Success(gameEvent, primaryTiming, enqueuedTriggers)
+            with { EnqueuedCount = enqueuedTriggers.Count };
     }
 
     private static string ResolveTiming(GameEvent gameEvent)

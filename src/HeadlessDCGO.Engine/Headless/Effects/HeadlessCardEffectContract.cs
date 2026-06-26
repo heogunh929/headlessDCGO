@@ -177,6 +177,13 @@ public sealed record CardEffectCanResolveResult
 public interface IEffectMutationSink
 {
     void Apply(EffectMutation mutation);
+
+    /// <summary>
+    /// Applies any asynchronous operations a synchronous <see cref="Apply"/> deferred (W2-follow:
+    /// zone moves, draws). Called by the resolver after the effect body finishes. Default no-op so
+    /// sinks that only do synchronous metadata writes need not implement it.
+    /// </summary>
+    Task FlushAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 public sealed record EffectMutation
@@ -286,6 +293,12 @@ public sealed class HeadlessCardEffectResolver
         }
         catch (OperationCanceledException)
         {
+            throw;
+        }
+        catch (HeadlessDCGO.Engine.Headless.Runtime.DeferredChoicePendingException)
+        {
+            // W7: the effect is suspending to ask the agent for a choice. Propagate so the scheduler
+            // resolver converts it into a Suspended result (effect stays queued and re-runs).
             throw;
         }
         catch (Exception ex)

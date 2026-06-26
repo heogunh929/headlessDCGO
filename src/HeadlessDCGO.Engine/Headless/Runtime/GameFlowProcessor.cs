@@ -196,7 +196,7 @@ public sealed class GameFlowProcessor
                     continue;
                 }
 
-                TriggerCollectionResult collection = collector.CollectAndEnqueue(gameEvent, context.EffectScheduler);
+                TriggerCollectionResult collection = collector.CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
                 if (collection.IsSuccess)
                 {
                     collected += collection.EnqueuedCount;

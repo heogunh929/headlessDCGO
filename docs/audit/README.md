@@ -5,6 +5,9 @@
 - 상세 문서:
   - [Phase 3 parity 감사](phase3_parity_audit_report.md) — goal별 완료/결함 분석
   - [엔진 흐름도 AS-IS vs TO-BE](engine_flow_asis_vs_tobe.md) — 원본 Unity vs 현재 구현 비교
+  - [RL 갭 조치 설계](rl_gap_remediation_design.md) — A1~C2 (RL 인터페이스/규칙 갭 수정, 완료)
+  - [Phase 4 사전 배선 계획](prephase4_wiring_plan.md) — W1~W7 (효과 인프라 배선)
+  - [**Phase 4 진행 전 체크리스트**](phase4_pre_checklist.md) — 착수 게이트 (GPT 7건 검증 + 우선순위)
 
 ---
 

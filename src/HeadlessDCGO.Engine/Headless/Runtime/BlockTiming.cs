@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BlockTiming
@@ -149,6 +150,17 @@ public sealed class BlockTiming
             }
 
             HeadlessAttackState blocked = context.AttackController.SelectBlocker(blockerId);
+
+            // A3 fix — DCG rule: the blocking Digimon is suspended, then "when blocking" effects fire.
+            // Mirrors AS-IS AttackProcess.SwitchDefender (SuspendPermanentsClass.Tap() followed by
+            // StackSkillInfos(OnBlockAnyone)). Without this the blocker stayed unsuspended after a block.
+            SuspendBlocker(context, blockerId);
+            TriggerEventEmitter.Emit(
+                context.GameEventQueue,
+                TriggerTimings.OnBlock,
+                actor: blocked.DefendingPlayerId,
+                subject: blockerId);
+
             return BlockTimingResult.Success(
                 blocked,
                 choice,
@@ -162,6 +174,23 @@ public sealed class BlockTiming
         {
             return BlockTimingResult.Failure(ex.Message);
         }
+    }
+
+    /// <summary>Suspends the blocking Digimon (DCG: a Digimon that blocks is tapped). Idempotent —
+    /// writes <see cref="IsSuspendedKey"/> = true onto the blocker's instance metadata.</summary>
+    private static void SuspendBlocker(EngineContext context, HeadlessEntityId blockerId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(blockerId, out CardInstanceRecord? blocker) ||
+            blocker is null)
+        {
+            return;
+        }
+
+        var metadata = new Dictionary<string, object?>(blocker.Metadata, StringComparer.Ordinal)
+        {
+            [IsSuspendedKey] = true
+        };
+        context.CardInstanceRepository.Upsert(blocker with { Metadata = metadata });
     }
 
     private static BlockerCandidate? TryCreateCandidate(

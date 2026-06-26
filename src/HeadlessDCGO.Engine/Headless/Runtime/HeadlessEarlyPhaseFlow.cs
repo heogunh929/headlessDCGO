@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class HeadlessEarlyPhaseFlow
@@ -74,6 +75,9 @@ public sealed class HeadlessEarlyPhaseFlow
                         .DrawAsync(currentTurnPlayerId, 1, cancellationToken)
                         .ConfigureAwait(false);
                     operations.Add("Draw");
+
+                    // W1: open the OnDraw timing window for the draw-phase draw.
+                    TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnDraw, actor: currentTurnPlayerId);
                 }
             }
         }

@@ -264,6 +264,35 @@ B1+B3 ──> C2(전투/시큐리티) ─┴─> Phase 4 카드 포팅 ───
   5. **A1 경계**: 마스크 밖 인덱스 → 거부 + 관측 불변.
 - 결론: **헤드리스 엔진이 MaskablePPO/MultiDiscrete 류 trainer에 그대로 연결 가능한 형태(고정 obs/action 차원, invalid-action mask, 결정성, 터미널 보상)임을 E2E로 확인.** Python 연동은 obs/mask 벡터 + StepByFactoredIndex를 socket/stdio로 노출하면 됨(인터페이스는 준비 완료).
 
+### G3.5-B1b — DigivolutionStack 통합 (2026-06-26)
+- 문제(GPT A1 지적): 타입드 `DigivolutionStack`/`StackedCard`(B1)가 **자기 정의 파일에서만 참조되는 dead code**. `DigivolveAction`은 flat `sourceIds` 메타데이터만 사용 → LLM이 진화 효과에서 스택(소재)에 타입드로 접근할 단일 경로 부재.
+- 결정: **`sourceIds` 메타데이터 = 기록의 저장소(storage), 타입드 `DigivolutionStack` = 그 위의 view.** (전면 immutable-state 교체는 관측·전투에 불필요해 보류 — 위 "남은 B1b(전면)"과 동일 판단.)
+- 조치:
+  - 신규 `State/DigivolutionStackReader.cs` — live `sourceIds`(newest-under-card first)를 타입드 스택(DigiEgg 바닥 → Top)으로 투영. 각 `StackedCard`의 CardNumber/Level/BaseDp는 인스턴스 메타 → 정의 메타 순으로 해석. `BaseDp`=Top 카드, `UnderCards`=소재(에그+하위 진화).
+  - `DigivolveAction.ProcessAsync`가 attach 직후 리더로 스택을 **빌드·검증**(DigiEgg..Top 불변식 위반 시 throw)하고 결과 메타에 `stackDepth`/`stackBaseDp` 스탬프 → 타입드 스택을 **실제 사용**.
+- 테스트: 신규 `tests/G3.5-B1b.DigivolutionStackIntegration.Tests` 5/5 PASS — 리더 정렬(DigiEgg..Top)·BaseDp(Top)·무소재 단일 Top·미지 top 빈 스택, **E2E: 실제 digivolve 후 스택 depth 2·소재=타깃·stackDepth 메타 스탬프**. 영향권(G2E-002/B1/A4b/G2D-004/G3G-002/C2/V) 회귀 0.
+- 결과: 엔진/배틀/효과가 진화스택을 **단일 타입드 API(`DigivolutionStackReader.Read`)**로 읽음. *follow-up*: 스택 조작 mutation kind(소재 trash/de-digivolve)는 W2 어휘 확장 시 추가.
+
+### G3.5-A3 — Blocker suspend 버그 수정 (2026-06-26)
+- 문제(GPT A3 지적, 🔴엔진버그): `BlockTiming.ResolveBlockChoice` → `AttackController.SelectBlocker`는 공격 **타깃만 블로커로 전환**하고 블로커를 suspend하지 않음. AS-IS와 불일치.
+- AS-IS 근거(`AttackProcess.SwitchDefender`, line 542~562): `isBlock`이면 (1) `SuspendPermanentsClass.Tap()`으로 블로커를 **suspend**, (2) `StackSkillInfos(OnBlockAnyone)`으로 "블록 시" 효과 발화.
+- 조치(`BlockTiming.cs`): `SelectBlocker` 직후 — (1) 신규 `SuspendBlocker`가 블로커 인스턴스 메타에 `isSuspended=true` write, (2) `TriggerEventEmitter.Emit(OnBlock, actor=수비측, subject=블로커)`로 W4 스코핑(블로커 한정) 타이밍 윈도우 발행. `TriggerTimings.OnBlock="OnBlockAnyone"` 상수 추가. (AttackController는 순수 상태만 유지 — 메타 write는 BlockTiming 책임.)
+- 테스트: 신규 `tests/G3.5-A3.BlockerSuspend.Tests` 4/4 PASS — 블록→블로커 suspend, OnBlock 윈도우가 블로커로 스코핑 발행, **skip 시 suspend·발행 없음**, E2E: 블로커의 OnBlock 효과만 발동(다른 카드 휴면). 영향권(G2G-002 블록·G3.5-005 파이프라인·G3.5-007 제약) 회귀 0.
+- 결과: 블록 규칙이 AS-IS 충실. Phase 4 `[Blocker]`/"when blocking" 효과가 OnBlockAnyone 바인딩으로 자동 발동.
+
+### G3.5-RL-A5 — factored mask를 RlStepResult에 포함 (2026-06-27)
+- 문제(GPT A5 지적): `RlStepResult.ActionMask`는 타입기반 `EncodedActionMask`(28슬롯)뿐 — A3의 팩터드 마스크는 별도 `EncodeFactoredActionMask()` 호출로만 접근. trainer가 매 step마다 추가 호출 필요.
+- 조치: `RlStepResult`에 `FactoredActionMask FactoredActionMask` + 편의 `FactoredActionMaskVector` 추가. `HeadlessRlEnvironment.Encode`가 **stepResult.ActionMask와 동일한 legal-action 집합** + 현재 보드 위치로 팩터드 마스크를 빌드 → 타입마스크와 팩터드마스크가 항상 일치. 스키마는 `HeadlessRlEnvironmentOptions.FactoredActionSchema`(기본 `FactoredActionSchema.Default`)로 설정.
+- 일관성: 정상 step(post-step 상태)·거부(상태 불변)·Observe 모두 `_match` 현재 상태로 빌드하므로 ActionMask와 동일 상태 반영.
+- 테스트: 신규 `tests/G3.5-RL-A5.FactoredMaskInStepResult.Tests` 5/5 PASS — reset이 스키마 크기 마스크 보유, 임베디드=standalone 일치, set-bit이 전부 합법 액션으로 resolve, step 후 갱신·일관, 커스텀 스키마 반영. 영향권(A3·V·A1·A2·A4a·A4b) 회귀 0.
+- 결과: **MaskablePPO/MultiDiscrete trainer가 매 step의 `FactoredActionMaskVector`를 바로 사용** — 별도 인코딩 왕복 불필요. RL 인터페이스(A1~A5) 완성.
+
+### G3.5-RL-A4 — Strict effect gate (2026-06-27)
+- 문제(GPT A4 지적): B3로 Unbound가 카운트 관측은 되지만, **strict 실패 모드가 없어** Phase 4 포팅 중 미바인딩 효과(커버리지 갭)가 조용히 드레인됨.
+- 조치: `CardEffectSchedulerResolver.Create(strictUnbound: false)` 옵션. strict일 때 미바인딩 효과를 `EffectResult.Failure`(`strictUnbound` 마커 + effectId/timing)로 반환 → 갭이 **즉시 loud failure**로 드러남(스케줄러가 큐 잔류·진행 중단). 기본(프로덕션)은 종전 Unbound 드레인.
+- 테스트: 신규 `tests/G3.5-RL-A4.StrictEffectGate.Tests` 4/4 PASS — strict 미바인딩=Failure(드레인 안 됨), 마커/id/timing surface, lenient는 Unbound 드레인(카운트), 바인딩 효과는 strict와 무관하게 정상. 회귀 0.
+- 결과: Phase 4 테스트 모드에서 strict 게이트로 **효과 커버리지 갭을 조기 검출**. (throw 대신 Failure로, 스케줄러의 기존 예외→Failure 변환과 충돌 없이 결정적.)
+
 ## 8. 미결 결정
 
 - 보상 셰이핑(sparse terminal → 중간 신호): C1/C2로 규칙이 살아난 뒤 메모리/시큐리티/필드 우위 기반 shaping 설계 — 별도 goal(G3.5-RL-D)로 분리 예정.
