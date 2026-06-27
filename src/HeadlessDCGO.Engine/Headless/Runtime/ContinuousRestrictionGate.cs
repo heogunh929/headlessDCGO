@@ -51,4 +51,13 @@ public static class ContinuousRestrictionGate
     {
         return RestrictionHelpers.CannotBlock(blockerId, Evaluate(context, blockerId), attackerId);
     }
+
+    // (D-A5) Continuous "cannot digivolve" restriction targeting the under-card being evolved.
+    public static CannotRestrictionResult EvaluateDigivolve(
+        EngineContext context,
+        HeadlessEntityId targetCardId,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return RestrictionHelpers.CannotDigivolve(targetCardId, Evaluate(context, targetCardId), sourceEntityId);
+    }
 }

@@ -214,6 +214,17 @@ public sealed class DigivolveAction
                 target.DefinitionId);
         }
 
+        // (D-A5) Continuous effects from other cards can forbid the under-card permanent from digivolving.
+        // No-op until such a restriction is registered (Phase 4 card pool); mirrors the attack/block gates.
+        CannotRestrictionResult digivolveRestriction = ContinuousRestrictionGate.EvaluateDigivolve(context, payload.TargetCardId);
+        if (digivolveRestriction.IsRestricted)
+        {
+            return DigivolveValidation.Illegal(
+                $"Target '{payload.TargetCardId}' cannot digivolve ({digivolveRestriction.Reason}).",
+                card.DefinitionId,
+                target.DefinitionId);
+        }
+
         return DigivolveValidation.Legal(card.DefinitionId, target.DefinitionId);
     }
 

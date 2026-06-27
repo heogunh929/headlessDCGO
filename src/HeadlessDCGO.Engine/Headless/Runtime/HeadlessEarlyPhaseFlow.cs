@@ -161,7 +161,9 @@ public sealed class HeadlessEarlyPhaseFlow
 
         foreach (HeadlessEntityId cardId in GetZoneCards(context, turnPlayerId, ChoiceZone.BreedingArea))
         {
-            if (TryUnsuspend(context, cardId, turnPlayerId, allowReboot: false, ignoreOwner: true))
+            // N-9: the original breeding loop unsuspends unconditionally — it does NOT consult
+            // CanUnsuspend (which targets field permanents). Bypass the gate here for the breeding area.
+            if (TryUnsuspend(context, cardId, turnPlayerId, allowReboot: false, ignoreOwner: true, ignoreCanUnsuspend: true))
             {
                 unsuspended.Add(cardId);
             }
@@ -200,12 +202,13 @@ public sealed class HeadlessEarlyPhaseFlow
         HeadlessEntityId cardId,
         HeadlessPlayerId turnPlayerId,
         bool allowReboot,
-        bool ignoreOwner = false)
+        bool ignoreOwner = false,
+        bool ignoreCanUnsuspend = false)
     {
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
             !ReadBool(record.Metadata, "isSuspended") ||
-            ReadBool(record.Metadata, "canUnsuspend", defaultValue: true) == false)
+            (!ignoreCanUnsuspend && ReadBool(record.Metadata, "canUnsuspend", defaultValue: true) == false))
         {
             return false;
         }

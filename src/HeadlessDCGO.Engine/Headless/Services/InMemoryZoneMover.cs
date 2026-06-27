@@ -323,7 +323,10 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
             return;
         }
 
-        if (insertion == ZoneInsertion.Top)
+        // N-6: the original always inserts into the trash at index 0 (most recent on top,
+        // TrashCards.Insert(0)), regardless of the move path. Centralise that here so every trash
+        // insertion (AddToTrash / battle deletion / TrashSecurity / generic MoveAsync) is consistent.
+        if (insertion == ZoneInsertion.Top || zone == ChoiceZone.Trash)
         {
             cards.Insert(0, cardId);
             return;

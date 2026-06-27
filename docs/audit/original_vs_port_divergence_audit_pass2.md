@@ -24,9 +24,9 @@
   - **D-A2** ~~시큐리티 디지몬 배틀 DP 동일~~ → ✅ **수정(2026-06-27)**: `SecurityResolver`의 공격자·시큐리티 디지몬 DP도 `ContinuousDpGate` 경유.
   - **D-A3** ~~`ImmuneFromDpReduction`(DP-마이너스 면역) DP 경로 미적용~~ → ✅ **수정(2026-06-27)**: DP-마이너스 면역은 `InvertDelta` modifier가 아니라 **DpReduction/Immune REPLACEMENT**(`ReplacementHelpers.ImmuneFromDpReduction`, key `immuneFromDpMinus`)로 모델링됨(이전 주석이 InvertDelta로 오기재 — 수정). `ContinuousDpGate`가 카드에 해당 면역 replacement가 있으면 **음수 `Dp` Add modifier를 제거**한 뒤 resolve → 감소는 차단되고 양수 buff는 유지. (참고: `ModifierHelpers`의 `InvertDelta`는 SecurityAttack 부호 반전 전용이며 `FinalValue` 미반영은 의도된 동작 — DP 면역과 무관.) (`tests/G3.5-N2` 7/7)
   - **D-A4** ~~배틀/효과 삭제가 타 카드의 `CanNotBeDestroyed(ByBattle)` 지속효과 무시(자기 플래그만)~~ → ✅ **소비측 배선(2026-06-27)**: `BattleDeletionGate`가 `BattleResolver`·`SecurityResolver`의 삭제 결정에서 연속 `Delete/Prevent` replacement 조회. (`tests/G3.5-R2-1` 3/3) *남음: 생산측(키워드→연속 replacement 등록) Phase 4.*
-  - **D-A5** 디지볼브 합법성이 "cannot digivolve" 지속 제한 미확인(`CannotRestrictionKind`에 Digivolve 멤버 자체 없음).
-  - **D-A6** 공격 타깃 제한(`CanNotAttackTargetDefendingPermanent`)을 타깃 열거 시 미확인(`EvaluateAttack` 호출에 defenderId 누락).
-- **소비측 현황(2026-06-27)**: "다른 디지몬에 +/−DP"(D-A1/A2, `ContinuousDpGate`)·"DP-마이너스 면역"(D-A3, `ContinuousDpGate`+`ImmuneFromDpReduction`)·"내 디지몬 파괴 불가"(D-A4, `BattleDeletionGate`)·"공격/블록 불가"(X-04, `ContinuousRestrictionGate`)가 라이브 전투/삭제/합법성 경로에서 연속 레지스트리를 조회. **잔여**: D-A5 디지볼브 제한(`CannotRestrictionKind`에 Digivolve 부재), D-A6 공격-타깃 제한(`EvaluateAttack` defenderId 전달), 그리고 **생산측**(카드 키워드→연속 effect 등록)은 Phase 4.
+  - **D-A5** ~~디지볼브 합법성이 "cannot digivolve" 지속 제한 미확인~~ → ✅ **수정(2026-06-27)**: `CannotRestrictionKind.Digivolve` + `CannotDigivolveKey`/`CannotDigivolve` 헬퍼 + `ContinuousRestrictionGate.EvaluateDigivolve`, `DigivolveAction.Validate`가 under-card 대상 소비. (`tests/G3.5-DA56`)
+  - **D-A6** ~~공격 타깃 제한 non-target-aware~~ → ✅ **수정(2026-06-27)**: `AttackPermanentAction`이 `EvaluateAttack(…, targetId)`로 호출 → defender-스코프(`SourceEntityId`) 제한이 해당 타깃에만 적용(이전엔 defenderId 미전달로 항상 스킵). (`tests/G3.5-DA56`)
+- **소비측 현황(2026-06-27)**: D-A1/A2(±DP)·D-A3(DP면역)·D-A4(파괴불가)·D-A5(진화불가)·D-A6(타깃공격불가)·X-04(공격/블록불가) **소비측 전부 배선 완료**. **잔여**: **생산측**(카드 키워드→연속 effect 등록)은 Phase 4.
 - **테스트**: `tests/G3.5-N2.ContinuousBattleDp` 7/7(필드 buff/debuff·DP≤0 경로·시큐리티 공격자 buff·시큐리티 디지몬 debuff·DP면역 감소차단·면역하 buff유지). 게이트는 연속 effect 미등록 시 no-op(base DP 반환).
 - **심각도 HIGH→소비측 해소 / 확신 HIGH** · **성격: Phase-4 결합** — 생산측(효과 본문이 연속 effect emit/등록)이 오면 즉시 실효.
 
@@ -57,10 +57,10 @@
 
 ## 🟡 신규 — LOW / ⚪ 경계
 
-- **N-6 🟡 trash 삽입 순서 역순**: 원본 `TrashCards.Insert(0)`(최근=top) vs 포팅 append. 원본도 trash는 대부분 술어 선택이라 영향 낮음(파일 top 스프라이트=표시용). "trash 맨 위" 효과 포팅 시만 문제.
-- **N-7 ⚪ 셔플 RNG 1스텝 차이**: 원본 Fisher-Yates가 n=0에서 no-op draw 1회 추가, 포팅은 i>0에서 정지. **순열은 동일**하나 RNG 스트림이 셔플 후 1스텝 어긋남 → 원본과의 cross-engine 결정성만 영향(포팅 자체 결정성은 유지). GPT "randomSeed" 인접.
-- **N-8 ⚪ 필드 이탈 시 인스턴스 상태 미정리**: `CardIdentityAdapter.MoveCard`가 face state만 변경, suspended/SourceIds/modifiers 미클리어. 원본은 필드 이탈 시 `RemoveCardSource`+`Init()`로 해체. permanent-teardown 영역(OnDeletion-scope 인접). 효과 포팅 시 점검.
-- **N-9 ⚪ 브리딩 unsuspend가 canUnsuspend 게이트 적용**: 원본 브리딩 루프는 `CanUnsuspend` 무시(무조건 unsuspend), 포팅은 `TryUnsuspend`가 게이트. 단 `CanNotUnsuspend`는 필드만 대상이라 디지타마엔 사실상 적용 안 됨 — 이론적. 
+- **N-6 ~~🟡 trash 삽입 순서 역순~~** → ✅ **수정(2026-06-27)**: `InMemoryZoneMover.AddToZone`에서 Trash 목적지는 항상 index 0 삽입(원본 `TrashCards.Insert(0)`) — 모든 이동 경로 통일. (`tests/G3.5-N6` 3/3)
+- **N-7 ⚪ 셔플 RNG 1스텝 차이** → **won't-fix(N/A)**: 목표("원본과 cross-engine 셔플 일치")는 포팅(xoshiro)·원본(Unity Random)이 **다른 PRNG**라 원천 불가능. 포팅 자체 결정성은 정상 → 수정 안 함. ([remaining_items_master_list.md](remaining_items_master_list.md) 2-D)
+- **N-8 ⚪ 필드 이탈 시 인스턴스 상태 미정리** → **Phase 4 재분류**: 라이브 엔진에 존-이동↔인스턴스repo 중앙 훅 부재 + 현재 유일 경로(배틀 삭제)는 리포트 마커 보존 충돌 → Phase 4 동반. ([remaining_items_master_list.md](remaining_items_master_list.md) 2-C)
+- **N-9 ~~⚪ 브리딩 unsuspend가 canUnsuspend 게이트 적용~~** → ✅ **수정(2026-06-27)**: `TryUnsuspend(ignoreCanUnsuspend:true)`를 브리딩 루프에만 적용(필드는 게이트 유지). (`tests/G3.5-N9` 2/2)
 
 ---
 

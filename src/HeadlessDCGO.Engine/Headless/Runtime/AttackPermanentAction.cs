@@ -218,8 +218,11 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack.");
         }
 
-        // (X-04) Continuous effects from other cards can forbid this attacker from attacking.
-        CannotRestrictionResult attackRestriction = ContinuousRestrictionGate.EvaluateAttack(context, attackerId);
+        // (X-04 / D-A6) Continuous effects from other cards can forbid this attacker from attacking —
+        // either globally or against a SPECIFIC defender. Passing targetId (null for a direct attack)
+        // makes the check target-aware: a restriction scoped to a defender only fires for that target,
+        // mirroring the original ICanNotAttackTargetDefendingPermanentEffect(this, Defender).
+        CannotRestrictionResult attackRestriction = ContinuousRestrictionGate.EvaluateAttack(context, attackerId, targetId);
         if (attackRestriction.IsRestricted)
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack ({attackRestriction.Reason}).");

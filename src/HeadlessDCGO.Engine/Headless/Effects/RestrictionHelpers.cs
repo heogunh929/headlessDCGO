@@ -12,6 +12,8 @@ public enum CannotRestrictionKind
     ReturnToHand = 3,
     ReturnToDeck = 4,
     Suspend = 5,
+    // D-A5: "this Digimon cannot digivolve" continuous restriction.
+    Digivolve = 6,
 }
 
 public sealed record CannotRestriction
@@ -191,6 +193,7 @@ public static class RestrictionHelpers
     public const string CannotReturnToDeckKey = "cannotReturnToDeck";
     public const string CannotReturnToLibraryKey = "cannotReturnToLibrary";
     public const string CannotSuspendKey = "cannotSuspend";
+    public const string CannotDigivolveKey = "cannotDigivolve";
 
     public static CannotRestrictionResult Evaluate(CannotRestrictionRequest request)
     {
@@ -340,6 +343,16 @@ public static class RestrictionHelpers
         return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.Suspend, targetId, restrictions, sourceEntityId));
     }
 
+    // D-A5: "this Digimon cannot digivolve". targetEntityId is the digivolve TARGET (the under-card being
+    // evolved); a restriction scoped to a specific source may pass sourceEntityId for matching.
+    public static CannotRestrictionResult CannotDigivolve(
+        HeadlessEntityId targetId,
+        IReadOnlyList<CannotRestriction> restrictions,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.Digivolve, targetId, restrictions, sourceEntityId));
+    }
+
     private static IEnumerable<CannotRestriction> ReadRestrictionsFromFlags(IReadOnlyDictionary<string, bool> flags)
     {
         foreach (KeyValuePair<string, bool> pair in flags)
@@ -383,7 +396,7 @@ public static class RestrictionHelpers
         IReadOnlyDictionary<string, object?> values,
         HeadlessEntityId? effectId)
     {
-        foreach (string key in new[] { CannotAttackKey, CannotBlockKey, CannotDeleteKey, CannotBeDeletedKey, CannotReturnToHandKey, CannotReturnToDeckKey, CannotReturnToLibraryKey, CannotSuspendKey })
+        foreach (string key in new[] { CannotAttackKey, CannotBlockKey, CannotDeleteKey, CannotBeDeletedKey, CannotReturnToHandKey, CannotReturnToDeckKey, CannotReturnToLibraryKey, CannotSuspendKey, CannotDigivolveKey })
         {
             if (TryReadBool(values, key, out bool isRestricted) && isRestricted)
             {
@@ -473,11 +486,13 @@ public static class RestrictionHelpers
             CannotReturnToDeckKey => CannotRestrictionKind.ReturnToDeck,
             CannotReturnToLibraryKey => CannotRestrictionKind.ReturnToDeck,
             CannotSuspendKey => CannotRestrictionKind.Suspend,
+            CannotDigivolveKey => CannotRestrictionKind.Digivolve,
             _ => default,
         };
 
         return key is CannotAttackKey or CannotBlockKey or CannotDeleteKey or CannotBeDeletedKey or
-            CannotReturnToHandKey or CannotReturnToDeckKey or CannotReturnToLibraryKey or CannotSuspendKey;
+            CannotReturnToHandKey or CannotReturnToDeckKey or CannotReturnToLibraryKey or CannotSuspendKey or
+            CannotDigivolveKey;
     }
 
     private static IEnumerable<object?> FlattenObjects(object raw)
