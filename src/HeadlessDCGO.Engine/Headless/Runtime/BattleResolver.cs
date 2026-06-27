@@ -211,7 +211,7 @@ public sealed class BattleResolver
 
         // N-2 / D-A1: layer continuous DP effects from other cards on top of the static DP (the original
         // GetDP rescans every field/security/player effect each access). No-op until such effects are
-        // registered; DP-minus immunity is applied inside the modifier resolution.
+        // registered; the gate also honours DP-reduction immunity (D-A3).
         int dp = ContinuousDpGate.ResolveDp(context, instanceId, staticDp);
 
         participant = new BattleParticipant(instanceId, instance.OwnerId, instance, definition, dp);

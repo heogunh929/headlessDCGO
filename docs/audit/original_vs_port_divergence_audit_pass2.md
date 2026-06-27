@@ -17,17 +17,17 @@
 - **수정**: ① `PlayCardAction`이 필드 진입 시 `enteredThisTurn=true` 세팅, ② `DigivolveAction`이 밑 디지몬의 `enteredThisTurn`를 **계승**(원본의 같은-permanent 의미), ③ `HeadlessEarlyPhaseFlow` Unsuspend 스텝이 턴플레이어 permanent의 플래그를 **클리어**. Rush는 기존 소비측에서 우회. 브리딩 이동(Hatch/MoveBreedingToBattle)은 플래그 미세팅 → 면제(원본 `-1`과 일치).
 - **테스트**: `tests/G3.5-N1.SummoningSickness` 5/5 (플레이=멀미, Rush 우회, 다음턴 클리어, 진화 계승 not-sick/sick).
 
-### N-2. 지속/대체 효과 서브시스템 배선 — ◑ **대부분 소비측 배선 완료(2026-06-27)** (DP 재계산·삭제방지·제한 슬라이스 연결; D-A3 면역·D-A5/A6·생산측은 잔여)
+### N-2. 지속/대체 효과 서브시스템 배선 — ◑ **소비측 대부분 완료(2026-06-27)** (DP 재계산·DP면역·삭제방지·제한 슬라이스 연결; D-A5/A6·생산측은 잔여)
 - **원본**: `Permanent.DP/BaseDP/GetDP`(`Permanent.cs:193-668`)가 **접근할 때마다** 전 필드+공개 시큐리티+플레이어 효과를 스캔해 DP 재계산. `CanBeDestroyed()`/`CanBeDestroyedByBattle()`(`:3186-3305`)도 타 카드의 `CanNotBeDestroyed(ByBattle)` 지속효과 스캔. `ImmuneFromDPMinus`도 DP 누적에서 적용.
 - **포팅**: `ContinuousEffectEvaluator`/`ReplacementHelpers`/`ModifierHelpers`는 존재하나 **`ContinuousRestrictionGate`만 호출**하고 그것도 **`.Restrictions`만** 사용(`.Modifiers`/`.Replacements` 폐기). 라이브 소비처는 `ContinuousRestrictionGate`/`AttackPermanentAction`/`BlockTiming`뿐.
   - **D-A1** ~~배틀 DP가 타 카드 지속 DP효과 무시~~ → ✅ **수정(2026-06-27)**: 신규 `ContinuousDpGate`가 `BattleResolver`(필드 양측)·`GameFlowProcessor.HasLethalDp`(DP≤0 삭제)의 DP 계산에서 연속 DP modifier를 static DP 위에 적용.
   - **D-A2** ~~시큐리티 디지몬 배틀 DP 동일~~ → ✅ **수정(2026-06-27)**: `SecurityResolver`의 공격자·시큐리티 디지몬 DP도 `ContinuousDpGate` 경유.
-  - **D-A3** `ImmuneFromDpReduction`(DP-마이너스 면역) — ◑ **부분**: 게이트가 `ResolveDp` 경유로 연속 modifier를 적용하나, `ModifierHelpers.Evaluate`의 `InvertDelta`는 `invertDelta` 출력 필드에만 누적되고 **`FinalValue`엔 미반영** → DP-마이너스 면역의 실효 적용은 별도 시맨틱 작업 필요(후속).
+  - **D-A3** ~~`ImmuneFromDpReduction`(DP-마이너스 면역) DP 경로 미적용~~ → ✅ **수정(2026-06-27)**: DP-마이너스 면역은 `InvertDelta` modifier가 아니라 **DpReduction/Immune REPLACEMENT**(`ReplacementHelpers.ImmuneFromDpReduction`, key `immuneFromDpMinus`)로 모델링됨(이전 주석이 InvertDelta로 오기재 — 수정). `ContinuousDpGate`가 카드에 해당 면역 replacement가 있으면 **음수 `Dp` Add modifier를 제거**한 뒤 resolve → 감소는 차단되고 양수 buff는 유지. (참고: `ModifierHelpers`의 `InvertDelta`는 SecurityAttack 부호 반전 전용이며 `FinalValue` 미반영은 의도된 동작 — DP 면역과 무관.) (`tests/G3.5-N2` 7/7)
   - **D-A4** ~~배틀/효과 삭제가 타 카드의 `CanNotBeDestroyed(ByBattle)` 지속효과 무시(자기 플래그만)~~ → ✅ **소비측 배선(2026-06-27)**: `BattleDeletionGate`가 `BattleResolver`·`SecurityResolver`의 삭제 결정에서 연속 `Delete/Prevent` replacement 조회. (`tests/G3.5-R2-1` 3/3) *남음: 생산측(키워드→연속 replacement 등록) Phase 4.*
   - **D-A5** 디지볼브 합법성이 "cannot digivolve" 지속 제한 미확인(`CannotRestrictionKind`에 Digivolve 멤버 자체 없음).
   - **D-A6** 공격 타깃 제한(`CanNotAttackTargetDefendingPermanent`)을 타깃 열거 시 미확인(`EvaluateAttack` 호출에 defenderId 누락).
-- **소비측 현황(2026-06-27)**: "다른 디지몬에 +/−DP"(D-A1/A2, `ContinuousDpGate`)·"내 디지몬 파괴 불가"(D-A4, `BattleDeletionGate`)·"공격/블록 불가"(X-04, `ContinuousRestrictionGate`)가 라이브 전투/삭제/합법성 경로에서 연속 레지스트리를 조회. **잔여**: D-A3 DP-마이너스 면역 실효 적용(`InvertDelta`→FinalValue), D-A5 디지볼브 제한(`CannotRestrictionKind`에 Digivolve 부재), D-A6 공격-타깃 제한(`EvaluateAttack` defenderId 전달), 그리고 **생산측**(카드 키워드→연속 effect 등록)은 Phase 4.
-- **테스트**: `tests/G3.5-N2.ContinuousBattleDp` 5/5(필드 buff/debuff·DP≤0 경로·시큐리티 공격자 buff·시큐리티 디지몬 debuff). 게이트는 연속 effect 미등록 시 no-op(base DP 반환).
+- **소비측 현황(2026-06-27)**: "다른 디지몬에 +/−DP"(D-A1/A2, `ContinuousDpGate`)·"DP-마이너스 면역"(D-A3, `ContinuousDpGate`+`ImmuneFromDpReduction`)·"내 디지몬 파괴 불가"(D-A4, `BattleDeletionGate`)·"공격/블록 불가"(X-04, `ContinuousRestrictionGate`)가 라이브 전투/삭제/합법성 경로에서 연속 레지스트리를 조회. **잔여**: D-A5 디지볼브 제한(`CannotRestrictionKind`에 Digivolve 부재), D-A6 공격-타깃 제한(`EvaluateAttack` defenderId 전달), 그리고 **생산측**(카드 키워드→연속 effect 등록)은 Phase 4.
+- **테스트**: `tests/G3.5-N2.ContinuousBattleDp` 7/7(필드 buff/debuff·DP≤0 경로·시큐리티 공격자 buff·시큐리티 디지몬 debuff·DP면역 감소차단·면역하 buff유지). 게이트는 연속 effect 미등록 시 no-op(base DP 반환).
 - **심각도 HIGH→소비측 해소 / 확신 HIGH** · **성격: Phase-4 결합** — 생산측(효과 본문이 연속 effect emit/등록)이 오면 즉시 실효.
 
 ---

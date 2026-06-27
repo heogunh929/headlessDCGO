@@ -23,6 +23,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Field battle: a continuous -DP debuff on the attacker makes it lose", FieldDebuffLoses),
     ("Security battle: a continuous +DP buff lets the attacker survive a stronger security Digimon", SecurityBuffSurvives),
     ("Security battle: a continuous -DP debuff on the security Digimon lets the attacker survive", SecurityDebuffSurvives),
+    ("D-A3: DP-reduction immunity prevents a continuous -DP from reducing the target", ImmunityPreventsReduction),
+    ("D-A3: immunity still lets a positive buff apply", ImmunityKeepsBuff),
 };
 
 var failures = new List<string>();
@@ -92,6 +94,32 @@ async Task SecurityDebuffSurvives()
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "attacker survived the weakened security Digimon");
 }
 
+async Task ImmunityPreventsReduction()
+{
+    // Attacker 5000 vs target 3000 -> attacker wins. A continuous -3000 would drop it to 2000 (loss),
+    // but a DP-reduction-immunity replacement prevents the reduction, so the attacker still wins.
+    DcgoMatch match = await FieldSetup(attackerDp: 5000, targetDp: 3000);
+    RegisterDpModifier(match.Context, AttackerId, owner: P1, dpDelta: -3000);
+    RegisterDpReductionImmunity(match.Context, AttackerId, owner: P1);
+    await DeclareTargetAttack(match);
+
+    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "immune attacker was not reduced");
+    AssertInZone(match, P2, ChoiceZone.Trash, TargetId, "target deleted by the un-reduced attacker");
+}
+
+async Task ImmunityKeepsBuff()
+{
+    // Attacker 3000 vs target 5000 -> would lose. A +3000 buff makes it 6000; immunity must not block
+    // the positive buff, so the attacker still wins.
+    DcgoMatch match = await FieldSetup(attackerDp: 3000, targetDp: 5000);
+    RegisterDpModifier(match.Context, AttackerId, owner: P1, dpDelta: 3000);
+    RegisterDpReductionImmunity(match.Context, AttackerId, owner: P1);
+    await DeclareTargetAttack(match);
+
+    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "buffed immune attacker survived");
+    AssertInZone(match, P2, ChoiceZone.Trash, TargetId, "weaker target deleted");
+}
+
 // --- Continuous DP modifier registration ---------------------------------
 
 void RegisterDpModifier(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner, int dpDelta)
@@ -104,6 +132,24 @@ void RegisterDpModifier(EngineContext context, HeadlessEntityId cardId, Headless
         triggerEntityId: null,
         targetEntityIds: new[] { cardId },
         values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dpDelta"] = dpDelta });
+
+    context.EffectRegistry.Register(new EffectBinding(
+        new EffectRequest(effectId, owner, "Continuous", effectContext),
+        keywords: null,
+        EffectQueryRole.Continuous,
+        new[] { ContinuousRestrictionGate.Scope }));
+}
+
+void RegisterDpReductionImmunity(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
+{
+    var effectId = new HeadlessEntityId($"dp-immune:{cardId.Value}");
+    var effectContext = new EffectContext(
+        owner,
+        owner,
+        new HeadlessEntityId($"src-immune:{cardId.Value}"),
+        triggerEntityId: null,
+        targetEntityIds: new[] { cardId },
+        values: new Dictionary<string, object?>(StringComparer.Ordinal) { [ReplacementHelpers.ImmuneFromDpMinusKey] = true });
 
     context.EffectRegistry.Register(new EffectBinding(
         new EffectRequest(effectId, owner, "Continuous", effectContext),

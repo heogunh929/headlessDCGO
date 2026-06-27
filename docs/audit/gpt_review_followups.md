@@ -36,10 +36,21 @@
 | R2-2 | ~~optional trigger 자동 발동~~ → ✅ **해소(2026-06-27)** | per-effect `IsOptional` 재분류 + `OptionalPromptQueue` 루프/A2 배선으로 **선택발동은 에이전트 결정(활성/스킵)**, 강제발동만 즉시. `tests/G3.5-OPT2` 3/3. (1차 audit #2 참조) | 원본대로 닫음 | 🟠→✅ | ✅ |
 | R2-3 | ~~MaxIterationsExceeded가 RL 결과 필드로 미노출~~ → ✅ **수정(2026-06-27)** | `HeadlessGameLoopStep`·`StepResult`·`RlStepResult`에 타입 필드 **`FlowExceededIterationCap`** 추가. `HeadlessGameLoop`가 `flow.IsMaxIterationsExceeded`를 step에 실어 보내고, `DcgoMatch.StepAsync`→`StepResult`, `HeadlessRlEnvironment.Encode`→`RlStepResult`로 전파(런어웨이 step을 trainer가 직접 읽고 패널티 가능). `HeadlessGameLoop`/`DcgoMatch`에 `GameFlowProcessor` 주입 seam 추가(테스트용). `tests/G3.5-R2-3.RunawayAndStrictProfile` 3/5. | GPT #3의 follow-up — RL 표면 노출 | 🟡→✅ | ✅ |
 | R2-4 | ~~strictUnbound 옵션 있으나 기본 학습/포팅 profile factory 부재~~ → ✅ **수정(2026-06-27)** | **`DcgoMatch.CreateStrictValidated(randomSeed, …)`** 단일 팩토리 추가(strict-unbound 컨텍스트 + validated 합법성 경계 한 번에). `HeadlessRlEnvironmentOptions.StrictUnbound` 옵션으로 기본 RL 매치도 strict+validated 구성 가능. `tests/G3.5-R2-3.RunawayAndStrictProfile` 2/5(strict-validated 프로파일/RL 옵션). | GPT 신1의 follow-up — 편의 팩토리 | 🟡→✅ | ✅ |
-| R2-5 | ~~CI 여전히 없음~~ → ✅ **활성·통과 확인(2026-06-27)** | `.github/workflows/ci.yml`(a2b6c832 추가)이 **origin/main에 푸시되어 GitHub Actions가 가동 중**. API 확인 결과 run #1~#5 **전부 success**(event=push), 최신 run #5 = 현재 HEAD `0747146a` 빌드 게이트 통과. (compile-only 게이트 — DCGO/ 의존 테스트는 로컬 실행) *남음: 이번 세션 미커밋분(N-1·R2-3/R2-4)은 다음 push 시 CI 검증.* | 라운드 1 신3 — push 완료로 해소 | 🟡 인프라→✅ | ✅ |
+| R2-5 | ~~CI 여전히 없음~~ → ◑ **가동 정황 확인, 단 도구별 편차 있음(2026-06-27)** | `.github/workflows/ci.yml`(a2b6c832 추가)이 origin/main에 푸시됨. **이 세션의 unauthenticated API 조회로는 run #1~#5 전부 success**(event=push, 최신 = 당시 HEAD `0747146a`)로 확인됨. 단, **다른 커넥터/도구에서는 동일 조회가 빈 목록으로 나오는 사례 보고**(GPT 측) → 단정 회피. compile-only 게이트(DCGO/ 의존 테스트는 로컬). **권장: GitHub UI에서 현재 HEAD 초록 체크 직접 확인.** 미커밋 변경분은 다음 push 시 검증. | 라운드 1 신3 — push됨, 외부 확인은 UI 권장 | 🟡 인프라→◑ | ◑ |
 
 ### 정리
 - **R2-1**은 신규(라운드 1엔 없던 구체 지적)이고 **pass2 감사의 N-2(지속/대체 미배선)와 동일 뿌리** → N-2 수정 시 함께 해소.
 - **R2-2**는 1차 audit에서 이미 "수용한 한계"로 문서화한 항목.
 - **R2-3/R2-4**는 라운드 1 수정의 마감 부족분(RL 표면 노출 / 편의 팩토리) — 작은 follow-up.
-- **R2-5**는 코드가 아니라 push·Actions 활성화 운영 건 — **push 완료, Actions run #1~#5 전부 success로 가동 확인**(2026-06-27).
+- **R2-5**는 코드가 아니라 push·Actions 활성화 운영 건 — push됨. API 조회상 가동 정황이나 도구별 편차 있어 UI 직접 확인 권장(위 표 참조).
+
+---
+
+## GPT 라운드 3 (2026-06-27) — N-1~N-5 + R2-3/R2-4 작업 후 지적
+
+| # | 지적 | 검증/조치 | 상태 |
+|---|------|-----------|------|
+| 1 | `ImmuneFromDPMinus`/`InvertDelta` 실효 미적용 — `ContinuousDpGate` 주석 "honoured automatically"가 구현과 불일치 | **정확함**. 두 가지 오류였음: ① DP-마이너스 면역은 `InvertDelta` modifier가 아니라 **DpReduction/Immune replacement**(`ImmuneFromDpReduction`)로 모델링됨. ② `ModifierHelpers`의 `InvertDelta`는 SecurityAttack 부호 반전 전용(`FinalValue` 미반영은 의도). → **조치**: `ContinuousDpGate`가 면역 replacement 존재 시 음수 `Dp` Add modifier를 제거 후 resolve(감소 차단·buff 유지)로 **D-A3 실제 구현**. 주석 정정. `tests/G3.5-N2` 7/7(면역 2케이스 추가). | ✅ |
+| 2 | `cannot digivolve`(D-A5) / attack-target 제한(D-A6) 잔여 | **정확함**. pass2 문서에 잔여로 명시 유지. 다음 규칙-parity 묶음에서 처리. | ⬜ 잔여 |
+| 3 | Jamming = 소비측 완료, 생산측 Phase 4 | **정확함**. `BattleDeletionGate` 주석/문서가 이미 동일하게 기술. 추가 조치 없음. | ◑ (소비측 ✅) |
+| 4 | CI 상태 도구로 미확인(빈 목록 사례) | **수용**. 이 세션 API 조회는 success였으나 도구별 편차 인정 → R2-5를 ◑로 낮추고 UI 확인 권장으로 문구 하향. | ◑ |
