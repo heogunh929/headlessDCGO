@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Collections.ObjectModel;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public delegate IReadOnlyList<EffectBinding> CardEffectBindingFactory(CardEffectFactoryBindingRequest request);

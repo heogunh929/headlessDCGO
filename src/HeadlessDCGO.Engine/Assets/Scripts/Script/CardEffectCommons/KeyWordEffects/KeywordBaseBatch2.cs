@@ -1,4 +1,6 @@
-namespace HeadlessDCGO.Engine.Headless.Effects;
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
+
+using HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Collections.ObjectModel;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -44,7 +46,10 @@ public static class KeywordBaseBatch2ContextKeys
     public const string RemovedCardId = "removedCardId";
 }
 
-public sealed class KeywordBaseBatch2Effect : IHeadlessCardEffect
+// Per-keyword resolution logic is split across partial files (Rush.cs / Blitz.cs / Retaliation.cs /
+// ArmorPurge.cs) to mirror the original DCGO CardEffectCommons/KeyWordEffects/<Name>.cs layout. Shared
+// scaffolding (enum, timings, dispatch, factory) stays here.
+public sealed partial class KeywordBaseBatch2Effect : IHeadlessCardEffect
 {
     public KeywordBaseBatch2Effect(
         KeywordBaseBatch2Kind kind,
@@ -128,7 +133,7 @@ public sealed class KeywordBaseBatch2Effect : IHeadlessCardEffect
         CardInstanceState battleTarget = target;
         return Kind switch
         {
-            KeywordBaseBatch2Kind.Rush => CardEffectCanResolveResult.Success("Rush target can attack immediately.", BaseValues(context, battleTarget)),
+            KeywordBaseBatch2Kind.Rush => CanResolveRush(context, battleTarget),
             KeywordBaseBatch2Kind.Blitz => CanResolveBlitz(context, battleTarget),
             KeywordBaseBatch2Kind.ArmorPurge => CanResolveArmorPurge(context, battleTarget),
             _ => Failure("unknown keyword", "keyword", context, targetId),
@@ -181,90 +186,6 @@ public sealed class KeywordBaseBatch2Effect : IHeadlessCardEffect
         EffectContext context)
     {
         return KeywordBaseBatch2Factory.ToBinding(this, controllerId, context);
-    }
-
-    private CardEffectCanResolveResult CanResolveBlitz(
-        CardEffectResolveContext context,
-        CardInstanceState target)
-    {
-        string requiredReason = TriggerReason ?? "OnPlay";
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.TriggerReason, out string? actualReason)
-            || !string.Equals(actualReason, requiredReason, StringComparison.Ordinal))
-        {
-            return Failure("Blitz trigger reason does not match.", "triggerReason", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.CanAttack, out bool canAttack)
-            || !canAttack)
-        {
-            return Failure("Blitz requires a target that can attack.", "canAttack", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.OpponentMemory, out int opponentMemory)
-            || opponentMemory < 1)
-        {
-            return Failure("Blitz requires opponent memory to be at least 1.", "opponentMemory", context, target.InstanceId);
-        }
-
-        bool isAttacking = context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.IsAttacking, out bool attacking)
-            && attacking;
-        if (isAttacking)
-        {
-            return Failure("Blitz cannot resolve while an attack is already running.", "isAttacking", context, target.InstanceId);
-        }
-
-        return CardEffectCanResolveResult.Success("Blitz can request an immediate attack.", BaseValues(context, target));
-    }
-
-    private CardEffectCanResolveResult CanResolveRetaliation(
-        CardEffectResolveContext context,
-        MatchState state,
-        CardInstanceState target)
-    {
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.DeletedByBattle, out bool deletedByBattle)
-            || !deletedByBattle)
-        {
-            return Failure("Retaliation requires battle deletion.", "deletedByBattle", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.DeletedCardId, out HeadlessEntityId deletedCardId)
-            || deletedCardId != target.InstanceId)
-        {
-            return Failure("Retaliation requires the keyword target to be deleted.", "deletedCardId", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.OpponentBattleCardId, out HeadlessEntityId opponentId)
-            || !state.CardInstances.TryGetValue(opponentId, out CardInstanceState? opponent)
-            || opponent.OwnerId == target.OwnerId)
-        {
-            return Failure("Retaliation requires an opponent battle target.", "opponentBattleCardId", context, target.InstanceId);
-        }
-
-        return CardEffectCanResolveResult.Success("Retaliation can delete the opposing Digimon.", BaseValues(context, target));
-    }
-
-    private CardEffectCanResolveResult CanResolveArmorPurge(
-        CardEffectResolveContext context,
-        CardInstanceState target)
-    {
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.RemovedFromField, out bool removedFromField)
-            || !removedFromField)
-        {
-            return Failure("Armor Purge requires a field removal event.", "removedFromField", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.RemovedCardId, out HeadlessEntityId removedCardId)
-            || removedCardId != target.InstanceId)
-        {
-            return Failure("Armor Purge requires the keyword target to be removed.", "removedCardId", context, target.InstanceId);
-        }
-
-        if (target.SourceIds.Count < 1)
-        {
-            return Failure("Armor Purge requires at least one digivolution source.", "sourceIds", context, target.InstanceId);
-        }
-
-        return CardEffectCanResolveResult.Success("Armor Purge can replace field removal.", BaseValues(context, target));
     }
 
     private HeadlessEntityId ResolveTargetId(CardEffectResolveContext context)

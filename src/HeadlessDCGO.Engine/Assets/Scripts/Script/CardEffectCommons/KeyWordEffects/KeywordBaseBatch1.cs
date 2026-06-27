@@ -1,4 +1,6 @@
-namespace HeadlessDCGO.Engine.Headless.Effects;
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
+
+using HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Collections.ObjectModel;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -42,7 +44,11 @@ public static class KeywordBaseBatch1ContextKeys
     public const string DoSecurityCheck = "doSecurityCheck";
 }
 
-public sealed class KeywordBaseBatch1Effect : IHeadlessCardEffect
+// N-: per-keyword resolution logic is split across partial files (Blocker.cs / Jamming.cs / Reboot.cs /
+// Pierce.cs) to mirror the original DCGO CardEffectCommons/KeyWordEffects/<Name>.cs structure (which is
+// itself a partial-class-per-keyword layout). Shared scaffolding (enum, timings, dispatch, factory) stays
+// here.
+public sealed partial class KeywordBaseBatch1Effect : IHeadlessCardEffect
 {
     public KeywordBaseBatch1Effect(
         KeywordBaseBatch1Kind kind,
@@ -112,8 +118,8 @@ public sealed class KeywordBaseBatch1Effect : IHeadlessCardEffect
         CardInstanceState battleTarget = target;
         return Kind switch
         {
-            KeywordBaseBatch1Kind.Blocker => CardEffectCanResolveResult.Success("Blocker target can block.", BaseValues(context, battleTarget)),
-            KeywordBaseBatch1Kind.Reboot => CardEffectCanResolveResult.Success("Reboot target can unsuspend on opponent unsuspend.", BaseValues(context, battleTarget)),
+            KeywordBaseBatch1Kind.Blocker => CanResolveBlocker(context, battleTarget),
+            KeywordBaseBatch1Kind.Reboot => CanResolveReboot(context, battleTarget),
             KeywordBaseBatch1Kind.Jamming => CanResolveJamming(context, battleTarget),
             KeywordBaseBatch1Kind.Piercing => CanResolvePiercing(context, state, battleTarget),
             _ => Failure("unknown keyword", "keyword", context, targetId),
@@ -163,65 +169,6 @@ public sealed class KeywordBaseBatch1Effect : IHeadlessCardEffect
         EffectContext context)
     {
         return KeywordBaseBatch1Factory.ToBinding(this, controllerId, context);
-    }
-
-    private CardEffectCanResolveResult CanResolveJamming(
-        CardEffectResolveContext context,
-        CardInstanceState target)
-    {
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.AttackingCardId, out HeadlessEntityId attackingCardId)
-            || attackingCardId != target.InstanceId)
-        {
-            return Failure("Jamming requires the keyword target to be the attacking card.", "attackingCardId", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.DefendingCardIsSecurity, out bool isSecurity)
-            || !isSecurity)
-        {
-            return Failure("Jamming only prevents battle deletion against a security Digimon.", "defendingCardIsSecurity", context, target.InstanceId);
-        }
-
-        return CardEffectCanResolveResult.Success("Jamming prevents battle deletion against security.", BaseValues(context, target));
-    }
-
-    private CardEffectCanResolveResult CanResolvePiercing(
-        CardEffectResolveContext context,
-        MatchState state,
-        CardInstanceState target)
-    {
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.BattleDeletedByBattle, out bool deletedByBattle)
-            || !deletedByBattle)
-        {
-            return Failure("Piercing requires battle deletion.", "battleDeletedByBattle", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.BattleWinnerCardId, out HeadlessEntityId winnerId)
-            || winnerId != target.InstanceId)
-        {
-            return Failure("Piercing requires the keyword target to be the battle winner.", "battleWinnerCardId", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.BattleLoserCardId, out HeadlessEntityId loserId)
-            || !state.CardInstances.TryGetValue(loserId, out CardInstanceState? loser)
-            || loser.OwnerId == target.OwnerId)
-        {
-            return Failure("Piercing requires an opponent Digimon deleted by battle.", "battleLoserCardId", context, target.InstanceId);
-        }
-
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.OpponentSecurityCount, out int securityCount)
-            || securityCount < 1)
-        {
-            return Failure("Piercing requires opponent security.", "opponentSecurityCount", context, target.InstanceId);
-        }
-
-        bool alreadyChecking = context.EffectContext.TryGetValue(KeywordBaseBatch1ContextKeys.DoSecurityCheck, out bool doSecurityCheck)
-            && doSecurityCheck;
-        if (alreadyChecking)
-        {
-            return Failure("Piercing cannot resolve after security check is already enabled.", "doSecurityCheck", context, target.InstanceId);
-        }
-
-        return CardEffectCanResolveResult.Success("Piercing enables an additional security check.", BaseValues(context, target));
     }
 
     private HeadlessEntityId ResolveTargetId(CardEffectResolveContext context)

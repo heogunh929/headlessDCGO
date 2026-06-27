@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -248,7 +249,8 @@ async Task InvalidKeywordTargetFailsWithoutMutation()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string helper = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "KeywordBaseBatch1.cs"));
+    // Relocated to the AS-IS mirror structure (CardEffectCommons/KeyWordEffects) for 1:1 parity with the original.
+    string helper = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "KeyWordEffects", "KeywordBaseBatch1.cs"));
     string blocker = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectFactory", "KeyWordEffects", "Blocker.cs"));
     string jamming = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectFactory", "KeyWordEffects", "Jamming.cs"));
     string reboot = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectFactory", "KeyWordEffects", "Reboot.cs"));
