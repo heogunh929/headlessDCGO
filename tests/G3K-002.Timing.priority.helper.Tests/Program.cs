@@ -227,7 +227,7 @@ Task AssetsFacadeAndSourceScope()
     AssertTrue(result.IsSuccess, "facade result");
     AssertEqual("facade-mandatory,facade-optional", JoinIds(result.OrderedTriggers), "facade order");
 
-    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "TimingPriorityHelpers.cs");
+    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "TimingPriorityHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "TimingPriorityHelpers.cs");
     string testPath = Path.Combine(root, "tests", "G3K-002.Timing.priority.helper.Tests", "Program.cs");
 

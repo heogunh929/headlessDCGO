@@ -14,6 +14,9 @@ public interface EffectRegistry : IEffectQueryService
     IReadOnlyList<EffectBinding> GetKeywordEffects(string keyword);
 
     EffectBinding? Find(HeadlessEntityId effectId);
+
+    /// <summary>(CV-A1) Removes every binding matching the predicate; returns the count removed.</summary>
+    int RemoveWhere(Func<EffectBinding, bool> predicate);
 }
 
 public sealed class InMemoryEffectRegistry : EffectRegistry
@@ -113,6 +116,19 @@ public sealed class InMemoryEffectRegistry : EffectRegistry
         _bindingsByEffectId.Clear();
     }
 
+    public int RemoveWhere(Func<EffectBinding, bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        EffectBinding[] toRemove = _bindings.Where(predicate).ToArray();
+        foreach (EffectBinding binding in toRemove)
+        {
+            _bindings.Remove(binding);
+            _bindingsByEffectId.Remove(binding.Request.EffectId);
+        }
+
+        return toRemove.Length;
+    }
+
     private IReadOnlyList<EffectRequest> GetRequestsForRole(
         EffectQueryRole role,
         EffectQueryContext context)
@@ -133,7 +149,8 @@ public sealed record EffectBinding
         IReadOnlyList<string>? keywords = null,
         EffectQueryRole queryRoles = EffectQueryRole.None,
         IReadOnlyList<string>? queryScopes = null,
-        IHeadlessCardEffect? effect = null)
+        IHeadlessCardEffect? effect = null,
+        EffectDuration? duration = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!AreValidRoles(queryRoles))
@@ -148,11 +165,17 @@ public sealed record EffectBinding
                 nameof(effect));
         }
 
+        if (duration is { } d && !Enum.IsDefined(d))
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration), "Effect duration must be a known value.");
+        }
+
         Request = request;
         Keywords = CopyKeywords(keywords);
         QueryRoles = queryRoles;
         QueryScopes = CopyQueryScopes(queryScopes);
         Effect = effect;
+        Duration = duration;
     }
 
     public EffectRequest Request { get; }
@@ -164,6 +187,9 @@ public sealed record EffectBinding
     public IReadOnlyList<string> QueryScopes { get; }
 
     public IHeadlessCardEffect? Effect { get; }
+
+    /// <summary>(CV-A1) Optional lifetime; null = permanent (no auto-expiry).</summary>
+    public EffectDuration? Duration { get; }
 
     public bool HasRole(EffectQueryRole role)
     {

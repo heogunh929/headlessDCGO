@@ -138,8 +138,10 @@ Task BindingSourceHasNoUnityOrPlaceholder()
         root,
         "src",
         "HeadlessDCGO.Engine",
-        "Headless",
-        "Effects",
+        "Assets",
+        "Scripts",
+        "Script",
+        "CardEffectFactory",
         "CardEffectFactoryBinding.cs");
 
     if (!File.Exists(path))

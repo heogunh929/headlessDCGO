@@ -54,6 +54,9 @@ public sealed class HeadlessEarlyPhaseFlow
             // (Silent state cleanup — no operation marker, to leave existing phase-operation assertions
             // untouched.)
             ClearEnteredThisTurnForTurnPlayer(context, currentTurnPlayerId);
+
+            // CV-A1: expire continuous bindings scoped to the controller's active phase / next unsuspend.
+            EffectDurationExpiry.ExpireUnsuspend(context.EffectRegistry, currentTurnPlayerId);
         }
         else if (current.Phase == HeadlessPhase.Draw)
         {

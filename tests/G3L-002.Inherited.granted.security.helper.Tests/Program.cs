@@ -231,7 +231,7 @@ Task AssetsFacadeAndSourceScope()
     AssertTrue(result.IsSuccess, "facade query");
     AssertEqual("facade-inherited", JoinIds(result.Effects), "facade id");
 
-    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "InheritedGrantedSecurityHelpers.cs");
+    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "InheritedGrantedSecurityHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "InheritedGrantedSecurityHelpers.cs");
     string testPath = Path.Combine(root, "tests", "G3L-002.Inherited.granted.security.helper.Tests", "Program.cs");
 

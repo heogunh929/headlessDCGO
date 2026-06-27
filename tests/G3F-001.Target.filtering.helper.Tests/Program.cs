@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -246,7 +247,7 @@ Task TargetFilterResultValuesAreDeterministic()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string helper = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "TargetFilterHelpers.cs"));
+    string helper = File.ReadAllText(Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "TargetFilterHelpers.cs"));
 
     AssertFalse(helper.Contains("TODO", StringComparison.OrdinalIgnoreCase), "helper must not contain TODO");
     AssertFalse(helper.Contains("placeholder", StringComparison.OrdinalIgnoreCase), "helper must not contain placeholder");

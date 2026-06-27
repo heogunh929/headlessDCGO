@@ -10,13 +10,14 @@
 ## A. 기반 프레임워크
 
 ### F-1. EffectDuration 시스템 🔴
-- [ ] F-1.1 `EffectDuration` enum 8종: UntilEachTurnEnd, UntilOwnerTurnEnd, UntilOpponentTurnEnd, UntilEndAttack, UntilEndBattle, UntilOwnerActivePhase, UntilNextUntap, UntilCalculateFixedCost
-- [ ] F-1.2 modifier/플래그에 duration 태깅(메타 + 연속 effect 등록 시 duration 보존)
-- [ ] F-1.3 만료 정리 훅: 턴종료(each/owner/opp) — 기존 `HeadlessEndTurnCleanupFlow` 확장
-- [ ] F-1.4 만료 훅: 전투 끝(UntilEndBattle) — BattleResolver/SecurityResolver 종료점
-- [ ] F-1.5 만료 훅: 공격 끝(UntilEndAttack) — AttackPipeline end-attack
-- [ ] F-1.6 만료 훅: 다음 언탭(UntilNextUntap)·오너 액티브페이즈(UntilOwnerActivePhase)
-- [ ] F-1.7 만료 훅: UntilCalculateFixedCost (코스트 계산 시점)
+- [x] F-1.1 `EffectDuration` enum 8종 — `Headless/Effects/EffectDuration.cs` (CV-A1, 2026-06-27)
+- [x] F-1.2 duration 태깅 — `EffectBinding.Duration`(연속 effect binding에 보존) + `EffectRegistry.RemoveWhere`
+- [x] F-1.3 만료 훅: 턴종료(each/owner/opp) — `HeadlessEndTurnCleanupFlow`→`EffectDurationExpiry.ExpireTurnEnd`
+- [x] F-1.4 만료 훅: 전투 끝 — `BattleResolver`→`ExpireBattleEnd`
+- [~] F-1.5 만료 훅: 공격 끝 — `EffectDurationExpiry.ExpireAttackEnd` 존재, **AttackPipeline end-attack 배선 잔여**
+- [x] F-1.6 만료 훅: 언탭/액티브페이즈 — `HeadlessEarlyPhaseFlow`(Unsuspend)→`ExpireUnsuspend`
+- [~] F-1.7 만료 훅: UntilCalculateFixedCost — `ExpireFixedCostCalc` 존재, **코스트 계산 지점 배선 잔여**
+- 테스트: `tests/G3.5-CVA1.EffectDuration` 6/6 (enum·each/owner/opp 턴종료·battle/attack·언탭·permanent 생존)
 
 ### F-2. 선택→연산 프레임워크 🔴
 - [ ] F-2.1 "조건 매칭 대상 N개 선택" 공통 빌더(permanent/card/hand) — minCount/maxCount/canSkip/canEndNotMax + target predicate

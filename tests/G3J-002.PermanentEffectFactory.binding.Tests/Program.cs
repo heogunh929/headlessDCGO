@@ -1,4 +1,6 @@
 using System.Text;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -238,7 +240,7 @@ Task AssetsFacadeCreatesPermanentRules()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "PermanentEffectFactoryBinding.cs");
+    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectFactory", "PermanentEffectFactoryBinding.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "PermanentEffectFactory.cs");
     string testPath = Path.Combine(root, "tests", "G3J-002.PermanentEffectFactory.binding.Tests", "Program.cs");
 

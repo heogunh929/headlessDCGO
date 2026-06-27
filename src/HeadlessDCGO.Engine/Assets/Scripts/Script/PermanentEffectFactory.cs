@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 

@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
@@ -266,7 +267,7 @@ Task RequirementResultsAreDeterministic()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string path = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "CardRequirementHelpers.cs");
+    string path = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "CardRequirementHelpers.cs");
     string text = File.ReadAllText(path);
 
     AssertFalse(text.Contains("TODO", StringComparison.OrdinalIgnoreCase), "helper must not contain TODO");

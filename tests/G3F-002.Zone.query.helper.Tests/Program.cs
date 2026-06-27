@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -203,7 +204,7 @@ Task InvalidZonesReturnFailure()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string helperPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "ZoneQueryHelpers.cs");
+    string helperPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ZoneQueryHelpers.cs");
     string testPath = Path.Combine(root, "tests", "G3F-002.Zone.query.helper.Tests", "Program.cs");
     string helper = File.ReadAllText(helperPath);
     string test = File.ReadAllText(testPath);

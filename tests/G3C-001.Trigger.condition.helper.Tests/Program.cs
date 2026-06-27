@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -224,7 +225,7 @@ Task TriggerConditionEvaluationIsDeterministic()
 
 Task SourceFilesContainNoPlaceholderOrUnityDependency()
 {
-    string path = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "TriggerConditionHelpers.cs");
+    string path = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "TriggerConditionHelpers.cs");
     string text = File.ReadAllText(path);
 
     AssertFalse(text.Contains("TODO", StringComparison.OrdinalIgnoreCase), "helper must not contain TODO");

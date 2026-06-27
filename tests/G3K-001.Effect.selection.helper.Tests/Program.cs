@@ -249,7 +249,7 @@ Task AssetsFacadeAndSourceScope()
     AssertTrue(resolution.IsSuccess, "facade resolution");
     AssertEqual(1, resolution.Context.GetRequiredValue<int?>(EffectChoiceKey(EffectChoiceHelpers.SelectedCountKey)), "facade selected count");
 
-    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "EffectChoiceHelpers.cs");
+    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "EffectChoiceHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "EffectChoiceHelpers.cs");
     string testPath = Path.Combine(root, "tests", "G3K-001.Effect.selection.helper.Tests", "Program.cs");
 

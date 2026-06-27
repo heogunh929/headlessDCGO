@@ -210,7 +210,7 @@ Task AssetsFacadeAndSourceScope()
     AssertTrue(result.IsSuccess, "facade register");
     AssertEqual(1, context.GetRequiredValue<int>(CanUseEffectHelpers.UseCountThisTurnKey), "facade context count");
 
-    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "OnceFlagHelpers.cs");
+    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "OnceFlagHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "OnceFlagHelpers.cs");
     string testPath = Path.Combine(root, "tests", "G3L-001.Once.per.turn.flag.helper.Tests", "Program.cs");
 

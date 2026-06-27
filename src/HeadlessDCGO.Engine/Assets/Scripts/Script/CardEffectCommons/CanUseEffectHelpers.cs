@@ -1,4 +1,6 @@
-namespace HeadlessDCGO.Engine.Headless.Effects;
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;

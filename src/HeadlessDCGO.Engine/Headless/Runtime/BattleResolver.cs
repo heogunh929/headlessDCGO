@@ -3,6 +3,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 using System.Globalization;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
@@ -84,6 +85,9 @@ public sealed class BattleResolver
         // Piercing: when the attacker survives and deletes the defender in battle, it also checks
         // the defending player's security (the AttackPipeline performs the follow-up check).
         bool piercing = attackerSurvives && defenderDeletedNow && HasFlag(attacker, HasPiercingKey);
+
+        // CV-A1: expire continuous bindings that last only until the end of this battle.
+        EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
 
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");
         return BattleResolutionResult.Success(

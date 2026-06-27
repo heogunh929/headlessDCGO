@@ -251,7 +251,7 @@ Task CardEffectCommonsFacadeDelegates()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string evaluatorPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "ContinuousEffectEvaluator.cs");
+    string evaluatorPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ContinuousEffectEvaluator.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ContinuousEffectEvaluator.cs");
     string testPath = Path.Combine(root, "tests", "G3I-002.Continuous.effect.evaluator.Tests", "Program.cs");
 

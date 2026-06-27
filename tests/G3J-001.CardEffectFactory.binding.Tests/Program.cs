@@ -230,7 +230,7 @@ Task AssetsFacadeCreatesKeywordRules()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "CardEffectFactoryBinding.cs");
+    string headlessPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectFactory", "CardEffectFactoryBinding.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectFactory", "CardEffectFactoryBinding.cs");
     string testPath = Path.Combine(root, "tests", "G3J-001.CardEffectFactory.binding.Tests", "Program.cs");
 

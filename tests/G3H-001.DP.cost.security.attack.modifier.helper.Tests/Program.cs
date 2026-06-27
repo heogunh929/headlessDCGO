@@ -259,7 +259,7 @@ Task ModifierResultValuesAreDeterministic()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string helperPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "ModifierHelpers.cs");
+    string helperPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ModifierHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ModifierHelpers.cs");
     string helper = File.ReadAllText(helperPath);
     string facade = File.ReadAllText(facadePath);

@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class HeadlessEndTurnCleanupFlow
@@ -43,6 +44,10 @@ public sealed class HeadlessEndTurnCleanupFlow
         HeadlessPlayerId? nonTurnPlayerId = endingTurn.NonTurnPlayerId;
         int resetAttackCount = context.AttackController.Current.AttackCount;
         context.AttackController.ResetTurnAttackState();
+
+        // CV-A1: expire continuous effect bindings whose duration ends with this turn (UntilEachTurnEnd,
+        // and owner/opponent-turn-end scoped by the ending turn player vs the binding controller).
+        EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, turnPlayerId);
 
         List<string> cleanedCardIds = new();
         List<string> removedKeys = new();

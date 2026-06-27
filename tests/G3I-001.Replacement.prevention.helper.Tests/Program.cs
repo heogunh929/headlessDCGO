@@ -267,7 +267,7 @@ Task CardEffectCommonsFactoryCreatesReplacements()
 
 Task SourceFilesStayInsideGoalScope()
 {
-    string helperPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "ReplacementHelpers.cs");
+    string helperPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ReplacementHelpers.cs");
     string facadePath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "CardEffectCommons", "ReplacementHelpers.cs");
     string helper = File.ReadAllText(helperPath);
     string facade = File.ReadAllText(facadePath);
