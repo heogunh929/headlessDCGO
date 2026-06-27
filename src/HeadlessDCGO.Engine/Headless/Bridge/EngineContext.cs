@@ -197,7 +197,11 @@ public sealed class EngineContext
         CurrentState = ObservationSnapshot.Empty;
     }
 
-    public static EngineContext CreateDefault(int randomSeed = 0)
+    /// <param name="randomSeed">Deterministic RNG seed.</param>
+    /// <param name="strictUnbound">(GPT-#1 / 신1) When true, the effect scheduler treats a request with
+    /// no bound effect body as a hard failure instead of a silent <c>Unbound</c> drain — a strict
+    /// coverage gate for Phase 4 porting / tests. Production defaults to lenient (false).</param>
+    public static EngineContext CreateDefault(int randomSeed = 0, bool strictUnbound = false)
     {
         GameRandomSource randomSource = new(randomSeed);
         var cardInstanceRepository = new InMemoryCardInstanceRepository();
@@ -211,7 +215,8 @@ public sealed class EngineContext
             new EffectResolutionQueue(),
             CardEffectSchedulerResolver.Create(
                 effectRegistry,
-                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController)));
+                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController),
+                strictUnbound: strictUnbound));
 
         return new EngineContext(
             new ScriptedChoiceProvider(),

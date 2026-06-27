@@ -21,6 +21,14 @@ public sealed class DcgoMatch
     {
     }
 
+    /// <summary>
+    /// Creates a match. <paramref name="actionLegality"/> defaults to <c>null</c> = the <b>unguarded</b>
+    /// engine/scripting mode: actions are applied via per-handler validation only, with no single
+    /// agent-action legality boundary (GPT-#4). This is intentional for engine-internal scripting and
+    /// tests that drive system actions directly. For the <b>agent-facing / RL</b> path, pass a
+    /// <see cref="LegalActionSetValidator"/> (or use <see cref="CreateValidated"/>) so out-of-set
+    /// actions are rejected at apply time (G3.5-RL-A1).
+    /// </summary>
     public DcgoMatch(
         EngineContext context,
         ITraceSink? traceSink = null,
@@ -33,6 +41,25 @@ public sealed class DcgoMatch
         _traceSink = traceSink ?? new NullTraceSink();
         _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor);
         _actionLegality = actionLegality;
+    }
+
+    /// <summary>True when an agent-action legality boundary is enforced at apply time (GPT-#4); false
+    /// for an unguarded engine/scripting match.</summary>
+    public bool EnforcesActionLegality => _actionLegality is not null;
+
+    /// <summary>
+    /// Creates an <b>agent-validated</b> match: the single authoritative legality boundary
+    /// (<see cref="LegalActionSetValidator"/>, G3.5-RL-A1) is enforced, so actions outside the current
+    /// legal set are rejected without mutating state. Prefer this over the unguarded default
+    /// constructor for the RL / agent-facing path.
+    /// </summary>
+    public static DcgoMatch CreateValidated(
+        EngineContext context,
+        ITraceSink? traceSink = null,
+        IActionProcessor? actionProcessor = null,
+        IActionLegality? actionLegality = null)
+    {
+        return new DcgoMatch(context, traceSink, actionProcessor, actionLegality ?? new LegalActionSetValidator());
     }
 
     public EngineContext Context { get; }
