@@ -301,9 +301,11 @@ public sealed class SecurityResolver
         }
 
         // The attacker is deleted when it does not exceed the security Digimon's DP (equal DP deletes
-        // both; the security Digimon is already gone). Jamming / CanNotBeDeletedByBattle protects it.
+        // both; the security Digimon is already gone). Jamming / CanNotBeDeletedByBattle protects it —
+        // via the static flag OR a continuous deletion-prevention replacement (R2-1/N-2).
         if (attackerDp > securityDp ||
-            HasFlag(attacker.Metadata, attackerCard.Metadata, BattleResolver.PreventBattleDeletionKey))
+            HasFlag(attacker.Metadata, attackerCard.Metadata, BattleResolver.PreventBattleDeletionKey) ||
+            BattleDeletionGate.PreventsBattleDeletion(context, attackerId))
         {
             return false;
         }

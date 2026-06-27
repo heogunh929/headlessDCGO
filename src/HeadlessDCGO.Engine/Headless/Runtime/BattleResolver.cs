@@ -60,7 +60,10 @@ public sealed class BattleResolver
         // battle (attacker vs a battle-area Digimon) is unaffected by Jamming.
 
         // PreventBattleDeletion (CanNotBeDeletedByBattle): flagged participants survive the battle.
-        deleted.RemoveAll(participant => HasFlag(participant, PreventBattleDeletionKey));
+        // R2-1/N-2: also honour continuous deletion-prevention REPLACEMENTS from other cards.
+        deleted.RemoveAll(participant =>
+            HasFlag(participant, PreventBattleDeletionKey) ||
+            BattleDeletionGate.PreventsBattleDeletion(context, participant.InstanceId));
 
         bool defenderDeletedNow = deleted.Contains(defender);
         bool attackerSurvives = !deleted.Contains(attacker);

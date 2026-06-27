@@ -46,6 +46,7 @@ public sealed class EngineContext
         EffectScheduler = effectScheduler ?? throw new ArgumentNullException(nameof(effectScheduler));
         EffectRegistry = effectRegistry ?? new InMemoryEffectRegistry();
         GameEventQueue = gameEventQueue ?? new GameEventQueue();
+        OptionalPromptQueue = new OptionalPromptQueue();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
@@ -83,6 +84,10 @@ public sealed class EngineContext
     public EffectRegistry EffectRegistry { get; }
 
     public GameEventQueue GameEventQueue { get; }
+
+    /// <summary>(#2) Pending optional ("you may") trigger prompts awaiting an agent decision. Persists
+    /// across the loop's pause/resume so optional triggers are activated by choice, not auto-fired.</summary>
+    public OptionalPromptQueue OptionalPromptQueue { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
@@ -193,6 +198,7 @@ public sealed class EngineContext
         ResetIfSupported(AttackController);
         ResetIfSupported(MemoryController);
         ResetIfSupported(GameEventQueue);
+        OptionalPromptQueue.Clear();
         ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;
     }
@@ -252,6 +258,7 @@ public sealed class EngineContext
         RegisterService(EffectScheduler);
         RegisterService(EffectRegistry);
         RegisterService(GameEventQueue);
+        RegisterService(OptionalPromptQueue);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }

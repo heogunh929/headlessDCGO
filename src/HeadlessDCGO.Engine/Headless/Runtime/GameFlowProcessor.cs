@@ -241,15 +241,15 @@ public sealed class GameFlowProcessor
     }
 
     /// <summary>
-    /// (X-05 + D-3) Drives event-driven trigger collection then resolves the scheduler. Every pending
-    /// game event is collected into one batch of triggers (across all derived timings), which is then
-    /// ordered by <see cref="MandatoryEffectOrdering"/> — turn-player triggers first, then non-turn,
-    /// mandatory before optional — before enqueuing, mirroring the AS-IS simultaneous-trigger rule.
+    /// (X-05 + D-3 + #2) Drives event-driven trigger collection then resolves the scheduler. Pending
+    /// game events are collected into one batch, each trigger's Kind reclassified from the bound
+    /// effect's <see cref="Effects.CardEffectDefinition.IsOptional"/>, then ordered by
+    /// <see cref="MandatoryEffectOrdering"/> (turn-player first, mandatory before optional).
     /// <para>
-    /// LIMITATION (D-3/D-4): optional ("you may") triggers are currently enqueued (and so auto-resolve)
-    /// AFTER the mandatory ones, rather than being surfaced as an agent choice. They are no longer
-    /// dropped, but a full optional-trigger-as-agent-decision mechanism (DeferredChoiceProvider for
-    /// triggers) is deferred to the Phase 4 effect work.
+    /// MANDATORY triggers are enqueued and resolve immediately. OPTIONAL ("you may") triggers are NOT
+    /// auto-resolved: they go to the <see cref="EngineContext.OptionalPromptQueue"/> (turn player's
+    /// first) and surface as an agent ResolveChoice decision (activate-which / skip), exactly like the
+    /// AS-IS optional-trigger prompt. Opening a prompt pauses the loop via the pending choice.
     /// </para>
     /// </summary>
     private static async Task<(int Resolved, int Collected)> AutoProcessAsync(
@@ -276,7 +276,7 @@ public sealed class GameFlowProcessor
                 {
                     if (seen.Add(trigger.Request.EffectId))
                     {
-                        batch.Add(trigger);
+                        batch.Add(ReclassifyKind(context, trigger));
                     }
                 }
             }
@@ -288,13 +288,38 @@ public sealed class GameFlowProcessor
             .ResolveAllAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return (results.Count(result => result.Resolved), collected);
+        // #2: after mandatory effects resolve, surface the next queued optional-trigger prompt to the
+        // agent. Counts as progress so the loop re-iterates and pauses on the now-pending choice.
+        bool openedPrompt = RequestNextOptionalPrompt(context);
+
+        return (results.Count(result => result.Resolved), collected + (openedPrompt ? 1 : 0));
     }
 
     /// <summary>
-    /// (D-3) Enqueues a batch of simultaneously-collected triggers in resolution order: ordered
-    /// mandatory (turn-player first), then optional, then any with an unknown controller. Returns the
-    /// number enqueued.
+    /// (#2) A trigger's mandatory/optional Kind is authoritative from the bound effect's
+    /// <c>Definition.IsOptional</c> when the effect is registered with a body; otherwise the
+    /// collection-time Kind (event metadata) is kept.
+    /// </summary>
+    private static TimingWindowTrigger ReclassifyKind(EngineContext context, TimingWindowTrigger trigger)
+    {
+        if (context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect is { } effect)
+        {
+            TimingWindowTriggerKind kind = effect.Definition.IsOptional
+                ? TimingWindowTriggerKind.Optional
+                : TimingWindowTriggerKind.Mandatory;
+            if (trigger.Kind != kind)
+            {
+                return new TimingWindowTrigger(trigger.Request, trigger.Mode, kind, trigger.Priority, trigger.Sequence);
+            }
+        }
+
+        return trigger;
+    }
+
+    /// <summary>
+    /// (D-3 + #2) Enqueues mandatory triggers (turn-player first) to resolve immediately, and routes
+    /// optional triggers to the <see cref="OptionalPromptQueue"/> grouped by controller (turn player
+    /// first) so they become an agent decision. Returns the number of triggers handled.
     /// </summary>
     private static int EnqueueOrdered(EngineContext context, IReadOnlyList<TimingWindowTrigger> batch)
     {
@@ -338,27 +363,73 @@ public sealed class GameFlowProcessor
             return batch.Count;
         }
 
-        int enqueued = 0;
+        int handled = 0;
+
+        // Mandatory (turn-player first) + unknown-controller triggers resolve immediately.
         foreach (TimingWindowTrigger trigger in ordering.OrderedMandatoryTriggers)
         {
             context.EffectScheduler.Enqueue(trigger.Request, trigger.Mode);
-            enqueued++;
-        }
-
-        // D-3/D-4 limitation: optional triggers auto-resolve after mandatory (not yet agent-gated).
-        foreach (TimingWindowTrigger trigger in ordering.DeferredOptionalTriggers)
-        {
-            context.EffectScheduler.Enqueue(trigger.Request, trigger.Mode);
-            enqueued++;
+            handled++;
         }
 
         foreach (TimingWindowTrigger trigger in ordering.UnknownPlayerTriggers)
         {
             context.EffectScheduler.Enqueue(trigger.Request, trigger.Mode);
-            enqueued++;
+            handled++;
         }
 
-        return enqueued;
+        // #2: optional triggers -> agent prompt, grouped by controller (turn player's prompt first).
+        handled += QueueOptionalPrompts(context, ordering.DeferredOptionalTriggers, turnPlayer, nonTurnPlayer);
+
+        return handled;
+    }
+
+    /// <summary>(#2) Enqueues one optional-trigger prompt per controller (turn player first) into the
+    /// OptionalPromptQueue. Returns the number of optional triggers queued.</summary>
+    private static int QueueOptionalPrompts(
+        EngineContext context,
+        IReadOnlyList<TimingWindowTrigger> optionalTriggers,
+        HeadlessPlayerId turnPlayer,
+        HeadlessPlayerId? nonTurnPlayer)
+    {
+        if (optionalTriggers.Count == 0)
+        {
+            return 0;
+        }
+
+        int queued = 0;
+        foreach (HeadlessPlayerId? player in new[] { (HeadlessPlayerId?)turnPlayer, nonTurnPlayer })
+        {
+            if (player is not { } owner || owner.IsEmpty)
+            {
+                continue;
+            }
+
+            TimingWindowTrigger[] forPlayer = optionalTriggers
+                .Where(trigger => trigger.Request.ControllerId == owner)
+                .ToArray();
+            if (forPlayer.Length == 0)
+            {
+                continue;
+            }
+
+            context.OptionalPromptQueue.EnqueuePrompt(forPlayer, owner);
+            queued += forPlayer.Length;
+        }
+
+        return queued;
+    }
+
+    /// <summary>(#2) Opens the next queued optional-trigger prompt as a pending choice (if any and no
+    /// choice is already pending). Returns true when a prompt was opened.</summary>
+    private static bool RequestNextOptionalPrompt(EngineContext context)
+    {
+        if (!context.OptionalPromptQueue.HasPendingPrompt || context.ChoiceController.Current.IsPending)
+        {
+            return false;
+        }
+
+        return context.OptionalPromptQueue.RequestNextChoice(context.ChoiceController).IsSuccess;
     }
 
     /// <summary>

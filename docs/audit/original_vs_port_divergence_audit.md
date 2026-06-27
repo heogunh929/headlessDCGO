@@ -30,7 +30,8 @@
 
 ### D-3. 라이브 트리거 루프에 mandatory→optional / 턴플레이어 우선순위 없음 → ✅ **수정 완료(2026-06-27, 부분·한계 명시)**
 > **수정**: `AutoProcessingTriggerCollector.CollectAllTriggers`(enqueue 분리) + `GameFlowProcessor.AutoProcessAsync`가 한 배치의 트리거를 `MandatoryEffectOrdering`으로 정렬(**턴플레이어 우선 → 비턴 → mandatory→optional**) 후 enqueue. 신규 `tests/G3.5-D3.TriggerOrdering.Tests` 2/2 PASS(등록 역순에도 턴플레이어 먼저, mandatory→optional + 옵셔널 발동). 회귀(006/004/G2F-001/002/W1/V) 0.
-> **한계(수용)**: 옵셔널 트리거는 드롭 대신 mandatory 뒤에 enqueue=**자동발동**(강제). 에이전트 결정으로 노출(트리거판 DeferredChoiceProvider)은 Phase 4로. 또한 trigger Kind는 현재 **이벤트 단위**(triggerKind 메타)라 효과별 mandatory/optional 구분은 이벤트 분리에 의존.
+> **한계(수용)**: ~~옵셔널 트리거는 드롭 대신 mandatory 뒤에 enqueue=자동발동(강제)~~ → ✅ **해소(2026-06-27)**: 아래 #2 참조.
+> **#2 옵셔널 = 원본대로 닫음(2026-06-27)**: trigger Kind를 **효과별 `CardEffectDefinition.IsOptional`**에서 재분류(`GameFlowProcessor.ReclassifyKind`, `EffectRegistry.Find` 경유). **강제(IsOptional=false)는 즉시 enqueue·해결**, **선택(IsOptional=true)은 자동발동 안 함** — `EngineContext.OptionalPromptQueue`(신규 보유)에 턴플레이어 우선으로 큐잉 → `RequestNextChoice`로 pending choice 오픈(루프 일시정지) → A2가 ResolveChoice(활성/스킵)로 노출 → `MetadataActionProcessor`가 `ChoiceType.OptionalEffect`를 `OptionalPromptQueue.ResolveChoice`로 라우팅(고른 것만 enqueue). 신규 `tests/G3.5-OPT2.OptionalTriggerChoice.Tests` 3/3 PASS(강제 즉시·선택 일시정지·활성 해결·스킵 미해결). 회귀(006/004/G2F-002/G2F-003/A2/W1/V/D3) 0. *부품(OptionalPromptQueue·A2·pause·ChoiceType.OptionalEffect) 재사용, IsOptional 토대 기존재 — 배선만.*
 
 - **원본**: `MultipleSkills.ActivateMultipleSkills`(`MultipleSkills.cs:55-`)가 **턴플레이어 트리거 먼저→비턴플레이어**, 동시 트리거는 액티브 플레이어가 순서 선택.
 - **포팅**: `GameFlowProcessor.AutoProcessAsync`가 `EffectRegistry.GetEffectsForTiming`의 **등록 순서(FIFO)**로 enqueue. `MandatoryEffectOrdering`/`OptionalPromptQueue`는 **Runtime 라이브 경로에서 참조 0건**(에이전트 확인).

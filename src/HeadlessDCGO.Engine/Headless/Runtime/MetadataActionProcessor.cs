@@ -465,6 +465,23 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 return ActionProcessResult.Success("Block choice resolved.", blockMetadata);
             }
 
+            // #2: optional-trigger prompts must flow through the OptionalPromptQueue so the chosen
+            // optional effect is enqueued (or skipped); a plain ResolveChoice would clear the choice
+            // without activating the agent's selected optional trigger.
+            if (pendingRequest.Type == ChoiceType.OptionalEffect)
+            {
+                Effects.OptionalPromptQueueResult optional = context.OptionalPromptQueue
+                    .ResolveChoice(result, context.ChoiceController, context.EffectScheduler);
+                if (!optional.IsSuccess)
+                {
+                    Dictionary<string, object?> optionalFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    optionalFailure["error"] = optional.FailureReason;
+                    return ActionProcessResult.Failure("Optional effect choice resolve failed.", optionalFailure);
+                }
+
+                return ActionProcessResult.Success("Optional effect choice resolved.", MetadataWithChoice(action, optional.ChoiceState));
+            }
+
             HeadlessChoiceState choice = context.ChoiceController.ResolveChoice(result);
             return ActionProcessResult.Success("Choice resolved.", MetadataWithChoice(action, choice));
         }
