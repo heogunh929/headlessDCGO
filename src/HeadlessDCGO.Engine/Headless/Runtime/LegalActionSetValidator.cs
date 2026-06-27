@@ -1,5 +1,6 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using System.Collections;
 using System.Globalization;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -97,10 +98,54 @@ public sealed class LegalActionSetValidator : IActionLegality
             return true;
         }
 
-        // Fall back to invariant-string comparison for boxed / loosely-typed parameter values.
+        // GPT-#1: collection-valued parameters (e.g. ChoiceSelectedIds) must be compared ELEMENT-WISE.
+        // Convert.ToString(array/list) returns the type name (e.g. "HeadlessEntityId[]"), so two
+        // collections with different contents would otherwise compare equal — letting a ResolveChoice
+        // that selected a different candidate pass the legality boundary. Strings are IEnumerable but
+        // are value-compared above, so they are excluded here.
+        if (left is IEnumerable leftSequence && right is IEnumerable rightSequence &&
+            left is not string && right is not string)
+        {
+            return SequenceValueEquals(leftSequence, rightSequence);
+        }
+
+        // Fall back to invariant-string comparison for boxed / loosely-typed scalar parameter values.
         return string.Equals(
             Convert.ToString(left, CultureInfo.InvariantCulture),
             Convert.ToString(right, CultureInfo.InvariantCulture),
             StringComparison.Ordinal);
+    }
+
+    private static bool SequenceValueEquals(IEnumerable left, IEnumerable right)
+    {
+        IEnumerator leftEnumerator = left.GetEnumerator();
+        IEnumerator rightEnumerator = right.GetEnumerator();
+        try
+        {
+            while (true)
+            {
+                bool leftHasNext = leftEnumerator.MoveNext();
+                bool rightHasNext = rightEnumerator.MoveNext();
+                if (leftHasNext != rightHasNext)
+                {
+                    return false; // different lengths
+                }
+
+                if (!leftHasNext)
+                {
+                    return true; // both ended together
+                }
+
+                if (!ValueEquals(leftEnumerator.Current, rightEnumerator.Current))
+                {
+                    return false;
+                }
+            }
+        }
+        finally
+        {
+            (leftEnumerator as IDisposable)?.Dispose();
+            (rightEnumerator as IDisposable)?.Dispose();
+        }
     }
 }

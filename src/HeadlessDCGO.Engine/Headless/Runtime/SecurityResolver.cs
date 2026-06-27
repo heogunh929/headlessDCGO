@@ -56,7 +56,48 @@ public sealed class SecurityResolver
                 defenderHasNoSecurity: true);
         }
 
-        int checkCount = Math.Min(strike, security.Count);
+        SecurityCheckLoopResult loop = await RunSecurityCheckLoopAsync(
+            context,
+            zoneReader,
+            attack.AttackingPlayerId!.Value,
+            attack.AttackerId!.Value,
+            attack.DefendingPlayerId.Value,
+            strike,
+            cancellationToken).ConfigureAwait(false);
+
+        HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Security check resolved.");
+        return SecurityResolutionResult.Success(
+            resolvedAttack,
+            attack.DefendingPlayerId.Value,
+            strike,
+            loop.CheckedCards,
+            loop.Movements,
+            loop.SecurityDigimonBattles,
+            loop.AttackerDeleted);
+    }
+
+    /// <summary>
+    /// (D-1 fix) The shared per-card security-check loop used by BOTH a direct attack's check
+    /// (<see cref="ResolveAsync"/>) and a Piercing attacker's follow-up check (the attack pipeline).
+    /// For each of the top <paramref name="strike"/> security cards: reveal face-up to the trash, open
+    /// the OnSecurityCheck timing window (W4), and — if the revealed card is a Digimon — battle the
+    /// attacker (W5). When the attacker is deleted the loop stops (AS-IS StopSecurityCheck). The caller
+    /// owns attack-state transitions (ResolveAttack) and the no-security loss rule.
+    /// </summary>
+    public async Task<SecurityCheckLoopResult> RunSecurityCheckLoopAsync(
+        EngineContext context,
+        IZoneStateReader zoneReader,
+        HeadlessPlayerId attackingPlayerId,
+        HeadlessEntityId attackerId,
+        HeadlessPlayerId defendingPlayerId,
+        int strike,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(zoneReader);
+
+        int available = zoneReader.GetCards(defendingPlayerId, ChoiceZone.Security).Count;
+        int checkCount = Math.Min(Math.Max(0, strike), available);
         var checkedCards = new List<HeadlessEntityId>();
         var movementResults = new List<ZoneMoveResult>();
         int securityDigimonBattles = 0;
@@ -65,29 +106,35 @@ public sealed class SecurityResolver
         for (int index = 0; index < checkCount; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            HeadlessEntityId checkedCardId = zoneReader.GetCards(attack.DefendingPlayerId.Value, ChoiceZone.Security)[0];
+            IReadOnlyList<HeadlessEntityId> security = zoneReader.GetCards(defendingPlayerId, ChoiceZone.Security);
+            if (security.Count == 0)
+            {
+                break;
+            }
+
+            HeadlessEntityId checkedCardId = security[0];
 
             // W5: capture the revealed card's identity/DP before it leaves the security stack so a
             // security Digimon can battle the attacker.
             bool isSecurityDigimon = TryReadSecurityDigimonDp(context, checkedCardId, out int securityDp);
 
-            MarkCheckedSecurityCard(context, checkedCardId, attack, index + 1);
+            MarkCheckedSecurityCard(context, checkedCardId, defendingPlayerId, attackerId, index + 1);
             ZoneMoveResult move = await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(
-                    attack.DefendingPlayerId.Value,
+                    defendingPlayerId,
                     checkedCardId,
                     ChoiceZone.Security,
                     ChoiceZone.Trash,
                     FaceUp: true),
-                cancellationToken);
+                cancellationToken).ConfigureAwait(false);
             checkedCards.Add(checkedCardId);
             movementResults.Add(move);
 
-            // W1: open the OnSecurityCheck timing window for each revealed security card.
+            // W1/W4: open the OnSecurityCheck timing window for each revealed security card (scoped).
             TriggerEventEmitter.Emit(
                 context.GameEventQueue,
                 TriggerTimings.OnSecurityCheck,
-                actor: attack.DefendingPlayerId.Value,
+                actor: defendingPlayerId,
                 subject: checkedCardId);
 
             // W5: a revealed security Digimon battles the attacker. The security card is trashed by the
@@ -96,7 +143,7 @@ public sealed class SecurityResolver
             if (isSecurityDigimon)
             {
                 securityDigimonBattles++;
-                if (await ResolveSecurityDigimonBattleAsync(context, attack, securityDp, zoneReader, cancellationToken)
+                if (await ResolveSecurityDigimonBattleAsync(context, attackerId, attackingPlayerId, securityDp, zoneReader, cancellationToken)
                     .ConfigureAwait(false))
                 {
                     attackerDeletedBySecurity = true;
@@ -106,15 +153,7 @@ public sealed class SecurityResolver
             }
         }
 
-        HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Security check resolved.");
-        return SecurityResolutionResult.Success(
-            resolvedAttack,
-            attack.DefendingPlayerId.Value,
-            strike,
-            checkedCards,
-            movementResults,
-            securityDigimonBattles,
-            attackerDeletedBySecurity);
+        return new SecurityCheckLoopResult(checkedCards, movementResults, securityDigimonBattles, attackerDeletedBySecurity);
     }
 
     private static string? ValidateSecurityCheck(
@@ -240,14 +279,13 @@ public sealed class SecurityResolver
     /// </summary>
     private static async Task<bool> ResolveSecurityDigimonBattleAsync(
         EngineContext context,
-        HeadlessAttackState attack,
+        HeadlessEntityId attackerId,
+        HeadlessPlayerId attackerOwner,
         int securityDp,
         IZoneStateReader zoneReader,
         CancellationToken cancellationToken)
     {
-        if (attack.AttackerId is not HeadlessEntityId attackerId ||
-            attack.AttackingPlayerId is not HeadlessPlayerId attackerOwner ||
-            !zoneReader.GetCards(attackerOwner, ChoiceZone.BattleArea).Contains(attackerId) ||
+        if (!zoneReader.GetCards(attackerOwner, ChoiceZone.BattleArea).Contains(attackerId) ||
             !context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) ||
             attacker is null ||
             !context.CardRepository.TryGetCard(attacker.DefinitionId, out CardRecord? attackerCard) ||
@@ -339,7 +377,8 @@ public sealed class SecurityResolver
     private static void MarkCheckedSecurityCard(
         EngineContext context,
         HeadlessEntityId cardId,
-        HeadlessAttackState attack,
+        HeadlessPlayerId defendingPlayerId,
+        HeadlessEntityId attackerId,
         int order)
     {
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
@@ -351,13 +390,20 @@ public sealed class SecurityResolver
         {
             [CheckedBySecurityCheckKey] = true,
             [SecurityCheckOrderKey] = order,
-            [SecurityCheckedPlayerIdKey] = attack.DefendingPlayerId!.Value.Value,
-            [SecurityCheckAttackerIdKey] = attack.AttackerId!.Value.Value
+            [SecurityCheckedPlayerIdKey] = defendingPlayerId.Value,
+            [SecurityCheckAttackerIdKey] = attackerId.Value
         };
 
         context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 }
+
+/// <summary>(D-1) Outcome of the shared per-card security-check loop.</summary>
+public sealed record SecurityCheckLoopResult(
+    IReadOnlyList<HeadlessEntityId> CheckedCards,
+    IReadOnlyList<ZoneMoveResult> Movements,
+    int SecurityDigimonBattles,
+    bool AttackerDeleted);
 
 public sealed record SecurityResolutionResult(
     bool IsSuccess,

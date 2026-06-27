@@ -16,7 +16,9 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// next <c>ResolveChoice</c> action (routed through <see cref="BlockTiming.ResolveBlockChoice"/>),
 /// after which the loop resumes here and continues to combat.
 /// </summary>
-public sealed class AttackPipeline
+// Non-sealed with a virtual AdvanceAsync so the GameFlowProcessor's injected-pipeline seam can be
+// substituted in tests (e.g. forcing a non-converging loop to exercise MaxIterationsExceeded, GPT-#3).
+public class AttackPipeline
 {
     private readonly BlockTiming _blockTiming;
     private readonly BattleResolver _battleResolver;
@@ -32,7 +34,7 @@ public sealed class AttackPipeline
         _securityResolver = securityResolver ?? new SecurityResolver();
     }
 
-    public async Task<AttackAdvanceResult> AdvanceAsync(
+    public virtual async Task<AttackAdvanceResult> AdvanceAsync(
         EngineContext context,
         CancellationToken cancellationToken = default)
     {
@@ -130,15 +132,18 @@ public sealed class AttackPipeline
         return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved, battleResolved: true);
     }
 
-    // G3.5-RL-C2: the security check a Piercing attacker performs after winning a battle. Mirrors a
-    // direct attack's security check (strike-count cards, no-security → defending player loses) but
-    // runs after the battle has already resolved the attack.
-    private static async Task ApplyPiercingSecurityAsync(
+    // G3.5-RL-C2 / D-1: the security check a Piercing attacker performs after winning a battle. Reuses
+    // SecurityResolver's shared per-card loop so it is IDENTICAL to a direct attack's check — including
+    // the OnSecurityCheck window (W4) and the security-Digimon battle (W5), which the old stripped loop
+    // skipped. No-security → defending player loses.
+    private async Task ApplyPiercingSecurityAsync(
         EngineContext context,
         HeadlessAttackState attack,
         CancellationToken cancellationToken)
     {
         if (attack.DefendingPlayerId is not HeadlessPlayerId defender ||
+            attack.AttackingPlayerId is not HeadlessPlayerId attackingPlayer ||
+            attack.AttackerId is not HeadlessEntityId attackerId ||
             context.ZoneMover is not IZoneStateReader zoneReader)
         {
             return;
@@ -156,21 +161,14 @@ public sealed class AttackPipeline
             return;
         }
 
-        int available = zoneReader.GetCards(defender, ChoiceZone.Security).Count;
-        int checkCount = Math.Min(strike, available);
-        for (int index = 0; index < checkCount; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            IReadOnlyList<HeadlessEntityId> security = zoneReader.GetCards(defender, ChoiceZone.Security);
-            if (security.Count == 0)
-            {
-                break;
-            }
-
-            await context.ZoneMover.MoveAsync(
-                new ZoneMoveRequest(defender, security[0], ChoiceZone.Security, ChoiceZone.Trash, FaceUp: true),
-                cancellationToken).ConfigureAwait(false);
-        }
+        await _securityResolver.RunSecurityCheckLoopAsync(
+            context,
+            zoneReader,
+            attackingPlayer,
+            attackerId,
+            defender,
+            strike,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static int ReadStrike(EngineContext context, HeadlessEntityId? attackerId)

@@ -24,8 +24,16 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
             features.Add(new ObservationFeature("runtime.pendingActionCount", EncodeCount(snapshot.PendingActionCount)));
             features.Add(new ObservationFeature("runtime.hasPendingEffects", Bool(snapshot.HasPendingEffects)));
             features.Add(new ObservationFeature("runtime.cardInstanceCount", EncodeCount(snapshot.CardInstanceCount)));
-            features.Add(new ObservationFeature("runtime.randomSeed.known", Bool(snapshot.RandomSeed.HasValue)));
-            features.Add(new ObservationFeature("runtime.randomSeed", snapshot.RandomSeed ?? 0));
+
+            // GPT-#2: the RNG seed is a debug/diagnostic field, not a learnable signal — an
+            // unnormalized, episode-arbitrary integer that only adds noise / leaks determinism to the
+            // policy. Excluded from the default trainer observation; opt in via IncludeRandomSeed.
+            if (_options.IncludeRandomSeed)
+            {
+                features.Add(new ObservationFeature("runtime.randomSeed.known", Bool(snapshot.RandomSeed.HasValue)));
+                features.Add(new ObservationFeature("runtime.randomSeed", snapshot.RandomSeed ?? 0));
+            }
+
             features.Add(new ObservationFeature("runtime.lastActionSucceeded.known", Bool(snapshot.LastActionSucceeded.HasValue)));
             features.Add(new ObservationFeature("runtime.lastActionSucceeded.value", Bool(snapshot.LastActionSucceeded == true)));
         }
@@ -282,6 +290,10 @@ public sealed record ObservationEncodingOptions
     public bool IncludeStepIndex { get; init; } = true;
 
     public bool IncludeRuntimeFlags { get; init; } = true;
+
+    /// <summary>(GPT-#2) Include the raw RNG seed in the observation. Off by default — the seed is a
+    /// debug/diagnostic field, not a learnable feature. Enable for debugging/full observations only.</summary>
+    public bool IncludeRandomSeed { get; init; }
 
     public bool IncludePlayerCount { get; init; } = true;
 

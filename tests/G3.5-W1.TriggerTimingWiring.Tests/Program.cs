@@ -65,7 +65,8 @@ void SecurityLossDerivesTimings()
 {
     var timings = TriggerTimingMap.Derive(Moved(ChoiceZone.Security, ChoiceZone.Trash));
     AssertContains(timings, TriggerTimings.OnLoseSecurity, "OnLoseSecurity");
-    AssertContains(timings, TriggerTimings.OnDeletion, "OnDeletion");
+    // D-5: trashing a security card is NOT a field deletion -> OnDeletion must NOT be opened.
+    AssertDoesNotContain(timings, TriggerTimings.OnDeletion, "OnDeletion not opened by security trash");
 }
 
 void AttackDerivesTimings()
@@ -133,6 +134,14 @@ EffectRequest EffectFor(string effectId, string timing) =>
         new EffectContext(P1, P1, new HeadlessEntityId($"src-{effectId}"), triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>()));
 
 static IReadOnlyDictionary<string, object?> Empty() => new Dictionary<string, object?>();
+
+static void AssertDoesNotContain(IReadOnlyList<string> timings, string unexpected, string label)
+{
+    if (timings.Contains(unexpected))
+    {
+        throw new InvalidOperationException($"{label}: did not expect '{unexpected}' in [{string.Join(", ", timings)}].");
+    }
+}
 
 static void AssertContains(IReadOnlyList<string> timings, string expected, string label)
 {

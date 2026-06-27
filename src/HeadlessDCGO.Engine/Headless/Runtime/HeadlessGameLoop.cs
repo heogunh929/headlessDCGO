@@ -110,6 +110,16 @@ public sealed class HeadlessGameLoop(
             _traceSink.Record("runtime", "Flow processor paused for pending choice.");
         }
 
+        if (flow.IsMaxIterationsExceeded)
+        {
+            // GPT-#3: surface a runaway/iteration-cap stop distinctly from a genuine stable fixpoint.
+            messages.Add("Flow hit the iteration cap without stabilizing.");
+            _traceSink.Record(
+                "runtime",
+                "Flow processor exceeded MaxIterations without reaching a stable state.",
+                new Dictionary<string, object?> { ["flowIterations"] = flow.Iterations });
+        }
+
         if (isTerminal)
         {
             messages.Add("Rule query reported terminal state.");

@@ -67,7 +67,10 @@ public static class TriggerTimingMap
             timings.Add(TriggerTimings.WhenRemoveField);
         }
 
-        if (to == ChoiceZone.Trash)
+        // D-5: "deletion" (AS-IS OnDestroyedAnyone) is a FIELD card being destroyed to the trash. A
+        // hand discard, deck mill, or security check trashing a card is NOT a deletion (the original
+        // routes those through distinct timings), so OnDeletion only opens when leaving a field zone.
+        if (fromField && to == ChoiceZone.Trash)
         {
             timings.Add(TriggerTimings.OnDeletion);
         }

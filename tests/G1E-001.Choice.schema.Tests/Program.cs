@@ -150,6 +150,9 @@ Task ChoiceEnumsCoverAsIsSelectionCategories()
             "Count",
             "AttackTarget",
             "MainPhaseAction",
+            // Added after this schema test was first written; both are live selection categories:
+            "OptionalEffect", // OptionalPromptQueue — optional ("you may") effect prompts
+            "Blocker",        // BlockTiming — the defender's blocker selection
         },
         Enum.GetNames<ChoiceType>(),
         "choice type names");

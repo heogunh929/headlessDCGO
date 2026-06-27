@@ -38,6 +38,7 @@ public sealed class GameFlowProcessor
         bool progressedAny = false;
         int resolvedTotal = 0;
         int iterations = 0;
+        bool reachedStable = false;
 
         while (iterations < MaxIterations)
         {
@@ -80,13 +81,25 @@ public sealed class GameFlowProcessor
 
             if (!progressed)
             {
+                reachedStable = true;
                 break;
             }
 
             if (context.RuleQueryService.IsTerminal())
             {
+                reachedStable = true;
                 break;
             }
+        }
+
+        // GPT-#3: distinguish a genuine fixpoint (no progress / terminal) from exhausting the iteration
+        // budget while still making progress — the latter signals a runaway trigger loop, not stability.
+        if (!reachedStable)
+        {
+            context.LogSink.Warn(
+                $"[GameFlowProcessor] RunToStable hit MaxIterations ({MaxIterations}) while still progressing; " +
+                "possible runaway trigger loop.");
+            return FlowProcessResult.MaxIterationsExceeded(progressedAny, resolvedTotal, iterations);
         }
 
         return FlowProcessResult.Stable(progressedAny, resolvedTotal, iterations);
@@ -249,6 +262,10 @@ public enum FlowProcessStatus
 {
     Stable,
     PausedForChoice,
+
+    /// <summary>(GPT-#3) The loop hit <see cref="GameFlowProcessor.MaxIterations"/> while still making
+    /// progress — it did NOT reach a stable fixpoint. Signals a probable runaway trigger loop.</summary>
+    MaxIterationsExceeded,
 }
 
 public sealed record FlowProcessResult(
@@ -261,6 +278,8 @@ public sealed record FlowProcessResult(
 
     public bool IsStable => Status == FlowProcessStatus.Stable;
 
+    public bool IsMaxIterationsExceeded => Status == FlowProcessStatus.MaxIterationsExceeded;
+
     public static FlowProcessResult Stable(bool progressedAny, int resolvedEffectCount, int iterations)
     {
         return new FlowProcessResult(FlowProcessStatus.Stable, progressedAny, resolvedEffectCount, iterations);
@@ -269,5 +288,10 @@ public sealed record FlowProcessResult(
     public static FlowProcessResult Paused(bool progressedAny, int resolvedEffectCount, int iterations)
     {
         return new FlowProcessResult(FlowProcessStatus.PausedForChoice, progressedAny, resolvedEffectCount, iterations);
+    }
+
+    public static FlowProcessResult MaxIterationsExceeded(bool progressedAny, int resolvedEffectCount, int iterations)
+    {
+        return new FlowProcessResult(FlowProcessStatus.MaxIterationsExceeded, progressedAny, resolvedEffectCount, iterations);
     }
 }
