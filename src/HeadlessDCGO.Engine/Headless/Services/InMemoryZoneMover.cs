@@ -74,11 +74,13 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.CompletedTask;
     }
 
-    public Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, CancellationToken cancellationToken = default)
+    public Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateCardMutation(playerId, cardId);
-        MoveCardToSingleZone(playerId, cardId, ChoiceZone.Security, faceUp);
+        // N-3: index 0 is the security top (consumed first by SecurityResolver / TrashSecurity fromTop),
+        // so toTop maps to a top insert — matching the original AddSecurityCard(toTop: true) default.
+        MoveCardToSingleZone(playerId, cardId, ChoiceZone.Security, faceUp, insertTop: toTop);
         return Task.CompletedTask;
     }
 
@@ -128,7 +130,10 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
             return Task.FromResult((IReadOnlyList<HeadlessEntityId>)Array.Empty<HeadlessEntityId>());
         }
 
-        return Task.FromResult(MoveFromLibraryTop(playerId, ChoiceZone.Security, count, faceUp));
+        // N-3: the original AddSecurity deals each library-top card via AddSecurityCard(toTop: true),
+        // i.e. Insert(0). Inserting each at the security top reproduces that stacking order (last dealt
+        // ends up on top) instead of the previous bottom-append (which reversed the stack).
+        return Task.FromResult(MoveFromLibraryTop(playerId, ChoiceZone.Security, count, faceUp, insertTop: true));
     }
 
     public Task<IReadOnlyList<HeadlessEntityId>> TrashSecurityAsync(
@@ -243,9 +248,10 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         HeadlessPlayerId playerId,
         ChoiceZone toZone,
         int count,
-        bool faceUp = false)
+        bool faceUp = false,
+        bool insertTop = false)
     {
-        return MoveFromZoneTop(playerId, ChoiceZone.Library, toZone, count, faceUp);
+        return MoveFromZoneTop(playerId, ChoiceZone.Library, toZone, count, faceUp, insertTop);
     }
 
     private IReadOnlyList<HeadlessEntityId> MoveFromZoneTop(
@@ -253,15 +259,17 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         ChoiceZone fromZone,
         ChoiceZone toZone,
         int count,
-        bool faceUp = false)
+        bool faceUp = false,
+        bool insertTop = false)
     {
         List<HeadlessEntityId> sourceZone = GetZone(playerId, fromZone);
         List<HeadlessEntityId> movedCards = new();
+        ZoneInsertion insertion = insertTop ? ZoneInsertion.Top : ZoneInsertion.Bottom;
 
         for (int index = 0; index < count && sourceZone.Count > 0; index++)
         {
             HeadlessEntityId cardId = sourceZone[0];
-            MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, toZone, faceUp));
+            MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, toZone, faceUp), insertion);
             movedCards.Add(cardId);
         }
 

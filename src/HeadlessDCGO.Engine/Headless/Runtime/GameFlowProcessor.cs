@@ -195,7 +195,11 @@ public sealed class GameFlowProcessor
                 ? typed.ToArray()
                 : Array.Empty<DpModifier>();
 
-        return DpCalculator.ComputeDp(baseDp, modifiers) <= 0;
+        // N-2 / D-A1: the DP<=0 deletion rule also reflects continuous DP effects (a continuous -DP that
+        // drops the card to 0 deletes it), mirroring the original CanBeDestroyed-via-DP check. No-op until
+        // continuous DP effects are registered.
+        int staticDp = DpCalculator.ComputeDp(baseDp, modifiers);
+        return ContinuousDpGate.ResolveDp(context, cardId, staticDp) <= 0;
     }
 
     private static bool TryReadInt(IReadOnlyDictionary<string, object?> metadata, string key, out int value)

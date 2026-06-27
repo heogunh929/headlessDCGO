@@ -165,7 +165,7 @@ async Task RandomFirstPlayerIsDeterministicForSameSeed()
     {
         BuildDeck(new HeadlessPlayerId(1), "P1"),
         BuildDeck(new HeadlessPlayerId(2), "P2")
-    });
+    }, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     DcgoMatch first = new();
     DcgoMatch second = new();
@@ -179,19 +179,19 @@ async Task RandomFirstPlayerIsDeterministicForSameSeed()
 Task InvalidSetupInputsFailBeforeMutation()
 {
     HeadlessPlayerId[] players = { new(1), new(2) };
-    MatchSetupConfig missingDeck = MatchSetupConfig.Create(new[] { BuildDeck(new HeadlessPlayerId(1), "P1") });
+    MatchSetupConfig missingDeck = MatchSetupConfig.Create(new[] { BuildDeck(new HeadlessPlayerId(1), "P1") }, shuffleDecks: false, shuffleDigitamaDecks: false);
     ExpectThrows<InvalidOperationException>(() => MatchConfig.Create(players, setup: missingDeck));
 
     MatchSetupConfig shortDeck = MatchSetupConfig.Create(new[]
     {
         BuildDeck(new HeadlessPlayerId(1), "P1", mainCount: 9),
         BuildDeck(new HeadlessPlayerId(2), "P2")
-    });
+    }, shuffleDecks: false, shuffleDigitamaDecks: false);
     ExpectThrows<InvalidOperationException>(() => MatchConfig.Create(players, setup: shortDeck));
 
     MatchSetupConfig invalidFirst = MatchSetupConfig.Create(
         new[] { BuildDeck(new HeadlessPlayerId(1), "P1"), BuildDeck(new HeadlessPlayerId(2), "P2") },
-        firstPlayerId: new HeadlessPlayerId(3));
+        firstPlayerId: new HeadlessPlayerId(3), shuffleDecks: false, shuffleDigitamaDecks: false);
     ExpectThrows<InvalidOperationException>(() => MatchConfig.Create(players, setup: invalidFirst));
     return Task.CompletedTask;
 }
@@ -218,7 +218,7 @@ static MatchConfig CreateConfig(HeadlessPlayerId firstPlayer)
     HeadlessPlayerId[] players = { new(1), new(2) };
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(new HeadlessPlayerId(1), "P1"), BuildDeck(new HeadlessPlayerId(2), "P2") },
-        firstPlayerId: firstPlayer);
+        firstPlayerId: firstPlayer, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     return MatchConfig.Create(players, randomSeed: 17, setup: setup);
 }
@@ -249,10 +249,13 @@ static void AssertPlayerZones(
         player,
         ChoiceZone.Hand,
         Enumerable.Range(1, 5).Select(index => $"p{playerId.Value}:main:{index:D3}:{prefix}-M{index:D2}").ToArray());
+    // N-3: opening security is dealt from the library top, each card inserted at the security TOP
+    // (original AddSecurityCard toTop:true / Insert(0)), so the last card dealt (M10) ends up on top.
+    // The drawn cards are M06..M10; their resulting top-to-bottom order is therefore M10..M06.
     AssertZone(
         player,
         ChoiceZone.Security,
-        Enumerable.Range(6, 5).Select(index => $"p{playerId.Value}:main:{index:D3}:{prefix}-M{index:D2}").ToArray());
+        Enumerable.Range(6, 5).Reverse().Select(index => $"p{playerId.Value}:main:{index:D3}:{prefix}-M{index:D2}").ToArray());
     AssertZone(
         player,
         ChoiceZone.Library,

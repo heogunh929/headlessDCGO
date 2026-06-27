@@ -46,6 +46,14 @@ public sealed class HeadlessEarlyPhaseFlow
             {
                 operations.Add("Unsuspend");
             }
+
+            // N-1 (summoning sickness): a permanent is sick only on the turn it entered the field. At the
+            // controller's Unsuspend step its permanents have survived to a later turn, so clear the
+            // entered-this-turn flag. The original models this via EnterFieldTurnCount != TurnCount once
+            // the turn advances; here we clear the boolean for the turn player's battle-area permanents.
+            // (Silent state cleanup — no operation marker, to leave existing phase-operation assertions
+            // untouched.)
+            ClearEnteredThisTurnForTurnPlayer(context, currentTurnPlayerId);
         }
         else if (current.Phase == HeadlessPhase.Draw)
         {
@@ -160,6 +168,31 @@ public sealed class HeadlessEarlyPhaseFlow
         }
 
         return unsuspended.ToArray();
+    }
+
+    private static bool ClearEnteredThisTurnForTurnPlayer(
+        EngineContext context,
+        HeadlessPlayerId turnPlayerId)
+    {
+        bool clearedAny = false;
+        foreach (HeadlessEntityId cardId in GetZoneCards(context, turnPlayerId, ChoiceZone.BattleArea))
+        {
+            if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
+                record is null ||
+                !ReadBool(record.Metadata, "enteredThisTurn"))
+            {
+                continue;
+            }
+
+            Dictionary<string, object?> metadata = new(record.Metadata, StringComparer.Ordinal)
+            {
+                ["enteredThisTurn"] = false
+            };
+            context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            clearedAny = true;
+        }
+
+        return clearedAny;
     }
 
     private static bool TryUnsuspend(

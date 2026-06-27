@@ -57,6 +57,14 @@ public sealed class PlayCardAction
                 payload.ToZone),
             cancellationToken).ConfigureAwait(false);
 
+        // N-1 (summoning sickness): a freshly-played permanent entered the field this turn and cannot
+        // attack until its controller's next turn unless it has Rush. This mirrors the original
+        // CardController setting Permanent.EnterFieldTurnCount = TurnCount on a newly played permanent
+        // (CardController.cs:1386). Digivolve/breeding-move keep the existing permanent and so inherit
+        // their prior status instead (see DigivolveAction / the breeding flow). The flag is cleared at
+        // the controller's Unsuspend step (HeadlessEarlyPhaseFlow).
+        MarkEnteredThisTurn(context, payload.CardId);
+
         Dictionary<string, object?> metadata = Metadata(action, payload, validation);
         metadata[HeadlessActionParameterKeys.PreviousMemory] = previousMemory.Current;
         metadata[HeadlessActionParameterKeys.Memory] = paidMemory.Current;
@@ -162,6 +170,21 @@ public sealed class PlayCardAction
         }
 
         return PlayCardValidation.Legal(instance.DefinitionId);
+    }
+
+    private static void MarkEnteredThisTurn(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||
+            instance is null)
+        {
+            return;
+        }
+
+        Dictionary<string, object?> metadata = new(instance.Metadata, StringComparer.Ordinal)
+        {
+            ["enteredThisTurn"] = true
+        };
+        context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
     }
 
     private static bool TryGetPlayCost(

@@ -34,12 +34,12 @@
 |---|------|-----------|-----------|--------|------|
 | R2-1 | ~~Security Digimon battle의 Jamming 처리 경로 불명확~~ → ✅ **소비측 배선 완료(2026-06-27)** | 신규 `BattleDeletionGate`(ContinuousRestrictionGate 자매)가 전투 삭제 결정에서 **연속 `Delete/Prevent` replacement를 조회** → `BattleResolver`·`SecurityResolver` 둘 다 정적 플래그 외에 이를 존중. 신규 `tests/G3.5-R2-1.BattleDeletionReplacement.Tests` 3/3(필드/시큐리티 전투에서 prevent-deletion이 패자 구제, 컨트롤=삭제). 회귀(C2·W5·D1·G2G-003·G1F-006·G3I-001) 0. **남음(Phase 4 생산측)**: Jamming 키워드가 연속 replacement로 등록(또는 battle-delete check에서 정적 플래그 set) + 키 정렬(`PreventBattleDeletion`↔`preventDeletion`). | =N-2 삭제방지 슬라이스 소비측 ✅ / 생산측 Phase 4 | 🔴→◑ | ◑ |
 | R2-2 | ~~optional trigger 자동 발동~~ → ✅ **해소(2026-06-27)** | per-effect `IsOptional` 재분류 + `OptionalPromptQueue` 루프/A2 배선으로 **선택발동은 에이전트 결정(활성/스킵)**, 강제발동만 즉시. `tests/G3.5-OPT2` 3/3. (1차 audit #2 참조) | 원본대로 닫음 | 🟠→✅ | ✅ |
-| R2-3 | MaxIterationsExceeded가 RL 결과 필드로 미노출 | ✅사실 — `FlowProcessStatus.MaxIterationsExceeded` + `HeadlessGameLoop` 로그만. `RlStepResult`/`StepResult`에 해당 필드 **없음**(grep 0). trainer가 step 결과에서 직접 못 읽음 | GPT #3의 follow-up — 상태는 추가됐으나 RL 표면 미노출 | 🟡 | ⬜ |
-| R2-4 | strictUnbound 옵션 있으나 기본 학습/포팅 profile factory 부재 | ✅사실 — `CreateDefault(strictUnbound)` + `CreateValidated`는 있지만, **strict+validated를 묶은 "Phase 4 포팅/학습 프로파일" 단일 팩토리 없음**. 호출자가 매번 조합해야 함 | GPT 신1의 follow-up — 편의 팩토리 부재 | 🟡 | ⬜ |
-| R2-5 | CI 여전히 없음 | ⚠️부분 — `.github/workflows/ci.yml` **커밋됨**(a2b6c832). 그러나 GitHub Actions **실행 이력 없음**(push 후 활성화 필요, gh 미설치로 원격 확인 불가). 외부 자동검증 실질 미가동 | 라운드 1 신3과 동일 — 운영 단계(push) | 🟡 인프라 | ⬜ |
+| R2-3 | ~~MaxIterationsExceeded가 RL 결과 필드로 미노출~~ → ✅ **수정(2026-06-27)** | `HeadlessGameLoopStep`·`StepResult`·`RlStepResult`에 타입 필드 **`FlowExceededIterationCap`** 추가. `HeadlessGameLoop`가 `flow.IsMaxIterationsExceeded`를 step에 실어 보내고, `DcgoMatch.StepAsync`→`StepResult`, `HeadlessRlEnvironment.Encode`→`RlStepResult`로 전파(런어웨이 step을 trainer가 직접 읽고 패널티 가능). `HeadlessGameLoop`/`DcgoMatch`에 `GameFlowProcessor` 주입 seam 추가(테스트용). `tests/G3.5-R2-3.RunawayAndStrictProfile` 3/5. | GPT #3의 follow-up — RL 표면 노출 | 🟡→✅ | ✅ |
+| R2-4 | ~~strictUnbound 옵션 있으나 기본 학습/포팅 profile factory 부재~~ → ✅ **수정(2026-06-27)** | **`DcgoMatch.CreateStrictValidated(randomSeed, …)`** 단일 팩토리 추가(strict-unbound 컨텍스트 + validated 합법성 경계 한 번에). `HeadlessRlEnvironmentOptions.StrictUnbound` 옵션으로 기본 RL 매치도 strict+validated 구성 가능. `tests/G3.5-R2-3.RunawayAndStrictProfile` 2/5(strict-validated 프로파일/RL 옵션). | GPT 신1의 follow-up — 편의 팩토리 | 🟡→✅ | ✅ |
+| R2-5 | ~~CI 여전히 없음~~ → ✅ **활성·통과 확인(2026-06-27)** | `.github/workflows/ci.yml`(a2b6c832 추가)이 **origin/main에 푸시되어 GitHub Actions가 가동 중**. API 확인 결과 run #1~#5 **전부 success**(event=push), 최신 run #5 = 현재 HEAD `0747146a` 빌드 게이트 통과. (compile-only 게이트 — DCGO/ 의존 테스트는 로컬 실행) *남음: 이번 세션 미커밋분(N-1·R2-3/R2-4)은 다음 push 시 CI 검증.* | 라운드 1 신3 — push 완료로 해소 | 🟡 인프라→✅ | ✅ |
 
 ### 정리
 - **R2-1**은 신규(라운드 1엔 없던 구체 지적)이고 **pass2 감사의 N-2(지속/대체 미배선)와 동일 뿌리** → N-2 수정 시 함께 해소.
 - **R2-2**는 1차 audit에서 이미 "수용한 한계"로 문서화한 항목.
 - **R2-3/R2-4**는 라운드 1 수정의 마감 부족분(RL 표면 노출 / 편의 팩토리) — 작은 follow-up.
-- **R2-5**는 코드가 아니라 push·Actions 활성화 운영 건.
+- **R2-5**는 코드가 아니라 push·Actions 활성화 운영 건 — **push 완료, Actions run #1~#5 전부 success로 가동 확인**(2026-06-27).

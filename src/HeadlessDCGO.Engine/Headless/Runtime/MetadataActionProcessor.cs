@@ -165,7 +165,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
             action.PlayerId,
             payload.CardId,
             payload.FaceUp,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         Dictionary<string, object?> metadata = MetadataWithCard(action, payload.CardId);
         metadata[HeadlessActionParameterKeys.FaceUp] = payload.FaceUp;
@@ -480,6 +480,27 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 }
 
                 return ActionProcessResult.Success("Optional effect choice resolved.", MetadataWithChoice(action, optional.ChoiceState));
+            }
+
+            // N-5: opening-hand mulligan decisions flow through the MulliganCoordinator so the redraw
+            // (and, after the last decision, the deferred security deal) are applied; a plain
+            // ResolveChoice would clear the choice without performing the mulligan / security steps.
+            if (pendingRequest.Type == ChoiceType.Mulligan)
+            {
+                MulliganResolveResult mulligan = await context.MulliganCoordinator
+                    .ResolveAsync(context.ZoneMover, context.ChoiceController, result, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!mulligan.IsSuccess)
+                {
+                    Dictionary<string, object?> mulliganFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    mulliganFailure["error"] = mulligan.FailureReason;
+                    return ActionProcessResult.Failure("Mulligan resolve failed.", mulliganFailure);
+                }
+
+                Dictionary<string, object?> mulliganMetadata = MetadataWithChoice(action, context.ChoiceController.Current);
+                mulliganMetadata["mulliganPlayerId"] = mulligan.Player.Value;
+                mulliganMetadata["mulliganRedrew"] = mulligan.Redrew;
+                return ActionProcessResult.Success("Mulligan decision resolved.", mulliganMetadata);
             }
 
             HeadlessChoiceState choice = context.ChoiceController.ResolveChoice(result);

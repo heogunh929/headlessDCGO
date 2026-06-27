@@ -33,13 +33,14 @@ public sealed class DcgoMatch
         EngineContext context,
         ITraceSink? traceSink = null,
         IActionProcessor? actionProcessor = null,
-        IActionLegality? actionLegality = null)
+        IActionLegality? actionLegality = null,
+        GameFlowProcessor? gameFlowProcessor = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         Context = context;
         Context.AttachMatch(this);
         _traceSink = traceSink ?? new NullTraceSink();
-        _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor);
+        _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor, gameFlowProcessor);
         _actionLegality = actionLegality;
     }
 
@@ -60,6 +61,22 @@ public sealed class DcgoMatch
         IActionLegality? actionLegality = null)
     {
         return new DcgoMatch(context, traceSink, actionProcessor, actionLegality ?? new LegalActionSetValidator());
+    }
+
+    /// <summary>
+    /// (R2-4) Builds the <b>strict + validated</b> profile in one call: a fresh strict-unbound
+    /// <see cref="EngineContext"/> (an unbindable effect request is a hard failure rather than a silent
+    /// no-op — GPT-#1 / 신1) wrapped in an agent-validated match (<see cref="CreateValidated"/>). This is
+    /// the recommended profile for RL / agent-facing runs that want both the authoritative legality
+    /// boundary and fail-fast effect scheduling, without hand-wiring the two flags separately.
+    /// </summary>
+    public static DcgoMatch CreateStrictValidated(
+        int randomSeed = 0,
+        ITraceSink? traceSink = null,
+        IActionProcessor? actionProcessor = null)
+    {
+        EngineContext context = EngineContext.CreateDefault(randomSeed, strictUnbound: true);
+        return CreateValidated(context, traceSink, actionProcessor);
     }
 
     public EngineContext Context { get; }
@@ -195,6 +212,8 @@ public sealed class DcgoMatch
             RecordEvent(GameEventType.StateChanged, message);
         }
 
+        bool flowExceededIterationCap = loopStep.FlowExceededIterationCap;
+
         if (_isTerminal)
         {
             // (X-02) When terminal is reported by the rule query (e.g. EndTurnCheck) rather than via action
@@ -235,7 +254,7 @@ public sealed class DcgoMatch
             }
         }
 
-        return DrainStepResult();
+        return DrainStepResult(flowExceededIterationCap);
     }
 
     public Task<StepResult> ApplyActionAsync(LegalAction action, CancellationToken cancellationToken = default)
@@ -384,7 +403,7 @@ public sealed class DcgoMatch
             metadata ?? new Dictionary<string, object?>()));
     }
 
-    private StepResult DrainStepResult()
+    private StepResult DrainStepResult(bool flowExceededIterationCap = false)
     {
         GameEvent[] events = _pendingEvents.ToArray();
         _pendingEvents.Clear();
@@ -395,7 +414,8 @@ public sealed class DcgoMatch
             Context.ChoiceController.Current.IsPending,
             events,
             observation,
-            GetActionMask());
+            GetActionMask(),
+            flowExceededIterationCap);
     }
 
     private static IReadOnlyDictionary<string, object?> MergeMetadata(

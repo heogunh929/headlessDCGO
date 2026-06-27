@@ -13,7 +13,10 @@ public sealed record RlStepResult(
     // G3.5-RL-A5: the fixed factored action mask (A3) is carried on every step result so a
     // MaskablePPO / MultiDiscrete trainer gets the per-position legality vector directly, without a
     // separate EncodeFactoredActionMask() call. Built from the same legal-action set as ActionMask.
-    FactoredActionMask FactoredActionMask)
+    FactoredActionMask FactoredActionMask,
+    // R2-3: true when the step's flow processing stopped at the iteration cap without stabilizing.
+    // Surfaced on the RL result so a trainer can detect/penalize a runaway (non-converging) transition.
+    bool FlowExceededIterationCap = false)
 {
     public double[] ObservationVector => Observation.ToVector();
 

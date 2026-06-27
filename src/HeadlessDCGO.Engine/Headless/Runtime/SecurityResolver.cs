@@ -300,6 +300,9 @@ public sealed class SecurityResolver
             return false;
         }
 
+        // N-2 / D-A2: layer continuous DP effects on the attacker's DP (mirrors the field-battle path).
+        attackerDp = ContinuousDpGate.ResolveDp(context, attackerId, attackerDp);
+
         // The attacker is deleted when it does not exceed the security Digimon's DP (equal DP deletes
         // both; the security Digimon is already gone). Jamming / CanNotBeDeletedByBattle protects it —
         // via the static flag OR a continuous deletion-prevention replacement (R2-1/N-2).
@@ -339,7 +342,14 @@ public sealed class SecurityResolver
         }
 
         // A security Digimon with no defined DP cannot battle (mirrors BattleResolver's "no battle DP").
-        return TryReadDp(instance.Metadata, definition.Metadata, out securityDp);
+        if (!TryReadDp(instance.Metadata, definition.Metadata, out securityDp))
+        {
+            return false;
+        }
+
+        // N-2 / D-A2: the security Digimon's DP also reflects continuous DP effects from other cards.
+        securityDp = ContinuousDpGate.ResolveDp(context, cardId, securityDp);
+        return true;
     }
 
     private static bool TryReadDp(

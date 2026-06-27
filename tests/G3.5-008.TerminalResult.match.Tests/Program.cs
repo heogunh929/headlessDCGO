@@ -182,7 +182,7 @@ async Task<DcgoMatch> CreateMatchAsync()
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(Player, "P1"), BuildDeck(Opponent, "P2") },
         firstPlayerId: Player,
-        initialSecuritySize: 0);
+        initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     await match.InitializeAsync(MatchConfig.Create(new[] { Player, Opponent }, randomSeed: 91, setup: setup));
     await AdvanceToMainAsync(match, Player);

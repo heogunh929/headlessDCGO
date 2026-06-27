@@ -207,7 +207,12 @@ public sealed class BattleResolver
 
         // G3.5-RL-B1: effective DP = base (printed) DP combined with typed DP modifiers using the
         // original accumulation order. With no modifiers this equals the base DP (no behavior change).
-        int dp = DpCalculator.ComputeDp(baseDp, ReadDpModifiers(instance.Metadata));
+        int staticDp = DpCalculator.ComputeDp(baseDp, ReadDpModifiers(instance.Metadata));
+
+        // N-2 / D-A1: layer continuous DP effects from other cards on top of the static DP (the original
+        // GetDP rescans every field/security/player effect each access). No-op until such effects are
+        // registered; DP-minus immunity is applied inside the modifier resolution.
+        int dp = ContinuousDpGate.ResolveDp(context, instanceId, staticDp);
 
         participant = new BattleParticipant(instanceId, instance.OwnerId, instance, definition, dp);
         return null;

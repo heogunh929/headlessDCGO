@@ -12,7 +12,9 @@ public interface IZoneMover
 
     Task AddToTrashAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default);
 
-    Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, CancellationToken cancellationToken = default);
+    // N-3: toTop defaults true to match the original AddSecurityCard(toTop: true) — a returned/recovered
+    // card goes to the TOP of security (index 0, the next card checked), not the bottom.
+    Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, CancellationToken cancellationToken = default);
 
     Task MoveToDeckTopAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default);
 

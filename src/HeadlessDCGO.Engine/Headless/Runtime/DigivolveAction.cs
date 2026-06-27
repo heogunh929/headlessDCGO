@@ -326,14 +326,37 @@ public sealed class DigivolveAction
             .Concat(ReadSourceIds(card.Metadata))
             .Distinct()
             .ToArray();
+
+        // N-1 (summoning sickness): digivolving keeps the SAME permanent in the original (the top card
+        // is swapped, EnterFieldTurnCount is not reset), so the evolved Digimon INHERITS the under-card's
+        // entered-this-turn status. A Digimon that has been on the field since a prior turn stays able to
+        // attack after digivolving; one played this turn remains sick. Jogress/breeding paths are exempt
+        // (they never set the flag), matching the original's EnterFieldTurnCount = -1.
+        bool inheritedEnteredThisTurn = ReadBool(target.Metadata, "enteredThisTurn");
         Dictionary<string, object?> metadata = new(card.Metadata, StringComparer.Ordinal)
         {
             [SourceIdsMetadataKey] = sourceIds.Select(id => id.Value).ToArray(),
             ["digivolvedFromCardId"] = targetCardId.Value,
-            ["digivolvedFromDefinitionId"] = target.DefinitionId.Value
+            ["digivolvedFromDefinitionId"] = target.DefinitionId.Value,
+            ["enteredThisTurn"] = inheritedEnteredThisTurn
         };
         repository.Upsert(card with { Metadata = metadata });
         return sourceIds;
+    }
+
+    private static bool ReadBool(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        if (!metadata.TryGetValue(key, out object? rawValue) || rawValue is null)
+        {
+            return false;
+        }
+
+        return rawValue switch
+        {
+            bool value => value,
+            string value => bool.TryParse(value, out bool parsed) && parsed,
+            _ => false
+        };
     }
 
     private static IReadOnlyList<HeadlessEntityId> ReadSourceIds(IReadOnlyDictionary<string, object?> metadata)

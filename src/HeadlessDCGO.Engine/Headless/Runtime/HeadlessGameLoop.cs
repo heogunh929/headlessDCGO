@@ -10,13 +10,16 @@ using HeadlessDCGO.Engine.Headless.State;
 public sealed class HeadlessGameLoop(
     EngineContext context,
     ITraceSink? traceSink = null,
-    IActionProcessor? actionProcessor = null)
+    IActionProcessor? actionProcessor = null,
+    GameFlowProcessor? gameFlowProcessor = null)
 {
     private readonly HeadlessActionQueue _actionQueue = new();
     private readonly IActionProcessor _actionProcessor = actionProcessor ?? new MetadataActionProcessor();
     private readonly HeadlessLegalActionDispatcher _legalActionDispatcher = new();
     private readonly ITraceSink _traceSink = traceSink ?? new NullTraceSink();
-    private readonly GameFlowProcessor _gameFlowProcessor = new();
+    // R2-3: the flow processor is injectable (default new()) so tests can drive a non-converging loop
+    // and verify the iteration-cap flag propagates through StepResult / RlStepResult.
+    private readonly GameFlowProcessor _gameFlowProcessor = gameFlowProcessor ?? new();
     private ActionProcessResult? _lastActionResult;
     private LegalAction? _lastAction;
     private long _stepIndex;
@@ -134,7 +137,8 @@ public sealed class HeadlessGameLoop(
             _actionQueue.Count,
             hadPendingEffects,
             resolvedEffectCount,
-            messages);
+            messages,
+            flow.IsMaxIterationsExceeded);
     }
 
     public void EnqueueAction(LegalAction action)
@@ -312,4 +316,7 @@ public sealed record HeadlessGameLoopStep(
     int PendingActionCount,
     bool HadPendingEffects,
     int ResolvedEffectCount,
-    IReadOnlyList<string> Messages);
+    IReadOnlyList<string> Messages,
+    // R2-3: the flow processor stopped at the iteration cap WITHOUT reaching a stable fixpoint. Carried
+    // as a typed flag (not just a log message) so step/RL consumers can detect a runaway loop directly.
+    bool FlowExceededIterationCap = false);

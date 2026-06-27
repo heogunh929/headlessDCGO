@@ -306,7 +306,7 @@ async Task<DcgoMatch> CreateMatchAsync(
             BuildDeck(PlayerOne, "P1"),
             BuildDeck(new HeadlessPlayerId(2), "P2")
         },
-        firstPlayerId: PlayerOne);
+        firstPlayerId: PlayerOne, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     await match.InitializeAsync(MatchConfig.Create(
         players,

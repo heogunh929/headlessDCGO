@@ -243,7 +243,7 @@ async Task<DcgoMatch> CreateConfiguredMatchAsync(IReadOnlyDictionary<string, obj
     HeadlessPlayerId[] players = { Player, Opponent };
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(Player, "P1"), BuildDeck(Opponent, "P2") },
-        firstPlayerId: Player);
+        firstPlayerId: Player, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     await match.InitializeAsync(MatchConfig.Create(players, randomSeed: 44, setup: setup));
     await AdvanceToMainAsync(match, Player);

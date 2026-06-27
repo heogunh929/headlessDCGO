@@ -52,9 +52,14 @@ public sealed class MatchSetupFlow
             IReadOnlyList<HeadlessEntityId> hand = await context.ZoneMover
                 .DrawAsync(playerId, setup.InitialHandSize, cancellationToken)
                 .ConfigureAwait(false);
-            IReadOnlyList<HeadlessEntityId> security = await context.ZoneMover
-                .AddSecurityFromLibraryAsync(playerId, setup.InitialSecuritySize, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+
+            // N-5: when mulligan is enabled, security is dealt only AFTER every player's mulligan
+            // decision (from the post-mulligan deck), so defer it to the MulliganCoordinator here.
+            IReadOnlyList<HeadlessEntityId> security = setup.EnableMulligan
+                ? Array.Empty<HeadlessEntityId>()
+                : await context.ZoneMover
+                    .AddSecurityFromLibraryAsync(playerId, setup.InitialSecuritySize, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
 
             playerResults.Add(new PlayerSetupResult(
                 playerId,
@@ -66,6 +71,17 @@ public sealed class MatchSetupFlow
                 GetZoneCount(context, playerId, ChoiceZone.DigitamaLibrary),
                 hand,
                 security));
+        }
+
+        // N-5: open the first player's mulligan decision. Subsequent players' decisions and the deferred
+        // security deal are driven by the MulliganCoordinator as each choice resolves.
+        if (setup.EnableMulligan)
+        {
+            context.MulliganCoordinator.Begin(
+                context.ChoiceController,
+                setupOrder,
+                setup.InitialHandSize,
+                setup.InitialSecuritySize);
         }
 
         return new MatchSetupResult(
@@ -199,17 +215,26 @@ public sealed record MatchSetupConfig
             : throw new ArgumentOutOfRangeException(nameof(value), "InitialSecuritySize must not be negative.");
     }
 
-    public bool ShuffleDecks { get; init; }
+    // N-4: the original shuffles both decks at game start (CardObjectController.CreatePlayerDecks uses
+    // RandomUtility.ShuffledDeckCards for every deck). Default true to match; deterministic scenario /
+    // unit setups opt out with shuffleDecks:false. Shuffle is seeded, so a fixed seed stays reproducible.
+    public bool ShuffleDecks { get; init; } = true;
 
-    public bool ShuffleDigitamaDecks { get; init; }
+    public bool ShuffleDigitamaDecks { get; init; } = true;
+
+    // N-5: when true, each player makes an opening-hand mulligan decision (keep/redraw) before security
+    // is dealt, mirroring the original. Default false so existing deterministic setups (which advance
+    // straight from Setup) are unaffected; the RL / faithful-game path opts in.
+    public bool EnableMulligan { get; init; }
 
     public static MatchSetupConfig Create(
         IEnumerable<PlayerDeckSetup> playerDecks,
         HeadlessPlayerId? firstPlayerId = null,
         int initialHandSize = 5,
         int initialSecuritySize = 5,
-        bool shuffleDecks = false,
-        bool shuffleDigitamaDecks = false)
+        bool shuffleDecks = true,
+        bool shuffleDigitamaDecks = true,
+        bool enableMulligan = false)
     {
         return new MatchSetupConfig
         {
@@ -218,7 +243,8 @@ public sealed record MatchSetupConfig
             InitialHandSize = initialHandSize,
             InitialSecuritySize = initialSecuritySize,
             ShuffleDecks = shuffleDecks,
-            ShuffleDigitamaDecks = shuffleDigitamaDecks
+            ShuffleDigitamaDecks = shuffleDigitamaDecks,
+            EnableMulligan = enableMulligan
         };
     }
 

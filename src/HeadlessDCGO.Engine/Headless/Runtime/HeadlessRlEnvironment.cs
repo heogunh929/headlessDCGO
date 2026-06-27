@@ -32,8 +32,10 @@ public sealed class HeadlessRlEnvironment
             ? new LegalActionSetValidator()
             : null;
 
+        // R2-4: honour the strict-unbound profile flag so the default RL match can be the
+        // strict + validated profile (mirrors DcgoMatch.CreateStrictValidated) in a single option.
         return new DcgoMatch(
-            EngineContext.CreateDefault(),
+            EngineContext.CreateDefault(strictUnbound: options.StrictUnbound),
             new EngineTrace(),
             actionProcessor: null,
             actionLegality: legality);
@@ -233,7 +235,8 @@ public sealed class HeadlessRlEnvironment
             result,
             reward.Reward,
             reward.Discount,
-            factoredMask);
+            factoredMask,
+            stepResult.FlowExceededIterationCap);
     }
 
     // G3.5-RL-A4: the viewer whose private information is preserved. A fixed PerspectivePlayerId
@@ -324,4 +327,13 @@ public sealed record HeadlessRlEnvironmentOptions
     /// rejected at apply time without mutating state. Ignored when an external match is supplied.
     /// </summary>
     public bool EnforceAgentActionLegality { get; init; } = true;
+
+    /// <summary>
+    /// (R2-4) When true, a default-constructed match uses a strict-unbound effect scheduler: an
+    /// unbindable effect request becomes a hard failure rather than a silent no-op (GPT-#1 / 신1).
+    /// Combined with <see cref="EnforceAgentActionLegality"/> this yields the strict + validated
+    /// profile. Default false (lenient) to preserve existing behaviour. Ignored when an external match
+    /// is supplied.
+    /// </summary>
+    public bool StrictUnbound { get; init; }
 }

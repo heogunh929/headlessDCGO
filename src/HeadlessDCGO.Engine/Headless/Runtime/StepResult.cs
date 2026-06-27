@@ -11,18 +11,24 @@ public sealed record StepResult
         bool HasPendingChoice,
         IReadOnlyList<GameEvent> Events,
         ObservationSnapshot Observation,
-        ActionMask ActionMask)
+        ActionMask ActionMask,
+        bool FlowExceededIterationCap = false)
     {
         this.IsTerminal = IsTerminal;
         this.HasPendingChoice = HasPendingChoice;
         this.Events = Events;
         this.Observation = Observation;
         this.ActionMask = ActionMask;
+        this.FlowExceededIterationCap = FlowExceededIterationCap;
     }
 
     public bool IsTerminal { get; init; }
 
     public bool HasPendingChoice { get; init; }
+
+    // R2-3: true when this step's flow processing hit the iteration cap without stabilizing. Mirrors
+    // the typed flag on HeadlessGameLoopStep so RL/agent callers see a runaway loop as state, not text.
+    public bool FlowExceededIterationCap { get; init; }
 
     public IReadOnlyList<GameEvent> Events
     {

@@ -10,5 +10,7 @@ public enum ChoiceType
     AttackTarget,
     MainPhaseAction,
     OptionalEffect,
-    Blocker
+    Blocker,
+    // N-5: the opening-hand mulligan decision (keep vs redraw), made per player before security is dealt.
+    Mulligan
 }

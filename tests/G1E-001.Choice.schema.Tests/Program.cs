@@ -153,6 +153,7 @@ Task ChoiceEnumsCoverAsIsSelectionCategories()
             // Added after this schema test was first written; both are live selection categories:
             "OptionalEffect", // OptionalPromptQueue — optional ("you may") effect prompts
             "Blocker",        // BlockTiming — the defender's blocker selection
+            "Mulligan",       // N-5: MulliganCoordinator — opening-hand keep/redraw decision
         },
         Enum.GetNames<ChoiceType>(),
         "choice type names");

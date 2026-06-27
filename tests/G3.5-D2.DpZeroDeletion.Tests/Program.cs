@@ -95,7 +95,7 @@ async Task<DcgoMatch> FieldDigimonAsync(string cardType, int? dp, DpModifier[]? 
 
     DcgoMatch match = new(context);
     MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, initialSecuritySize: 0);
+        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 74, setup: setup));
     await AdvanceToMainAsync(match);
 

@@ -54,6 +54,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string PlayerIdKey = "playerId";
     public const string CountKey = "count";
     public const string FaceUpKey = "faceUp";
+    // N-3: optional override to insert a returned card at the security BOTTOM instead of the default top.
+    public const string ToBottomKey = "toBottom";
     public const string AmountKey = "amount";
 
     private static readonly IReadOnlyDictionary<string, string> KindToFlag =
@@ -178,7 +180,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case AddToSecurityKind:
                 bool faceUp = ReadBool(mutation.Values, FaceUpKey);
-                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, ct));
+                // N-3: default to the security TOP (original AddSecurityCard toTop:true). An effect that
+                // needs a bottom insert sets the "toBottom" flag on the mutation.
+                bool toTop = !ReadBool(mutation.Values, ToBottomKey);
+                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, toTop, ct));
                 break;
             default:
                 _unsupported.Add(mutation);

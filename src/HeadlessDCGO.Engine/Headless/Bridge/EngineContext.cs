@@ -47,6 +47,7 @@ public sealed class EngineContext
         EffectRegistry = effectRegistry ?? new InMemoryEffectRegistry();
         GameEventQueue = gameEventQueue ?? new GameEventQueue();
         OptionalPromptQueue = new OptionalPromptQueue();
+        MulliganCoordinator = new MulliganCoordinator();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
@@ -88,6 +89,10 @@ public sealed class EngineContext
     /// <summary>(#2) Pending optional ("you may") trigger prompts awaiting an agent decision. Persists
     /// across the loop's pause/resume so optional triggers are activated by choice, not auto-fired.</summary>
     public OptionalPromptQueue OptionalPromptQueue { get; }
+
+    /// <summary>(N-5) Coordinates the opening-hand mulligan decisions during setup. Active only when the
+    /// match setup enables mulligan; otherwise idle.</summary>
+    public MulliganCoordinator MulliganCoordinator { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
@@ -199,6 +204,7 @@ public sealed class EngineContext
         ResetIfSupported(MemoryController);
         ResetIfSupported(GameEventQueue);
         OptionalPromptQueue.Clear();
+        MulliganCoordinator.Clear();
         ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;
     }
@@ -259,6 +265,7 @@ public sealed class EngineContext
         RegisterService(EffectRegistry);
         RegisterService(GameEventQueue);
         RegisterService(OptionalPromptQueue);
+        RegisterService(MulliganCoordinator);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }
