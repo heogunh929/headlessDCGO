@@ -40,6 +40,9 @@ public sealed record FactoredActionSchema
         DigivolveOffset = offset; offset += maxHand * maxField;
         DeclareAttackOffset = offset; offset += maxField * (maxField + 1);
         ResolveChoiceOffset = offset; offset += maxChoice + 1;
+        // D-6: single-slot lanes for the breeding-step decisions (appended last to keep prior offsets stable).
+        HatchDigitamaOffset = offset; offset += 1;
+        MoveBreedingOffset = offset; offset += 1;
         TotalSize = offset;
     }
 
@@ -68,6 +71,10 @@ public sealed record FactoredActionSchema
     public int DeclareAttackOffset { get; }
 
     public int ResolveChoiceOffset { get; }
+
+    public int HatchDigitamaOffset { get; }
+
+    public int MoveBreedingOffset { get; }
 
     public int TotalSize { get; }
 }
@@ -237,6 +244,12 @@ public static class FactoredActionEncoder
                 return (schema.AdvancePhaseOffset, "AdvancePhase");
             case HeadlessActionTypes.NormalizedEndTurn:
                 return (schema.EndTurnOffset, "EndTurn");
+
+            // D-6: breeding-step decisions occupy fixed single slots.
+            case HeadlessActionTypes.NormalizedHatchDigitama:
+                return (schema.HatchDigitamaOffset, "HatchDigitama");
+            case HeadlessActionTypes.NormalizedMoveBreedingToBattle:
+                return (schema.MoveBreedingOffset, "MoveBreedingToBattle");
 
             case HeadlessActionTypes.NormalizedPlayCard:
             {

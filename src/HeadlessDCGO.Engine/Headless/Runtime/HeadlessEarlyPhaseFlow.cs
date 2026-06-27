@@ -81,15 +81,11 @@ public sealed class HeadlessEarlyPhaseFlow
                 }
             }
         }
-        else if (current.Phase == HeadlessPhase.Breeding)
-        {
-            BreedingPhaseResult breeding = await ResolveBreedingAsync(context, current, cancellationToken)
-                .ConfigureAwait(false);
-            breedingAction = breeding.Action;
-            hatchedCard = breeding.HatchedCardId;
-            movedBreedingCards = breeding.MovedCardIds;
-            operations.Add($"Breeding:{breeding.Action}");
-        }
+
+        // D-6: the breeding step is NOT auto-resolved. When the phase becomes Breeding the turn player
+        // decides via the dispatched HatchDigitama / MoveBreedingToBattle actions (or AdvancePhase to
+        // decline); see HeadlessLegalActionDispatcher.BuildBreedingActions. breedingAction stays "None"
+        // here — the chosen breeding action is processed by MetadataActionProcessor.
 
         return new PhaseTransitionResult(
             previous,

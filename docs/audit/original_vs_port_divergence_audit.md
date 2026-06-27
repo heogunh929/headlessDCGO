@@ -4,6 +4,7 @@
 - 방법: 5개 병렬 에이전트가 하위 시스템별로 원본(`DCGO/Assets/Scripts/Script/`)과 포팅(`src/HeadlessDCGO.Engine/Headless/`)의 **엔진 규칙 로직**을 대조. 미포팅 카드 효과(Phase 4)·네이밍·스타일은 제외. 본 문서는 에이전트 결과를 **작성자가 직접 스폿체크·판단해 필터링**한 결과(오탐 제거, confidence 재조정).
 - 분류: 🔴확정버그(수정후보) / 🟡설계단순화(의도가능·검증필요) / 🔵Phase4 배선커버리지 / ⚪저신뢰·데이터의존
 - 관련: GPT 검수 항목은 [gpt_review_followups.md](gpt_review_followups.md) 별도 추적.
+- **진행 현황(2026-06-27)**: D-1·D-2·D-5 수정 / D-3·D-4 수정(옵셔널 자동발동 한계 명시) / D-6 수정(에이전트 결정) / S-1 검증=버그아님 / S-2 LOW / 🔵 타이밍 갭 [체크리스트화](timing_emission_gaps.md) / ⚪ 기록.
 
 ---
 
@@ -18,21 +19,29 @@
 - **심각도**: HIGH · **확신**: HIGH (작성자 직접 확인)
 - **수정 방향**: `ApplyPiercingSecurityAsync`를 `SecurityResolver.ResolveAsync` 재사용으로 통합(또는 공통 헬퍼 추출).
 
-### D-2. 필드 DP≤0 상태기반 삭제 규칙 미구현
+### D-2. 필드 DP≤0 상태기반 삭제 규칙 미구현 → ✅ **수정 완료(2026-06-27)**
+> **수정**: `GameFlowProcessor.RuleProcessAsync`에 필드 Digimon effective-DP(`DpCalculator`) ≤ 0 삭제 추가. **DP가 정의된 경우에만** 적용(미정의=무시, DP-less 픽스처 보호 — W5와 동일 가드). 신규 `tests/G3.5-D2.DpZeroDeletion.Tests` 5/5 PASS(모디파이어로 0/음수→삭제, 양수/미정의/비-Digimon→생존). 회귀(C1·004·G2G-003·C2·W5·V) 0. *follow-up: "파괴 불가" 일반 플래그는 효과 포팅 시 존중.*
+
 - **원본**: `AutoProcessing.DoRuleProcess`(`AutoProcessing.cs:319-484`) + `CutInProcess`(`:38-106`)가 전투 외에도 **DP==0/DP<0 디지몬, 무DP permanent, 브리딩 비디지몬**을 상태기반으로 trash.
 - **포팅**: `GameFlowProcessor.RuleProcessAsync`(`GameFlowProcessor.cs:111-156`)는 **`pendingDeletion` 플래그가 찍힌 카드만** 스윕. 효과가 명시적으로 플래그를 안 찍으면 DP≤0 디지몬이 필드에 잔류.
 - **영향**: 전투 밖에서 DP가 0/음수가 된 디지몬이 원본은 삭제, 포팅은 잔류 → 보드 상태·승패 하류 영향.
 - **심각도**: HIGH · **확신**: HIGH (C1이 "플래그 스윕"만 구현한 것과 일치 — 의도된 단순화이나 규칙상 갭)
 - **수정 방향**: `RuleProcessAsync`에 필드 effective-DP≤0 스캔 추가(DpCalculator 사용).
 
-### D-3. 라이브 트리거 루프에 mandatory→optional / 턴플레이어 우선순위 없음
+### D-3. 라이브 트리거 루프에 mandatory→optional / 턴플레이어 우선순위 없음 → ✅ **수정 완료(2026-06-27, 부분·한계 명시)**
+> **수정**: `AutoProcessingTriggerCollector.CollectAllTriggers`(enqueue 분리) + `GameFlowProcessor.AutoProcessAsync`가 한 배치의 트리거를 `MandatoryEffectOrdering`으로 정렬(**턴플레이어 우선 → 비턴 → mandatory→optional**) 후 enqueue. 신규 `tests/G3.5-D3.TriggerOrdering.Tests` 2/2 PASS(등록 역순에도 턴플레이어 먼저, mandatory→optional + 옵셔널 발동). 회귀(006/004/G2F-001/002/W1/V) 0.
+> **한계(수용)**: 옵셔널 트리거는 드롭 대신 mandatory 뒤에 enqueue=**자동발동**(강제). 에이전트 결정으로 노출(트리거판 DeferredChoiceProvider)은 Phase 4로. 또한 trigger Kind는 현재 **이벤트 단위**(triggerKind 메타)라 효과별 mandatory/optional 구분은 이벤트 분리에 의존.
+
 - **원본**: `MultipleSkills.ActivateMultipleSkills`(`MultipleSkills.cs:55-`)가 **턴플레이어 트리거 먼저→비턴플레이어**, 동시 트리거는 액티브 플레이어가 순서 선택.
 - **포팅**: `GameFlowProcessor.AutoProcessAsync`가 `EffectRegistry.GetEffectsForTiming`의 **등록 순서(FIFO)**로 enqueue. `MandatoryEffectOrdering`/`OptionalPromptQueue`는 **Runtime 라이브 경로에서 참조 0건**(에이전트 확인).
 - **영향**: 동시 트리거가 덱 등록순으로 임의 해결. 턴플레이어 우선(DCG 핵심 규칙) 미적용. 옵셔널이 선택 없이 자동 해결.
 - **심각도**: MED~HIGH · **확신**: HIGH (부품 존재·미배선 = 알려진 "축약판" 패턴)
 - **수정 방향**: AutoProcess 수집 후 `MandatoryEffectOrdering`+`OptionalPromptQueue` 경유.
 
-### D-4. End-of-Attack 윈도우가 옵셔널 트리거를 전부 누락
+### D-4. End-of-Attack 윈도우가 옵셔널 트리거를 전부 누락 → ✅ **수정 완료(2026-06-27, 한계 명시)**
+> **수정**: `EndAttackTriggerHook`의 계약(mandatory/optional **분리**, mandatory enqueue)은 보존(=G2G-005 그대로 green, "defer for choice"가 올바른 토대). 대신 호출처 `AttackPipeline.AdvanceEndAttack`가 `result.MandatoryOrder.DeferredOptionalTriggers`를 mandatory 뒤에 enqueue=**자동발동**(드롭 방지). 
+> **한계/실태**: 현재 파이프라인의 end-attack 이벤트는 Mandatory kind라 실전에서 optional end-attack 트리거가 발생하지 않음(잠재) — 본 수정은 optional-kind가 들어올 때의 안전망. 에이전트 결정 노출은 Phase 4. G2G-005·005 회귀 0.
+
 - **원본**: `OnEndAttack`(`AttackProcess.cs:480`)이 `TriggeredSkillProcess`로 옵셔널 [공격종료시] 효과 활성화 허용.
 - **포팅**: `EndAttackTriggerHook.Process`(`EndAttackTriggerHook.cs:129-133`)가 `MandatoryEffectOrdering.OrderAndEnqueue`로 **mandatory만** enqueue. `DeferredOptionalTriggers`는 어디서도 enqueue 안 됨.
 - **영향**: 옵셔널 [공격 종료시] 효과가 영영 발동 불가.
@@ -47,7 +56,9 @@
 - **심각도**: MED · **확신**: HIGH
 - **수정 방향**: `from`이 필드(Battle/Breeding)일 때만 OnDeletion 파생.
 
-### D-6. 브리딩 페이즈가 플레이어 선택(부화/이동/스킵)을 제거하고 자동 처리
+### D-6. 브리딩 페이즈가 플레이어 선택(부화/이동/스킵)을 제거하고 자동 처리 → ✅ **수정 완료(2026-06-27)**
+> **수정**: 브리딩을 에이전트 결정으로 전환. (1) `HeadlessEarlyPhaseFlow` 자동 부화/이동 제거, (2) `HeadlessLegalActionDispatcher.BuildBreedingActions`가 Hatch(디지타마>0&브리딩 비어있음)/Move(브리딩 점유)/AdvancePhase(거절) 제공, (3) `LegalActionSetValidator` agent-facing에 Hatch/Move 추가, (4) `FactoredActionEncoder`에 Hatch/Move 단일 레인(RL 접근), (5) `CheatActionGuard`에서 Hatch/Move 제거(더 이상 cheat 아님). 기존 인프라(액션타입·팩토리·`MetadataActionProcessor` 핸들러·ZoneMover)는 이미 존재했음 — 배선만 연결. 신규 `tests/G3.5-D6.BreedingChoice.Tests` 3/3 PASS(부화/거절 제공·거절 시 미부화·팩토리드로 부화). `G2A-003` 갱신(11/11, 자동→에이전트), `A3` 스키마 +2 갱신. 회귀(006/A1/A5/V/G2E-005) 0.
+
 - **원본**: `BreedingPhase`(`TurnStateMachine.cs:719-816`) — 플레이어가 부화 여부/이동 여부/무행동을 **선택**.
 - **포팅**: `HeadlessEarlyPhaseFlow.ResolveBreedingAsync`(`HeadlessEarlyPhaseFlow.cs:107-139`) — 디지타마 있으면 **항상 부화**, 브리딩 카드 있으면 **항상 이동**. 거부 경로 없음.
 - **영향**: 합법적 게임 결정(이동 보류 등) 상실. *RL 행동공간에서도 누락.*
@@ -82,6 +93,7 @@
 
 - **영향**: 위 타이밍에 바인딩된 카드 본문은 dead. 빈도 높은 것(시작시 타머·[연결시]·[이동시]·전투 시작/종료 DP)은 HIGH.
 - **권장**: 해당 카드군 포팅 시점에 emit 지점 배선(W1-2 패턴). `TriggerTimings` 상수 추가 + 발화 지점.
+- → ✅ **체크리스트화 완료**: [timing_emission_gaps.md](timing_emission_gaps.md)에 미발행 타이밍 18종 + 원본 발화지점 + 포팅 emit 추가 위치 정리(Phase 4 카드군별 배선). 무검증 일괄 emit은 하지 않음(각 연산+바인딩 효과 전제).
 
 ---
 

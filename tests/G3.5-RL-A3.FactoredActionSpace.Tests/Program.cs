@@ -62,7 +62,11 @@ void SchemaLanesAreContiguous()
     AssertEqual(4 + 4, s.ActivateOptionOffset, "option offset");
     AssertEqual(4 + 4 + 4, s.DigivolveOffset, "digivolve offset");
     AssertEqual(4 + 4 + 4 + (4 * 3), s.DeclareAttackOffset, "attack offset");
-    int expectedTotal = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1)) + (5 + 1);
+    // D-6: two single-slot breeding lanes appended after ResolveChoice.
+    int resolveChoiceOffset = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1));
+    AssertEqual(resolveChoiceOffset + (5 + 1), s.HatchDigitamaOffset, "hatch offset after resolve-choice lane");
+    AssertEqual(resolveChoiceOffset + (5 + 1) + 1, s.MoveBreedingOffset, "move-breeding offset");
+    int expectedTotal = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1)) + (5 + 1) + 1 + 1;
     AssertEqual(expectedTotal, s.TotalSize, "total size");
 }
 

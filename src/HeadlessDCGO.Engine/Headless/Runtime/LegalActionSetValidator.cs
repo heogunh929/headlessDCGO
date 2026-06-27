@@ -29,6 +29,9 @@ public sealed class LegalActionSetValidator : IActionLegality
         HeadlessActionTypes.NormalizedAdvancePhase,
         HeadlessActionTypes.NormalizedEndTurn,
         HeadlessActionTypes.NormalizedResolveChoice,
+        // D-6: breeding-step decisions are now agent actions, not auto-resolved.
+        HeadlessActionTypes.NormalizedHatchDigitama,
+        HeadlessActionTypes.NormalizedMoveBreedingToBattle,
     };
 
     private readonly HeadlessLegalActionDispatcher _dispatcher;

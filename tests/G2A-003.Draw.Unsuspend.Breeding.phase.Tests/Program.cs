@@ -175,20 +175,22 @@ async Task DrawPhaseDeckOutMarksTerminal()
 
 async Task BreedingPhaseHatchesDigitama()
 {
+    // D-6: breeding is now a player DECISION (not auto-resolved). Advancing into the breeding phase
+    // hatches nothing; the turn player hatches explicitly via the dispatched HatchDigitama action.
     DcgoMatch match = await CreateInitializedMatchAsync();
     HeadlessPlayerId player = new(1);
 
-    await AdvancePhaseAsync(match, player);
-    await AdvancePhaseAsync(match, player);
-    await AdvancePhaseAsync(match, player);
-    StepResult breeding = await ApplyAdvanceAsync(match, player);
-    ActionProcessResult result = LastActionResult(breeding);
+    StepResult enter = await AdvanceToPhaseAsync(match, player, HeadlessPhase.Breeding);
+    AssertEqual(HeadlessPhase.Breeding, enter.Observation.Turn.Phase, "breeding phase");
+    AssertEqual("None", LastActionResult(enter).Metadata[HeadlessActionParameterKeys.BreedingAction], "no auto breeding action");
+    AssertTrue(
+        match.GetLegalActions(player).Any(a => a.ActionType == HeadlessActionTypes.HatchDigitama),
+        "hatch is offered as a legal action");
 
-    AssertEqual(HeadlessPhase.Breeding, breeding.Observation.Turn.Phase, "breeding phase");
-    AssertEqual("Hatch", result.Metadata[HeadlessActionParameterKeys.BreedingAction], "breeding action");
-    AssertEqual(1, ZoneCount(breeding.Observation, player, ChoiceZone.BreedingArea), "breeding count");
-    AssertEqual(2, ZoneCount(breeding.Observation, player, ChoiceZone.DigitamaLibrary), "digitama count");
-    AssertEqual("p1:digitama:001:P1-D01", result.Metadata[HeadlessActionParameterKeys.HatchedCardId], "hatched id");
+    StepResult hatch = await ApplyActionAsync(match, HeadlessActionFactory.HatchDigitama(player));
+    AssertTrue(LastActionResult(hatch).IsSuccess, "hatch success");
+    AssertEqual(1, ZoneCount(hatch.Observation, player, ChoiceZone.BreedingArea), "breeding count");
+    AssertEqual(2, ZoneCount(hatch.Observation, player, ChoiceZone.DigitamaLibrary), "digitama count");
 }
 
 async Task BreedingPhaseMovesOccupiedBreedingArea()
@@ -198,13 +200,16 @@ async Task BreedingPhaseMovesOccupiedBreedingArea()
     await match.Context.ZoneMover.HatchDigitamaAsync(player);
     match.Context.TurnController.SetPhase(HeadlessPhase.Draw);
 
-    StepResult breeding = await ApplyAdvanceAsync(match, player);
-    ActionProcessResult result = LastActionResult(breeding);
+    StepResult enter = await ApplyAdvanceAsync(match, player); // Draw -> Breeding
+    AssertEqual(HeadlessPhase.Breeding, enter.Observation.Turn.Phase, "breeding phase");
+    AssertTrue(
+        match.GetLegalActions(player).Any(a => a.ActionType == HeadlessActionTypes.MoveBreedingToBattle),
+        "move is offered when the breeding area is occupied");
 
-    AssertEqual("MoveToBattle", result.Metadata[HeadlessActionParameterKeys.BreedingAction], "breeding action");
-    AssertEqual(0, ZoneCount(breeding.Observation, player, ChoiceZone.BreedingArea), "breeding count");
-    AssertEqual(1, ZoneCount(breeding.Observation, player, ChoiceZone.BattleArea), "battle count");
-    AssertSequence(new[] { "p1:digitama:001:P1-D01" }, ReadStringArray(result.Metadata, HeadlessActionParameterKeys.MovedBreedingCardIds), "moved ids");
+    StepResult move = await ApplyActionAsync(match, HeadlessActionFactory.MoveBreedingToBattle(player, count: 1));
+    AssertTrue(LastActionResult(move).IsSuccess, "move success");
+    AssertEqual(0, ZoneCount(move.Observation, player, ChoiceZone.BreedingArea), "breeding count");
+    AssertEqual(1, ZoneCount(move.Observation, player, ChoiceZone.BattleArea), "battle count");
 }
 
 async Task NonTurnPlayerCannotAdvanceEarlyPhase()
@@ -271,6 +276,23 @@ static async Task<StepResult> ApplyAdvanceAsync(DcgoMatch match, HeadlessPlayerI
 {
     await match.ApplyActionAsync(HeadlessActionFactory.AdvancePhase(playerId));
     return await match.StepAsync();
+}
+
+static async Task<StepResult> ApplyActionAsync(DcgoMatch match, LegalAction action)
+{
+    await match.ApplyActionAsync(action);
+    return await match.StepAsync();
+}
+
+static async Task<StepResult> AdvanceToPhaseAsync(DcgoMatch match, HeadlessPlayerId playerId, HeadlessPhase target)
+{
+    StepResult step = await ApplyAdvanceAsync(match, playerId);
+    for (var attempt = 0; attempt < 8 && step.Observation.Turn.Phase != target; attempt++)
+    {
+        step = await ApplyAdvanceAsync(match, playerId);
+    }
+
+    return step;
 }
 
 static async Task<StepResult> ApplyEndTurnAsync(DcgoMatch match, HeadlessPlayerId playerId)

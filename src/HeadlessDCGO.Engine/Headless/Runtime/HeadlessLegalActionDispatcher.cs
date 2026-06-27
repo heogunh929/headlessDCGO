@@ -48,8 +48,10 @@ public sealed class HeadlessLegalActionDispatcher
             HeadlessPhase.Setup or
             HeadlessPhase.Active or
             HeadlessPhase.Unsuspend or
-            HeadlessPhase.Draw or
-            HeadlessPhase.Breeding => new[] { HeadlessActionFactory.AdvancePhase(playerId) },
+            HeadlessPhase.Draw => new[] { HeadlessActionFactory.AdvancePhase(playerId) },
+            // D-6: the breeding step is a player DECISION — offer the available breeding actions
+            // (hatch / move) plus AdvancePhase to decline, instead of auto-resolving it.
+            HeadlessPhase.Breeding => BuildBreedingActions(context, playerId),
             HeadlessPhase.Main => new[] { HeadlessActionFactory.Pass(playerId) }
                 .Concat(new PlayCardAction().GetLegalActions(context, playerId))
                 .Concat(new DigivolveAction().GetLegalActions(context, playerId))
@@ -62,6 +64,35 @@ public sealed class HeadlessLegalActionDispatcher
         })
         .Where(action => !CheatActionGuard.IsCheatOrDebugAction(action.ActionType))
         .ToArray();
+    }
+
+    /// <summary>
+    /// (D-6) Breeding-step legal actions for the turn player: hatch a digitama (when a digitama is
+    /// available and the breeding area is empty), move the breeding Digimon to the battle area (when the
+    /// breeding area is occupied), and AdvancePhase to decline the breeding action. Mirrors the AS-IS
+    /// optional BreedingPhase decision instead of auto-resolving it.
+    /// </summary>
+    private static LegalAction[] BuildBreedingActions(EngineContext context, HeadlessPlayerId playerId)
+    {
+        var actions = new List<LegalAction>();
+        if (context.ZoneMover is IZoneStateReader zones)
+        {
+            int digitama = zones.GetCards(playerId, ChoiceZone.DigitamaLibrary).Count;
+            int breeding = zones.GetCards(playerId, ChoiceZone.BreedingArea).Count;
+
+            if (digitama > 0 && breeding == 0)
+            {
+                actions.Add(HeadlessActionFactory.HatchDigitama(playerId));
+            }
+
+            if (breeding > 0)
+            {
+                actions.Add(HeadlessActionFactory.MoveBreedingToBattle(playerId, count: 1));
+            }
+        }
+
+        actions.Add(HeadlessActionFactory.AdvancePhase(playerId));
+        return actions.ToArray();
     }
 
     /// <summary>

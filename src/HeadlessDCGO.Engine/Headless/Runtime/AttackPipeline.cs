@@ -207,6 +207,25 @@ public class AttackPipeline
                 turnPlayer,
                 attack.DefendingPlayerId);
             enqueued = result.EnqueuedMandatoryCount;
+
+            // D-4: the hook correctly SEPARATES end-attack triggers (mandatory enqueued, optional held
+            // in MandatoryOrder.DeferredOptionalTriggers). Until optional triggers are surfaced as an
+            // agent decision (Phase 4), enqueue the held optionals here so they fire rather than being
+            // dropped. LIMITATION: this auto-resolves "you may" end-attack effects (forced activation).
+            if (result.MandatoryOrder is { } order)
+            {
+                foreach (Rules.TimingWindowTrigger trigger in order.DeferredOptionalTriggers)
+                {
+                    context.EffectScheduler.Enqueue(trigger.Request, trigger.Mode);
+                    enqueued++;
+                }
+
+                foreach (Rules.TimingWindowTrigger trigger in order.UnknownPlayerTriggers)
+                {
+                    context.EffectScheduler.Enqueue(trigger.Request, trigger.Mode);
+                    enqueued++;
+                }
+            }
         }
 
         context.AttackController.AdvancePhase(AttackPhase.Completed, "End attack triggers collected.");
