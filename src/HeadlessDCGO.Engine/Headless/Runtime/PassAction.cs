@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class PassAction
@@ -21,6 +22,11 @@ public sealed class PassAction
         {
             return ActionProcessResult.Illegal(action, ex.Message, BaseMetadata(action));
         }
+
+        // F-6.2: passing the main phase hands the turn over (Main→MemoryPass) — this is where the acting
+        // player's main phase ends. Open the end-of-main / end-of-attack windows for that player.
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndAttackPhase, actor: mainPhase.PreviousTurn.TurnPlayerId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndMainPhase, actor: mainPhase.PreviousTurn.TurnPlayerId);
 
         Dictionary<string, object?> metadata = MetadataWithTurn(action, mainPhase.CurrentTurn);
         AddMainPhaseMetadata(metadata, mainPhase);

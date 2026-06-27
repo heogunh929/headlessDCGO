@@ -622,6 +622,13 @@ public sealed class MetadataActionProcessor : IActionProcessor
         Dictionary<string, object?> metadata = MetadataWithPhaseTransition(action, transition);
         AddMainPhaseMetadata(metadata, mainPhase);
 
+        // F-6.2: open the start-of-main-phase window when this advance entered the main phase (the
+        // original fires EffectTiming.OnStartMainPhase here). Global — each bound effect self-gates.
+        if (mainPhase.MainPhaseEntered)
+        {
+            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartMainPhase, actor: mainPhase.CurrentTurn.TurnPlayerId);
+        }
+
         return ActionProcessResult.Success(
             $"Phase advanced to {mainPhase.CurrentTurn.Phase}.",
             metadata);
@@ -647,6 +654,9 @@ public sealed class MetadataActionProcessor : IActionProcessor
         {
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayer);
         }
+
+        // F-4: a new turn begins — reset the once-per-turn use counts (original InitUseCountThisTurn).
+        context.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId);
 
         if (turn.TurnPlayerId is HeadlessPlayerId startingPlayer)
         {

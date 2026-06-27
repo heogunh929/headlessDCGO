@@ -228,6 +228,11 @@ public class AttackPipeline
             }
         }
 
+        // F-1.5: the attack is over — expire continuous bindings that last only until the end of this
+        // attack (the battle DP comparison already happened in the earlier battle phase, so these have
+        // served their purpose). Done before the phase flips to Completed.
+        EffectDurationExpiry.ExpireAttackEnd(context.EffectRegistry);
+
         context.AttackController.AdvancePhase(AttackPhase.Completed, "End attack triggers collected.");
         return AttackAdvanceResult.Transitioned(AttackPhase.Resolved, AttackPhase.Completed, enqueuedEndAttackTriggers: enqueued);
     }

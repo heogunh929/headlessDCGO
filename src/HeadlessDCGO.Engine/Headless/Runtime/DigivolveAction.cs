@@ -84,7 +84,10 @@ public sealed class DigivolveAction
                 ChoiceZone.Hand,
                 ChoiceZone.BattleArea),
             cancellationToken).ConfigureAwait(false);
+        // F-6.7: wrap the digivolve-cost payment with the Before/AfterPayCost windows.
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         IReadOnlyList<HeadlessEntityId> sourceIds = AttachTargetAsSource(
             context.CardInstanceRepository,
             payload.CardId,
@@ -113,6 +116,17 @@ public sealed class DigivolveAction
             TriggerTimings.WhenDigivolving,
             actor: action.PlayerId,
             subject: payload.CardId);
+
+        // F-6.4: digivolving places the previous card(s) under the new top as digivolution sources —
+        // open the OnAddDigivolutionCards window scoped to the receiving (top) card.
+        if (sourceIds.Count > 0)
+        {
+            TriggerEventEmitter.Emit(
+                context.GameEventQueue,
+                TriggerTimings.OnAddDigivolutionCards,
+                actor: action.PlayerId,
+                subject: payload.CardId);
+        }
 
         return ActionProcessResult.Success("Card digivolved.", metadata);
     }

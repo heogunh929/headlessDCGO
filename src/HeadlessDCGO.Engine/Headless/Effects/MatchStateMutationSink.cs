@@ -1,6 +1,8 @@
 namespace HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Globalization;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -36,6 +38,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string SetFlagKind = "SetFlag";
     public const string ClearFlagKind = "ClearFlag";
 
+    // CV-B1: effect-driven deletion (destroy a Digimon). Unlike TrashCard (a raw zone move), Delete
+    // honours deletion-prevention — the static `cannotBeDeleted` flag and continuous Delete/Prevent
+    // replacements (same source the BattleDeletionGate consults) — and stamps `deletedByEffect` for any
+    // OnDeletion triggers. (OnDeletion timing emission is wired separately in CV-A4.)
+    public const string DeleteKind = "Delete";
+    public const string CannotBeDeletedFlagKey = "cannotBeDeleted";
+    public const string DeletedByEffectKey = "deletedByEffect";
+    public const string DeletionPreventedKey = "deletionPrevented";
+
     // W2-follow: async / controller-backed kinds (applied on flush or via the memory controller).
     public const string TrashCardKind = "TrashCard";
     public const string ReturnToHandKind = "ReturnToHand";
@@ -45,6 +56,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string DrawCardsKind = "DrawCards";
     public const string AddMemoryKind = "AddMemory";
     public const string SetMemoryKind = "SetMemory";
+    // F-3.7: effect-driven play — moves the target from its source zone onto the battle area face up
+    // and marks it as having entered this turn (summoning sickness). "Play for free"; a memory cost, if
+    // any, is paid by the effect before emitting this mutation.
+    public const string PlayCardKind = "PlayCard";
 
     // Value keys.
     public const string DpValueKey = "value";
@@ -57,6 +72,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // N-3: optional override to insert a returned card at the security BOTTOM instead of the default top.
     public const string ToBottomKey = "toBottom";
     public const string AmountKey = "amount";
+    // F-3.7: the zone the played card comes from (defaults to Hand).
+    public const string FromZoneKey = "fromZone";
+    public const string EnteredThisTurnKey = "enteredThisTurn";
 
     private static readonly IReadOnlyDictionary<string, string> KindToFlag =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -75,6 +93,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     private readonly ICardInstanceRepository _repository;
     private readonly IZoneMover? _zoneMover;
     private readonly IHeadlessMemoryController? _memory;
+    private readonly EffectRegistry? _effectRegistry;
+    private readonly GameEventQueue? _gameEventQueue;
     private readonly ILogSink? _log;
     private readonly List<AppliedMutation> _applied = new();
     private readonly List<EffectMutation> _unsupported = new();
@@ -85,12 +105,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         ICardInstanceRepository repository,
         ILogSink? log = null,
         IZoneMover? zoneMover = null,
-        IHeadlessMemoryController? memory = null)
+        IHeadlessMemoryController? memory = null,
+        EffectRegistry? effectRegistry = null,
+        GameEventQueue? gameEventQueue = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _log = log;
         _zoneMover = zoneMover;
         _memory = memory;
+        _effectRegistry = effectRegistry;
+        _gameEventQueue = gameEventQueue;
     }
 
     public int AppliedCount => _applied.Count;
@@ -156,15 +180,20 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case SuspendKind:
                 WriteMetadata(record, targetId, mutation.Kind, SuspendedFlagKey, true);
+                EmitTiming(TriggerTimings.OnTapped, record.OwnerId);
                 break;
             case UnsuspendKind:
                 WriteMetadata(record, targetId, mutation.Kind, SuspendedFlagKey, false);
+                EmitTiming(TriggerTimings.OnUntapped, record.OwnerId);
                 break;
             case SetFlagKind:
                 ApplyNamedFlag(mutation, record, targetId, value: true);
                 break;
             case ClearFlagKind:
                 ApplyNamedFlag(mutation, record, targetId, value: false);
+                break;
+            case DeleteKind:
+                ApplyDelete(mutation, record, targetId);
                 break;
             case TrashCardKind:
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToTrashAsync(owner, id, ct));
@@ -184,6 +213,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // needs a bottom insert sets the "toBottom" flag on the mutation.
                 bool toTop = !ReadBool(mutation.Values, ToBottomKey);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, toTop, ct));
+                // F-6.4: a face-up add raises the face-up security count — open that timing window.
+                if (faceUp)
+                {
+                    EmitTiming(TriggerTimings.OnFaceUpSecurityIncreased, record.OwnerId);
+                }
+                break;
+            case PlayCardKind:
+                ApplyPlayCard(mutation, record, targetId);
                 break;
             default:
                 _unsupported.Add(mutation);
@@ -271,6 +308,65 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
     }
 
+    private void ApplyDelete(EffectMutation mutation, CardInstanceRecord record, HeadlessEntityId targetId)
+    {
+        // Deletion-prevention: the static cannotBeDeleted flag (card/instance) OR a continuous
+        // Delete/Prevent replacement (the same source BattleDeletionGate consults). When prevented, the
+        // card stays on the field and the mutation is recorded as skipped with a deletionPrevented marker.
+        if (ReadFlag(record.Metadata, CannotBeDeletedFlagKey) || IsDeletionPreventedByContinuous(targetId))
+        {
+            _skipped.Add(mutation);
+            _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletionPreventedKey));
+            return;
+        }
+
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        // Stamp the deletion marker before the move so OnDeletion-scoped triggers can read it.
+        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+        {
+            [DeletedByEffectKey] = true,
+        };
+        _repository.Upsert(record with { Metadata = metadata });
+
+        HeadlessPlayerId owner = record.OwnerId;
+        _pendingAsync.Add(ct => zoneMover.AddToTrashAsync(owner, targetId, ct));
+        _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletedByEffectKey));
+    }
+
+    private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId)
+    {
+        if (_effectRegistry is null)
+        {
+            return false;
+        }
+
+        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
+            _effectRegistry,
+            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId));
+
+        foreach (ReplacementEffect replacement in result.Replacements)
+        {
+            if (replacement.EventKind == ReplacementEventKind.Delete &&
+                replacement.ActionKind == ReplacementActionKind.Prevent)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        return metadata.TryGetValue(key, out object? raw) && raw is bool value && value;
+    }
+
     private void ApplyDpModifier(EffectMutation mutation, CardInstanceRecord record, HeadlessEntityId targetId)
     {
         int value = ReadInt(mutation.Values, DpValueKey) ?? 0;
@@ -318,12 +414,61 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _applied.Add(new AppliedMutation(kind, targetId, key));
     }
 
+    /// <summary>(F-3.7) Effect-driven play: move the card from its source zone (default Hand) onto the
+    /// battle area face up and mark it entered-this-turn (summoning sickness). The actual move is
+    /// deferred to the flush, like the other zone-move kinds.</summary>
+    private void ApplyPlayCard(EffectMutation mutation, CardInstanceRecord record, HeadlessEntityId targetId)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        ChoiceZone fromZone = ReadZone(mutation.Values, FromZoneKey, ChoiceZone.Hand);
+        bool faceUp = !mutation.Values.ContainsKey(FaceUpKey) || ReadBool(mutation.Values, FaceUpKey);
+        HeadlessPlayerId owner = record.OwnerId;
+
+        // Mark summoning sickness synchronously (same metadata flag PlayCardAction sets).
+        WriteMetadata(record, targetId, mutation.Kind, EnteredThisTurnKey, true);
+        _pendingAsync.Add(ct => zoneMover.MoveAsync(
+            new ZoneMoveRequest(owner, targetId, fromZone, ChoiceZone.BattleArea, faceUp), ct));
+    }
+
+    private static ChoiceZone ReadZone(IReadOnlyDictionary<string, object?> values, string key, ChoiceZone fallback)
+    {
+        if (values.TryGetValue(key, out object? raw) && raw is not null)
+        {
+            switch (raw)
+            {
+                case ChoiceZone zone:
+                    return zone;
+                case string text when Enum.TryParse(text, ignoreCase: true, out ChoiceZone parsed) && Enum.IsDefined(parsed):
+                    return parsed;
+            }
+        }
+
+        return fallback;
+    }
+
+    /// <summary>(CV-A4) Open a global timing window for a state change that is not a zone move (so it is
+    /// not derived from a CardMoved event). No-op when the sink was built without a game-event queue.</summary>
+    private void EmitTiming(string timing, HeadlessPlayerId actor)
+    {
+        if (_gameEventQueue is not null)
+        {
+            TriggerEventEmitter.Emit(_gameEventQueue, timing, actor: actor);
+        }
+    }
+
     private static bool IsKnownKind(string kind)
     {
         return KindToFlag.ContainsKey(kind)
             || kind is AddDpModifierKind or SuspendKind or UnsuspendKind or SetFlagKind or ClearFlagKind
             || kind is TrashCardKind or ReturnToHandKind or ReturnToDeckTopKind or ReturnToDeckBottomKind
-                or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind;
+                or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
+                or DeleteKind or PlayCardKind;
     }
 
     private static HeadlessPlayerId ReadPlayer(IReadOnlyDictionary<string, object?> values, string key)

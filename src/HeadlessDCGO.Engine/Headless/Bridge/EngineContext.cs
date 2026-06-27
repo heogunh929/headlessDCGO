@@ -48,6 +48,7 @@ public sealed class EngineContext
         GameEventQueue = gameEventQueue ?? new GameEventQueue();
         OptionalPromptQueue = new OptionalPromptQueue();
         MulliganCoordinator = new MulliganCoordinator();
+        OnceFlags = new OnceFlagController();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
@@ -93,6 +94,9 @@ public sealed class EngineContext
     /// <summary>(N-5) Coordinates the opening-hand mulligan decisions during setup. Active only when the
     /// match setup enables mulligan; otherwise idle.</summary>
     public MulliganCoordinator MulliganCoordinator { get; }
+
+    /// <summary>(F-4) Per-turn use-count tracking that gates once-per-turn / max-count-per-turn effects.</summary>
+    public OnceFlagController OnceFlags { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
@@ -205,6 +209,7 @@ public sealed class EngineContext
         ResetIfSupported(GameEventQueue);
         OptionalPromptQueue.Clear();
         MulliganCoordinator.Clear();
+        OnceFlags.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;
     }
@@ -223,11 +228,14 @@ public sealed class EngineContext
         var memoryController = new InMemoryHeadlessMemoryController();
 
         var effectRegistry = new InMemoryEffectRegistry();
+        // Hoisted so the mutation sink can open non-zone-move timing windows (CV-A4: OnTapped/OnUntapped)
+        // on the same queue the EngineContext exposes.
+        var gameEventQueue = new GameEventQueue();
         var effectScheduler = new EffectScheduler(
             new EffectResolutionQueue(),
             CardEffectSchedulerResolver.Create(
                 effectRegistry,
-                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController),
+                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue),
                 strictUnbound: strictUnbound));
 
         return new EngineContext(
@@ -244,7 +252,8 @@ public sealed class EngineContext
             logSink,
             new EngineTaskRunner(),
             effectScheduler,
-            effectRegistry: effectRegistry);
+            effectRegistry: effectRegistry,
+            gameEventQueue: gameEventQueue);
     }
 
     private void RegisterCoreServices()
@@ -266,6 +275,7 @@ public sealed class EngineContext
         RegisterService(GameEventQueue);
         RegisterService(OptionalPromptQueue);
         RegisterService(MulliganCoordinator);
+        RegisterService(OnceFlags);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }

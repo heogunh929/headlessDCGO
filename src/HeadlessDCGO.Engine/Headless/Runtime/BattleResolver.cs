@@ -90,6 +90,12 @@ public sealed class BattleResolver
         EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
 
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");
+
+        // CV-A4: open the "at the end of battle" timing window now that deletions are applied and the
+        // attack is resolved. Global (no subject) — each bound effect self-gates (mirrors AS-IS
+        // StackSkillInfos(OnEndBattle)). The attacker's controller is the acting player.
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndBattle, actor: attacker.OwnerId);
+
         return BattleResolutionResult.Success(
             resolvedAttack,
             attacker.Dp,

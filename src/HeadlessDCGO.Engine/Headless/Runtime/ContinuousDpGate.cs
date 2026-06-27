@@ -39,9 +39,9 @@ public static class ContinuousDpGate
             return baseDp;
         }
 
-        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-            context.EffectRegistry,
-            new EffectQueryContext(Scope, targetEntityId: cardId));
+        // F-5: fold in player-scope continuous effects (e.g. "your Digimon get +1000 DP") alongside the
+        // card-targeted ones.
+        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
 
         IReadOnlyList<NumericModifier> modifiers = result.Modifiers;
 

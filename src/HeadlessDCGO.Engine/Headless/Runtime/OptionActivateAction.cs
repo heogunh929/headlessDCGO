@@ -48,7 +48,10 @@ public sealed class OptionActivateAction
         }
 
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
+        // F-6.7: wrap the option-cost payment with the Before/AfterPayCost windows.
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
@@ -57,6 +60,9 @@ public sealed class OptionActivateAction
                 ChoiceZone.Trash,
                 FaceUp: true),
             cancellationToken).ConfigureAwait(false);
+
+        // F-6.6: opening an Option card opens the OnUseOption window (subject = the option card).
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: action.PlayerId, subject: payload.CardId);
 
         EffectContext effectContext = new(
             action.PlayerId,

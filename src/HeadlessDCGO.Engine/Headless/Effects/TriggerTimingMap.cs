@@ -65,6 +65,8 @@ public static class TriggerTimingMap
         {
             timings.Add(TriggerTimings.OnLeaveField);
             timings.Add(TriggerTimings.WhenRemoveField);
+            // F-6.5: OnRemovedField is the original's field-leave synonym alongside WhenRemoveField.
+            timings.Add(TriggerTimings.OnRemovedField);
         }
 
         // D-5: "deletion" (AS-IS OnDestroyedAnyone) is a FIELD card being destroyed to the trash. A
@@ -75,18 +77,57 @@ public static class TriggerTimingMap
             timings.Add(TriggerTimings.OnDeletion);
         }
 
+        // CV-A4: the original EffectTiming.OnMove fires only for a Digimon promoted out of the breeding
+        // (training) area onto the battle area — not for arbitrary zone moves.
+        if (from == ChoiceZone.BreedingArea && to == ChoiceZone.BattleArea)
+        {
+            timings.Add(TriggerTimings.OnMove);
+        }
+
         if (to == ChoiceZone.Hand && from != ChoiceZone.Hand)
         {
             timings.Add(TriggerTimings.OnAddToHand);
             if (fromField)
             {
                 timings.Add(TriggerTimings.OnReturnToHand);
+                // F-6.5: a permanent (field card) returning to hand opens its dedicated window too.
+                timings.Add(TriggerTimings.OnPermanentReturnedToHand);
+            }
+
+            // F-6.5: recovering a card out of the trash into the hand.
+            if (from == ChoiceZone.Trash)
+            {
+                timings.Add(TriggerTimings.OnReturnCardsToHandFromTrash);
             }
         }
 
         if (to == ChoiceZone.Library && from != ChoiceZone.Library)
         {
             timings.Add(TriggerTimings.OnReturnToLibrary);
+
+            // F-6.5: recovering a card out of the trash into the deck.
+            if (from == ChoiceZone.Trash)
+            {
+                timings.Add(TriggerTimings.OnReturnCardsToLibraryFromTrash);
+            }
+        }
+
+        // F-6.5: discards — a card sent to the trash from a NON-field zone is a discard, not a deletion
+        // (OnDeletion above only opens for field→Trash). Each source zone has its own discard window.
+        if (to == ChoiceZone.Trash)
+        {
+            switch (from)
+            {
+                case ChoiceZone.Hand:
+                    timings.Add(TriggerTimings.OnDiscardHand);
+                    break;
+                case ChoiceZone.Security:
+                    timings.Add(TriggerTimings.OnDiscardSecurity);
+                    break;
+                case ChoiceZone.Library:
+                    timings.Add(TriggerTimings.OnDiscardLibrary);
+                    break;
+            }
         }
 
         if (to == ChoiceZone.Security && from != ChoiceZone.Security)

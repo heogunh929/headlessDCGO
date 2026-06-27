@@ -30,9 +30,9 @@ public static class ContinuousRestrictionGate
             return Array.Empty<CannotRestriction>();
         }
 
-        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-            context.EffectRegistry,
-            new EffectQueryContext(Scope, targetEntityId: entityId));
+        // F-5: fold in player-scope continuous restrictions (e.g. "your opponent's Digimon cannot
+        // block") alongside the card-targeted ones.
+        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, entityId);
 
         return result.Restrictions;
     }

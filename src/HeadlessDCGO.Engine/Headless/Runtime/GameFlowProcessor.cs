@@ -278,10 +278,21 @@ public sealed class GameFlowProcessor
 
                 foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
                 {
-                    if (seen.Add(trigger.Request.EffectId))
+                    if (!seen.Add(trigger.Request.EffectId))
                     {
-                        batch.Add(ReclassifyKind(context, trigger));
+                        continue;
                     }
+
+                    // F-4: gate once-per-turn / max-count-per-turn effects. An effect bound with a
+                    // CardEffectDefinition.MaxCountPerTurn cap that has already activated its limit this
+                    // turn is skipped; passing effects register a use. Effects without a cap always pass.
+                    int? maxCountPerTurn = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect?.Definition.MaxCountPerTurn;
+                    if (!context.OnceFlags.TryActivate(trigger.Request, maxCountPerTurn))
+                    {
+                        continue;
+                    }
+
+                    batch.Add(ReclassifyKind(context, trigger));
                 }
             }
 

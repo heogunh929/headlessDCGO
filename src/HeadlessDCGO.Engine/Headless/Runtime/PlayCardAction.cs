@@ -48,7 +48,10 @@ public sealed class PlayCardAction
         }
 
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
+        // F-6.7: wrap the play-cost payment with the Before/AfterPayCost windows (subject = the card).
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
