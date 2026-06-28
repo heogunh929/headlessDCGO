@@ -482,6 +482,96 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 return ActionProcessResult.Success("Optional effect choice resolved.", MetadataWithChoice(action, optional.ChoiceState));
             }
 
+            // C-3 Raid (F-6.8): the optional attack-switch choice flows through RaidAttackSwitch so the
+            // selected defender is applied (SwitchDefender); a plain ResolveChoice would not retarget.
+            if (pendingRequest.Type == ChoiceType.AttackTarget)
+            {
+                if (!RaidAttackSwitch.ResolveChoice(context, result))
+                {
+                    Dictionary<string, object?> raidFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    raidFailure["error"] = "Raid attack-switch resolve failed.";
+                    return ActionProcessResult.Failure("Raid attack-switch resolve failed.", raidFailure);
+                }
+
+                return ActionProcessResult.Success("Raid attack-switch resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
+            }
+
+            // C-18 Alliance: the optional suspend-an-ally boost flows through AllianceAttackBoost so the ally
+            // is suspended and the attacker gains +DP/+1 SA; a plain ResolveChoice would not act.
+            if (pendingRequest.Type == ChoiceType.AllianceTarget)
+            {
+                if (!AllianceAttackBoost.ResolveChoice(context, result))
+                {
+                    Dictionary<string, object?> allianceFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    allianceFailure["error"] = "Alliance boost resolve failed.";
+                    return ActionProcessResult.Failure("Alliance boost resolve failed.", allianceFailure);
+                }
+
+                return ActionProcessResult.Success("Alliance boost resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
+            }
+
+            // S1 (C-20 Vortex / C-16 Overclock): the optional effect-driven attack target choice flows through
+            // EffectDrivenAttack so the attack is declared on the chosen target; a plain ResolveChoice would not.
+            if (pendingRequest.Type == ChoiceType.EffectAttack)
+            {
+                if (!EffectDrivenAttack.ResolveChoice(context, result))
+                {
+                    Dictionary<string, object?> attackFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    attackFailure["error"] = "Effect-driven attack resolve failed.";
+                    return ActionProcessResult.Failure("Effect-driven attack resolve failed.", attackFailure);
+                }
+
+                return ActionProcessResult.Success("Effect-driven attack resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
+            }
+
+            // C-16 Overclock: the optional delete-a-trait-ally choice flows through OverclockEffect so the
+            // ally is deleted and the untapped player attack is offered; a plain ResolveChoice would not.
+            if (pendingRequest.Type == ChoiceType.OverclockTarget)
+            {
+                if (!await OverclockEffect.ResolveChoice(context, result).ConfigureAwait(false))
+                {
+                    Dictionary<string, object?> overclockFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    overclockFailure["error"] = "Overclock resolve failed.";
+                    return ActionProcessResult.Failure("Overclock resolve failed.", overclockFailure);
+                }
+
+                return ActionProcessResult.Success("Overclock resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
+            }
+
+            // B-7: the reveal-and-select choice flows through RevealAndSelect so the selected/remaining
+            // revealed cards are routed to their destinations; a plain ResolveChoice would not move them.
+            if (pendingRequest.Type == ChoiceType.RevealSelect)
+            {
+                if (!await RevealAndSelect.ResolveChoice(context, result).ConfigureAwait(false))
+                {
+                    Dictionary<string, object?> revealFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    revealFailure["error"] = "Reveal-and-select resolve failed.";
+                    return ActionProcessResult.Failure("Reveal-and-select resolve failed.", revealFailure);
+                }
+
+                return ActionProcessResult.Success("Reveal-and-select resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
+            }
+
+            // F-6.8: a would-be-deleted replacement decision flows through DeletionReplacementTiming so the
+            // chosen replacement's cost+save is applied (clearing the deletion) or the card is marked
+            // declined; a plain ResolveChoice would clear the choice without acting on the deferred deletion.
+            if (pendingRequest.Type == ChoiceType.DeletionReplacement)
+            {
+                DeletionReplacementResolveResult replacement = await new DeletionReplacementTiming().ResolveChoice(context, result).ConfigureAwait(false);
+                if (!replacement.IsSuccess)
+                {
+                    Dictionary<string, object?> replacementFailure = MetadataWithChoice(action, context.ChoiceController.Current);
+                    replacementFailure["error"] = replacement.FailureReason;
+                    return ActionProcessResult.Failure("Deletion-replacement resolve failed.", replacementFailure);
+                }
+
+                Dictionary<string, object?> replacementMetadata = MetadataWithChoice(action, context.ChoiceController.Current);
+                replacementMetadata["deletionReplacementCard"] = replacement.CardId.Value;
+                replacementMetadata["deletionReplacementOption"] = replacement.Option;
+                replacementMetadata["deletionReplacementActivated"] = replacement.WasActivated;
+                return ActionProcessResult.Success("Deletion-replacement resolved.", replacementMetadata);
+            }
+
             // N-5: opening-hand mulligan decisions flow through the MulliganCoordinator so the redraw
             // (and, after the last decision, the deferred security deal) are applied; a plain
             // ResolveChoice would clear the choice without performing the mulligan / security steps.

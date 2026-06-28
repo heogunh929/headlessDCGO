@@ -11,6 +11,14 @@
 # Scratch / temporary working files.
 /.tmp/
 
+# Large archives / snapshots — never commit (GitHub 100MB limit; use out-of-band transfer).
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+
 # IDE / editor.
 .vs/
 .idea/

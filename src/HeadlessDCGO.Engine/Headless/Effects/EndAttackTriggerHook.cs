@@ -18,13 +18,19 @@ public sealed class EndAttackTriggerHook
 
     private readonly AutoProcessingTriggerCollector _collector;
     private readonly MandatoryEffectOrdering _mandatoryOrdering;
+    private readonly EffectRegistry? _registry;
 
     public EndAttackTriggerHook(
         AutoProcessingTriggerCollector collector,
-        MandatoryEffectOrdering? mandatoryOrdering = null)
+        MandatoryEffectOrdering? mandatoryOrdering = null,
+        EffectRegistry? registry = null)
     {
         _collector = collector ?? throw new ArgumentNullException(nameof(collector));
         _mandatoryOrdering = mandatoryOrdering ?? new MandatoryEffectOrdering();
+        // (#6) Optional re-classification source: a bound effect's Definition.IsOptional makes the trigger
+        // OPTIONAL (a "you may" end-attack effect), mirroring GameFlowProcessor.ReclassifyKind. Without a
+        // registry the collected kind is kept (bodyless bindings stay Mandatory -> no behaviour change).
+        _registry = registry;
     }
 
     public static GameEvent CreateEndAttackEvent(
@@ -127,7 +133,7 @@ public sealed class EndAttackTriggerHook
         }
 
         MandatoryEffectOrderResult order = _mandatoryOrdering.OrderAndEnqueue(
-            collection.Triggers,
+            Reclassify(collection.Triggers),
             scheduler,
             turnPlayerId,
             nonTurnPlayerId);
@@ -138,6 +144,37 @@ public sealed class EndAttackTriggerHook
         }
 
         return EndAttackTriggerHookResult.Success(gameEvent, collection, order);
+    }
+
+    /// <summary>(#6) Re-classify each collected end-attack trigger by its bound effect's
+    /// <c>Definition.IsOptional</c> (mirrors GameFlowProcessor.ReclassifyKind), so a "you may" end-attack
+    /// effect becomes OPTIONAL and is held for an agent decision rather than auto-resolved. Bodyless
+    /// bindings (no <c>Effect</c>) keep the collected kind.</summary>
+    private IReadOnlyList<TimingWindowTrigger> Reclassify(IReadOnlyList<TimingWindowTrigger> triggers)
+    {
+        if (_registry is null)
+        {
+            return triggers;
+        }
+
+        var result = new List<TimingWindowTrigger>(triggers.Count);
+        foreach (TimingWindowTrigger trigger in triggers)
+        {
+            if (_registry.Find(trigger.Request.EffectId)?.Effect is not { } effect)
+            {
+                result.Add(trigger);
+                continue;
+            }
+
+            TimingWindowTriggerKind kind = effect.Definition.IsOptional
+                ? TimingWindowTriggerKind.Optional
+                : TimingWindowTriggerKind.Mandatory;
+            result.Add(kind == trigger.Kind
+                ? trigger
+                : new TimingWindowTrigger(trigger.Request, trigger.Mode, kind, trigger.Priority, trigger.Sequence));
+        }
+
+        return result;
     }
 
     private static bool IsSupportedEvent(GameEvent gameEvent)

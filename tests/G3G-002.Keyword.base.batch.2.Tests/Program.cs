@@ -5,6 +5,12 @@ using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 using FactoryArmorPurge = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.ArmorPurge;
 using FactoryBlitz = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Blitz;
+using FactoryDecode = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Decode;
+using FactoryAlliance = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Alliance;
+using FactoryVortex = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Vortex;
+using FactoryOverclock = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Overclock;
+using FactoryPartition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Partition;
+using FactoryProgress = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Progress;
 using FactoryRetaliation = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Retaliation;
 using FactoryRush = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Rush;
 
@@ -106,6 +112,12 @@ Task FactoryCreatesFourKeywordEffects()
     KeywordBaseBatch2Effect blitz = FactoryBlitz.Create(KeywordSource, triggerReason: "WhenDigivolving");
     KeywordBaseBatch2Effect retaliation = FactoryRetaliation.Create(KeywordSource, isInherited: true, isLinked: true);
     KeywordBaseBatch2Effect armor = FactoryArmorPurge.Create(KeywordSource);
+    KeywordBaseBatch2Effect decode = FactoryDecode.Create(KeywordSource);
+    KeywordBaseBatch2Effect alliance = FactoryAlliance.Create(KeywordSource);
+    KeywordBaseBatch2Effect vortex = FactoryVortex.Create(KeywordSource);
+    KeywordBaseBatch2Effect overclock = FactoryOverclock.Create(KeywordSource);
+    KeywordBaseBatch2Effect partition = FactoryPartition.Create(KeywordSource);
+    KeywordBaseBatch2Effect progress = FactoryProgress.Create(KeywordSource);
 
     AssertEqual(KeywordBaseBatch2Kind.Rush, rush.Kind, "rush kind");
     AssertEqual("Rush", rush.Definition.Name, "rush name");
@@ -119,6 +131,28 @@ Task FactoryCreatesFourKeywordEffects()
     AssertEqual(KeywordBaseBatch2Kind.ArmorPurge, armor.Kind, "armor kind");
     AssertEqual("Armor Purge", armor.Keyword, "armor keyword");
     AssertTrue(armor.Definition.IsOptional, "armor optional");
+    AssertEqual(KeywordBaseBatch2Kind.Decode, decode.Kind, "decode kind");
+    AssertEqual("Decode", decode.Keyword, "decode keyword");
+    AssertEqual(KeywordBaseBatch2Timings.WhenRemoveField, decode.Definition.Timing, "decode timing");
+    AssertTrue(decode.Definition.IsOptional, "decode optional");
+    AssertEqual(KeywordBaseBatch2Kind.Alliance, alliance.Kind, "alliance kind");
+    AssertEqual("Alliance", alliance.Keyword, "alliance keyword");
+    AssertEqual(KeywordBaseBatch2Timings.OnAllyAttack, alliance.Definition.Timing, "alliance timing");
+    AssertTrue(alliance.Definition.IsOptional, "alliance optional");
+    AssertEqual(KeywordBaseBatch2Kind.Vortex, vortex.Kind, "vortex kind");
+    AssertEqual("Vortex", vortex.Keyword, "vortex keyword");
+    AssertEqual(KeywordBaseBatch2Timings.VortexAttack, vortex.Definition.Timing, "vortex timing");
+    AssertTrue(vortex.Definition.IsOptional, "vortex optional");
+    AssertEqual(KeywordBaseBatch2Kind.Overclock, overclock.Kind, "overclock kind");
+    AssertEqual("Overclock", overclock.Keyword, "overclock keyword");
+    AssertEqual(KeywordBaseBatch2Timings.OnEndTurn, overclock.Definition.Timing, "overclock timing");
+    AssertTrue(overclock.Definition.IsOptional, "overclock optional");
+    AssertEqual(KeywordBaseBatch2Kind.Partition, partition.Kind, "partition kind");
+    AssertEqual("Partition", partition.Keyword, "partition keyword");
+    AssertTrue(partition.Definition.IsOptional, "partition optional");
+    AssertEqual(KeywordBaseBatch2Kind.Progress, progress.Kind, "progress kind");
+    AssertEqual("Progress", progress.Keyword, "progress keyword");
+    AssertFalse(progress.Definition.IsOptional, "progress is a passive static effect (not optional)");
     return Task.CompletedTask;
 }
 
@@ -133,8 +167,14 @@ Task KeywordEffectsRegisterDeterministicBindings()
         PlayerOne,
         context);
 
-    AssertEqual(4, bindings.Count, "binding count");
-    AssertEqual("Rush,Blitz,Retaliation,Armor Purge", string.Join(",", bindings.Select(binding => binding.Keywords[0])), "registered order");
+    AssertEqual(10, bindings.Count, "binding count");
+    AssertEqual("Rush,Blitz,Retaliation,Armor Purge,Decode,Alliance,Vortex,Overclock,Partition,Progress", string.Join(",", bindings.Select(binding => binding.Keywords[0])), "registered order");
+    AssertEqual(1, registry.GetKeywordEffects("Progress").Count, "progress registry");
+    AssertEqual(1, registry.GetKeywordEffects("Partition").Count, "partition registry");
+    AssertEqual(1, registry.GetKeywordEffects("Overclock").Count, "overclock registry");
+    AssertEqual(1, registry.GetKeywordEffects("Vortex").Count, "vortex registry");
+    AssertEqual(1, registry.GetKeywordEffects("Alliance").Count, "alliance registry");
+    AssertEqual(1, registry.GetKeywordEffects("Decode").Count, "decode registry");
     AssertEqual(1, registry.GetKeywordEffects("Rush").Count, "rush registry");
     AssertEqual(1, registry.GetKeywordEffects("Blitz").Count, "blitz registry");
     AssertEqual(1, registry.GetKeywordEffects("Retaliation").Count, "retaliation registry");

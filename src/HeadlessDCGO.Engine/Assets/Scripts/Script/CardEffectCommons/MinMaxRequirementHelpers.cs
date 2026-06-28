@@ -14,6 +14,7 @@ public enum MinMaxRequirementMetric
     DP = 0,
     PlayCost = 1,
     Level = 2,
+    DigivolutionCards = 3,
 }
 
 public enum MinMaxRequirementMode
@@ -263,6 +264,36 @@ public static class MinMaxRequirementHelpers
             cardDefinitions));
     }
 
+    public static MinMaxRequirementResult IsMinDigivolutionCards(
+        MatchState matchState,
+        HeadlessPlayerId ownerId,
+        HeadlessEntityId sourceInstanceId,
+        IReadOnlyDictionary<HeadlessEntityId, CardRecord> cardDefinitions)
+    {
+        return Evaluate(new MinMaxRequirementRequest(
+            matchState,
+            ownerId,
+            sourceInstanceId,
+            MinMaxRequirementMetric.DigivolutionCards,
+            MinMaxRequirementMode.Min,
+            cardDefinitions));
+    }
+
+    public static MinMaxRequirementResult IsMaxDigivolutionCards(
+        MatchState matchState,
+        HeadlessPlayerId ownerId,
+        HeadlessEntityId sourceInstanceId,
+        IReadOnlyDictionary<HeadlessEntityId, CardRecord> cardDefinitions)
+    {
+        return Evaluate(new MinMaxRequirementRequest(
+            matchState,
+            ownerId,
+            sourceInstanceId,
+            MinMaxRequirementMetric.DigivolutionCards,
+            MinMaxRequirementMode.Max,
+            cardDefinitions));
+    }
+
     public static MinMaxRequirementResult Evaluate(MinMaxRequirementRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -370,7 +401,7 @@ public static class MinMaxRequirementHelpers
 
     private static bool MatchesMetricCardType(MinMaxRequirementRequest request, CardRecord definition)
     {
-        if (request.Metric is MinMaxRequirementMetric.DP or MinMaxRequirementMetric.Level)
+        if (request.Metric is MinMaxRequirementMetric.DP or MinMaxRequirementMetric.Level or MinMaxRequirementMetric.DigivolutionCards)
         {
             return IsCardType(definition, "Digimon");
         }
@@ -395,6 +426,8 @@ public static class MinMaxRequirementHelpers
                 TryReadInt(definition.Metadata, out value, PlayCostKey, CostKey, "Cost"),
             MinMaxRequirementMetric.Level => TryReadInt(instance.Modifiers, out value, LevelKey, "Level") ||
                 TryReadInt(definition.Metadata, out value, LevelKey, "Level"),
+            // F-8.1: the number of digivolution source cards under this Digimon.
+            MinMaxRequirementMetric.DigivolutionCards => TryAssignNonNegative(instance.SourceIds.Count, out value),
             _ => false
         };
     }

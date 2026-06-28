@@ -54,6 +54,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string ReturnToDeckBottomKind = "ReturnToDeckBottom";
     public const string AddToSecurityKind = "AddToSecurity";
     public const string DrawCardsKind = "DrawCards";
+    // B-6: effect-driven security operations (player-scoped batches over IZoneMover primitives).
+    public const string RecoverKind = "Recover";              // top N library -> security (AS-IS IRecovery/IAddSecurityFromLibrary)
+    public const string TrashSecurityKind = "TrashSecurity";  // N security -> trash (AS-IS IDestroySecurity), emits OnDiscardSecurity
+    // B-9: create N token Digimon on the controller's battle area (AS-IS CardEffectCommons.PlayToken).
+    public const string CreateTokenKind = "CreateToken";
+    public const string TokenDefinitionIdKey = "tokenDefinitionId";
+    public const string TokenInstanceIdKey = "tokenInstanceId";
+    public const string TokenTappedKey = "tokenTapped";
     public const string AddMemoryKind = "AddMemory";
     public const string SetMemoryKind = "SetMemory";
     // F-3.7: effect-driven play — moves the target from its source zone onto the battle area face up
@@ -69,6 +77,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string PlayerIdKey = "playerId";
     public const string CountKey = "count";
     public const string FaceUpKey = "faceUp";
+    public const string FromTopKey = "fromTop";
     // N-3: optional override to insert a returned card at the security BOTTOM instead of the default top.
     public const string ToBottomKey = "toBottom";
     public const string AmountKey = "amount";
@@ -88,6 +97,41 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             ["RequestBlitzAttack"] = "hasBlitz",
             ["DeleteRetaliationTarget"] = "hasRetaliation",
             ["ApplyArmorPurge"] = "hasArmorPurge",
+            // C-4 Decoy / C-5 Barrier / C-7 Evade: defense-keyword grants consumed by DeletionReplacementGate.
+            ["GrantEvade"] = "hasEvade",
+            ["GrantBarrier"] = "hasBarrier",
+            ["GrantDecoy"] = "hasDecoy",
+            ["GrantFortitude"] = "hasFortitude",
+            // C-3 Raid: switch-defender keyword grant consumed by RaidAttackSwitch.
+            ["GrantRaid"] = "hasRaid",
+            // C-10 Collision: forced-block keyword grant consumed by BlockTiming.
+            ["GrantCollision"] = "hasCollision",
+            // C-9 Execute: grants consumed by AttackPermanentAction (attack unsuspended) + AttackPipeline
+            // (self-delete at end of attack).
+            ["GrantAttackUnsuspended"] = "canAttackUnsuspendedDigimon",
+            ["GrantDeleteSelfAtEndOfAttack"] = "deleteSelfAtEndOfAttack",
+            // C-11 Fragment / C-17 Ascension / C-19 Scapegoat: deletion-family grants consumed by
+            // DeletionReplacementGate.
+            ["GrantFragment"] = "hasFragment",
+            ["GrantAscension"] = "hasAscension",
+            ["GrantScapegoat"] = "hasScapegoat",
+            // C-22 Save: post-deletion attach-to-stack grant consumed by DeletionReplacementGate.
+            ["GrantSave"] = "hasSave",
+            // C-12 Iceclad: battle-comparison keyword grant consumed by BattleResolver (compare by
+            // digivolution-source count instead of DP when either combatant has it).
+            ["GrantIceclad"] = "hasIceclad",
+            // C-13 Decode: post-(effect)-removal play-a-source-for-free grant consumed by DeletionReplacementTiming.
+            ["GrantDecode"] = "hasDecode",
+            // C-18 Alliance: on-attack suspend-an-ally boost grant consumed by AllianceAttackBoost.
+            ["GrantAlliance"] = "hasAlliance",
+            // C-20 Vortex (S1): effect-driven attack grant consumed by EffectDrivenAttack.
+            ["GrantVortex"] = "hasVortex",
+            // C-16 Overclock (S3+S1): end-of-turn delete-trait-ally + untapped attack grant consumed by OverclockEffect.
+            ["GrantOverclock"] = "hasOverclock",
+            // C-14 Partition (S4): post-(effect)-removal play-two-sources-free grant consumed by DeletionReplacementTiming.
+            ["GrantPartition"] = "hasPartition",
+            // C-15 Progress (S2): attack-time opponent-effect immunity grant consumed by ProgressImmunity/ContinuousImmunityGate.
+            ["GrantProgress"] = "hasProgress",
         };
 
     private readonly ICardInstanceRepository _repository;
@@ -154,6 +198,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             case DrawCardsKind:
                 ApplyDraw(mutation);
                 return;
+            case RecoverKind:
+                ApplyRecover(mutation);
+                return;
+            case TrashSecurityKind:
+                ApplyTrashSecurity(mutation);
+                return;
+            case CreateTokenKind:
+                ApplyCreateToken(mutation);
+                return;
         }
 
         HeadlessEntityId targetId = ResolveTargetId(mutation);
@@ -164,6 +217,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             _skipped.Add(mutation);
             _log?.Warn(
                 $"Effect mutation '{mutation.Kind}' targeted card '{targetId.Value}' which is not in the instance repository.");
+            return;
+        }
+
+        // S2 (C-15 Progress): an active opponent-only immunity on the target prevents an opponent-sourced
+        // effect mutation. No-op unless an immunity is registered (source-relativity skips own/ally effects).
+        if (Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, targetId, mutation.SourceEntityId))
+        {
+            _skipped.Add(mutation);
+            _log?.Warn($"Effect mutation '{mutation.Kind}' on '{targetId.Value}' was prevented by immunity (opponent effect).");
             return;
         }
 
@@ -290,6 +352,105 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "draw"));
     }
 
+    // B-6 Recovery: move the top N library cards into the player's security stack (AS-IS IRecovery →
+    // IAddSecurityFromLibrary; face down by default). Player-scoped batch over the zone mover.
+    private void ApplyRecover(EffectMutation mutation)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        HeadlessPlayerId player = ReadPlayer(mutation.Values, PlayerIdKey);
+        if (player.IsEmpty)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' is missing a '{PlayerIdKey}' value.");
+            return;
+        }
+
+        int count = ReadInt(mutation.Values, CountKey) ?? 1;
+        bool faceUp = ReadBool(mutation.Values, FaceUpKey);
+        _pendingAsync.Add(ct => zoneMover.AddSecurityFromLibraryAsync(player, count, faceUp, ct));
+        _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "recover"));
+        if (faceUp)
+        {
+            EmitTiming(TriggerTimings.OnFaceUpSecurityIncreased, player);
+        }
+    }
+
+    // B-6 Trash Security: trash N security cards from the top (or bottom) (AS-IS IDestroySecurity), then emit
+    // OnDiscardSecurity so security-discard triggers fire. Player-scoped batch over the zone mover.
+    private void ApplyTrashSecurity(EffectMutation mutation)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        HeadlessPlayerId player = ReadPlayer(mutation.Values, PlayerIdKey);
+        if (player.IsEmpty)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' is missing a '{PlayerIdKey}' value.");
+            return;
+        }
+
+        int count = ReadInt(mutation.Values, CountKey) ?? 1;
+        bool fromTop = !mutation.Values.ContainsKey(FromTopKey) || ReadBool(mutation.Values, FromTopKey);
+        _pendingAsync.Add(ct => zoneMover.TrashSecurityAsync(player, count, fromTop, ct));
+        _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "trashSecurity"));
+        EmitTiming(TriggerTimings.OnDiscardSecurity, player);
+    }
+
+    // B-9 PlayToken: create N token Digimon (IsToken instances of the given token definition) on the
+    // controller's battle area, summoning-sick (AS-IS CardEffectCommons.PlayToken). The token definition is
+    // supplied by the effect (the porting layer registers token card data); ids are derived from the base
+    // instance id (suffixed for quantity > 1).
+    private void ApplyCreateToken(EffectMutation mutation)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        HeadlessPlayerId player = ReadPlayer(mutation.Values, PlayerIdKey);
+        string? definitionId = ReadString(mutation.Values, TokenDefinitionIdKey);
+        string? baseInstanceId = ReadString(mutation.Values, TokenInstanceIdKey);
+        if (player.IsEmpty || string.IsNullOrWhiteSpace(definitionId) || string.IsNullOrWhiteSpace(baseInstanceId))
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires '{PlayerIdKey}', '{TokenDefinitionIdKey}' and '{TokenInstanceIdKey}' values.");
+            return;
+        }
+
+        int count = Math.Max(1, ReadInt(mutation.Values, CountKey) ?? 1);
+        bool tapped = ReadBool(mutation.Values, TokenTappedKey);
+        for (int index = 1; index <= count; index++)
+        {
+            var tokenId = new HeadlessEntityId(index == 1 ? baseInstanceId : $"{baseInstanceId}#{index}");
+            _repository.Upsert(new CardInstanceRecord(
+                tokenId,
+                new HeadlessEntityId(definitionId),
+                player,
+                IsToken: true,
+                Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["enteredThisTurn"] = true,
+                    [SuspendedFlagKey] = tapped,
+                }));
+            _pendingAsync.Add(ct => zoneMover.MoveAsync(
+                new ZoneMoveRequest(player, tokenId, ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true), ct));
+            _applied.Add(new AppliedMutation(mutation.Kind, tokenId, "createToken"));
+        }
+    }
+
     private void ApplyZoneMove(
         EffectMutation mutation,
         CardInstanceRecord record,
@@ -320,6 +481,37 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             return;
         }
 
+        // F-6.8: an OPTIONAL would-be-deleted replacement (Evade / Scapegoat / Fragment / Decoy) is the
+        // owner's decision, not an auto-apply (auto would change game rules). DEFER the deletion (flag
+        // pendingDeletion) so the common loop surfaces the replacement window; the state-based sweep
+        // finishes it only if declined. Decoy is by-ENEMY-effect, checked here while the deleter is known
+        // and recorded as a marker the window reads.
+        if (_zoneMover is IZoneStateReader preZones)
+        {
+            bool hasPre = DeletionReplacementTiming.HasPreOption(_repository, preZones, record, byBattle: false);
+            bool decoyEligible = DeletionReplacementGate
+                .FindDecoyRedirect(_repository, preZones, record, mutation.SourceEntityId) is not null;
+            if (hasPre || decoyEligible)
+            {
+                var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    [GameFlowProcessor.PendingDeletionKey] = true,
+                    [DeletedByEffectKey] = true,
+                };
+                if (decoyEligible)
+                {
+                    deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
+                }
+
+                _repository.Upsert(record with { Metadata = deferMetadata });
+                _skipped.Add(mutation);
+                _applied.Add(new AppliedMutation(mutation.Kind, targetId, GameFlowProcessor.PendingDeletionKey));
+                return;
+            }
+        }
+
+        // (Fragment / Scapegoat / Decoy auto-resolve removed — all are F-6.8 agent choices via the window.)
+
         if (_zoneMover is not { } zoneMover)
         {
             _unsupported.Add(mutation);
@@ -336,6 +528,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         HeadlessPlayerId owner = record.OwnerId;
         _pendingAsync.Add(ct => zoneMover.AddToTrashAsync(owner, targetId, ct));
+        // C-6 Fortitude: after the deletion completes (card now in trash), a Digimon that had >= 1
+        // digivolution source replays itself from the trash for free (OnDestroyed). Enqueued after the
+        // trash move so it runs once the card has actually arrived there.
+        _pendingAsync.Add(async ct =>
+            await DeletionReplacementGate.TryFortitudeReplayAsync(_repository, zoneMover, targetId, ct).ConfigureAwait(false));
+        // C-21 Armor Purge is now an OPTIONAL post-deletion agent choice (F-6.8 DeletionReplacementTiming),
+        // opened by the common loop once the top is in the trash — no longer auto-applied here.
+        // C-17 Ascension / C-22 Save are now OPTIONAL post-deletion agent choices (F-6.8
+        // DeletionReplacementTiming), opened by the common loop once the card is in the trash — no longer
+        // auto-applied here.
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletedByEffectKey));
     }
 
@@ -468,7 +670,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             || kind is AddDpModifierKind or SuspendKind or UnsuspendKind or SetFlagKind or ClearFlagKind
             || kind is TrashCardKind or ReturnToHandKind or ReturnToDeckTopKind or ReturnToDeckBottomKind
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
-                or DeleteKind or PlayCardKind;
+                or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind;
     }
 
     private static HeadlessPlayerId ReadPlayer(IReadOnlyDictionary<string, object?> values, string key)

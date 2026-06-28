@@ -154,6 +154,11 @@ Task ChoiceEnumsCoverAsIsSelectionCategories()
             "OptionalEffect", // OptionalPromptQueue — optional ("you may") effect prompts
             "Blocker",        // BlockTiming — the defender's blocker selection
             "Mulligan",       // N-5: MulliganCoordinator — opening-hand keep/redraw decision
+            "DeletionReplacement", // F-6.8: DeletionReplacementTiming — would-be-deleted optional keyword decision
+            "AllianceTarget", // C-18 Alliance: AllianceAttackBoost — optional suspend-an-ally attack boost
+            "EffectAttack", // S1 (C-20 Vortex / C-16 Overclock): EffectDrivenAttack — optional effect-driven attack target
+            "OverclockTarget", // C-16 Overclock: OverclockEffect — optional delete-a-trait-ally choice
+            "RevealSelect", // B-7: RevealAndSelect — select from revealed deck-top cards
         },
         Enum.GetNames<ChoiceType>(),
         "choice type names");

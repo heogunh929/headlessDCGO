@@ -23,19 +23,29 @@
 - **엔진 빌드**: `.dotnet/dotnet build src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj -clp:ErrorsOnly`
 - **단일 테스트 실행**: `.dotnet/dotnet run --project tests/<디렉터리>/<csproj>`
 - **전체 스위트**: `bash scripts/run-tests.sh` (tests/*.Tests.csproj 자동 스캔, .sln 없음). 마지막 줄 `SUMMARY: PASS=N FAIL=0 TOTAL=N` 확인.
-- 현재 상태: **전체 165/165 통과** (세션 시작 134 → 165, +31).
+- 현재 상태: **전체 174/174 통과** (세션 시작 134 → 165 → … → 173 → 174).
+- ✅ **충실도 마이그레이션 완료(F-6.8)**: 삭제-대체/전환 키워드 9종(Evade/Barrier/Decoy/ArmorPurge/Fragment/Scapegoat/Ascension/Save/Raid)이 자동해소(룰 변경)→**agent 선택**으로 전환됨(효과/전투/post 전 경로). `DeletionReplacementTiming`·`RaidAttackSwitch`·`AttackPhase.DeletionReplacement`. 테스트 `tests/G3.5-F68`(13)·`tests/G3.5-C3`(7). 상세: `docs/audit/{asis_fidelity_audit,f68_deletion_replacement_window_design}.md`. 상세: `docs/audit/{asis_fidelity_audit,f68_deletion_replacement_window_design}.md`.
 - ImplicitUsings 켜짐, Nullable 켜짐, net8.0.
 
 ---
 
 ## 2. 작업 기준 (반드시 준수)
 
-### 2-1. AS-IS 구조 미러 규칙 (firm)
-- **카드-facing 로직은 원본 DCGO 파일 구조와 1:1로 미러링한다** (추가 비용이 들어도 유지보수를 위해). 위치도 최대한 동일하게.
-  - 미러 트리: `src/HeadlessDCGO.Engine/Assets/Scripts/Script/` (+ `/CardEffectCommons/`, `/CardEffectFactory/`), `Assets/Scripts/CardEffect/`, `Assets/CardBaseEntity/`(JSON 카드데이터, 완료)
-  - 원본 참조: `DCGO/Assets/Scripts/Script/` 및 `.../CardEffect/` (git-ignored, 로컬 전용)
-- **엔진 plumbing(게임 규칙 배관)은 `Headless/{Effects,Runtime,Services,State,Bridge,Choices}/` 에 둔다.** 카드가 아니라 "엔진이 어떻게 효과를 수집/해소/게이트하는가"는 Headless.
-- 판단 기준: "이 카드 한 장의 텍스트 로직인가?" → 미러. "여러 카드가 공유하는 엔진 메커니즘인가?" → Headless.
+### 2-1. 스켈레톤 ↔ AS-IS 1:1 대응 (firm — 최우선 개발 기준)
+**카드-facing 코드(스켈레톤/미러 트리)는 원본 DCGO와 1:1로 대응시킨다. 추가 비용이 들어도 유지보수를 위해 무조건 준수.**
+
+1. **파일 1:1** — 미러의 모든 카드-facing 파일은 AS-IS 원본 파일 **정확히 하나**에 대응한다. **상대 경로·파일명을 동일하게** 둔다.
+   - 예: 원본 `DCGO/Assets/Scripts/Script/SelectCardEffect.cs` → 미러 `src/HeadlessDCGO.Engine/Assets/Scripts/Script/SelectCardEffect.cs`.
+   - 신규 파일을 만들기 전에 **반드시 원본에서 대응 파일을 먼저 찾는다.** 원본에 없는 새 구조를 카드-facing 트리에 임의로 만들지 않는다.
+2. **심볼 1:1** — class/enum/메서드/필드명을 원본과 동일하게 둔다(예: `Mode`·`Root`·`SetUp`·`KeyWordEffects/<Keyword>.cs`·`KeywordBaseBatch2`의 `<Keyword>` kind). 의미/동작도 원본 기준(백로그 한 줄 설명과 다르면 **원본이 정답** — 원본을 읽고 정정).
+3. **룰 불변(포팅 ≠ 룰 변경)** — 동작은 원본과 동일해야 한다. 자동해소/단순화로 게임 룰을 바꾸지 않는다(예: optional "you may"는 agent 선택으로 노출). 근거 문서: [asis_fidelity_audit.md](asis_fidelity_audit.md).
+4. **facade + impl 패턴** — 미러 파일은 얇은 표면(원본 시그니처·구조)을 유지하고, 결정론적 .NET 구현은 `Headless/*`의 impl/헬퍼에 위임한다(예: 미러 `*HelperFactory` → `Headless` `*Helpers`). 스켈레톤은 "원본 모양", 실제 배관은 Headless.
+5. **키워드/카드 추가 시 절차** — ① 원본 대응 파일 확인 → ② 미러 스켈레톤에 동일 심볼로 채움(예: `KeyWordEffects/<Keyword>.cs` 파티얼 + factory wrapper, `KeywordBaseBatch*`에 kind) → ③ 동작 로직은 Headless 게이트/헬퍼로 → ④ 테스트.
+
+**엔진 plumbing(여러 카드가 공유하는 게임 규칙 배관)은 `Headless/{Effects,Runtime,Services,State,Bridge,Choices}/`** 에 둔다.
+- 판단 기준: "이 카드 한 장의 텍스트/구조인가?" → **미러(원본 1:1)**. "여러 카드가 공유하는 엔진 메커니즘(수집/해소/게이트)인가?" → **Headless**.
+- 미러 트리: `Assets/Scripts/Script/` (+ `/CardEffectCommons/`, `/CardEffectFactory/`, `/KeyWordEffects/`), `Assets/Scripts/CardEffect/`, `Assets/CardBaseEntity/`(JSON 카드데이터).
+- 원본 참조: `DCGO/Assets/Scripts/...` (git-ignored, 로컬 전용 — **반드시 이 머신에 복사돼 있어야 1:1 대조 가능**).
 
 ### 2-2. 증분 리듬 (매 항목 1세트)
 구현 → 단위 테스트 작성 → 단일 테스트 통과 → **전체 스위트 통과** → **백로그 문서 갱신** → 보고. 핫패스(sink/게이트/GameFlowProcessor/페이즈) 수정 시 전체 스위트 필수.
@@ -80,11 +90,19 @@
 - B-1 Delete ✅(소재스택만) · B-2 ±DP/SecAtk/Cost ✅ · B-3 바운스/덱복귀 ✅ · B-4 Suspend/Unsuspend ✅ · B-5 Draw/discard/mill ✅ · B-8 무료플레이 ✅
 - 잔여: B-6(시큐리티 trash/Recovery) · B-7(reveal&select=F-3.6) · B-9(토큰) · B-10/11(소재·링크 trash)
 
-### C. 키워드 — 실효 4종(Blocker/Jamming/Reboot/Piercing) 외 ~20종 잔여
-- Rush/Blitz/Retaliation/ArmorPurge 플래그 일부. 그룹1(전투)→5 순서.
+### C. 키워드 — 실효 6종(Blocker/Jamming/Reboot/Piercing/**Rush**/**Blitz**) 외 ~18종 잔여
+- C-그룹1: **C-1 Rush ✅** · **C-2 Blitz ✅**(MemoryPass 윈도우) · **C-3 Raid ✅**(공격 대상 전환=`RaidAttackSwitch`; 시큐리티 직접공격 아님 → D-3 불필요).
+- C-그룹2: **4종 전부 엔진 소비 완료**(`DeletionReplacementGate`) — Evade/Barrier(would-be-deleted 코스트 생존), Decoy(적 효과 삭제 리다이렉트), Fortitude(OnDestroyed 트래시 무료 replay). grant 트리거 클래스(KeywordBaseBatch3)만 포팅 시 잔여.
+- C-그룹3 완료: **C-8 Retaliation ✅**(전투 상대 삭제) · **C-9 Execute ✅**(언서스펜드 공격+종료 시 자기삭제) · **C-10 Collision ✅**(강제 블록) · **C-21 ArmorPurge ✅**(top shed→소재 승격).
+- C-그룹4: 삭제-계열 **C-11 Fragment ✅ · C-17 Ascension ✅ · C-19 Scapegoat ✅**(`DeletionReplacementGate`). 나머지 7종(Iceclad/Decode/Partition/Progress/Overclock/Alliance/Vortex)은 미완 서브시스템 의존 → 보류(백로그에 사유).
+- C-그룹5: **C-22 Save ✅**(삭제 후 다른 permanent에 부착) · **C-23 Material Save**/**C-24 Training** 프리미티브 제공(`DigivolutionStackHelpers`, 활성 발동은 포팅).
+- 다음: C-그룹4 보류 7종의 선결 서브시스템(소재 스택 분할·효과-구동 공격·trait 조건) 또는 grant 트리거 클래스 일괄(KeywordBaseBatch3+).
+- 📌 신규 허브: `DigivolutionStackHelpers`(소재 스택 add-bottom/move/train) — 소재 조작 키워드는 여기에 추가.
+- 📌 `DeletionReplacementGate`가 삭제-대체 키워드 허브: Evade/Barrier/Decoy/Fortitude/ArmorPurge/Fragment/Ascension/Scapegoat (+ BattleResolver Retaliation). 신규 삭제계 키워드는 여기에 추가.
+- ⚠️ 원본 `DCGO/`가 이 머신엔 **존재**(미러 가능). §0 경고는 새 PC 대비용.
 
-### D. 대형 서브시스템 — 9종 전부 잔여
-- D-1 Link · D-2 Appfuse · D-3 Raid · D-4 De-Digivolve · D-5 DNA/DigiXros · D-6 Blast/Arts · D-7 무효화 · D-8 코스트감소 · D-9 Recovery/Token/MindLink/DelayOption
+### D. 대형 서브시스템 — 8종 잔여 (D-3 해소)
+- D-1 Link · D-2 Appfuse · ~~D-3 Raid~~(C-3에서 공격 대상 전환 키워드로 해소, 서브시스템 아님) · D-4 De-Digivolve · D-5 DNA/DigiXros · D-6 Blast/Arts · D-7 무효화 · D-8 코스트감소 · D-9 Recovery/Token/MindLink/DelayOption
 
 ---
 

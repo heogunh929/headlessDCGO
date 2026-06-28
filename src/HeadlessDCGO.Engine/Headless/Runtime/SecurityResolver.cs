@@ -35,7 +35,7 @@ public sealed class SecurityResolver
             return SecurityResolutionResult.Failure(validationFailure, attack);
         }
 
-        int strike = ReadStrike(attacker!, attackerCard!);
+        int strike = ReadStrike(context, attacker!, attackerCard!);
         if (strike <= 0)
         {
             HeadlessAttackState skippedAttack = context.AttackController.ResolveAttack("Security check skipped: strike is zero.");
@@ -226,19 +226,21 @@ public sealed class SecurityResolver
         return string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static int ReadStrike(CardInstanceRecord attacker, CardRecord attackerCard)
+    private static int ReadStrike(EngineContext context, CardInstanceRecord attacker, CardRecord attackerCard)
     {
+        int baseStrike = 1;
         if (TryReadInt(attacker.Metadata, StrikeKey, out int instanceStrike))
         {
-            return Math.Max(0, instanceStrike);
+            baseStrike = Math.Max(0, instanceStrike);
         }
-
-        if (TryReadInt(attackerCard.Metadata, StrikeKey, out int cardStrike))
+        else if (TryReadInt(attackerCard.Metadata, StrikeKey, out int cardStrike))
         {
-            return Math.Max(0, cardStrike);
+            baseStrike = Math.Max(0, cardStrike);
         }
 
-        return 1;
+        // C-18 Alliance: fold in continuous Security-Attack modifiers (e.g. Alliance's +1 UntilEndAttack)
+        // so the number of security cards checked reflects the buff.
+        return Math.Max(0, ContinuousModifierGate.ResolveSecurityAttack(context, attacker.InstanceId, baseStrike));
     }
 
     private static bool TryReadInt(

@@ -19,6 +19,10 @@ public enum AttackPhase
     /// <summary>Block timing finished (blocked or skipped); ready for battle/security resolution.</summary>
     Combat,
 
+    /// <summary>(F-6.8) Battle deletion is deferred for an OPTIONAL would-be-deleted replacement choice
+    /// (Barrier/Evade/…): the pipeline parks here while the owner decides, then finalizes the battle.</summary>
+    DeletionReplacement,
+
     /// <summary>Battle/security resolved; end-attack triggers not yet collected.</summary>
     Resolved,
 

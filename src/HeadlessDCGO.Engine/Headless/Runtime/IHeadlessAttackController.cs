@@ -17,6 +17,12 @@ public interface IHeadlessAttackController : IHeadlessMatchStateResettable
         HeadlessEntityId blockerId,
         string reason = "");
 
+    // C-3 Raid: redirect the pending attack to a different defending Digimon (not a block). Mirrors AS-IS
+    // attackProcess.SwitchDefender — sets a Digimon target without flagging the attack as blocked.
+    HeadlessAttackState SwitchDefender(
+        HeadlessEntityId targetId,
+        string reason = "");
+
     HeadlessAttackState ResolveAttack(string reason = "");
 
     HeadlessAttackState AdvancePhase(AttackPhase phase, string reason = "");

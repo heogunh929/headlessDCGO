@@ -54,6 +54,27 @@ public sealed class InMemoryHeadlessAttackController : IHeadlessAttackController
         return Current;
     }
 
+    public HeadlessAttackState SwitchDefender(
+        HeadlessEntityId targetId,
+        string reason = "")
+    {
+        if (!Current.IsPending || targetId.IsEmpty)
+        {
+            return Current;
+        }
+
+        // Raid retargets the attack onto another Digimon: set the target and clear the direct-attack flag,
+        // but (unlike SelectBlocker) do NOT mark it blocked — this is a redirect, not a block.
+        Current = Current with
+        {
+            TargetId = targetId,
+            IsDirectAttack = false,
+            Reason = string.IsNullOrWhiteSpace(reason) ? "Defender switched." : reason.Trim()
+        };
+
+        return Current;
+    }
+
     public HeadlessAttackState ResolveAttack(string reason = "")
     {
         if (!Current.IsPending)

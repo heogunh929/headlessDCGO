@@ -15,6 +15,7 @@ public sealed class AttackPermanentAction
     private const string IsSuspendedKey = "isSuspended";
     private const string EnteredThisTurnKey = "enteredThisTurn";
     private const string HasRushKey = "hasRush";
+    private const string HasBlitzKey = "hasBlitz";
     private const string CanAttackPlayerKey = "canAttackPlayer";
     private const string CannotAttackPlayerKey = "cannotAttackPlayer";
     private const string CanAttackUnsuspendedDigimonKey = "canAttackUnsuspendedDigimon";
@@ -200,6 +201,21 @@ public sealed class AttackPermanentAction
         if (!IsDigimon(attackerCard))
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not a Digimon.");
+        }
+
+        // (C-2 Blitz) Attacking is a Main-phase action. <Blitz> is the sole exception: it lets a Digimon
+        // attack during the memory-pass window — the brief span after memory has handed to the opponent
+        // (opponent already has >=1 memory, so the turn entered MemoryPass) but before the turn is actually
+        // passed on EndTurn. Mirrors the original rule "When your opponent has 1 or more memory, this
+        // Digimon can attack." Any other (non-Main) phase never permits an attack.
+        if (turn.Phase != HeadlessPhase.Main)
+        {
+            bool hasBlitz = ReadBool(attacker.Metadata, HasBlitzKey) || ReadBool(attackerCard.Metadata, HasBlitzKey);
+            if (turn.Phase != HeadlessPhase.MemoryPass || !hasBlitz)
+            {
+                return AttackPermanentValidation.Illegal(
+                    $"Attacker '{attackerId}' can only attack during the main phase (Blitz also allows the memory-pass window).");
+            }
         }
 
         if (ReadBool(attacker.Metadata, IsSuspendedKey))

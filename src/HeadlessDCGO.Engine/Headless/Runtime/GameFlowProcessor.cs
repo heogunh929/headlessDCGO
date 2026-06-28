@@ -24,6 +24,7 @@ public sealed class GameFlowProcessor
     public const int MaxIterations = 256;
 
     private readonly AttackPipeline _attackPipeline;
+    private readonly DeletionReplacementTiming _deletionReplacement = new();
 
     public GameFlowProcessor(AttackPipeline? attackPipeline = null)
     {
@@ -46,6 +47,14 @@ public sealed class GameFlowProcessor
             cancellationToken.ThrowIfCancellationRequested();
 
             if (context.ChoiceController.Current.IsPending)
+            {
+                return FlowProcessResult.Paused(progressedAny, resolvedTotal, iterations);
+            }
+
+            // F-6.8: before the state-based sweep finishes any deferred deletion, open the would-be-deleted
+            // replacement window for cards that carry an OPTIONAL replacement keyword, so the owner decides
+            // (activate / skip) instead of it being auto-applied. Opening a choice pauses the loop.
+            if (_deletionReplacement.RequestChoice(context))
             {
                 return FlowProcessResult.Paused(progressedAny, resolvedTotal, iterations);
             }
@@ -133,6 +142,7 @@ public sealed class GameFlowProcessor
         }
 
         bool progressed = false;
+        var deletionReplacement = new DeletionReplacementTiming();
         foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
         {
             if (playerId.IsEmpty)
@@ -145,6 +155,16 @@ public sealed class GameFlowProcessor
                 foreach (HeadlessEntityId cardId in zoneReader.GetCards(playerId, zone).ToArray())
                 {
                     bool pending = IsPendingDeletion(context, cardId);
+
+                    // F-6.8: a card still awaiting its owner's would-be-deleted replacement decision is not
+                    // swept yet — the deletion-replacement window resolves first (activate clears the flag,
+                    // skip marks it declined so the next sweep finishes it). A BATTLE-deferred card
+                    // (deletedByBattle) is finalized by BattleResolver.FinalizeDeferredAsync, never swept here.
+                    if (pending && (deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)))
+                    {
+                        continue;
+                    }
+
                     bool lethalDp = !pending && HasLethalDp(context, cardId);
                     if (!pending && !lethalDp)
                     {
@@ -219,6 +239,12 @@ public sealed class GameFlowProcessor
             default: return false;
         }
     }
+
+    /// <summary>(F-6.8) A pending-deletion card flagged <c>deletedByBattle</c> is a deferred battle casualty
+    /// finalized by <see cref="BattleResolver.FinalizeDeferredAsync"/>, not by the state-based sweep.</summary>
+    private static bool IsBattleDeferred(EngineContext context, HeadlessEntityId cardId) =>
+        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) && instance is not null &&
+        instance.Metadata.TryGetValue(BattleResolver.DeletedByBattleKey, out object? raw) && raw is bool flag && flag;
 
     private static bool IsPendingDeletion(EngineContext context, HeadlessEntityId cardId)
     {

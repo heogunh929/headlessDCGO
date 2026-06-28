@@ -13,6 +13,12 @@ public enum KeywordBaseBatch2Kind
     Blitz = 1,
     Retaliation = 2,
     ArmorPurge = 3,
+    Decode = 4,
+    Alliance = 5,
+    Vortex = 6,
+    Overclock = 7,
+    Partition = 8,
+    Progress = 9,
 }
 
 public static class KeywordBaseBatch2Timings
@@ -21,6 +27,11 @@ public static class KeywordBaseBatch2Timings
     public const string OnEnterFieldAnyone = "OnEnterFieldAnyone";
     public const string OnDestroyedAnyone = "OnDestroyedAnyone";
     public const string WhenRemoveField = "WhenRemoveField";
+    public const string OnAllyAttack = "OnAllyAttack";
+    public const string VortexAttack = "VortexAttack";
+    public const string OnEndTurn = "OnEndTurn";
+    public const string WhenRemoveFieldPartition = "WhenRemoveField";
+    public const string None = "None";
 }
 
 public static class KeywordBaseBatch2Scopes
@@ -29,6 +40,12 @@ public static class KeywordBaseBatch2Scopes
     public const string BlitzAttack = "BlitzAttack";
     public const string RetaliationBattleDeletion = "RetaliationBattleDeletion";
     public const string ArmorPurgeReplacement = "ArmorPurgeReplacement";
+    public const string DecodeReplacement = "DecodeReplacement";
+    public const string AllianceAttackBoost = "AllianceAttackBoost";
+    public const string VortexAttack = "VortexAttack";
+    public const string OverclockTrait = "OverclockTrait";
+    public const string PartitionReplacement = "PartitionReplacement";
+    public const string ProgressImmunity = "ProgressImmunity";
 }
 
 public static class KeywordBaseBatch2ContextKeys
@@ -85,7 +102,7 @@ public sealed partial class KeywordBaseBatch2Effect : IHeadlessCardEffect
             sourceEntityId,
             Keyword,
             KeywordBaseBatch2Factory.Timing(kind),
-            isOptional: kind is KeywordBaseBatch2Kind.Blitz or KeywordBaseBatch2Kind.Retaliation or KeywordBaseBatch2Kind.ArmorPurge,
+            isOptional: kind is KeywordBaseBatch2Kind.Blitz or KeywordBaseBatch2Kind.Retaliation or KeywordBaseBatch2Kind.ArmorPurge or KeywordBaseBatch2Kind.Decode or KeywordBaseBatch2Kind.Alliance or KeywordBaseBatch2Kind.Vortex or KeywordBaseBatch2Kind.Overclock or KeywordBaseBatch2Kind.Partition,
             hash: KeywordBaseBatch2Factory.Hash(kind, sourceEntityId, targetEntityId, isInherited, isLinked, TriggerReason));
     }
 
@@ -136,6 +153,12 @@ public sealed partial class KeywordBaseBatch2Effect : IHeadlessCardEffect
             KeywordBaseBatch2Kind.Rush => CanResolveRush(context, battleTarget),
             KeywordBaseBatch2Kind.Blitz => CanResolveBlitz(context, battleTarget),
             KeywordBaseBatch2Kind.ArmorPurge => CanResolveArmorPurge(context, battleTarget),
+            KeywordBaseBatch2Kind.Decode => CanResolveDecode(context, battleTarget),
+            KeywordBaseBatch2Kind.Alliance => CanResolveAlliance(context, battleTarget),
+            KeywordBaseBatch2Kind.Vortex => CanResolveVortex(context, battleTarget),
+            KeywordBaseBatch2Kind.Overclock => CanResolveOverclock(context, battleTarget),
+            KeywordBaseBatch2Kind.Partition => CanResolvePartition(context, battleTarget),
+            KeywordBaseBatch2Kind.Progress => CanResolveProgress(context, battleTarget),
             _ => Failure("unknown keyword", "keyword", context, targetId),
         };
     }
@@ -164,6 +187,12 @@ public sealed partial class KeywordBaseBatch2Effect : IHeadlessCardEffect
             KeywordBaseBatch2Kind.Blitz => "RequestBlitzAttack",
             KeywordBaseBatch2Kind.Retaliation => "DeleteRetaliationTarget",
             KeywordBaseBatch2Kind.ArmorPurge => "ApplyArmorPurge",
+            KeywordBaseBatch2Kind.Decode => "GrantDecode",
+            KeywordBaseBatch2Kind.Alliance => "GrantAlliance",
+            KeywordBaseBatch2Kind.Vortex => "GrantVortex",
+            KeywordBaseBatch2Kind.Overclock => "GrantOverclock",
+            KeywordBaseBatch2Kind.Partition => "GrantPartition",
+            KeywordBaseBatch2Kind.Progress => "GrantProgress",
             _ => "KeywordBaseBatch2",
         };
 
@@ -355,6 +384,12 @@ public static class KeywordBaseBatch2Factory
             KeywordBaseBatch2Kind.Blitz => "Blitz",
             KeywordBaseBatch2Kind.Retaliation => "Retaliation",
             KeywordBaseBatch2Kind.ArmorPurge => "Armor Purge",
+            KeywordBaseBatch2Kind.Decode => "Decode",
+            KeywordBaseBatch2Kind.Alliance => "Alliance",
+            KeywordBaseBatch2Kind.Vortex => "Vortex",
+            KeywordBaseBatch2Kind.Overclock => "Overclock",
+            KeywordBaseBatch2Kind.Partition => "Partition",
+            KeywordBaseBatch2Kind.Progress => "Progress",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), "Keyword kind must be known."),
         };
     }
@@ -367,6 +402,12 @@ public static class KeywordBaseBatch2Factory
             KeywordBaseBatch2Kind.Blitz => KeywordBaseBatch2Timings.OnEnterFieldAnyone,
             KeywordBaseBatch2Kind.Retaliation => KeywordBaseBatch2Timings.OnDestroyedAnyone,
             KeywordBaseBatch2Kind.ArmorPurge => KeywordBaseBatch2Timings.WhenRemoveField,
+            KeywordBaseBatch2Kind.Decode => KeywordBaseBatch2Timings.WhenRemoveField,
+            KeywordBaseBatch2Kind.Alliance => KeywordBaseBatch2Timings.OnAllyAttack,
+            KeywordBaseBatch2Kind.Vortex => KeywordBaseBatch2Timings.VortexAttack,
+            KeywordBaseBatch2Kind.Overclock => KeywordBaseBatch2Timings.OnEndTurn,
+            KeywordBaseBatch2Kind.Partition => KeywordBaseBatch2Timings.WhenRemoveFieldPartition,
+            KeywordBaseBatch2Kind.Progress => KeywordBaseBatch2Timings.None,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), "Keyword kind must be known."),
         };
     }
@@ -379,6 +420,12 @@ public static class KeywordBaseBatch2Factory
             KeywordBaseBatch2Kind.Blitz => EffectQueryRole.Continuous,
             KeywordBaseBatch2Kind.Retaliation => EffectQueryRole.Continuous,
             KeywordBaseBatch2Kind.ArmorPurge => EffectQueryRole.Replacement,
+            KeywordBaseBatch2Kind.Decode => EffectQueryRole.Replacement,
+            KeywordBaseBatch2Kind.Alliance => EffectQueryRole.Continuous,
+            KeywordBaseBatch2Kind.Vortex => EffectQueryRole.Continuous,
+            KeywordBaseBatch2Kind.Overclock => EffectQueryRole.Continuous,
+            KeywordBaseBatch2Kind.Partition => EffectQueryRole.Replacement,
+            KeywordBaseBatch2Kind.Progress => EffectQueryRole.Continuous,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), "Keyword kind must be known."),
         };
     }
@@ -391,6 +438,12 @@ public static class KeywordBaseBatch2Factory
             KeywordBaseBatch2Kind.Blitz => KeywordBaseBatch2Scopes.BlitzAttack,
             KeywordBaseBatch2Kind.Retaliation => KeywordBaseBatch2Scopes.RetaliationBattleDeletion,
             KeywordBaseBatch2Kind.ArmorPurge => KeywordBaseBatch2Scopes.ArmorPurgeReplacement,
+            KeywordBaseBatch2Kind.Decode => KeywordBaseBatch2Scopes.DecodeReplacement,
+            KeywordBaseBatch2Kind.Alliance => KeywordBaseBatch2Scopes.AllianceAttackBoost,
+            KeywordBaseBatch2Kind.Vortex => KeywordBaseBatch2Scopes.VortexAttack,
+            KeywordBaseBatch2Kind.Overclock => KeywordBaseBatch2Scopes.OverclockTrait,
+            KeywordBaseBatch2Kind.Partition => KeywordBaseBatch2Scopes.PartitionReplacement,
+            KeywordBaseBatch2Kind.Progress => KeywordBaseBatch2Scopes.ProgressImmunity,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), "Keyword kind must be known."),
         };
         return Array.AsReadOnly(new[] { scope });
