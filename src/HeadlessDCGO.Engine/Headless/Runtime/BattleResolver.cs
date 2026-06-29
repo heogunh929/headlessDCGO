@@ -40,10 +40,20 @@ public sealed class BattleResolver
             return BattleResolutionResult.Failure(validationFailure, attack);
         }
 
-        // G7-006: open the OnStartBattle window for each participant before the DP comparison
-        // ("[When battling] / [On Start of Battle]" effects).
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartBattle, actor: attacker!.OwnerId, subject: attacker!.InstanceId);
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartBattle, actor: attacker!.OwnerId, subject: defender!.InstanceId);
+        // G8-003: SYNCHRONOUS OnStartBattle window. Only engaged when such effects are registered (so the
+        // common no-effect battle is byte-for-byte unchanged): resolve each participant's
+        // [On Start of Battle] effect BEFORE the DP comparison, then recompute participant DP, so a
+        // battle-start DP change actually affects the outcome.
+        if (context.EffectRegistry.GetEffectsForTiming(TriggerTimings.OnStartBattle).Count > 0)
+        {
+            await ResolveStartBattleWindowAsync(context, attacker!.OwnerId, attacker!.InstanceId, cancellationToken).ConfigureAwait(false);
+            await ResolveStartBattleWindowAsync(context, defender!.OwnerId, defender!.InstanceId, cancellationToken).ConfigureAwait(false);
+            if (context.ZoneMover is IZoneStateReader startReader)
+            {
+                if (TryReadParticipant(context, startReader, attacker!.OwnerId, attacker!.InstanceId, "Attacker", out BattleParticipant? a2) is null && a2 is not null) attacker = a2;
+                if (TryReadParticipant(context, startReader, defender!.OwnerId, defender!.InstanceId, "Defender", out BattleParticipant? d2) is null && d2 is not null) defender = d2;
+            }
+        }
 
         // G3.5-RL-C2: who is deleted is the DP comparison adjusted by battle keywords.
         int comparison = CompareBattleStats(attacker!, defender!);
@@ -334,6 +344,26 @@ public sealed class BattleResolver
         }
 
         return null;
+    }
+
+    // (G8-003) Resolve the subject's OnStartBattle effects synchronously through the scheduler (the same
+    // collector path the game loop uses), scoped to the subject so only its window fires.
+    private static async Task ResolveStartBattleWindowAsync(
+        EngineContext context, HeadlessPlayerId actor, HeadlessEntityId subject, CancellationToken cancellationToken)
+    {
+        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [AutoProcessingTriggerCollector.TriggerTimingKey] = TriggerTimings.OnStartBattle,
+            [AutoProcessingTriggerCollector.SourceEntityIdKey] = subject,
+        };
+        var gameEvent = new GameEvent(0, GameEventType.StateChanged, $"Timing window: {TriggerTimings.OnStartBattle}", metadata)
+        {
+            Actor = actor,
+            Subject = subject,
+            Cause = TriggerTimings.OnStartBattle,
+        };
+        new AutoProcessingTriggerCollector(context.EffectRegistry).CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
+        await context.EffectScheduler.ResolveAllAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static string? TryReadParticipant(

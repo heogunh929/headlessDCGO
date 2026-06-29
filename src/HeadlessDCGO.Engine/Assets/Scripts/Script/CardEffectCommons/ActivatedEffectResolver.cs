@@ -53,8 +53,25 @@ public static class ActivatedEffectResolver
         var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
         coordinator?.BeginResolution();
 
+        int resolved = await ResolveListAsync(
+            context, effect, card, players, sink, effect.CardEffects(timing, card), cancellationToken).ConfigureAwait(false);
+
+        await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
+        coordinator?.CompleteResolution();
+        return resolved;
+    }
+
+    private static async Task<int> ResolveListAsync(
+        EngineContext context,
+        CEntity_Effect effectClass,
+        CardSource card,
+        IReadOnlyList<HeadlessPlayerId> players,
+        MatchStateMutationSink sink,
+        IReadOnlyList<ICardEffect> cardEffects,
+        CancellationToken cancellationToken)
+    {
         int resolved = 0;
-        foreach (ICardEffect cardEffect in effect.CardEffects(timing, card))
+        foreach (ICardEffect cardEffect in cardEffects)
         {
             switch (cardEffect)
             {
@@ -91,12 +108,20 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ReuseMainOptionEffect:
+                {
+                    // (G8-004) "[Security] activate this card's [Main] effect" — resolve the card's Main
+                    // (OptionSkill) activated effects, recursively, through the same sink / choice provider.
+                    resolved += await ResolveListAsync(
+                        context, effectClass, card, players, sink,
+                        effectClass.CardEffects(EffectTiming.OptionSkill, card), cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+
                 // DeferredCardEffect / non-activated effects: not resolved here.
             }
         }
 
-        await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
-        coordinator?.CompleteResolution();
         return resolved;
     }
 

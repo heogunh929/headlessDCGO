@@ -231,11 +231,24 @@ public sealed class EngineContext
         // Hoisted so the mutation sink can open non-zone-move timing windows (CV-A4: OnTapped/OnUntapped)
         // on the same queue the EngineContext exposes.
         var gameEventQueue = new GameEventQueue();
+        // (G8-002) Captured here, assigned to the constructed context below, so an effect-driven PlayCard
+        // (MatchStateMutationSink) can auto-register the played card's effects via CardEffectRegistrar —
+        // the same enter-play semantics as PlayCardAction. Sinks are created lazily (after construction),
+        // so selfRef is set by the time the hook fires.
+        EngineContext? selfRef = null;
         var effectScheduler = new EffectScheduler(
             new EffectResolutionQueue(),
             CardEffectSchedulerResolver.Create(
                 effectRegistry,
-                sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue),
+                sinkFactory: _ => new MatchStateMutationSink(
+                    cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue,
+                    onCardEnteredPlay: (id, controller) =>
+                    {
+                        if (selfRef is not null)
+                        {
+                            HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(selfRef, id, controller);
+                        }
+                    }),
                 strictUnbound: strictUnbound));
 
         // G7-005: opt into the interactive DeferredChoiceProvider (suspend/resume) instead of the default
@@ -245,7 +258,7 @@ public sealed class EngineContext
             ? new HeadlessDCGO.Engine.Headless.Runtime.DeferredChoiceProvider(choiceController)
             : new ScriptedChoiceProvider();
 
-        return new EngineContext(
+        var context = new EngineContext(
             choiceProvider,
             randomSource,
             new CardDatabase(),
@@ -261,6 +274,8 @@ public sealed class EngineContext
             effectScheduler,
             effectRegistry: effectRegistry,
             gameEventQueue: gameEventQueue);
+        selfRef = context;
+        return context;
     }
 
     private void RegisterCoreServices()

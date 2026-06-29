@@ -379,10 +379,62 @@ public sealed class DigivolveAction
                 normalized = normalized["from:".Length..];
             }
 
+            // (G8-001) The card-data loader encodes each printed digivolution requirement as
+            // "Color@Level(:Cost)" (e.g. "Red@3:2" = digivolve from a Red Lv.3). Match it against the
+            // target's actual color(s) and level; only fall back to the legacy id/number/type tokens.
+            if (TryParseColorLevel(normalized, out string? fromColor, out int fromLevel))
+            {
+                return TargetHasColor(targetCard, fromColor!) && TargetLevel(targetCard) == fromLevel;
+            }
+
             return string.Equals(normalized, targetCard.Id.Value, StringComparison.Ordinal) ||
                 string.Equals(normalized, targetCard.CardNumber, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(normalized, targetCard.CardType, StringComparison.OrdinalIgnoreCase);
         });
+    }
+
+    private static bool TryParseColorLevel(string token, out string? color, out int level)
+    {
+        color = null;
+        level = -1;
+        int at = token.IndexOf('@');
+        if (at <= 0 || at >= token.Length - 1)
+        {
+            return false;
+        }
+
+        color = token[..at].Trim();
+        string rest = token[(at + 1)..];
+        int colon = rest.IndexOf(':');
+        string levelText = (colon >= 0 ? rest[..colon] : rest).Trim();
+        return int.TryParse(levelText, out level) && color.Length > 0;
+    }
+
+    private static bool TargetHasColor(CardRecord targetCard, string color)
+    {
+        if (targetCard.Metadata.TryGetValue("colors", out object? raw) && raw is IEnumerable<string> colors)
+        {
+            return colors.Any(c => string.Equals(c, color, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return targetCard.Metadata.TryGetValue("color", out object? single)
+            && string.Equals(single?.ToString(), color, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int? TargetLevel(CardRecord targetCard)
+    {
+        if (!targetCard.Metadata.TryGetValue("level", out object? raw) || raw is null)
+        {
+            return null;
+        }
+
+        return raw switch
+        {
+            int i => i,
+            long l => (int)l,
+            string s when int.TryParse(s, out int p) => p,
+            _ => null,
+        };
     }
 
     private static IReadOnlyList<HeadlessEntityId> AttachTargetAsSource(

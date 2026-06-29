@@ -172,3 +172,11 @@ G7-004,Phase 7 - 통합 정밀화/마감,시큐리티,SecuritySkill 활성효과
 G7-005,Phase 7 - 통합 정밀화/마감,효과해소,활성효과 live deferred suspend/resume,docs/audit/integration_refinement_goals.md#g7-005,,없음
 G7-006,Phase 7 - 통합 정밀화/마감,트리거,추가 emit-only 전투 타이밍 배선,docs/audit/integration_refinement_goals.md#g7-006,,없음
 G7-007,Phase 7 - 통합 정밀화/마감,테스트,P1 임시 테스트 그룹기준 통합,docs/audit/integration_refinement_goals.md#g7-007,,없음
+G8-001,Phase 8 - 대량 포팅 선결,진화,EvolutionCondition 파서 실데이터 포맷 일관화,docs/audit/pre_mass_porting_goals.md#g8-001,,없음
+G8-002,Phase 8 - 대량 포팅 선결,효과등록,Effect-driven PlayCard 자동 등록,docs/audit/pre_mass_porting_goals.md#g8-002,,없음
+G8-003,Phase 8 - 대량 포팅 선결,전투,OnStartBattle 동기 타이밍 윈도우,docs/audit/pre_mass_porting_goals.md#g8-003,,없음
+G8-004,Phase 8 - 대량 포팅 선결,시큐리티,AddActivateMainOptionSecurityEffect 구현,docs/audit/pre_mass_porting_goals.md#g8-004,,G7-004
+G8-005,Phase 8 - 대량 포팅 선결,효과해소,DeferredChoice action-level e2e,docs/audit/pre_mass_porting_goals.md#g8-005,,G7-005
+G8-006,Phase 8 - 대량 포팅 선결,액션,SpecialPlay legal-action 열거+인코더,docs/audit/pre_mass_porting_goals.md#g8-006,,G7-003
+G8-007,Phase 8 - 대량 포팅 선결,CI,GitHub Actions 최신 HEAD 확인,docs/audit/pre_mass_porting_goals.md#g8-007,,없음
+G8-008,Phase 8 - 대량 포팅 선결,운영,run-tests.sh green 로그 보관,docs/audit/pre_mass_porting_goals.md#g8-008,,없음

@@ -43,6 +43,9 @@ public sealed record FactoredActionSchema
         // D-6: single-slot lanes for the breeding-step decisions (appended last to keep prior offsets stable).
         HatchDigitamaOffset = offset; offset += 1;
         MoveBreedingOffset = offset; offset += 1;
+        // (G8-006) Special play (DigiXros / DNA / Blast) — one slot per hand card (the recipe selects the
+        // materials). Appended last to keep all prior offsets stable.
+        SpecialPlayOffset = offset; offset += maxHand;
         TotalSize = offset;
     }
 
@@ -71,6 +74,8 @@ public sealed record FactoredActionSchema
     public int DeclareAttackOffset { get; }
 
     public int ResolveChoiceOffset { get; }
+
+    public int SpecialPlayOffset { get; }
 
     public int HatchDigitamaOffset { get; }
 
@@ -261,6 +266,14 @@ public static class FactoredActionEncoder
             {
                 int hand = positions.HandIndex(action.PlayerId, ReadId(action, HeadlessActionParameterKeys.CardId));
                 return (LaneIndex(schema.ActivateOptionOffset, hand, schema.MaxHand), "ActivateOption");
+            }
+
+            // (G8-006) Special play is indexed by the played (top) card's hand slot; the recipe selects the
+            // materials, so no separate material encoding is needed.
+            case HeadlessActionTypes.NormalizedSpecialPlay:
+            {
+                int hand = positions.HandIndex(action.PlayerId, ReadId(action, HeadlessActionParameterKeys.CardId));
+                return (LaneIndex(schema.SpecialPlayOffset, hand, schema.MaxHand), "SpecialPlay");
             }
 
             case HeadlessActionTypes.NormalizedDigivolve:

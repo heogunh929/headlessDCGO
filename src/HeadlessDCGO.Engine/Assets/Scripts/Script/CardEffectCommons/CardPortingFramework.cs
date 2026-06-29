@@ -445,6 +445,22 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
     }
 }
 
+/// <summary>(G8-004) "[Security] activate this card's [Main] effect" — a security skill that re-runs the
+/// card's Option [Main] activated effects. Resolved by <see cref="ActivatedEffectResolver"/>; not
+/// auto-registered (security timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).</summary>
+public sealed class ReuseMainOptionEffect : IActivatedCardEffect
+{
+    public ReuseMainOptionEffect(string description)
+    {
+        Description = description;
+    }
+
+    public string Description { get; }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Reuse-main security effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>Placeholder for an original effect whose subsystem is not yet ported. Returned so a ported
 /// card body compiles 1:1; never registered (its timing is excluded from
 /// <see cref="CardEffectRegistrar.AllTimings"/>). If ever lowered, it fails loudly.</summary>
@@ -834,7 +850,7 @@ public static class CardEffectCommons
     public static void AddActivateMainOptionSecurityEffect(CardSource card, ref List<ICardEffect> cardEffects, string effectName)
     {
         ArgumentNullException.ThrowIfNull(cardEffects);
-        cardEffects.Add(new DeferredCardEffect($"AddActivateMainOptionSecurityEffect: {effectName} (security activation flow)"));
+        cardEffects.Add(new ReuseMainOptionEffect(effectName));
     }
 }
 

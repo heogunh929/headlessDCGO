@@ -66,7 +66,9 @@ void SchemaLanesAreContiguous()
     int resolveChoiceOffset = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1));
     AssertEqual(resolveChoiceOffset + (5 + 1), s.HatchDigitamaOffset, "hatch offset after resolve-choice lane");
     AssertEqual(resolveChoiceOffset + (5 + 1) + 1, s.MoveBreedingOffset, "move-breeding offset");
-    int expectedTotal = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1)) + (5 + 1) + 1 + 1;
+    // (G8-006) SpecialPlay lane (one slot per hand card) appended last, after the breeding singletons.
+    AssertEqual(resolveChoiceOffset + (5 + 1) + 1 + 1, s.SpecialPlayOffset, "special-play offset");
+    int expectedTotal = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1)) + (5 + 1) + 1 + 1 + 4;
     AssertEqual(expectedTotal, s.TotalSize, "total size");
 }
 

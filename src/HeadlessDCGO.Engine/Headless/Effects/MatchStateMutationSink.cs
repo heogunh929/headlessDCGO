@@ -154,13 +154,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     private readonly List<EffectMutation> _skipped = new();
     private readonly List<Func<CancellationToken, Task>> _pendingAsync = new();
 
+    private readonly Action<HeadlessEntityId, HeadlessPlayerId>? _onCardEnteredPlay;
+
     public MatchStateMutationSink(
         ICardInstanceRepository repository,
         ILogSink? log = null,
         IZoneMover? zoneMover = null,
         IHeadlessMemoryController? memory = null,
         EffectRegistry? effectRegistry = null,
-        GameEventQueue? gameEventQueue = null)
+        GameEventQueue? gameEventQueue = null,
+        Action<HeadlessEntityId, HeadlessPlayerId>? onCardEnteredPlay = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _log = log;
@@ -168,6 +171,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _memory = memory;
         _effectRegistry = effectRegistry;
         _gameEventQueue = gameEventQueue;
+        // (G8-002) Invoked when an effect plays a card onto the field (PlayCardKind), so the played card's
+        // ported effects auto-register — the enter-play hook the action layer wires to CardEffectRegistrar.
+        _onCardEnteredPlay = onCardEnteredPlay;
     }
 
     public int AppliedCount => _applied.Count;
@@ -670,6 +676,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         WriteMetadata(record, targetId, mutation.Kind, EnteredThisTurnKey, true);
         _pendingAsync.Add(ct => zoneMover.MoveAsync(
             new ZoneMoveRequest(owner, targetId, fromZone, ChoiceZone.BattleArea, faceUp), ct));
+        // (G8-002) The effect played a card onto the field — auto-register its ported effects (no-op for
+        // un-ported cards). Binding registration is zone-independent, so it is safe before the deferred move.
+        _onCardEnteredPlay?.Invoke(targetId, owner);
     }
 
     /// <summary>(B-10) Trash (returnToZone null) or return the host's digivolution sources. Deferred to

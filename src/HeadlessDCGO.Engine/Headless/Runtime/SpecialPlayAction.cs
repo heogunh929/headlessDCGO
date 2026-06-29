@@ -33,15 +33,75 @@ public sealed class SpecialPlayAction
     public const string MaterialsKey = "materials";
     public const string FusionKindKey = "specialPlayKind";
 
-    /// <summary>(G7-003) Enumerate the special plays legal right now. DigiXros/DNA recipes (which materials
-    /// satisfy a card's requirement) live in per-card effect data (AddDigiXrosConditionClass), which is not
-    /// modelled yet — so this returns nothing until that recipe data exists. The action itself is fully
-    /// pipeline-routable (MetadataActionProcessor), so a driver/recipe source can construct and run one via
-    /// <see cref="Create"/>. Kept here so the dispatcher lights up automatically once recipes are added.</summary>
+    /// <summary>(G8-006) Enumerate the special plays legal right now: for each hand card with a registered
+    /// <see cref="SpecialPlayRecipe"/>, find a distinct battle-area material per required material name and,
+    /// if all are satisfied and the cost is payable, offer the special play. Recipes are populated by ported
+    /// DigiXros/DNA/Blast cards (per-card effect data); cards with no recipe contribute nothing.</summary>
     public IReadOnlyList<LegalAction> GetLegalActions(EngineContext context, HeadlessPlayerId playerId)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return Array.Empty<LegalAction>();
+        if (playerId.IsEmpty || context.ZoneMover is not IZoneStateReader zones)
+        {
+            return Array.Empty<LegalAction>();
+        }
+
+        IReadOnlyList<HeadlessEntityId> battle = zones.GetCards(playerId, ChoiceZone.BattleArea);
+        var actions = new List<LegalAction>();
+        foreach (HeadlessEntityId handCard in zones.GetCards(playerId, ChoiceZone.Hand))
+        {
+            if (!context.CardInstanceRepository.TryGetInstance(handCard, out CardInstanceRecord? instance) || instance is null
+                || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
+                || !SpecialPlayRecipeRegistry.TryGet(def.CardNumber, out SpecialPlayRecipe? recipe) || recipe is null)
+            {
+                continue;
+            }
+
+            if (TryMatchMaterials(context, battle, recipe.MaterialNames, out List<HeadlessEntityId> materials)
+                && context.MemoryController.CanPay(recipe.MemoryCost))
+            {
+                actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
+            }
+        }
+
+        return actions
+            .OrderBy(a => a.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static bool TryMatchMaterials(
+        EngineContext context, IReadOnlyList<HeadlessEntityId> battle, IReadOnlyList<string> names, out List<HeadlessEntityId> materials)
+    {
+        materials = new List<HeadlessEntityId>();
+        var used = new HashSet<HeadlessEntityId>();
+        foreach (string name in names)
+        {
+            HeadlessEntityId match = default;
+            foreach (HeadlessEntityId id in battle)
+            {
+                if (used.Contains(id))
+                {
+                    continue;
+                }
+
+                if (context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? i) && i is not null
+                    && context.CardRepository.TryGetCard(i.DefinitionId, out CardRecord? d) && d is not null
+                    && string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    match = id;
+                    break;
+                }
+            }
+
+            if (match.IsEmpty)
+            {
+                return false;
+            }
+
+            used.Add(match);
+            materials.Add(match);
+        }
+
+        return true;
     }
 
     public static LegalAction Create(
@@ -186,4 +246,31 @@ public sealed class SpecialPlayAction
         [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value,
         [HeadlessActionParameterKeys.ActionType] = action.ActionType,
     };
+}
+
+/// <summary>(G8-006) A card's special-play requirement: the kind and the material card NAMES that must be
+/// present (one battle-area material per name), plus the memory cost. Derived from per-card effect data
+/// (e.g. a DigiXros condition "Shoutmon X4 + Beelzemon").</summary>
+public sealed record SpecialPlayRecipe(SpecialPlayKind Kind, IReadOnlyList<string> MaterialNames, int MemoryCost);
+
+/// <summary>(G8-006) Maps a card number to its special-play recipe. Populated by ported DigiXros / DNA /
+/// Blast cards (the recipe registry, analogous to the effect dispatch).</summary>
+public static class SpecialPlayRecipeRegistry
+{
+    private static readonly Dictionary<string, SpecialPlayRecipe> Recipes = new(StringComparer.OrdinalIgnoreCase);
+
+    public static void Register(string cardNumber, SpecialPlayRecipe recipe)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cardNumber);
+        ArgumentNullException.ThrowIfNull(recipe);
+        Recipes[cardNumber.Trim()] = recipe;
+    }
+
+    public static bool TryGet(string? cardNumber, out SpecialPlayRecipe? recipe)
+    {
+        recipe = null;
+        return !string.IsNullOrWhiteSpace(cardNumber) && Recipes.TryGetValue(cardNumber.Trim(), out recipe);
+    }
+
+    public static void Clear() => Recipes.Clear();
 }
