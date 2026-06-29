@@ -24,6 +24,9 @@ public sealed class LegalActionSetValidator : IActionLegality
         HeadlessActionTypes.NormalizedPass,
         HeadlessActionTypes.NormalizedPlayCard,
         HeadlessActionTypes.NormalizedDigivolve,
+        // G8-006: SpecialPlay (DigiXros / DNA / Blast) is an agent action — the dispatcher offers it in
+        // the Main phase, so it must be inside the legality boundary, not deferred to per-handler validation.
+        HeadlessActionTypes.NormalizedSpecialPlay,
         HeadlessActionTypes.NormalizedActivateOption,
         HeadlessActionTypes.NormalizedDeclareAttack,
         HeadlessActionTypes.NormalizedAdvancePhase,

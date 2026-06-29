@@ -16,6 +16,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Recipe + materials present -> GetLegalActions offers the DigiXros special play", OffersWhenSatisfied),
     ("A missing material -> no special play offered", NoneWhenMissing),
     ("FactoredActionEncoder maps SpecialPlay into its own lane", EncoderLane),
+    ("SpecialPlay is inside the agent-facing legality boundary", ValidatorTreatsSpecialPlayAsAgentFacing),
 };
 
 var failures = new List<string>();
@@ -63,6 +64,30 @@ async Task EncoderLane()
     AssertEqual("SpecialPlay", mapped.Lane, "mapped into the SpecialPlay lane");
     AssertTrue(mapped.Index >= mask.Schema.SpecialPlayOffset && mapped.Index < mask.Schema.SpecialPlayOffset + mask.Schema.MaxHand, "index within the SpecialPlay lane");
     AssertEqual(0, mask.Unmapped.Count, "the action was mapped");
+}
+
+async Task ValidatorTreatsSpecialPlayAsAgentFacing()
+{
+    // Regression for the reported P0: NormalizedSpecialPlay must be in the agent action space, otherwise
+    // the boundary defers it to per-handler validation and never checks it against the legal set.
+    AssertTrue(
+        LegalActionSetValidator.AgentActionTypes.Contains(HeadlessActionTypes.NormalizedSpecialPlay),
+        "agent action space includes SpecialPlay");
+
+    // Offered board: the dispatcher exposes the special play in Main, so the validator accepts it.
+    (EngineContext offered, _, _, _) = await Board(includeBoth: true);
+    ((InMemoryHeadlessTurnController)offered.TurnController).SetPhase(HeadlessPhase.Main);
+    LegalAction specialPlay = new SpecialPlayAction().GetLegalActions(offered, P1).Single();
+
+    var validator = new LegalActionSetValidator();
+    AssertTrue(validator.Validate(specialPlay, offered).IsLegal, "offered SpecialPlay validates as legal");
+
+    // Boundary enforcement: the SAME action submitted against a board where the recipe is unsatisfiable
+    // (a material missing) is now actively rejected — proving SpecialPlay is checked, not deferred.
+    (EngineContext missing, _, _, _) = await Board(includeBoth: false);
+    ((InMemoryHeadlessTurnController)missing.TurnController).SetPhase(HeadlessPhase.Main);
+    AssertEqual(0, new SpecialPlayAction().GetLegalActions(missing, P1).Count, "no special play when a material is missing");
+    AssertTrue(!validator.Validate(specialPlay, missing).IsLegal, "unsatisfiable SpecialPlay is rejected at the boundary");
 }
 
 // --- Helpers -------------------------------------------------------------
