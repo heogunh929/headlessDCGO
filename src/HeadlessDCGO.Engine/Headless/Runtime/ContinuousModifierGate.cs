@@ -39,7 +39,10 @@ public static class ContinuousModifierGate
         }
 
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        return ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: canReduceCost).FinalValue;
+        // D-8: a continuous "cost cannot be reduced" replacement (AS-IS ICannotReduceCostEffect) forces
+        // reductions off, mirroring ContinuousDpGate's DP-reduction immunity.
+        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(cardId, result);
+        return ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
 
     public static int ResolveDigivolutionCost(EngineContext context, HeadlessEntityId cardId, int baseDigivolutionCost, bool canReduceCost = true)
@@ -51,6 +54,11 @@ public static class ContinuousModifierGate
         }
 
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, result.Modifiers, canReduceCost: canReduceCost).FinalValue;
+        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(cardId, result);
+        return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
+
+    /// <summary>(D-8) Whether a continuous "cost cannot be reduced" replacement targets the card.</summary>
+    private static bool CostReductionImmune(HeadlessEntityId cardId, ContinuousEvaluationResult result) =>
+        ReplacementHelpers.ImmuneFromCostReduction(cardId, result.Replacements).IsReplaced;
 }

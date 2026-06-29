@@ -68,6 +68,12 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // and marks it as having entered this turn (summoning sickness). "Play for free"; a memory cost, if
     // any, is paid by the effect before emitting this mutation.
     public const string PlayCardKind = "PlayCard";
+    // B-10: effect-driven trash / return of a Digimon's digivolution sources, and trash of its link cards.
+    public const string TrashDigivolutionCardsKind = "TrashDigivolutionCards"; // target = host; count, fromBottom
+    public const string ReturnDigivolutionCardsKind = "ReturnDigivolutionCards"; // target = host; count, toDeck
+    public const string TrashLinkCardsKind = "TrashLinkCards";                   // target = host; count (default all)
+    public const string FromBottomKey = "fromBottom";
+    public const string ToDeckKey = "toDeck";
 
     // Value keys.
     public const string DpValueKey = "value";
@@ -84,6 +90,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // F-3.7: the zone the played card comes from (defaults to Hand).
     public const string FromZoneKey = "fromZone";
     public const string EnteredThisTurnKey = "enteredThisTurn";
+    // D-8: optional memory cost paid when an effect plays a card "for cost" (PlayForCost). The effect
+    // resolves the (reduced) cost via the cost pipeline and passes it; absent/0 = play for free.
+    public const string MemoryCostKey = "memoryCost";
 
     private static readonly IReadOnlyDictionary<string, string> KindToFlag =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -283,6 +292,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case PlayCardKind:
                 ApplyPlayCard(mutation, record, targetId);
+                break;
+            case TrashDigivolutionCardsKind:
+                ApplyDigivolutionSourceRemoval(mutation, targetId, returnToZone: null);
+                break;
+            case ReturnDigivolutionCardsKind:
+                ApplyDigivolutionSourceRemoval(mutation, targetId,
+                    returnToZone: ReadBool(mutation.Values, ToDeckKey) ? ChoiceZone.Library : ChoiceZone.Hand);
+                break;
+            case TrashLinkCardsKind:
+                ApplyTrashLinkCards(mutation, targetId);
                 break;
             default:
                 _unsupported.Add(mutation);
@@ -632,10 +651,71 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         bool faceUp = !mutation.Values.ContainsKey(FaceUpKey) || ReadBool(mutation.Values, FaceUpKey);
         HeadlessPlayerId owner = record.OwnerId;
 
+        // D-8: pay the (already cost-pipeline-resolved) memory cost for a "play for cost" effect. 0 / no
+        // memory controller = play for free.
+        int memoryCost = ReadInt(mutation.Values, MemoryCostKey) ?? 0;
+        if (memoryCost > 0 && _memory is not null)
+        {
+            _memory.Pay(memoryCost);
+        }
+
         // Mark summoning sickness synchronously (same metadata flag PlayCardAction sets).
         WriteMetadata(record, targetId, mutation.Kind, EnteredThisTurnKey, true);
         _pendingAsync.Add(ct => zoneMover.MoveAsync(
             new ZoneMoveRequest(owner, targetId, fromZone, ChoiceZone.BattleArea, faceUp), ct));
+    }
+
+    /// <summary>(B-10) Trash (returnToZone null) or return the host's digivolution sources. Deferred to
+    /// flush like the other zone moves.</summary>
+    private void ApplyDigivolutionSourceRemoval(EffectMutation mutation, HeadlessEntityId hostId, ChoiceZone? returnToZone)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        int count = ReadInt(mutation.Values, CountKey) ?? 1;
+        bool fromBottom = !mutation.Values.ContainsKey(FromBottomKey) || ReadBool(mutation.Values, FromBottomKey);
+        if (returnToZone is ChoiceZone destination)
+        {
+            _pendingAsync.Add(ct => DigivolutionStackHelpers.ReturnSourcesAsync(_repository, zoneMover, hostId, count, destination, fromBottom, ct));
+        }
+        else
+        {
+            _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(_repository, zoneMover, hostId, count, fromBottom, ct));
+        }
+
+        _applied.Add(new AppliedMutation(mutation.Kind, hostId, "sourceRemoval"));
+    }
+
+    /// <summary>(B-10) Trash up to <c>count</c> (default all) of the host's link cards via LinkHelpers.</summary>
+    private void ApplyTrashLinkCards(EffectMutation mutation, HeadlessEntityId hostId)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        int count = ReadInt(mutation.Values, CountKey) ?? int.MaxValue;
+        GameEventQueue? queue = _gameEventQueue;
+        _pendingAsync.Add(async ct =>
+        {
+            if (!_repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+            {
+                return;
+            }
+
+            // Newest-first list; trash from the front up to count.
+            foreach (HeadlessEntityId linkCardId in LinkHelpers.ReadLinkedCardIds(host.Metadata).Take(count).ToArray())
+            {
+                await LinkHelpers.RemoveLinkCardAsync(_repository, zoneMover, hostId, linkCardId, trash: true, queue, ct).ConfigureAwait(false);
+            }
+        });
+        _applied.Add(new AppliedMutation(mutation.Kind, hostId, "trashLinkCards"));
     }
 
     private static ChoiceZone ReadZone(IReadOnlyDictionary<string, object?> values, string key, ChoiceZone fallback)
@@ -670,7 +750,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             || kind is AddDpModifierKind or SuspendKind or UnsuspendKind or SetFlagKind or ClearFlagKind
             || kind is TrashCardKind or ReturnToHandKind or ReturnToDeckTopKind or ReturnToDeckBottomKind
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
-                or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind;
+                or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind
+                or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind;
     }
 
     private static HeadlessPlayerId ReadPlayer(IReadOnlyDictionary<string, object?> values, string key)

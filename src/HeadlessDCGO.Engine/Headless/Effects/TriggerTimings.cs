@@ -64,6 +64,20 @@ public static class TriggerTimings
     public const string WhenDigivolving = "WhenDigivolving";
     public const string OnDraw = "OnDraw";
 
+    // Battle knock-out (F-6.3). Opens for each Digimon deleted by battle (subject = the knocked-out card).
+    public const string OnKnockOut = "OnKnockOut";
+
+    // Stack trashing (D-4 / F-6.5). Opens when a permanent's top card(s) are trashed off the stack
+    // (de-digivolve, top-card removal). Mirrors the original EffectTiming.WhenTopCardTrashed.
+    public const string WhenTopCardTrashed = "WhenTopCardTrashed";
+
+    // Link (D-1 / F-6.9). WhenWouldLink opens before the link cost is paid (prevent-link window);
+    // WhenLinked opens after a link card is attached; OnLinkCardDiscarded opens when a linked card is
+    // trashed. Names mirror the original EffectTiming enum members.
+    public const string WhenWouldLink = "WhenWouldLink";
+    public const string WhenLinked = "WhenLinked";
+    public const string OnLinkCardDiscarded = "OnLinkCardDiscarded";
+
     // Digivolution-source attach (F-6.4). Opens when digivolution cards are placed under a Digimon
     // (the digivolve attach, or an effect that adds sources) — scoped to the receiving card.
     public const string OnAddDigivolutionCards = "OnAddDigivolutionCards";

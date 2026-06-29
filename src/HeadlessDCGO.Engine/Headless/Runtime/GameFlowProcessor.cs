@@ -309,6 +309,14 @@ public sealed class GameFlowProcessor
                         continue;
                     }
 
+                    // D-7: skip effects whose source card is invalidated by a continuous "disable
+                    // effects" effect (AS-IS ICardEffect.IsDisabled). Checked before the per-turn gate so
+                    // a disabled effect does not consume its once-per-turn use.
+                    if (EffectInvalidation.IsEffectsDisabled(context, trigger.Request.Context.SourceEntityId))
+                    {
+                        continue;
+                    }
+
                     // F-4: gate once-per-turn / max-count-per-turn effects. An effect bound with a
                     // CardEffectDefinition.MaxCountPerTurn cap that has already activated its limit this
                     // turn is skipped; passing effects register a use. Effects without a cap always pass.

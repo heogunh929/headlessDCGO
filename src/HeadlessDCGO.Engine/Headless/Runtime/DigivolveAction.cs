@@ -88,6 +88,8 @@ public sealed class DigivolveAction
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
+        // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
+        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
         IReadOnlyList<HeadlessEntityId> sourceIds = AttachTargetAsSource(
             context.CardInstanceRepository,
             payload.CardId,
@@ -213,7 +215,10 @@ public sealed class DigivolveAction
 
         CardRecord evolvingCard = context.CardRepository.GetCard(card.DefinitionId);
         CardRecord targetCard = context.CardRepository.GetCard(target.DefinitionId);
-        if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard))
+        // F-5.3: a continuous "ignore digivolution requirement" effect (AS-IS CanIgnoreDigivolutionRequirement)
+        // lets the player digivolve without satisfying the printed evolution condition.
+        if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
+            && !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId))
         {
             return DigivolveValidation.Illegal(
                 $"Target card '{target.DefinitionId}' does not satisfy evolution condition '{evolvingCard.EvolutionCondition}'.",
@@ -299,13 +304,53 @@ public sealed class DigivolveAction
             return false;
         }
 
-        return DigivolutionCostHelpers.TryResolveCost(
+        if (!DigivolutionCostHelpers.TryResolveCost(
             card,
             instance,
             targetCard,
             targetInstance,
-            out evolutionCost,
-            out error);
+            out int baseCost,
+            out error))
+        {
+            return false;
+        }
+
+        // D-8: fold in continuous digivolution-cost modifiers (effect-driven ±cost), honouring a
+        // continuous "cost cannot be reduced" replacement. Static cost is the base.
+        evolutionCost = ContinuousModifierGate.ResolveDigivolutionCost(context, cardId, baseCost);
+        error = null;
+        return true;
+    }
+
+    /// <summary>(F-5.3) Whether a continuous "ignore digivolution requirement" effect applies for the
+    /// digivolving player / card (card-targeted on the evolving card, or player-scope for the player).
+    /// Mirrors AS-IS <c>Player.CanIgnoreDigivolutionRequirement</c>.</summary>
+    public const string IgnoreDigivolutionRequirementKey = "ignoreDigivolutionRequirement";
+
+    private static bool CanIgnoreDigivolutionRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId)
+    {
+        IEffectQueryService registry = context.EffectRegistry;
+        string scope = ContinuousRestrictionGate.Scope;
+
+        foreach (EffectRequest effect in registry.GetContinuousEffects(new EffectQueryContext(scope, targetEntityId: cardId)))
+        {
+            if (ReadBool(effect.Context.Values, IgnoreDigivolutionRequirementKey))
+            {
+                return true;
+            }
+        }
+
+        CardRecord? card = context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? inst) && inst is not null
+            && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def : null;
+        foreach (EffectRequest effect in PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, playerId, card))
+        {
+            if (ReadBool(effect.Context.Values, IgnoreDigivolutionRequirementKey))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool MatchesEvolutionCondition(string? condition, CardRecord targetCard)

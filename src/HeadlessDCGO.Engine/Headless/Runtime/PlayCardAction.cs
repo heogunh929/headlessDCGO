@@ -52,6 +52,9 @@ public sealed class PlayCardAction
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
+        // F-1.7: the fixed cost for this play is now locked in — expire one-shot "until cost is calculated"
+        // modifiers (AS-IS clears Player.UntilCalculateFixedCostEffect on play).
+        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
         ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
@@ -210,11 +213,14 @@ public sealed class PlayCardAction
             return false;
         }
 
-        if (!PlayCostHelpers.TryResolveCost(card, instance, out playCost, out error))
+        if (!PlayCostHelpers.TryResolveCost(card, instance, out int baseCost, out error))
         {
             return false;
         }
 
+        // D-8: fold in continuous play-cost modifiers (effect-driven ±cost), honouring a continuous
+        // "cost cannot be reduced" replacement. Static (card/instance metadata) cost is the base.
+        playCost = ContinuousModifierGate.ResolvePlayCost(context, cardId, baseCost);
         error = null;
         return true;
     }

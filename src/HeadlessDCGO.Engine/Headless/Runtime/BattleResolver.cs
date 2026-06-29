@@ -144,6 +144,8 @@ public sealed class BattleResolver
             movementResults.Add(await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(participant.OwnerId, participant.InstanceId, ChoiceZone.BattleArea, ChoiceZone.Trash),
                 cancellationToken).ConfigureAwait(false));
+            // F-6.3: open the knock-out window for the Digimon deleted by battle (subject = the card).
+            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnKnockOut, actor: participant.OwnerId, subject: participant.InstanceId);
         }
 
         // C-6 Fortitude: mandatory post-deletion replay. (Armor Purge / Ascension / Save are OPTIONAL POST

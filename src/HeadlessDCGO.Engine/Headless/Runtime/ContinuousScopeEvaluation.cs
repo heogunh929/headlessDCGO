@@ -37,6 +37,9 @@ public static class ContinuousScopeEvaluation
             .Concat(playerScoped)
             .GroupBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .Select(group => group.First())
+            // D-7: a continuous effect whose SOURCE card is invalidated ("disable effects") is inert.
+            // (IsEffectsDisabled queries the registry directly, not EvaluateForCard, so no recursion.)
+            .Where(effect => !EffectInvalidation.IsEffectsDisabled(context, effect.Context.SourceEntityId))
             .OrderBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .ToArray();
 

@@ -11,6 +11,7 @@ public enum ReplacementEventKind
     Delete = 1,
     DpReduction = 2,
     EffectMutation = 3,
+    CostReduction = 4,
 }
 
 public enum ReplacementActionKind
@@ -259,6 +260,8 @@ public static class ReplacementHelpers
     public const string PreventDeletionKey = "preventDeletion";
     public const string ImmuneFromDpMinusKey = "immuneFromDpMinus";
     public const string ImmuneFromEffectsKey = "immuneFromEffects";
+    // D-8: "이 카드의 코스트는 감소되지 않는다"(AS-IS ICannotReduceCostEffect). DP-감소-면역과 동형.
+    public const string ImmuneFromCostReductionKey = "immuneFromCostReduction";
 
     public static ReplacementResult Evaluate(ReplacementRequest request)
     {
@@ -410,6 +413,15 @@ public static class ReplacementHelpers
         return Evaluate(new ReplacementRequest(ReplacementEventKind.DpReduction, targetEntityId, replacements, sourceEntityId, "ChangeDP"));
     }
 
+    // D-8: "이 카드의 코스트는 감소되지 않는다" 판정 (AS-IS Player.CanReduceCost == false).
+    public static ReplacementResult ImmuneFromCostReduction(
+        HeadlessEntityId targetEntityId,
+        IReadOnlyList<ReplacementEffect> replacements,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return Evaluate(new ReplacementRequest(ReplacementEventKind.CostReduction, targetEntityId, replacements, sourceEntityId, "ChangeCost"));
+    }
+
     private static IEnumerable<ReplacementEffect> ReadReplacementsFromFlags(IReadOnlyDictionary<string, bool> flags)
     {
         foreach (KeyValuePair<string, bool> pair in flags)
@@ -453,7 +465,7 @@ public static class ReplacementHelpers
         IReadOnlyDictionary<string, object?> values,
         HeadlessEntityId? effectId)
     {
-        foreach (string key in new[] { PreventRemovalKey, PreventDeletionKey, ImmuneFromDpMinusKey, ImmuneFromEffectsKey })
+        foreach (string key in new[] { PreventRemovalKey, PreventDeletionKey, ImmuneFromDpMinusKey, ImmuneFromEffectsKey, ImmuneFromCostReductionKey })
         {
             if (TryReadBool(values, key, out bool enabled) && enabled)
             {
@@ -473,6 +485,7 @@ public static class ReplacementHelpers
             PreventDeletionKey => new ReplacementEffect(IdFor(effectId, key), ReplacementEventKind.Delete, ReplacementActionKind.Prevent),
             ImmuneFromDpMinusKey => new ReplacementEffect(IdFor(effectId, key), ReplacementEventKind.DpReduction, ReplacementActionKind.Immune, mutationKind: "ChangeDP"),
             ImmuneFromEffectsKey => new ReplacementEffect(IdFor(effectId, key), ReplacementEventKind.EffectMutation, ReplacementActionKind.Immune),
+            ImmuneFromCostReductionKey => new ReplacementEffect(IdFor(effectId, key), ReplacementEventKind.CostReduction, ReplacementActionKind.Immune, mutationKind: "ChangeCost"),
             _ => throw new ArgumentOutOfRangeException(nameof(key), "Unknown replacement metadata key."),
         };
     }
@@ -707,5 +720,15 @@ public static class ReplacementHelperFactory
         string? reason = null)
     {
         return ReplacementEffect.Immune(id, ReplacementEventKind.DpReduction, targetEntityId, sourceEntityId, "ChangeDP", reason);
+    }
+
+    // D-8: "이 카드의 코스트는 감소되지 않는다" 리플레이스먼트 (AS-IS CannotReduceCostClass).
+    public static ReplacementEffect ImmuneFromCostReduction(
+        string id,
+        HeadlessEntityId targetEntityId,
+        HeadlessEntityId? sourceEntityId = null,
+        string? reason = null)
+    {
+        return ReplacementEffect.Immune(id, ReplacementEventKind.CostReduction, targetEntityId, sourceEntityId, "ChangeCost", reason);
     }
 }

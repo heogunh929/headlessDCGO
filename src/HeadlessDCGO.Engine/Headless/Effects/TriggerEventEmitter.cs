@@ -22,7 +22,8 @@ public static class TriggerEventEmitter
         GameEventQueue queue,
         string timing,
         HeadlessPlayerId? actor = null,
-        HeadlessEntityId? subject = null)
+        HeadlessEntityId? subject = null,
+        IReadOnlyDictionary<string, object?>? extraMetadata = null)
     {
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentException.ThrowIfNullOrWhiteSpace(timing);
@@ -31,6 +32,15 @@ public static class TriggerEventEmitter
         {
             [AutoProcessingTriggerCollector.TriggerTimingKey] = timing,
         };
+
+        // F-8.5: context flags an effect's condition reads (isJogress/isDigiXros/DPZero, ...).
+        if (extraMetadata is not null)
+        {
+            foreach (KeyValuePair<string, object?> pair in extraMetadata)
+            {
+                metadata[pair.Key] = pair.Value;
+            }
+        }
 
         // W4: a card-scoped timing window (security check, digivolution) only fires the subject's own
         // effect. The collector filters by SourceEntityId, so a [Security] effect on the revealed card

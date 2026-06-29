@@ -127,6 +127,75 @@ public static class DigivolutionStackHelpers
         return true;
     }
 
+    /// <summary>(B-10) Trash <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
+    /// (from the bottom/DigiEgg end by default) — move them off-field to the trash and drop them from the
+    /// host's stack. Returns the number trashed.</summary>
+    public static Task<int> TrashSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        int count,
+        bool fromBottom = true,
+        CancellationToken cancellationToken = default) =>
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken);
+
+    /// <summary>(B-10) Return <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
+    /// to <paramref name="destination"/> (Hand / Library top via MoveToDeck-style zones). Returns the count moved.</summary>
+    public static Task<int> ReturnSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        int count,
+        ChoiceZone destination,
+        bool fromBottom = true,
+        CancellationToken cancellationToken = default) =>
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, destination, cancellationToken);
+
+    private static async Task<int> RemoveSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        int count,
+        bool fromBottom,
+        ChoiceZone destination,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (count < 1 || !repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return 0;
+        }
+
+        List<string> sources = ReadSourceIds(host.Metadata).Select(id => id.Value).ToList();
+        if (sources.Count == 0)
+        {
+            return 0;
+        }
+
+        int take = Math.Min(count, sources.Count);
+        // Bottom (DigiEgg) is the end of the top→bottom list; top is the start.
+        List<string> removed = fromBottom
+            ? sources.Skip(sources.Count - take).ToList()
+            : sources.Take(take).ToList();
+        List<string> remaining = fromBottom
+            ? sources.Take(sources.Count - take).ToList()
+            : sources.Skip(take).ToList();
+
+        repository.Upsert(host with { Metadata = WithSources(host.Metadata, remaining) });
+
+        foreach (string sourceValue in removed)
+        {
+            var sourceId = new HeadlessEntityId(sourceValue);
+            HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
+                ? src.OwnerId
+                : host.OwnerId;
+            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        }
+
+        return removed.Count;
+    }
+
     private static void AppendSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)
     {
         if (add.Count == 0)

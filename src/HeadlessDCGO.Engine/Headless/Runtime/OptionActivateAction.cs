@@ -52,6 +52,8 @@ public sealed class OptionActivateAction
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
+        // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
+        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
         ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
@@ -98,9 +100,7 @@ public sealed class OptionActivateAction
         }
 
         _ = context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance);
-        int memoryCost = PlayCostHelpers.TryResolveCost(card, instance, out int resolvedCost, out _)
-            ? resolvedCost
-            : 0;
+        int memoryCost = ResolveOptionCost(context, cardId, card, instance);
         HeadlessEntityId effectId = ResolveEffectId(card);
         OptionActivateActionPayload payload = new(cardId, effectId, memoryCost, SkillIndex: 0);
         OptionActivateValidation validation = Validate(context, playerId, payload);
@@ -167,9 +167,7 @@ public sealed class OptionActivateAction
                 payload.EffectId);
         }
 
-        int cardCost = PlayCostHelpers.TryResolveCost(card, instance, out int resolvedCost, out _)
-            ? resolvedCost
-            : 0;
+        int cardCost = ResolveOptionCost(context, payload.CardId, card, instance);
         if (payload.MemoryCost != cardCost)
         {
             return OptionActivateValidation.Illegal(
@@ -235,6 +233,14 @@ public sealed class OptionActivateAction
             string.IsNullOrWhiteSpace(card.EffectBindingKey)
                 ? $"{card.Id.Value}:option"
                 : card.EffectBindingKey);
+    }
+
+    // D-8: static option play cost + continuous ±cost modifiers (cannot-reduce replacement honoured).
+    // Used by both legal-action generation and validation so the offered and checked costs match.
+    private static int ResolveOptionCost(EngineContext context, HeadlessEntityId cardId, CardRecord card, CardInstanceRecord? instance)
+    {
+        int baseCost = PlayCostHelpers.TryResolveCost(card, instance, out int resolved, out _) ? resolved : 0;
+        return ContinuousModifierGate.ResolvePlayCost(context, cardId, baseCost);
     }
 
     private static bool IsOptionLocked(CardInstanceRecord instance, CardRecord card)

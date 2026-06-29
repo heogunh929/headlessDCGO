@@ -58,6 +58,12 @@ public sealed class SelectCardEffect
     private Root _root = Root.Hand;
     private HeadlessEntityId _sourceEntityId = new("select");
     private string _message = "Select card(s).";
+    private int _playCost;
+
+    /// <summary>(D-8) Memory cost paid per selected card in PlayForCost mode. The effect resolves the
+    /// (cost-pipeline-reduced) cost via <c>ContinuousModifierGate</c> and sets it here before Apply;
+    /// 0 = play for free.</summary>
+    public void SetPlayCost(int memoryCost) => _playCost = memoryCost < 0 ? 0 : memoryCost;
 
     public void SetUp(
         HeadlessPlayerId selectPlayer,
@@ -157,11 +163,9 @@ public sealed class SelectCardEffect
         {
             Mode.AddHand => Mutation(MatchStateMutationSink.ReturnToHandKind, card),
             Mode.Discard => Mutation(MatchStateMutationSink.TrashCardKind, card),
-            Mode.PlayForFree => PlayMutation(card),
-            // PlayForCost additionally needs the card's resolved play cost paid (D-8 cost pipeline);
-            // not yet wired, so it is left unsupported rather than silently free.
-            Mode.PlayForCost => throw new NotSupportedException(
-                "SelectCardEffect.Mode.PlayForCost needs the cost-payment pipeline (D-8), not yet implemented."),
+            Mode.PlayForFree => PlayMutation(card, memoryCost: 0),
+            // D-8: PlayForCost pays the resolved cost (set via SetPlayCost) per played card.
+            Mode.PlayForCost => PlayMutation(card, memoryCost: _playCost),
             Mode.Custom => null,
             _ => null,
         };
@@ -178,16 +182,19 @@ public sealed class SelectCardEffect
             });
     }
 
-    private EffectMutation PlayMutation(HeadlessEntityId card)
+    private EffectMutation PlayMutation(HeadlessEntityId card, int memoryCost)
     {
-        return new EffectMutation(
-            MatchStateMutationSink.PlayCardKind,
-            _sourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = card.Value,
-                [MatchStateMutationSink.FromZoneKey] = MapRoot(_root).ToString(),
-            });
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [MatchStateMutationSink.TargetEntityIdKey] = card.Value,
+            [MatchStateMutationSink.FromZoneKey] = MapRoot(_root).ToString(),
+        };
+        if (memoryCost > 0)
+        {
+            values[MatchStateMutationSink.MemoryCostKey] = memoryCost;
+        }
+
+        return new EffectMutation(MatchStateMutationSink.PlayCardKind, _sourceEntityId, values);
     }
 
     private static ChoiceZone MapRoot(Root root)

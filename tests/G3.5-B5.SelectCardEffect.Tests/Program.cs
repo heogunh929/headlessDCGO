@@ -18,7 +18,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Discard mode over Library trashes a deck card (mill)", MillFromLibrary),
     ("AddHand mode returns a selected trash card to hand (recovery)", RecoverFromTrash),
     ("PlayForFree mode plays a hand card to the battle area (F-3.7)", PlayForFreePlaysToField),
-    ("PlayForCost mode is not yet supported", PlayForCostUnsupported),
+    ("PlayForCost mode plays a card and pays the resolved cost (D-8)", PlayForCostPaysCost),
 };
 
 var failures = new List<string>();
@@ -141,15 +141,23 @@ async Task PlayForFreePlaysToField()
     AssertTrue(ReadFlag(context, card, MatchStateMutationSink.EnteredThisTurnKey), "marked entered this turn (summoning sickness)");
 }
 
-Task PlayForCostUnsupported()
+async Task PlayForCostPaysCost()
 {
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 9);
+    HeadlessEntityId card = new("h1");
+    await Place(context, card, ChoiceZone.Hand);
+    context.MemoryController.Set(5);
+
     var sel = new SelectCardEffect();
     sel.SetUp(P1, _ => true, 1, false, false, SelectCardEffect.Mode.PlayForCost, SelectCardEffect.Root.Hand, new HeadlessEntityId("src"));
-    bool threw = false;
-    try { sel.BuildMutations(new[] { new HeadlessEntityId("h1") }); }
-    catch (NotSupportedException) { threw = true; }
-    AssertTrue(threw, "PlayForCost throws NotSupported (D-8 cost pipeline pending)");
-    return Task.CompletedTask;
+    sel.SetPlayCost(2);
+
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.EffectRegistry);
+    sel.Apply(sink, new[] { card });
+    await sink.FlushAsync();
+
+    AssertTrue(InZone(context, ChoiceZone.BattleArea, card), "played card moved to battle area");
+    AssertEqual(3, context.MemoryController.Current.Current, "paid 2 memory (5 -> 3)");
 }
 
 // --- Helpers -------------------------------------------------------------

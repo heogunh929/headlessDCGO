@@ -16,14 +16,14 @@
 - [x] F-1.4 만료 훅: 전투 끝 — `BattleResolver`→`ExpireBattleEnd`
 - [x] F-1.5 만료 훅: 공격 끝 — `AttackPipeline.AdvanceEndAttack`→`ExpireAttackEnd`(공격 Completed 전환 직전). 테스트: `tests/G3.5-F15.AttackEndDurationExpiry` 1/1
 - [x] F-1.6 만료 훅: 언탭/액티브페이즈 — `HeadlessEarlyPhaseFlow`(Unsuspend)→`ExpireUnsuspend`
-- [ ] F-1.7 만료 훅: UntilCalculateFixedCost — `ExpireFixedCostCalc` 존재하나 **보류**: 비용 헬퍼(`PlayCostHelpers`/`DigivolutionCostHelpers.TryResolveCost`)는 순수 read-side로 legal-action 열거마다 반복 호출됨 → 거기서 expire 호출 시 매 쿼리마다 레지스트리 변형(버그). 전용 "비용 재계산" 변형 지점이 생길 때 배선
+- [x] F-1.7 만료 훅: UntilCalculateFixedCost (2026-06-29) — read-side 헬퍼가 아니라 **플레이 확정(지불 직후) 지점**에 배선: `PlayCardAction`·`DigivolveAction`·`OptionActivateAction`의 AfterPayCost 직후 + `EndTurn` 턴 핸드오버에서 `ExpireFixedCostCalc`(AS-IS `Player.UntilCalculateFixedCostEffect` 클리어 on-play/턴경계). 테스트 `tests/G3.5-F17.FixedCostExpiry` 2/2
 - 테스트: `tests/G3.5-CVA1.EffectDuration` 6/6 (enum·each/owner/opp 턴종료·battle/attack·언탭·permanent 생존)
 
 ### F-2. 선택→연산 프레임워크 🔴 (CV-A2 진행, 2026-06-27)
 - [x] F-2.1 "조건 매칭 대상 N개 선택" permanent 빌더 — `SelectPermanentEffect.BuildRequest` (라이브 보드 열거+predicate 필터 → Permanent ChoiceRequest). **card/hand 빌더는 F-2.4와 함께 잔여**
 - [x] F-2.2 Root 존 추상화: Hand/Library/Trash/Security/Clock/Execution/DigivolutionCards/LinkedCards — `SelectCardEffect.Root` enum(1:1) + `RootZone` 매핑 + `BuildRequest`가 해당 존 열거 (B-5)
 - [~] F-2.3 SelectPermanent 모드→뮤테이션 매핑 — `SelectPermanentEffect.Mode`(11종 1:1) + BuildMutations: Tap/UnTap/Destroy/Bounce/PutLibrary(top·bottom)/PutSecurity(top·bottom) 매핑 완료. **Degenerate→D-4 미구현(NotSupported), Attack/Custom→무뮤테이션(콜백)**
-- [~] F-2.4 SelectCard/Hand 모드 매핑 — `SelectCardEffect.Mode`(AddHand/Discard/PlayForFree/PlayForCost/Custom, 원본 1:1) + BuildMutations: AddHand=ReturnToHand·Discard=TrashCard 완료. **PlayForFree/PlayForCost=effect-Play(F-3.7) 잔여(NotSupported)**. 테스트 `tests/G3.5-B5.SelectCardEffect` 6/6
+- [x] F-2.4 SelectCard/Hand 모드 매핑 — `SelectCardEffect.Mode`(AddHand/Discard/PlayForFree/PlayForCost/Custom, 원본 1:1) + BuildMutations: AddHand=ReturnToHand·Discard=TrashCard·PlayForFree/PlayForCost=PlayCard(F-3.7/D-8). 테스트 `tests/G3.5-B5.SelectCardEffect` 7/7
 - [x] F-2.5 선택 결과→대상별 연산 — `SelectPermanentEffect.Apply(sink, selected)` 대상별 뮤테이션 적용(선택순). **after-select 콜백은 잔여**
 - [x] F-2.6 강제/선택(canNoSelect)·부분선택 종료(canEndNotMax) 규칙 — BuildRequest의 min/max/canSkip 산출에 반영
 - 구현: `Assets/Scripts/Script/SelectPermanentEffect.cs`(AS-IS 미러). 테스트: `tests/G3.5-CVA2.SelectPermanentEffect` 7/7 (predicate 필터·exact/canNoSelect/canEndNotMax 카운트규칙·Destroy e2e·Tap·Bounce·Mode 매핑)
@@ -35,7 +35,7 @@
 - [x] F-3.4 Discard(hand→trash)/DeckTrash=`TrashCardKind`(존 무관 trash) + OnDiscardHand/Library 타이밍(F-6.5)
 - [x] F-3.5 TrashSecurity=`TrashCardKind`(security→trash)+OnDiscardSecurity / Recovery(덱→시큐리티)=`AddToSecurityKind`(library 출발). **전용 배치 뮤테이션(`RecoverKind`/`TrashSecurityKind`)은 B-6에서 완료**
 - [x] F-3.6 Reveal(덱 top N) + 결과 노출 — **B-7에서 완료**: `RevealAndSelect`가 라이브러리 top N을 choice 후보로 노출(reveal) + 선택/분배. 별도 sink kind 대신 choice-흐름(`ChoiceType.RevealSelect`)으로 구현.
-- [~] F-3.7 effect-Play 뮤테이션 — **PlayForFree 완료**: `MatchStateMutationSink.PlayCardKind`(소스존→BattleArea face up + enteredThisTurn 소환멀미) + `SelectCardEffect.PlayForFree` 결합. **PlayForCost 잔여**(D-8 비용 파이프라인 필요, NotSupported). 테스트 `tests/G3.5-B5.SelectCardEffect` 7/7
+- [x] F-3.7 effect-Play 뮤테이션 — **PlayForFree + PlayForCost 완료**: `MatchStateMutationSink.PlayCardKind`(소스존→BattleArea face up + enteredThisTurn 소환멀미 + `memoryCost` 지불) + `SelectCardEffect.PlayForFree`/`PlayForCost`(SetPlayCost, D-8). 테스트 `tests/G3.5-B5.SelectCardEffect` 7/7
 - [ ] F-3.8 Token 생성 / 소재·링크 trash / 트래시→hand·deck 🟡 (트래시복귀는 ReturnToHand/Deck kind로 가능, Token/소재trash는 신규)
 
 ### F-4. once-per-turn 자동 게이팅 🟠 — 완료 (2026-06-28)
@@ -47,20 +47,20 @@
 ### F-5. 플레이어 스코프 연속효과 🟠 — 대부분 완료 (2026-06-28)
 - [x] F-5.1 "플레이어의 조건매칭 전 permanent에 적용" 연속 스코프 — `PlayerScopeContinuousHelpers`(마커 `playerScope`+`scopePlayerId`+조건 `scopeCardType`/`scopeMeta*`). ±DP·cannot-* 검증. (±sAttack/keyword grant는 동일 패턴으로 자동 적용 — 같은 effect Values 경유)
 - [x] F-5.2 게이트 확장 — `ContinuousScopeEvaluation.EvaluateForCard`(카드타깃 ∪ 플레이어스코프 결합 평가)를 `ContinuousDpGate`·`ContinuousRestrictionGate` 양쪽이 호출
-- [ ] F-5.3 IgnoreDigivolutionRequirement player effect — 진화요건 무시 player-scope(진화 검증 경로 연계 필요, 별도)
+- [x] F-5.3 IgnoreDigivolutionRequirement player effect (2026-06-29) — `DigivolveAction.CanIgnoreDigivolutionRequirement`(연속 `ignoreDigivolutionRequirement` 마커, 카드타깃+player-scope) → `Validate`가 진화조건 불일치라도 허용. AS-IS `Player.CanIgnoreDigivolutionRequirement`. 테스트 `tests/G3.5-F53.IgnoreDigivolveRequirement` 3/3
 - 테스트: `tests/G3.5-F5.PlayerScopeContinuous` 4/4 (소유자 스코프·CardType 조건·cannot-attack 제한·ConditionMatches)
 
 ### F-6. 타이밍 emit 중앙화 + 누락분 🟠 (CV-A4 진행, 2026-06-27)
 - [~] F-6.1 존-이동/뮤테이션 공통 레이어 자동 emit — 존이동은 `TriggerTimingMap.Derive`(CardMoved→타이밍 파생)로 중앙화됨. 비-이동 상태변화(suspend 등)는 `MatchStateMutationSink.EmitTiming`로 emit
 - [x] F-6.2 페이즈계: **OnStartMainPhase**(`AdvancePhaseAsync` 메인 진입, `MainPhaseEntered` 신호) + **OnEndMainPhase/OnEndAttackPhase**(`PassAction` Main→MemoryPass 핸드오버 시, 메인 종료 플레이어 대상). 원본은 OnStartMainPhase만 실발화·나머지는 enum 선언만 → 전진 호환 배선. 테스트: `tests/G3.5-F62.PhaseTimingEmission` 5/5
-- [~] F-6.3 전투계: **OnEndBattle 완료**(`BattleResolver` 해결 후 emit). **OnStartBattle 잔여**(DP비교 전 동기 해결 윈도우 필요 — 단순 emit 시 부정확). OnEndAttack/OnAttackTargetChanged/OnEndBlockDesignation/OnDetermineDoSecurityCheck/OnGetDamage/OnKnockOut 잔여
+- [~] F-6.3 전투계: **OnEndBattle**(`BattleResolver` 해결 후)·**OnEndAttack**(`EndAttackTriggerHook`)·**OnKnockOut**(`BattleResolver` 전투 격파 시, subject=격파 카드) 완료. **OnStartBattle 잔여**(DP비교 전 동기 해결 윈도우 필요). OnAttackTargetChanged/OnEndBlockDesignation/OnDetermineDoSecurityCheck/OnGetDamage는 emit-only 윈도우 → 원본 정책대로 해당 카드군 포팅 시 배선
 - [x] F-6.4 상태계: OnTappedAnyone/OnUnTappedAnyone(sink Suspend/Unsuspend, CV-A4), OnMove(육성→배틀 승격 파생, CV-A4), **OnAddDigivolutionCards**(`DigivolveAction` 소재 부착 후, 받는 카드 스코프), **OnFaceUpSecurityIncreased**(sink AddToSecurity faceUp 시, 글로벌). 테스트: `tests/G3.5-F64.DigivolveSecurityTimingEmission` 4/4
 - CV-A4 구현: `TriggerTimings`(OnTapped/OnUntapped/OnMove/OnEndBattle 상수) + `TriggerTimingMap`(OnMove 파생) + `MatchStateMutationSink`(GameEventQueue 주입, EmitTiming) + `BattleResolver`(OnEndBattle) + `EngineContext`(큐 호이스트). 테스트: `tests/G3.5-CVA4.TriggerTimingEmission` 7/7
-- [~] F-6.5 카드이동계: **OnDiscardHand/Security/Library**(non-field zone→Trash 파생), **OnReturnCardsToHand/LibraryFromTrash**(Trash→Hand/Library 파생), **OnPermamemtReturnedToHand**(field→Hand 파생), **OnRemovedField**(field-leave 파생) 완료 — `TriggerTimingMap`. **잔여**: WhenTopCardTrashed/OnDigivolutionCardDiscarded/OnDigivolutionCardReturnToDeckBottom(top/소재 stack 컨텍스트 필요, 존파생 불가). 테스트: `tests/G3.5-F65.CardMovementTimingEmission` 9/9
+- [~] F-6.5 카드이동계: **OnDiscardHand/Security/Library**(non-field zone→Trash 파생), **OnReturnCardsToHand/LibraryFromTrash**(Trash→Hand/Library 파생), **OnPermamemtReturnedToHand**(field→Hand 파생), **OnRemovedField**(field-leave 파생) 완료 — `TriggerTimingMap`. **WhenTopCardTrashed 완료**(`DeDigivolveHelpers` top 제거 시 emit, D-4). **잔여**: OnDigivolutionCardDiscarded/OnDigivolutionCardReturnToDeckBottom(소재 stack 컨텍스트 필요). 테스트: `tests/G3.5-F65.CardMovementTimingEmission` 9/9
 - [~] F-6.6 액션계: **OnUseOption** 완료(`OptionActivateAction`). **잔여**: OnUseDigiburst(디지버스트 미구현), OnAllyAttack(아군 공격 로직 필요), OnDeclaration(선언 시점 구분 필요). 테스트: `tests/G3.5-F67.ActionCostTimingEmission`
 - [x] F-6.7 코스트계: **BeforePayCost/AfterPayCost** — PlayCard/Digivolve/OptionActivate 3개 코스트 지점에서 지불 전후 emit(subject=카드). 테스트: `tests/G3.5-F67.ActionCostTimingEmission` 4/4
 - [~] F-6.8 would계(예측 트리거): **WhenPermanentWouldBeDeleted 부분 토대** — `DeletionReplacementGate`(전투+효과 삭제 직전 대체 Evade/Barrier, 적-효과 리다이렉트 Decoy, OnDestroyed replay Fortitude). 잔여: WhenWouldLink, WhenWouldDigivolutionCardDiscarded; AfterEffectsActivate
-- [ ] F-6.9 링크계: WhenLinked, OnLinkCardDiscarded (D-1 동반)
+- [~] F-6.9 링크계: **WhenLinked/OnLinkCardDiscarded/WhenWouldLink 상수 + WhenLinked·OnLinkCardDiscarded emit 완료**(`LinkHelpers`, D-1). WhenWouldLink prevent 윈도우 배선은 D-1 잔여와 함께
 
 ### F-7. 계승효과(inherited) 활성 모델 🟡 — 완료 (2026-06-28)
 - [x] F-7.1 IsInheritedEffect 활성규칙 — `InheritedEffectHelpers.IsInheritedEffectActive`(소재가 under-card·flip 안됨·permanent Digimon) + `IsMainEffectActive`(top일 때만). 원본 `ICardEffect.CanUse` inherited 분기 미러
@@ -73,7 +73,7 @@
 - [~] F-8.2 매칭 — `CardRequirementHelpers` HasName/HasColor/HasAllColors/HasTrait/HasGroupedTrait **완료**(기존), level은 MinMax로. type 매칭 술어만 명시 보강 여지
 - [x] F-8.3 존 카운트·존재 — `ZoneQueryHelpers` Library/Trash/Security/Sources/Query **완료**(기존)
 - [x] F-8.4 턴/소유 체크 — `TurnOwnershipHelpers.IsOwnerTurn/IsOpponentTurn/IsOwner/IsOpponent` (신규). 테스트: `tests/G3.5-F84.TurnOwnershipHelpers` 10/10
-- [ ] F-8.5 특수: IsJogress/IsDiXros/IsDPZeroDelete/IsTopCardInTrash 등 (고급, D-5/D-2 연계 시)
+- [x] F-8.5 특수: IsJogress/IsDigiXros/IsDpZeroDelete/IsTopCardInTrash (2026-06-29) — `SpecialConditionHelpers`(술어, 컨텍스트 플래그 읽기) + **생산자 배선**: `FusionDigivolveHelpers.FuseAsync`가 `FusionKind`로 WhenDigivolving에 isJogress/isDigiXros 태깅(`TriggerEventEmitter` extraMetadata 추가), 신규 `DpZeroDeletionHelpers.SweepAsync`(DP≤0 디지몬 삭제+DPZero 스탬프), IsTopCardInTrash(존 top=index0). 테스트 `tests/G3.5-F85.SpecialConditions` 6/6
 
 ---
 
@@ -86,9 +86,9 @@
 - [~] B-5 Draw / discard(손버림) / deck-trash — `DrawCards` kind(기존) + **`SelectCardEffect`(신규)**: Discard(손버림=Hand root, mill=Library root)·AddHand(트래시복귀). 테스트 `tests/G3.5-B5.SelectCardEffect` 6/6. **잔여**: Draw 선택 UI 결합(드로우 자체는 kind로 가능)
 - [x] B-6 시큐리티 trash / Recovery(덱→시큐리티) — **effect 레벨 완료**: `MatchStateMutationSink`에 플레이어-스코프 뮤테이션 `RecoverKind`(top N library→security, AS-IS `IRecovery`/`IAddSecurityFromLibrary`, faceUp 옵션)·`TrashSecurityKind`(N security→trash, AS-IS `IDestroySecurity`, fromTop 옵션, **`OnDiscardSecurity` emit**) 추가 — 배치 프리미티브(`IZoneMover.AddSecurityFromLibraryAsync`/`TrashSecurityAsync`, 기존)를 effect 어휘로 노출(액션 레벨은 이미 존재). 테스트: `tests/G3.5-B6.SecurityRecovery` 4/4(recover·trash·라이브러리 cap·player 누락 unsupported). (2026-06-28)
 - [x] B-7 덱 top N 공개 + 선택 처리(reveal & select) — **완료**: 신규 `RevealAndSelect`(AS-IS `RevealLibrary.RevealDeckTopCardsAndSelect`) — 라이브러리 top N peek → `ChoiceType.RevealSelect` agent 선택(up to K) → 선택분=목적지A·나머지=목적지B 분배(`RevealDestination` Hand/DeckTop/DeckBottom/Trash, 요청 id 인코딩) + `MetadataActionProcessor` 라우팅. F-3.6도 이로 충족(reveal+노출은 choice 후보로). 테스트: `tests/G3.5-B7.RevealSelect` 4/4(오픈·선택→hand/나머지→bottom·skip·빈덱). (2026-06-28)
-- [~] B-8 effect로 카드 플레이 — **무료(PlayForFree) 완료**(PlayCardKind, F-3.7; SelectCardEffect로 손/트래시/시큐 등 Root에서 플레이). **코스트 변형 잔여**(D-8) 🟠
+- [x] B-8 effect로 카드 플레이 — **무료+코스트 완료**: PlayForFree(F-3.7) + PlayForCost(D-8 비용 파이프라인 결합, `PlayCardKind` memoryCost 지불). SelectCardEffect로 손/트래시/시큐 등 Root에서 플레이. 🟠
 - [x] B-9 토큰 생성/플레이 — **완료**: `MatchStateMutationSink.CreateTokenKind`(플레이어-스코프, AS-IS `CardEffectCommons.PlayToken`) — 토큰 정의 id + base instance id + count로 `IsToken` 인스턴스 N개 생성(소환멀미, tokenTapped 옵션 서스펜드) + 배틀존 배치(None→BattleArea). 토큰 카드 정의는 포팅 레이어가 등록. 테스트: `tests/G3.5-B9.Token` 4/4(단일·다수·tapped·정의누락 unsupported). (2026-06-28)
-- [ ] B-10 소재(디지볼브 카드)/링크 카드 trash·복귀 🟡
+- [x] B-10 소재(디지볼브 카드)/링크 카드 trash·복귀 (2026-06-29) — sink kind 3종: `TrashDigivolutionCardsKind`(소재 N trash, fromBottom)·`ReturnDigivolutionCardsKind`(소재 N→hand/deck)·`TrashLinkCardsKind`(링크카드 trash, LinkHelpers 경유). `DigivolutionStackHelpers.TrashSourcesAsync`/`ReturnSourcesAsync` 추가. 테스트 `tests/G3.5-B10.MaterialLinkTrash` 3/3 🟡
 - [x] B-11 트래시→손/덱 복귀 — **완료(검증)**: 기존 `ReturnToHand`/`ReturnToDeckTop`/`ReturnToDeckBottom` 뮤테이션이 출발존 무관(`MoveCardToSingleZone`)이라 트래시 출발도 그대로 동작하고, `TriggerTimingMap`이 Trash→Hand/Library 시 `OnReturnCardsTo{Hand,Library}FromTrash`를 파생함. 엔진 변경 없이 트래시-출발 동작을 e2e 검증. 테스트: `tests/G3.5-B11.TrashReturn` 3/3(hand·deck top·deck bottom). (2026-06-28)
 
 ---
@@ -143,15 +143,15 @@
 
 ## D. 대형 서브시스템 (각각 독립 구축)
 
-- [ ] D-1 **Link** — 링크 카드 부착/해제 + 링크코스트·max 관리 + WhenLinked/OnLinkCardDiscarded(F-6.9)
-- [ ] D-2 **Appfuse(앱퓨전)** — 이름/조건 기반 다카드 융합
+- [~] D-1 **Link** (코어 완료, 2026-06-29) — `LinkHelpers`(Headless/Runtime, AS-IS `Permanent.AddLinkCard`/`RemoveLinkedCard` 미러, DigivolutionStackHelpers 패턴): 부착(off-field 보관+host `linkedCardIds`/`linkedDp` 메타, newest-first)·해제(trash+DP감소)·`linkedMax`(기본1) 초과 시 최오래 강제 trash·`WhenLinked`/`OnLinkCardDiscarded` emit(F-6.9). 테스트 `tests/G3.5-D1L.LinkSubsystem` 3/3. **잔여**: 링크코스트 modifier(`IChangeLinkCostEffect`→continuous), `linkedMax` modifier(`IChangeLinkMaxEffect`), 링크조건 검증(auto-proc `IsDigimonLackLinkCondition`), LinkedDP→전투DP fold, `WhenWouldLink` prevent 윈도우, 카드-facing Link 키워드 바인딩(포팅 시; 스텁 `KeyWordEffects/Link`·`CanUseEffects/WhenLinked`·`TrashLinkedCards`)
+- [~] D-2 **Appfuse(앱퓨전)** — 융합 프리미티브는 D-5 `FusionDigivolveHelpers.FuseAsync`로 충족(이름/조건 material을 새 top 아래로 병합 = DigiXros와 동형). **잔여**: 앱퓨전 고유 조건/선택(이름·조건 기반 material 매칭)·해제 규칙은 카드-facing(포팅 시 SelectAppFusionEffect 결합)
 - [x] D-3 ~~Raid~~ — **정정/해소**: Raid는 시큐리티 직접공격 서브시스템이 아니라 공격 대상 전환 키워드였음(C-3에서 완료). 별도 D-3 서브시스템 불필요.
-- [ ] D-4 **De-Digivolve(진화퇴화)** — 소재 N장 제거(stack 분리)
-- [ ] D-5 **DNA Digivolve(Jogress) / DigiXros** — 다permanent/다카드 융합 진화
-- [ ] D-6 **Blast / Arts Digivolve** — 코스트리스/특수 진화 경로
-- [ ] D-7 **효과 무효화(invalidation)** — 연속효과를 끄는 메커니즘
-- [ ] D-8 **코스트 감소 파이프라인** — BeforePayCost 단계 + "감소 불가" replacement
-- [ ] D-9 **Recovery / Token / Mind Link / Delay Option** — B-6/B-9 연계
+- [~] D-4 **De-Digivolve(진화퇴화)** (코어 완료, 2026-06-29) — `DeDigivolveHelpers.DeDigivolveAsync`(AS-IS `IDegeneration.Degeneration` 미러): top N 제거 — 각 단계 현재 top trash + 직속 under-source를 새 top으로 승격(ArmorPurge 승격 프리미티브 반복, 잔여소재/탭상태 이관). 정지조건: 소재 고갈·count 도달·**레벨 floor(3, 루키)**. 정적 immunity(`cannotBeDeDigivolved`, AS-IS `IImmuneFromDeDigivolveEffect`). `WhenTopCardTrashed` emit. 테스트 `tests/G3.5-D4.DeDigivolve` 5/5. **잔여**: 연속-replacement immunity(레지스트리 필요), 정의(definition) 레벨 기반 floor(현재 instance metadata level만), 카드-facing 발동(SelectPermanentEffect.Mode.Degenerate 결합·포팅 시)
+- [~] D-5 **DNA Digivolve(Jogress) / DigiXros** (코어 완료, 2026-06-29) — `FusionDigivolveHelpers.FuseAsync`(단일 `DigivolveAction.AttachTargetAsSource`를 다중 material로 일반화): 새 top을 배틀존에 두고 각 material(+그 기존 소재)을 순서대로 병합 소재화·material은 필드 이탈(off-field), 융합체는 소환멀미 면제(AS-IS Jogress EnterFieldTurnCount=-1), `WhenDigivolving` emit. DNA(배틀존 2 Digimon)·DigiXros(핸드 material) 양쪽 검증. 테스트 `tests/G3.5-D5.FusionDigivolve` 5/5. **잔여**: Jogress/Xros 조건 선택(`JogressCondition`/`DigiXrosCondition` element 매칭)·코스트는 카드-facing(포팅 시; 스텁 `SelectJogressEffect`/`SelectDigiXrosClass`/`SelectDNACondition`)
+- [~] D-6 **Blast / Arts Digivolve** (코어 완료, 2026-06-29) — `FreeDigivolveHelpers.DigivolveFreeAsync`: 코스트리스 단일-타깃 진화(AS-IS `payCost: false`). 융합 프리미티브(`FuseAsync` 단일 material) 재사용 — 일반 진화와 동일 소재순서, **메모리 미지불**, 결과는 target의 소환멀미 상속(Jogress 면제와 달리), `WhenDigivolving` emit. 테스트 `tests/G3.5-D6.FreeDigivolve` 4/4. **잔여**: Blast=상대턴 트리거·Arts=옵션 선택은 카드-facing(포팅 시; 스텁 `KeyWordEffects/BlastDigivolution`·`ArtsDigivolve`)
+- [~] D-7 **효과 무효화(invalidation)** (코어 완료, 2026-06-29) — `EffectInvalidation.IsEffectsDisabled`(연속 `disableEffects` 마커, 카드타깃+player-scope F-5, AS-IS `CheckEffectDisabledClass.isDisabled`/`IDisableCardEffect` 미러) + **`GameFlowProcessor` 트리거 루프 게이팅**(무효화된 source 카드의 효과는 once-per-turn 소비 전에 skip). + **연속 게이트 inert**(`ContinuousScopeEvaluation`가 무효화된 source 카드의 연속효과를 평가에서 제외 — DP/restriction/cost 전부). 테스트 `tests/G3.5-D7.EffectInvalidation` 6/6(단위 3 + 루프 e2e 2 + 연속 inert 1). **잔여**: 기간/조건 정밀화는 카드 포팅 시
+- [x] D-8 **코스트 감소 파이프라인** (2026-06-29) — 연속 ±play/digivolution/option 비용을 `ContinuousModifierGate.Resolve*Cost`가 fold(카드타깃+player-scope+duration) + **"감소 불가" replacement** `ReplacementHelpers.ImmuneFromCostReduction`(AS-IS `ICannotReduceCostEffect`/`CannotReduceCostClass`, DP-감소-면역 동형 — 감소만 차단·증가 허용). **비용 계산 지점 배선**: `PlayCardAction.TryGetPlayCost`·`DigivolveAction.TryGetEvolutionCost`·`OptionActivateAction.ResolveOptionCost`(legal-gen+validate 공유 → 제시/검증 일치). **PlayForCost 프리미티브**: `MatchStateMutationSink.PlayCardKind`에 `memoryCost` 지불 + `SelectCardEffect.SetPlayCost`/PlayForCost. 테스트: `tests/G3.5-D8.CostReductionPipeline` 5/5 + `tests/G3.5-B5`(PlayForCost). **잔여**: AS-IS 미러 스켈레톤(`CardEffects/ChangeCostClass`·`CannotReduceCostClass`, `CardEffectFactory/ChangePlayCost`·`ChangeDigivolutionCost`)은 카드 포팅 시 채움(바인딩=continuous ±cost / immuneFromCostReduction 등록).
+- [~] D-9 **Recovery / Token / Mind Link / Delay Option** — **Recovery 완료**(B-6 `RecoverKind` 덱→시큐리티), **Token 완료**(B-9 `CreateTokenKind`). **잔여**(카드-facing/소형): Mind Link(타이머↔디지몬 연결 — D-1 Link 변형), Delay Option(잔류 옵션 후속 발동 — DelayOption 카드별 트리거). 엔진 프리미티브는 Link/옵션/타이밍으로 충당 가능, 발동은 포팅 시
 
 ---
 
