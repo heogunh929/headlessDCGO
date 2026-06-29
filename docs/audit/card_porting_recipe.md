@@ -28,7 +28,7 @@
    - **본문은 원본을 그대로** 옮긴다(같은 `if (timing == …)` 분기, 같은 `CardEffectFactory.<Method>(...)` 호출). 헤드리스 `CardEffectFactory`에 해당 메서드가 있으면 그대로 컴파일된다.
 3. **팩토리 메서드 없으면 추가**: `CardPortingFramework.cs`의 `CardEffectFactory`에 원본과 **동일한 이름**으로 메서드 추가 → 적절한 `ICardEffect`(연속/키워드/트리거) 반환.
 4. **타이밍 매핑**: 원본 `EffectTiming.X`가 헤드리스 enum에 없으면 `EffectTiming`에 추가(+필요 시 `TriggerTimings` 상수와 연결).
-5. **테스트**: `tests/P1-<id>.Port.Tests/` (csproj는 ST7_10 것 복사). 등록 후 게이트/싱크로 결과 단언.
+5. **테스트**: 그룹 기준에 따라 **그 카드가 속한 그룹의 `tests/CardEffect.<Set>.<Color>.Tests/` 프로젝트에 sub-test 추가**(카드마다 새 프로젝트 만들지 않음 — [card_group_standard.md](card_group_standard.md)). 등록 후 게이트/싱크로 결과 단언.
 6. **게이트**: `bash scripts/run-tests.sh` 전체 green 확인 → 백로그 갱신.
 
 ---

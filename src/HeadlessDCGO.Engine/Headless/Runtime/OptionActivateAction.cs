@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using System.Diagnostics.CodeAnalysis;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -66,18 +67,28 @@ public sealed class OptionActivateAction
         // F-6.6: opening an Option card opens the OnUseOption window (subject = the option card).
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: action.PlayerId, subject: payload.CardId);
 
-        EffectContext effectContext = new(
-            action.PlayerId,
-            action.PlayerId,
-            payload.CardId,
-            payload.CardId,
-            new[] { payload.CardId },
-            Metadata(action, payload, validation));
-        context.EffectScheduler.Enqueue(new EffectRequest(
-            payload.EffectId,
-            action.PlayerId,
-            "OptionActivate",
-            effectContext));
+        // G6-002: resolve the option's ported [Main] activated effect (select-and-act / buff) via the
+        // engine's choice provider. Only fall back to the legacy scheduler enqueue when the card has no
+        // ported activated effect (un-ported / bound-effect cards keep the original path).
+        int activated = await ActivatedEffectResolver
+            .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OptionSkill, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (activated == 0)
+        {
+            EffectContext effectContext = new(
+                action.PlayerId,
+                action.PlayerId,
+                payload.CardId,
+                payload.CardId,
+                new[] { payload.CardId },
+                Metadata(action, payload, validation));
+            context.EffectScheduler.Enqueue(new EffectRequest(
+                payload.EffectId,
+                action.PlayerId,
+                "OptionActivate",
+                effectContext));
+        }
 
         Dictionary<string, object?> metadata = Metadata(action, payload, validation);
         metadata[HeadlessActionParameterKeys.PreviousMemory] = previousMemory.Current;

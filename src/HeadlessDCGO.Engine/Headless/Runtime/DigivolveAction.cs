@@ -130,6 +130,11 @@ public sealed class DigivolveAction
                 subject: payload.CardId);
         }
 
+        // G6-001: the digivolving card is the new top entering play — auto-register its ported effects.
+        // The previous top (now a digivolution source) keeps its bindings: its inherited effect now folds
+        // into this new top, while its main effect is inert (it is no longer an evaluated permanent).
+        CardEffectRegistrar.RegisterCard(context, payload.CardId, action.PlayerId);
+
         return ActionProcessResult.Success("Card digivolved.", metadata);
     }
 

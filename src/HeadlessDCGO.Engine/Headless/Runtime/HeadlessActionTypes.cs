@@ -7,6 +7,7 @@ public static class HeadlessActionTypes
     public const string Cheat = "Cheat";
     public const string PlayCard = "PlayCard";
     public const string Digivolve = "Digivolve";
+    public const string SpecialPlay = "SpecialPlay";
     public const string ActivateOption = "ActivateOption";
     public const string SetTerminal = "SetTerminal";
     public const string ClearTerminal = "ClearTerminal";

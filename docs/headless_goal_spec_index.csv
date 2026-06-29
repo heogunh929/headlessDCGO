@@ -160,3 +160,8 @@ G6D-002,Phase 6 - Parity/Regression 검증,회귀 테스트,Regression suite ass
 G6D-003,Phase 6 - Parity/Regression 검증,회귀 테스트,Regression result document,docs/goal-specs/G6D-003_regression_result_document.md,docs/test-results/goals/G6D-003_regression_result_document_unit_test_results.md,G6D-002
 G6E-001,Phase 6 - Parity/Regression 검증,성능 측정,Episode throughput benchmark,docs/goal-specs/G6E-001_episode_throughput_benchmark.md,docs/test-results/goals/G6E-001_episode_throughput_benchmark_results.md,G6D-003
 G6Z-001,Phase 6 - Parity/Regression 검증,단계 완료 게이트,Final completion report,docs/goal-specs/G6Z-001_final_completion_report.md,docs/test-results/goals/G6Z-001_final_completion_report.md,G6E-001
+G6-001,Phase 6 - 라이브 통합/배선,런타임,런타임 자동 등록(enter-play) 배선,docs/audit/live_integration_goals.md#g6-001,,없음
+G6-002,Phase 6 - 라이브 통합/배선,효과해소,Option/Security 활성효과 live choice 배선,docs/audit/live_integration_goals.md#g6-002,,G6-001
+G6-003,Phase 6 - 라이브 통합/배선,데이터로딩,CardBaseEntity→JSON 카드 데이터 로더,docs/audit/live_integration_goals.md#g6-003,,없음
+G6-004,Phase 6 - 라이브 통합/배선,액션,특수 플레이 액션(DigiXros/DNA/Blast) 연결,docs/audit/live_integration_goals.md#g6-004,,G6-001
+G6-005,Phase 6 - 라이브 통합/배선,트리거,emit-only 트리거 타이밍 실발화,docs/audit/live_integration_goals.md#g6-005,,G6-001

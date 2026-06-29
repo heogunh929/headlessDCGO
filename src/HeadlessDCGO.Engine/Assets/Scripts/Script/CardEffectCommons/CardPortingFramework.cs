@@ -839,6 +839,49 @@ public static class CardEffectCommons
 }
 
 /// <summary>
+/// (G6-001) Maps a card number to its ported effect class. A ported card is a non-abstract
+/// <see cref="CEntity_Effect"/> subclass whose type name equals the card number (e.g. class
+/// <c>ST1_01</c> -> card "ST1_01"), so the dispatch is discovered by reflection — no manual table, and it
+/// auto-grows as cards are ported. Un-ported cards (skeleton files with no class) simply aren't found.
+/// </summary>
+public static class CardEffectDispatch
+{
+    private static readonly Lazy<IReadOnlyDictionary<string, Type>> ByCardNumber = new(Build);
+
+    private static IReadOnlyDictionary<string, Type> Build()
+    {
+        var map = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+        foreach (Type type in typeof(CEntity_Effect).Assembly.GetTypes())
+        {
+            if (type.IsAbstract
+                || !type.IsSubclassOf(typeof(CEntity_Effect))
+                || type.GetConstructor(Type.EmptyTypes) is null)
+            {
+                continue;
+            }
+
+            map[type.Name] = type;
+        }
+
+        return map;
+    }
+
+    public static int Count => ByCardNumber.Value.Count;
+
+    public static bool TryCreate(string? cardNumber, out CEntity_Effect? effect)
+    {
+        effect = null;
+        if (string.IsNullOrWhiteSpace(cardNumber) || !ByCardNumber.Value.TryGetValue(cardNumber.Trim(), out Type? type))
+        {
+            return false;
+        }
+
+        effect = (CEntity_Effect)Activator.CreateInstance(type)!;
+        return true;
+    }
+}
+
+/// <summary>
 /// The runtime seam: builds a card's effect bindings (across the given timings) and registers them into
 /// the EffectRegistry. Call when a card enters play. Returns the registered bindings for inspection.
 /// </summary>
@@ -858,6 +901,40 @@ public static class CardEffectRegistrar
         EffectTiming.OnAllyAttack,
         EffectTiming.OnBlockAnyone,
     });
+
+    /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the
+    /// dispatch by its card number. No-op (returns false) for cards with no ported effect class — so
+    /// un-ported cards are unaffected.</summary>
+    public static bool RegisterCard(EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId controller)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (instanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreate(def.CardNumber, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return false;
+        }
+
+        RegisterOnEnterPlay(context, effect, def.CardNumber, new CardSource(context, instanceId, controller, instance.OwnerId));
+        return true;
+    }
+
+    /// <summary>(G6-001) Remove every binding sourced from <paramref name="instanceId"/> (the card left
+    /// play). Returns the number of bindings removed.</summary>
+    public static int UnregisterCard(EngineContext context, HeadlessEntityId instanceId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (instanceId.IsEmpty)
+        {
+            return 0;
+        }
+
+        return context.EffectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == instanceId);
+    }
 
     public static IReadOnlyList<EffectBinding> RegisterOnEnterPlay(
         EngineContext context,

@@ -143,6 +143,11 @@ public sealed class AttackPermanentAction
             payload.TargetId,
             payload.IsDirectAttack);
 
+        // G6-005: open the attack-declaration windows (subject = the attacker) so "[When Attacking]"
+        // triggers (OnAttack) and ally-attack triggers (OnAllyAttack, e.g. ST1_06) fire in a live match.
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnAttack, actor: action.PlayerId, subject: payload.AttackerId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnAllyAttack, actor: action.PlayerId, subject: payload.AttackerId);
+
         Dictionary<string, object?> metadata = Metadata(action, payload, validation, attack);
         metadata["attackIntent"] = "AttackPermanentAction";
         metadata["attackerSuspended"] = true;

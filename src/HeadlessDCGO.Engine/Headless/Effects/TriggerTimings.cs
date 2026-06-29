@@ -38,6 +38,9 @@ public static class TriggerTimings
 
     // Attack / counter / block / security check.
     public const string OnAttack = "OnUseAttack";
+    // (G6-005) Fired alongside OnAttack when a Digimon declares an attack (subject = the attacker), the
+    // window the original "[When Attacking] ..." effects (e.g. ST1_06) use.
+    public const string OnAllyAttack = "OnAllyAttack";
     public const string OnCounter = "OnCounterTiming";
     public const string OnBlock = "OnBlockAnyone";
     public const string OnSecurityCheck = "OnSecurityCheck";

@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using System.Diagnostics.CodeAnalysis;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -70,6 +71,9 @@ public sealed class PlayCardAction
         // their prior status instead (see DigivolveAction / the breeding flow). The flag is cleared at
         // the controller's Unsuspend step (HeadlessEarlyPhaseFlow).
         MarkEnteredThisTurn(context, payload.CardId);
+
+        // G6-001: auto-register the played card's ported effects (no-op for un-ported cards).
+        CardEffectRegistrar.RegisterCard(context, payload.CardId, action.PlayerId);
 
         Dictionary<string, object?> metadata = Metadata(action, payload, validation);
         metadata[HeadlessActionParameterKeys.PreviousMemory] = previousMemory.Current;
