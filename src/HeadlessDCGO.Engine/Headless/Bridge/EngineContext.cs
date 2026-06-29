@@ -218,7 +218,7 @@ public sealed class EngineContext
     /// <param name="strictUnbound">(GPT-#1 / 신1) When true, the effect scheduler treats a request with
     /// no bound effect body as a hard failure instead of a silent <c>Unbound</c> drain — a strict
     /// coverage gate for Phase 4 porting / tests. Production defaults to lenient (false).</param>
-    public static EngineContext CreateDefault(int randomSeed = 0, bool strictUnbound = false)
+    public static EngineContext CreateDefault(int randomSeed = 0, bool strictUnbound = false, bool deferredChoice = false)
     {
         GameRandomSource randomSource = new(randomSeed);
         var cardInstanceRepository = new InMemoryCardInstanceRepository();
@@ -238,15 +238,22 @@ public sealed class EngineContext
                 sinkFactory: _ => new MatchStateMutationSink(cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue),
                 strictUnbound: strictUnbound));
 
+        // G7-005: opt into the interactive DeferredChoiceProvider (suspend/resume) instead of the default
+        // immediate ScriptedChoiceProvider. The provider must share the context's choice controller.
+        var choiceController = new InMemoryHeadlessChoiceController();
+        IChoiceProvider choiceProvider = deferredChoice
+            ? new HeadlessDCGO.Engine.Headless.Runtime.DeferredChoiceProvider(choiceController)
+            : new ScriptedChoiceProvider();
+
         return new EngineContext(
-            new ScriptedChoiceProvider(),
+            choiceProvider,
             randomSource,
             new CardDatabase(),
             cardInstanceRepository,
             zoneMover,
             new InMemoryRuleQueryService(),
             new InMemoryHeadlessTurnController(),
-            new InMemoryHeadlessChoiceController(),
+            choiceController,
             new InMemoryHeadlessAttackController(),
             memoryController,
             logSink,

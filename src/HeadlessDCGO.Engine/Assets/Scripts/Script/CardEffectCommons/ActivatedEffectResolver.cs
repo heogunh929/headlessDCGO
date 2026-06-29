@@ -3,6 +3,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // (G6-002) Resolves a card's ACTIVATED effects (Option [Main] / Security skills: select-and-delete,
@@ -44,6 +45,13 @@ public static class ActivatedEffectResolver
         IReadOnlyList<HeadlessPlayerId> players = ResolvePlayers(context, controller);
         var sink = new MatchStateMutationSink(
             context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+
+        // G7-005: participate in the W7 deferred-choice cycle. With an interactive DeferredChoiceProvider,
+        // a ChooseAsync below throws DeferredChoicePendingException to SUSPEND — we then do NOT flush the
+        // (fresh, unflushed) sink or complete the cycle, so nothing is partially applied; the caller treats
+        // it as pending and re-invokes once the agent answers, when BeginResolution replays the answer.
+        var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
+        coordinator?.BeginResolution();
 
         int resolved = 0;
         foreach (ICardEffect cardEffect in effect.CardEffects(timing, card))
@@ -88,6 +96,7 @@ public static class ActivatedEffectResolver
         }
 
         await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
+        coordinator?.CompleteResolution();
         return resolved;
     }
 

@@ -27,6 +27,9 @@ public sealed class MetadataActionProcessor : IActionProcessor
             HeadlessActionTypes.NormalizedDigivolve => await new DigivolveAction()
                 .ProcessAsync(action, context, cancellationToken)
                 .ConfigureAwait(false),
+            HeadlessActionTypes.NormalizedSpecialPlay => await new SpecialPlayAction()
+                .ProcessAsync(action, context, cancellationToken)
+                .ConfigureAwait(false),
             HeadlessActionTypes.NormalizedActivateOption => await new OptionActivateAction()
                 .ProcessAsync(action, context, cancellationToken)
                 .ConfigureAwait(false),

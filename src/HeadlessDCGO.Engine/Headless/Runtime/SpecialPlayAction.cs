@@ -33,6 +33,17 @@ public sealed class SpecialPlayAction
     public const string MaterialsKey = "materials";
     public const string FusionKindKey = "specialPlayKind";
 
+    /// <summary>(G7-003) Enumerate the special plays legal right now. DigiXros/DNA recipes (which materials
+    /// satisfy a card's requirement) live in per-card effect data (AddDigiXrosConditionClass), which is not
+    /// modelled yet — so this returns nothing until that recipe data exists. The action itself is fully
+    /// pipeline-routable (MetadataActionProcessor), so a driver/recipe source can construct and run one via
+    /// <see cref="Create"/>. Kept here so the dispatcher lights up automatically once recipes are added.</summary>
+    public IReadOnlyList<LegalAction> GetLegalActions(EngineContext context, HeadlessPlayerId playerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return Array.Empty<LegalAction>();
+    }
+
     public static LegalAction Create(
         HeadlessPlayerId playerId,
         HeadlessEntityId topCardId,

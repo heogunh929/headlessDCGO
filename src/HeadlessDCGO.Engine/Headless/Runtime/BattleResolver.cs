@@ -40,6 +40,11 @@ public sealed class BattleResolver
             return BattleResolutionResult.Failure(validationFailure, attack);
         }
 
+        // G7-006: open the OnStartBattle window for each participant before the DP comparison
+        // ("[When battling] / [On Start of Battle]" effects).
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartBattle, actor: attacker!.OwnerId, subject: attacker!.InstanceId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartBattle, actor: attacker!.OwnerId, subject: defender!.InstanceId);
+
         // G3.5-RL-C2: who is deleted is the DP comparison adjusted by battle keywords.
         int comparison = CompareBattleStats(attacker!, defender!);
         var deleted = new List<BattleParticipant>();

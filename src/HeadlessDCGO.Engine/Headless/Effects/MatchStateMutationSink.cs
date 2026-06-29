@@ -485,6 +485,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         HeadlessPlayerId owner = record.OwnerId;
         _pendingAsync.Add(ct => move(zoneMover, owner, targetId, ct));
+        // G7-001: the card is leaving its current zone (bounce / return-to-deck / security / trash) — drop
+        // the continuous/trigger bindings it auto-registered while in play. Critical for player-scope
+        // effects (e.g. a Tamer's "your Digimon +1000 DP"), which CollectApplicable matches by owner only
+        // and would otherwise keep applying after the source has left. No-op for cards that had none.
+        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
     }
 

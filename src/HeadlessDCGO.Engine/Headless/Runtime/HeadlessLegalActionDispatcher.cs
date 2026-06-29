@@ -55,6 +55,7 @@ public sealed class HeadlessLegalActionDispatcher
             HeadlessPhase.Main => new[] { HeadlessActionFactory.Pass(playerId) }
                 .Concat(new PlayCardAction().GetLegalActions(context, playerId))
                 .Concat(new DigivolveAction().GetLegalActions(context, playerId))
+                .Concat(new SpecialPlayAction().GetLegalActions(context, playerId))
                 .Concat(new OptionActivateAction().GetLegalActions(context, playerId))
                 .Concat(new AttackPermanentAction().GetLegalActions(context, playerId))
                 .ToArray(),

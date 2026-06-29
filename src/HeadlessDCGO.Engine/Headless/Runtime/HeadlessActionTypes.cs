@@ -41,6 +41,7 @@ public static class HeadlessActionTypes
     public const string NormalizedCheat = "CHEAT";
     public const string NormalizedPlayCard = "PLAYCARD";
     public const string NormalizedDigivolve = "DIGIVOLVE";
+    public const string NormalizedSpecialPlay = "SPECIALPLAY";
     public const string NormalizedActivateOption = "ACTIVATEOPTION";
     public const string NormalizedSetTerminal = "SETTERMINAL";
     public const string NormalizedClearTerminal = "CLEARTERMINAL";

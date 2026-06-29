@@ -22,7 +22,8 @@ cd "$(dirname "$0")/.."
 
 filter="${1:-}"
 cpu=$(nproc 2>/dev/null || echo 4)
-jobs="${JOBS:-$cpu}"
+# Run phase is safe (launches prebuilt exes) but capped at 10 by default to keep machine load sane.
+jobs="${JOBS:-$(( cpu < 10 ? cpu : 10 ))}"
 # Builds are the corruption-prone step → keep their parallelism modest regardless of core count.
 build_jobs="${BUILD_JOBS:-$(( cpu < 6 ? cpu : 6 ))}"
 [ "$jobs" -lt 1 ] 2>/dev/null && jobs=1

@@ -41,6 +41,11 @@ public static class TriggerTimings
     // (G6-005) Fired alongside OnAttack when a Digimon declares an attack (subject = the attacker), the
     // window the original "[When Attacking] ..." effects (e.g. ST1_06) use.
     public const string OnAllyAttack = "OnAllyAttack";
+    // (G7-006) Fired for each participant when a battle begins, before the DP comparison — the window for
+    // "[When battling] / [On Start of Battle]" effects. (Other combat-detail timings — OnGetDamage,
+    // OnAttackTargetChanged, OnEndBlockDesignation, OnDeclaration, OnUseDigiburst — follow this same
+    // one-line emit pattern when a card group requires them.)
+    public const string OnStartBattle = "OnStartBattle";
     public const string OnCounter = "OnCounterTiming";
     public const string OnBlock = "OnBlockAnyone";
     public const string OnSecurityCheck = "OnSecurityCheck";

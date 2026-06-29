@@ -62,17 +62,34 @@ public static class CardBaseEntityLoader
 
     private static CardRecord ToRecord(CardJsonDto dto)
     {
+        string[] colors = dto.Colors is { Length: > 0 } ? dto.Colors : new[] { dto.Color };
         var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["set"] = dto.Set,
-            ["color"] = dto.Color,
+            ["color"] = colors.Length > 0 ? colors[0] : dto.Color,
+            ["colors"] = colors,
             ["level"] = dto.Level,
             ["dp"] = dto.Dp,
         };
+        if (dto.Types is { Length: > 0 }) metadata["types"] = dto.Types;
+        if (dto.Attributes is { Length: > 0 }) metadata["attributes"] = dto.Attributes;
+        if (dto.Forms is { Length: > 0 }) metadata["forms"] = dto.Forms;
         if (!string.IsNullOrWhiteSpace(dto.Effect)) metadata["effect"] = dto.Effect;
         if (!string.IsNullOrWhiteSpace(dto.InheritedEffect)) metadata["inheritedEffect"] = dto.InheritedEffect;
         if (!string.IsNullOrWhiteSpace(dto.SecurityEffect)) metadata["securityEffect"] = dto.SecurityEffect;
         if (!string.IsNullOrWhiteSpace(dto.EffectClass)) metadata["effectClass"] = dto.EffectClass;
+
+        // Evolution conditions: each "from color @ level : cost". Stored structurally in metadata and as a
+        // compact string on CardRecord.EvolutionCondition.
+        string? evolutionCondition = null;
+        if (dto.EvolutionConditions is { Count: > 0 })
+        {
+            string[] encoded = dto.EvolutionConditions
+                .Select(e => $"{e.Color}@{e.Level}:{e.Cost}")
+                .ToArray();
+            metadata["evolutionConditions"] = encoded;
+            evolutionCondition = string.Join(";", encoded);
+        }
 
         return new CardRecord(
             new HeadlessEntityId(dto.CardNumber),
@@ -81,7 +98,8 @@ public static class CardBaseEntityLoader
             metadata,
             CardType: string.IsNullOrWhiteSpace(dto.CardType) ? null : dto.CardType,
             PlayCost: dto.PlayCost,
-            EvolutionCost: dto.EvolutionCost);
+            EvolutionCost: dto.EvolutionCost,
+            EvolutionCondition: evolutionCondition);
     }
 
     public sealed class CardJsonDto
@@ -91,13 +109,25 @@ public static class CardBaseEntityLoader
         [JsonPropertyName("cardType")] public string CardType { get; set; } = string.Empty;
         [JsonPropertyName("set")] public string Set { get; set; } = string.Empty;
         [JsonPropertyName("color")] public string Color { get; set; } = string.Empty;
+        [JsonPropertyName("colors")] public string[] Colors { get; set; } = Array.Empty<string>();
         [JsonPropertyName("level")] public int Level { get; set; }
         [JsonPropertyName("playCost")] public int? PlayCost { get; set; }
         [JsonPropertyName("evolutionCost")] public int? EvolutionCost { get; set; }
+        [JsonPropertyName("evolutionConditions")] public List<EvoCostDto> EvolutionConditions { get; set; } = new();
         [JsonPropertyName("dp")] public int Dp { get; set; }
+        [JsonPropertyName("types")] public string[] Types { get; set; } = Array.Empty<string>();
+        [JsonPropertyName("attributes")] public string[] Attributes { get; set; } = Array.Empty<string>();
+        [JsonPropertyName("forms")] public string[] Forms { get; set; } = Array.Empty<string>();
         [JsonPropertyName("effect")] public string? Effect { get; set; }
         [JsonPropertyName("inheritedEffect")] public string? InheritedEffect { get; set; }
         [JsonPropertyName("securityEffect")] public string? SecurityEffect { get; set; }
         [JsonPropertyName("effectClass")] public string? EffectClass { get; set; }
+    }
+
+    public sealed class EvoCostDto
+    {
+        [JsonPropertyName("color")] public string Color { get; set; } = string.Empty;
+        [JsonPropertyName("level")] public int Level { get; set; }
+        [JsonPropertyName("cost")] public int Cost { get; set; }
     }
 }

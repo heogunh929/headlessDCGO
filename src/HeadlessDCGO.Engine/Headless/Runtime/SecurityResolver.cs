@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using System.Globalization;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -136,6 +137,12 @@ public sealed class SecurityResolver
                 TriggerTimings.OnSecurityCheck,
                 actor: defendingPlayerId,
                 subject: checkedCardId);
+
+            // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
+            // security skill). No-op for cards with no ported SecuritySkill effect.
+            await ActivatedEffectResolver
+                .ResolveAsync(context, checkedCardId, defendingPlayerId, EffectTiming.SecuritySkill, cancellationToken)
+                .ConfigureAwait(false);
 
             // W5: a revealed security Digimon battles the attacker. The security card is trashed by the
             // check regardless (already moved above); the only persistent outcome is the attacker's

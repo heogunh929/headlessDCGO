@@ -44,10 +44,15 @@ foreach (string file in Directory.EnumerateFiles(root, "*.asset", SearchOption.A
         cardType = kind >= 0 && kind < cardTypes.Length ? cardTypes[kind] : "Unknown",
         set = set,
         color = color,
+        colors = Colors(lines),
         level = Int(lines, "Level") ?? 0,
         playCost = playCost < 0 ? null : playCost,
         evolutionCost = FirstEvoCost(lines),
+        evolutionConditions = EvoCostList(lines),
         dp = Int(lines, "DP") ?? 0,
+        types = Sequence(lines, "Type_ENG"),
+        attributes = Sequence(lines, "Attribute_ENG"),
+        forms = Sequence(lines, "Form_ENG"),
         effect = Multiline(lines, "EffectDiscription_ENG"),
         inheritedEffect = Multiline(lines, "InheritedEffectDiscription_ENG"),
         securityEffect = Multiline(lines, "SecurityEffectDiscription_ENG"),
@@ -105,6 +110,110 @@ static int HexByte0(string? hex)
 
     return int.TryParse(hex.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int b) ? b : -1;
 }
+
+// Color enum order (matches the folder layout / standard Digimon TCG ordering).
+static string ColorName(int index)
+{
+    string[] names = { "Red", "Blue", "Yellow", "Green", "Black", "Purple", "White" };
+    return index >= 0 && index < names.Length ? names[index] : $"Color{index}";
+}
+
+// cardColors is one or more concatenated 4-byte little-endian ints; each chunk's first byte is a color
+// index. Multi-color cards have multiple chunks (e.g. "0000000002000000" -> Red + Yellow).
+static string[] Colors(string[] lines)
+{
+    string? hex = Scalar(lines, "cardColors");
+    if (string.IsNullOrWhiteSpace(hex))
+    {
+        return Array.Empty<string>();
+    }
+
+    var colors = new List<string>();
+    for (int i = 0; i + 8 <= hex.Length; i += 8)
+    {
+        if (int.TryParse(hex.AsSpan(i, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int idx))
+        {
+            string name = ColorName(idx);
+            if (!colors.Contains(name))
+            {
+                colors.Add(name);
+            }
+        }
+    }
+
+    return colors.ToArray();
+}
+
+// Read a YAML block sequence ("  Key:" then "  - item" lines) into a string array; "[]" -> empty.
+static string[] Sequence(string[] lines, string key)
+{
+    int i = FindKey(lines, key);
+    if (i < 0)
+    {
+        return Array.Empty<string>();
+    }
+
+    var items = new List<string>();
+    for (int j = i + 1; j < lines.Length; j++)
+    {
+        if (Regex.IsMatch(lines[j], @"^  [^ -]"))
+        {
+            break; // next top-level field
+        }
+
+        string t = lines[j].TrimStart();
+        if (t.StartsWith("- ", StringComparison.Ordinal))
+        {
+            string v = Clean(t[2..]);
+            if (v.Length > 0)
+            {
+                items.Add(v);
+            }
+        }
+    }
+
+    return items.ToArray();
+}
+
+// Full EvoCosts list: each entry is { CardColor, Level, MemoryCost }.
+static List<EvoCostJson> EvoCostList(string[] lines)
+{
+    int i = FindKey(lines, "EvoCosts");
+    var result = new List<EvoCostJson>();
+    if (i < 0)
+    {
+        return result;
+    }
+
+    EvoCostJson? current = null;
+    for (int j = i + 1; j < lines.Length; j++)
+    {
+        if (Regex.IsMatch(lines[j], @"^  [^ -]"))
+        {
+            break; // next top-level field (e.g. the card's own Level)
+        }
+
+        string t = lines[j].TrimStart();
+        if (t.StartsWith("- CardColor:", StringComparison.Ordinal))
+        {
+            if (current is not null) result.Add(current);
+            current = new EvoCostJson { color = ColorName(ParseInt(t["- CardColor:".Length..])) };
+        }
+        else if (current is not null && t.StartsWith("Level:", StringComparison.Ordinal))
+        {
+            current.level = ParseInt(t["Level:".Length..]);
+        }
+        else if (current is not null && t.StartsWith("MemoryCost:", StringComparison.Ordinal))
+        {
+            current.cost = ParseInt(t["MemoryCost:".Length..]);
+        }
+    }
+
+    if (current is not null) result.Add(current);
+    return result;
+}
+
+static int ParseInt(string s) => int.TryParse(s.Trim(), out int v) ? v : 0;
 
 static int? FirstEvoCost(string[] lines)
 {
@@ -182,12 +291,24 @@ sealed class CardJson
     public string cardType { get; set; } = string.Empty;
     public string set { get; set; } = string.Empty;
     public string color { get; set; } = string.Empty;
+    public string[] colors { get; set; } = Array.Empty<string>();
     public int level { get; set; }
     public int? playCost { get; set; }
     public int? evolutionCost { get; set; }
+    public List<EvoCostJson> evolutionConditions { get; set; } = new();
     public int dp { get; set; }
+    public string[] types { get; set; } = Array.Empty<string>();
+    public string[] attributes { get; set; } = Array.Empty<string>();
+    public string[] forms { get; set; } = Array.Empty<string>();
     public string? effect { get; set; }
     public string? inheritedEffect { get; set; }
     public string? securityEffect { get; set; }
     public string? effectClass { get; set; }
+}
+
+sealed class EvoCostJson
+{
+    public string color { get; set; } = string.Empty;
+    public int level { get; set; }
+    public int cost { get; set; }
 }

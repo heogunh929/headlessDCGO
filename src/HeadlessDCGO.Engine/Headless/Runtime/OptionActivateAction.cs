@@ -70,9 +70,25 @@ public sealed class OptionActivateAction
         // G6-002: resolve the option's ported [Main] activated effect (select-and-act / buff) via the
         // engine's choice provider. Only fall back to the legacy scheduler enqueue when the card has no
         // ported activated effect (un-ported / bound-effect cards keep the original path).
-        int activated = await ActivatedEffectResolver
-            .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OptionSkill, cancellationToken)
-            .ConfigureAwait(false);
+        int activated;
+        try
+        {
+            activated = await ActivatedEffectResolver
+                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OptionSkill, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (DeferredChoicePendingException ex)
+        {
+            // G7-005: the activated effect asked the agent for a choice (interactive provider). The cost
+            // has been paid and the card moved; the choice is registered on the controller. Surface a
+            // pending result instead of crashing. (Full action-level resume — re-resolving without
+            // re-paying — is the remaining loop-integration step; the immediate-provider path completes
+            // synchronously above.)
+            Dictionary<string, object?> pending = Metadata(action, payload, validation);
+            pending["pendingChoice"] = true;
+            pending["pendingChoiceMessage"] = ex.Message;
+            return ActionProcessResult.Success("Option activated; awaiting choice.", pending);
+        }
 
         if (activated == 0)
         {
