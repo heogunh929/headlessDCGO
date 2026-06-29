@@ -42,6 +42,7 @@ public enum EffectTiming
     OnDestroyedAnyone,
     OnAllyAttack,
     OnBlockAnyone,
+    OnStartTurn,
 
     // Player-activated abilities (NOT auto-registered on enter-play; activation flow is Wave 3).
     OptionSkill,
@@ -306,7 +307,7 @@ public sealed class Permanent
 /// </summary>
 public sealed class PlayerScopeModifierEffect : ICardEffect
 {
-    public PlayerScopeModifierEffect(CardSource card, string deltaKey, int changeValue, string? scopeCardType, Func<bool>? condition)
+    public PlayerScopeModifierEffect(CardSource card, string deltaKey, int changeValue, string? scopeCardType, Func<bool>? condition, string? scopeZone = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(deltaKey);
@@ -315,6 +316,7 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
         ChangeValue = changeValue;
         ScopeCardType = scopeCardType;
         Condition = condition;
+        ScopeZone = scopeZone;
     }
 
     public CardSource Card { get; }
@@ -326,6 +328,8 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
     public string? ScopeCardType { get; }
 
     public Func<bool>? Condition { get; }
+
+    public string? ScopeZone { get; }
 
     public EffectBinding ToBinding(string effectId)
     {
@@ -339,6 +343,11 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
         if (!string.IsNullOrWhiteSpace(ScopeCardType))
         {
             values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ScopeZone))
+        {
+            values[PlayerScopeContinuousHelpers.ScopeZoneKey] = ScopeZone;
         }
 
         if (Condition is not null)
@@ -595,7 +604,9 @@ public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect
 /// </summary>
 public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
 {
-    public ActivatedPlayerScopeBuffEffect(CardSource card, string deltaKey, int changeValue, EffectDuration duration, string scopeCardType, string description, string? scopeZone = null)
+    private readonly HeadlessPlayerId _scopePlayerId;
+
+    public ActivatedPlayerScopeBuffEffect(CardSource card, string deltaKey, int changeValue, EffectDuration duration, string scopeCardType, string description, string? scopeZone = null, HeadlessPlayerId? scopePlayerId = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(deltaKey);
@@ -607,6 +618,7 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
         ScopeCardType = scopeCardType;
         ScopeZone = scopeZone;
         Description = description;
+        _scopePlayerId = scopePlayerId ?? card.Owner;
     }
 
     public CardSource Card { get; }
@@ -628,7 +640,7 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
         var values = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = Card.Owner.Value,
+            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
             [DeltaKey] = ChangeValue,
         };
         if (!string.IsNullOrWhiteSpace(ScopeCardType))
@@ -644,13 +656,380 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
         var context = new EffectContext(
             Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
         var binding = new EffectBinding(
-            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:pscopebuff:{DeltaKey}"), Card.Controller, "Continuous", context),
+            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:pscopebuff:{DeltaKey}:{ScopeZone ?? "battle"}:{_scopePlayerId.Value}"), Card.Controller, "Continuous", context),
             keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }, effect: null, duration: Duration);
         Card.Context.EffectRegistry.Register(binding);
     }
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated player-scope buff is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// A triggered "[When ...] unsuspend this Digimon" effect (the common ActivateClass IUnsuspendPermanents
+/// form, e.g. ST2_11). Auto-registered under its trigger timing; on resolution emits an Unsuspend mutation
+/// on the source card. (The original's [Once Per Turn] gate maps to the once-flag subsystem; the headless
+/// emission is unconditional for now — a 1:1 relaxation, like the threshold relaxations in ST1.)
+/// </summary>
+public sealed class TriggeredUnsuspendSelfEffect : ICardEffect, IHeadlessCardEffect
+{
+    public TriggeredUnsuspendSelfEffect(CardSource card, EffectTiming timing, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:unsuspendself:{trigger}"), card.InstanceId, description, trigger, isOptional: true);
+    }
+
+    public CardSource Card { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.UnsuspendKind,
+            Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
+        return ValueTask.FromResult(EffectResult.Success("Unsuspend this Digimon."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
+}
+
+/// <summary>
+/// An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
+/// <paramref name="trashCount"/> of each host's digivolution cards" effect (e.g. ST2_03 / ST2_06 / ST2_09).
+/// Resolved imperatively (BuildRequest → answer → Apply); Apply emits a TrashDigivolutionCards mutation
+/// (host = selected target) for each chosen host.
+/// </summary>
+public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect
+{
+    private readonly SelectPermanentEffect _select = new();
+    private readonly int _trashCount;
+    private readonly bool _fromBottom;
+
+    public ActivatedSelectTrashDigivolutionEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+        _trashCount = trashCount;
+        _fromBottom = fromBottom;
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId);
+        _select.SetUpCustomMessage(description);
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
+        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
+
+    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(selected);
+        foreach (HeadlessEntityId host in selected)
+        {
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.TrashDigivolutionCardsKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
+                    [MatchStateMutationSink.CountKey] = _trashCount,
+                    [MatchStateMutationSink.FromBottomKey] = _fromBottom,
+                }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Activated trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// An activated "gain/lose N memory" effect for player-activated skills (Option [Main] / [Security], e.g.
+/// ST2_13). Resolved imperatively; <see cref="Apply"/> emits an AddMemory mutation.
+/// </summary>
+public sealed class ActivatedMemoryEffect : IActivatedCardEffect
+{
+    public ActivatedMemoryEffect(CardSource card, int amount, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Amount = amount;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Activated memory effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack and/or
+/// block for a <see cref="EffectDuration"/>" effect (e.g. ST2_14). <see cref="ApplyRestriction"/> registers
+/// one duration-tagged restriction binding per chosen target, queried by <c>RestrictionHelpers</c> via the
+/// continuous-restriction scope, so <see cref="EffectDurationExpiry"/> removes it on expiry.
+/// </summary>
+public sealed class ActivatedTargetRestrictionEffect : IActivatedCardEffect
+{
+    private readonly SelectPermanentEffect _select = new();
+    private readonly EffectDuration _duration;
+    private readonly bool _cannotAttack;
+    private readonly bool _cannotBlock;
+
+    public ActivatedTargetRestrictionEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, EffectDuration duration, bool cannotAttack, bool cannotBlock, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+        _duration = duration;
+        _cannotAttack = cannotAttack;
+        _cannotBlock = cannotBlock;
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId);
+        _select.SetUpCustomMessage(description);
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
+        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
+
+    public void ApplyRestriction(IEnumerable<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        int index = 0;
+        foreach (HeadlessEntityId target in selected)
+        {
+            var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [RestrictionHelpers.RestrictionTargetEntityIdKey] = target.Value,
+                [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
+            };
+            if (_cannotAttack)
+            {
+                values[RestrictionHelpers.CannotAttackKey] = true;
+            }
+
+            if (_cannotBlock)
+            {
+                values[RestrictionHelpers.CannotBlockKey] = true;
+            }
+
+            var context = new EffectContext(
+                Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { target }, values: values);
+            var binding = new EffectBinding(
+                new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:restrict:{target.Value}:{index++}"), Card.Controller, "Continuous", context),
+                keywords: null, EffectQueryRole.Restriction, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: _duration);
+            Card.Context.EffectRegistry.Register(binding);
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Activated restriction effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// A triggered "[When ...] this Digimon gets +X DP for a <see cref="EffectDuration"/>" effect (e.g. ST3_01
+/// "when an opponent's Digimon is deleted by 0 DP, this Digimon gets +1000 DP for the turn"). On resolution
+/// it registers one duration-tagged self DP-modifier binding, folded in by the continuous gate and removed
+/// by <see cref="EffectDurationExpiry"/>. Auto-registered under its trigger timing. (The original's
+/// [Once Per Turn] / 0-DP-delete gates map to the once-flag / trigger subsystems — relaxed here, like ST2_11.)
+/// </summary>
+public sealed class TriggeredSelfDpBuffEffect : ICardEffect, IHeadlessCardEffect
+{
+    private readonly int _changeValue;
+    private readonly EffectDuration _duration;
+    private readonly Func<bool>? _condition;
+
+    public TriggeredSelfDpBuffEffect(CardSource card, EffectTiming timing, int changeValue, EffectDuration duration, Func<bool>? condition, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _changeValue = changeValue;
+        _duration = duration;
+        _condition = condition;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:selfdpbuff:{trigger}"), card.InstanceId, description, trigger, isOptional: true);
+    }
+
+    public CardSource Card { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
+    {
+        if (_condition is not null && !_condition())
+        {
+            return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        return CardEffectCanResolveResult.Success();
+    }
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CanResolve(context).CanResolve)
+        {
+            return ValueTask.FromResult(EffectResult.Failure("Cannot resolve."));
+        }
+
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [ModifierHelpers.DpDeltaKey] = _changeValue };
+        var bindingContext = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        var binding = new EffectBinding(
+            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:selfdpbuff:applied:{_changeValue}"), Card.Controller, "Continuous", bindingContext),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }, effect: null, duration: _duration);
+        Card.Context.EffectRegistry.Register(binding);
+        return ValueTask.FromResult(EffectResult.Success($"This Digimon gets {(_changeValue >= 0 ? "+" : string.Empty)}{_changeValue} DP."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
+}
+
+/// <summary>
+/// A triggered "[When ...] &lt;Recovery +N (Deck)&gt;" effect (e.g. ST3_09): on resolution emits a Recover
+/// mutation moving the top <paramref name="amount"/> deck card(s) onto the owner's security stack.
+/// </summary>
+public sealed class RecoverTriggerEffect : ICardEffect, IHeadlessCardEffect
+{
+    private readonly int _amount;
+    private readonly Func<bool>? _condition;
+
+    public RecoverTriggerEffect(CardSource card, EffectTiming timing, int amount, Func<bool>? condition, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _amount = amount;
+        _condition = condition;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:recover:{trigger}"), card.InstanceId, description, trigger, isOptional: true);
+    }
+
+    public CardSource Card { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
+    {
+        if (_condition is not null && !_condition())
+        {
+            return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        return CardEffectCanResolveResult.Success();
+    }
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CanResolve(context).CanResolve)
+        {
+            return ValueTask.FromResult(EffectResult.Failure("Cannot resolve."));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.RecoverKind,
+            Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.PlayerIdKey] = Card.Owner.Value,
+                [MatchStateMutationSink.CountKey] = _amount,
+            }));
+        return ValueTask.FromResult(EffectResult.Success($"Recovery +{_amount}."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
+}
+
+/// <summary>
+/// An activated "add this card to its owner's hand" effect (Option/Security self-bounce, e.g. ST3_13 /
+/// ST3_14 [Security]). <see cref="Apply"/> emits a ReturnToHand mutation on the source card.
+/// </summary>
+public sealed class AddThisCardToHandEffect : IActivatedCardEffect
+{
+    public AddThisCardToHandEffect(CardSource card, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ReturnToHandKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Add-to-hand effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>
@@ -737,6 +1116,75 @@ public static class CardEffectFactory
     public static ICardEffect PlayerScopeBuffSecurityDpEffect(
         CardSource card, int changeValue, EffectDuration duration, string description) =>
         new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopeZone: "Security");
+
+    /// <summary>An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
+    /// <paramref name="trashCount"/> of each host's digivolution cards from the bottom/top" effect
+    /// (e.g. ST2_03 / ST2_06 / ST2_09).</summary>
+    public static ICardEffect SelectAndTrashDigivolutionEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description) =>
+        new ActivatedSelectTrashDigivolutionEffect(card, canTarget, maxCount, trashCount, fromBottom, description);
+
+    /// <summary>A triggered "[When ...] unsuspend this Digimon" effect (e.g. ST2_11).</summary>
+    public static ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description) =>
+        new TriggeredUnsuspendSelfEffect(card, timing, description);
+
+    /// <summary>An activated "gain/lose <paramref name="amount"/> memory" skill (Option [Main] / [Security],
+    /// e.g. ST2_13).</summary>
+    public static ICardEffect GainMemoryActivatedEffect(CardSource card, int amount, string description) =>
+        new ActivatedMemoryEffect(card, amount, description);
+
+    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and return each to its owner's
+    /// hand" effect (Option [Main] bounce, e.g. ST2_16).</summary>
+    public static ICardEffect SelectAndBounceEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
+        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, description);
+
+    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack
+    /// and/or block for <paramref name="duration"/>" effect (e.g. ST2_14).</summary>
+    public static ICardEffect SelectAndRestrictEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, EffectDuration duration, bool cannotAttack, bool cannotBlock, string description) =>
+        new ActivatedTargetRestrictionEffect(card, canTarget, maxCount, duration, cannotAttack, cannotBlock, description);
+
+    /// <summary>A triggered "[When ...] this Digimon gets +<paramref name="changeValue"/> DP for
+    /// <paramref name="duration"/>" effect (e.g. ST3_01).</summary>
+    public static ICardEffect SelfDpBuffTriggerEffect(EffectTiming timing, int changeValue, EffectDuration duration, CardSource card, Func<bool>? condition, string description) =>
+        new TriggeredSelfDpBuffEffect(card, timing, changeValue, duration, condition, description);
+
+    /// <summary>A triggered "[When ...] &lt;Recovery +<paramref name="amount"/> (Deck)&gt;" effect (e.g. ST3_09).</summary>
+    public static ICardEffect RecoveryTriggerEffect(EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description) =>
+        new RecoverTriggerEffect(card, timing, amount, condition, description);
+
+    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and give each
+    /// +<paramref name="changeValue"/> Security Attack for <paramref name="duration"/>" effect (e.g. ST3_15 [Main]).</summary>
+    public static ICardEffect SelectAndBuffSAttackEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description) =>
+        new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, description);
+
+    /// <summary>An activated "all your Digimon get +<paramref name="changeValue"/> DP for
+    /// <paramref name="duration"/>" player-scope effect (e.g. ST3_13 [Security]).</summary>
+    public static ICardEffect PlayerScopeBuffDpEffect(
+        CardSource card, int changeValue, EffectDuration duration, string description) =>
+        new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description);
+
+    /// <summary>An activated "all of your opponent's Digimon get +<paramref name="changeValue"/> Security
+    /// Attack for <paramref name="duration"/>" player-scope effect, scoped to <paramref name="opponentId"/>
+    /// (e.g. ST3_15 [Security] "all opponent Digimon gain Security Attack -1").</summary>
+    public static ICardEffect OpponentScopeBuffSAttackEffect(
+        CardSource card, int changeValue, EffectDuration duration, HeadlessPlayerId opponentId, string description) =>
+        new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopePlayerId: opponentId);
+
+    /// <summary>Original: <c>ChangeSecurityDigimonCardDPStaticEffect</c> — continuous ±DP on the owner's
+    /// Security-zone Digimon, optionally conditional (e.g. ST3_12 "your Security Digimon get +2000 DP on the
+    /// opponent's turn"). <paramref name="cardCondition"/> / <paramref name="effectName"/> are accepted for
+    /// source fidelity; the owner + Security-zone scope handles targeting.</summary>
+    public static ICardEffect ChangeSecurityDigimonCardDPStaticEffect(
+        Func<CardSource, bool> cardCondition,
+        int changeValue,
+        bool isInheritedEffect,
+        CardSource card,
+        Func<bool>? condition,
+        string? effectName = null) =>
+        new PlayerScopeModifierEffect(card, ModifierHelpers.DpDeltaKey, changeValue, scopeCardType: "Digimon", condition, scopeZone: "Security");
 }
 
 /// <summary>
@@ -750,6 +1198,13 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         return TurnOwnershipHelpers.IsOwnerTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
+    }
+
+    /// <summary>It is the opponent's turn.</summary>
+    public static bool IsOpponentTurn(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return TurnOwnershipHelpers.IsOpponentTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
     }
 
     /// <summary>The card is part of a battle-area permanent (as the top card or a buried source).</summary>
@@ -852,6 +1307,113 @@ public static class CardEffectCommons
         ArgumentNullException.ThrowIfNull(cardEffects);
         cardEffects.Add(new ReuseMainOptionEffect(effectName));
     }
+
+    /// <summary>Mirror of the original <c>Permanent.HasNoDigivolutionCards</c> (entity-id form): the
+    /// battle-area permanent topped by <paramref name="id"/> has no digivolution (under) cards.</summary>
+    public static bool HasNoDigivolutionCards(CardSource card, HeadlessEntityId id)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (id.IsEmpty)
+        {
+            return false;
+        }
+
+        DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, id);
+        return stack.UnderCards.Count == 0;
+    }
+
+    /// <summary>Mirror of the original <c>Permanent.Level</c> (entity-id form): the printed level of the
+    /// battle-area card topped by <paramref name="id"/> (0 when unknown), read from instance/def metadata.</summary>
+    public static int LevelOf(CardSource card, HeadlessEntityId id)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
+        {
+            return 0;
+        }
+
+        return ReadLevel(instance.Metadata)
+            ?? (card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
+                ? ReadLevel(def.Metadata) ?? 0
+                : 0);
+    }
+
+    private static int? ReadLevel(IReadOnlyDictionary<string, object?> metadata)
+    {
+        foreach (string key in new[] { "level", "Level" })
+        {
+            if (metadata.TryGetValue(key, out object? raw))
+            {
+                if (raw is int i) return i;
+                if (raw is long l) return (int)l;
+                if (raw is string s && int.TryParse(s, out int p)) return p;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Mirror of the original <c>HasMatchConditionOpponentsPermanent</c> (entity-id predicate form):
+    /// the opponent has at least one battle-area Digimon matching <paramref name="condition"/>.</summary>
+    public static bool HasMatchConditionOpponentsPermanent(CardSource card, Func<HeadlessEntityId, bool> condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(condition);
+        foreach (HeadlessEntityId id in OpponentBattleAreaDigimon(card))
+        {
+            if (condition(id))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Mirror of the original <c>card.Owner.SecurityCards.Count</c>: the number of cards in the
+    /// owner's security stack (used by security-count conditions, e.g. ST3_05 "4 or more", ST3_09 "3 or less").</summary>
+    public static int SecurityCount(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security).Count;
+    }
+
+    /// <summary>The opponent player id (the first player in turn order that is not the card owner). Empty
+    /// when there is no distinct opponent (e.g. uninitialized turn order).</summary>
+    public static HeadlessPlayerId OpponentOf(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
+        {
+            if (player != card.Owner)
+            {
+                return player;
+            }
+        }
+
+        return default;
+    }
+
+    /// <summary>The opponent's battle-area Digimon top cards (entity ids).</summary>
+    private static IEnumerable<HeadlessEntityId> OpponentBattleAreaDigimon(CardSource card)
+    {
+        var zones = (IZoneStateReader)card.Context.ZoneMover;
+        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
+        {
+            if (player == card.Owner)
+            {
+                continue;
+            }
+
+            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
+            {
+                if (IsOpponentBattleAreaDigimon(card, id))
+                {
+                    yield return id;
+                }
+            }
+        }
+    }
 }
 
 /// <summary>
@@ -895,6 +1457,32 @@ public static class CardEffectDispatch
         effect = (CEntity_Effect)Activator.CreateInstance(type)!;
         return true;
     }
+
+    /// <summary>
+    /// Resolves a card's effect class honoring the <c>effectClass</c> alias. cards.json carries an
+    /// <c>effectClass</c> per card which is authoritative: for most cards it equals the card number, but
+    /// alias cards (e.g. ST2_07 / ST3_07 reuse <c>ST1_06</c>, and every alternate-art reprint <c>*_P2</c>
+    /// reuses its base) point at another class. When the metadata carries a non-empty effectClass we resolve
+    /// by it exclusively (an un-ported alias is a no-op, like an un-ported card); otherwise we fall back to
+    /// the card number — so test-constructed records without effectClass metadata behave exactly as before.
+    /// </summary>
+    public static bool TryCreateForCard(CardRecord def, out CEntity_Effect? effect)
+    {
+        effect = null;
+        if (def is null)
+        {
+            return false;
+        }
+
+        if (def.Metadata.TryGetValue("effectClass", out object? raw)
+            && raw is string alias
+            && !string.IsNullOrWhiteSpace(alias))
+        {
+            return TryCreate(alias, out effect);
+        }
+
+        return TryCreate(def.CardNumber, out effect);
+    }
 }
 
 /// <summary>
@@ -916,6 +1504,7 @@ public static class CardEffectRegistrar
         EffectTiming.OnDestroyedAnyone,
         EffectTiming.OnAllyAttack,
         EffectTiming.OnBlockAnyone,
+        EffectTiming.OnStartTurn,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the
@@ -929,7 +1518,7 @@ public static class CardEffectRegistrar
             || instance is null
             || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
             || def is null
-            || !CardEffectDispatch.TryCreate(def.CardNumber, out CEntity_Effect? effect)
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
             || effect is null)
         {
             return false;

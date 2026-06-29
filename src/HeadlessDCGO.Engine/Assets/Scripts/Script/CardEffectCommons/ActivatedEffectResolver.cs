@@ -35,7 +35,7 @@ public static class ActivatedEffectResolver
             || instance is null
             || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
             || def is null
-            || !CardEffectDispatch.TryCreate(def.CardNumber, out CEntity_Effect? effect)
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
             || effect is null)
         {
             return 0;
