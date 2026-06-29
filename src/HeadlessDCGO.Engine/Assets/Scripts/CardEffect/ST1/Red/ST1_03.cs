@@ -1,7 +1,39 @@
 // Source: Assets/Scripts/CardEffect/ST1/Red/ST1_03.cs
 // Decision: PORT
 // Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Migration: Ported per-card effect (Phase 1, ST1 wave 1).
+//
+// 1:1 mirror of the original ST1_03: inherited [Your Turn] DP +1000.
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
+
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public sealed class ST1_03 : CEntity_Effect
+{
+    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.None)
+        {
+            bool Condition()
+            {
+                if (CardEffectCommons.IsOwnerTurn(card))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(
+                changeValue: 1000,
+                isInheritedEffect: true,
+                card: card,
+                condition: Condition));
+        }
+
+        return cardEffects;
+    }
+}

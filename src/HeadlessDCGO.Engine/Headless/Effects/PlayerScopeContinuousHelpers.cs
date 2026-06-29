@@ -30,15 +30,23 @@ public static class PlayerScopeContinuousHelpers
     /// <summary>...with this (string-compared) value.</summary>
     public const string ScopeMetaValueKey = "scopeMetaValue";
 
+    /// <summary>Optional condition: the card must currently be in this zone (zone name, case-insensitive),
+    /// e.g. "Security" for "your Security Digimon get +X DP". When set, the effect only applies if the
+    /// evaluated card's zone is known and matches.</summary>
+    public const string ScopeZoneKey = "scopeZone";
+
     /// <summary>
     /// Collect the player-scope continuous effects that apply to <paramref name="card"/> owned by
     /// <paramref name="cardOwner"/>: marked player-scope, scoped to that owner, and condition-matched.
+    /// <paramref name="cardZoneName"/> is the evaluated card's current zone (for <see cref="ScopeZoneKey"/>
+    /// filtering); null when unknown.
     /// </summary>
     public static IReadOnlyList<EffectRequest> CollectApplicable(
         IEffectQueryService effectQueryService,
         string scope,
         HeadlessPlayerId cardOwner,
-        CardRecord? card)
+        CardRecord? card,
+        string? cardZoneName = null)
     {
         ArgumentNullException.ThrowIfNull(effectQueryService);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
@@ -53,6 +61,12 @@ public static class PlayerScopeContinuousHelpers
             }
 
             if (!TryReadPlayer(values, ScopePlayerIdKey, out HeadlessPlayerId scopePlayer) || scopePlayer != cardOwner)
+            {
+                continue;
+            }
+
+            if (ReadString(values, ScopeZoneKey) is string scopeZone
+                && !string.Equals(scopeZone, cardZoneName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
