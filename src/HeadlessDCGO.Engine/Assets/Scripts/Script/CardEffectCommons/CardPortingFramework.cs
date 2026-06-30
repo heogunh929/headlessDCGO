@@ -47,6 +47,12 @@ public enum EffectTiming
     // Player-activated abilities (NOT auto-registered on enter-play; activation flow is Wave 3).
     OptionSkill,
     SecuritySkill,
+
+    // (EX8_074 Stage 1) "When this card would be played" — the original BeforePayCost timing. Engine-level
+    // string trigger `TriggerTimings.BeforePayCost` already fires in PlayCardAction; this enum value lets a
+    // ported card return BeforePayCost effects. The interactive pre-payment cost-reduction WINDOW that
+    // consumes them is a later stage (PlayCardAction's cost is currently locked at action-generation time).
+    BeforePayCost,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -1449,6 +1455,73 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         return !card.PermanentOfThisCard().IsEmpty;
+    }
+
+    /// <summary>(EX8_074 Stage 1) Mirror of the original <c>IsExistOnHand</c> (<c>card.Owner.HandCards
+    /// .Contains(card)</c>): this card is in its owner's hand.</summary>
+    public static bool IsExistOnHand(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Hand).Contains(card.InstanceId);
+    }
+
+    /// <summary>(EX8_074 Stage 1) Mirror of the original <c>IsSuspended</c>: <paramref name="id"/>'s permanent
+    /// is currently suspended (tapped). Reads the live <c>isSuspended</c> instance-metadata flag the engine
+    /// maintains on tap/unsuspend.</summary>
+    public static bool IsSuspended(CardSource card, HeadlessEntityId id)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return !id.IsEmpty
+            && card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
+            && instance.Metadata.TryGetValue("isSuspended", out object? raw) && raw is true;
+    }
+
+    /// <summary>(EX8_074 Stage 1) Mirror of the original <c>MatchConditionPermanentCount(predicate,
+    /// isContainBreedingArea)</c>: the number of battle-area (optionally + breeding) permanents, across BOTH
+    /// players, that satisfy <paramref name="condition"/>. The original takes a <c>Func&lt;Permanent,bool&gt;</c>;
+    /// the headless uses the established entity-id predicate idiom (see <see cref="IsOpponentBattleAreaDigimon"/>),
+    /// so card-side predicates compose CardEffectCommons helpers (IsSuspended, …) on the id.</summary>
+    public static int MatchConditionPermanentCount(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(condition);
+        int count = 0;
+        foreach (HeadlessEntityId id in AllFieldPermanents(card, isContainBreedingArea))
+        {
+            if (condition(id))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>(EX8_074 Stage 1) Mirror of the original <c>HasMatchConditionPermanent</c>: at least one
+    /// matching permanent exists (count &gt;= 1).</summary>
+    public static bool HasMatchConditionPermanent(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false) =>
+        MatchConditionPermanentCount(card, condition, isContainBreedingArea) >= 1;
+
+    /// <summary>Both players' battle-area cards (optionally + breeding-area), in turn order. Enumerates raw
+    /// instance ids; the caller's predicate decides Digimon-ness / ownership / suspendability.</summary>
+    private static IEnumerable<HeadlessEntityId> AllFieldPermanents(CardSource card, bool isContainBreedingArea)
+    {
+        var zones = (IZoneStateReader)card.Context.ZoneMover;
+        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
+        {
+            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
+            {
+                yield return id;
+            }
+
+            if (isContainBreedingArea)
+            {
+                foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BreedingArea))
+                {
+                    yield return id;
+                }
+            }
+        }
     }
 
     /// <summary>Mirror of the original predicate: <paramref name="permanent"/> is one of <paramref name="card"/>'s

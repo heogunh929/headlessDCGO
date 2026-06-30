@@ -60,8 +60,24 @@
   라이브 검증(G9-003, 235/235 green). **핵심 교훈**: 코스트 엔진(`PlayCostHelpers` + `ContinuousModifierGate.ResolvePlayCost`)은
   이미 완성·배선돼 있었고, 빠진 건 **카드-facing 등록 팩토리뿐**이었다 — 키워드 단절과 같은 "엔진 있음 / 등록 경로 없음" 패턴.
   → 새 프리미티브 작업 전 **반드시 엔진에 이미 메커니즘이 있는지 먼저 확인**(probe), 없을 때만 엔진 작업.
-- ⏭ EX8_074에 남은 프리미티브:
-  - **suspend-2-Digimon-as-cost**(SelectPermanentEffect Custom + SuspendPermanentsClass.Tap을 코스트로) — `BeforePayCost`
-    타이밍이 EffectTiming enum에 없음 → "would be played" 트리거 파이프라인 작업 필요(스켈레톤 `WhenPermanentWouldPlay.cs`).
-  - **`[All Turns] (Once Per Turn)`** OnEnterFieldAnyone 트리거에서 자기 `[When Digivolving]` 효과 수집·선택·재발동.
+## 5. EX8_074 단계 로드맵 (hard card 포팅 forcing function)
+
+원본 EX8_074는 **6개 효과**: ①[BeforePayCost] 디지몬 2체 서스펜드→코스트-4(인터랙티브) ②[None] 같은 -4
+가용성-체크용 패시브 ③[OnAllyAttack] Alliance(✅) ④[OnEndTurn] Vortex(✅) ⑤[OnEnterField/When Digivolving]
+1체 서스펜드→상대 ≤8000 삭제(+서스펜드당 3000) ⑥[OnEnterFieldAnyone/All Turns,OPT] 자기 [When Digivolving] 재발동.
+
+핵심 장애물: 헤드리스 PlayCard는 **코스트 선계산 원자 액션**(PlayCardAction에서 action-generation 시 cost lock-in),
+원본은 **지불 전 인터랙티브 윈도우**(BeforePayCost). "asis처럼" 미러하려면 윈도우를 신설해야 함.
+
+- ✅ **Stage 1 (기반 미러, G9-004)**: `EffectTiming.BeforePayCost` enum + CardEffectCommons 읽기 술어
+  (`IsExistOnHand` / `IsSuspended` / `MatchConditionPermanentCount` / `HasMatchConditionPermanent`,
+  헤드리스 엔티티-id 관용). 236/236 green. 여러 카드 재사용 가능.
+- ⏭ **Stage 2 (Permanent enrich 결정)**: 원본 카드 본체가 `Func<Permanent,bool>`(`p.IsSuspended`/`CanSuspend`/
+  `TopCard`)를 쓰므로 본체 1:1을 원하면 `Permanent` shim을 Context-백킹으로 살찌워야 함(모든 생성처 파급).
+  대안: 헤드리스 엔티티-id 술어 관용 유지(Stage 1 방식) — 본체가 살짝 다르나 기존 관용과 일관. **결정 필요.**
+- ⏭ **Stage 3 (BeforePayCost 윈도우)**: PlayCardAction에 지불 전 인터랙티브 코스트 감소 윈도우 통합
+  (기존 `OptionalPromptQueue` + `SelectPermanentEffect.Custom` + suspend mutation 재사용; 코스트 lock-in을
+  윈도우 이후로 이동). 가장 큰 아키텍처 변경.
+- ⏭ **Stage 4**: ⑤ 동적 임계 select-and-delete(서스펜드 수에 따라 8000+3000n). ⑥ [All Turns] once-per-turn
+  자기 [When Digivolving] 재발동. + `OnEndTurn` 타이밍 enum/등록 경로(④ Vortex가 카드로 등록되려면).
   각기 §2 워크플로우(원본 이름 확인 → 엔진 격차 probe → 미러 → 라이브 검증)로.
