@@ -151,6 +151,38 @@ public static class DigivolutionStackHelpers
         CancellationToken cancellationToken = default) =>
         RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, destination, cancellationToken);
 
+    /// <summary>(G10-007) Remove a SPECIFIC digivolution source from <paramref name="hostId"/> and move it to
+    /// <paramref name="destination"/> (e.g. the battle area, to play it as another Digimon). Returns true if
+    /// the source belonged to the host and was moved.</summary>
+    public static async Task<bool> PlaySpecificSourceAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        HeadlessEntityId sourceId,
+        ChoiceZone destination,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (sourceId.IsEmpty || !repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return false;
+        }
+
+        List<string> sources = ReadSourceIds(host.Metadata).Select(id => id.Value).ToList();
+        if (!sources.Remove(sourceId.Value))
+        {
+            return false;
+        }
+
+        repository.Upsert(host with { Metadata = WithSources(host.Metadata, sources) });
+        HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
+            ? src.OwnerId
+            : host.OwnerId;
+        await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     private static async Task<int> RemoveSourcesAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,

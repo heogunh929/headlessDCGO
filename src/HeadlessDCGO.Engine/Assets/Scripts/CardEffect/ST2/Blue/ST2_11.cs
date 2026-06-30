@@ -1,8 +1,8 @@
 // 1:1 mirror of the original ST2_11 (ST2/Blue).
 //   [When Attacking][Once Per Turn] Unsuspend this Digimon.  -> UnsuspendSelfTriggerEffect (OnAllyAttack)
-// The original wraps an inline ActivateClass + IUnsuspendPermanents; the headless emits an Unsuspend
-// mutation on self when the OnAllyAttack trigger resolves. The [Once Per Turn] gate maps to the once-flag
-// subsystem (not yet enforced here — a 1:1 relaxation; see docs/audit/card_porting_recipe.md §5).
+// The original wraps an inline ActivateClass + IUnsuspendPermanents with activatedOrder=1 (once per turn)
+// and SetHashString("Unsuspend_ST2_11"); the headless maps these to maxCountPerTurn=1 + hash, enforced by
+// the live trigger loop via OnceFlagController (G10-001).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
 
@@ -19,7 +19,9 @@ public sealed class ST2_11 : CEntity_Effect
             cardEffects.Add(CardEffectFactory.UnsuspendSelfTriggerEffect(
                 timing: EffectTiming.OnAllyAttack,
                 card: card,
-                description: "[When Attacking][Once Per Turn] Unsuspend this Digimon."));
+                description: "[When Attacking][Once Per Turn] Unsuspend this Digimon.",
+                maxCountPerTurn: 1,
+                hash: "Unsuspend_ST2_11"));
         }
 
         return cardEffects;

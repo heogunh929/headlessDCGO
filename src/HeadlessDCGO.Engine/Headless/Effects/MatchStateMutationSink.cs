@@ -72,6 +72,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string TrashDigivolutionCardsKind = "TrashDigivolutionCards"; // target = host; count, fromBottom
     public const string ReturnDigivolutionCardsKind = "ReturnDigivolutionCards"; // target = host; count, toDeck
     public const string TrashLinkCardsKind = "TrashLinkCards";                   // target = host; count (default all)
+    // G10-007: play a SPECIFIC digivolution source out from under its host as a new battle-area Digimon
+    // (cost-free). target = the under-card to play; HostEntityIdKey = the host it sits under.
+    public const string PlayDigivolutionAsDigimonKind = "PlayDigivolutionAsDigimon";
+    public const string HostEntityIdKey = "hostEntityId";
     public const string FromBottomKey = "fromBottom";
     public const string ToDeckKey = "toDeck";
 
@@ -298,6 +302,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case PlayCardKind:
                 ApplyPlayCard(mutation, record, targetId);
+                break;
+            case PlayDigivolutionAsDigimonKind:
+                ApplyPlayDigivolutionAsDigimon(mutation, record, targetId);
                 break;
             case TrashDigivolutionCardsKind:
                 ApplyDigivolutionSourceRemoval(mutation, targetId, returnToZone: null);
@@ -681,6 +688,32 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _onCardEnteredPlay?.Invoke(targetId, owner);
     }
 
+    /// <summary>(G10-007) Play a specific digivolution source out from under its host as a new battle-area
+    /// Digimon (cost-free) and auto-register its effects.</summary>
+    private void ApplyPlayDigivolutionAsDigimon(EffectMutation mutation, CardInstanceRecord record, HeadlessEntityId underCardId)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        if (!(mutation.Values.TryGetValue(HostEntityIdKey, out object? raw) && raw is string hostValue) || string.IsNullOrWhiteSpace(hostValue))
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' is missing a '{HostEntityIdKey}' value.");
+            return;
+        }
+
+        var hostId = new HeadlessEntityId(hostValue);
+        HeadlessPlayerId owner = record.OwnerId;
+        _pendingAsync.Add(ct => DigivolutionStackHelpers.PlaySpecificSourceAsync(_repository, zoneMover, hostId, underCardId, ChoiceZone.BattleArea, ct));
+        // The under-card is now a fresh battle-area Digimon — auto-register its effects (G6-001 / G8-002).
+        _onCardEnteredPlay?.Invoke(underCardId, owner);
+        _applied.Add(new AppliedMutation(mutation.Kind, underCardId, "playFromUnder"));
+    }
+
     /// <summary>(B-10) Trash (returnToZone null) or return the host's digivolution sources. Deferred to
     /// flush like the other zone moves.</summary>
     private void ApplyDigivolutionSourceRemoval(EffectMutation mutation, HeadlessEntityId hostId, ChoiceZone? returnToZone)
@@ -767,7 +800,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             || kind is TrashCardKind or ReturnToHandKind or ReturnToDeckTopKind or ReturnToDeckBottomKind
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
                 or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind
-                or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind;
+                or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind
+                or PlayDigivolutionAsDigimonKind;
     }
 
     private static HeadlessPlayerId ReadPlayer(IReadOnlyDictionary<string, object?> values, string key)

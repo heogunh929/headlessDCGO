@@ -27,7 +27,8 @@ public sealed class ST1_15 : CEntity_Effect
             {
                 if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
                 {
-                    if (CardEffectCommons.CurrentDp(card, id) <= 4000)
+                    // Original gates by card.Owner.MaxDP_DeleteEffect(4000, ...) — a raise-able threshold.
+                    if (CardEffectCommons.CurrentDp(card, id) <= CardEffectCommons.MaxDpDeleteThreshold(card, baseThreshold: 4000))
                     {
                         return true;
                     }

@@ -20,7 +20,45 @@ internal static class ActivatedTests
         ("ST1_16: [Main] deletes the chosen opponent Digimon, leaves the rest", ST1_16_Delete),
         ("ST1_15: [Main] only offers opponent Digimon with DP <= 4000", ST1_15_Candidates),
         ("ST1_15: [Main] deletes up to 2 chosen low-DP Digimon", ST1_15_Delete),
+        ("ST1_12: [Security] plays this Tamer onto the battle area", ST1_12_SecurityPlay),
+        ("ST1_15: [Main] delete threshold is raise-able (MaxDP_DeleteEffect)", ST1_15_DynamicThreshold),
     };
+
+    private static async Task ST1_15_DynamicThreshold()
+    {
+        // Base 4000 -> the 5000-DP Digimon is NOT a candidate (covered by ST1_15_Candidates). With a +2000
+        // delete-threshold raise active, the same 5000-DP Digimon becomes deletable (4000 + 2000 = 6000).
+        (EngineContext context, _, _, _) = await ThreeOpponents();
+        var raise = new EffectBinding(
+            new EffectRequest(new HeadlessEntityId("raise:delthreshold"), P1, "Continuous",
+                new EffectContext(P1, P1, new HeadlessEntityId("raise:src"), triggerEntityId: null,
+                    targetEntityIds: System.Array.Empty<HeadlessEntityId>(),
+                    values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["maxDpDeleteDelta"] = 2000 })),
+            keywords: null, EffectQueryRole.Continuous, new[] { "DeleteThreshold" }, effect: null, duration: null);
+        context.EffectRegistry.Register(raise);
+
+        var effect = (ActivatedSelectEffect)Main(new ST1_15(), context);
+        ChoiceRequest request = effect.BuildRequest(Both);
+        AssertEqual(3, request.Candidates.Count, "with +2000 threshold, the 5000-DP Digimon is now a candidate");
+    }
+
+    private static async Task ST1_12_SecurityPlay()
+    {
+        EngineContext context = EngineContext.CreateDefault(randomSeed: 112);
+        CardDatabase cards = (CardDatabase)context.CardRepository;
+        cards.Upsert(new CardRecord(new HeadlessEntityId("ST1_12def"), "ST1_12", "Tamer", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Tamer"));
+        var revealed = new HeadlessEntityId("p1:trash:ST1_12T");
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(revealed, new HeadlessEntityId("ST1_12def"), P1));
+        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, revealed, ChoiceZone.None, ChoiceZone.Trash));
+
+        var play = (PlayThisCardToBattleEffect)new ST1_12().CardEffects(EffectTiming.SecuritySkill, new CardSource(context, revealed, P1)).Single();
+        MatchStateMutationSink sink = Sink(context);
+        play.Apply(sink);
+        await sink.FlushAsync();
+
+        AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, revealed), "[Security] played the Tamer onto the battle area");
+        AssertTrue(!InZone(context, P1, ChoiceZone.Trash, revealed), "Tamer no longer in the trash");
+    }
 
     private static async Task ST1_16_Delete()
     {

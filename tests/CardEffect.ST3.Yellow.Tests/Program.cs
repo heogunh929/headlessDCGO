@@ -65,23 +65,69 @@ async Task ST3_07_Alias()
 
 async Task ST3_01_SelfBuff()
 {
-    EngineContext context = Context(P1);
-    var self = new HeadlessEntityId("p1:battle:T01");
-    await PlaceDigimon(context, P1, self, level: 4, sources: 0, dp: 4000);
-    IReadOnlyList<EffectBinding> bindings = Register(context, new ST3_01(), "ST3_01", self);
-    await ResolveTrigger(context, bindings, "OnDestroyedAnyone");
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, self, baseDp: 4000), "self +1000 DP for the turn");
+    // Fires only when an OPPONENT Digimon is deleted by 0 DP (DPZero), [Your Turn], once per turn.
+    EffectBinding Bind(EngineContext c, HeadlessEntityId self) => Register(c, new ST3_01(), "ST3_01", self)
+        .Single(b => string.Equals(b.Request.Timing, "OnDestroyedAnyone", StringComparison.Ordinal));
+
+    // (a) opponent 0-DP delete -> +1000.
+    EngineContext a = Context(P1);
+    var sa = new HeadlessEntityId("p1:battle:T01a");
+    await PlaceDigimon(a, P1, sa, level: 4, sources: 0, dp: 4000);
+    EffectBinding ba = Bind(a, sa);
+    AssertTrue(ba.Effect!.Definition.MaxCountPerTurn == 1, "once-per-turn cap declared");
+    HeadlessEntityId foe = await MakeDeleted(a, P2, "del:foe", dpZero: true);
+    AssertTrue(await ResolveDeletion(a, ba, foe), "opponent 0-DP delete fires");
+    AssertEqual(5000, ContinuousDpGate.ResolveDp(a, sa, baseDp: 4000), "self +1000 DP for the turn");
+
+    // (b) NOT a 0-DP delete -> no fire.
+    EngineContext b = Context(P1);
+    var sb = new HeadlessEntityId("p1:battle:T01b");
+    await PlaceDigimon(b, P1, sb, level: 4, sources: 0, dp: 4000);
+    HeadlessEntityId byEffect = await MakeDeleted(b, P2, "del:eff", dpZero: false);
+    AssertTrue(!await ResolveDeletion(b, Bind(b, sb), byEffect), "non-0-DP delete does NOT fire");
+    AssertEqual(4000, ContinuousDpGate.ResolveDp(b, sb, baseDp: 4000), "no buff");
+
+    // (c) OWN Digimon deleted by 0 DP -> no fire.
+    EngineContext c = Context(P1);
+    var sc = new HeadlessEntityId("p1:battle:T01c");
+    await PlaceDigimon(c, P1, sc, level: 4, sources: 0, dp: 4000);
+    HeadlessEntityId mine = await MakeDeleted(c, P1, "del:mine", dpZero: true);
+    AssertTrue(!await ResolveDeletion(c, Bind(c, sc), mine), "own Digimon delete does NOT fire");
+
+    // (d) once per turn: 2nd matching delete same turn is blocked; resets next turn.
+    EngineContext d = Context(P1);
+    var sd = new HeadlessEntityId("p1:battle:T01d");
+    await PlaceDigimon(d, P1, sd, level: 4, sources: 0, dp: 4000);
+    EffectBinding bd = Bind(d, sd);
+    AssertTrue(await ResolveDeletion(d, bd, await MakeDeleted(d, P2, "del:f1", dpZero: true)), "1st delete fires");
+    AssertTrue(!await ResolveDeletion(d, bd, await MakeDeleted(d, P2, "del:f2", dpZero: true)), "2nd delete same turn blocked (once-per-turn)");
+    d.OnceFlags.ResetForTurn(2, P1);
+    AssertTrue(await ResolveDeletion(d, bd, await MakeDeleted(d, P2, "del:f3", dpZero: true)), "next turn fires again");
 }
 
 async Task ST3_04_Memory()
 {
-    EngineContext context = Context(P1);
+    EffectBinding Bind(EngineContext c, HeadlessEntityId self) => Register(c, new ST3_04(), "ST3_04", self)
+        .Single(b => string.Equals(b.Request.Timing, "OnDestroyedAnyone", StringComparison.Ordinal));
+
+    // opponent 0-DP delete -> +1 memory, once per turn.
+    EngineContext a = Context(P1);
     var self = new HeadlessEntityId("p1:battle:T04");
-    await PlaceDigimon(context, P1, self, level: 4, sources: 0, dp: 4000);
-    IReadOnlyList<EffectBinding> bindings = Register(context, new ST3_04(), "ST3_04", self);
-    context.MemoryController.Set(0);
-    await ResolveTrigger(context, bindings, "OnDestroyedAnyone");
-    AssertEqual(1, context.MemoryController.Current.Current, "gained 1 memory");
+    await PlaceDigimon(a, P1, self, level: 4, sources: 0, dp: 4000);
+    EffectBinding ba = Bind(a, self);
+    a.MemoryController.Set(0);
+    AssertTrue(await ResolveDeletion(a, ba, await MakeDeleted(a, P2, "del:m1", dpZero: true)), "opponent 0-DP delete fires");
+    AssertEqual(1, a.MemoryController.Current.Current, "gained 1 memory");
+    AssertTrue(!await ResolveDeletion(a, ba, await MakeDeleted(a, P2, "del:m2", dpZero: true)), "2nd same turn blocked");
+    AssertEqual(1, a.MemoryController.Current.Current, "still 1 memory (once per turn)");
+
+    // non-0-DP delete -> no memory.
+    EngineContext b = Context(P1);
+    var self2 = new HeadlessEntityId("p1:battle:T04b");
+    await PlaceDigimon(b, P1, self2, level: 4, sources: 0, dp: 4000);
+    b.MemoryController.Set(0);
+    AssertTrue(!await ResolveDeletion(b, Bind(b, self2), await MakeDeleted(b, P2, "del:m3", dpZero: false)), "non-0-DP no fire");
+    AssertEqual(0, b.MemoryController.Current.Current, "no memory");
 }
 
 async Task ST3_05_SecurityGate()
@@ -153,6 +199,19 @@ async Task ST3_12_SecurityDp()
     await PlaceInZone(own, P1, secDigi2, ChoiceZone.Security, dp: 3000);
     Register(own, new ST3_12(), "ST3_12", tamer2);
     AssertEqual(3000, ContinuousDpGate.ResolveDp(own, secDigi2, baseDp: 3000), "owner turn: no buff");
+
+    // [Security] "Play this Tamer": revealed to the trash, then played onto the battle area.
+    EngineContext sec = Context(P1);
+    CardDatabase scards = (CardDatabase)sec.CardRepository;
+    scards.Upsert(new CardRecord(new HeadlessEntityId("ST3_12def"), "ST3_12", "Tamer", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Tamer"));
+    var revealed = new HeadlessEntityId("p1:trash:ST3_12T");
+    sec.CardInstanceRepository.Upsert(new CardInstanceRecord(revealed, new HeadlessEntityId("ST3_12def"), P1));
+    await sec.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, revealed, ChoiceZone.None, ChoiceZone.Trash));
+    var play = (PlayThisCardToBattleEffect)new ST3_12().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, revealed, P1)).Single();
+    var playSink = Sink(sec);
+    play.Apply(playSink);
+    await playSink.FlushAsync();
+    AssertTrue(InZone(sec, P1, ChoiceZone.BattleArea, revealed), "[Security] played the Tamer onto the battle area");
 }
 
 async Task ST3_13_Buff()
@@ -320,6 +379,40 @@ async Task FillLibrary(EngineContext context, HeadlessPlayerId owner, int count)
     {
         await PlaceInZone(context, owner, new HeadlessEntityId($"{owner.Value}:lib:{i}"), ChoiceZone.Library, dp: 0);
     }
+}
+
+// Create a "just-deleted" Digimon instance: an owner-tagged Digimon carrying the DPZero marker when the
+// deletion was by dropping to 0 DP (what DpZeroDeletionHelpers stamps). Zone-agnostic (it's in the trash).
+async Task<HeadlessEntityId> MakeDeleted(EngineContext context, HeadlessPlayerId owner, string tag, bool dpZero)
+{
+    CardDatabase cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId($"DEF:{tag}");
+    cards.Upsert(new CardRecord(defId, defId.Value, tag, new Dictionary<string, object?>(), CardType: "Digimon"));
+    var meta = new Dictionary<string, object?>(StringComparer.Ordinal);
+    if (dpZero) meta["DPZero"] = true;
+    var id = new HeadlessEntityId($"{owner.Value}:{tag}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner, Metadata: meta));
+    await Task.CompletedTask;
+    return id;
+}
+
+// Mirror the live deletion trigger: inject the deleted subject as TriggerEntityId, gate via OnceFlags,
+// resolve only when both the gate and the effect's CanResolve (opponent + 0-DP) pass. Returns true if fired.
+async Task<bool> ResolveDeletion(EngineContext context, EffectBinding binding, HeadlessEntityId deleted)
+{
+    EffectContext baseCtx = binding.Request.Context;
+    var evtCtx = new EffectContext(baseCtx.SourcePlayerId, baseCtx.OwnerPlayerId, baseCtx.SourceEntityId,
+        triggerEntityId: deleted, targetEntityIds: Array.Empty<HeadlessEntityId>());
+    var request = new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, evtCtx);
+    if (!context.OnceFlags.TryActivate(request, binding.Effect!.Definition.MaxCountPerTurn))
+    {
+        return false;
+    }
+
+    var sink = Sink(context);
+    EffectResult result = await binding.Effect!.ResolveAsync(new CardEffectResolveContext(request), sink);
+    await sink.FlushAsync();
+    return result.Resolved;
 }
 
 async Task ResolveTrigger(EngineContext context, IReadOnlyList<EffectBinding> bindings, string timing)

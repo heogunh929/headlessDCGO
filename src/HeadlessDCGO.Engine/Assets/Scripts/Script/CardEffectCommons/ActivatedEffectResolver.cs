@@ -108,6 +108,30 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case PlayThisCardToBattleEffect playSelf:
+                {
+                    // (G10-003) A Tamer's [Security] "play this Tamer": play the revealed card onto the
+                    // battle area cost-free; the PlayCard mutation auto-registers its effects.
+                    playSelf.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
+                case ActivatedPlayFromUnderEffect playFromUnder:
+                {
+                    // (G10-007) "Choose a Digimon digivolution card under your Digimon and play it as another
+                    // Digimon" — select an under-card, then move it onto the battle area cost-free.
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(playFromUnder.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        playFromUnder.Apply(sink, result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case ReuseMainOptionEffect:
                 {
                     // (G8-004) "[Security] activate this card's [Main] effect" — resolve the card's Main

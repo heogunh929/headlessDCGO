@@ -1,9 +1,9 @@
 // 1:1 mirror of the original ST2_01 (ST2/Blue).
-//   [Inherited][Your Turn] While your opponent's battling Digimon has no digivolution cards, this Digimon
-//   gets +1000 DP.  -> ChangeSelfDPStaticEffect (inherited, conditional)
-// Headless relaxation: the original keys off the SPECIFIC battling enemy permanent; headless evaluates
-// "owner turn AND the opponent has a battle-area Digimon with no digivolution cards" at read time
-// (the continuous gate has no battle-pairing context). Same observable result in the common board state.
+//   [Inherited][Your Turn] While the Digimon this is battling has no digivolution cards, this Digimon gets
+//   +1000 DP.  -> ChangeSelfDPStaticEffect (inherited, conditional)
+// Battle-pairing restored (G10-006): the condition keys off the SPECIFIC enemy this card's permanent is
+// battling (CurrentBattleOpponent, read from AttackController.Current), exactly as the original
+// card.PermanentOfThisCard().battle.enemyPermanent(...).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
 
@@ -20,9 +20,15 @@ public sealed class ST2_01 : CEntity_Effect
         {
             bool Condition()
             {
-                return CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.IsOwnerTurn(card)
-                    && CardEffectCommons.HasMatchConditionOpponentsPermanent(card, id => CardEffectCommons.HasNoDigivolutionCards(card, id));
+                if (!CardEffectCommons.IsExistOnBattleArea(card) || !CardEffectCommons.IsOwnerTurn(card))
+                {
+                    return false;
+                }
+
+                HeadlessEntityId enemy = CardEffectCommons.CurrentBattleOpponent(card);
+                return !enemy.IsEmpty
+                    && CardEffectCommons.IsOpponentOwnedDigimon(card, enemy)
+                    && CardEffectCommons.HasNoDigivolutionCards(card, enemy);
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 1000, isInheritedEffect: true, card: card, condition: Condition));

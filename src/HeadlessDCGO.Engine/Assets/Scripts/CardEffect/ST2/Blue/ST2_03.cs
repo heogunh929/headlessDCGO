@@ -22,7 +22,8 @@ public sealed class ST2_03 : CEntity_Effect
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
                     && CardEffectCommons.LevelOf(card, id) <= 5
-                    && !CardEffectCommons.HasNoDigivolutionCards(card, id);
+                    && CardEffectCommons.HasTrashableDigivolutionCards(card, id)
+                    && CardEffectCommons.TopCardHasLevel(card, id);
             }
 
             cardEffects.Add(CardEffectFactory.SelectAndTrashDigivolutionEffect(

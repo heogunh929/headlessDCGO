@@ -1,10 +1,9 @@
 // 1:1 mirror of the original ST2_15 (ST2/Blue) — an Option.
 //   [Main] Choose a Digimon digivolution card placed under 1 of your Digimon and play it as another
-//          Digimon without paying its memory cost.  -> play-from-under flow (not yet wired)
+//          Digimon without paying its memory cost.  -> ActivatedPlayFromUnderEffect (G10-007)
 //   [Security] (use the Main effect)                -> AddActivateMainOptionSecurityEffect
-// The "play a card from under a permanent as a fresh Digimon without paying cost" path is a dedicated
-// special-play flow that is not yet ported (docs/audit/card_porting_recipe.md §5). Represented as a
-// DeferredCardEffect for 1:1 source fidelity; it compiles and is skipped by auto-registration.
+// The play-from-under move (a Digimon under-card leaves its host and becomes a fresh battle-area Digimon
+// cost-free) is realized by the PlayDigivolutionAsDigimon mutation, auto-registering the new permanent.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
 
@@ -18,8 +17,8 @@ public sealed class ST2_15 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
-            cardEffects.Add(new DeferredCardEffect(
-                "[Main] Play a Digimon digivolution card from under 1 of your Digimon as another Digimon without paying its cost (play-from-under flow, Wave 3)."));
+            cardEffects.Add(new ActivatedPlayFromUnderEffect(card,
+                "[Main] Choose a Digimon digivolution card placed under 1 of your Digimon and play it as another Digimon without paying its memory cost."));
         }
 
         if (timing == EffectTiming.SecuritySkill)

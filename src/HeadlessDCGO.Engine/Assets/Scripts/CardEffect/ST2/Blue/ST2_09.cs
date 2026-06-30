@@ -18,7 +18,7 @@ public sealed class ST2_09 : CEntity_Effect
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && !CardEffectCommons.HasNoDigivolutionCards(card, id);
+                    && CardEffectCommons.HasTrashableDigivolutionCards(card, id);
             }
 
             cardEffects.Add(CardEffectFactory.SelectAndTrashDigivolutionEffect(

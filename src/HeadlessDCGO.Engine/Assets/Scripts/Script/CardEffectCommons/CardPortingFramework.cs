@@ -74,6 +74,9 @@ public sealed class PermanentView
     public IReadOnlyList<StackedCard> DigivolutionCards => Stack.UnderCards;
 
     public bool IsEmpty => Stack.IsEmpty;
+
+    /// <summary>The top card's instance id (the battling Digimon) — mirrors <c>Permanent.TopCard</c>.</summary>
+    public HeadlessEntityId TopInstanceId => Stack.Cards.Count > 0 ? Stack.Cards[^1].InstanceId : default;
 }
 
 /// <summary>
@@ -383,8 +386,11 @@ public sealed class PlayerScopeModifierEffect : ICardEffect
 public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
 {
     private readonly Func<bool>? _condition;
+    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
 
-    public TriggeredMemoryEffect(CardSource card, EffectTiming timing, int amount, bool isInheritedEffect, Func<bool>? condition, string description)
+    public TriggeredMemoryEffect(
+        CardSource card, EffectTiming timing, int amount, bool isInheritedEffect, Func<bool>? condition, string description,
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -392,9 +398,10 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
         Amount = amount;
         IsInheritedEffect = isInheritedEffect;
         _condition = condition;
+        _triggerGate = triggerGate;
         string trigger = EffectTimings.ToTriggerName(timing);
         var effectId = new HeadlessEntityId($"{card.InstanceId.Value}:mem:{trigger}:{amount}");
-        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger, isOptional: amount > 0);
+        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger, isOptional: amount > 0, maxCountPerTurn: maxCountPerTurn, hash: hash);
     }
 
     public CardSource Card { get; }
@@ -411,6 +418,11 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
         if (_condition is not null && !_condition())
         {
             return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        if (_triggerGate is not null && !_triggerGate(context))
+        {
+            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
         }
 
         return CardEffectCanResolveResult.Success();
@@ -673,14 +685,15 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
 /// </summary>
 public sealed class TriggeredUnsuspendSelfEffect : ICardEffect, IHeadlessCardEffect
 {
-    public TriggeredUnsuspendSelfEffect(CardSource card, EffectTiming timing, string description)
+    public TriggeredUnsuspendSelfEffect(CardSource card, EffectTiming timing, string description, int? maxCountPerTurn = null, string? hash = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
         string trigger = EffectTimings.ToTriggerName(timing);
         Definition = new CardEffectDefinition(
-            new HeadlessEntityId($"{card.InstanceId.Value}:unsuspendself:{trigger}"), card.InstanceId, description, trigger, isOptional: true);
+            new HeadlessEntityId($"{card.InstanceId.Value}:unsuspendself:{trigger}"), card.InstanceId, description, trigger,
+            isOptional: true, maxCountPerTurn: maxCountPerTurn, hash: hash);
     }
 
     public CardSource Card { get; }
@@ -880,8 +893,11 @@ public sealed class TriggeredSelfDpBuffEffect : ICardEffect, IHeadlessCardEffect
     private readonly int _changeValue;
     private readonly EffectDuration _duration;
     private readonly Func<bool>? _condition;
+    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
 
-    public TriggeredSelfDpBuffEffect(CardSource card, EffectTiming timing, int changeValue, EffectDuration duration, Func<bool>? condition, string description)
+    public TriggeredSelfDpBuffEffect(
+        CardSource card, EffectTiming timing, int changeValue, EffectDuration duration, Func<bool>? condition, string description,
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -889,9 +905,11 @@ public sealed class TriggeredSelfDpBuffEffect : ICardEffect, IHeadlessCardEffect
         _changeValue = changeValue;
         _duration = duration;
         _condition = condition;
+        _triggerGate = triggerGate;
         string trigger = EffectTimings.ToTriggerName(timing);
         Definition = new CardEffectDefinition(
-            new HeadlessEntityId($"{card.InstanceId.Value}:selfdpbuff:{trigger}"), card.InstanceId, description, trigger, isOptional: true);
+            new HeadlessEntityId($"{card.InstanceId.Value}:selfdpbuff:{trigger}"), card.InstanceId, description, trigger,
+            isOptional: true, maxCountPerTurn: maxCountPerTurn, hash: hash);
     }
 
     public CardSource Card { get; }
@@ -903,6 +921,11 @@ public sealed class TriggeredSelfDpBuffEffect : ICardEffect, IHeadlessCardEffect
         if (_condition is not null && !_condition())
         {
             return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        if (_triggerGate is not null && !_triggerGate(context))
+        {
+            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
         }
 
         return CardEffectCanResolveResult.Success();
@@ -919,8 +942,11 @@ public sealed class TriggeredSelfDpBuffEffect : ICardEffect, IHeadlessCardEffect
         var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [ModifierHelpers.DpDeltaKey] = _changeValue };
         var bindingContext = new EffectContext(
             Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        // Unique per application (the triggering subject) so repeated firings across turns don't collide;
+        // the duration expiry removes each at turn end.
+        string applied = context.Request.Context.TriggerEntityId?.Value ?? "self";
         var binding = new EffectBinding(
-            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:selfdpbuff:applied:{_changeValue}"), Card.Controller, "Continuous", bindingContext),
+            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:selfdpbuff:applied:{_changeValue}:{applied}"), Card.Controller, "Continuous", bindingContext),
             keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }, effect: null, duration: _duration);
         Card.Context.EffectRegistry.Register(binding);
         return ValueTask.FromResult(EffectResult.Success($"This Digimon gets {(_changeValue >= 0 ? "+" : string.Empty)}{_changeValue} DP."));
@@ -1033,6 +1059,142 @@ public sealed class AddThisCardToHandEffect : IActivatedCardEffect
 }
 
 /// <summary>
+/// An activated "play THIS card onto the battle area (without paying its cost)" effect — the headless
+/// realization of a Tamer's <c>PlaySelfTamerSecurityEffect</c> security skill (e.g. ST1_12 / ST2_12 /
+/// ST3_12 [Security] "Play this Tamer"). The security loop reveals the card (to the trash) before resolving
+/// its SecuritySkill, so <see cref="Apply"/> plays it from whatever zone it currently sits in to the battle
+/// area via a PlayCard mutation, which also auto-registers its effects (G6-001 / G8-002).
+/// </summary>
+public sealed class PlayThisCardToBattleEffect : IActivatedCardEffect
+{
+    public PlayThisCardToBattleEffect(CardSource card, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ChoiceZone from = CurrentZone() ?? ChoiceZone.Trash;
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.PlayCardKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value,
+                [MatchStateMutationSink.FromZoneKey] = from.ToString(),
+            }));
+    }
+
+    private ChoiceZone? CurrentZone()
+    {
+        var zones = (IZoneStateReader)Card.Context.ZoneMover;
+        foreach (ChoiceZone zone in new[] { ChoiceZone.Security, ChoiceZone.Trash, ChoiceZone.Hand, ChoiceZone.BattleArea })
+        {
+            if (zones.GetCards(Card.Owner, zone).Contains(Card.InstanceId))
+            {
+                return zone;
+            }
+        }
+
+        return null;
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Play-this-card effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// An activated "choose a Digimon digivolution card under one of your Digimon and play it as another Digimon
+/// without paying its cost" effect (e.g. ST2_15 [Main], the play-from-under flow). Candidates are the
+/// Digimon under-cards of the owner's battle-area Digimon; <see cref="Apply"/> emits a
+/// PlayDigivolutionAsDigimon mutation that moves the chosen under-card out of its host onto the battle area
+/// (cost-free) and auto-registers it.
+/// </summary>
+public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
+{
+    public ActivatedPlayFromUnderEffect(CardSource card, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
+    {
+        var candidates = new List<ChoiceCandidate>();
+        foreach ((HeadlessEntityId under, HeadlessEntityId _) in OwnerDigimonUnderCards())
+        {
+            candidates.Add(EffectChoiceHelpers.Candidate(under, under.Value, ChoiceZone.BattleArea, isSelectable: true, Card.Owner));
+        }
+
+        int max = Math.Min(1, candidates.Count);
+        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: max, maxCount: max, canSkip: false, candidates);
+    }
+
+    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(selected);
+        var selectedSet = new HashSet<string>(selected.Select(s => s.Value), StringComparer.Ordinal);
+        foreach ((HeadlessEntityId under, HeadlessEntityId host) in OwnerDigimonUnderCards())
+        {
+            if (!selectedSet.Contains(under.Value))
+            {
+                continue;
+            }
+
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.PlayDigivolutionAsDigimonKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.TargetEntityIdKey] = under.Value,
+                    [MatchStateMutationSink.HostEntityIdKey] = host.Value,
+                }));
+        }
+    }
+
+    private IEnumerable<(HeadlessEntityId Under, HeadlessEntityId Host)> OwnerDigimonUnderCards()
+    {
+        var zones = (IZoneStateReader)Card.Context.ZoneMover;
+        foreach (HeadlessEntityId top in zones.GetCards(Card.Owner, ChoiceZone.BattleArea))
+        {
+            DigivolutionStack stack = DigivolutionStackReader.Read(Card.Context.CardInstanceRepository, Card.Context.CardRepository, top);
+            foreach (StackedCard under in stack.UnderCards)
+            {
+                if (IsDigimonCard(under.InstanceId))
+                {
+                    yield return (under.InstanceId, top);
+                }
+            }
+        }
+    }
+
+    private bool IsDigimonCard(HeadlessEntityId id)
+    {
+        return Card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
+            && Card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
+            && string.Equals(def.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
 /// Headless mirror of the original <c>CardEffectFactory</c>. Method names match the original so ported
 /// card bodies read 1:1. Each returns an <see cref="ICardEffect"/> the registrar lowers to a binding.
 /// </summary>
@@ -1080,13 +1242,15 @@ public static class CardEffectFactory
 
     /// <summary>A triggered "[When ...] gain/lose N memory" effect (the common ActivateClass memory form).
     /// <paramref name="timing"/> is the branch timing the card declared it under.</summary>
-    public static ICardEffect AddMemoryTriggerEffect(EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description) =>
-        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description);
+    public static ICardEffect AddMemoryTriggerEffect(
+        EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description,
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null) =>
+        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description, triggerGate, maxCountPerTurn, hash);
 
-    /// <summary>Original: <c>PlaySelfTamerSecurityEffect</c> — the security-skill of a Tamer. The
-    /// security-skill activation flow is not yet ported (Wave 3); kept for 1:1 source fidelity.</summary>
+    /// <summary>Original: <c>PlaySelfTamerSecurityEffect</c> — a Tamer's [Security] "play this Tamer". Plays
+    /// the revealed Tamer onto the battle area (cost-free), auto-registering its effects (G10-003).</summary>
     public static ICardEffect PlaySelfTamerSecurityEffect(CardSource card) =>
-        new DeferredCardEffect("PlaySelfTamerSecurityEffect (security-skill activation flow, Wave 3)");
+        new PlayThisCardToBattleEffect(card, "[Security] Play this Tamer.");
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> matching permanents and delete them"
     /// effect (Option [Main] delete skill, e.g. ST1_16 / ST1_15).</summary>
@@ -1124,9 +1288,11 @@ public static class CardEffectFactory
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description) =>
         new ActivatedSelectTrashDigivolutionEffect(card, canTarget, maxCount, trashCount, fromBottom, description);
 
-    /// <summary>A triggered "[When ...] unsuspend this Digimon" effect (e.g. ST2_11).</summary>
-    public static ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description) =>
-        new TriggeredUnsuspendSelfEffect(card, timing, description);
+    /// <summary>A triggered "[When ...] unsuspend this Digimon" effect (e.g. ST2_11). Pass
+    /// <paramref name="maxCountPerTurn"/> = 1 (+ <paramref name="hash"/> for the original SetHashString) to
+    /// mirror a [Once Per Turn] limit — enforced by the live trigger loop via <c>OnceFlagController</c>.</summary>
+    public static ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description, int? maxCountPerTurn = null, string? hash = null) =>
+        new TriggeredUnsuspendSelfEffect(card, timing, description, maxCountPerTurn, hash);
 
     /// <summary>An activated "gain/lose <paramref name="amount"/> memory" skill (Option [Main] / [Security],
     /// e.g. ST2_13).</summary>
@@ -1147,8 +1313,10 @@ public static class CardEffectFactory
 
     /// <summary>A triggered "[When ...] this Digimon gets +<paramref name="changeValue"/> DP for
     /// <paramref name="duration"/>" effect (e.g. ST3_01).</summary>
-    public static ICardEffect SelfDpBuffTriggerEffect(EffectTiming timing, int changeValue, EffectDuration duration, CardSource card, Func<bool>? condition, string description) =>
-        new TriggeredSelfDpBuffEffect(card, timing, changeValue, duration, condition, description);
+    public static ICardEffect SelfDpBuffTriggerEffect(
+        EffectTiming timing, int changeValue, EffectDuration duration, CardSource card, Func<bool>? condition, string description,
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null) =>
+        new TriggeredSelfDpBuffEffect(card, timing, changeValue, duration, condition, description, triggerGate, maxCountPerTurn, hash);
 
     /// <summary>A triggered "[When ...] &lt;Recovery +<paramref name="amount"/> (Deck)&gt;" effect (e.g. ST3_09).</summary>
     public static ICardEffect RecoveryTriggerEffect(EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description) =>
@@ -1322,6 +1490,78 @@ public static class CardEffectCommons
         return stack.UnderCards.Count == 0;
     }
 
+    /// <summary>Metadata flag marking a digivolution source as protected from being trashed (mirror of the
+    /// original <c>CardSource.CanNotTrashFromDigivolutionCards</c>). Stamped on the source instance.</summary>
+    public const string TrashProtectedKey = "cannotTrashFromDigivolution";
+
+    /// <summary>Query scope for the dynamic delete-DP threshold raise effects (mirror of
+    /// <c>MaxDP_DeleteEffect</c>'s raise-able cap).</summary>
+    public const string MaxDpDeleteScope = "DeleteThreshold";
+
+    /// <summary>The per-player additive delta a delete-threshold-raise effect carries.</summary>
+    public const string MaxDpDeleteDeltaKey = "maxDpDeleteDelta";
+
+    /// <summary>Mirror of the original <c>card.Owner.MaxDP_DeleteEffect(baseThreshold, ...)</c>: the current
+    /// delete-DP threshold for the card's owner = <paramref name="baseThreshold"/> plus any raise effects
+    /// (continuous bindings scoped to <see cref="MaxDpDeleteScope"/> carrying <see cref="MaxDpDeleteDeltaKey"/>
+    /// for that owner). A "delete a Digimon with N DP or less" gate compares against this, not a flat base.</summary>
+    public static int MaxDpDeleteThreshold(CardSource card, int baseThreshold)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        int total = baseThreshold;
+        foreach (EffectRequest effect in card.Context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(MaxDpDeleteScope)))
+        {
+            if (effect.Context.OwnerPlayerId == card.Owner
+                && effect.Context.Values.TryGetValue(MaxDpDeleteDeltaKey, out object? raw)
+                && raw is int delta)
+            {
+                total += delta;
+            }
+        }
+
+        return total;
+    }
+
+    /// <summary>Mirror of the original target gate
+    /// <c>permanent.DigivolutionCards.Count(c =&gt; !c.CanNotTrashFromDigivolutionCards(...))</c>: the number of
+    /// the host permanent's digivolution (under) cards that are NOT trash-protected.</summary>
+    public static int TrashableDigivolutionCount(CardSource card, HeadlessEntityId hostId)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (hostId.IsEmpty)
+        {
+            return 0;
+        }
+
+        DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, hostId);
+        int count = 0;
+        foreach (StackedCard under in stack.UnderCards)
+        {
+            if (!IsTrashProtectedSource(card, under.InstanceId))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>The host has at least one trashable (non-protected) digivolution card.</summary>
+    public static bool HasTrashableDigivolutionCards(CardSource card, HeadlessEntityId hostId) =>
+        TrashableDigivolutionCount(card, hostId) >= 1;
+
+    private static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId)
+    {
+        return !sourceId.IsEmpty
+            && card.Context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
+            && instance is not null
+            && instance.Metadata.TryGetValue(TrashProtectedKey, out object? raw) && raw is true;
+    }
+
+    /// <summary>Mirror of the original <c>permanent.TopCard.HasLevel</c>: the host's top card carries a
+    /// printed level (Digimon / DigiEgg do; Tamers / Options do not).</summary>
+    public static bool TopCardHasLevel(CardSource card, HeadlessEntityId id) => LevelOf(card, id) > 0;
+
     /// <summary>Mirror of the original <c>Permanent.Level</c> (entity-id form): the printed level of the
     /// battle-area card topped by <paramref name="id"/> (0 when unknown), read from instance/def metadata.</summary>
     public static int LevelOf(CardSource card, HeadlessEntityId id)
@@ -1376,6 +1616,81 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security).Count;
+    }
+
+    /// <summary>Mirror of the original <c>IsDPZeroDelete(hashtable)</c>: the just-deleted permanent (the
+    /// trigger subject) was deleted by dropping to 0 DP — distinguished by the <c>DPZero</c> marker that
+    /// <see cref="DpZeroDeletionHelpers"/> stamps (vs a battle or direct-Delete-effect deletion).</summary>
+    public static bool IsDPZeroDelete(CardSource card, CardEffectResolveContext context)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(context);
+        if (context.Request.Context.TriggerEntityId is not { } deleted || deleted.IsEmpty)
+        {
+            return false;
+        }
+
+        return card.Context.CardInstanceRepository.TryGetInstance(deleted, out CardInstanceRecord? instance)
+            && instance is not null
+            && instance.Metadata.TryGetValue(DpZeroDeletionHelpers.DpZeroKey, out object? raw) && raw is true;
+    }
+
+    /// <summary>Mirror of the original <c>CanTriggerOnPermanentDeleted(hashtable, permanentCondition)</c>: a
+    /// permanent was just deleted (the trigger subject) and it satisfies <paramref name="permanentCondition"/>.</summary>
+    public static bool CanTriggerOnPermanentDeleted(CardSource card, CardEffectResolveContext context, Func<HeadlessEntityId, bool> permanentCondition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(permanentCondition);
+        return context.Request.Context.TriggerEntityId is { } deleted && !deleted.IsEmpty && permanentCondition(deleted);
+    }
+
+    /// <summary>The deleted-subject ownership/type predicate: <paramref name="id"/> is (was) an opponent's
+    /// Digimon — zone-agnostic (the card may already be in the trash), so usable in deletion triggers.</summary>
+    public static bool IsOpponentOwnedDigimon(CardSource card, HeadlessEntityId id)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
+        {
+            return false;
+        }
+
+        if (instance.OwnerId == card.Owner)
+        {
+            return false;
+        }
+
+        return card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            && def is not null
+            && string.Equals(def.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Mirror of the original <c>card.PermanentOfThisCard().battle.enemyPermanent(...)</c>: the
+    /// entity this card's permanent is currently battling (the other participant of the in-progress attack),
+    /// or empty when this permanent is not in a battle. Read from <c>AttackController.Current</c>.</summary>
+    public static HeadlessEntityId CurrentBattleOpponent(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        HeadlessEntityId self = card.PermanentOfThisCard().TopInstanceId;
+        if (self.IsEmpty)
+        {
+            return default;
+        }
+
+        HeadlessAttackState attack = card.Context.AttackController.Current;
+        HeadlessEntityId attacker = attack.AttackerId ?? default;
+        HeadlessEntityId defender = attack.BlockerId ?? attack.TargetId ?? default;
+        if (self == attacker)
+        {
+            return defender;
+        }
+
+        if (self == defender)
+        {
+            return attacker;
+        }
+
+        return default;
     }
 
     /// <summary>The opponent player id (the first player in turn order that is not the card owner). Empty
