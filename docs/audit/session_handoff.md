@@ -1,0 +1,58 @@
+# Session Handoff — 다른 PC에서 이어서
+
+> 이 문서 하나로 새 PC(또는 새 대화)에서 작업을 이어받을 수 있다. 저장소: **https://github.com/heogunh929/headlessDCGO** (branch `main`).
+> 메모리 내용은 `docs/audit/memory_mirror.md`에 미러돼 있다(메모리 폴더는 git 밖).
+
+## 0. 새 PC 셋업 체크리스트
+
+1. **clone**: `git clone https://github.com/heogunh929/headlessDCGO.git` (HEAD = `63a462d7`).
+2. **`DCGO/` 복사** (필수, git-ignored) — AS-IS 원본 참조. 포팅·검증의 1:1 대조 기준. USB/클라우드로 기존 PC에서 복사해 저장소 루트에 둔다.
+3. **`.dotnet/` 복사 또는 .NET 8 SDK 설치** (git-ignored). 빌드 명령은 로컬 `.dotnet/dotnet` 사용.
+4. **(선택) 메모리 복원**: `memory_mirror.md`의 각 절을 `<user>\.claude\projects\<project>\memory\<name>.md`로 복원, 또는 새 대화 첫 메시지에서 "docs/audit/session_handoff.md + memory_mirror.md 읽고 이어서".
+5. **검증**: `bash scripts/run-tests.sh` → `SUMMARY: PASS=244 FAIL=0`. `.dotnet/dotnet run --project tools/RuleAudit` → "No rule-invariant violations".
+
+⚠️ **안 넘어가는 것**: 활성 `/goal` Stop 훅, 백그라운드 작업, 이 대화 컨텍스트. 코드/문서/`.claude/commands/`는 git으로 인계됨.
+
+## 1. 명령
+
+- 빌드: `.dotnet/dotnet build src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj -clp:ErrorsOnly`
+- 전체 테스트: `bash scripts/run-tests.sh` (2단계: 빌드 6병렬 → 실행 20병렬; `SUMMARY: PASS=N FAIL=0`)
+- 룰 감사: `.dotnet/dotnet run --project tools/RuleAudit` ("No rule-invariant violations detected" + 위반 0)
+- 커밋은 **사용자 지시 시에만**. 금지경로 절대 미커밋: `DCGO/` · `.dotnet/` · `**/bin/` · `**/obj/` · `.claude/settings.local.json`. 커밋 메시지 끝에 `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+
+## 2. 표준 (작업 규율)
+
+- **포팅 표준**: `docs/audit/card_porting_standard.md` — "원본구조 동일"(파일 위치 + 팩토리/메서드 이름·시그니처 1:1, 행동만 아님). 카드-facing은 엔티티-id 술어 관용.
+- **AS-IS 미러 규칙** + **엄격 PASS**(가드 완화·추측 = FAIL, 빈도/희귀엣지는 PASS 근거 아님): `memory_mirror.md` 참조.
+- **probe-first**: 새 프리미티브 전 엔진에 이미 메커니즘 있는지 확인(반복 교훈: "엔진 있음 / 등록 경로 없음").
+- `/goal <ID>` 커맨드(`.claude/commands/goal.md`)로 골 실행; `/ex8-074`로 EX8-074 묶음.
+
+## 3. 현재 상태 (이 세션 성과)
+
+전체 **244/244 green, RuleAudit 위반 0**. HEAD `63a462d7`.
+
+**EX8_074 하드카드 6 region 전부 LIVE 완성** (forcing function으로 포팅 표준 확립):
+- #1 [BeforePayCost] 디지몬 2체 서스펜드→코스트-4 (라이브, availability/payment 분리 모델링)
+- #3 [Alliance] / #4 [Vortex] (라이브 키워드)
+- #5 [When Digivolving] 1체 서스펜드→상대 ≤8000 삭제(+서스펜드당 3000 동적임계) (LA-1로 라이브)
+- #6 [All Turns] 1회/턴 자기 [When Digivolving] 재발동 (LA-3로 라이브)
+
+**핵심 부수효과**: LA-1로 **모든 [When Digivolving] 카드(ST1_08 등)가 함께 라이브화**.
+
+커밋: `3b061f61`(EX8_074 포팅+프리미티브) · `63a462d7`(LA 라이브 활성화). 이전 단계: self-static/play-cost 팩토리(`fcea38cf`), BeforePayCost Stage1-3(`dd3001c8`/`ef95d1d4`/`237466eb`/`7955d03f`).
+
+**신규 재사용 프리미티브**: `EffectTiming.BeforePayCost`/`OnEndTurn`; `SuspendCostReductionEffect`; BeforePayCost 지불-전 윈도우 + availability 감소(PlayCardAction); `ReuseWhenDigivolvingEffect`; `OnPlayReactivation`(LA-3 윈도우); CardEffectCommons `IsBattleAreaDigimon`/`IsExistOnHand`/`MatchConditionPermanentCount`/`IsSuspended`; 동적임계 삭제 패턴. **정답 패턴(활성화 라이브화)**: 트리거 시점 `ActivatedEffectResolver` 직접 호출 윈도우(EngineContext 완비, coordinator 중첩 회피 — 스케줄러 경로는 `CardEffectResolveContext`에 ChoiceProvider 없음).
+
+## 4. 다음 작업 후보
+
+- **LA-2** (자기 On-Play 활성화) / **LA-4** (인터랙티브 deferred resume across 새 윈도우) — `docs/audit/live_activation_goals.md`. 둘 다 선택(EX8_074·self-play엔 불필요).
+- **추가 카드/그룹 포팅** — `CARDS-<Set>-<Color>` 단위, 표준 §2 워크플로우 + 이번에 만든 프리미티브 재사용. 다른 하드카드도 같은 방식.
+- **fidelity-debt** 기준 유지(보고는 "진짜 1:1 몇 장 / 부채 몇 장"). 레저: `docs/audit/fidelity_debt.md`.
+
+## 5. 핵심 문서
+
+- 포팅 표준: `docs/audit/card_porting_standard.md`
+- EX8-074 묶음 골(완료): `docs/audit/ex8_074_remaining_goals.md`
+- LA 라이브 활성화 골: `docs/audit/live_activation_goals.md`
+- 메모리 미러: `docs/audit/memory_mirror.md`
+- 엔진 백로그/이전 핸드오프: `docs/audit/engine_completion_backlog.md`, `docs/audit/engine_completion_handoff.md`
