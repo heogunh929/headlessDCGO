@@ -202,7 +202,13 @@ public sealed class PlayCardAction
                 instance.DefinitionId);
         }
 
-        if (!context.MemoryController.CanPay(payload.MemoryCost))
+        // (EX8_074 Stage 3 brick 3 — availability) The original's [None] isCheckAvailability ChangeCostClass:
+        // during availability calculation, a card with a passable BeforePayCost suspend-reduction is treated
+        // as costing that much less, so it can be offered/played when the FULL cost is unaffordable but the
+        // reduced cost is not. The payload cost stays full (the actual reduction is applied by the brick-2
+        // pre-payment window in ProcessAsync); only the affordability check uses the reduced cost.
+        int availabilityCost = Math.Max(0, repositoryCost - BeforePayCostAvailabilityReduction(context, payload.CardId, playerId));
+        if (!context.MemoryController.CanPay(availabilityCost))
         {
             return PlayCardValidation.Illegal(
                 $"Cannot pay play cost {payload.MemoryCost}.",
@@ -210,6 +216,33 @@ public sealed class PlayCardAction
         }
 
         return PlayCardValidation.Legal(instance.DefinitionId);
+    }
+
+    /// <summary>(EX8_074 Stage 3 brick 3) The total play-cost reduction available from this card's
+    /// <see cref="EffectTiming.BeforePayCost"/> activated effects whose gate currently passes — read straight
+    /// from the card's effect list (the card only returns a <see cref="SuspendCostReductionEffect"/> when its
+    /// gate, e.g. ">= 2 suspendable Digimon", is met). Mirrors the original's availability-check ChangeCostClass.
+    /// 0 for the vast majority of cards (no BeforePayCost effect / un-ported), so the normal path is unchanged.</summary>
+    private static int BeforePayCostAvailabilityReduction(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect) || effect is null)
+        {
+            return 0;
+        }
+
+        var card = new CardSource(context, cardId, playerId, instance.OwnerId);
+        int reduction = 0;
+        foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.BeforePayCost, card))
+        {
+            if (cardEffect is SuspendCostReductionEffect suspendReduce)
+            {
+                reduction += suspendReduce.CostReduction;
+            }
+        }
+
+        return reduction;
     }
 
     private static void MarkEnteredThisTurn(EngineContext context, HeadlessEntityId cardId)

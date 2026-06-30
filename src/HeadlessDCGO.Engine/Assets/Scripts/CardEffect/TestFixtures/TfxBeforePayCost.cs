@@ -25,7 +25,7 @@ public sealed class TfxBeforePayCost : CEntity_Effect
             if (CardEffectCommons.MatchConditionPermanentCount(card, CanSuspendTarget) >= 2)
             {
                 cardEffects.Add(new SuspendCostReductionEffect(
-                    card, CanSuspendTarget, suspendCount: 2, costReduction: 4, mandatory: false,
+                    card, CanSuspendTarget, suspendCount: 2, costReduction: 4,
                     description: "Suspend 2 Digimon to get Play Cost -4."));
             }
         }

@@ -85,8 +85,16 @@
     no-op(정상 경로 무변). `TfxBeforePayCost` 픽스처로 실 플레이 E2E(2 suspend+8→6 reduced / 게이트닫힘 8→2 full),
     **238/238 green**(최다-사용 액션 회귀 0). 동기 resolver 한정 — 인터랙티브 deferred resume(`DeferredChoicePendingException`)는
     안전 가드(상태 무변 Illegal 반환)로 막아둔 **brick 2b**.
-  - ⏭ **brick 3 (availability)**: legal-action 생성 시 "N체 서스펜드 가능 → reduced로 제공"(단일-코스트 모델에
-    availability-only 감소 개념). #1↔#2 커플링.
+  - ✅ **brick 3 (availability + 커플링, G9-007)**: PlayCardAction.Validate가 `BeforePayCostAvailabilityReduction`
+    (카드의 BeforePayCost 효과에서 `SuspendCostReductionEffect.CostReduction` 합산)만큼 깎인 cost로 affordability
+    판정 → full은 못 내도 reduced로 낼 수 있으면 legal play로 노출(원본 `[None] isCheckAvailability` ChangeCostClass
+    등가). **#1↔#2 커플링**: `SuspendCostReductionEffect`가 BuildRequest마다 owner affordability로 canNoSelect를
+    동적 산출 → full 못 내면 suspend 강제(CanSkip=false), 낼 수 있으면 optional. 239/239 green(모든 play
+    legal-action 생성 영향에도 회귀 0).
+  - ⏭ **brick 2b**: 인터랙티브 deferred resume(self-play엔 불필요).
+  - **요약**: EX8_074 핵심 난제(BeforePayCost 코스트 감소 + 단일-코스트 모델에서의 availability/payment 분리)가
+    엔진에 충실 모델링 완료. 재사용 프리미티브: `SuspendCostReductionEffect`, `EffectTiming.BeforePayCost`,
+    BeforePayCost 윈도우, availability 감소.
 - ⏭ **Stage 4**: ⑤ 동적 임계 select-and-delete(서스펜드 수에 따라 8000+3000n). ⑥ [All Turns] once-per-turn
   자기 [When Digivolving] 재발동. + `OnEndTurn` 타이밍 enum/등록 경로(④ Vortex가 카드로 등록되려면).
   각기 §2 워크플로우(원본 이름 확인 → 엔진 격차 probe → 미러 → 라이브 검증)로.

@@ -620,12 +620,13 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect
 {
     private readonly SelectPermanentEffect _select = new();
 
+    private readonly Func<HeadlessEntityId, bool> _canSuspendTarget;
+
     public SuspendCostReductionEffect(
         CardSource card,
         Func<HeadlessEntityId, bool> canSuspendTarget,
         int suspendCount,
         int costReduction,
-        bool mandatory,
         string description)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -645,10 +646,11 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect
         SuspendCount = suspendCount;
         CostReduction = costReduction;
         Description = description;
-        // canEndNotMax:false → the agent answers with EXACTLY suspendCount targets, or skips (canNoSelect when
-        // not mandatory). The original's canNoSelect flips to false when the player cannot otherwise afford the
-        // card (PayingCost > MaxMemoryCost); callers pass `mandatory` to mirror that.
-        _select.SetUp(card.Owner, canSuspendTarget, maxCount: suspendCount, canNoSelect: !mandatory, canEndNotMax: false, SelectPermanentEffect.Mode.Tap, card.InstanceId);
+        _canSuspendTarget = canSuspendTarget;
+        // Configure the suspend selection (Mode.Tap); canNoSelect is recomputed per BuildRequest from the
+        // owner's affordability (see Configure). The ctor setup also keeps Apply safe if called without a
+        // prior BuildRequest (mode must be Tap).
+        Configure(canNoSelect: true);
         _select.SetUpCustomMessage(description);
     }
 
@@ -660,8 +662,32 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect
 
     public string Description { get; }
 
-    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
-        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
+    {
+        // (#1↔#2 coupling) The original sets canNoSelect:false when the player cannot otherwise afford the
+        // card (PayingCost > MaxMemoryCost) — the suspend is FORCED when the reduction is the only way to
+        // pay; optional (canNoSelect:true) when the full cost is affordable without it.
+        Configure(canNoSelect: CanAffordFullCost());
+        return _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
+    }
+
+    private void Configure(bool canNoSelect) =>
+        _select.SetUp(Card.Owner, _canSuspendTarget, maxCount: SuspendCount, canNoSelect, canEndNotMax: false, SelectPermanentEffect.Mode.Tap, Card.InstanceId);
+
+    /// <summary>Whether the owner can pay this card's FULL play cost (without this reduction, which is only
+    /// registered in <see cref="Apply"/>). When false, the suspend is mandatory.</summary>
+    private bool CanAffordFullCost()
+    {
+        if (!Card.Context.CardInstanceRepository.TryGetInstance(Card.InstanceId, out CardInstanceRecord? instance) || instance is null
+            || !Card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
+            || !PlayCostHelpers.TryResolveCost(def, instance, out int baseCost, out _))
+        {
+            return true; // unknown cost → don't force the suspend
+        }
+
+        int fullCost = ContinuousModifierGate.ResolvePlayCost(Card.Context, Card.InstanceId, baseCost);
+        return Card.Context.MemoryController.CanPay(fullCost);
+    }
 
     public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
     {

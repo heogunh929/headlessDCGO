@@ -123,7 +123,7 @@ SuspendCostReductionEffect BuildEffect(EngineContext context, HeadlessEntityId h
     var card = new CardSource(context, handCard, P1);
     bool Suspendable(HeadlessEntityId id) =>
         CardEffectCommons.IsOwnerBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);
-    return new SuspendCostReductionEffect(card, Suspendable, suspendCount: 2, costReduction: 4, mandatory: false,
+    return new SuspendCostReductionEffect(card, Suspendable, suspendCount: 2, costReduction: 4,
         description: "Suspend 2 Digimon to get Play Cost -4");
 }
 
