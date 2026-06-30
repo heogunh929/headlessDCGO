@@ -90,6 +90,20 @@ public sealed class HeadlessGameLoop(
             .ConfigureAwait(false);
         int resolvedEffectCount = flow.ResolvedEffectCount;
 
+        // GR-001: enforce the memory turn-end rule AFTER the action and all of its triggered effects have
+        // settled (so the final memory — including any [On Play] memory gain — is the one tested). The
+        // dedicated memory actions (PayMemory/SetMemory/AddMemory) evaluate this inline, but the play paths
+        // (PlayCard/Digivolve/ActivateOption/SpecialPlay) pay memory directly; without this loop-level check
+        // the turn player could keep acting after their memory crossed into the negative. EvaluateAfter-
+        // MemoryMutation is idempotent (no-op unless phase==Main, the actor is the turn player, and memory
+        // <= -1), so re-evaluating each step is safe.
+        if (consumedAction is not null && !Context.RuleQueryService.IsTerminal())
+        {
+            HeadlessMemoryState settledMemory = Context.MemoryController.Current;
+            new HeadlessMainPhaseFlow().EvaluateAfterMemoryMutation(
+                Context, consumedAction, settledMemory, settledMemory, "PostActionMemorySettle");
+        }
+
         bool isTerminal = Context.RuleQueryService.IsTerminal();
         _stepIndex++;
         List<string> messages = new();

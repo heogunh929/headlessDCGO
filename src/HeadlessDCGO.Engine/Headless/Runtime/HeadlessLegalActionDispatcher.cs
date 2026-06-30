@@ -85,14 +85,19 @@ public sealed class HeadlessLegalActionDispatcher
         if (context.ZoneMover is IZoneStateReader zones)
         {
             int digitama = zones.GetCards(playerId, ChoiceZone.DigitamaLibrary).Count;
-            int breeding = zones.GetCards(playerId, ChoiceZone.BreedingArea).Count;
+            IReadOnlyList<HeadlessEntityId> breeding = zones.GetCards(playerId, ChoiceZone.BreedingArea);
 
-            if (digitama > 0 && breeding == 0)
+            // Hatch: only with a digi-egg available and an empty breeding area (AS-IS Player.CanHatch).
+            if (digitama > 0 && breeding.Count == 0)
             {
                 actions.Add(HeadlessActionFactory.HatchDigitama(playerId));
             }
 
-            if (breeding > 0)
+            // Move: only when the breeding permanent's top card is a movable Digimon — NOT a freshly-hatched
+            // Digi-Egg. Mirrors AS-IS Permanent.CanMove (Permanent.cs:2068 `if (!IsDigimon) return false;`
+            // + 2071 `if (TopCard.IsDigiEgg && DP <= 0) return false;`). Previously this offered Move whenever
+            // the area was non-empty, letting a level-2 egg illegally walk into the battle area (GR-002).
+            if (breeding.Count > 0 && IsMovableBreedingDigimon(context, breeding[0]))
             {
                 actions.Add(HeadlessActionFactory.MoveBreedingToBattle(playerId, count: 1));
             }
@@ -100,6 +105,40 @@ public sealed class HeadlessLegalActionDispatcher
 
         actions.Add(HeadlessActionFactory.AdvancePhase(playerId));
         return actions.ToArray();
+    }
+
+    /// <summary>(GR-002) The breeding permanent may move to the battle area only once its top card is an
+    /// actual Digimon — a hatched Digi-Egg (and any DP&lt;=0 egg) cannot move until it is digivolved into a
+    /// Digimon. Mirrors AS-IS <c>Permanent.CanMove</c>.</summary>
+    private static bool IsMovableBreedingDigimon(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) || definition is null)
+        {
+            return false;
+        }
+
+        // IsDigimon: the top card must be a Digimon card (a Digi-Egg / Tamer / Option cannot move).
+        if (!string.Equals(definition.CardType, "Digimon", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // IsDigiEgg && DP <= 0: a Digi-Egg-typed card with no DP cannot move (defensive; redundant with the
+        // Digimon check under the single-CardType model, but faithful to the original two-part guard).
+        if (string.Equals(definition.CardType, "DigiEgg", StringComparison.Ordinal) && ReadDp(context, instance, definition) <= 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static int ReadDp(EngineContext context, CardInstanceRecord instance, CardRecord definition)
+    {
+        if (instance.Metadata.TryGetValue("dp", out object? iv) && iv is int idp) return idp;
+        if (definition.Metadata.TryGetValue("dp", out object? dv) && dv is int ddp) return ddp;
+        return 0;
     }
 
     /// <summary>

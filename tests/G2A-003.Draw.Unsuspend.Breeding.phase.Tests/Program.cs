@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -197,14 +198,24 @@ async Task BreedingPhaseMovesOccupiedBreedingArea()
 {
     DcgoMatch match = await CreateInitializedMatchAsync();
     HeadlessPlayerId player = new(1);
-    await match.Context.ZoneMover.HatchDigitamaAsync(player);
+
+    // (GR-002) A breeding permanent moves to battle only once its top card is a Digimon (AS-IS
+    // Permanent.CanMove). A freshly-hatched Digi-Egg CANNOT move (asserted by GR-002.BreedingMove tests);
+    // here we set up the legitimate case — a level-3 Digimon occupying the breeding area.
+    var cards = (CardDatabase)match.Context.CardRepository;
+    var def = new HeadlessEntityId("BREED-DIGI-def");
+    cards.Upsert(new CardRecord(def, def.Value, "BreedRookie",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon"));
+    var inst = new HeadlessEntityId("BREED-DIGI");
+    match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(inst, def, player));
+    await match.Context.ZoneMover.MoveAsync(new ZoneMoveRequest(player, inst, ChoiceZone.None, ChoiceZone.BreedingArea));
     match.Context.TurnController.SetPhase(HeadlessPhase.Draw);
 
     StepResult enter = await ApplyAdvanceAsync(match, player); // Draw -> Breeding
     AssertEqual(HeadlessPhase.Breeding, enter.Observation.Turn.Phase, "breeding phase");
     AssertTrue(
         match.GetLegalActions(player).Any(a => a.ActionType == HeadlessActionTypes.MoveBreedingToBattle),
-        "move is offered when the breeding area is occupied");
+        "move is offered when a Digimon occupies the breeding area");
 
     StepResult move = await ApplyActionAsync(match, HeadlessActionFactory.MoveBreedingToBattle(player, count: 1));
     AssertTrue(LastActionResult(move).IsSuccess, "move success");

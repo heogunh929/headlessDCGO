@@ -23,12 +23,17 @@ public sealed class DigivolveAction
         }
 
         HeadlessEntityId[] handCards = zoneReader.GetCards(playerId, ChoiceZone.Hand).ToArray();
-        HeadlessEntityId[] battleCards = zoneReader.GetCards(playerId, ChoiceZone.BattleArea).ToArray();
+        // GR-004: a card can digivolve onto a Digimon in the BATTLE area OR a permanent in the BREEDING area
+        // (the digi-egg ramp: hatch a Lv.2 egg, then digivolve it into a Lv.3 in breeding, then move it out).
+        // Mirrors AS-IS — the breeding digi-egg frame is a valid digivolution target (CardController.cs).
+        HeadlessEntityId[] targetCards = zoneReader.GetCards(playerId, ChoiceZone.BattleArea)
+            .Concat(zoneReader.GetCards(playerId, ChoiceZone.BreedingArea))
+            .ToArray();
         List<LegalAction> actions = new();
 
         foreach (HeadlessEntityId cardId in handCards)
         {
-            foreach (HeadlessEntityId targetCardId in battleCards)
+            foreach (HeadlessEntityId targetCardId in targetCards)
             {
                 if (!TryGetEvolutionCost(context, cardId, targetCardId, out int evolutionCost, out _))
                 {
@@ -70,11 +75,19 @@ public sealed class DigivolveAction
         }
 
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
+        // GR-004: digivolution is IN PLACE — the new top card lands in the SAME area the target occupied
+        // (breeding stays in breeding, battle stays in battle); only hardcoding BattleArea would have
+        // teleported an in-breeding digivolution onto the battle area.
+        ChoiceZone targetZone =
+            context.ZoneMover is IZoneStateReader reader
+            && reader.GetCards(action.PlayerId, ChoiceZone.BreedingArea).Contains(payload.TargetCardId)
+                ? ChoiceZone.BreedingArea
+                : ChoiceZone.BattleArea;
         ZoneMoveResult targetRemoval = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
                 payload.TargetCardId,
-                ChoiceZone.BattleArea,
+                targetZone,
                 ChoiceZone.None),
             cancellationToken).ConfigureAwait(false);
         ZoneMoveResult cardMovement = await context.ZoneMover.MoveAsync(
@@ -82,7 +95,7 @@ public sealed class DigivolveAction
                 action.PlayerId,
                 payload.CardId,
                 ChoiceZone.Hand,
-                ChoiceZone.BattleArea),
+                targetZone),
             cancellationToken).ConfigureAwait(false);
         // F-6.7: wrap the digivolve-cost payment with the Before/AfterPayCost windows.
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
@@ -197,10 +210,12 @@ public sealed class DigivolveAction
                 target.DefinitionId);
         }
 
-        if (!zoneReader.GetCards(playerId, ChoiceZone.BattleArea).Contains(payload.TargetCardId))
+        // GR-004: the target may be in the battle area or the breeding area (in-breeding digivolution).
+        if (!zoneReader.GetCards(playerId, ChoiceZone.BattleArea).Contains(payload.TargetCardId)
+            && !zoneReader.GetCards(playerId, ChoiceZone.BreedingArea).Contains(payload.TargetCardId))
         {
             return DigivolveValidation.Illegal(
-                $"Target card '{payload.TargetCardId}' is not in player '{playerId}' battle area.",
+                $"Target card '{payload.TargetCardId}' is not in player '{playerId}' battle or breeding area.",
                 card.DefinitionId,
                 target.DefinitionId);
         }
