@@ -217,7 +217,7 @@ public sealed class AutoProcessingTriggerCollector
         // from the event metadata. The card-scoping filters below would otherwise drop a listener bound to a
         // DIFFERENT card (e.g. ST3_01/04 reacting to an opponent's deletion). Self-scoped W4 windows
         // (OnSecurityCheck / digivolution) keep the filters.
-        bool broadcast = IsBroadcastTiming(timing);
+        bool broadcast = TriggerTimings.IsBroadcast(timing);
 
         if (!broadcast
             && TryReadEntityId(gameEvent.Metadata, SourceEntityIdKey, out HeadlessEntityId sourceEntityId)
@@ -250,11 +250,6 @@ public sealed class AutoProcessingTriggerCollector
 
         return true;
     }
-
-    /// <summary>(G12-003) "Anyone" / board-wide timings whose listeners fire regardless of which card the
-    /// event is about (the subject is read from the event metadata by the trigger gate).</summary>
-    private static bool IsBroadcastTiming(string timing) =>
-        string.Equals(timing, TriggerTimings.OnDeletion, StringComparison.Ordinal);
 
     private static bool MatchesEntity(
         EffectContext context,

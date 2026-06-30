@@ -107,4 +107,28 @@ public static class TriggerTimings
     // resolve BEFORE the DP comparison (so "+DP at start of battle" applies), which needs a synchronous
     // mid-battle resolution window; tracked as a CV-A4 follow-up.
     public const string OnEndBattle = "OnEndBattle";
+
+    /// <summary>
+    /// (G12-003) Board-wide "Anyone" timings whose listeners must fire cross-card — the event is about
+    /// ANY card on the board (own OR opponent), so an effect registered on a DIFFERENT card still
+    /// receives the event's subject instead of being dropped by the per-card listener filter (the
+    /// trigger gate then self-scopes on the subject). See
+    /// <see cref="AutoProcessingTriggerCollector"/>.
+    ///
+    /// EXTENSION POINT — when a new board-wide "Anyone" timing needs cross-card listeners, add its
+    /// constant here. This is an explicit allow-list, NOT the <c>Anyone</c>-suffix convention, on
+    /// purpose: not every <c>...Anyone</c> timing is safe to broadcast. Some (e.g.
+    /// <see cref="OnBlock"/> = "OnBlockAnyone") have effects that rely on the per-card filter for
+    /// correctness rather than self-gating, so blanket-broadcasting them regresses behavior. Add a
+    /// timing only after confirming its bound effects self-gate on the subject.
+    /// </summary>
+    private static readonly HashSet<string> BroadcastTimings = new(StringComparer.Ordinal)
+    {
+        OnDeletion, // "OnDestroyedAnyone" — ST3_01/04 react to an opponent's 0-DP deletion (G12-003).
+    };
+
+    /// <summary>True if <paramref name="timing"/> is a board-wide timing whose listeners fire
+    /// cross-card. See <see cref="BroadcastTimings"/> for the allow-list and how to extend it.</summary>
+    public static bool IsBroadcast(string? timing) =>
+        timing is not null && BroadcastTimings.Contains(timing);
 }
