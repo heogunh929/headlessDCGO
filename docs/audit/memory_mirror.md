@@ -50,4 +50,6 @@ ST1/Red·ST2/Blue·ST3/Yellow + ST7_10 = 35장. 최초 감사: 진짜 1:1은 24/
 
 **신규 재사용 프리미티브**: `EffectTiming.BeforePayCost`/`OnEndTurn`, `SuspendCostReductionEffect`, BeforePayCost 윈도우+availability, `ReuseWhenDigivolvingEffect`, `IsBattleAreaDigimon`/`IsExistOnHand`/`MatchConditionPermanentCount`/`IsSuspended`, 동적임계 삭제, `OnPlayReactivation`. 커맨드: `/goal`·`/ex8-074`(`.claude/commands/`). 픽스처: `TestFixtures/Tfx*.cs`(클래스명=카드번호, 리플렉션 dispatch).
 
-**미진행(선택):** LA-2(자기 On-Play 활성화), LA-4(인터랙티브 deferred resume across 새 윈도우). 둘 다 `docs/audit/live_activation_goals.md`.
+**LA-4 완료(G9-013, 미커밋):** 인터랙티브 deferred resume — resume 경로(`MetadataActionProcessor:604`)가 이미 timing-agnostic이라 **production 변경 0(검증 골)**. WhenDigivolving·[All Turns] 윈도우가 `deferredChoice:true`에서 processor 직접 구동 ResolveChoice 2라운드로 안전 suspend/resume. commit-once 뉘앙스: Tap 즉시 upsert·Destroy는 완료까지 staged.
+
+**미진행(선택):** LA-2(자기 On-Play 활성화) — `docs/audit/live_activation_goals.md`. 해당 카드 포팅 시 LA-1 패턴 적용.

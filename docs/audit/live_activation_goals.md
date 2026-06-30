@@ -65,7 +65,17 @@
 
 ---
 
-## LA-4 — 인터랙티브 deferred resume (= EX8 brick2b 일반화)
+## ✅ LA-4 — 인터랙티브 deferred resume (= EX8 brick2b 일반화) — 완료
+
+**확정 사실(probe):** resume 경로 `MetadataActionProcessor:604`(DeferredActivations.Pending → `ActivatedEffectResolver.ResolveAsync(…, pendingActivation.Timing)`)는 **이미 timing-agnostic** — OptionSkill/SecuritySkill뿐 아니라 WhenDigivolving(LA-1)·OnEnterFieldAnyone(LA-3)도 분기 없이 그대로 커버. suspend 배선도 이미 존재(DigivolveAction:163 / OnPlayReactivation:58). 따라서 **production 코드 변경 0 — 검증 골**. (G9-011/012는 동기 ScriptedChoiceProvider만 검증했음.)
+
+**구현/검증:** `tests/G9-013.DeferredActivationResume` 2/2 — `deferredChoice:true` 컨텍스트에서 **MetadataActionProcessor를 직접 구동**(직접 resolver 호출 아님):
+- WhenDigivolving: Digivolve 액션 → 첫 [When Digivolving] 선택에서 suspend(DeferredActivations=WhenDigivolving, 디지볼브는 commit-once 완료) → ResolveChoice 2라운드(suspend ally → delete foe)가 processor:604로 resume, 재-digivolve 없음.
+- [All Turns]: 다른 디지몬 Play 액션 → holder(EX8_074) 재활성화가 OnEnterFieldAnyone으로 suspend(holder id 보존, 플레이 카드 commit-once 완료) → ResolveChoice 2라운드 resume.
+- commit-once 뉘앙스 확정: **Tap(suspend)=즉시 upsert, Destroy(delete)=활성화 완료까지 staged**(중간 라운드엔 삭제 미적용). 전체 245 프로젝트 green, RuleAudit 0.
+
+### (원안 스펙)
+## LA-4 (원안) — 인터랙티브 deferred resume (= EX8 brick2b 일반화)
 
 **목표:** LA-1~3의 새 윈도우들이 인터랙티브 `DeferredChoiceProvider`에서 `DeferredChoicePendingException` 시 안전하게 suspend/resume(지불·이동 경계 포함). 동기 resolver(self-play)엔 불필요하나 인터랙티브 에이전트용.
 
@@ -79,6 +89,6 @@
 - ✅ **LA-1** 라이브 [When Digivolving] (G9-011) — 전체 WhenDigivolving 카드군 + EX8_074 #5 라이브
 - ✅ **LA-3** 라이브 [All Turns] 1회/턴 재트리거 (G9-012) — EX8_074 #6 라이브
 - ⏭ **LA-2** 자기 On-Play 활성화 — **선택**(EX8_074 무관; #1은 BeforePayCost로 이미 라이브). 해당 카드 포팅 시 LA-1 패턴 적용.
-- ⏭ **LA-4** 인터랙티브 deferred resume — **선택**(self-play 동기 resolver엔 불필요; 인터랙티브 에이전트용. `deferredChoice:true` 하니스로 LA-1/3 윈도우 resume 검증).
+- ✅ **LA-4** 인터랙티브 deferred resume (G9-013) — LA-1/3 윈도우가 `deferredChoice:true`에서 MetadataActionProcessor:604 resume으로 안전. resume 경로가 timing-agnostic이라 production 변경 0(검증 골).
 
 **결과: EX8_074 6 region 전부 LIVE** — #1 BeforePayCost·#3 Alliance·#4 Vortex(라이브) + #5 WhenDigivolving(LA-1)·#6 [All Turns](LA-3). self-play에서 손 안 대고 전부 자동 발동. 244/244 green, RuleAudit 0.

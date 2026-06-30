@@ -57,9 +57,13 @@ dotnet run --project tools/RuleAudit # No rule-invariant violations
 
 **신규 재사용 프리미티브**: `EffectTiming.BeforePayCost`/`OnEndTurn`; `SuspendCostReductionEffect`; BeforePayCost 지불-전 윈도우 + availability 감소(PlayCardAction); `ReuseWhenDigivolvingEffect`; `OnPlayReactivation`(LA-3 윈도우); CardEffectCommons `IsBattleAreaDigimon`/`IsExistOnHand`/`MatchConditionPermanentCount`/`IsSuspended`; 동적임계 삭제 패턴. **정답 패턴(활성화 라이브화)**: 트리거 시점 `ActivatedEffectResolver` 직접 호출 윈도우(EngineContext 완비, coordinator 중첩 회피 — 스케줄러 경로는 `CardEffectResolveContext`에 ChoiceProvider 없음).
 
+## 3-b. 후속 (LA-4 완료)
+
+**LA-4 인터랙티브 deferred resume 완료** (미커밋, HEAD 위 working tree): `tests/G9-013.DeferredActivationResume` 2/2. 핵심 — resume 경로(`MetadataActionProcessor:604`)가 **이미 timing-agnostic**이라 production 변경 0, **검증 골**. WhenDigivolving(LA-1)·[All Turns](LA-3) 윈도우가 `deferredChoice:true`에서 processor를 직접 구동하는 ResolveChoice 2라운드로 안전하게 suspend/resume(재-digivolve/재-play 없음, commit-once: Tap 즉시·Destroy staged). 전체 **245 프로젝트 green, RuleAudit 0**.
+
 ## 4. 다음 작업 후보
 
-- **LA-2** (자기 On-Play 활성화) / **LA-4** (인터랙티브 deferred resume across 새 윈도우) — `docs/audit/live_activation_goals.md`. 둘 다 선택(EX8_074·self-play엔 불필요).
+- **LA-2** (자기 On-Play 활성화) — `docs/audit/live_activation_goals.md`. 선택(EX8_074 무관, 해당 카드 포팅 시 LA-1 패턴 적용).
 - **추가 카드/그룹 포팅** — `CARDS-<Set>-<Color>` 단위, 표준 §2 워크플로우 + 이번에 만든 프리미티브 재사용. 다른 하드카드도 같은 방식.
 - **fidelity-debt** 기준 유지(보고는 "진짜 1:1 몇 장 / 부채 몇 장"). 레저: `docs/audit/fidelity_debt.md`.
 
