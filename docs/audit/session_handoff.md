@@ -5,19 +5,33 @@
 
 ## 0. 새 PC 셋업 체크리스트
 
-1. **clone**: `git clone https://github.com/heogunh929/headlessDCGO.git` (HEAD = `63a462d7`).
-2. **`DCGO/` 복사** (필수, git-ignored) — AS-IS 원본 참조. 포팅·검증의 1:1 대조 기준. USB/클라우드로 기존 PC에서 복사해 저장소 루트에 둔다.
-3. **`.dotnet/` 복사 또는 .NET 8 SDK 설치** (git-ignored). 빌드 명령은 로컬 `.dotnet/dotnet` 사용.
-4. **(선택) 메모리 복원**: `memory_mirror.md`의 각 절을 `<user>\.claude\projects\<project>\memory\<name>.md`로 복원, 또는 새 대화 첫 메시지에서 "docs/audit/session_handoff.md + memory_mirror.md 읽고 이어서".
-5. **검증**: `bash scripts/run-tests.sh` → `SUMMARY: PASS=244 FAIL=0`. `.dotnet/dotnet run --project tools/RuleAudit` → "No rule-invariant violations".
+공통: 1) clone, 2) `DCGO/` 복사(필수, git-ignored — AS-IS 1:1 대조 기준; C# 소스+.meta라 크로스플랫폼 복사 OK), 3) .NET 8 SDK, 4) (선택) 메모리 복원(`memory_mirror.md` 각 절을 `~/.claude/projects/<project>/memory/<name>.md`로; 또는 새 대화에서 "session_handoff.md + memory_mirror.md 읽고 이어서"), 5) 검증.
+
+### Ubuntu / Linux (권장 경로)
+```bash
+# .NET 8 SDK — 둘 중 하나
+sudo apt-get install -y dotnet-sdk-8.0                                   # MS 저장소 설정 시
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0  # 또는 격리 설치
+
+git clone https://github.com/heogunh929/headlessDCGO.git && cd headlessDCGO
+# DCGO/ 를 기존 PC에서 루트로 복사 (scp/USB/클라우드)
+bash scripts/run-tests.sh            # SUMMARY: PASS=244 FAIL=0
+dotnet run --project tools/RuleAudit # No rule-invariant violations
+```
+- **`.dotnet/` 복사 금지** — Windows 바이너리. `run-tests.sh`는 `.dotnet/`가 없으면 시스템 `dotnet`을 쓴다(`[ -d ".dotnet" ] && export PATH=...`). 격리하고 싶으면 `dotnet-install.sh --install-dir ./.dotnet`로 **Linux** SDK를 `.dotnet/`에 깔면 된다.
+- 줄바꿈: `.gitattributes`가 `*.sh eol=lf` 강제 → 우분투에서 스크립트 정상. (Windows의 CRLF 경고는 무관)
+- 명령은 시스템 `dotnet`(아래 §1의 `.dotnet/dotnet` 대신 `dotnet`).
+
+### Windows (기존 PC)
+- `.dotnet/`(Windows SDK) 복사 또는 .NET 8 설치. 명령은 `.dotnet/dotnet ...`. 빌드는 throttle됨(20-way 동시빌드가 Win32 1392 산출물 손상 유발 → run-tests.sh가 빌드/실행 분리).
 
 ⚠️ **안 넘어가는 것**: 활성 `/goal` Stop 훅, 백그라운드 작업, 이 대화 컨텍스트. 코드/문서/`.claude/commands/`는 git으로 인계됨.
 
-## 1. 명령
+## 1. 명령 (Ubuntu는 `dotnet`, Windows는 `.dotnet/dotnet`)
 
-- 빌드: `.dotnet/dotnet build src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj -clp:ErrorsOnly`
-- 전체 테스트: `bash scripts/run-tests.sh` (2단계: 빌드 6병렬 → 실행 20병렬; `SUMMARY: PASS=N FAIL=0`)
-- 룰 감사: `.dotnet/dotnet run --project tools/RuleAudit` ("No rule-invariant violations detected" + 위반 0)
+- 빌드: `dotnet build src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj -clp:ErrorsOnly`
+- 전체 테스트: `bash scripts/run-tests.sh` (2단계: 빌드 병렬 → 실행 병렬; `SUMMARY: PASS=N FAIL=0`)
+- 룰 감사: `dotnet run --project tools/RuleAudit` ("No rule-invariant violations detected" + 위반 0)
 - 커밋은 **사용자 지시 시에만**. 금지경로 절대 미커밋: `DCGO/` · `.dotnet/` · `**/bin/` · `**/obj/` · `.claude/settings.local.json`. 커밋 메시지 끝에 `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 
 ## 2. 표준 (작업 규율)
