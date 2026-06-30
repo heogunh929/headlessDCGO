@@ -42,6 +42,7 @@ public enum EffectTiming
     OnDestroyedAnyone,
     OnAllyAttack,
     OnBlockAnyone,
+    OnEndTurn,
     OnStartTurn,
 
     // Player-activated abilities (NOT auto-registered on enter-play; activation flow is Wave 3).
@@ -534,6 +535,29 @@ public sealed class ReuseMainOptionEffect : IActivatedCardEffect
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Reuse-main security effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// (EX8-2 brick) Re-activates THIS card's <see cref="EffectTiming.WhenDigivolving"/> effects through the
+/// choice flow — the headless analog of the original "[All Turns] you may activate 1 of this Digimon's
+/// [When Digivolving] effects" (EX8_074 region "All Turns"). Structural twin of
+/// <see cref="ReuseMainOptionEffect"/> (which re-runs [Main]/OptionSkill): when resolved,
+/// <see cref="ActivatedEffectResolver"/> recursively resolves <c>CardEffects(WhenDigivolving)</c> on the same
+/// sink / choice provider. The once-per-turn, "when any Digimon is played" TRIGGER that OFFERS this effect
+/// is the remaining EX8-2 integration (see docs/audit/ex8_074_remaining_goals.md §EX8-2).
+/// </summary>
+public sealed class ReuseWhenDigivolvingEffect : IActivatedCardEffect
+{
+    public ReuseWhenDigivolvingEffect(string description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Description = description;
+    }
+
+    public string Description { get; }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Reuse-when-digivolving effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>Placeholder for an original effect whose subsystem is not yet ported. Returned so a ported
@@ -1682,6 +1706,12 @@ public static class CardEffectCommons
     public static bool IsOwnerBattleAreaDigimon(CardSource card, HeadlessEntityId id) =>
         IsBattleAreaDigimon(card, id, opponent: false);
 
+    /// <summary>(EX8-1) Mirror of the original <c>IsPermanentExistsOnBattleAreaDigimon(permanent)</c>:
+    /// <paramref name="id"/> is a battle-area Digimon owned by EITHER player (used by "suspend 1 Digimon"
+    /// targets and by the suspended-count threshold).</summary>
+    public static bool IsBattleAreaDigimon(CardSource card, HeadlessEntityId id) =>
+        IsOwnerBattleAreaDigimon(card, id) || IsOpponentBattleAreaDigimon(card, id);
+
     private static bool IsBattleAreaDigimon(CardSource card, HeadlessEntityId id, bool opponent)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -2092,6 +2122,10 @@ public static class CardEffectRegistrar
         EffectTiming.OnDestroyedAnyone,
         EffectTiming.OnAllyAttack,
         EffectTiming.OnBlockAnyone,
+        // (EX8-3) OnEndTurn self-statics (e.g. <Vortex> via VortexSelfEffect) register at enter-play like the
+        // other self-static keyword timings; GR-006's EndOfTurnEffectAttack then reads the live binding at
+        // turn end. The original keys <Vortex> under EffectTiming.OnEndTurn (EX8_074 region "Vortex").
+        EffectTiming.OnEndTurn,
         EffectTiming.OnStartTurn,
     });
 

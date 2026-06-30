@@ -157,6 +157,17 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ReuseWhenDigivolvingEffect:
+                {
+                    // (EX8-2 brick) "[All Turns] activate this card's [When Digivolving] effects" — resolve the
+                    // card's WhenDigivolving activated effects, recursively, through the same sink / choice
+                    // provider (same shape as ReuseMainOptionEffect, different timing).
+                    resolved += await ResolveListAsync(
+                        context, effectClass, card, players, sink,
+                        effectClass.CardEffects(EffectTiming.WhenDigivolving, card), cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+
                 // DeferredCardEffect / non-activated effects: not resolved here.
             }
         }
