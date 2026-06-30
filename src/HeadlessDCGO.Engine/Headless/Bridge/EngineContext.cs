@@ -49,6 +49,7 @@ public sealed class EngineContext
         OptionalPromptQueue = new OptionalPromptQueue();
         MulliganCoordinator = new MulliganCoordinator();
         OnceFlags = new OnceFlagController();
+        DeferredActivations = new HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
@@ -97,6 +98,10 @@ public sealed class EngineContext
 
     /// <summary>(F-4) Per-turn use-count tracking that gates once-per-turn / max-count-per-turn effects.</summary>
     public OnceFlagController OnceFlags { get; }
+
+    /// <summary>(G11-002) Holds an activation suspended mid-resolution waiting for an agent choice, so the
+    /// next ResolveChoice resumes it without re-running the originating action (no re-pay).</summary>
+    public HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController DeferredActivations { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
@@ -210,6 +215,7 @@ public sealed class EngineContext
         OptionalPromptQueue.Clear();
         MulliganCoordinator.Clear();
         OnceFlags.ResetMatchState();
+        DeferredActivations.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;
     }
@@ -298,6 +304,7 @@ public sealed class EngineContext
         RegisterService(OptionalPromptQueue);
         RegisterService(MulliganCoordinator);
         RegisterService(OnceFlags);
+        RegisterService(DeferredActivations);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }

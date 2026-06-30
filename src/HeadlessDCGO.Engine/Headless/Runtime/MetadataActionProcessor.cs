@@ -597,6 +597,30 @@ public sealed class MetadataActionProcessor : IActionProcessor
             }
 
             HeadlessChoiceState choice = context.ChoiceController.ResolveChoice(result);
+
+            // G11-002: if this resolved a suspended activation's pending choice, resume the activation —
+            // re-resolve the effect (the DeferredChoiceProvider replays this answer) WITHOUT re-running the
+            // originating action, so the cost is not paid again. A further choice re-suspends it.
+            if (context.DeferredActivations.Pending is { } pendingActivation)
+            {
+                try
+                {
+                    await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.ResolveAsync(
+                        context, pendingActivation.CardId, pendingActivation.PlayerId, pendingActivation.Timing, cancellationToken)
+                        .ConfigureAwait(false);
+                    context.DeferredActivations.Clear();
+                }
+                catch (DeferredChoicePendingException resumeEx)
+                {
+                    Dictionary<string, object?> resumePending = MetadataWithChoice(action, context.ChoiceController.Current);
+                    resumePending["pendingChoice"] = true;
+                    resumePending["pendingChoiceMessage"] = resumeEx.Message;
+                    return ActionProcessResult.Success("Choice resolved; activation awaiting further choice.", resumePending);
+                }
+
+                return ActionProcessResult.Success("Choice resolved; activation resumed.", MetadataWithChoice(action, choice));
+            }
+
             return ActionProcessResult.Success("Choice resolved.", MetadataWithChoice(action, choice));
         }
         catch (InvalidOperationException ex)

@@ -13,6 +13,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Validator rejects an out-of-set agent action (shared predicate)", ValidatorRejectsOutOfSetAgentAction),
     ("Validator defers engine-internal action types (non-breaking)", ValidatorDefersInternalActionTypes),
     ("Boundary rejects illegal agent action at apply with no state change", BoundaryRejectsIllegalActionWithoutStateChange),
+    ("Crafted SpecialPlay not in the legal set is rejected with no state change", CraftedSpecialPlayRejectedWithoutStateChange),
     ("Boundary accepts a legal agent action", BoundaryAcceptsLegalAction),
     ("Without a validator the apply path keeps legacy behavior", LegacyApplyPathIsUnaffected),
     ("RL environment enforces the boundary and leaves state unchanged on reject", RlEnvironmentEnforcesBoundary),
@@ -115,6 +116,39 @@ async Task BoundaryRejectsIllegalActionWithoutStateChange()
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "phase unchanged after reject");
     AssertFalse(match.IsTerminal(), "match not terminal after reject");
     AssertFalse(match.HasPendingChoice(), "no pending choice after reject");
+    AssertSequence(legalBefore, LegalActionTypes(match, player), "legal action set unchanged after reject");
+}
+
+async Task CraftedSpecialPlayRejectedWithoutStateChange()
+{
+    // G11-001: a forged SpecialPlay action (no recipe / materials -> the dispatcher offers none) is inside
+    // the agent-facing boundary, so it must be REJECTED at apply with no state change — not silently let
+    // through. Hardens the SpecialPlay legality boundary against crafted actions.
+    DcgoMatch match = await CreateValidatedMatchAsync();
+    HeadlessPlayerId player = new(1);
+    await AdvanceToMainAsync(match, player);
+
+    AssertFalse(
+        match.GetLegalActions(player).Any(a => a.ActionType == HeadlessActionTypes.SpecialPlay),
+        "no SpecialPlay is legal on this board (precondition)");
+
+    string[] legalBefore = LegalActionTypes(match, player);
+    var crafted = new LegalAction(
+        new HeadlessEntityId("crafted:specialplay"),
+        player,
+        HeadlessActionTypes.SpecialPlay,
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["cardId"] = "forged:card",
+            [SpecialPlayAction.MaterialsKey] = "forged:mat1,forged:mat2",
+        });
+
+    StepResult result = await match.ApplyActionAsync(crafted);
+
+    AssertTrue(HasInvalidActionEvent(result), "crafted SpecialPlay returns an InvalidAction event");
+    AssertEqual(0, match.PendingActions().Count, "crafted SpecialPlay is not enqueued");
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "phase unchanged after reject");
+    AssertFalse(match.IsTerminal(), "match not terminal after reject");
     AssertSequence(legalBefore, LegalActionTypes(match, player), "legal action set unchanged after reject");
 }
 

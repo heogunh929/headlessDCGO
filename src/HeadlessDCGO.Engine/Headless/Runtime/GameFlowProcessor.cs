@@ -317,16 +317,32 @@ public sealed class GameFlowProcessor
                         continue;
                     }
 
-                    // F-4: gate once-per-turn / max-count-per-turn effects. An effect bound with a
-                    // CardEffectDefinition.MaxCountPerTurn cap that has already activated its limit this
-                    // turn is skipped; passing effects register a use. Effects without a cap always pass.
-                    int? maxCountPerTurn = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect?.Definition.MaxCountPerTurn;
-                    if (!context.OnceFlags.TryActivate(trigger.Request, maxCountPerTurn))
+                    // (G11-002/004) Thread the event subject (the card the event is about, e.g. the deleted
+                    // permanent) into the trigger's resolve context so trigger-gates can read it — both for
+                    // the gate check below and for the actual resolution downstream.
+                    EffectRequest enriched = EnrichWithEventSubject(trigger.Request, gameEvent);
+                    IHeadlessCardEffect? effectBody = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect;
+
+                    // (G11-004) Evaluate the effect's gate (condition + trigger-precondition) BEFORE the
+                    // per-turn cap is consumed, so a trigger whose condition is not met (e.g. a non-0-DP
+                    // deletion) does NOT waste its once-per-turn use. Original AS-IS folds these into one
+                    // CanUseCondition; the headless splits gate (CanResolve) from cap (OnceFlag).
+                    if (effectBody is not null && !effectBody.CanResolve(new CardEffectResolveContext(enriched)).CanResolve)
                     {
                         continue;
                     }
 
-                    batch.Add(ReclassifyKind(context, trigger));
+                    // F-4: gate once-per-turn / max-count-per-turn effects. An effect bound with a
+                    // CardEffectDefinition.MaxCountPerTurn cap that has already activated its limit this
+                    // turn is skipped; passing effects register a use. Effects without a cap always pass.
+                    int? maxCountPerTurn = effectBody?.Definition.MaxCountPerTurn;
+                    if (!context.OnceFlags.TryActivate(enriched, maxCountPerTurn))
+                    {
+                        continue;
+                    }
+
+                    batch.Add(ReclassifyKind(context, new TimingWindowTrigger(
+                        enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)));
                 }
             }
 
@@ -349,6 +365,33 @@ public sealed class GameFlowProcessor
     /// <c>Definition.IsOptional</c> when the effect is registered with a body; otherwise the
     /// collection-time Kind (event metadata) is kept.
     /// </summary>
+    /// <summary>(G11-002/004) Return a copy of <paramref name="request"/> whose resolve context carries the
+    /// event's subject (the card the event is about) as the TriggerEntityId, so trigger-gates and effect
+    /// bodies can read which card fired the trigger. No-op when already set or the event has no subject.</summary>
+    private static EffectRequest EnrichWithEventSubject(EffectRequest request, GameEvent gameEvent)
+    {
+        if (request.Context.TriggerEntityId is not null)
+        {
+            return request;
+        }
+
+        if (!gameEvent.Metadata.TryGetValue(AutoProcessingTriggerCollector.SourceEntityIdKey, out object? raw)
+            || raw is not string subjectValue
+            || string.IsNullOrWhiteSpace(subjectValue))
+        {
+            return request;
+        }
+
+        var context = new EffectContext(
+            request.Context.SourcePlayerId,
+            request.Context.OwnerPlayerId,
+            request.Context.SourceEntityId,
+            triggerEntityId: new HeadlessEntityId(subjectValue),
+            targetEntityIds: request.Context.TargetEntityIds,
+            values: request.Context.Values);
+        return new EffectRequest(request.EffectId, request.ControllerId, request.Timing, context);
+    }
+
     private static TimingWindowTrigger ReclassifyKind(EngineContext context, TimingWindowTrigger trigger)
     {
         if (context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect is { } effect)

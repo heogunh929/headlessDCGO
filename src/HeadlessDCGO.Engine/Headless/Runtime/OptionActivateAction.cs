@@ -79,11 +79,11 @@ public sealed class OptionActivateAction
         }
         catch (DeferredChoicePendingException ex)
         {
-            // G7-005: the activated effect asked the agent for a choice (interactive provider). The cost
-            // has been paid and the card moved; the choice is registered on the controller. Surface a
-            // pending result instead of crashing. (Full action-level resume — re-resolving without
-            // re-paying — is the remaining loop-integration step; the immediate-provider path completes
-            // synchronously above.)
+            // G7-005/G11-002: the activated effect asked the agent for a choice (interactive provider). The
+            // cost has been paid and the card moved; the choice is registered on the controller. Record the
+            // suspended activation so the next ResolveChoice resumes it WITHOUT re-running this action (no
+            // re-pay) — the resolver replays the agent's answer.
+            context.DeferredActivations.Suspend(payload.CardId, EffectTiming.OptionSkill, action.PlayerId);
             Dictionary<string, object?> pending = Metadata(action, payload, validation);
             pending["pendingChoice"] = true;
             pending["pendingChoiceMessage"] = ex.Message;
