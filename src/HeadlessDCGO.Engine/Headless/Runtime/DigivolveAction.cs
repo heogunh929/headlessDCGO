@@ -148,6 +148,24 @@ public sealed class DigivolveAction
         // into this new top, while its main effect is inert (it is no longer an evaluated permanent).
         CardEffectRegistrar.RegisterCard(context, payload.CardId, action.PlayerId);
 
+        // LA-1: resolve the digivolved card's [When Digivolving] activated effects through the choice flow
+        // (ActivatedEffectResolver has the full EngineContext / ChoiceProvider). No-op for cards without a
+        // ported WhenDigivolving activated effect. The interactive deferred path mirrors OptionActivateAction:
+        // suspend the activation and report pending so the next ResolveChoice resumes it (no re-digivolve).
+        try
+        {
+            await ActivatedEffectResolver
+                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.WhenDigivolving, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (DeferredChoicePendingException ex)
+        {
+            context.DeferredActivations.Suspend(payload.CardId, EffectTiming.WhenDigivolving, action.PlayerId);
+            metadata["pendingChoice"] = true;
+            metadata["pendingChoiceMessage"] = ex.Message;
+            return ActionProcessResult.Success("Card digivolved; [When Digivolving] awaiting choice.", metadata);
+        }
+
         return ActionProcessResult.Success("Card digivolved.", metadata);
     }
 

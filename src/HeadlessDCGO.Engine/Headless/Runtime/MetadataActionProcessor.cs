@@ -770,6 +770,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
 
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         EndOfTurnEffectAttack.ClearForPlayer(context, previousTurn.TurnPlayerId);
+        OnPlayReactivation.ClearAll(context); // LA-3: reset the [All Turns] once-per-turn guard for both players.
         EndTurnCleanupResult cleanup = new HeadlessEndTurnCleanupFlow()
             .Cleanup(context, previousTurn);
         HeadlessTurnState turn = context.TurnController.EndTurn();
