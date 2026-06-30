@@ -38,7 +38,8 @@ public sealed class ST3_04 : CEntity_Effect
                 description: "[Your Turn][Once Per Turn] When an opponent's Digimon is deleted by dropping to 0 DP, gain 1 memory.",
                 triggerGate: TriggerGate,
                 maxCountPerTurn: 1,
-                hash: "Memory+1_ST3_04"));
+                hash: "Memory+1_ST3_04",
+                isOptional: false));
         }
 
         return cardEffects;

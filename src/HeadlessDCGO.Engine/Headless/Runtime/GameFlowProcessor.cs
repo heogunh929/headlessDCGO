@@ -375,9 +375,10 @@ public sealed class GameFlowProcessor
             return request;
         }
 
-        if (!gameEvent.Metadata.TryGetValue(AutoProcessingTriggerCollector.SourceEntityIdKey, out object? raw)
-            || raw is not string subjectValue
-            || string.IsNullOrWhiteSpace(subjectValue))
+        // The subject is the card the event is about: self-scoped triggers carry it under SourceEntityId; a
+        // CardMoved event (e.g. a deletion driving OnDestroyedAnyone) carries it under CardId.
+        if (!(TryReadSubject(gameEvent, AutoProcessingTriggerCollector.SourceEntityIdKey, out string? subjectValue)
+              || TryReadSubject(gameEvent, AutoProcessingTriggerCollector.CardIdKey, out subjectValue)))
         {
             return request;
         }
@@ -386,10 +387,22 @@ public sealed class GameFlowProcessor
             request.Context.SourcePlayerId,
             request.Context.OwnerPlayerId,
             request.Context.SourceEntityId,
-            triggerEntityId: new HeadlessEntityId(subjectValue),
+            triggerEntityId: new HeadlessEntityId(subjectValue!),
             targetEntityIds: request.Context.TargetEntityIds,
             values: request.Context.Values);
         return new EffectRequest(request.EffectId, request.ControllerId, request.Timing, context);
+    }
+
+    private static bool TryReadSubject(GameEvent gameEvent, string key, out string? value)
+    {
+        if (gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is string s && !string.IsNullOrWhiteSpace(s))
+        {
+            value = s;
+            return true;
+        }
+
+        value = null;
+        return false;
     }
 
     private static TimingWindowTrigger ReclassifyKind(EngineContext context, TimingWindowTrigger trigger)

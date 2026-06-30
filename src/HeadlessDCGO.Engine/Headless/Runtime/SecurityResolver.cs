@@ -140,9 +140,21 @@ public sealed class SecurityResolver
 
             // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
             // security skill). No-op for cards with no ported SecuritySkill effect.
-            await ActivatedEffectResolver
-                .ResolveAsync(context, checkedCardId, defendingPlayerId, EffectTiming.SecuritySkill, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await ActivatedEffectResolver
+                    .ResolveAsync(context, checkedCardId, defendingPlayerId, EffectTiming.SecuritySkill, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (DeferredChoicePendingException)
+            {
+                // G12-004: the [Security] effect asked the agent for a choice (interactive provider). Record
+                // the suspended activation so the next ResolveChoice resumes it (re-resolving the effect, no
+                // re-reveal) and stop the check — the pending choice is on the controller, so the game loop
+                // pauses for the agent.
+                context.DeferredActivations.Suspend(checkedCardId, EffectTiming.SecuritySkill, defendingPlayerId);
+                break;
+            }
 
             // W5: a revealed security Digimon battles the attacker. The security card is trashed by the
             // check regardless (already moved above); the only persistent outcome is the attacker's

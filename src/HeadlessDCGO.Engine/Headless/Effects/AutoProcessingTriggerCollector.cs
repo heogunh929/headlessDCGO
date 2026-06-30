@@ -49,7 +49,7 @@ public sealed class AutoProcessingTriggerCollector
 
         foreach (EffectRequest effect in effects)
         {
-            if (!MatchesEvent(effect, gameEvent))
+            if (!MatchesEvent(effect, gameEvent, timing))
             {
                 continue;
             }
@@ -209,15 +209,25 @@ public sealed class AutoProcessingTriggerCollector
 
     private static bool MatchesEvent(
         EffectRequest effect,
-        GameEvent gameEvent)
+        GameEvent gameEvent,
+        string timing)
     {
-        if (TryReadEntityId(gameEvent.Metadata, SourceEntityIdKey, out HeadlessEntityId sourceEntityId)
+        // (G12-003) "Anyone" timings (e.g. OnDestroyedAnyone) are board-wide: any registered effect fires
+        // regardless of which card the event is about, and reads the subject (the deleted/affected card)
+        // from the event metadata. The card-scoping filters below would otherwise drop a listener bound to a
+        // DIFFERENT card (e.g. ST3_01/04 reacting to an opponent's deletion). Self-scoped W4 windows
+        // (OnSecurityCheck / digivolution) keep the filters.
+        bool broadcast = IsBroadcastTiming(timing);
+
+        if (!broadcast
+            && TryReadEntityId(gameEvent.Metadata, SourceEntityIdKey, out HeadlessEntityId sourceEntityId)
             && effect.Context.SourceEntityId != sourceEntityId)
         {
             return false;
         }
 
-        if (TryReadPlayerId(gameEvent.Metadata, PlayerIdKey, out HeadlessPlayerId playerId)
+        if (!broadcast
+            && TryReadPlayerId(gameEvent.Metadata, PlayerIdKey, out HeadlessPlayerId playerId)
             && effect.ControllerId != playerId
             && effect.Context.OwnerPlayerId != playerId
             && effect.Context.SourcePlayerId != playerId)
@@ -231,7 +241,8 @@ public sealed class AutoProcessingTriggerCollector
             return false;
         }
 
-        if (TryReadEntityId(gameEvent.Metadata, CardIdKey, out HeadlessEntityId cardId)
+        if (!broadcast
+            && TryReadEntityId(gameEvent.Metadata, CardIdKey, out HeadlessEntityId cardId)
             && !MatchesEntity(effect.Context, cardId))
         {
             return false;
@@ -239,6 +250,11 @@ public sealed class AutoProcessingTriggerCollector
 
         return true;
     }
+
+    /// <summary>(G12-003) "Anyone" / board-wide timings whose listeners fire regardless of which card the
+    /// event is about (the subject is read from the event metadata by the trigger gate).</summary>
+    private static bool IsBroadcastTiming(string timing) =>
+        string.Equals(timing, TriggerTimings.OnDeletion, StringComparison.Ordinal);
 
     private static bool MatchesEntity(
         EffectContext context,

@@ -59,8 +59,8 @@
 | ST3_09 | PASS | `Library>=1`/`CanAddSecurity` 누락이나 **`MoveFromZoneTop` 가용분 클램프=빈 덱 no-op(검증)** → 동일 동작 | — |
 | ST3_13·14·15·16 | PASS | — | 활성/시큐리티 imperative |
 | ST3_07 | PASS(별칭) | — (→ST1_06) | effectClass dispatch 전제 |
-| ST3_01 | **PASS** | (G10-002) 0DP-격파 전제(`IsDPZeroDelete`+`CanTriggerOnPermanentDeleted` 상대디지몬) + once-per-turn(`maxCountPerTurn=1`+hash) 복원 | 라이브 OnDestroyedAnyone이 삭제 subject를 cross-card 리스너에 전달 + once-flag를 매칭 시에만 소비하는 부분은 엔진-통합 트랙 |
-| ST3_04 | **PASS** | (G10-002) ST3_01과 동일 게이트 복원(메모리+1판) | 위와 동일 |
+| ST3_01 | **PASS** | (G10-002) 0DP-격파 전제(`IsDPZeroDelete`+`CanTriggerOnPermanentDeleted` 상대디지몬) + once-per-turn(`maxCountPerTurn=1`+hash) 복원 | ✅ (G12-003) 라이브 cross-card 발동 해소 — OnDestroyedAnyone이 삭제 subject를 cross-card 리스너에 브로드캐스트 |
+| ST3_04 | **PASS** | (G10-002) ST3_01과 동일 게이트 복원(메모리+1판) | ✅ (G12-003) 위와 동일 |
 | ST3_12 | **PASS** | (G10-003) [Security] 테이머 플레이 실구현 ([All Turns] 시큐리티존 +2000도 1:1) | — |
 
 ### ST7/Red
@@ -83,8 +83,8 @@
 | **play-from-under** | ~~ST2_15~~ **완료**(G10-007) | `DigivolutionStackHelpers.PlaySpecificSourceAsync`+`PlayDigivolutionAsDigimonKind`+`ActivatedPlayFromUnderEffect` | 상 |
 
 ## 엔진 통합 갭 (카드-코드 실패 아님, 별도 트랙)
-- **활성화 풀 루프 — 대부분 해소(G11-002)**: 옵션-활성 deferred 경로가 RL env에서 풀 루프로 발동(활성→suspend→ResolveChoice→재개, 재지불 없음, commit-once; `DeferredActivationController`+`ResolveChoiceAsync` 재호출). 잔여: 시큐리티-스킬 deferred 재개·다중-choice e2e.
-- **트리거 plumbing(G11-002/004)**: `GameFlowProcessor`가 트리거 request에 이벤트 subject(TriggerEntityId) enrich + 게이트-우선 once-소비. 잔여: "Anyone" 트리거의 cross-card subject 전달(`MatchesEvent` sourceEntityId 필터가 self-scoped만 통과 → ST3_01/04 라이브 cross-card 발동).
+- **활성화 풀 루프 — 해소(G11-002/G12-002/G12-004)**: 옵션-활성 deferred 경로가 RL env에서 풀 루프로 발동(활성→suspend→ResolveChoice→재개, 재지불 없음, commit-once; `DeferredActivationController`+`ResolveChoiceAsync` 재호출). ✅ 다중-choice 활성(G12-002, 2-라운드) + ✅ 시큐리티-스킬 deferred 재개(G12-004, `SecurityResolver`가 suspend 시 `DeferredActivations` 등록→체크 일시정지→ResolveChoice가 재개) 모두 e2e로 단언.
+- **트리거 plumbing(G11-002/004 + G12-003)**: `GameFlowProcessor`가 트리거 request에 이벤트 subject(TriggerEntityId) enrich + 게이트-우선 once-소비. ✅ (G12-003) "Anyone" 트리거의 cross-card subject 전달 해소 — `AutoProcessingTriggerCollector.MatchesEvent`가 브로드캐스트 타이밍(OnDestroyedAnyone)에서 sourceEntityId/cardId/playerId 필터를 우회 + `EnrichWithEventSubject`가 cardId에서도 subject 판독 → ST3_01/04 라이브 cross-card 발동(자기-삭제 음성 포함).
 
 ## 권장 처리 순서 (수요 기반)
 1. **once-per-turn 3장** — `OnceFlagHelpers` 연결, 가장 싸고 "실제보다 강함" 버그 제거.

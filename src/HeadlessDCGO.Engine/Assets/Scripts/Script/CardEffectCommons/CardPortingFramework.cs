@@ -390,7 +390,7 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
 
     public TriggeredMemoryEffect(
         CardSource card, EffectTiming timing, int amount, bool isInheritedEffect, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null)
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -401,7 +401,9 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
         _triggerGate = triggerGate;
         string trigger = EffectTimings.ToTriggerName(timing);
         var effectId = new HeadlessEntityId($"{card.InstanceId.Value}:mem:{trigger}:{amount}");
-        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger, isOptional: amount > 0, maxCountPerTurn: maxCountPerTurn, hash: hash);
+        // Gaining memory defaults to an optional "you may" prompt; a card whose trigger is mandatory passes
+        // isOptional: false explicitly (e.g. ST3_04 "gain 1 memory").
+        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger, isOptional: isOptional ?? (amount > 0), maxCountPerTurn: maxCountPerTurn, hash: hash);
     }
 
     public CardSource Card { get; }
@@ -909,7 +911,7 @@ public sealed class TriggeredSelfDpBuffEffect : ICardEffect, IHeadlessCardEffect
         string trigger = EffectTimings.ToTriggerName(timing);
         Definition = new CardEffectDefinition(
             new HeadlessEntityId($"{card.InstanceId.Value}:selfdpbuff:{trigger}"), card.InstanceId, description, trigger,
-            isOptional: true, maxCountPerTurn: maxCountPerTurn, hash: hash);
+            isOptional: false, maxCountPerTurn: maxCountPerTurn, hash: hash);
     }
 
     public CardSource Card { get; }
@@ -1244,8 +1246,8 @@ public static class CardEffectFactory
     /// <paramref name="timing"/> is the branch timing the card declared it under.</summary>
     public static ICardEffect AddMemoryTriggerEffect(
         EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null) =>
-        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description, triggerGate, maxCountPerTurn, hash);
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null) =>
+        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description, triggerGate, maxCountPerTurn, hash, isOptional);
 
     /// <summary>Original: <c>PlaySelfTamerSecurityEffect</c> — a Tamer's [Security] "play this Tamer". Plays
     /// the revealed Tamer onto the battle area (cost-free), auto-registering its effects (G10-003).</summary>
