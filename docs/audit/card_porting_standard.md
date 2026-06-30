@@ -75,9 +75,16 @@
 - ⏭ **Stage 2 (Permanent enrich 결정)**: 원본 카드 본체가 `Func<Permanent,bool>`(`p.IsSuspended`/`CanSuspend`/
   `TopCard`)를 쓰므로 본체 1:1을 원하면 `Permanent` shim을 Context-백킹으로 살찌워야 함(모든 생성처 파급).
   대안: 헤드리스 엔티티-id 술어 관용 유지(Stage 1 방식) — 본체가 살짝 다르나 기존 관용과 일관. **결정 필요.**
-- ⏭ **Stage 3 (BeforePayCost 윈도우)**: PlayCardAction에 지불 전 인터랙티브 코스트 감소 윈도우 통합
-  (기존 `OptionalPromptQueue` + `SelectPermanentEffect.Custom` + suspend mutation 재사용; 코스트 lock-in을
-  윈도우 이후로 이동). 가장 큰 아키텍처 변경.
+- ⏳ **Stage 3 (BeforePayCost 윈도우)**: PlayCardAction에 지불 전 인터랙티브 코스트 감소 윈도우 통합.
+  - ✅ **brick 1 (G9-005)**: `SuspendCostReductionEffect`(원본 `SuspendPermanentsClass.Tap` + `ChangeCostClass`
+    합성) + `ActivatedEffectResolver` 디스패치. 정확히 N체 선택 시 suspend + `-M` 자기 코스트 감소를
+    `EffectDuration.UntilCalculateFixedCost`(PlayCardAction:58 `ExpireFixedCostCalc`가 소멸)로 등록. 코어 무수술,
+    격리 검증(2 suspend→-4, one-shot 소멸, short/skip no-op, 가드). 237/237 green.
+  - ⏭ **brick 2 (코어 수술)**: PlayCardAction.ProcessAsync가 지불 전 카드의 `CardEffects(BeforePayCost)`를
+    `ActivatedEffectResolver`로 resolve → 코스트 재계산 후 지불. `DeferredChoicePendingException` resume
+    (`OptionActivateAction` 패턴) + 검증 cost-match 조정.
+  - ⏭ **brick 3 (availability)**: legal-action 생성 시 "N체 서스펜드 가능 → reduced로 제공"(단일-코스트 모델에
+    availability-only 감소 개념). #1↔#2 커플링.
 - ⏭ **Stage 4**: ⑤ 동적 임계 select-and-delete(서스펜드 수에 따라 8000+3000n). ⑥ [All Turns] once-per-turn
   자기 [When Digivolving] 재발동. + `OnEndTurn` 타이밍 enum/등록 경로(④ Vortex가 카드로 등록되려면).
   각기 §2 워크플로우(원본 이름 확인 → 엔진 격차 probe → 미러 → 라이브 검증)로.

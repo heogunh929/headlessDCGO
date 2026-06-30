@@ -132,6 +132,21 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case SuspendCostReductionEffect suspendReduce:
+                {
+                    // (EX8_074 Stage 3 brick) "Suspend N of your Digimon to reduce this card's play cost by M":
+                    // select exactly N own Digimon, suspend them, and register the one-shot cost reduction.
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(suspendReduce.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        suspendReduce.Apply(sink, result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case ReuseMainOptionEffect:
                 {
                     // (G8-004) "[Security] activate this card's [Main] effect" — resolve the card's Main

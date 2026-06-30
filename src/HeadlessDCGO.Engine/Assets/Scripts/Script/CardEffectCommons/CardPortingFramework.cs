@@ -604,6 +604,111 @@ public sealed class ActivatedSelectEffect : IActivatedCardEffect
 }
 
 /// <summary>
+/// (EX8_074 Stage 3 brick) An activated "suspend N of your Digimon to reduce THIS card's play cost by M"
+/// effect — the headless composite of the original <c>SuspendPermanentsClass.Tap()</c> +
+/// <c>ChangeCostClass</c> added to <c>Player.UntilCalculateFixedCostEffect</c>. Selecting EXACTLY
+/// <see cref="SuspendCount"/> own Digimon suspends them (<see cref="SelectPermanentEffect.Mode.Tap"/> →
+/// <c>SuspendKind</c>) and registers a one-shot self play-cost reduction binding
+/// (<see cref="EffectDuration.UntilCalculateFixedCost"/> — cleared by PlayCardAction's
+/// <c>ExpireFixedCostCalc</c> once the play's cost is locked, mirroring the original's one-shot lifetime).
+/// Selecting fewer (declined / insufficient) applies nothing — the original adds the ChangeCostClass only
+/// inside the "permanents.Count == 2" branch. Resolved via the choice flow (<see cref="ActivatedEffectResolver"/>),
+/// not auto-registered. This brick is engine-side only; wiring it into the BeforePayCost pre-payment window
+/// of PlayCardAction is a later stage.
+/// </summary>
+public sealed class SuspendCostReductionEffect : IActivatedCardEffect
+{
+    private readonly SelectPermanentEffect _select = new();
+
+    public SuspendCostReductionEffect(
+        CardSource card,
+        Func<HeadlessEntityId, bool> canSuspendTarget,
+        int suspendCount,
+        int costReduction,
+        bool mandatory,
+        string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canSuspendTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        if (suspendCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(suspendCount), "Suspend count must be positive.");
+        }
+
+        if (costReduction <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(costReduction), "Cost reduction must be positive.");
+        }
+
+        Card = card;
+        SuspendCount = suspendCount;
+        CostReduction = costReduction;
+        Description = description;
+        // canEndNotMax:false → the agent answers with EXACTLY suspendCount targets, or skips (canNoSelect when
+        // not mandatory). The original's canNoSelect flips to false when the player cannot otherwise afford the
+        // card (PayingCost > MaxMemoryCost); callers pass `mandatory` to mirror that.
+        _select.SetUp(card.Owner, canSuspendTarget, maxCount: suspendCount, canNoSelect: !mandatory, canEndNotMax: false, SelectPermanentEffect.Mode.Tap, card.InstanceId);
+        _select.SetUpCustomMessage(description);
+    }
+
+    public CardSource Card { get; }
+
+    public int SuspendCount { get; }
+
+    public int CostReduction { get; }
+
+    public string Description { get; }
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
+        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
+
+    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        List<HeadlessEntityId> ids = selected?.ToList() ?? new List<HeadlessEntityId>();
+        if (ids.Count != SuspendCount)
+        {
+            // Declined or short — mirror the original: the ChangeCostClass is only added when exactly N
+            // Digimon were suspended. No suspend, no reduction.
+            return;
+        }
+
+        _select.Apply(sink, ids);
+        Card.Context.EffectRegistry.Register(BuildReductionBinding());
+    }
+
+    /// <summary>The one-shot self play-cost reduction the suspend pays for — a <c>playCostDelta = -M</c>
+    /// continuous self modifier scoped/keyed exactly like <see cref="ContinuousSelfModifierEffect"/>, but
+    /// tagged <see cref="EffectDuration.UntilCalculateFixedCost"/> so it lasts only until this play's cost is
+    /// locked in (mirrors <c>Player.UntilCalculateFixedCostEffect.Add(_ => changeCostClass)</c>).</summary>
+    private EffectBinding BuildReductionBinding()
+    {
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ModifierHelpers.PlayCostDeltaKey] = -CostReduction,
+        };
+        var context = new EffectContext(
+            Card.Controller,
+            Card.Owner,
+            Card.InstanceId,
+            triggerEntityId: null,
+            targetEntityIds: new[] { Card.InstanceId },
+            values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:beforePayCostReduction"), Card.Controller, "Continuous", context),
+            keywords: null,
+            EffectQueryRole.Continuous,
+            new[] { ContinuousModifierGate.Scope },
+            effect: null,
+            duration: EffectDuration.UntilCalculateFixedCost);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Suspend-cost-reduction effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
 /// An activated effect that SELECTS targets and grants each a continuous numeric modifier for a
 /// <see cref="EffectDuration"/> (e.g. ST1_13 [Main] "1 of your Digimon gets +3000 DP for the turn").
 /// <see cref="ApplyBuff"/> registers a duration-tagged continuous binding per chosen target, so the
