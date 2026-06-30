@@ -51,7 +51,37 @@ public sealed class PlayCardAction
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         // F-6.7: wrap the play-cost payment with the Before/AfterPayCost windows (subject = the card).
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
-        HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
+
+        // (EX8_074 Stage 3 brick 2) "When this card would be played" activated effects — e.g. suspend N of
+        // your Digimon to reduce this card's play cost (SuspendCostReductionEffect). Resolve them BEFORE the
+        // cost is locked in, then re-resolve so the reduction is actually paid. ResolveAsync is a no-op
+        // (returns 0) for the vast majority of cards, which have no BeforePayCost effect — so the normal play
+        // path is unchanged. NOTE: Validate already required the FULL (unreduced) cost to be payable, so this
+        // brick only makes you pay LESS; offering the card when you can only afford the reduced cost is the
+        // availability concern (brick 3).
+        int memoryCost = payload.MemoryCost;
+        try
+        {
+            int beforePayCostResolved = await ActivatedEffectResolver
+                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.BeforePayCost, cancellationToken)
+                .ConfigureAwait(false);
+            if (beforePayCostResolved > 0 && TryGetPlayCost(context, payload.CardId, out int reResolvedCost, out _))
+            {
+                memoryCost = reResolvedCost;
+            }
+        }
+        catch (DeferredChoicePendingException)
+        {
+            // The BeforePayCost effect asked an interactive provider to choose (which Digimon to suspend).
+            // The resolver does NOT flush a deferred sink and the cost is NOT yet paid, so engine state is
+            // unchanged — nothing is partially applied. Interactive deferred resume across the pre-payment
+            // boundary is brick 2b; under a synchronous/auto resolver (the self-play path) this is unreached.
+            return ActionProcessResult.Illegal(action,
+                "BeforePayCost interactive resolution is not yet supported (brick 2b); use a synchronous resolver.",
+                Metadata(action, payload, validation));
+        }
+
+        HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         // F-1.7: the fixed cost for this play is now locked in — expire one-shot "until cost is calculated"
         // modifiers (AS-IS clears Player.UntilCalculateFixedCostEffect on play).

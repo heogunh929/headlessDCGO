@@ -80,9 +80,11 @@
     합성) + `ActivatedEffectResolver` 디스패치. 정확히 N체 선택 시 suspend + `-M` 자기 코스트 감소를
     `EffectDuration.UntilCalculateFixedCost`(PlayCardAction:58 `ExpireFixedCostCalc`가 소멸)로 등록. 코어 무수술,
     격리 검증(2 suspend→-4, one-shot 소멸, short/skip no-op, 가드). 237/237 green.
-  - ⏭ **brick 2 (코어 수술)**: PlayCardAction.ProcessAsync가 지불 전 카드의 `CardEffects(BeforePayCost)`를
-    `ActivatedEffectResolver`로 resolve → 코스트 재계산 후 지불. `DeferredChoicePendingException` resume
-    (`OptionActivateAction` 패턴) + 검증 cost-match 조정.
+  - ✅ **brick 2 (코어 수술, G9-006)**: PlayCardAction.ProcessAsync가 지불 전 `ActivatedEffectResolver
+    .ResolveAsync(BeforePayCost)` → `TryGetPlayCost` 재계산 → reduced 지불. BeforePayCost 효과 없는 카드엔
+    no-op(정상 경로 무변). `TfxBeforePayCost` 픽스처로 실 플레이 E2E(2 suspend+8→6 reduced / 게이트닫힘 8→2 full),
+    **238/238 green**(최다-사용 액션 회귀 0). 동기 resolver 한정 — 인터랙티브 deferred resume(`DeferredChoicePendingException`)는
+    안전 가드(상태 무변 Illegal 반환)로 막아둔 **brick 2b**.
   - ⏭ **brick 3 (availability)**: legal-action 생성 시 "N체 서스펜드 가능 → reduced로 제공"(단일-코스트 모델에
     availability-only 감소 개념). #1↔#2 커플링.
 - ⏭ **Stage 4**: ⑤ 동적 임계 select-and-delete(서스펜드 수에 따라 8000+3000n). ⑥ [All Turns] once-per-turn
