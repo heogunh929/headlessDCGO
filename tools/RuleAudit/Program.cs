@@ -12,28 +12,30 @@ using HeadlessDCGO.Engine.Headless.Services;
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
-// Real ST1/ST2/ST3 starter decks (50 main + 4 digitama), every cross-set matchup both ways.
-var games = new (string A, string B, int EnvSeed, int PolicySeed, int Cap)[]
-{
-    ("ST1", "ST2", 101, 11, 600),
-    ("ST2", "ST3", 202, 22, 600),
-    ("ST3", "ST1", 303, 33, 600),
-    ("ST1", "ST3", 707, 71, 600),
-    ("ST2", "ST1", 808, 82, 600),
-    ("ST3", "ST2", 909, 93, 600),
-};
+// Real ST1/ST2/ST3 starter decks (50 main + 4 digitama). 20 games over every cross-set matchup, varied seeds.
+var matchups = new[] { ("ST1", "ST2"), ("ST2", "ST3"), ("ST3", "ST1"), ("ST1", "ST3"), ("ST2", "ST1"), ("ST3", "ST2") };
+var games = Enumerable.Range(0, 20)
+    .Select(i => { var m = matchups[i % matchups.Length]; return (A: m.Item1, B: m.Item2, EnvSeed: 100 + i * 37, PolicySeed: 11 + i * 13, Cap: 800); })
+    .ToArray();
 
 var violations = new List<string>();
 int totalSteps = 0;
 int directAttacks = 0, securityDrops = 0; // security bookkeeping (informational)
 int secNoDropZeroBefore = 0, secNoDropTerminal = 0, secNoDropUnexplained = 0;
 var unexplained = new List<string>();
+int attacksDeclared = 0, blockOffered = 0, blockTaken = 0; // blocker exercise tracking
+int atkDefHadBlockerCard = 0, atkDefHadBlockerFlag = 0, atkDefHadBlockerReady = 0;
+var StarterBlockers = new HashSet<string>(StringComparer.Ordinal) { "ST1_06", "ST2_07", "ST3_07" };
+int terminalGames = 0; var winners = new Dictionary<string, int>();
 
 foreach (var g in games)
     totalSteps += await AuditGameAsync(g.A, g.B, g.EnvSeed, g.PolicySeed, g.Cap);
 
 // --- Report --------------------------------------------------------------
 Console.WriteLine($"\n===== RULE AUDIT: {games.Length} games, {totalSteps} total steps =====");
+Console.WriteLine($"outcomes: {terminalGames}/{games.Length} reached a terminal; winners {string.Join(" ", winners.OrderBy(w => w.Key).Select(w => $"P{w.Key}={w.Value}"))}");
+Console.WriteLine($"blocker: {blockOffered} block windows offered ({blockTaken} taken / {blockOffered - blockTaken} skipped) across {attacksDeclared} attacks declared");
+Console.WriteLine($"  blocker diag (at attack time, defender side): had-blocker-card={atkDefHadBlockerCard}, of which hasBlocker-flag-set={atkDefHadBlockerFlag}, unsuspended+flagged={atkDefHadBlockerReady}");
 Console.WriteLine($"security check: {securityDrops}/{directAttacks} direct player-attacks consumed a security card");
 Console.WriteLine($"  non-consuming breakdown: zero-security(direct loss)={secNoDropZeroBefore}, ended-game={secNoDropTerminal}, UNEXPLAINED={secNoDropUnexplained}");
 foreach (var u in unexplained.Take(8)) Console.WriteLine($"    unexplained: {u}");
@@ -92,6 +94,37 @@ async Task<int> AuditGameAsync(string aSet, string bSet, int envSeed, int policy
         LegalAction action = legal[rng.Next(legal.Count)];
         HeadlessTurnState turnBefore = match.GetObservation().Turn;
         int turn = turnBefore.TurnNumber;
+
+        // blocker exercise: a pending Blocker choice means an attack actually opened a block window with >=1
+        // unsuspended blocker candidate on the defender. Count windows offered, and how many the policy took.
+        if (action.ActionType == HeadlessActionTypes.DeclareAttack)
+        {
+            attacksDeclared++;
+            // Diagnostic: at attack time, did the defender have a starter-deck blocker card on the field, and
+            // was its <Blocker> flag actually applied + unsuspended? Distinguishes "blockers never reach the
+            // field" (rarity) from "blocker present but hasBlocker not live-applied" (a static-effect bug).
+            var defender2 = mover.Value == P1.Value ? P2 : P1;
+            bool hadCard = false, hadFlag = false, hadReady = false;
+            foreach (var id in zones.GetCards(defender2, ChoiceZone.BattleArea))
+                if (context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? bi) && bi is not null
+                    && StarterBlockers.Contains(bi.DefinitionId.Value))
+                {
+                    hadCard = true;
+                    bool flag = ReadFlag(bi.Metadata, "hasBlocker");
+                    if (flag) hadFlag = true;
+                    if (flag && !ReadFlag(bi.Metadata, "isSuspended")) hadReady = true;
+                }
+            if (hadCard) atkDefHadBlockerCard++;
+            if (hadFlag) atkDefHadBlockerFlag++;
+            if (hadReady) atkDefHadBlockerReady++;
+        }
+        if (context.ChoiceController.Current.IsPending
+            && context.ChoiceController.PendingRequest?.Type == ChoiceType.Blocker
+            && action.ActionType == HeadlessActionTypes.ResolveChoice)
+        {
+            blockOffered++;
+            if (!action.Id.Value.Contains("skip", StringComparison.OrdinalIgnoreCase)) blockTaken++;
+        }
 
         // (#9) at the start of a player's own turn, their memory must not be negative (handover sign).
         if (turn != prevTurn)
@@ -205,6 +238,13 @@ async Task<int> AuditGameAsync(string aSet, string bSet, int envSeed, int policy
         nextStep: ;
     }
 
+    if (match.IsTerminal())
+    {
+        terminalGames++;
+        MatchResult r = match.GetResult();
+        string w = r.IsDraw ? "draw" : (r.WinnerId?.Value.ToString() ?? "?");
+        winners[w] = winners.GetValueOrDefault(w) + 1;
+    }
     return steps;
 }
 

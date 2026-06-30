@@ -119,7 +119,8 @@ public sealed class BattleResolver
         foreach ((BattleParticipant dead, BattleParticipant opponent) in new[] { (attacker!, defender!), (defender!, attacker!) })
         {
             if (IsConfirmedDoomed(context, dead.InstanceId) &&
-                HasFlag(dead, HasRetaliationKey) &&
+                (HasFlag(dead, HasRetaliationKey)
+                    || ContinuousKeywordGate.HasKeyword(context, dead.InstanceId, ContinuousKeywordGate.Retaliation)) &&
                 !ReadInstanceFlag(context, dead.InstanceId, RetaliationFiredKey) &&
                 !IsStillPendingDeletion(context, opponent.InstanceId) &&
                 IsOnBattleArea(context, opponent))
@@ -172,8 +173,11 @@ public sealed class BattleResolver
         }
 
         // Piercing: a surviving attacker that deleted the defender also checks the defending player's
-        // security (the AttackPipeline performs the follow-up check).
-        bool piercing = attackerSurvives && defenderDeletedNow && HasFlag(attacker, HasPiercingKey);
+        // security (the AttackPipeline performs the follow-up check). (GR-005) a self-static <Piercing>
+        // lives as a registry keyword binding, not the hasPiercing metadata flag — derive it too.
+        bool piercing = attackerSurvives && defenderDeletedNow
+            && (HasFlag(attacker, HasPiercingKey)
+                || ContinuousKeywordGate.HasKeyword(context, attacker.InstanceId, ContinuousKeywordGate.Piercing));
 
         EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");

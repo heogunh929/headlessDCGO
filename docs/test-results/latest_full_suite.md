@@ -5,12 +5,12 @@
 | 항목 | 값 |
 |---|---|
 | 날짜 | 2026-06-30 |
-| 기준 커밋 | `63ceb89d` (GR-001..004) + 실 스타터덱 배선 |
-| 결과 | `SUMMARY: PASS=230 FAIL=0 TOTAL=230  (jobs=10 build_jobs=6)` |
+| 기준 커밋 | `db06adb5` (실 스타터덱) + GR-005(키워드 단절) |
+| 결과 | `SUMMARY: PASS=231 FAIL=0 TOTAL=231  (jobs=10 build_jobs=6)` |
 | 러너 | `scripts/run-tests.sh` (빌드 6-병렬 / 실행 `--no-build` 10-병렬, 2단계) |
 
 ## 비고
-- 230 = 테스트 **프로젝트** 수(케이스 아님). 각 프로젝트가 다수 sub-test 포함.
+- 231 = 테스트 **프로젝트** 수(케이스 아님). 각 프로젝트가 다수 sub-test 포함.
 - CI(Actions)는 컴파일-only이므로 이 로컬 전체 실행이 **정식 회귀 게이트**(docs/audit/ci_check_procedure.md).
 - 이 파일은 커밋 시점의 green을 기록하는 스냅샷 — 새 작업 후 갱신.
 
@@ -31,4 +31,4 @@
   - GR-003 룰 불변식 영구 게이트(tests/GR-003.RuleInvariants)
   - GR-004 육성 내 진화(에그 램프: 부화→육성 진화→이동)
   - 실 ST1/ST2/ST3 스타터덱(50+4) 단일 소스(`StarterDecks`)로 스모크/감사/게이트 배선 → 진짜 매치업(승자 균형)
-- (참고) 미테스트 서브시스템: Blocker/Counter/Raid/Alliance/Link/DigiXros 등은 ST1~3가 안 써서 self-play 미노출 — 다음 단계(커버리지 맵/하드카드)에서 겨냥 대상.
+- (참고/정정) 서브시스템 커버리지는 **추정 말고 증거로** 확인할 것. 예: Blocker는 ST1_06(`<Blocker>`, ST1 덱 4장)이 실제로 쓰고 `G2G-002.Block.timing`·`G3.5-A3.BlockerSuspend`로 라이브 검증됨 — "미테스트"가 아님. 단, 랜덤 self-play 5게임에선 블록 후보 타이밍이 안 맞아 0회 발동(희소성이지 통합 갭 아님). Counter/Raid/Alliance/Link/DigiXros의 테스트·카드사용 여부는 별도로 grep해 커버리지 맵으로 확정 예정.

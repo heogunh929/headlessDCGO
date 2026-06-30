@@ -215,7 +215,8 @@ public sealed class AttackPermanentAction
         // Digimon can attack." Any other (non-Main) phase never permits an attack.
         if (turn.Phase != HeadlessPhase.Main)
         {
-            bool hasBlitz = ReadBool(attacker.Metadata, HasBlitzKey) || ReadBool(attackerCard.Metadata, HasBlitzKey);
+            bool hasBlitz = ReadBool(attacker.Metadata, HasBlitzKey) || ReadBool(attackerCard.Metadata, HasBlitzKey)
+                || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Blitz);
             if (turn.Phase != HeadlessPhase.MemoryPass || !hasBlitz)
             {
                 return AttackPermanentValidation.Illegal(
@@ -250,7 +251,9 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack ({attackRestriction.Reason}).");
         }
 
-        if (ReadBool(attacker.Metadata, EnteredThisTurnKey) && !ReadBool(attacker.Metadata, HasRushKey) && !ReadBool(attackerCard.Metadata, HasRushKey))
+        if (ReadBool(attacker.Metadata, EnteredThisTurnKey)
+            && !ReadBool(attacker.Metadata, HasRushKey) && !ReadBool(attackerCard.Metadata, HasRushKey)
+            && !ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Rush))
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' entered this turn and has no rush.");
         }

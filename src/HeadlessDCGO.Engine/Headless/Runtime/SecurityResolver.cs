@@ -329,6 +329,9 @@ public sealed class SecurityResolver
         // via the static flag OR a continuous deletion-prevention replacement (R2-1/N-2).
         if (attackerDp > securityDp ||
             HasFlag(attacker.Metadata, attackerCard.Metadata, BattleResolver.PreventBattleDeletionKey) ||
+            // (GR-005) a self-static <Jamming> lives as a registry keyword binding, not the
+            // preventBattleDeletion metadata flag — derive it so a Jamming attacker survives the security battle.
+            ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Jamming) ||
             BattleDeletionGate.PreventsBattleDeletion(context, attackerId))
         {
             return false;

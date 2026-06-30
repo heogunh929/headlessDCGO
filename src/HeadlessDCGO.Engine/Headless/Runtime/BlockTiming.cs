@@ -213,7 +213,10 @@ public sealed class BlockTiming
             ReadBool(blocker.Metadata, CannotBlockKey) ||
             ReadBool(blockerCard.Metadata, CannotBlockKey) ||
             !ReadBool(blocker.Metadata, CanBlockKey, defaultValue: true) ||
-            !HasBlocker(blocker, blockerCard, attackerHasCollision))
+            !(HasBlocker(blocker, blockerCard, attackerHasCollision)
+                // (GR-005) a self-static <Blocker> lives as a registry keyword binding, not the hasBlocker
+                // metadata flag — derive it from the registry so ported blockers actually block in live play.
+                || ContinuousKeywordGate.HasKeyword(context, blockerId, ContinuousKeywordGate.Blocker)))
         {
             return null;
         }
