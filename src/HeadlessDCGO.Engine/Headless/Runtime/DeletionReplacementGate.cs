@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
@@ -236,6 +237,7 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
+        EffectRegistry? keywordRegistry = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
@@ -243,7 +245,10 @@ public static class DeletionReplacementGate
 
         if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
-            !ReadFlag(record.Metadata, HasArmorPurgeKey))
+            // GR-005 C-group seal: a self-static <Armor Purge> lives as a registry keyword binding, not the
+            // hasArmorPurge metadata flag — derive it too (registry passed by the caller; null = flag-only).
+            !(ReadFlag(record.Metadata, HasArmorPurgeKey)
+                || (keywordRegistry is not null && ContinuousKeywordGate.HasKeyword(keywordRegistry, cardId, ContinuousKeywordGate.ArmorPurge))))
         {
             return false;
         }

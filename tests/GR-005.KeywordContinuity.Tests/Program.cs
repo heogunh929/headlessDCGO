@@ -86,9 +86,15 @@ void GateDerivesBGroupKeywords()
     KeywordBaseBatch1Factory.RegisterBaseBatch1(context.EffectRegistry, card, P2, effectContext);
     KeywordBaseBatch2Factory.RegisterBaseBatch2(context.EffectRegistry, card, P2, effectContext);
 
-    foreach (var keyword in new[] { ContinuousKeywordGate.Reboot, ContinuousKeywordGate.Rush, ContinuousKeywordGate.Blitz, ContinuousKeywordGate.Retaliation })
+    // B-group + the wired C-group keywords (Alliance/Overclock/Progress consumers now OR the gate).
+    string[] sealed_ = {
+        ContinuousKeywordGate.Reboot, ContinuousKeywordGate.Rush, ContinuousKeywordGate.Blitz, ContinuousKeywordGate.Retaliation,
+        ContinuousKeywordGate.Alliance, ContinuousKeywordGate.Overclock, ContinuousKeywordGate.Progress,
+        ContinuousKeywordGate.ArmorPurge, ContinuousKeywordGate.Decode, ContinuousKeywordGate.Partition,
+    };
+    foreach (var keyword in sealed_)
     {
-        AssertTrue(ContinuousKeywordGate.HasKeyword(context, card, keyword), $"registered <{keyword}> is derived by the gate (B-group seal)");
+        AssertTrue(ContinuousKeywordGate.HasKeyword(context, card, keyword), $"registered <{keyword}> is derived by the gate (seal)");
         AssertTrue(!ContinuousKeywordGate.HasKeyword(context, plain, keyword), $"a plain card is not a <{keyword}>");
     }
 }

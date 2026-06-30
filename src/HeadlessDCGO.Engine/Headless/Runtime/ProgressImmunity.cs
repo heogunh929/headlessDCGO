@@ -61,7 +61,8 @@ public static class ProgressImmunity
             return false;
         }
 
-        if (ReadFlag(attacker.Metadata, HasProgressKey))
+        if (ReadFlag(attacker.Metadata, HasProgressKey)
+            || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Progress)) // GR-005 C-group seal
         {
             return true;
         }

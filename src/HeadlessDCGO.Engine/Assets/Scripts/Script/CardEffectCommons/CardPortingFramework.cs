@@ -287,6 +287,52 @@ public sealed class SelfKeywordEffect : ICardEffect
     }
 }
 
+/// <summary>
+/// Self-static keyword grant for the <see cref="KeywordBaseBatch2Kind"/> family (Vortex / Alliance /
+/// Overclock / …). Structural twin of <see cref="SelfKeywordEffect"/> (which covers Batch1) — the original
+/// <c>CardEffectFactory</c> exposes a per-keyword <c>&lt;Keyword&gt;SelfEffect</c> for each of these, so the
+/// headless mirror provides the same entry points lowering to a Batch2 binding. The "this Digimon is on the
+/// battle area" guard the original <c>SelfEffect</c> wraps around <paramref name="condition"/> is enforced
+/// here by the binding lifecycle (registered on enter-play, unregistered on leave) + the read-time
+/// <see cref="ContinuousKeywordGate"/> query, matching how the existing Batch1 self-statics behave.
+/// </summary>
+public sealed class SelfKeywordBatch2Effect : ICardEffect
+{
+    public SelfKeywordBatch2Effect(CardSource card, KeywordBaseBatch2Kind kind, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        Card = card;
+        Kind = kind;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public KeywordBaseBatch2Kind Kind { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller,
+            Card.Owner,
+            Card.InstanceId,
+            triggerEntityId: null,
+            targetEntityIds: new[] { Card.InstanceId });
+        KeywordBaseBatch2Effect effect = KeywordBaseBatch2Factory.Create(
+            Kind,
+            Card.InstanceId,
+            targetEntityId: Card.InstanceId,
+            isInherited: IsInheritedEffect,
+            isLinked: false);
+        return KeywordBaseBatch2Factory.ToBinding(effect, Card.Controller, context);
+    }
+}
+
 /// <summary>Minimal headless mirror of the original <c>Permanent</c> — used only for the signature of
 /// card <c>permanentCondition</c> predicates. Player-scope effects scope to the owner's cards directly, so
 /// the predicate body is not invoked by the headless evaluation (it exists for 1:1 source fidelity).</summary>
@@ -1200,7 +1246,7 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
 /// Headless mirror of the original <c>CardEffectFactory</c>. Method names match the original so ported
 /// card bodies read 1:1. Each returns an <see cref="ICardEffect"/> the registrar lowers to a binding.
 /// </summary>
-public static class CardEffectFactory
+public static partial class CardEffectFactory
 {
     /// <summary>Original: <c>ChangeSelfSAttackStaticEffect</c> — continuous ±security attack on self.</summary>
     public static ICardEffect ChangeSelfSAttackStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -1229,6 +1275,27 @@ public static class CardEffectFactory
     /// <summary>Original: <c>JammingSelfStaticEffect</c> — grants Jamming to self.</summary>
     public static ICardEffect JammingSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new SelfKeywordEffect(card, KeywordBaseBatch1Kind.Jamming, isInheritedEffect, condition);
+
+    /// <summary>Original: <c>RebootSelfStaticEffect</c> — grants Reboot to self (Batch1).</summary>
+    public static ICardEffect RebootSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordEffect(card, KeywordBaseBatch1Kind.Reboot, isInheritedEffect, condition);
+
+    /// <summary>Original: <c>AllianceSelfEffect</c> — grants Alliance to self (Batch2). The original wraps
+    /// <paramref name="condition"/> with <c>IsExistOnBattleAreaDigimon(card)</c>; here that battle-area guard
+    /// is the binding lifecycle (see <see cref="SelfKeywordBatch2Effect"/>).</summary>
+    public static ICardEffect AllianceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Alliance, isInheritedEffect, condition);
+
+    /// <summary>Original: <c>OverclockSelfEffect</c> — grants Overclock to self (Batch2).</summary>
+    public static ICardEffect OverclockSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Overclock, isInheritedEffect, condition);
+
+    /// <summary>Original: <c>VortexSelfEffect(isInheritedEffect, card, condition, rootCardEffect = null)</c> —
+    /// grants Vortex to self (Batch2). <paramref name="rootCardEffect"/> is accepted for 1:1 source-signature
+    /// fidelity (the original threads it to the underlying <c>VortexEffect</c>); the headless grant layer
+    /// derives its binding from the card source, so it is not otherwise needed.</summary>
+    public static ICardEffect VortexSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Vortex, isInheritedEffect, condition);
 
     /// <summary>Original: <c>ChangeDPStaticEffect</c> — continuous ±DP on a set of permanents. Here scoped
     /// to the owner's Digimon (the common "your Digimon get +X DP" form); <paramref name="permanentCondition"/>

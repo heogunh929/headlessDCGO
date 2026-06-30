@@ -756,7 +756,20 @@ public sealed class MetadataActionProcessor : IActionProcessor
         EngineContext context)
     {
         HeadlessTurnState previousTurn = context.TurnController.Current;
+
+        // (GR-006) End-of-turn <Vortex>/<Overclock> effect-driven attack window — opened on the ENDING
+        // player's turn BEFORE handover. If a window opens (pending choice), the turn does NOT end yet; the
+        // agent resolves the attack, then re-applies EndTurn (the Digimon is now used/suspended, so no
+        // further window opens and the turn proceeds).
+        if (EndOfTurnEffectAttack.TryOpen(context, previousTurn.TurnPlayerId))
+        {
+            Dictionary<string, object?> windowMetadata = MetadataWithTurn(action, previousTurn);
+            windowMetadata["endOfTurnEffectAttackWindow"] = true;
+            return ActionProcessResult.Success("End-of-turn effect-driven attack window opened.", windowMetadata);
+        }
+
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
+        EndOfTurnEffectAttack.ClearForPlayer(context, previousTurn.TurnPlayerId);
         EndTurnCleanupResult cleanup = new HeadlessEndTurnCleanupFlow()
             .Cleanup(context, previousTurn);
         HeadlessTurnState turn = context.TurnController.EndTurn();

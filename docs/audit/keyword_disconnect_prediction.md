@@ -37,10 +37,14 @@
 - 게이트에 `Reboot/Rush/Blitz/Retaliation` 상수 추가. **검증:** `tests/GR-005`의 "B-group seal" 테스트 — 배치 바인딩 등록 시 게이트가 4키워드를 도출(카드가 없어 self-play 실측은 불가, 게이트 프리미티브로 회귀 방지).
 - → 향후 이 키워드들의 자기-정적 카드를 포팅하면 소비측 재수정 없이 **그냥 작동**.
 
-**C. 검증 필요 — 액션/트리거 계열:** ArmorPurge / Decode / Alliance / Vortex / Overclock / Partition / Progress
-- 이들은 "존재 플래그 read"가 아니라 **특정 타이밍에 resolve돼 동작**(핸들러: AllianceAttackBoost / EffectDrivenAttack / OverclockEffect 등)하는 트리거·액션 계열.
-- 위험은 "플래그 read 단절"이 아니라 **"자기-정적 바인딩의 키워드 타이밍이 라이브에서 emit돼 resolve되는가"**(Recovery는 이 경로로 정상 작동함을 실측).
-- Alliance/Vortex/Overclock은 라이브 핸들러가 있어 작동 가능성이 높지만, **자기-정적 바인딩→타이밍 발동 경로를 키워드별로 실측 확인 필요**.
+**C. 검증 결과 — 대부분 존재-플래그 단절(예측 정정):** ArmorPurge / Decode / Alliance / Vortex / Overclock / Partition / Progress
+- **정정:** "액션 계열이라 플래그 단절 아님"이라던 예측은 **틀렸음**. 6개(Alliance/Overclock/Progress/ArmorPurge/Decode/Partition)는 presence 판정이 **`hasX` 플래그 read**(`HasAllianceKey`/`HasOverclockKey`/`HasProgressKey`/`HasArmorPurgeKey`/`HasDecodeKey`/`HasPartitionKey`)로 **Blocker와 동일 단절 패턴**. 핸들러는 presence 확정 *후* 동작할 뿐.
+- **✅ 봉합(clean):** **Alliance / Overclock / Progress** — 각 `HasX(context, id)` helper(AllianceAttackBoost/OverclockEffect/ProgressImmunity)에 게이트 OR 1줄.
+- **✅ 봉합(선행, deletion-replacement):** **ArmorPurge / Decode / Partition** — `DeletionReplacementTiming`의 offer 3지점(context 보유)에 게이트 OR. ArmorPurge resolution(`DeletionReplacementGate.TryArmorPurgeAsync`)은 context 미수용 → **`EffectRegistry?` 파라미터를 추가(`ContinuousKeywordGate.HasKeyword(registry,...)` 오버로드)**하고 유일 호출자가 `context.EffectRegistry`를 전달하도록 스레딩 → offer/resolution 일관 봉합. 10개 봉합 키워드 모두 `tests/GR-005` seal 루프에서 게이트 도출 검증.
+- **Vortex:** `hasVortex`를 세팅만 하고 **읽는 소비처가 Runtime에 없음** → presence-플래그 단절 아님(EffectDrivenAttack 경로 별도 처리 추정).
+
+### C군 결론
+존재-플래그 단절은 **키워드 전반의 systemic 패턴**(예측의 "액션은 다르다"가 부정확). clean 3개 봉합 완료, deletion-replacement 3개는 risk/latent로 카드 포팅 시 봉합, Vortex는 다른 메커니즘. systemic 대안(등록 시 `hasX` push)도 가능하나 conditional/leave 정합 때문에 read-time 게이트(pull) 유지.
 
 **D. 부여-전용 플래그(낮은 위험):** `hasEvade/hasBarrier/hasDecoy/hasFortitude/hasFragment/hasAscension/hasScapegoat/hasSave/hasIceclad/hasCollision` 등
 - mutation-grant 맵엔 있으나 Batch1/2 enum엔 없음 → **다른 카드 효과가 Grant**하는 방식(자기-정적 키워드 바인딩 경로 아님)으로 추정 → Grant mutation이 플래그를 세팅 → 정상.

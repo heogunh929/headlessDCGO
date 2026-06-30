@@ -147,7 +147,8 @@ public static class OverclockEffect
             return false;
         }
 
-        if (ReadFlag(source.Metadata, HasOverclockKey))
+        if (ReadFlag(source.Metadata, HasOverclockKey)
+            || ContinuousKeywordGate.HasKeyword(context, sourceId, ContinuousKeywordGate.Overclock)) // GR-005 C-group seal
         {
             return true;
         }

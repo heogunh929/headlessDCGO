@@ -29,18 +29,36 @@ public static class ContinuousKeywordGate
     public const string Rush = "Rush";
     public const string Blitz = "Blitz";
     public const string Retaliation = "Retaliation";
+    // (C-group preemptive seal) also presence-flag pattern (hasAlliance/hasOverclock/hasProgress/
+    // hasArmorPurge/hasDecode/hasPartition). Latent (no self-static factory/card yet). Names match
+    // KeywordBaseBatch2Factory.KeywordName — note "Armor Purge" has a space.
+    public const string Alliance = "Alliance";
+    public const string Overclock = "Overclock";
+    public const string Progress = "Progress";
+    public const string ArmorPurge = "Armor Purge";
+    public const string Decode = "Decode";
+    public const string Partition = "Partition";
+    public const string Vortex = "Vortex"; // GR-006: end-of-turn effect-driven attack (opponent Digimon).
 
     /// <summary>True if an active self-static <paramref name="keyword"/> binding in the registry is sourced
     /// from (or targets) <paramref name="cardId"/>.</summary>
     public static bool HasKeyword(EngineContext context, HeadlessEntityId cardId, string keyword)
     {
         ArgumentNullException.ThrowIfNull(context);
+        return HasKeyword(context.EffectRegistry, cardId, keyword);
+    }
+
+    /// <summary>Registry-only overload for consumers that hold an <see cref="EffectRegistry"/> but not the
+    /// full <see cref="EngineContext"/> (e.g. DeletionReplacementGate's context-less resolution methods).</summary>
+    public static bool HasKeyword(EffectRegistry registry, HeadlessEntityId cardId, string keyword)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
         if (cardId.IsEmpty || string.IsNullOrWhiteSpace(keyword))
         {
             return false;
         }
 
-        foreach (EffectBinding binding in context.EffectRegistry.GetKeywordEffects(keyword))
+        foreach (EffectBinding binding in registry.GetKeywordEffects(keyword))
         {
             EffectContext effectContext = binding.Request.Context;
             if (effectContext.SourceEntityId == cardId || effectContext.TargetEntityIds.Contains(cardId))

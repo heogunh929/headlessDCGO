@@ -171,7 +171,9 @@ public sealed class DeletionReplacementTiming
             options.Add(AscensionOption);
         }
 
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasArmorPurgeKey) && SourceIds(record.Metadata).Count >= 1)
+        if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasArmorPurgeKey)
+                || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.ArmorPurge)) // GR-005 C-group seal
+            && SourceIds(record.Metadata).Count >= 1)
         {
             options.Add(ArmorPurgeOption);
         }
@@ -183,7 +185,8 @@ public sealed class DeletionReplacementTiming
 
         // C-13 Decode: effect-deletion only (AS-IS !IsByBattle), once per removal (decoded guard), offered
         // only when a playable Digimon source remains.
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasDecodeKey) &&
+        if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasDecodeKey)
+                || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.Decode)) && // GR-005 C-group seal
             !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey) &&
             !ReadFlag(record.Metadata, DeletionReplacementGate.DecodedKey) &&
             FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, DecodeOption)).Count > 0)
@@ -193,7 +196,8 @@ public sealed class DeletionReplacementTiming
 
         // C-14 Partition: effect-deletion only, once per removal, offered with >= 2 playable Digimon sources
         // (AS-IS DigivolutionCards.Count >= 2). Plays two sources free as new permanents.
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey) &&
+        if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey)
+                || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.Partition)) && // GR-005 C-group seal
             !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey) &&
             !ReadFlag(record.Metadata, DeletionReplacementGate.PartitionedKey) &&
             FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption)).Count >= 2)
@@ -513,7 +517,7 @@ public sealed class DeletionReplacementTiming
                     .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId).ConfigureAwait(false);
             case ArmorPurgeOption:
                 return await DeletionReplacementGate
-                    .TryArmorPurgeAsync(context.CardInstanceRepository, context.ZoneMover, cardId).ConfigureAwait(false);
+                    .TryArmorPurgeAsync(context.CardInstanceRepository, context.ZoneMover, cardId, context.EffectRegistry).ConfigureAwait(false);
             default:
                 return false;
         }

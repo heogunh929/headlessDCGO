@@ -219,7 +219,8 @@ public static class AllianceAttackBoost
             return false;
         }
 
-        if (ReadFlag(attacker.Metadata, HasAllianceKey))
+        if (ReadFlag(attacker.Metadata, HasAllianceKey)
+            || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Alliance)) // GR-005 C-group seal
         {
             return true;
         }

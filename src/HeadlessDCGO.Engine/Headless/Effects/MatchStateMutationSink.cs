@@ -103,9 +103,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             ["GrantBlocker"] = "hasBlocker",
             ["GrantRush"] = "hasRush",
-            ["ScheduleRebootUnsuspend"] = "scheduleRebootUnsuspend",
+            // GR-007: align grant→consume. The Reboot/Piercing keyword mutations previously wrote dead flags
+            // (scheduleRebootUnsuspend/pendingSecurityCheck) that NO consumer read, while the consumers
+            // (HeadlessEarlyPhaseFlow / BattleResolver) read hasReboot/hasPiercing which NO mutation set —
+            // so a keyword GRANTED via these mutations was inert. Map them to the consumer presence flags.
+            ["ScheduleRebootUnsuspend"] = "hasReboot",
             ["PreventBattleDeletion"] = "preventBattleDeletion",
-            ["SetSecurityCheck"] = "pendingSecurityCheck",
+            ["SetSecurityCheck"] = "hasPiercing",
             // W2: previously-dropped keyword kinds now write a flag (consumers wired per keyword).
             ["RequestBlitzAttack"] = "hasBlitz",
             ["DeleteRetaliationTarget"] = "hasRetaliation",
