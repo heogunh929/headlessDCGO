@@ -12,14 +12,15 @@ using HeadlessDCGO.Engine.Headless.Services;
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
-var games = new (string A, string B, int Main, int Egg, int EnvSeed, int PolicySeed, int Cap)[]
+// Real ST1/ST2/ST3 starter decks (50 main + 4 digitama), every cross-set matchup both ways.
+var games = new (string A, string B, int EnvSeed, int PolicySeed, int Cap)[]
 {
-    ("ST1", "ST2", 40, 4, 101, 11, 600),
-    ("ST2", "ST3", 40, 4, 202, 22, 600),
-    ("ST3", "ST1", 40, 4, 303, 33, 600),
-    ("ST1", "ST3", 40, 4, 707, 71, 600),
-    ("ST2", "ST1", 40, 4, 808, 82, 600),
-    ("ST3", "ST2", 40, 4, 909, 93, 600),
+    ("ST1", "ST2", 101, 11, 600),
+    ("ST2", "ST3", 202, 22, 600),
+    ("ST3", "ST1", 303, 33, 600),
+    ("ST1", "ST3", 707, 71, 600),
+    ("ST2", "ST1", 808, 82, 600),
+    ("ST3", "ST2", 909, 93, 600),
 };
 
 var violations = new List<string>();
@@ -29,7 +30,7 @@ int secNoDropZeroBefore = 0, secNoDropTerminal = 0, secNoDropUnexplained = 0;
 var unexplained = new List<string>();
 
 foreach (var g in games)
-    totalSteps += await AuditGameAsync(g.A, g.B, g.Main, g.Egg, g.EnvSeed, g.PolicySeed, g.Cap);
+    totalSteps += await AuditGameAsync(g.A, g.B, g.EnvSeed, g.PolicySeed, g.Cap);
 
 // --- Report --------------------------------------------------------------
 Console.WriteLine($"\n===== RULE AUDIT: {games.Length} games, {totalSteps} total steps =====");
@@ -52,16 +53,19 @@ else
     }
 }
 
-async Task<int> AuditGameAsync(string aSet, string bSet, int mainSize, int eggSize, int envSeed, int policySeed, int cap)
+async Task<int> AuditGameAsync(string aSet, string bSet, int envSeed, int policySeed, int cap)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: envSeed);
     var db = (CardDatabase)context.CardRepository;
     CardBaseEntityLoader.LoadInto(db);
 
-    (var m1, var e1) = BuildDeck(db, aSet, mainSize, eggSize);
-    (var m2, var e2) = BuildDeck(db, bSet, mainSize, eggSize);
+    StarterDecks.StarterDeck d1 = StarterDecks.Get(aSet), d2 = StarterDecks.Get(bSet);
     MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { new PlayerDeckSetup(P1, m1, e1), new PlayerDeckSetup(P2, m2, e2) }, firstPlayerId: P1);
+        new[]
+        {
+            new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
+            new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
+        }, firstPlayerId: P1);
     MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: envSeed, setup: setup);
 
     var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
@@ -236,17 +240,3 @@ static string ShortDef(EngineContext ctx, HeadlessEntityId instanceId) =>
     ctx.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? inst) && inst is not null
         ? inst.DefinitionId.Value : instanceId.Value;
 
-static (HeadlessEntityId[] Main, HeadlessEntityId[] Egg) BuildDeck(CardDatabase db, string setPrefix, int mainSize, int eggSize)
-{
-    var mainPool = new List<HeadlessEntityId>();
-    var eggPool = new List<HeadlessEntityId>();
-    for (int i = 1; i <= 16; i++)
-    {
-        var id = new HeadlessEntityId($"{setPrefix}_{i:D2}");
-        if (db.TryGetCard(id, out CardRecord? rec) && rec is not null)
-            (string.Equals(rec.CardType, "DigiEgg", StringComparison.Ordinal) ? eggPool : mainPool).Add(id);
-    }
-    var main = Enumerable.Range(0, mainSize).Select(k => mainPool[k % mainPool.Count]).ToArray();
-    var egg = Enumerable.Range(0, eggSize).Select(k => eggPool[k % eggPool.Count]).ToArray();
-    return (main, egg);
-}

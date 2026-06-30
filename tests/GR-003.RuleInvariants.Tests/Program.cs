@@ -20,16 +20,17 @@ using HeadlessDCGO.Engine.Headless.Services;
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
-var games = new (string A, string B, int Main, int Egg, int Seed, int Cap)[]
+// Real ST1/ST2/ST3 starter decks (50 main + 4 digitama), cross-set matchups.
+var games = new (string A, string B, int Seed, int Cap)[]
 {
-    ("ST1", "ST2", 30, 4, 101, 300),
-    ("ST2", "ST3", 30, 4, 202, 300),
-    ("ST3", "ST1", 30, 4, 303, 300),
+    ("ST1", "ST2", 101, 400),
+    ("ST2", "ST3", 202, 400),
+    ("ST3", "ST1", 303, 400),
 };
 
 var violations = new List<string>();
 int steps = 0;
-foreach (var g in games) steps += await RunAsync(g.A, g.B, g.Main, g.Egg, g.Seed, g.Cap);
+foreach (var g in games) steps += await RunAsync(g.A, g.B, g.Seed, g.Cap);
 
 Console.WriteLine($"GR-003 rule-invariant gate: {games.Length} self-play games, {steps} steps.");
 if (violations.Count > 0)
@@ -40,15 +41,18 @@ if (violations.Count > 0)
 }
 Console.WriteLine("PASS: no rule-invariant violation across the audited dimensions.");
 
-async Task<int> RunAsync(string aSet, string bSet, int mainSize, int eggSize, int seed, int cap)
+async Task<int> RunAsync(string aSet, string bSet, int seed, int cap)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: seed);
     var db = (CardDatabase)context.CardRepository;
     CardBaseEntityLoader.LoadInto(db);
-    (var m1, var e1) = BuildDeck(db, aSet, mainSize, eggSize);
-    (var m2, var e2) = BuildDeck(db, bSet, mainSize, eggSize);
+    StarterDecks.StarterDeck d1 = StarterDecks.Get(aSet), d2 = StarterDecks.Get(bSet);
     MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { new PlayerDeckSetup(P1, m1, e1), new PlayerDeckSetup(P2, m2, e2) }, firstPlayerId: P1);
+        new[]
+        {
+            new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
+            new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
+        }, firstPlayerId: P1);
     var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
     var env = new HeadlessRlEnvironment(match);
     await env.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup));
@@ -148,16 +152,3 @@ static bool ReadFlag(IReadOnlyDictionary<string, object?> m, string k) => m.TryG
 static string DefType(CardDatabase db, EngineContext ctx, HeadlessEntityId id) =>
     ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? inst) && inst is not null
         && db.TryGetCard(inst.DefinitionId, out CardRecord? c) && c is not null ? c.CardType ?? "?" : "?";
-
-static (HeadlessEntityId[] Main, HeadlessEntityId[] Egg) BuildDeck(CardDatabase db, string setPrefix, int mainSize, int eggSize)
-{
-    var main = new List<HeadlessEntityId>(); var egg = new List<HeadlessEntityId>();
-    for (int i = 1; i <= 16; i++)
-    {
-        var id = new HeadlessEntityId($"{setPrefix}_{i:D2}");
-        if (db.TryGetCard(id, out CardRecord? rec) && rec is not null)
-            (string.Equals(rec.CardType, "DigiEgg", StringComparison.Ordinal) ? egg : main).Add(id);
-    }
-    return (Enumerable.Range(0, mainSize).Select(k => main[k % main.Count]).ToArray(),
-            Enumerable.Range(0, eggSize).Select(k => egg[k % egg.Count]).ToArray());
-}
