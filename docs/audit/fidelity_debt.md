@@ -68,6 +68,13 @@
 |---|---|---|
 | ST7_10 | PASS | — (원본과 동일) |
 
+### EX8/Green (1 PASS · 0 FAIL — 나머지 74장은 스켈레톤 스텁, 미포팅)
+| 카드 | 판정 | 부채 |
+|---|---|---|
+| EX8_074 | PASS | — 6 region 전부 라이브 + deferred resume. **수정 이력**: #1 [When Would be Played] suspend-2 코스트감소 술어가 owner-only(`IsOwnerBattleAreaDigimon`)로 좁혀져 있던 것을 원본 `IsPermanentExistsOnBattleAreaDigimon`(any-owner)에 맞춰 `IsBattleAreaDigimon`으로 교정 — 상대 디지몬도 서스펜드 코스트 대상/감소 게이트 카운트에 포함(원본 일치). 회귀 테스트 G9-014(상대 카운트로 0메모리 플레이 가능) + G9-005 교정. 원본의 `CanNotBeAffected`는 sink 중앙화(ContinuousImmunityGate)·`CanSuspend`는 엔진 미모델링(스텁)이라 술어 비추가가 정답. |
+
+> ⚠️ EX8 완성도: 효과 로직 기준 **1/75**(EX8_074만 실구현, 나머지 74장은 `// TODO: Skeleton only` 7줄 스텁). 데이터(JSON)·dispatch 배선은 전 카드 존재.
+
 ---
 
 ## 부채 — 갚는 법 (유형별)

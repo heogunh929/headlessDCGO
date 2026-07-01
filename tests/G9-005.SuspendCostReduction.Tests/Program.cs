@@ -23,7 +23,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("The reduction is one-shot: ExpireFixedCostCalc clears it (UntilCalculateFixedCost)", ReductionIsUntilFixedCostCalc),
     ("Selecting fewer than N applies nothing (no suspend, no reduction) — original '== 2' branch", ShortSelectionNoOp),
     ("Skipping (optional) applies nothing", SkipNoOp),
-    ("Only the owner's UNSUSPENDED Digimon are offered as targets", OnlyOwnUnsuspendedOffered),
+    ("Any-owner UNSUSPENDED Digimon are offered (incl. opponent's); suspended are not", AnyOwnerUnsuspendedOffered),
 };
 
 var failures = new List<string>();
@@ -100,19 +100,24 @@ async Task SkipNoOp()
     AssertEqual(6, ContinuousModifierGate.ResolvePlayCost(context, hand, 6), "no reduction on skip");
 }
 
-async Task OnlyOwnUnsuspendedOffered()
+// AS-IS: the original EX8_074 BeforePayCost predicate (IsPermanentExistsOnBattleAreaDigimon && !IsSuspended
+// && CanSuspend && !CanNotBeAffected) is NOT owner-scoped — EITHER player's unsuspended Digimon may be
+// suspended to pay the reduction. BuildEffect mirrors that with IsBattleAreaDigimon.
+async Task AnyOwnerUnsuspendedOffered()
 {
     EngineContext context = Context();
     var hand = await PlaceInHand(context, P1, "EX8074", playCost: 6);
     var own = await PlaceDigimon(context, P1, "OWN", suspended: false);
     var ownSuspended = await PlaceDigimon(context, P1, "OWNSUS", suspended: true);
     var foe = await PlaceDigimon(context, P2, "FOE", suspended: false);
+    var foeSuspended = await PlaceDigimon(context, P2, "FOESUS", suspended: true);
 
     ChoiceRequest req = BuildEffect(context, hand).BuildRequest(new[] { P1, P2 });
     bool Offered(HeadlessEntityId id) => req.Candidates.Any(c => c.Label.Contains(id.Value, StringComparison.Ordinal));
     AssertTrue(Offered(own), "owner's unsuspended Digimon is a target");
+    AssertTrue(Offered(foe), "opponent's unsuspended Digimon is ALSO a target (any-owner, per AS-IS)");
     AssertTrue(!Offered(ownSuspended), "owner's already-suspended Digimon is NOT a target");
-    AssertTrue(!Offered(foe), "opponent's Digimon is NOT a target");
+    AssertTrue(!Offered(foeSuspended), "opponent's already-suspended Digimon is NOT a target");
     await Task.CompletedTask;
 }
 
@@ -122,7 +127,7 @@ SuspendCostReductionEffect BuildEffect(EngineContext context, HeadlessEntityId h
 {
     var card = new CardSource(context, handCard, P1);
     bool Suspendable(HeadlessEntityId id) =>
-        CardEffectCommons.IsOwnerBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);
+        CardEffectCommons.IsBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);
     return new SuspendCostReductionEffect(card, Suspendable, suspendCount: 2, costReduction: 4,
         description: "Suspend 2 Digimon to get Play Cost -4");
 }

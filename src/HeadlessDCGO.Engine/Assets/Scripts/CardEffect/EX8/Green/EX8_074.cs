@@ -38,8 +38,20 @@ public sealed class EX8_074 : CEntity_Effect
         // "When this card would be played, by suspending 2 Digimon, reduce the play cost by 4."
         if (timing == EffectTiming.BeforePayCost)
         {
+            // AS-IS CanSelectPermanentCondition (original EX8_074.cs):
+            //   IsPermanentExistsOnBattleAreaDigimon(p) && p.TopCard && !p.TopCard.CanNotBeAffected(activateClass)
+            //   && !p.IsSuspended && p.CanSuspend
+            // The original predicate is NOT owner-scoped — IsPermanentExistsOnBattleAreaDigimon has no owner
+            // filter (GameContextDeterminarion.cs:499 = IsPermanentExistsOnBattleArea && IsDigimon), so EITHER
+            // player's Digimon may be suspended to pay this reduction. Mirror it with IsBattleAreaDigimon
+            // (any-owner; the documented mirror of IsPermanentExistsOnBattleAreaDigimon — CardPortingFramework
+            // :1709). !IsSuspended is a genuine selection-time guard (a suspended Digimon can't pay the cost).
+            // The other two original guards are NOT re-checked here, by headless design: CanNotBeAffected
+            // (effect immunity) is centralised at the mutation sink (ContinuousImmunityGate, S2), and CanSuspend
+            // ("cannot be suspended") is not modeled engine-wide (CanSuspend.cs is an unported skeleton — no
+            // card sets it false), so adding either to the predicate would be redundant / invented.
             bool CanSelectPermanentCondition(HeadlessEntityId id) =>
-                CardEffectCommons.IsOwnerBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);
+                CardEffectCommons.IsBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);
 
             if (CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition) >= 2)
             {
