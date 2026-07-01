@@ -537,6 +537,57 @@ public sealed class AddedDigivolutionRequirementEffect : ICardEffect
     }
 }
 
+/// <summary>(PRIM-W5) Predicate-based added digivolution source (AS-IS
+/// <c>AddSelfDigivolutionRequirementStaticEffect</c>): "you can also digivolve this card from any Digimon
+/// matching <see cref="Predicate"/> (for <see cref="DigivolutionCost"/> memory)". Registers the predicate on a
+/// continuous binding that <c>DigivolveAction</c> evaluates by building the under-card as a <see cref="Permanent"/>.
+/// Cost/ignore-requirement are retained for fidelity; the primary behavior is enabling the digivolve.</summary>
+public sealed class AddedDigivolutionRequirementPredicateEffect : ICardEffect
+{
+    public AddedDigivolutionRequirementPredicateEffect(CardSource card, Func<Permanent, bool> predicate, int digivolutionCost, bool ignoreDigivolutionRequirement, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(predicate);
+        Card = card;
+        Predicate = predicate;
+        DigivolutionCost = digivolutionCost;
+        IgnoreDigivolutionRequirement = ignoreDigivolutionRequirement;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+    public Func<Permanent, bool> Predicate { get; }
+    public int DigivolutionCost { get; }
+    public bool IgnoreDigivolutionRequirement { get; }
+    public bool IsInheritedEffect { get; }
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [DigivolveAction.AddedEvolutionPredicateKey] = Predicate,
+        };
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
 /// <summary>A self keyword grant (Blocker / Jamming / Reboot / Piercing) reusing the existing
 /// <see cref="KeywordBaseBatch1Effect"/> resolution + gate wiring.</summary>
 public sealed class SelfKeywordEffect : ICardEffect
@@ -2635,6 +2686,18 @@ public static partial class CardEffectFactory
     /// or per-card; arbitrary per-permanent predicates beyond Color@Level are per-card.)</summary>
     public static ICardEffect AddDigivolutionRequirementStaticEffect(string fromColor, int fromLevel, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new AddedDigivolutionRequirementEffect(card, $"{fromColor}@{fromLevel}", isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W5) <c>AddSelfDigivolutionRequirementStaticEffect</c> — adds an alternative digivolution
+    /// source for THIS card: it may digivolve from any under-card matching <paramref name="permanentCondition"/>
+    /// (for <paramref name="digivolutionCost"/> memory). DigivolveAction evaluates the predicate against the
+    /// target. Extra AS-IS args (effectName/cardCondition/costEquation/level ranges) accepted for fidelity;
+    /// the original <c>CardColor cardColor</c> param is omitted (no headless CardColor — express color via
+    /// the predicate).</summary>
+    public static ICardEffect AddSelfDigivolutionRequirementStaticEffect(
+        Func<Permanent, bool> permanentCondition, int digivolutionCost, bool ignoreDigivolutionRequirement,
+        CardSource card, Func<bool>? condition, string? effectName = null, Func<CardSource, bool>? cardCondition = null,
+        Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1) =>
+        new AddedDigivolutionRequirementPredicateEffect(card, permanentCondition, digivolutionCost, ignoreDigivolutionRequirement, isInheritedEffect: false, condition);
 
     /// <summary>Original: <c>PierceSelfEffect</c> — grants Piercing to self.</summary>
     public static ICardEffect PierceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>

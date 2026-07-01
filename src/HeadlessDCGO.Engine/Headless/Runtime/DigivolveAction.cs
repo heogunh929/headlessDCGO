@@ -259,7 +259,7 @@ public sealed class DigivolveAction
             && !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId)
             && !(CanIgnoreColorRequirement(context, playerId, payload.CardId)
                 && MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard, ignoreColor: true))
-            && !MatchesAddedDigivolutionRequirement(context, payload.CardId, playerId, targetCard))
+            && !MatchesAddedDigivolutionRequirement(context, payload.CardId, playerId, targetCard, payload.TargetCardId, target.OwnerId))
         {
             return DigivolveValidation.Illegal(
                 $"Target card '{target.DefinitionId}' does not satisfy evolution condition '{evolvingCard.EvolutionCondition}'.",
@@ -412,14 +412,20 @@ public sealed class DigivolveAction
     /// ChangeDigivolutionCostStaticEffect / handled per-card.)</summary>
     public const string AddedEvolutionConditionKey = "addedEvolutionCondition";
 
-    private static bool MatchesAddedDigivolutionRequirement(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, CardRecord targetCard)
+    // (PRIM-W5) added-source digivolution requirement key carrying an arbitrary predicate over the under-card
+    // (AS-IS AddSelfDigivolutionRequirementStaticEffect's Func<Permanent,bool>).
+    public const string AddedEvolutionPredicateKey = "addedEvolutionPredicate";
+
+    private static bool MatchesAddedDigivolutionRequirement(
+        EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, CardRecord targetCard,
+        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
     {
         IEffectQueryService registry = context.EffectRegistry;
         string scope = ContinuousRestrictionGate.Scope;
 
         foreach (EffectRequest effect in registry.GetContinuousEffects(new EffectQueryContext(scope, targetEntityId: cardId)))
         {
-            if (AddedConditionActive(effect, targetCard))
+            if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner))
             {
                 return true;
             }
@@ -429,13 +435,32 @@ public sealed class DigivolveAction
             && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def : null;
         foreach (EffectRequest effect in PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, playerId, card))
         {
-            if (AddedConditionActive(effect, targetCard))
+            if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    // (PRIM-W5) honour a predicate-based added source: build the target under-card as a Permanent and evaluate
+    // the card-authored Func<Permanent,bool> (with the same continuous.condition gating).
+    private static bool AddedPredicateActive(EngineContext context, EffectRequest effect, HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
+    {
+        if (!effect.Context.Values.TryGetValue(AddedEvolutionPredicateKey, out object? raw)
+            || raw is not Func<Assets.Scripts.Script.CardEffectCommons.Permanent, bool> predicate)
+        {
+            return false;
+        }
+
+        if (effect.Context.Values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+            && condRaw is Func<bool> condition && !condition())
+        {
+            return false;
+        }
+
+        return predicate(new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetInstanceId, targetOwner));
     }
 
     // A raw registry read does not run ContinuousScopeEvaluation's condition filter, so honour the

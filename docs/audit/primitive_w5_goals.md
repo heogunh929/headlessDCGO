@@ -52,7 +52,8 @@
 - [x] **W5-0 질의 뷰 계층 (근본 enabler)** — 드라이런에서 발견: 진짜 병목은 액션 래퍼가 아니라 카드 술어가 읽는 `permanent.*`/`TopCard.*`/`cardSource.*` 멤버 부재. 헤드리스 `Permanent`={Instance,Owner}뿐이라 술어-보유 카드는 컴파일조차 불가. → `CardSource`에 뷰 멤버 14종(IsDigimon/IsTamer/IsToken/Level/HasLevel/IsLevel/CardColors/HasCardColor/CardNames/EqualsCardName/ContainsCardName/CardTraits/EqualsTraits/ContainsTraits) + `Permanent`에 DP(연속수정자 접힘)/TopCard(→CardSource 재사용)/Level/IsDigimon/IsTamer/IsToken/IsSuspended/DigivolutionCards/HasNoDigivolutionCards. 엔진 상태 기반 **평가 가능**. **G9-043**(술어 `p.DP==0 && p.TopCard.ContainsCardName(...)` 실평가 포함). 275 green.
   - 잔여 롱테일 멤버(GetCostItself·CanAttack·CanNotBeAffected·HasCSTraits·HasText·PermanentFrame 등)는 실제 카드 포팅 시 수요 맞춰 확장.
 - [ ] W5-a 얇은 별칭(HAVE 재사용: IgnoreColor→UseRequirements, GainX→키워드, CanNotSuspend, SelectTrashDigivolution, DestroyPermanents, SimplifiedSelectCardCondition) — 저비용 일괄
-- [ ] W5-b 노출 래퍼(Draw/ChangeCost/DestroyPermanents/RevealAndSelect + AddSelfDigivolutionRequirement)
+- [x] **AddSelfDigivolutionRequirementStaticEffect (1106장)** — 예측형 대체 진화원. 뷰 계층으로 `Func<Permanent,bool>` 술어가 컴파일+평가 → DigivolveAction이 target 언더카드를 Permanent로 만들어 술어 평가(인쇄 요건 실패해도 매칭 시 진화 합법). `AddedDigivolutionRequirementPredicateEffect` + `AddedEvolutionPredicateKey`. **G9-044**. 276 green.
+- [ ] W5-b 노출 래퍼(Draw/ChangeCost/DestroyPermanents/RevealAndSelect)
 - [ ] W5-c 타겟 수정자(ChangeDigimonDP/SAttack, Suspend/Delete 타겟)
 - [ ] W5-d 인터랙션 코어(PlayPermanentCards + SELECT) — 진짜 신규
 - [ ] W5-e 나머지(Link조건/Skill/CardName/CanNotAffected/PlayOption 등)
