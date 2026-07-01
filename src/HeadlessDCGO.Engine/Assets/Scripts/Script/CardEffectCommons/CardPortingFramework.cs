@@ -141,6 +141,52 @@ public sealed class CardSource
 
         return new PermanentView(DigivolutionStack.Empty);
     }
+
+    // ===== (PRIM-W5-0) card-query view — the member surface card predicates read =====================
+    // Backed by the definition CardRecord (colors/level/traits/type) + instance metadata. Enables 1:1
+    // mirror of the original `cardSource.<X>` / `permanent.TopCard.<X>` predicates.
+
+    private CardRecord? Definition =>
+        Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? inst) && inst is not null
+            && Context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def
+            : (Context.CardRepository.TryGetCard(InstanceId, out CardRecord? self) ? self : null);
+
+    private static IReadOnlyList<string> ReadStrings(IReadOnlyDictionary<string, object?>? meta, string key)
+    {
+        if (meta is null || !meta.TryGetValue(key, out object? raw) || raw is null) return Array.Empty<string>();
+        return raw switch
+        {
+            IEnumerable<string> ss => ss.ToArray(),
+            string s => s.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            _ => Array.Empty<string>(),
+        };
+    }
+
+    /// <summary>The card's colors (mirror of <c>CardColors</c>).</summary>
+    public IReadOnlyList<string> CardColors => ReadStrings(Definition?.Metadata, "colors");
+
+    /// <summary>The card's traits (mirror of <c>CardTraits</c>).</summary>
+    public IReadOnlyList<string> CardTraits => ReadStrings(Definition?.Metadata, "traits");
+
+    /// <summary>The card's name(s) (mirror of <c>CardNames</c>).</summary>
+    public IReadOnlyList<string> CardNames => Definition is { } d ? new[] { d.Name } : Array.Empty<string>();
+
+    /// <summary>The card's level, or -1 (mirror of <c>Level</c>).</summary>
+    public int Level => Definition?.Metadata is { } m && m.TryGetValue("level", out object? raw) && raw is int lv ? lv : -1;
+
+    public bool IsDigimon => string.Equals(Definition?.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+    public bool IsTamer => string.Equals(Definition?.CardType, "Tamer", StringComparison.OrdinalIgnoreCase);
+    public bool IsOption => string.Equals(Definition?.CardType, "Option", StringComparison.OrdinalIgnoreCase);
+    public bool IsToken => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+        && i.Metadata.TryGetValue("isToken", out object? t) && t is bool b && b;
+
+    public bool HasLevel => Level >= 0;
+    public bool IsLevel(int level) => Level == level;
+    public bool HasCardColor(string color) => CardColors.Any(c => string.Equals(c, color, StringComparison.OrdinalIgnoreCase));
+    public bool EqualsCardName(string name) => CardNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+    public bool ContainsCardName(string fragment) => CardNames.Any(n => n.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    public bool EqualsTraits(string trait) => CardTraits.Any(t => string.Equals(t, trait, StringComparison.OrdinalIgnoreCase));
+    public bool ContainsTraits(string fragment) => CardTraits.Any(t => t.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>
@@ -688,10 +734,16 @@ public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
 /// <summary>Minimal headless mirror of the original <c>Permanent</c> — used only for the signature of
 /// card <c>permanentCondition</c> predicates. Player-scope effects scope to the owner's cards directly, so
 /// the predicate body is not invoked by the headless evaluation (it exists for 1:1 source fidelity).</summary>
+/// <summary>(PRIM-W5-0) A battle-area permanent view — the member surface card predicates read off
+/// <c>permanent.*</c>. Backed by the engine: <see cref="TopCard"/> reuses <see cref="CardSource"/> for the
+/// card-view members, DP folds continuous modifiers, and digivolution sources come from the stack.</summary>
 public sealed class Permanent
 {
-    public Permanent(HeadlessEntityId instanceId, HeadlessPlayerId ownerId)
+    private readonly EngineContext _context;
+
+    public Permanent(EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId ownerId)
     {
+        _context = context ?? throw new ArgumentNullException(nameof(context));
         InstanceId = instanceId;
         OwnerId = ownerId;
     }
@@ -699,6 +751,36 @@ public sealed class Permanent
     public HeadlessEntityId InstanceId { get; }
 
     public HeadlessPlayerId OwnerId { get; }
+
+    /// <summary>The top (battling) card of this permanent as a <see cref="CardSource"/>.</summary>
+    public CardSource TopCard => new(_context, InstanceId, OwnerId);
+
+    /// <summary>Effective DP (base + continuous modifiers), or 0.</summary>
+    public int DP => ContinuousDpGate.ResolveDp(_context, InstanceId, BaseDp());
+
+    public int Level => TopCard.Level;
+    public bool HasNoDigivolutionCards => DigivolutionCards.Count == 0;
+    public bool IsDigimon => TopCard.IsDigimon;
+    public bool IsTamer => TopCard.IsTamer;
+    public bool IsToken => TopCard.IsToken;
+
+    public bool IsSuspended =>
+        _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+        && i.Metadata.TryGetValue("isSuspended", out object? raw) && raw is bool b && b;
+
+    /// <summary>The digivolution (under-)cards of this permanent (mirror of <c>DigivolutionCards</c>).</summary>
+    public IReadOnlyList<CardSource> DigivolutionCards
+    {
+        get
+        {
+            DigivolutionStack stack = DigivolutionStackReader.Read(_context.CardInstanceRepository, _context.CardRepository, InstanceId);
+            return stack.UnderCards.Select(u => new CardSource(_context, u.InstanceId, OwnerId)).ToArray();
+        }
+    }
+
+    private int BaseDp() =>
+        _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+        && i.Metadata.TryGetValue("dp", out object? raw) && raw is int dp ? dp : 0;
 }
 
 /// <summary>

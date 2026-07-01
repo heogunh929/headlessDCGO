@@ -1,0 +1,250 @@
+# 프리미티브 카탈로그 (카드-facing 팩토리 전수)
+
+> 자동생성 · `CardEffectFactory` 공개 팩토리 **104종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
+
+> 공통 인자: `card`=`CardSource`(호스트), `isInheritedEffect`=진화원 상속 여부(대개 false), `condition`=`Func<bool>?`(발동 게이트, 없으면 null). `Func<Permanent,bool>? permanentCondition`은 원본 충실도용(대개 null 전달).
+
+
+## 카테고리별 빠른참조
+
+
+### 키워드 grant (36)
+
+- **AllianceSelfEffect** — grants Alliance to self (Batch2)
+- **AllianceStaticEffect** — grants Alliance to the owner's Digimon (player-scope keyword)
+- **ArmorPurgeEffect** — grants ArmorPurge to self (Batch2).
+- **AscensionSelfEffect** — grants the Ascension keyword (post-deletion → security)
+- **BarrierSelfEffect** — grants Barrier (deletion-replacement) to self.
+- **BlitzSelfEffect** — grants Blitz to self (Batch2).
+- **BlockerSelfStaticEffect** — grants Blocker to self.
+- **BlockerStaticEffect** — grants Blocker to a set of permanents
+- **CollisionSelfStaticEffect** — grants Collision (forced-block) to self.
+- **CollisionStaticEffect** — grants Collision to the owner's Digimon (player-scope keyword)
+- **DecodeSelfEffect** — grants Decode to self (Batch2).
+- **DecoySelfEffect** — grants Decoy (deletion-replacement) to self
+- **EvadeSelfEffect** — grants Evade (deletion-replacement) to self.
+- **ExecuteSelfEffect** — grants Execute to self.
+- **FortitudeSelfEffect** — grants Fortitude (post-deletion replay) to self.
+- **FragmentSelfEffect** — grants Fragment (deletion-replacement) to self.
+- **IcecladSelfStaticEffect** — grants Iceclad to self.
+- **JammingSelfStaticEffect** — grants Jamming to self.
+- **JammingStaticEffect** — grants Jamming to the owner's Digimon (player-scope keyword)
+- **MaterialSaveEffect** — move of this Digimon's digivolution cards under another of your Digimon (, chosen at port time).
+- **MindLinkSelfEffect** — grants the MindLink keyword (Tamer↔Digimon link)
+- **OverclockSelfEffect** — grants Overclock to self (Batch2).
+- **PartitionSelfEffect** — grants Partition to self (Batch2)
+- **PlayMindLinkTamerFromDigivolutionCards** — plays a Tamer under-card (MindLink) from a Digimon's digivolution stack onto the field (cost-free)
+- **ProgressSelfStaticEffect** — grants Progress to self (Batch2).
+- **RaidSelfEffect** — grants Raid (attack-switch) to self
+- **RebootSelfStaticEffect** — grants Reboot to self (Batch1).
+- **RebootStaticEffect** — grants Reboot to the owner's Digimon (player-scope)
+- **RetaliationSelfEffect** — grants Retaliation to self (Batch2)
+- **RushSelfStaticEffect** — grants Rush to self (Batch2).
+- **RushStaticEffect** — grants Rush to the owner's Digimon (player-scope)
+- **SaveEffect** — grants Save (deletion-replacement: place under a Tamer instead of trashing) to self.
+- **ScapegoatSelfEffect** — grants Scapegoat (deletion-replacement) to self.
+- **TreatAsDigimonStaticEffect** — grants the TreatAsDigimon keyword
+- **VortexCanAttackPlayersStaticEffect** — grants Vortex to the owner's Digimon (player-scope keyword)
+- **VortexSelfEffect** — grants Vortex to self (Batch2)
+
+### 제약/면역 (18)
+
+- **CanNotAttackSelfStaticEffect** — "this Digimon cannot attack" (self)
+- **CanNotAttackStaticEffect** — the scoped player's Digimon cannot attack (player-scope CannotAttack restriction consulted by AttackPermanentA
+- **CanNotBeAttackedSelfStaticEffect** — this Digimon cannot be attacked (self CannotBeAttacked restriction consulted on the defender by AttackPermanen
+- **CanNotBeBlockedStaticSelfEffect** — this Digimon cannot be blocked (unblockable); consulted by BlockTiming when enumerating blocker candidates.
+- **CanNotBeDestroyedByBattleStaticEffect** — this Digimon cannot be deleted in battle (effect deletion still applies)
+- **CanNotBeDestroyedBySkillStaticEffect** — this Digimon cannot be deleted by effects/skills (battle deletion still applies); consulted by the effect-sour
+- **CanNotBeDestroyedStaticEffect** — this Digimon cannot be deleted (battle OR effect)
+- **CanNotBeTrashedBySkillStaticEffect** — this Digimon's digivolution cards cannot be trashed by effects
+- **CanNotBlockStaticEffect** — the scoped player's Digimon cannot block (player-scope CannotBlock restriction).
+- **CanNotBlockStaticSelfEffect** — this Digimon cannot block (self CannotBlock restriction consulted by ContinuousRestrictionGate.EvaluateBlock).
+- **CanNotDigivolveStaticEffect** — a continuous "the scoped player's Digimon (optionally of ) cannot digivolve" restriction
+- **CanNotDigivolveStaticSelfEffect** — a continuous "this card cannot be digivolved (as the digivolution source)" restriction on self
+- **CannotReturnToDeckStaticEffect** — this Digimon cannot be returned to the deck (self restriction consulted by the ReturnToDeck sink paths).
+- **CannotReturnToHandStaticEffect** — this Digimon cannot be returned to hand (self restriction consulted by the ReturnToHand sink path).
+- **CantSuspendStaticEffect** — this Digimon cannot be suspended (self CannotSuspend restriction consulted by the Suspend sink path)
+- **CantUnsuspendStaticEffect** — this Digimon does not unsuspend; consulted by the Unsuspend step.
+- **ImmuneFromDPMinusStaticEffect** — this Digimon is immune to DP-reducing effects (D-A3)
+- **ImmuneStackTrashingClass** — alias of .
+
+### DP/SA 수정자 (3)
+
+- **ChangeBaseDPGlobalEffect** — continuous ±base-DP on the owner's Digimon (player-scope BaseDp modifier consulted by ContinuousDpGate)
+- **ChangeDPStaticEffect** — continuous ±DP on a set of permanents
+- **ChangeSelfDPStaticEffect** — continuous ±DP on self.
+
+### 진화/요건 (7)
+
+- **AddDigivolutionRequirementStaticEffect** — grant this card an ADDITIONAL digivolution path "from Lv"
+- **ChangeDigivolutionCostStaticEffect** — (PRIM-W1-3) Dynamic (Func&lt;int&gt;) variant of .
+- **ChangeDigivolutionCostStaticEffect** — continuous ±digivolution cost on self (delta)
+- **ReturnToLibraryBottomDigivolutionCardsClass** — returns the host's own digivolution (under-)cards to the bottom of the deck (activated).
+- **SelectAndTrashDigivolutionEffect** — An activated "select up to opponent Digimon and trash of each host's digivolution cards from the bottom/top" e
+- **TrainingEffect** — activated [Breeding]: suspend self, place the top deck card at the bottom of self's digivolution stack.
+- **UseRequirements** — lets this card digivolve ignoring the COLOR part of the printed requirement (level still enforced)
+
+### 메모리 (7)
+
+- **AddMemoryTriggerEffect** — A triggered "[When ...] gain/lose N memory" effect (the common ActivateClass memory form)
+- **EoTLose3Memory** — "[End of Your Turn] lose 3 memory."
+- **Gain1MemoryTamerOpponentDigimonEffect** — "[Start of Your Turn] if your opponent has a Digimon, gain 1 memory." (main-phase timing mapped to OnStartTurn
+- **Gain1MemoryTamerOwnerDigimonConditionalEffect** — "[Start of Your Turn] if you have a matching Digimon, gain 1 memory." The per-permanent predicate is captured 
+- **Gain2MemoryOptionDelayEffect** — a delayed "gain 2 memory" (resolves at the next start of the owner's turn)
+- **GainMemoryActivatedEffect** — An activated "gain/lose memory" skill (Option [Main] / [Security], e.g
+- **SetMemoryTo3TamerEffect** — "[Start of Your Turn] If you have 2 or less memory, set your memory to 3." (Tamer memory-setter)
+
+### 트리거 (3)
+
+- **RecoveryTriggerEffect** — A triggered "[When ...] &lt;Recovery + (Deck)&gt;" effect (e.g
+- **SelfDpBuffTriggerEffect** — A triggered "[When ...] this Digimon gets + DP for " effect (e.g
+- **UnsuspendSelfTriggerEffect** — A triggered "[When ...] unsuspend this Digimon" effect (e.g
+
+### 링크 (4)
+
+- **ChangeLinkMaxStaticEffect** — continuous ±link-maximum on the owner's Digimon (player-scope LinkedMaxDelta modifier, queryable)
+- **ChangeSelfLinkMaxStaticEffect** — continuous ±link-maximum on self
+- **GrantedReduceLinkCostClass** — continuous link-cost reduction
+- **LinkEffect** — the &lt;Link&gt; activation: attach this card to a chosen own Digimon, paying the link cost (read from the car
+
+### 시큐리티 (16)
+
+- **ChangeSAttackStaticEffect** — continuous ±security attack on the owner's Digimon (player-scope SA modifier consulted by ContinuousModifierGa
+- **ChangeSecurityDigimonCardDPStaticEffect** — continuous ±DP on the owner's Security-zone Digimon, optionally conditional (e.g
+- **ChangeSelfSAttackStaticEffect** — continuous ±security attack on self with a dynamic (read-time) value.
+- **ChangeSelfSAttackStaticEffect** — continuous ±security attack on self.
+- **InvertSAttackStaticEffect** — continuous invert-security-attack on self (consumed by ContinuousModifierGate.ResolveSecurityAttack).
+- **OpponentScopeBuffSAttackEffect** — An activated "all of your opponent's Digimon get + Security Attack for " player-scope effect, scoped to (e.g
+- **PlaceSelfDelayOptionSecurityEffect** — "[Security] place this card in the battle area" (a Delay Option triggered from security)
+- **PlaySelfDigimonAfterBattleSecurityEffect** — "[Security] play this Digimon" (from security to the battle area)
+- **PlaySelfTamerSecurityEffect** — a Tamer's [Security] "play this Tamer"
+- **PlayerScopeBuffDpEffect** — An activated "all your Digimon get + DP for " player-scope effect (e.g
+- **PlayerScopeBuffSAttackEffect** — An activated "all your Digimon gain + Security Attack for " player-scope effect (e.g
+- **PlayerScopeBuffSecurityDpEffect** — An activated "all your Security Digimon get + DP for " player-scope effect, scoped to the owner's Security-zon
+- **ReplaceBottomSecurityWithFaceUpOptionEffect** — Option [Main]: add the bottom security card to hand, then place this card face up as the bottom security card.
+- **ReplaceBottomSecurityWithFaceUpOptionMainEffect** — Main-phase variant of .
+- **ReplaceTopSecurityWithFaceUpOptionMainEffect** — Option [Main]: add the TOP security card to hand, then place this card face up as the top security card.
+- **SelectAndBuffSAttackEffect** — An activated "select up to Digimon and give each + Security Attack for " effect (e.g
+
+### 기타/특수 (10)
+
+- **ChangePlayCostStaticEffect** — continuous ±play cost with a dynamic (read-time) value.
+- **ChangePlayCostStaticEffect** — continuous ±play cost
+- **MandatorySelfPlayCostReduction** — dynamic-magnitude self play-cost reduction.
+- **MandatorySelfPlayCostReduction** — reduce THIS card's play cost by (a positive magnitude; the original does cost -= _changeValue())
+- **PierceSelfEffect** — grants Piercing to self.
+- **RevealLibraryClass** — reveals the top cards of the owner's deck
+- **SelectAndBounceEffect** — An activated "select up to Digimon and return each to its owner's hand" effect (Option [Main] bounce, e.g
+- **SelectAndBuffDpEffect** — An activated "select up to matching Digimon and give each + DP for " effect (e.g
+- **SelectAndDestroyEffect** — An activated "select up to matching permanents and delete them" effect (Option [Main] delete skill, e.g
+- **SelectAndRestrictEffect** — An activated "select up to Digimon and make each unable to attack and/or block for " effect (e.g
+
+
+## 알파벳 마스터 (이름 → 시그니처)
+
+| 팩토리 | 반환 | 시그니처 |
+|---|---|---|
+| `AddDigivolutionRequirementStaticEffect` | ICardEffect | `ICardEffect AddDigivolutionRequirementStaticEffect(string fromColor, int fromLevel, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `AddMemoryTriggerEffect` | ICardEffect | `ICardEffect AddMemoryTriggerEffect( EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description, Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null)` |
+| `AllianceSelfEffect` | ICardEffect | `ICardEffect AllianceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `AllianceStaticEffect` | ICardEffect | `ICardEffect AllianceStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ArmorPurgeEffect` | ICardEffect | `ICardEffect ArmorPurgeEffect(CardSource card)` |
+| `AscensionSelfEffect` | ICardEffect | `ICardEffect AscensionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `BarrierSelfEffect` | ICardEffect | `ICardEffect BarrierSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `BlitzSelfEffect` | ICardEffect | `ICardEffect BlitzSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `BlockerSelfStaticEffect` | ICardEffect | `ICardEffect BlockerSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `BlockerStaticEffect` | ICardEffect | `ICardEffect BlockerStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `CanNotAttackSelfStaticEffect` | ICardEffect | `ICardEffect CanNotAttackSelfStaticEffect(Func<Permanent, bool>? defenderCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CanNotAttackStaticEffect` | ICardEffect | `ICardEffect CanNotAttackStaticEffect(HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CanNotBeAttackedSelfStaticEffect` | ICardEffect | `ICardEffect CanNotBeAttackedSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CanNotBeBlockedStaticSelfEffect` | ICardEffect | `ICardEffect CanNotBeBlockedStaticSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CanNotBeDestroyedByBattleStaticEffect` | ICardEffect | `ICardEffect CanNotBeDestroyedByBattleStaticEffect(Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition, Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null, bool isLinkedEffect = false)` |
+| `CanNotBeDestroyedBySkillStaticEffect` | ICardEffect | `ICardEffect CanNotBeDestroyedBySkillStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CanNotBeDestroyedStaticEffect` | ICardEffect | `ICardEffect CanNotBeDestroyedStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CanNotBeTrashedBySkillStaticEffect` | ICardEffect | `ICardEffect CanNotBeTrashedBySkillStaticEffect(Func<Permanent, bool>? permanentCondition, Func<ICardEffect, bool>? cardEffectCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CanNotBlockStaticEffect` | ICardEffect | `ICardEffect CanNotBlockStaticEffect(HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CanNotBlockStaticSelfEffect` | ICardEffect | `ICardEffect CanNotBlockStaticSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CanNotDigivolveStaticEffect` | ICardEffect | `ICardEffect CanNotDigivolveStaticEffect(HeadlessPlayerId scopePlayerId, string? scopeCardType, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CanNotDigivolveStaticSelfEffect` | ICardEffect | `ICardEffect CanNotDigivolveStaticSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CannotReturnToDeckStaticEffect` | ICardEffect | `ICardEffect CannotReturnToDeckStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CannotReturnToHandStaticEffect` | ICardEffect | `ICardEffect CannotReturnToHandStaticEffect(Func<Permanent, bool>? permanentCondition, Func<ICardEffect, bool>? cardEffectCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CantSuspendStaticEffect` | ICardEffect | `ICardEffect CantSuspendStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `CantUnsuspendStaticEffect` | ICardEffect | `ICardEffect CantUnsuspendStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeBaseDPGlobalEffect` | ICardEffect | `ICardEffect ChangeBaseDPGlobalEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeDPStaticEffect` | ICardEffect | `ICardEffect ChangeDPStaticEffect( Func<Permanent, bool> permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<string>? effectName = null)` |
+| `ChangeDigivolutionCostStaticEffect` | ICardEffect | `ICardEffect ChangeDigivolutionCostStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeDigivolutionCostStaticEffect` | ICardEffect | `ICardEffect ChangeDigivolutionCostStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeLinkMaxStaticEffect` | ICardEffect | `ICardEffect ChangeLinkMaxStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangePlayCostStaticEffect` | ICardEffect | `ICardEffect ChangePlayCostStaticEffect( Func<int> changeValue, Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool setFixedCost)` |
+| `ChangePlayCostStaticEffect` | ICardEffect | `ICardEffect ChangePlayCostStaticEffect( int changeValue, Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool setFixedCost)` |
+| `ChangeSAttackStaticEffect` | ICardEffect | `ICardEffect ChangeSAttackStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeSecurityDigimonCardDPStaticEffect` | ICardEffect | `ICardEffect ChangeSecurityDigimonCardDPStaticEffect( Func<CardSource, bool> cardCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
+| `ChangeSelfDPStaticEffect` | ICardEffect | `ICardEffect ChangeSelfDPStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeSelfLinkMaxStaticEffect` | ICardEffect | `ICardEffect ChangeSelfLinkMaxStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeSelfSAttackStaticEffect` | ICardEffect | `ICardEffect ChangeSelfSAttackStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeSelfSAttackStaticEffect` | ICardEffect | `ICardEffect ChangeSelfSAttackStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `CollisionSelfStaticEffect` | ICardEffect | `ICardEffect CollisionSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `CollisionStaticEffect` | ICardEffect | `ICardEffect CollisionStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `DecodeSelfEffect` | ICardEffect | `ICardEffect DecodeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `DecoySelfEffect` | ICardEffect | `ICardEffect DecoySelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<Permanent, bool>? permanentCondition = null, string? effectName = null, string? effectDescription = null)` |
+| `EoTLose3Memory` | ICardEffect | `ICardEffect EoTLose3Memory(CardSource card)` |
+| `EvadeSelfEffect` | ICardEffect | `ICardEffect EvadeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ExecuteSelfEffect` | ICardEffect | `ICardEffect ExecuteSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `FortitudeSelfEffect` | ICardEffect | `ICardEffect FortitudeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `FragmentSelfEffect` | ICardEffect | `ICardEffect FragmentSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, int trashValue = 0, string? effectName = null, string? effectDescription = null)` |
+| `Gain1MemoryTamerOpponentDigimonEffect` | ICardEffect | `ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card)` |
+| `Gain1MemoryTamerOwnerDigimonConditionalEffect` | ICardEffect | `ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool>? permanentCondition, Func<bool>? condition, CardSource card)` |
+| `Gain2MemoryOptionDelayEffect` | ICardEffect | `ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)` |
+| `GainMemoryActivatedEffect` | ICardEffect | `ICardEffect GainMemoryActivatedEffect(CardSource card, int amount, string description)` |
+| `GrantedReduceLinkCostClass` | ICardEffect | `ICardEffect GrantedReduceLinkCostClass(CardSource card, int reducedCost, bool isInheritedEffect = false, Func<bool>? condition = null)` |
+| `IcecladSelfStaticEffect` | ICardEffect | `ICardEffect IcecladSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ImmuneFromDPMinusStaticEffect` | ICardEffect | `ICardEffect ImmuneFromDPMinusStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ImmuneStackTrashingClass` | ICardEffect | `ICardEffect ImmuneStackTrashingClass(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `InvertSAttackStaticEffect` | ICardEffect | `ICardEffect InvertSAttackStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `JammingSelfStaticEffect` | ICardEffect | `ICardEffect JammingSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `JammingStaticEffect` | ICardEffect | `ICardEffect JammingStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `LinkEffect` | ICardEffect | `ICardEffect LinkEffect(CardSource card, Func<bool>? condition = null)` |
+| `MandatorySelfPlayCostReduction` | ICardEffect | `ICardEffect MandatorySelfPlayCostReduction( Func<int> changeValue, CardSource card, Func<bool>? condition = null)` |
+| `MandatorySelfPlayCostReduction` | ICardEffect | `ICardEffect MandatorySelfPlayCostReduction( int changeValue, CardSource card, Func<bool>? condition = null)` |
+| `MaterialSaveEffect` | IActivatedCardEffect | `IActivatedCardEffect MaterialSaveEffect(CardSource card, HeadlessEntityId destinationId, int count)` |
+| `MindLinkSelfEffect` | ICardEffect | `ICardEffect MindLinkSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `OpponentScopeBuffSAttackEffect` | ICardEffect | `ICardEffect OpponentScopeBuffSAttackEffect( CardSource card, int changeValue, EffectDuration duration, HeadlessPlayerId opponentId, string description)` |
+| `OverclockSelfEffect` | ICardEffect | `ICardEffect OverclockSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `PartitionSelfEffect` | ICardEffect | `ICardEffect PartitionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, object? cardSourceConditions = null)` |
+| `PierceSelfEffect` | ICardEffect | `ICardEffect PierceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `PlaceSelfDelayOptionSecurityEffect` | ICardEffect | `ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card)` |
+| `PlayMindLinkTamerFromDigivolutionCards` | IActivatedCardEffect | `IActivatedCardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription)` |
+| `PlaySelfDigimonAfterBattleSecurityEffect` | ICardEffect | `ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card)` |
+| `PlaySelfTamerSecurityEffect` | ICardEffect | `ICardEffect PlaySelfTamerSecurityEffect(CardSource card)` |
+| `PlayerScopeBuffDpEffect` | ICardEffect | `ICardEffect PlayerScopeBuffDpEffect( CardSource card, int changeValue, EffectDuration duration, string description)` |
+| `PlayerScopeBuffSAttackEffect` | ICardEffect | `ICardEffect PlayerScopeBuffSAttackEffect( CardSource card, int changeValue, EffectDuration duration, string description)` |
+| `PlayerScopeBuffSecurityDpEffect` | ICardEffect | `ICardEffect PlayerScopeBuffSecurityDpEffect( CardSource card, int changeValue, EffectDuration duration, string description)` |
+| `ProgressSelfStaticEffect` | ICardEffect | `ICardEffect ProgressSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `RaidSelfEffect` | ICardEffect | `ICardEffect RaidSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null, bool isLinkedEffect = false)` |
+| `RebootSelfStaticEffect` | ICardEffect | `ICardEffect RebootSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `RebootStaticEffect` | ICardEffect | `ICardEffect RebootStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `RecoveryTriggerEffect` | ICardEffect | `ICardEffect RecoveryTriggerEffect(EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description)` |
+| `ReplaceBottomSecurityWithFaceUpOptionEffect` | IActivatedCardEffect | `IActivatedCardEffect ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card)` |
+| `ReplaceBottomSecurityWithFaceUpOptionMainEffect` | IActivatedCardEffect | `IActivatedCardEffect ReplaceBottomSecurityWithFaceUpOptionMainEffect(CardSource card)` |
+| `ReplaceTopSecurityWithFaceUpOptionMainEffect` | IActivatedCardEffect | `IActivatedCardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card)` |
+| `RetaliationSelfEffect` | ICardEffect | `ICardEffect RetaliationSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `ReturnToLibraryBottomDigivolutionCardsClass` | IActivatedCardEffect | `IActivatedCardEffect ReturnToLibraryBottomDigivolutionCardsClass(CardSource card, int count)` |
+| `RevealLibraryClass` | IActivatedCardEffect | `IActivatedCardEffect RevealLibraryClass(CardSource card, int revealCount)` |
+| `RushSelfStaticEffect` | ICardEffect | `ICardEffect RushSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `RushStaticEffect` | ICardEffect | `ICardEffect RushStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `SaveEffect` | ICardEffect | `ICardEffect SaveEffect(CardSource card)` |
+| `ScapegoatSelfEffect` | ICardEffect | `ICardEffect ScapegoatSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null, string? effectDescription = null, bool isLinkedEffect = false)` |
+| `SelectAndBounceEffect` | ICardEffect | `ICardEffect SelectAndBounceEffect( CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description)` |
+| `SelectAndBuffDpEffect` | ICardEffect | `ICardEffect SelectAndBuffDpEffect( CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description)` |
+| `SelectAndBuffSAttackEffect` | ICardEffect | `ICardEffect SelectAndBuffSAttackEffect( CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description)` |
+| `SelectAndDestroyEffect` | ICardEffect | `ICardEffect SelectAndDestroyEffect( CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description)` |
+| `SelectAndRestrictEffect` | ICardEffect | `ICardEffect SelectAndRestrictEffect( CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, EffectDuration duration, bool cannotAttack, bool cannotBlock, string description)` |
+| `SelectAndTrashDigivolutionEffect` | ICardEffect | `ICardEffect SelectAndTrashDigivolutionEffect( CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description)` |
+| `SelfDpBuffTriggerEffect` | ICardEffect | `ICardEffect SelfDpBuffTriggerEffect( EffectTiming timing, int changeValue, EffectDuration duration, CardSource card, Func<bool>? condition, string description, Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null)` |
+| `SetMemoryTo3TamerEffect` | ICardEffect | `ICardEffect SetMemoryTo3TamerEffect(CardSource card)` |
+| `TrainingEffect` | IActivatedCardEffect | `IActivatedCardEffect TrainingEffect(CardSource card)` |
+| `TreatAsDigimonStaticEffect` | ICardEffect | `ICardEffect TreatAsDigimonStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `UnsuspendSelfTriggerEffect` | ICardEffect | `ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description, int? maxCountPerTurn = null, string? hash = null)` |
+| `UseRequirements` | ICardEffect | `ICardEffect UseRequirements(CardSource card, Func<CardSource, bool>? cardCondition = null, bool isInheritedEffect = false, Func<bool>? condition = null)` |
+| `VortexCanAttackPlayersStaticEffect` | ICardEffect | `ICardEffect VortexCanAttackPlayersStaticEffect(Func<Permanent, bool>? attackerCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `VortexSelfEffect` | ICardEffect | `ICardEffect VortexSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null)` |
