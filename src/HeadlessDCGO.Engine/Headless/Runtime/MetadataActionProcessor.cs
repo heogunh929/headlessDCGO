@@ -603,11 +603,14 @@ public sealed class MetadataActionProcessor : IActionProcessor
             // originating action, so the cost is not paid again. A further choice re-suspends it.
             if (context.DeferredActivations.Pending is { } pendingActivation)
             {
+                bool beforePayCost = pendingActivation.Timing == Assets.Scripts.Script.CardEffectCommons.EffectTiming.BeforePayCost;
                 try
                 {
                     await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.ResolveAsync(
                         context, pendingActivation.CardId, pendingActivation.PlayerId, pendingActivation.Timing, cancellationToken)
                         .ConfigureAwait(false);
+                    // Clear BEFORE the brick-2b continuation: finishing the play may itself open a deferred
+                    // [All Turns] reactivation, which re-suspends a FRESH activation we must not clobber.
                     context.DeferredActivations.Clear();
                 }
                 catch (DeferredChoicePendingException resumeEx)
@@ -616,6 +619,17 @@ public sealed class MetadataActionProcessor : IActionProcessor
                     resumePending["pendingChoice"] = true;
                     resumePending["pendingChoiceMessage"] = resumeEx.Message;
                     return ActionProcessResult.Success("Choice resolved; activation awaiting further choice.", resumePending);
+                }
+
+                // (brick 2b) A suspended PLAY committed nothing before its BeforePayCost choice — now that the
+                // pre-payment reduction has resolved, FINISH the play (pay the reduced cost + move + register +
+                // [All Turns] reactivation). Every other timing already committed its originating action before
+                // suspending, so re-resolving the effect alone is enough for those.
+                if (beforePayCost)
+                {
+                    return await PlayCardAction.CompleteDeferredPlayAsync(
+                        context, pendingActivation.CardId, pendingActivation.PlayerId, cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
                 return ActionProcessResult.Success("Choice resolved; activation resumed.", MetadataWithChoice(action, choice));

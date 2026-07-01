@@ -83,15 +83,14 @@
   - ✅ **brick 2 (코어 수술, G9-006)**: PlayCardAction.ProcessAsync가 지불 전 `ActivatedEffectResolver
     .ResolveAsync(BeforePayCost)` → `TryGetPlayCost` 재계산 → reduced 지불. BeforePayCost 효과 없는 카드엔
     no-op(정상 경로 무변). `TfxBeforePayCost` 픽스처로 실 플레이 E2E(2 suspend+8→6 reduced / 게이트닫힘 8→2 full),
-    **238/238 green**(최다-사용 액션 회귀 0). 동기 resolver 한정 — 인터랙티브 deferred resume(`DeferredChoicePendingException`)는
-    안전 가드(상태 무변 Illegal 반환)로 막아둔 **brick 2b**.
+    **238/238 green**(최다-사용 액션 회귀 0). 동기 resolver 한정이었으나 인터랙티브 deferred resume은 **brick 2b로 해소**(아래).
   - ✅ **brick 3 (availability + 커플링, G9-007)**: PlayCardAction.Validate가 `BeforePayCostAvailabilityReduction`
     (카드의 BeforePayCost 효과에서 `SuspendCostReductionEffect.CostReduction` 합산)만큼 깎인 cost로 affordability
     판정 → full은 못 내도 reduced로 낼 수 있으면 legal play로 노출(원본 `[None] isCheckAvailability` ChangeCostClass
     등가). **#1↔#2 커플링**: `SuspendCostReductionEffect`가 BuildRequest마다 owner affordability로 canNoSelect를
     동적 산출 → full 못 내면 suspend 강제(CanSkip=false), 낼 수 있으면 optional. 239/239 green(모든 play
     legal-action 생성 영향에도 회귀 0).
-  - ⏭ **brick 2b**: 인터랙티브 deferred resume(self-play엔 불필요).
+  - ✅ **brick 2b (G9-013, LA-4 패턴)**: 인터랙티브 deferred resume. PlayCardAction의 BeforePayCost catch가 `DeferredActivations.Suspend(BeforePayCost)`+pending(패 유지·무지불) → resume seam이 활성효과 재해소 후 `CompleteDeferredPlayAsync`로 감소코스트 지불+이동까지 완결. 지불-후 tail을 `CompletePlayAsync`로 추출해 동기 경로와 공유. 246 green, RuleAudit 0.
   - **요약**: EX8_074 핵심 난제(BeforePayCost 코스트 감소 + 단일-코스트 모델에서의 availability/payment 분리)가
     엔진에 충실 모델링 완료. 재사용 프리미티브: `SuspendCostReductionEffect`, `EffectTiming.BeforePayCost`,
     BeforePayCost 윈도우, availability 감소.

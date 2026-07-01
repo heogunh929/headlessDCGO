@@ -20,6 +20,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("[When Digivolving] suspends under DeferredChoiceProvider, two ResolveChoice rounds resume it (no re-digivolve)", WhenDigivolveDeferredResume),
     ("[All Turns] reactivation suspends on a play, two ResolveChoice rounds resume it (no re-play)", AllTurnsDeferredResume),
+    ("(brick 2b) BeforePayCost play suspends pre-payment; ResolveChoice resumes and finishes the play at the reduced cost", BeforePayCostDeferredPlay),
 };
 
 var failures = new List<string>();
@@ -132,7 +133,58 @@ async Task AllTurnsDeferredResume()
     AssertTrue(InZone(context, P2, ChoiceZone.Trash, foe), "[All Turns] re-activation deleted the chosen opponent");
 }
 
+// brick 2b: playing EX8_074 with a DeferredChoiceProvider suspends at the BeforePayCost "suspend 2 Digimon
+// to reduce cost by 4" choice — the card is still in hand, nothing paid. ResolveChoice (through the processor)
+// replays the 2-Digimon selection and FINISHES the play: cost 11 -> 7 paid, EX8_074 enters the battle area.
+// At 0 memory only the reduced cost is affordable, so the play exists only because the reduction resolved.
+async Task BeforePayCostDeferredPlay()
+{
+    EngineContext context = Context();
+    context.MemoryController.Set(0);
+    var processor = new MetadataActionProcessor();
+
+    var ex8 = await PlaceDigimonInHand(context, P1, "EX8_074", playCost: 11);
+    var s1 = await Place(context, P1, "S1", "S1", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    var s2 = await Place(context, P1, "S2", "S2", ChoiceZone.BattleArea, dp: 3000, level: 4);
+
+    // 1) Play EX8_074. Its BeforePayCost suspend-2 choice surfaces and suspends — nothing paid/moved yet.
+    ActionProcessResult play = await processor.ProcessAsync(
+        HeadlessActionFactory.PlayCard(P1, ex8, memoryCost: 11), context);
+
+    AssertTrue(play.IsSuccess, $"play action returned success ({play.Message})");
+    AssertTrue(context.ChoiceController.Current.IsPending, "BeforePayCost suspend choice surfaced to the agent");
+    AssertTrue(context.DeferredActivations.HasPending, "the play suspended (DeferredActivations holds it)");
+    AssertEqual(EffectTiming.BeforePayCost, context.DeferredActivations.Pending!.Timing, "suspended at the BeforePayCost timing");
+    AssertTrue(InZone(context, P1, ChoiceZone.Hand, ex8), "commit-once: EX8_074 is STILL in hand (not yet paid/moved)");
+    AssertEqual(0, context.MemoryController.Current.Current, "no cost paid yet (memory still 0)");
+
+    // 2) ResolveChoice selecting the 2 Digimon -> reduction resolves, play FINISHES at reduced cost (11-4=7).
+    ActionProcessResult resume = await processor.ProcessAsync(
+        HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(s1, s2)), context);
+
+    AssertTrue(resume.IsSuccess, $"ResolveChoice succeeded ({resume.Message})");
+    AssertTrue(!context.DeferredActivations.HasPending, "activation cleared after the play finishes");
+    AssertTrue(IsSuspended(context, s1) && IsSuspended(context, s2), "the 2 chosen Digimon were suspended to pay the reduction");
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, ex8), "EX8_074 entered the battle area (play completed)");
+    AssertTrue(!InZone(context, P1, ChoiceZone.Hand, ex8), "EX8_074 left the hand");
+    AssertEqual(-7, context.MemoryController.Current.Current, "reduced cost 7 paid once: 0 -> -7 (no re-pay)");
+}
+
 // --- Helpers -------------------------------------------------------------
+
+// A Digimon (dispatch-discoverable by card number) placed in hand with a play cost.
+async Task<HeadlessEntityId> PlaceDigimonInHand(EngineContext context, HeadlessPlayerId owner, string cardNumber, int playCost)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId(cardNumber);
+    cards.Upsert(new CardRecord(defId, cardNumber, cardNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 11000, ["level"] = 6 },
+        CardType: "Digimon", PlayCost: playCost));
+    var id = new HeadlessEntityId($"{owner.Value}:hand:{cardNumber}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.Hand));
+    return id;
+}
 
 EngineContext Context()
 {

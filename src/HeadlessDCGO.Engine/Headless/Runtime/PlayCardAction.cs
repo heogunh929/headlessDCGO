@@ -48,7 +48,6 @@ public sealed class PlayCardAction
             return ActionProcessResult.Illegal(action, validation.Reason, Metadata(action, payload, validation));
         }
 
-        HeadlessMemoryState previousMemory = context.MemoryController.Current;
         // F-6.7: wrap the play-cost payment with the Before/AfterPayCost windows (subject = the card).
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
 
@@ -70,17 +69,38 @@ public sealed class PlayCardAction
                 memoryCost = reResolvedCost;
             }
         }
-        catch (DeferredChoicePendingException)
+        catch (DeferredChoicePendingException ex)
         {
-            // The BeforePayCost effect asked an interactive provider to choose (which Digimon to suspend).
-            // The resolver does NOT flush a deferred sink and the cost is NOT yet paid, so engine state is
-            // unchanged — nothing is partially applied. Interactive deferred resume across the pre-payment
-            // boundary is brick 2b; under a synchronous/auto resolver (the self-play path) this is unreached.
-            return ActionProcessResult.Illegal(action,
-                "BeforePayCost interactive resolution is not yet supported (brick 2b); use a synchronous resolver.",
-                Metadata(action, payload, validation));
+            // (brick 2b) The BeforePayCost effect asked an interactive provider which Digimon to suspend. The
+            // resolver did NOT flush its sink and the cost is NOT yet paid — the card is still in hand, nothing
+            // is partially applied. Mirror the OptionActivate deferral: record the suspended PLAY so the next
+            // ResolveChoice replays the answer and FINISHES the play (pay reduced cost + move) via
+            // CompleteDeferredPlayAsync through the MetadataActionProcessor resume seam (no re-validate, no
+            // re-emit of BeforePayCost — commit-once across the pre-payment boundary).
+            context.DeferredActivations.Suspend(payload.CardId, EffectTiming.BeforePayCost, action.PlayerId);
+            Dictionary<string, object?> pending = Metadata(action, payload, validation);
+            pending["pendingChoice"] = true;
+            pending["pendingChoiceMessage"] = ex.Message;
+            return ActionProcessResult.Success("Card play awaiting BeforePayCost choice.", pending);
         }
 
+        return await CompletePlayAsync(context, action, payload, validation, memoryCost, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The play tail shared by the synchronous path and the brick-2b deferred resume: pay the
+    /// (already-reduced) <paramref name="memoryCost"/>, move the card to the battle area, register its
+    /// effects, and run the [All Turns] reactivation window. The BeforePayCost window has already been
+    /// resolved by the caller (its reduction is folded into <paramref name="memoryCost"/>).</summary>
+    private static async Task<ActionProcessResult> CompletePlayAsync(
+        EngineContext context,
+        LegalAction action,
+        PlayCardActionPayload payload,
+        PlayCardValidation validation,
+        int memoryCost,
+        CancellationToken cancellationToken)
+    {
+        HeadlessMemoryState previousMemory = context.MemoryController.Current;
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         // F-1.7: the fixed cost for this play is now locked in — expire one-shot "until cost is calculated"
@@ -124,6 +144,29 @@ public sealed class PlayCardAction
         }
 
         return ActionProcessResult.Success("Card played.", metadata);
+    }
+
+    /// <summary>(brick 2b) Resume a play that suspended at its BeforePayCost choice. The MetadataActionProcessor
+    /// resume seam has just re-resolved the suspended activation (replaying the agent's answer), so the cost
+    /// reduction is now registered; finish the play at the reduced cost. The card is still in hand
+    /// (commit-once) — this is the first and only time it is paid and moved.</summary>
+    public static async Task<ActionProcessResult> CompleteDeferredPlayAsync(
+        EngineContext context,
+        HeadlessEntityId cardId,
+        HeadlessPlayerId playerId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (!TryGetPlayCost(context, cardId, out int reducedCost, out string? error))
+        {
+            return ActionProcessResult.Failure(error ?? "Card play cost was not found.", new Dictionary<string, object?>());
+        }
+
+        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance);
+        PlayCardActionPayload payload = new(cardId, reducedCost, ChoiceZone.Hand, ChoiceZone.BattleArea);
+        LegalAction action = HeadlessActionFactory.PlayCard(playerId, cardId, reducedCost);
+        PlayCardValidation validation = PlayCardValidation.Legal(instance?.DefinitionId ?? cardId);
+        return await CompletePlayAsync(context, action, payload, validation, reducedCost, cancellationToken).ConfigureAwait(false);
     }
 
     private LegalAction? CreateLegalActionIfPlayable(

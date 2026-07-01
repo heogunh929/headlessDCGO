@@ -117,11 +117,13 @@
 
 ---
 
-## EX8-4 (선택) — brick 2b: BeforePayCost 인터랙티브 deferred resume
+## ✅ EX8-4 — brick 2b: BeforePayCost 인터랙티브 deferred resume — 완료
 
-**현재:** 동기 resolver(self-play)는 brick 2로 완전 지원. 인터랙티브 `DeferredChoiceProvider`는 `DeferredChoicePendingException` 시 안전 가드(상태-무변 Illegal)로 막아둠.
+**구현(LA-4 패턴 확장):** `PlayCardAction`의 BeforePayCost catch가 더 이상 Illegal을 반환하지 않고 `DeferredActivations.Suspend(card, BeforePayCost, player)` + pending 반환(카드 패에 그대로, 무지불). 지불-후 tail(지불·이동·등록·[All Turns] 재활성화)을 `CompletePlayAsync`로 추출해 동기 경로와 공유. resume seam(`MetadataActionProcessor.ResolveChoiceAsync`)이 suspended 활성효과 재해소 후, `Timing==BeforePayCost`면 `PlayCardAction.CompleteDeferredPlayAsync`로 **감소코스트 재계산+지불+이동**까지 이어 완결(commit-once, 재검증·재emit 없음). `DeferredActivations.Clear()`를 continuation 전에 호출해 tail의 [All Turns] 재활성화가 fresh suspend를 덮어쓰지 않게 함.
+**검증(`tests/G9-013`):** brick 2b 케이스 — 0메모리에서 EX8_074 플레이 → BeforePayCost suspend(패 유지, 무지불) → ResolveChoice(2체 선택) → 감소코스트 7 지불(0→−7) + 배틀존 등장. 전체 **246 green, RuleAudit 0**(동기 경로 무회귀).
 
-**구현 방향(필요 시):** `OptionActivateAction`의 deferred resume 패턴(`DeferredActivations.Suspend` + 재-ResolveChoice가 답 replay)을 **지불-전 경계**로 확장 — play를 pending으로 두고, 서스펜드 선택 해소 후 코스트 재계산+지불+이동을 완료. self-play 대량 포팅엔 불필요하므로 **낮은 우선순위**.
+### (원안 스펙)
+**구현 방향(필요 시):** `OptionActivateAction`의 deferred resume 패턴(`DeferredActivations.Suspend` + 재-ResolveChoice가 답 replay)을 **지불-전 경계**로 확장 — play를 pending으로 두고, 서스펜드 선택 해소 후 코스트 재계산+지불+이동을 완료.
 
 ---
 
