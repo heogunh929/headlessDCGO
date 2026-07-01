@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -24,6 +25,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Execute: without the flag the attacker survives its attack", NoSelfDeleteSurvives),
     ("Execute: canAttackUnsuspendedDigimon lets it declare an attack on an unsuspended Digimon", ExecuteCanAttackUnsuspended),
     ("Collision: GrantCollision forces the opponent to block with any Digimon", CollisionForcesBlock),
+    ("S4: Collision granted via the KEYWORD (no metadata) forces block — un-sealed", CollisionViaKeywordUnsealed),
+    ("S5: Execute granted via the KEYWORD self-deletes after its attack — un-sealed", ExecuteViaKeywordSelfDeletes),
 };
 
 var failures = new List<string>();
@@ -113,6 +116,43 @@ async Task CollisionForcesBlock()
     AssertTrue(result.IsSuccess, "block timing opened");
     AssertTrue(result.Candidates.Any(c => c.BlockerId == blocker), "collision makes a plain Digimon a forced blocker");
     AssertFalse(match.Context.ChoiceController.Current.CanSkip, "collision block cannot be skipped");
+}
+
+async Task ExecuteViaKeywordSelfDeletes()
+{
+    DcgoMatch match = await NewMatch();
+    used.Clear();
+    HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
+    HeadlessEntityId defender = await Establish(match, P2, dp: 3000, suspended: true, flag: null);
+    // Grant Execute via the KEYWORD (ExecuteSelfEffect), NOT the deleteSelfAtEndOfAttack metadata flag.
+    match.Context.EffectRegistry.Register(
+        CardEffectFactory.ExecuteSelfEffect(false, new CardSource(match.Context, attacker, P1), null).ToBinding($"exec:{attacker.Value}"));
+
+    match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
+    await DriveAttackAsync(match);
+
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "keyword Execute attacker self-deleted at end of attack (un-sealed)");
+    AssertFalse(InZone(match, P1, ChoiceZone.BattleArea, attacker), "attacker left the battle area");
+}
+
+async Task CollisionViaKeywordUnsealed()
+{
+    DcgoMatch match = await NewMatch();
+    used.Clear();   // fresh match → reset the shared hand-index counter
+    HeadlessEntityId attacker = await Establish(match, P1, dp: 6000, suspended: false, flag: null);
+    HeadlessEntityId blocker = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
+
+    // Grant Collision via the KEYWORD (CollisionStaticEffect → player-scope Collision keyword), NOT the mutation.
+    match.Context.EffectRegistry.Register(
+        CardEffectFactory.CollisionStaticEffect(null, false, new CardSource(match.Context, attacker, P1), null).ToBinding($"col:{attacker.Value}"));
+    AssertFalse(ReadFlag(match, attacker, BlockTiming.HasCollisionKey), "hasCollision metadata is NOT set (keyword-granted)");
+
+    match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
+    BlockTimingResult result = new BlockTiming().RequestBlockChoice(match.Context);
+
+    AssertTrue(result.IsSuccess, "block timing opened");
+    AssertTrue(result.Candidates.Any(c => c.BlockerId == blocker), "keyword Collision forces a plain Digimon to be a blocker (un-sealed)");
+    AssertFalse(match.Context.ChoiceController.Current.CanSkip, "keyword Collision block cannot be skipped");
 }
 
 // --- Harness -------------------------------------------------------------

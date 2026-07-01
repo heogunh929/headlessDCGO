@@ -18,6 +18,11 @@ public static class ContinuousImmunityGate
     public const string Scope = "ContinuousImmunity";
     public const string ImmunityFromOpponentOnlyKey = "immunityFromOpponentOnly";
 
+    // (S2) AS-IS CanNotAffectedClass.SkillCondition — an arbitrary predicate over the CAUSING effect (headless:
+    // its source card) deciding WHICH effects this card is immune to (e.g. "opponent's Digimon effects only").
+    // Value: Func<CardSource,bool> over the causing effect's source. Evaluated when an EngineContext is available.
+    public const string SkillPredicateKey = "immunitySkillPredicate";
+
     /// <summary>True when an opponent-sourced effect mutation on <paramref name="targetId"/> is prevented by
     /// an active opponent-only immunity. Works from the registry + repository alone (the sink has no
     /// EngineContext). Returns false when the source is the target's own controller (own/ally effect), when
@@ -26,7 +31,8 @@ public static class ContinuousImmunityGate
         IEffectQueryService? registry,
         ICardInstanceRepository repository,
         HeadlessEntityId targetId,
-        HeadlessEntityId sourceEntityId)
+        HeadlessEntityId sourceEntityId,
+        Bridge.EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         if (registry is null || targetId.IsEmpty || sourceEntityId.IsEmpty)
@@ -40,15 +46,28 @@ public static class ContinuousImmunityGate
             return false;
         }
 
-        // Source-relativity: an own/ally effect (source owned by the target's controller) is never blocked.
-        if (source.OwnerId == target.OwnerId)
-        {
-            return false;
-        }
-
         foreach (EffectRequest request in registry.GetContinuousEffects(new EffectQueryContext(Scope, targetEntityId: targetId)))
         {
-            if (request.Context.Values.TryGetValue(ImmunityFromOpponentOnlyKey, out object? raw) && raw is bool flag && flag)
+            IReadOnlyDictionary<string, object?> values = request.Context.Values;
+
+            // (S2) AS-IS SkillCondition: this card is immune to the causing effect iff the predicate matches it
+            // (evaluated over the causing effect's source card). The predicate itself encodes the "opponent /
+            // Digimon-effect / ..." condition (1:1 with the original), so NO blanket opponent hardcoding here.
+            if (values.TryGetValue(SkillPredicateKey, out object? skillRaw)
+                && skillRaw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> skill)
+            {
+                if (context is not null
+                    && skill(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, sourceEntityId, source.OwnerId, source.OwnerId)))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            // Opponent-only immunity (ProgressImmunity): blocks only an effect sourced by the opponent.
+            if (values.TryGetValue(ImmunityFromOpponentOnlyKey, out object? raw) && raw is bool flag && flag
+                && source.OwnerId != target.OwnerId)
             {
                 return true;
             }

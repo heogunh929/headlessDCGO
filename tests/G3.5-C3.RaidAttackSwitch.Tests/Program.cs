@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -21,6 +22,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Raid switches off the current defender to a higher-DP Digimon", RaidExcludesCurrentDefender),
     ("Declining the Raid choice leaves the attack unchanged", RaidDeclineKeepsAttack),
     ("AttackPipeline opens the Raid switch choice before block timing", PipelineOpensRaidSwitch),
+    ("S1: Raid granted via the KEYWORD (metadata never set) opens the switch — un-sealed", RaidViaKeywordUnsealed),
 };
 
 var failures = new List<string>();
@@ -39,6 +41,21 @@ if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) f
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
+
+async Task RaidViaKeywordUnsealed()
+{
+    Setup s = await NewMatch();
+    // raid: false → the hasRaid METADATA flag is NOT set (production never sets it for keyword-granted Raid).
+    HeadlessEntityId attacker = await Establish(s, P1, dp: 4000, suspended: false, raid: false);
+    HeadlessEntityId high = await Establish(s, P2, dp: 8000, suspended: false, raid: false);
+    // Grant Raid the way real cards do — the continuous KEYWORD (RaidSelfEffect → SelfKeywordByNameEffect).
+    s.Match.Context.EffectRegistry.Register(
+        CardEffectFactory.RaidSelfEffect(false, new CardSource(s.Match.Context, attacker, P1), null).ToBinding($"raid:{attacker.Value}"));
+
+    s.Match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
+    AssertTrue(RaidAttackSwitch.RequestChoice(s.Match.Context),
+        "Raid via keyword opens the switch choice (un-sealed; hasRaid metadata never set)");
+}
 
 async Task RaidSwitchesDirectAttack()
 {

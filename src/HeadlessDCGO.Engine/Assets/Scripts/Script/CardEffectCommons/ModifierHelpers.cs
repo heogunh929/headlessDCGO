@@ -13,6 +13,8 @@ public enum NumericModifierMetric
     PlayCost = 2,
     DigivolutionCost = 3,
     SecurityAttack = 4,
+    LinkedMax = 5,
+    LinkCost = 6,
 }
 
 public enum NumericModifierMode
@@ -430,6 +432,18 @@ public static class ModifierHelpers
         if (TryReadInt(values, DigivolutionCostDeltaKey, out int digivolutionCostDelta) && digivolutionCostDelta != 0)
         {
             yield return NumericModifier.Add(IdFor(effectId, DigivolutionCostDeltaKey), NumericModifierMetric.DigivolutionCost, digivolutionCostDelta);
+        }
+
+        // (M-4) link-subsystem deltas — ChangeLinkMax (linkedMax) / GrantedReduceLinkCost (linkCost). Previously
+        // registered but emitted as no modifier and read by nothing; now folded by LinkHelpers.
+        if (TryReadInt(values, LinkedMaxDeltaKey, out int linkedMaxDelta) && linkedMaxDelta != 0)
+        {
+            yield return NumericModifier.Add(IdFor(effectId, LinkedMaxDeltaKey), NumericModifierMetric.LinkedMax, linkedMaxDelta);
+        }
+
+        if (TryReadInt(values, LinkCostDeltaKey, out int linkCostDelta) && linkCostDelta != 0)
+        {
+            yield return NumericModifier.Add(IdFor(effectId, LinkCostDeltaKey), NumericModifierMetric.LinkCost, linkCostDelta);
         }
 
         if (TryReadInt(values, SecurityAttackDeltaKey, out int securityAttackDelta) && securityAttackDelta != 0)

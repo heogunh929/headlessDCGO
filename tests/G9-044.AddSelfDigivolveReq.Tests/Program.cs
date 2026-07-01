@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Added predicate (Level==5) makes an off-color target legal", AddedPredicateLegal),
     ("Without the added source, the off-color target is illegal (control)", NoEffectIllegal),
     ("A non-matching predicate (Level==6) stays illegal (control)", NonMatchingIllegal),
+    ("costEquation (dynamic cost) applies over the fixed cost", DynamicCost),
 };
 
 var failures = new List<string>();
@@ -39,8 +40,13 @@ async Task AddedPredicateLegal()
     var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@4", cost: 2);
     Register(ctx, evo, p => p.Level == 5);
 
-    var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), ctx);
-    AssertTrue(result.IsSuccess, $"legal via added predicate ({result.Message})");
+    // (FR2/M-3) the printed condition (Red@4) fails, so the ADDED requirement's own cost (digivolutionCost: 3)
+    // applies — NOT the printed cost of 2.
+    var atPrinted = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), ctx);
+    AssertTrue(!atPrinted.IsSuccess, "printed cost (2) is rejected — the added path's cost applies");
+
+    var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
+    AssertTrue(result.IsSuccess, $"legal via added predicate at the added cost 3 ({result.Message})");
     AssertTrue(InZone(ctx, P1, evo), "evolving card became the new top");
 }
 
@@ -68,6 +74,24 @@ async Task NonMatchingIllegal()
 }
 
 // --- Helpers -------------------------------------------------------------
+
+async Task DynamicCost()
+{
+    EngineContext ctx = Ctx();
+    ctx.MemoryController.Set(9);
+    var target = await PlaceBase(ctx, "BLUE5", color: "Blue", level: 5);
+    var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@4", cost: 2);
+    // Added path with a DYNAMIC cost (costEquation) that overrides the fixed digivolutionCost: 3.
+    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+        permanentCondition: p => p.Level == 5, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
+        card: new CardSource(ctx, evo, P1), condition: null, costEquation: () => 6).ToBinding($"asd:{evo.Value}"));
+
+    var atFixed = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
+    AssertTrue(!atFixed.IsSuccess, "fixed cost (3) is rejected — costEquation() overrides it");
+
+    var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 6), ctx);
+    AssertTrue(result.IsSuccess, $"legal at the dynamic cost 6 ({result.Message})");
+}
 
 void Register(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate) =>
     ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(

@@ -34,15 +34,23 @@ public static class BattleDeletionGate
             return false;
         }
 
-        // (FR-P3) Scan the effects that APPLY to this card — card-targeted AND player-scope (owner + arbitrary
-        // permanentCondition predicate, evaluated 1:1) — so "your <X> Digimon cannot be deleted" reaches the
-        // matching set, not just the source itself. A Delete/Prevent replacement is registered as the
-        // preventDeletion flag; battle-only immunity is preventBattleDeletion.
+        // (FR-P3) Evaluate over the effects that APPLY to this card — card-targeted AND player-scope (owner +
+        // arbitrary permanentCondition predicate, evaluated 1:1) — so "your <X> Digimon cannot be deleted"
+        // reaches the matching set, not just the source itself. The full result parses EVERY Delete/Prevent
+        // replacement source (not just one flag), matching the pre-FR reading.
+        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, cardId);
+        foreach (ReplacementEffect replacement in result.Replacements)
+        {
+            if (replacement.EventKind == ReplacementEventKind.Delete && replacement.ActionKind == ReplacementActionKind.Prevent)
+            {
+                return true;
+            }
+        }
+
+        // Battle-only immunity (does not prevent effect deletion) — a value flag, not a replacement.
         foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if ((values.TryGetValue(ReplacementHelpers.PreventDeletionKey, out object? del) && del is bool d && d)
-                || (values.TryGetValue(PreventBattleDeletionKey, out object? bat) && bat is bool b && b))
+            if (effect.Context.Values.TryGetValue(PreventBattleDeletionKey, out object? bat) && bat is bool b && b)
             {
                 return true;
             }

@@ -21,6 +21,12 @@ public static class PlayerScopeContinuousHelpers
     /// <summary>The player whose permanents the effect applies to.</summary>
     public const string ScopePlayerIdKey = "scopePlayerId";
 
+    /// <summary>(FR2/M-1) When true, the effect is NOT restricted to <see cref="ScopePlayerIdKey"/>'s permanents —
+    /// it applies to EITHER player's cards, with the per-card predicate (<see cref="ScopePredicateKey"/>) deciding
+    /// the actual set. Needed for cards whose cardCondition targets the OPPONENT's cards
+    /// (e.g. "your opponent's Security Digimon get -2000 DP"), which a single-owner scope cannot express.</summary>
+    public const string ScopeAnyPlayerKey = "scopeAnyPlayer";
+
     /// <summary>Optional condition: the card's <c>CardType</c> must equal this (case-insensitive).</summary>
     public const string ScopeCardTypeKey = "scopeCardType";
 
@@ -68,7 +74,10 @@ public static class PlayerScopeContinuousHelpers
                 continue;
             }
 
-            if (!TryReadPlayer(values, ScopePlayerIdKey, out HeadlessPlayerId scopePlayer) || scopePlayer != cardOwner)
+            // Owner-scoped effects apply only to ScopePlayerId's permanents; any-player effects apply to either
+            // player's (the per-card predicate then decides).
+            if (!ReadBool(values, ScopeAnyPlayerKey)
+                && (!TryReadPlayer(values, ScopePlayerIdKey, out HeadlessPlayerId scopePlayer) || scopePlayer != cardOwner))
             {
                 continue;
             }

@@ -182,6 +182,14 @@ public static class RaidAttackSwitch
             return true;
         }
 
+        // (S1) The Raid keyword is granted as a live continuous keyword (RaidSelfEffect → SelfKeywordByNameEffect);
+        // the hasRaid metadata flag is only set by the GrantRaid mutation, which the keyword grant never emits. Read
+        // the live keyword directly (AS-IS evaluates the keyword at attack time), else Raid is inert.
+        if (ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Raid))
+        {
+            return true;
+        }
+
         return context.CardRepository.TryGetCard(attacker.DefinitionId, out CardRecord? card) &&
             card is not null &&
             ReadFlag(card.Metadata, HasRaidKey);

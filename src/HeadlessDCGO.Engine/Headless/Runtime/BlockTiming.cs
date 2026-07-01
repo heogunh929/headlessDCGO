@@ -41,8 +41,12 @@ public sealed class BlockTiming
             return Array.Empty<BlockerCandidate>();
         }
 
+        // (S4) recognise the live Collision KEYWORD (CollisionSelfEffect → SelfKeywordByNameEffect) in addition
+        // to the hasCollision metadata flag (only set by the GrantCollision mutation) — else keyword-granted
+        // Collision is inert.
         bool attackerHasCollision = ReadBool(attacker.Metadata, HasCollisionKey) ||
-            ReadBool(attackerCard.Metadata, HasCollisionKey);
+            ReadBool(attackerCard.Metadata, HasCollisionKey) ||
+            ContinuousKeywordGate.HasKeyword(context, attack.AttackerId.Value, ContinuousKeywordGate.Collision);
 
         return zoneReader
             .GetCards(attack.DefendingPlayerId.Value, ChoiceZone.BattleArea)
@@ -268,7 +272,8 @@ public sealed class BlockTiming
             return true;
         }
 
-        return !(ReadBool(attacker.Metadata, HasCollisionKey) || ReadBool(attackerCard.Metadata, HasCollisionKey));
+        return !(ReadBool(attacker.Metadata, HasCollisionKey) || ReadBool(attackerCard.Metadata, HasCollisionKey)
+            || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Collision));
     }
 
     private static bool TryReadInstanceAndCard(

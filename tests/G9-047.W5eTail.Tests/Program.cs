@@ -41,13 +41,16 @@ async Task ChangeCardNames()
 
 async Task CanNotAffected()
 {
+    // (S2) un-sealed: the immunity is now enforced by ContinuousImmunityGate. With null skillCondition the
+    // fallback is opponent-only — an opponent-sourced effect is blocked, an own effect is not.
     EngineContext ctx = Ctx();
-    var id = await Place(ctx, P1, "SELF", "Self");
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(null, false, new CardSource(ctx, id, P1), null).ToBinding($"cna:{id.Value}"));
-    ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-        ctx.EffectRegistry, new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: id));
-    bool immune = result.Replacements.Any(r => r.EventKind == ReplacementEventKind.EffectMutation && r.ActionKind == ReplacementActionKind.Immune);
-    AssertTrue(immune, "ImmuneFromEffects (EffectMutation/Immune) replacement registered");
+    var id = await Place(ctx, P1, "SELF", "Digimon");
+    var opp = await Place(ctx, P2, "OPP", "Digimon");
+    var own = await Place(ctx, P1, "OWN", "Digimon");
+    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(null, null, false, new CardSource(ctx, id, P1), null).ToBinding($"cna:{id.Value}"));
+
+    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, id, opp, ctx), "opponent effect blocked (immunity live)");
+    AssertTrue(!ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, id, own, ctx), "own effect not blocked");
 }
 
 // --- Helpers -------------------------------------------------------------

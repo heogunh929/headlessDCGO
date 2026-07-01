@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
@@ -46,10 +47,11 @@ public sealed class DeletionReplacementTiming
     // --- PRE option set (shared with the sink's defer decision) --------------
 
     /// <summary>The optional PRE (would-be-deleted) replacements currently available on the card.</summary>
-    public static IReadOnlyList<string> PreOptions(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle)
+    public static IReadOnlyList<string> PreOptions(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle, EffectRegistry? effectRegistry = null)
     {
         var options = new List<string>();
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasEvadeKey) &&
+        // (S3) recognise the LIVE keyword (metadata flag OR HasKeyword) so keyword-granted replacements surface.
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasEvadeKey, ContinuousKeywordGate.Evade, effectRegistry) &&
             !ReadFlag(record.Metadata, DeletionReplacementGate.IsSuspendedKey))
         {
             options.Add(EvadeOption);
@@ -57,19 +59,19 @@ public sealed class DeletionReplacementTiming
 
         // Barrier is by-battle only (AS-IS IsByBattle): trash the top security card to survive.
         if (byBattle &&
-            ReadFlag(record.Metadata, DeletionReplacementGate.HasBarrierKey) &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasBarrierKey, ContinuousKeywordGate.Barrier, effectRegistry) &&
             zones.GetCards(record.OwnerId, ChoiceZone.Security).Count >= 1)
         {
             options.Add(BarrierOption);
         }
 
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasScapegoatKey) &&
-            DeletionReplacementGate.FindScapegoatSacrificeCandidates(repository, zones, record).Count > 0)
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasScapegoatKey, ContinuousKeywordGate.Scapegoat, effectRegistry) &&
+            DeletionReplacementGate.FindScapegoatSacrificeCandidates(repository, zones, record, null, effectRegistry).Count > 0)
         {
             options.Add(ScapegoatOption);
         }
 
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasFragmentKey) &&
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasFragmentKey, ContinuousKeywordGate.Fragment, effectRegistry) &&
             SourceIds(record.Metadata).Count >= FragmentCost(record.Metadata))
         {
             options.Add(FragmentOption);
@@ -86,8 +88,8 @@ public sealed class DeletionReplacementTiming
     }
 
     /// <summary>Whether a deletion of this card should be DEFERRED for an optional PRE replacement decision.</summary>
-    public static bool HasPreOption(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle) =>
-        PreOptions(repository, zones, record, byBattle).Count > 0;
+    public static bool HasPreOption(ICardInstanceRepository repository, IZoneStateReader zones, CardInstanceRecord record, bool byBattle, EffectRegistry? effectRegistry = null) =>
+        PreOptions(repository, zones, record, byBattle, effectRegistry).Count > 0;
 
     /// <summary>(#3) Context-aware PRE options: identical to the static overload but the Scapegoat/Decoy
     /// candidate counts respect any card-specific condition (<see cref="IDeletionReplacementCandidateConditions"/>),
@@ -97,27 +99,27 @@ public sealed class DeletionReplacementTiming
     private static IReadOnlyList<string> PreOptions(EngineContext context, IZoneStateReader zones, CardInstanceRecord record, bool byBattle)
     {
         var options = new List<string>();
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasEvadeKey) &&
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasEvadeKey, ContinuousKeywordGate.Evade, context.EffectRegistry) &&
             !ReadFlag(record.Metadata, DeletionReplacementGate.IsSuspendedKey))
         {
             options.Add(EvadeOption);
         }
 
         if (byBattle &&
-            ReadFlag(record.Metadata, DeletionReplacementGate.HasBarrierKey) &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasBarrierKey, ContinuousKeywordGate.Barrier, context.EffectRegistry) &&
             zones.GetCards(record.OwnerId, ChoiceZone.Security).Count >= 1)
         {
             options.Add(BarrierOption);
         }
 
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasScapegoatKey) &&
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasScapegoatKey, ContinuousKeywordGate.Scapegoat, context.EffectRegistry) &&
             DeletionReplacementGate.FindScapegoatSacrificeCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption)).Count > 0)
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry).Count > 0)
         {
             options.Add(ScapegoatOption);
         }
 
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasFragmentKey) &&
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasFragmentKey, ContinuousKeywordGate.Fragment, context.EffectRegistry) &&
             SourceIds(record.Metadata).Count >= FragmentCost(record.Metadata))
         {
             options.Add(FragmentOption);
@@ -125,7 +127,7 @@ public sealed class DeletionReplacementTiming
 
         if (ReadFlag(record.Metadata, DecoyEligibleKey) &&
             DeletionReplacementGate.FindDecoyRedirectCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption)).Count > 0)
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry).Count > 0)
         {
             options.Add(DecoyOption);
         }
@@ -166,7 +168,7 @@ public sealed class DeletionReplacementTiming
     private static IReadOnlyList<string> PostOptions(EngineContext context, IZoneStateReader zones, CardInstanceRecord record)
     {
         var options = new List<string>();
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasAscensionKey))
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasAscensionKey, ContinuousKeywordGate.Ascension, context.EffectRegistry))
         {
             options.Add(AscensionOption);
         }
@@ -199,6 +201,8 @@ public sealed class DeletionReplacementTiming
         if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey)
                 || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.Partition)) && // GR-005 C-group seal
             !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey) &&
+            // (S6) AS-IS: "leave other than by one of YOUR effects or in battle" — exclude own-effect leaves.
+            !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByOwnEffectKey) &&
             !ReadFlag(record.Metadata, DeletionReplacementGate.PartitionedKey) &&
             FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption)).Count >= 2)
         {
@@ -209,7 +213,7 @@ public sealed class DeletionReplacementTiming
     }
 
     private static bool HasSaveTarget(EngineContext context, IZoneStateReader zones, CardInstanceRecord record) =>
-        ReadFlag(record.Metadata, DeletionReplacementGate.HasSaveKey) &&
+        DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasSaveKey, ContinuousKeywordGate.Save, context.EffectRegistry) &&
         SaveTargets(context, zones, record, ResolveCondition(context, record, SaveOption)).Count > 0;
 
     /// <summary>(C-13 Decode) The leaving card's digivolution sources eligible to be played for free — the
@@ -365,10 +369,10 @@ public sealed class DeletionReplacementTiming
         option switch
         {
             ScapegoatOption => DeletionReplacementGate.FindScapegoatSacrificeCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption)),
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry),
             FragmentOption => SourceIds(record.Metadata),   // remaining digivolution sources to trash
             DecoyOption => DeletionReplacementGate.FindDecoyRedirectCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption)),
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry),
             SaveOption => SaveTargets(context, zones, record, ResolveCondition(context, record, SaveOption)),
             DecodeOption => FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, DecodeOption)),
             PartitionOption => FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption)),
@@ -497,7 +501,7 @@ public sealed class DeletionReplacementTiming
         switch (option)
         {
             case EvadeOption:
-                if (!DeletionReplacementGate.TryEvade(context.CardInstanceRepository, record))
+                if (!DeletionReplacementGate.TryEvade(context.CardInstanceRepository, record, context.EffectRegistry))
                 {
                     return false;
                 }
@@ -514,7 +518,7 @@ public sealed class DeletionReplacementTiming
                 return true;
             case AscensionOption:
                 return await DeletionReplacementGate
-                    .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId).ConfigureAwait(false);
+                    .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken: default, effectRegistry: context.EffectRegistry).ConfigureAwait(false);
             case ArmorPurgeOption:
                 return await DeletionReplacementGate
                     .TryArmorPurgeAsync(context.CardInstanceRepository, context.ZoneMover, cardId, context.EffectRegistry).ConfigureAwait(false);

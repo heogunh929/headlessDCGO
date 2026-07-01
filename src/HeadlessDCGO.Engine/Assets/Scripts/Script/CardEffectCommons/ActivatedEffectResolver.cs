@@ -44,7 +44,10 @@ public static class ActivatedEffectResolver
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
         IReadOnlyList<HeadlessPlayerId> players = ResolvePlayers(context, controller);
         var sink = new MatchStateMutationSink(
-            context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+            context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue,
+            // (FR-P3) pass the EngineContext so a deletion/suspend/return honours PLAYER-SCOPE restrictions with
+            // an arbitrary permanentCondition ("your <X> Digimon cannot be ..."), not just the card's own self.
+            context: context);
 
         // G7-005: participate in the W7 deferred-choice cycle. With an interactive DeferredChoiceProvider,
         // a ChooseAsync below throws DeferredChoicePendingException to SUSPEND — we then do NOT flush the

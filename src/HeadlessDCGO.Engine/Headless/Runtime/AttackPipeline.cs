@@ -332,7 +332,9 @@ public class AttackPipeline
         if (attack.AttackerId is not HeadlessEntityId attackerId ||
             !context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) ||
             attacker is null ||
-            !ReadSelfDeleteFlag(attacker.Metadata) ||
+            // (S5) Execute: "at the end of that attack, delete this Digimon" — granted as the live Execute keyword
+            // (the deleteSelfAtEndOfAttack metadata is only set by the grant mutation).
+            !(ReadSelfDeleteFlag(attacker.Metadata) || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Execute)) ||
             context.ZoneMover is not IZoneStateReader zones ||
             !zones.GetCards(attacker.OwnerId, ChoiceZone.BattleArea).Contains(attackerId))
         {

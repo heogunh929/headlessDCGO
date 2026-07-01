@@ -238,9 +238,20 @@ public sealed class DigivolveAction
                 target.DefinitionId);
         }
 
+        CardRecord evolvingCard = context.CardRepository.GetCard(card.DefinitionId);
+        CardRecord targetCard = context.CardRepository.GetCard(target.DefinitionId);
+
         if (!TryGetEvolutionCost(context, payload.CardId, payload.TargetCardId, out int repositoryCost, out string? costError))
         {
             return DigivolveValidation.Illegal(costError ?? "Card evolution cost was not found.", card.DefinitionId, target.DefinitionId);
+        }
+
+        // (FR2/M-3) When the printed condition fails and the digivolve uses an ADDED requirement, that added
+        // path's OWN cost applies (AS-IS costEquation() ?? digivolutionCost) instead of the printed cost.
+        if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
+            && TryGetAddedDigivolutionCost(context, payload.CardId, playerId, targetCard, payload.TargetCardId, target.OwnerId, out int addedPathCost))
+        {
+            repositoryCost = addedPathCost;
         }
 
         if (payload.MemoryCost != repositoryCost)
@@ -250,9 +261,6 @@ public sealed class DigivolveAction
                 card.DefinitionId,
                 target.DefinitionId);
         }
-
-        CardRecord evolvingCard = context.CardRepository.GetCard(card.DefinitionId);
-        CardRecord targetCard = context.CardRepository.GetCard(target.DefinitionId);
         // F-5.3: a continuous "ignore digivolution requirement" effect (AS-IS CanIgnoreDigivolutionRequirement)
         // lets the player digivolve without satisfying the printed evolution condition.
         if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
@@ -380,20 +388,10 @@ public sealed class DigivolveAction
 
     private static bool HasContinuousFlag(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId, string flagKey)
     {
-        IEffectQueryService registry = context.EffectRegistry;
-        string scope = ContinuousRestrictionGate.Scope;
-
-        foreach (EffectRequest effect in registry.GetContinuousEffects(new EffectQueryContext(scope, targetEntityId: cardId)))
-        {
-            if (ReadBool(effect.Context.Values, flagKey))
-            {
-                return true;
-            }
-        }
-
-        CardRecord? card = context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? inst) && inst is not null
-            && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def : null;
-        foreach (EffectRequest effect in PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, playerId, card))
+        // (FR2/M-1) Use the condition-aware applicable set (card-targeted + player-scope + predicate, with the
+        // effect's `condition` gate honoured) so an ignore-flag that is CONDITIONAL — e.g. UseRequirements
+        // "ignore color IF you control a <matching> Digimon" — is only seen when its gate passes.
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {
             if (ReadBool(effect.Context.Values, flagKey))
             {
@@ -416,24 +414,54 @@ public sealed class DigivolveAction
     // (AS-IS AddSelfDigivolutionRequirementStaticEffect's Func<Permanent,bool>).
     public const string AddedEvolutionPredicateKey = "addedEvolutionPredicate";
 
-    private static bool MatchesAddedDigivolutionRequirement(
-        EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, CardRecord targetCard,
-        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
-    {
-        IEffectQueryService registry = context.EffectRegistry;
-        string scope = ContinuousRestrictionGate.Scope;
+    // (FR2/M-3) the memory cost of an added digivolution path. When the printed condition fails and this added
+    // requirement is used, this cost applies instead of the printed cost. AddedEvolutionCostEquationKey (a
+    // Func<int>) overrides the fixed AddedEvolutionCostKey when present (AS-IS costEquation() ?? digivolutionCost).
+    public const string AddedEvolutionCostKey = "addedEvolutionCost";
+    public const string AddedEvolutionCostEquationKey = "addedEvolutionCostEquation";
 
-        foreach (EffectRequest effect in registry.GetContinuousEffects(new EffectQueryContext(scope, targetEntityId: cardId)))
+    // (FR2/M-3) The cost of the MATCHING added digivolution path for this (evolving card -> target), or false if
+    // none. costEquation() (dynamic) overrides the fixed cost when present, mirroring the original.
+    private static bool TryGetAddedDigivolutionCost(
+        EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, CardRecord targetCard,
+        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner, out int cost)
+    {
+        cost = 0;
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {
-            if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner))
+            if (!(AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner)))
             {
+                continue;
+            }
+
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (values.TryGetValue(AddedEvolutionCostEquationKey, out object? eqRaw) && eqRaw is Func<int> equation)
+            {
+                cost = equation();
+                return true;
+            }
+
+            if (values.TryGetValue(AddedEvolutionCostKey, out object? costRaw) && costRaw is int fixedCost)
+            {
+                cost = fixedCost;
                 return true;
             }
         }
 
-        CardRecord? card = context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? inst) && inst is not null
-            && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def : null;
-        foreach (EffectRequest effect in PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, playerId, card))
+        return false;
+    }
+
+    private static bool MatchesAddedDigivolutionRequirement(
+        EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, CardRecord targetCard,
+        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
+    {
+        string scope = ContinuousRestrictionGate.Scope;
+
+        // (FR2/M-1) The added requirement applies to the TARGET card (cardId). Use the condition-aware applicable
+        // set — card-targeted AND player-scope with the cardCondition predicate (AS-IS: which cards receive the
+        // added "can digivolve from X" requirement, e.g. ST8_04 "your UlforceVeedramon cards in hand") evaluated
+        // 1:1 against the target — so a non-self cardCondition reaches every matching card, not just the source.
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, scope, cardId))
         {
             if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner))
             {

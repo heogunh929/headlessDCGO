@@ -145,3 +145,52 @@
 - **✅ SET형 완료**: registry-only sink/battle 게이트 소비 항목 — `CanNotBeDestroyed`·`CanNotBeDestroyedByBattle`·`CanNotBeTrashedBySkill`·`CantSuspend`·`CannotReturnToHand`·`CannotReturnToDeck`·`CanNotAffected` — **EngineContext를 MatchStateMutationSink에 스레딩**(`ContinuousScopeEvaluation.ApplicableEffects` 노출 + EngineContext.cs 배선) + BattleDeletionGate가 ApplicableEffects 사용 → SET형이 player-scope 술어로 매칭 세트에만 적용. self형도 그대로 1:1. **G9-050**(SET-form 삭제/서스펜드).
 - **✅ defenderCondition 완료**: `CanNotAttackSelfStaticEffect(defenderCondition)` — 신규 `CanNotAttackDefenderConditionEffect` + `RestrictionHelpers.DefenderPredicateKey`, `EvaluateAttack`가 defender를 CardSource로 평가해 매칭 방어자만 제약(과다제약 제거). **G9-050**.
 - **결론**: FR permanentCondition 술어 무시 위반(21종) + defenderCondition(1종) **전부 1:1 술어 평가로 복원**. 282 green, RuleAudit 0. 상세: [fidelity_remediation_goals.md](fidelity_remediation_goals.md).
+
+## FR2/M-1 진행 (2026-07-01) — per-card 술어
+
+- **✅ ChangeSecurityDigimonCardDPStaticEffect(cardCondition)** — 원본은 cardCondition이 대상 플레이어까지 결정(예: `cs.Owner == card.Owner.Enemy` = 적 security). 기존 포팅 owner-scope 하드코딩 = **wrong-player 버그**. `PlayerScopeContinuousHelpers.ScopeAnyPlayerKey`(양 플레이어 스코프) + cardCondition을 scopePredicate로 1:1 평가. **G9-052**.
+- **✅ UseRequirements(cardCondition)** — 원본 CanUseCondition: owner가 cardCondition 매칭 Digimon/Tamer(배틀|브리딩) 보유 시에만 ignore-color 활성. 기존은 무조건 grant. 게이트로 폴딩 + `DigivolveAction.HasContinuousFlag`을 condition-aware(`ApplicableEffects`)로 전환(ignore-digivolution-req 플래그도 이제 condition 존중). **G9-052**.
+- **STOP DecoySelfEffect(permanentCondition)** — permanentCondition은 Decoy 리다이렉트 **후보 퍼머넌트**를 좁힘. self-only 현행은 permanentCondition=null만 1:1. 좁힌 형태는 DeletionReplacementGate.FindDecoyRedirectCandidates에 permanentCondition 배선 필요(F-6.8 서브시스템).
+- **STOP AddSelfDigivolutionRequirementStaticEffect(cardCondition, costEquation)** — cardCondition은 추가 진화요구 **대상 카드 집합**(기본 self=1:1). non-default는 DigivolveAction 추가-요구 스코핑 필요. costEquation(동적 비용)은 고정값 사용 중 → DigivolveAction 비용해석에 동적 배선 필요.
+
+## FR2/M-2 진행 (2026-07-01) — per-effect / per-battle 술어
+
+- **✅ cardEffectCondition** (`CannotReturnToHand`·`CanNotBeTrashedBySkill`) — 원본 대부분 trivial(any effect)이나 BT11_060 = `IsOpponentEffect`(상대 효과로만 제약). 원인 효과 owner만 필요 → sink `mutation.SourceEntityId`를 restriction 평가에 스레딩(`MatchStateMutationSink.IsRestrictedFromCause` + `RestrictionHelpers.CausingEffectPredicateKey`), 인자 타입을 `Func<CardSource,bool>`(원인 소스)로 매핑. self/player-scope 양 경로 지원. **G9-053**(상대-발동 차단·자기-발동 허용·무조건 차단).
+- **canNotBeDestroyedByBattleCondition** — 유일 사용자 EX8_068 조건이 `permanent==공격자||permanent==방어자`(참가자에겐 항상 참=trivial) → 무조건 배틀 면역 포팅이 1:1. non-trivial 형태는 BattleDeletionGate에 전투 참가자(attacker/defender) 스레딩 필요하나 해당 카드 없음.
+
+## FR2/M-3·M-5 진행 (2026-07-01)
+
+- **✅ M-3a AddSelf costEquation/added-cost** — 조사 결과 added 진화요구의 **비용 전체**(고정+동적)가 binding 미emit·미소비였음(printed 비용만 씀). `AddedEvolutionCostKey`/`AddedEvolutionCostEquationKey` emit + `DigivolveAction.TryGetAddedDigivolutionCost` + printed 실패 시 added 경로 비용 적용(`costEquation() ?? digivolutionCost`). **G9-044**(printed 2 거부·added 3·동적 6).
+- **✅ M-3b ChangeDP effectName** — `SetEffectName`(표시 라벨)만, gameplay 미사용 = cosmetic. 무시 1:1.
+- **✅ M-5 ChangeBaseDPGlobal** — 이중 버그: (1) "global"=양 플레이어인데 owner-scope만 → `scopeAnyPlayer`. (2) **BaseDp modifier를 아무도 소비 안 함**(ContinuousDpGate가 Dp metric만) = DP 무영향 seal → `ContinuousDpGate.ResolveDp`가 BaseDp를 base에 먼저 fold. **G9-052**.
+- **RevealLibraryClass** — `InformationalRevealEffect`(no-op). 풀정보 엔진에서 reveal은 숨은 정보가 없어 1:1(단 "공개 시" 트리거 소비자는 미존재).
+- **ReplaceBottomSecurity** — top/bottom 플래그로 양단 처리. 명백한 버그 아님(심층 검증 대기).
+
+## FR2/M-4 진행 (2026-07-01) — preemptive-seal 언실
+
+- **✅ Decoy 언실** — Decoy 키워드 grant(`DecoySelfEffect` → `ContinuousKeywordGate.Decoy`)가 redirect 메커니즘과 프로덕션 미연결이었음(`HasDecoyKey` 메타는 테스트에서만 설정). `DeletionReplacementGate.FindDecoyRedirect`/`Candidates`에 `HasDecoy` 헬퍼(메타 OR `HasKeyword(registry)`) + sink·DeletionReplacementTiming 호출부에 `effectRegistry` 전달 → Decoy 실제 작동. **G9-055**. 잔여: `DecoySelf(permanentCondition)`의 target-narrowing(grant에 술어 저장 + context 평가) — permanentCondition=null 다수는 현재 1:1.
+- **잔여 seal**(behavior 구현): 링크 3종(Enforce/LinkSelfEffect 소비자) · 키워드-동작(Collision/Vortex/Ascension/TreatAsDigimon/MindLink) · W2 seal(Barrier/Evade/Save). 각 서브시스템 동작 구현.
+
+## FR2/M-4 전수조사 (2026-07-01) — 삭제-치환 키워드 10종 단일 seal
+
+**스캔 방법**: 모든 `Has*Key` 삭제-치환 메타 플래그의 프로덕션 SET 여부 + 키워드 HasKeyword 소비자 수.
+
+**결과**: `Evade·Barrier·Decoy·Fragment·Scapegoat·Save·Fortitude·Ascension·Decode·Partition` 10종 전부 —
+- grant는 키워드(`SelfKeywordByNameEffect(ContinuousKeywordGate.X)`).
+- 소비자(게이트)는 `Has*Key` 메타 플래그를 읽음.
+- 그 플래그는 **프로덕션 SET=0**(테스트에서만 설정), **키워드→메타 브릿지 없음** → 프로덕션에서 전부 inert.
+
+**근본 원인**: 키워드 모델과 메타-플래그 모델이 연결된 적 없음(config-first 개발로 소비 배선 이연 = preemptive seal).
+
+**충실한 수정 원칙 (중요)**:
+- ✅ **게이트가 라이브 키워드를 직접 읽기**(`ContinuousKeywordGate.HasKeyword`) = **AS-IS 미러**(원본은 `CanActivateDecoy`/`EvadeProcess`가 키워드/효과를 삭제 시점에 라이브 평가). Decoy가 이 방식(G9-055).
+- ❌ **메타 동기화 브릿지**(키워드→Has*Key 복사)는 **AS-IS에 없는 헤드리스 워크어라운드** → 채택 금지(시도 후 제거).
+
+**진행**: Decoy ✅. Scapegoat/Fragment 게이트 라이브-읽기 추가(호출부 registry 미전달로 실효 미완). 잔여 7종 + 호출부 스레딩(sink·BattleResolver·DeletionReplacementTiming, 20+ 지점) = **대기**(사용자: 문서화만).
+
+## 참고: 이번 세션 발견·수정한 seal (4건)
+등록은 되나 소비자 없음 = 무동작이던 것들: **BaseDp**(ContinuousDpGate Dp metric만) · **linkedMax/linkCost**(metric 없음+read 미반영) · **Decoy**(키워드↔메타 미연결). 전부 라이브-소비 경로로 배선(정적 감사로 발견). 나머지 삭제-치환 9종은 동일 패턴, 대기.
+
+## S5 Execute 부분 완료 (2026-07-02)
+- ✅ 공격 대상 확장(상대 미서스펜드 공격 가능) + 종료 시 self-delete: `AttackPermanentAction`/`AttackPipeline`가 `HasKeyword(Execute)` 인식. G3.5-C910.
+- **STOP**: (1) "턴 종료 시 이 디지몬 공격 가능"(end-of-turn 공격창)은 헤드리스 미모델 → 별도 mechanic 필요.

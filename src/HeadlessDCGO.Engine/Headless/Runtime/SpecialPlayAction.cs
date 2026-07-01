@@ -72,7 +72,10 @@ public sealed class SpecialPlayAction
                 continue;
             }
 
-            if (TryMatchMaterials(context, battle, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
+            // (FR2) honour the card-authored availability condition (AS-IS special-play `condition`) — the play
+            // is only offered when it passes, not unconditionally.
+            if ((recipe.Condition is null || recipe.Condition())
+                && TryMatchMaterials(context, battle, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
                 && context.MemoryController.CanPay(recipe.MemoryCost))
             {
                 actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
@@ -296,7 +299,7 @@ public sealed class SpecialPlayAction
 /// a card-name equality — so the ported condition is preserved 1:1. <see cref="Label"/> is for logging.</summary>
 public sealed record SpecialPlayMaterial(Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> Matches, string Label);
 
-public sealed record SpecialPlayRecipe(SpecialPlayKind Kind, IReadOnlyList<SpecialPlayMaterial> Materials, int MemoryCost);
+public sealed record SpecialPlayRecipe(SpecialPlayKind Kind, IReadOnlyList<SpecialPlayMaterial> Materials, int MemoryCost, Func<bool>? Condition = null);
 
 /// <summary>(G8-006) Maps a card number to its special-play recipe. Populated by ported DigiXros / DNA /
 /// Blast cards (the recipe registry, analogous to the effect dispatch).</summary>

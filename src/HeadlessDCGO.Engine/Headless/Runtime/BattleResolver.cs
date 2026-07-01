@@ -169,7 +169,7 @@ public sealed class BattleResolver
         foreach (BattleParticipant participant in deleted)
         {
             await DeletionReplacementGate.TryFortitudeReplayAsync(
-                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, cancellationToken).ConfigureAwait(false);
+                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, cancellationToken, context.EffectRegistry).ConfigureAwait(false);
         }
 
         // Piercing: a surviving attacker that deleted the defender also checks the defending player's

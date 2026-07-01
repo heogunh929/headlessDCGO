@@ -38,6 +38,7 @@ public static class DeletionReplacementGate
     public const string EnteredThisTurnKey = "enteredThisTurn";
     public const string DeletedByBattleKey = "deletedByBattle";
     public const string DeletedByEffectKey = "deletedByEffect";
+    public const string DeletedByOwnEffectKey = "deletedByOwnEffect";
     public const string EvadedKey = "evaded";
     public const string BarrieredKey = "barriered";
     public const string DecoyRedirectKey = "decoyRedirect";
@@ -57,12 +58,12 @@ public static class DeletionReplacementGate
     /// <c>CanActivatePermanentSuspendCostEffect</c>). Applies to both battle and effect deletion —
     /// <c>CanTriggerEvade</c> has no by-battle filter. Returns true when the deletion is replaced.
     /// </summary>
-    public static bool TryEvade(ICardInstanceRepository repository, CardInstanceRecord record)
+    public static bool TryEvade(ICardInstanceRepository repository, CardInstanceRecord record, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(record);
 
-        if (!ReadFlag(record.Metadata, HasEvadeKey) || ReadFlag(record.Metadata, IsSuspendedKey))
+        if (!HasReplacementKeyword(record, HasEvadeKey, ContinuousKeywordGate.Evade, effectRegistry) || ReadFlag(record.Metadata, IsSuspendedKey))
         {
             return false;
         }
@@ -92,7 +93,7 @@ public static class DeletionReplacementGate
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(record);
 
-        if (!ReadFlag(record.Metadata, HasBarrierKey) ||
+        if (!HasReplacementKeyword(record, HasBarrierKey, ContinuousKeywordGate.Barrier, context.EffectRegistry) ||
             context.ZoneMover is not IZoneStateReader zoneReader)
         {
             return false;
@@ -136,7 +137,8 @@ public static class DeletionReplacementGate
         IZoneStateReader zones,
         CardInstanceRecord target,
         HeadlessEntityId deleterId,
-        Func<CardInstanceRecord, bool>? candidateCondition = null)
+        Func<CardInstanceRecord, bool>? candidateCondition = null,
+        EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zones);
@@ -162,7 +164,7 @@ public static class DeletionReplacementGate
             if (candidateId == target.InstanceId ||
                 !repository.TryGetInstance(candidateId, out CardInstanceRecord? decoy) ||
                 decoy is null ||
-                !ReadFlag(decoy.Metadata, HasDecoyKey) ||
+                !HasDecoy(decoy, candidateId, effectRegistry) ||
                 ReadFlag(decoy.Metadata, CannotBeDeletedKey) ||
                 (candidateCondition is not null && !candidateCondition(decoy)))
             {
@@ -188,14 +190,14 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
 
         if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
-            !ReadFlag(record.Metadata, HasFortitudeKey) ||
+            !HasReplacementKeyword(record, HasFortitudeKey, ContinuousKeywordGate.Fortitude, effectRegistry) ||
             SourceCount(record.Metadata) < 1)
         {
             return false;
@@ -305,11 +307,11 @@ public static class DeletionReplacementGate
     /// replacement consulted in both deletion paths.
     /// LIMITATION: auto-pays the DEEPEST sources rather than surfacing the AS-IS "select N" choice.
     /// </summary>
-    public static bool CanFragment(CardInstanceRecord record)
+    public static bool CanFragment(CardInstanceRecord record, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(record);
         int cost = Math.Max(1, ReadInt(record.Metadata, FragmentCostKey, 1));
-        return ReadFlag(record.Metadata, HasFragmentKey) && SourceCount(record.Metadata) >= cost;
+        return HasReplacementKeyword(record, HasFragmentKey, ContinuousKeywordGate.Fragment, effectRegistry) && SourceCount(record.Metadata) >= cost;
     }
 
     public static async Task ApplyFragmentAsync(
@@ -375,14 +377,14 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
 
         if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
-            !ReadFlag(record.Metadata, HasAscensionKey))
+            !HasReplacementKeyword(record, HasAscensionKey, ContinuousKeywordGate.Ascension, effectRegistry))
         {
             return false;
         }
@@ -419,13 +421,13 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneStateReader zones,
         CardInstanceRecord holder,
-        Func<CardInstanceRecord, bool>? candidateCondition = null)
+        Func<CardInstanceRecord, bool>? candidateCondition = null, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zones);
         ArgumentNullException.ThrowIfNull(holder);
 
-        if (!ReadFlag(holder.Metadata, HasScapegoatKey))
+        if (!HasReplacementKeyword(holder, HasScapegoatKey, ContinuousKeywordGate.Scapegoat, effectRegistry))
         {
             return null;
         }
@@ -456,11 +458,28 @@ public static class DeletionReplacementGate
     /// <summary>(C-4 Decoy) All of the owner's Decoy allies that could be sacrificed to spare the target —
     /// the agent picks one (F-6.8 sub-selection). The by-enemy-effect gating is checked at defer time
     /// (the deleter is known then) and recorded as a marker; this only enumerates the eligible decoys.</summary>
+    // (M-4) A card is a Decoy holder if it carries the (test-set) HasDecoy metadata flag OR — the production
+    // path — currently has the Decoy KEYWORD granted (DecoySelfEffect via ContinuousKeywordGate.Decoy). Before
+    // this, the keyword grant was disconnected from the redirect mechanism (the metadata flag was never set in
+    // production), so Decoy was inert.
+    private static bool HasDecoy(CardInstanceRecord decoy, HeadlessEntityId decoyId, EffectRegistry? effectRegistry) =>
+        ReadFlag(decoy.Metadata, HasDecoyKey)
+        || (effectRegistry is not null && ContinuousKeywordGate.HasKeyword(effectRegistry, decoyId, ContinuousKeywordGate.Decoy));
+
+    // (M-4) Same seal as Decoy for the other deletion-replacement keywords: the metadata flag is only ever set
+    // in tests, and there is no keyword->metadata bridge, so the live keyword grant (Fragment/Scapegoat/Save)
+    // must be recognised here for the mechanism to fire in production.
+    internal static bool HasReplacementKeyword(CardInstanceRecord record, string metadataFlag, string keyword, EffectRegistry? effectRegistry) =>
+        ReadFlag(record.Metadata, metadataFlag)
+        || (effectRegistry is not null && ContinuousKeywordGate.HasKeyword(effectRegistry, record.InstanceId, keyword));
+
+
     public static IReadOnlyList<HeadlessEntityId> FindDecoyRedirectCandidates(
         ICardInstanceRepository repository,
         IZoneStateReader zones,
         CardInstanceRecord target,
-        Func<CardInstanceRecord, bool>? candidateCondition = null)
+        Func<CardInstanceRecord, bool>? candidateCondition = null,
+        EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zones);
@@ -477,7 +496,7 @@ public static class DeletionReplacementGate
         {
             if (candidateId != target.InstanceId &&
                 repository.TryGetInstance(candidateId, out CardInstanceRecord? decoy) && decoy is not null &&
-                ReadFlag(decoy.Metadata, HasDecoyKey) &&
+                HasDecoy(decoy, candidateId, effectRegistry) &&
                 !ReadFlag(decoy.Metadata, CannotBeDeletedKey) &&
                 (candidateCondition is null || candidateCondition(decoy)))
             {
@@ -494,13 +513,13 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneStateReader zones,
         CardInstanceRecord holder,
-        Func<CardInstanceRecord, bool>? candidateCondition = null)
+        Func<CardInstanceRecord, bool>? candidateCondition = null, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zones);
         ArgumentNullException.ThrowIfNull(holder);
 
-        if (!ReadFlag(holder.Metadata, HasScapegoatKey))
+        if (!HasReplacementKeyword(holder, HasScapegoatKey, ContinuousKeywordGate.Scapegoat, effectRegistry))
         {
             return Array.Empty<HeadlessEntityId>();
         }
@@ -659,14 +678,14 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
 
         if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
-            !ReadFlag(record.Metadata, HasSaveKey) ||
+            !HasReplacementKeyword(record, HasSaveKey, ContinuousKeywordGate.Save, effectRegistry) ||
             zoneMover is not IZoneStateReader zones ||
             !zones.GetCards(record.OwnerId, ChoiceZone.Trash).Contains(cardId))
         {

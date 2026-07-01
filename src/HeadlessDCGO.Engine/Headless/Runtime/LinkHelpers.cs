@@ -58,6 +58,35 @@ public static class LinkHelpers
     public static int ReadLinkedMax(IReadOnlyDictionary<string, object?> metadata) =>
         ReadInt(metadata, LinkedMaxKey) ?? DefaultLinkedMax;
 
+    /// <summary>(M-4) The host's EFFECTIVE link maximum: its base <see cref="ReadLinkedMax"/> folded with
+    /// continuous <c>linkedMaxDelta</c> modifiers (AS-IS ChangeLinkMax / ChangeSelfLinkMax) — previously
+    /// registered but consumed by nothing.</summary>
+    public static int ResolveLinkedMax(Bridge.EngineContext context, HeadlessEntityId hostId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        int baseMax = context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? host) && host is not null
+            ? ReadLinkedMax(host.Metadata)
+            : DefaultLinkedMax;
+
+        Assets.Scripts.Script.CardEffectCommons.ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, hostId);
+        return Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
+            new Assets.Scripts.Script.CardEffectCommons.NumericModifierRequest(
+                Assets.Scripts.Script.CardEffectCommons.NumericModifierMetric.LinkedMax, baseMax, result.Modifiers, hostId)).FinalValue;
+    }
+
+    /// <summary>(M-4) The EFFECTIVE link cost: <paramref name="baseCost"/> folded with continuous
+    /// <c>linkCostDelta</c> modifiers (AS-IS GrantedReduceLinkCost) — previously registered but consumed by
+    /// nothing. Clamped to &gt;= 0.</summary>
+    public static int ResolveLinkCost(Bridge.EngineContext context, HeadlessEntityId cardId, int baseCost)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        Assets.Scripts.Script.CardEffectCommons.ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, cardId);
+        int resolved = Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
+            new Assets.Scripts.Script.CardEffectCommons.NumericModifierRequest(
+                Assets.Scripts.Script.CardEffectCommons.NumericModifierMetric.LinkCost, baseCost, result.Modifiers, cardId)).FinalValue;
+        return Math.Max(0, resolved);
+    }
+
     /// <summary>
     /// (AS-IS <c>Permanent.AddLinkCard</c>) Attach <paramref name="linkCardId"/> to <paramref name="hostId"/>:
     /// move the link card off-field, prepend it to the host's linked list, add its LinkDP, and open the
@@ -71,7 +100,8 @@ public static class LinkHelpers
         HeadlessEntityId linkCardId,
         ChoiceZone fromZone,
         GameEventQueue? gameEventQueue = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Bridge.EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -99,7 +129,7 @@ public static class LinkHelpers
         }
 
         // AS-IS: if over max, force-trash the oldest excess link cards.
-        await EnforceLinkedMaxAsync(repository, zoneMover, hostId, gameEventQueue, cancellationToken).ConfigureAwait(false);
+        await EnforceLinkedMaxAsync(repository, zoneMover, hostId, gameEventQueue, cancellationToken, context).ConfigureAwait(false);
         return true;
     }
 
@@ -159,7 +189,8 @@ public static class LinkHelpers
         IZoneMover zoneMover,
         HeadlessEntityId hostId,
         GameEventQueue? gameEventQueue = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Bridge.EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -169,7 +200,8 @@ public static class LinkHelpers
             return 0;
         }
 
-        int max = ReadLinkedMax(host.Metadata);
+        // (M-4) fold continuous linkedMaxDelta modifiers when a context is wired; else metadata-only base.
+        int max = context is not null ? ResolveLinkedMax(context, hostId) : ReadLinkedMax(host.Metadata);
         IReadOnlyList<HeadlessEntityId> linked = ReadLinkedCardIds(host.Metadata);
         if (linked.Count <= max)
         {

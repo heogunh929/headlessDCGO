@@ -307,7 +307,10 @@ public sealed class AttackPermanentAction
 
         if (!ReadBool(target.Metadata, IsSuspendedKey) &&
             !ReadBool(attacker.Metadata, CanAttackUnsuspendedDigimonKey) &&
-            !ReadBool(attackerCard.Metadata, CanAttackUnsuspendedDigimonKey))
+            !ReadBool(attackerCard.Metadata, CanAttackUnsuspendedDigimonKey) &&
+            // (S5) Execute: "your opponent's unsuspended Digimon can also be attacked with this effect" — granted
+            // as the live Execute keyword (CanAttackUnsuspendedDigimon metadata is only set by the grant mutation).
+            !ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Execute))
         {
             return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not suspended.");
         }

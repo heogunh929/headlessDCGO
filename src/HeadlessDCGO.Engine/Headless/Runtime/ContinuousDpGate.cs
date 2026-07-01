@@ -54,7 +54,12 @@ public static class ContinuousDpGate
                 .ToArray();
         }
 
-        return ModifierHelpers.ResolveDp(baseDp, modifiers, cardId).FinalValue;
+        // (M-5) Fold BASE-DP modifiers (AS-IS ChangeBaseDP / "origin DP is X") into the base first, THEN apply
+        // current-DP modifiers on top — base-DP changes were previously registered but consumed by nothing.
+        int effectiveBase = ModifierHelpers.Evaluate(
+            new NumericModifierRequest(NumericModifierMetric.BaseDp, baseDp, modifiers, cardId)).FinalValue;
+
+        return ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue;
     }
 
     private static bool IsDpReduction(NumericModifier modifier) =>
