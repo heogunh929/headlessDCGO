@@ -22,10 +22,16 @@ cd "$(dirname "$0")/.."
 
 filter="${1:-}"
 cpu=$(nproc 2>/dev/null || echo 4)
-# Run phase is safe (launches prebuilt exes) but capped at 10 by default to keep machine load sane.
-jobs="${JOBS:-$(( cpu < 10 ? cpu : 10 ))}"
-# Builds are the corruption-prone step → keep their parallelism modest regardless of core count.
-build_jobs="${BUILD_JOBS:-$(( cpu < 6 ? cpu : 6 ))}"
+# Default parallelism is OS-aware. The concurrent-MSBuild output-corruption (Win32 1392) that forces a
+# modest BUILD cap was only ever observed on Windows; Linux/macOS don't have it, so there we scale builds
+# with the core count and run prebuilt exes at full width. Windows keeps the conservative caps.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) run_cap=10;    build_cap=6 ;;   # Windows: throttle builds (FS corruption)
+  *)                    run_cap="$cpu"; build_cap=8 ;;   # Linux/macOS: no concurrent-build corruption
+esac
+# Override either with env vars, e.g.  JOBS=16 BUILD_JOBS=10 scripts/run-tests.sh
+jobs="${JOBS:-$(( cpu < run_cap ? cpu : run_cap ))}"
+build_jobs="${BUILD_JOBS:-$(( cpu < build_cap ? cpu : build_cap ))}"
 [ "$jobs" -lt 1 ] 2>/dev/null && jobs=1
 [ "$build_jobs" -lt 1 ] 2>/dev/null && build_jobs=1
 
