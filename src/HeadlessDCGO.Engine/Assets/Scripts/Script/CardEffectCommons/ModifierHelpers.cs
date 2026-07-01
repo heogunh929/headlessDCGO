@@ -221,6 +221,11 @@ public static class ModifierHelpers
     public const string DigivolutionCostDeltaKey = DigivolutionCostHelpers.DigivolutionCostDeltaKey;
     public const string SecurityAttackDeltaKey = "securityAttackDelta";
     public const string SAttackDeltaKey = "sAttackDelta";
+    // (PRIM-W3) continuous link modifiers. Registered as continuous-role deltas queryable via
+    // ContinuousModifierGate; the link subsystem consumers (LinkHelpers.EnforceLinkedMaxAsync /
+    // LinkSelfEffect cost) migrate to consult these separately — grant is live, behavior-consumer latent.
+    public const string LinkedMaxDeltaKey = "linkedMaxDelta";
+    public const string LinkCostDeltaKey = "linkCostDelta";
     public const string FixedDpKey = "fixedDp";
     public const string FixedBaseDpKey = "fixedBaseDp";
     public const string FixedSecurityAttackKey = "fixedSecurityAttack";

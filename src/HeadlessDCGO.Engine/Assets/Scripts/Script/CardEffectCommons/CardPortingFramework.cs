@@ -1331,6 +1331,61 @@ public sealed class TriggeredSetMemoryEffect : ICardEffect, IHeadlessCardEffect
     }
 }
 
+/// <summary>(PRIM-W3) A triggered "gain <see cref="Amount"/> memory (if <see cref="ExtraCondition"/> holds)"
+/// effect — the Tamer memory-gain family (AS-IS Gain1MemoryTamerOpponentDigimonEffect etc.). Auto-registered
+/// under its timing; resolves only on the owner's turn (and when the extra condition passes), emitting an
+/// AddMemory mutation.</summary>
+public sealed class TriggeredGainMemoryEffect : ICardEffect, IHeadlessCardEffect
+{
+    private readonly Func<bool>? _extraCondition;
+
+    public TriggeredGainMemoryEffect(CardSource card, EffectTiming timing, int amount, string description, Func<bool>? extraCondition = null)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Amount = amount;
+        _extraCondition = extraCondition;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:gainmemory:{trigger}"), card.InstanceId, description, trigger, isOptional: false);
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (Card.Context.TurnController.Current.TurnPlayerId != Card.Owner || (_extraCondition is not null && !_extraCondition()))
+        {
+            return ValueTask.FromResult(EffectResult.Success("Gain-memory condition not met; no change."));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind,
+            Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+        return ValueTask.FromResult(EffectResult.Success($"Gain {Amount} memory."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
+}
+
 /// <summary>
 /// An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
 /// <paramref name="trashCount"/> of each host's digivolution cards" effect (e.g. ST2_03 / ST2_06 / ST2_09).
@@ -1758,6 +1813,168 @@ public sealed class DeckBottomBounceEffect : IActivatedCardEffect
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Deck-bottom-bounce effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(PRIM-W3) Mirror of AS-IS <c>ReturnToLibraryBottomDigivolutionCardsClass</c> — returns the host's
+/// own digivolution (under-)cards to the bottom of the deck. Emits the engine's existing
+/// <see cref="MatchStateMutationSink.ReturnDigivolutionCardsKind"/> (toDeck) on the host.</summary>
+public sealed class ReturnSelfDigivolutionCardsToDeckEffect : IActivatedCardEffect
+{
+    private readonly int _count;
+
+    public ReturnSelfDigivolutionCardsToDeckEffect(CardSource card, int count, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _count = count;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ReturnDigivolutionCardsKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value,
+                [MatchStateMutationSink.CountKey] = _count,
+                [MatchStateMutationSink.ToDeckKey] = true,
+                [MatchStateMutationSink.FromBottomKey] = true,
+            }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Return-digivolution-to-deck effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(PRIM-W3) Mirror of AS-IS <c>ReplaceBottomSecurityWithFaceUpOption(Main)Effect</c> — "add your
+/// bottom security card to the hand, then place this card face up as the bottom security card." Emits
+/// ReturnToHand on the current bottom security card, then AddToSecurity (face up, bottom) for the host.</summary>
+public sealed class ReplaceBottomSecurityWithFaceUpEffect : IActivatedCardEffect
+{
+    public ReplaceBottomSecurityWithFaceUpEffect(CardSource card, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        if (Card.Context.ZoneMover is IZoneStateReader reader)
+        {
+            IReadOnlyList<HeadlessEntityId> security = reader.GetCards(Card.Owner, ChoiceZone.Security);
+            if (security.Count > 0)
+            {
+                // The bottom security card is the last of the ordered stack (top = index 0).
+                sink.Apply(new EffectMutation(
+                    MatchStateMutationSink.ReturnToHandKind,
+                    Card.InstanceId,
+                    new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = security[^1].Value }));
+            }
+        }
+
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.AddToSecurityKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value,
+                [MatchStateMutationSink.FaceUpKey] = true,
+                [MatchStateMutationSink.ToBottomKey] = true,
+            }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Replace-bottom-security effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(PRIM-W3, C-24) Mirror of AS-IS <c>TrainingEffect</c> — an activated [Breeding] effect: suspend
+/// self (cost) and place the top card of the owner's deck at the bottom of self's digivolution stack. Wraps
+/// the engine's <see cref="DigivolutionStackHelpers.TrainAsync"/> primitive via the Train mutation.</summary>
+public sealed class TrainingActivatedEffect : IActivatedCardEffect
+{
+    public TrainingActivatedEffect(CardSource card, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.TrainKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Training effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(PRIM-W3, C-23) Mirror of AS-IS <c>MaterialSaveEffect</c> — re-parents <c>count</c> of this
+/// Digimon's digivolution cards to another of the owner's Digimon (<paramref name="destinationId"/>, selected
+/// at porting time). Wraps the engine's <see cref="DigivolutionStackHelpers.MoveSourcesBottom"/> primitive
+/// via the MaterialSave mutation.</summary>
+public sealed class MaterialSaveActivatedEffect : IActivatedCardEffect
+{
+    private readonly HeadlessEntityId _destinationId;
+    private readonly int _count;
+
+    public MaterialSaveActivatedEffect(CardSource card, HeadlessEntityId destinationId, int count, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _destinationId = destinationId;
+        _count = count;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        if (_destinationId.IsEmpty)
+        {
+            return;
+        }
+
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.MaterialSaveKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.ToEntityIdKey] = _destinationId.Value,
+                [MatchStateMutationSink.CountKey] = _count,
+            }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Material-save effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>
@@ -2364,6 +2581,142 @@ public static partial class CardEffectFactory
     /// Tamer instead of trashing) to self.</summary>
     public static ICardEffect SaveEffect(CardSource card) =>
         new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Save, isInheritedEffect: false, condition: null);
+
+    // --- (PRIM-W3) keyword self-static grants -----------------------------------------------------------
+    /// <summary>(PRIM-W3) <c>BlitzSelfEffect</c> — grants Blitz to self (Batch2).</summary>
+    public static ICardEffect BlitzSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Blitz, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>DecodeSelfEffect</c> — grants Decode to self (Batch2).</summary>
+    public static ICardEffect DecodeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Decode, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>ProgressSelfStaticEffect</c> — grants Progress to self (Batch2).</summary>
+    public static ICardEffect ProgressSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Progress, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>PartitionSelfEffect</c> — grants Partition to self (Batch2). The per-card
+    /// <c>cardSourceConditions</c> list is accepted for source fidelity (per-card).</summary>
+    public static ICardEffect PartitionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, object? cardSourceConditions = null) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Partition, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>IcecladSelfStaticEffect</c> — grants Iceclad to self.</summary>
+    public static ICardEffect IcecladSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Iceclad, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>DecoySelfEffect</c> — grants Decoy (deletion-replacement) to self. Extra
+    /// per-card args accepted for fidelity.</summary>
+    public static ICardEffect DecoySelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<Permanent, bool>? permanentCondition = null, string? effectName = null, string? effectDescription = null) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Decoy, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>FragmentSelfEffect</c> — grants Fragment (deletion-replacement) to self.</summary>
+    public static ICardEffect FragmentSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, int trashValue = 0, string? effectName = null, string? effectDescription = null) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Fragment, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>ExecuteSelfEffect</c> — grants Execute to self.</summary>
+    public static ICardEffect ExecuteSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Execute, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>ScapegoatSelfEffect</c> — grants Scapegoat (deletion-replacement) to self.</summary>
+    public static ICardEffect ScapegoatSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null, string? effectDescription = null, bool isLinkedEffect = false) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Scapegoat, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>RushStaticEffect(permanentCondition, ...)</c> — grants Rush to the owner's Digimon
+    /// (player-scope). <paramref name="permanentCondition"/> per-card.</summary>
+    public static ICardEffect RushStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Rush, scopeCardType: null, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>RebootStaticEffect(permanentCondition, ...)</c> — grants Reboot to the owner's
+    /// Digimon (player-scope). <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> per-card.</summary>
+    public static ICardEffect RebootStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Reboot, scopeCardType: null, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>CanNotAttackStaticEffect(...)</c> — the scoped player's Digimon cannot attack
+    /// (player-scope CannotAttack restriction consulted by AttackPermanentAction). Per-permanent predicate is
+    /// per-card.</summary>
+    public static ICardEffect CanNotAttackStaticEffect(HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
+        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayerId, RestrictionHelpers.CannotAttackKey, scopeCardType: null, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>Gain1MemoryTamerOpponentDigimonEffect(card)</c> — "[Start of Your Turn] if your
+    /// opponent has a Digimon, gain 1 memory." (main-phase timing mapped to OnStartTurn).</summary>
+    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card) =>
+        new TriggeredGainMemoryEffect(card, EffectTiming.OnStartTurn, amount: 1,
+            "[Start of Your Turn] If your opponent has a Digimon, gain 1 memory.",
+            extraCondition: () => CardEffectCommons.MatchConditionPermanentCount(card, id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)) > 0);
+
+    /// <summary>(PRIM-W3) <c>Gain2MemoryOptionDelayEffect(card)</c> — a delayed "gain 2 memory" (resolves at
+    /// the next start of the owner's turn). The Option-delay timing is mapped to OnStartTurn.</summary>
+    public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card) =>
+        new TriggeredGainMemoryEffect(card, EffectTiming.OnStartTurn, amount: 2, "Gain 2 memory (delayed to the start of your turn).");
+
+    /// <summary>(PRIM-W3) <c>CanNotBeBlockedStaticSelfEffect</c> — this Digimon cannot be blocked (unblockable);
+    /// consulted by BlockTiming when enumerating blocker candidates.</summary>
+    public static ICardEffect CanNotBeBlockedStaticSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotBeBlockedKey, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>CantUnsuspendStaticEffect</c> — this Digimon does not unsuspend; consulted by the
+    /// Unsuspend step.</summary>
+    public static ICardEffect CantUnsuspendStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotUnsuspendKey, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>CanNotBeDestroyedBySkillStaticEffect</c> — this Digimon cannot be deleted by
+    /// effects/skills (battle deletion still applies); consulted by the effect-sourced delete path.</summary>
+    public static ICardEffect CanNotBeDestroyedBySkillStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotBeDeletedBySkillKey, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>ChangeSAttackStaticEffect</c> — continuous ±security attack on the owner's Digimon
+    /// (player-scope SA modifier consulted by ContinuousModifierGate.ResolveSecurityAttack). Mirrors the SA
+    /// analogue of <see cref="ChangeDPStaticEffect"/>; <paramref name="permanentCondition"/> per-card.</summary>
+    public static ICardEffect ChangeSAttackStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new PlayerScopeModifierEffect(card, ModifierHelpers.SAttackDeltaKey, changeValue, scopeCardType: "Digimon", condition);
+
+    /// <summary>(PRIM-W3) <c>ReturnToLibraryBottomDigivolutionCardsClass</c> — returns the host's own
+    /// digivolution (under-)cards to the bottom of the deck (activated).</summary>
+    public static IActivatedCardEffect ReturnToLibraryBottomDigivolutionCardsClass(CardSource card, int count) =>
+        new ReturnSelfDigivolutionCardsToDeckEffect(card, count, "Return this Digimon's digivolution cards to the bottom of the deck.");
+
+    /// <summary>(PRIM-W3) <c>ReplaceBottomSecurityWithFaceUpOptionEffect</c> — Option [Main]: add the bottom
+    /// security card to hand, then place this card face up as the bottom security card.</summary>
+    public static IActivatedCardEffect ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card) =>
+        new ReplaceBottomSecurityWithFaceUpEffect(card, "[Main] Add your bottom security card to the hand. Then, place this card face up as the bottom security card.");
+
+    /// <summary>(PRIM-W3) <c>ReplaceBottomSecurityWithFaceUpOptionMainEffect</c> — Main-phase variant of
+    /// <see cref="ReplaceBottomSecurityWithFaceUpOptionEffect"/>.</summary>
+    public static IActivatedCardEffect ReplaceBottomSecurityWithFaceUpOptionMainEffect(CardSource card) =>
+        new ReplaceBottomSecurityWithFaceUpEffect(card, "[Main] Add your bottom security card to the hand. Then, place this card face up as the bottom security card.");
+
+    /// <summary>(PRIM-W3, C-24) <c>TrainingEffect</c> — activated [Breeding]: suspend self, place the top deck
+    /// card at the bottom of self's digivolution stack.</summary>
+    public static IActivatedCardEffect TrainingEffect(CardSource card) =>
+        new TrainingActivatedEffect(card, "[Breeding] Suspend this Digimon: place the top card of your deck under it as its bottom digivolution card.");
+
+    /// <summary>(PRIM-W3, C-23) <c>MaterialSaveEffect</c> — move <paramref name="count"/> of this Digimon's
+    /// digivolution cards under another of your Digimon (<paramref name="destinationId"/>, chosen at port time).</summary>
+    public static IActivatedCardEffect MaterialSaveEffect(CardSource card, HeadlessEntityId destinationId, int count) =>
+        new MaterialSaveActivatedEffect(card, destinationId, count, "Place this Digimon's digivolution cards under another of your Digimon.");
+
+    /// <summary>(PRIM-W3) <c>ChangeSelfLinkMaxStaticEffect</c> — continuous ±link-maximum on self. Registers a
+    /// LinkedMaxDelta continuous modifier (queryable via ContinuousModifierGate). Grant is live; the link
+    /// enforcement consumer migrates to consult it separately (preemptive seal).</summary>
+    public static ICardEffect ChangeSelfLinkMaxStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfModifierEffect(card, ModifierHelpers.LinkedMaxDeltaKey, changeValue, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>GrantedReduceLinkCostClass</c> — continuous link-cost reduction. Registers a
+    /// LinkCostDelta continuous modifier (queryable via ContinuousModifierGate); the link-cost payment consumer
+    /// migrates to consult it separately (preemptive seal). Per-card conditions accepted for fidelity.</summary>
+    public static ICardEffect GrantedReduceLinkCostClass(CardSource card, int reducedCost, bool isInheritedEffect = false, Func<bool>? condition = null) =>
+        new ContinuousSelfModifierEffect(card, ModifierHelpers.LinkCostDeltaKey, -Math.Abs(reducedCost), isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>MindLink</c> — grants the MindLink keyword (Tamer↔Digimon link). Grant is live via
+    /// HasKeyword; the tamer-as-Digimon behavior consumer migrates separately (preemptive seal).</summary>
+    public static ICardEffect MindLinkSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.MindLink, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W3) <c>UseRequirements</c> (AS-IS <c>IgnoreColorConditionClass</c>) — lets this card
+    /// digivolve ignoring the COLOR part of the printed requirement (level still enforced). Registers a
+    /// continuous ignore-color flag consulted by DigivolveAction. <paramref name="cardCondition"/> per-card.</summary>
+    public static ICardEffect UseRequirements(CardSource card, Func<CardSource, bool>? cardCondition = null, bool isInheritedEffect = false, Func<bool>? condition = null) =>
+        new ContinuousSelfRestrictionEffect(card, DigivolveAction.IgnoreColorRequirementKey, isInheritedEffect, condition);
 
     /// <summary>(PRIM-W2) Original: <c>PlaceSelfDelayOptionSecurityEffect(card)</c> — "[Security] place this
     /// card in the battle area" (a Delay Option triggered from security). Reuses the play-this-card-to-battle

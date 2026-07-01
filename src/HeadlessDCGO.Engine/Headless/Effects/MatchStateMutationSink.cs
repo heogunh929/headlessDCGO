@@ -72,6 +72,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string TrashDigivolutionCardsKind = "TrashDigivolutionCards"; // target = host; count, fromBottom
     public const string ReturnDigivolutionCardsKind = "ReturnDigivolutionCards"; // target = host; count, toDeck
     public const string TrashLinkCardsKind = "TrashLinkCards";                   // target = host; count (default all)
+    public const string TrainKind = "Train";                                     // (C-24) target = self; suspend + library top -> own stack bottom
+    public const string MaterialSaveKind = "MaterialSave";                       // (C-23) source = from-host; toEntityId, count -> move sources to another stack
+    public const string ToEntityIdKey = "toEntityId";
     // G10-007: play a SPECIFIC digivolution source out from under its host as a new battle-area Digimon
     // (cost-free). target = the under-card to play; HostEntityIdKey = the host it sits under.
     public const string PlayDigivolutionAsDigimonKind = "PlayDigivolutionAsDigimon";
@@ -319,6 +322,34 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case TrashLinkCardsKind:
                 ApplyTrashLinkCards(mutation, targetId);
+                break;
+            case TrainKind:
+                // (C-24 Training) suspend self + place the owner's top library card at the bottom of self's stack.
+                if (_zoneMover is { } trainMover)
+                {
+                    _pendingAsync.Add(ct => DigivolutionStackHelpers.TrainAsync(_repository, trainMover, targetId, ct));
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, TrainKind));
+                }
+                else
+                {
+                    _unsupported.Add(mutation);
+                }
+
+                break;
+            case MaterialSaveKind:
+                // (C-23 Material Save) re-parent `count` of the source-host's digivolution cards to another
+                // Digimon's stack (toEntityId). Source = the mutation's source (from-host).
+                if (mutation.Values.TryGetValue(ToEntityIdKey, out object? toRaw) && toRaw is string toValue && !string.IsNullOrWhiteSpace(toValue))
+                {
+                    int saveCount = ReadInt(mutation.Values, CountKey) ?? 1;
+                    DigivolutionStackHelpers.MoveSourcesBottom(_repository, mutation.SourceEntityId, new HeadlessEntityId(toValue), saveCount);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, MaterialSaveKind));
+                }
+                else
+                {
+                    _unsupported.Add(mutation);
+                }
+
                 break;
             default:
                 _unsupported.Add(mutation);
@@ -604,6 +635,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             }
         }
 
+        // (PRIM-W3) "this Digimon cannot be deleted by effects/skills" continuous restriction
+        // (CanNotBeDestroyedBySkillStaticEffect). ApplyDelete is the effect-sourced delete path (battle
+        // deletion runs through BattleDeletionGate), so this restriction applies exactly here.
+        foreach (CannotRestriction restriction in result.Restrictions)
+        {
+            if (restriction.Kind == CannotRestrictionKind.DeleteBySkill)
+            {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -805,6 +847,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
                 or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind
                 or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind
+                or TrainKind or MaterialSaveKind
                 or PlayDigivolutionAsDigimonKind;
     }
 

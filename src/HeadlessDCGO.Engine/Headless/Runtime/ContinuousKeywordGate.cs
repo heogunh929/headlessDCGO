@@ -50,6 +50,16 @@ public static class ContinuousKeywordGate
     public const string Fortitude = "Fortitude";
     public const string Evade = "Evade";
     public const string Save = "Save"; // (PRIM-W2) deletion-replacement keyword (hasSave, DeletionReplacementGate).
+    // (PRIM-W3) presence-flag keywords: Decoy/Fragment/Scapegoat are deletion-replacements
+    // (hasDecoy/hasFragment/hasScapegoat, DeletionReplacementGate); Iceclad/Execute have their own gates.
+    public const string Iceclad = "Iceclad";
+    public const string Decoy = "Decoy";
+    public const string Fragment = "Fragment";
+    public const string Execute = "Execute";
+    public const string Scapegoat = "Scapegoat";
+    // (PRIM-W3) MindLink: a Tamer↔Digimon link (tamer treated as a Digimon for certain effects). Grant is
+    // live via HasKeyword; the tamer-as-Digimon behavior consumer migrates separately (latent).
+    public const string MindLink = "MindLink";
 
     /// <summary>True if an active self-static <paramref name="keyword"/> binding in the registry is sourced
     /// from (or targets) <paramref name="cardId"/>.</summary>

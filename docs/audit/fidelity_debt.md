@@ -99,3 +99,17 @@
 3. **테이머 시큐리티 3장** — `PlaySelfTamerSecurityEffect` 한 번 구현 → 3장 동시 해결.
 4. **ST1_15 임계값 / ST2_01 배틀페어링** — 해당 메커니즘 실제 필요 시.
 5. **ST2_15 play-from-under** — 특수플레이 서브시스템 착수 시.
+
+---
+
+## 프리미티브 preemptive-seal 부채 (PRIM-W3)
+
+> **정의**: grant/등록은 live(쿼리 가능)이나 behavior-consumer가 아직 미마이그레이션 = 기존 코드베이스의 "preemptive seal" 패턴(키워드 grant Raid/Barrier 등과 동일). 카드 포팅 시 config-only로 호출은 되나, 아래 소비자 배선 전까지 실제 게임 동작은 미반영.
+
+| 프리미티브 | 등록(live) | 소비자(latent) | 상환 방법 |
+|---|---|---|---|
+| **MindLink** | `HasKeyword(MindLink)` | tamer-as-Digimon 판정부 | 태머를 특정 효과에서 디지몬으로 취급하는 소비자에 `HasKeyword(MindLink)` 체크 추가 |
+| **ChangeSelfLinkMax** | `linkedMaxDelta` 연속 수정자 | `LinkHelpers.EnforceLinkedMaxAsync`(registry 미보유) | Enforce 경로에 registry/context 스레딩 후 `ReadLinkedMax`가 연속 수정자 합산 |
+| **GrantedReduceLinkCost** | `linkCostDelta` 연속 수정자 | `LinkSelfEffect` 코스트 지불부 | Link 코스트 해석을 `ContinuousModifierGate` 경유로 변경 |
+
+**behavior-live(소비자 배선 완료, 실제 동작함)**: 키워드 grant 9종·Rush/Reboot/CanNotAttack static·Gain1/Gain2·CantUnsuspend·CanNotBeBlocked·CanNotBeDestroyedBySkill·ChangeSAttackStatic·ReturnToLibraryBottom·ReplaceBottomSecurity·Training·MaterialSave·**UseRequirements(ignore-color, DigivolveAction consult 배선)**·Arts/BlastDNA(subsume). = W3 24/27 behavior-live, 3/27 seal.

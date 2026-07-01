@@ -61,4 +61,16 @@ public static class ContinuousRestrictionGate
     {
         return RestrictionHelpers.CannotDigivolve(targetCardId, Evaluate(context, targetCardId), sourceEntityId);
     }
+
+    // (PRIM-W3) Continuous "does not unsuspend" restriction — consulted by the Unsuspend step.
+    public static CannotRestrictionResult EvaluateUnsuspend(EngineContext context, HeadlessEntityId targetId) =>
+        RestrictionHelpers.CannotUnsuspend(targetId, Evaluate(context, targetId));
+
+    // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
+    public static CannotRestrictionResult EvaluateBeBlocked(EngineContext context, HeadlessEntityId attackerId) =>
+        RestrictionHelpers.CannotBeBlocked(attackerId, Evaluate(context, attackerId));
+
+    // (PRIM-W3) Continuous "cannot be deleted by effect/skill" restriction — consulted by the effect-delete path.
+    public static CannotRestrictionResult EvaluateDeleteBySkill(EngineContext context, HeadlessEntityId targetId) =>
+        RestrictionHelpers.CannotBeDeletedBySkill(targetId, Evaluate(context, targetId));
 }

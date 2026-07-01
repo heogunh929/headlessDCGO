@@ -34,6 +34,13 @@ public sealed class BlockTiming
 
         ArgumentNullException.ThrowIfNull(attacker);
         ArgumentNullException.ThrowIfNull(attackerCard);
+
+        // (PRIM-W3) an unblockable attacker (CanNotBeBlockedStaticSelfEffect) offers no blocker candidates.
+        if (ContinuousRestrictionGate.EvaluateBeBlocked(context, attack.AttackerId.Value).IsRestricted)
+        {
+            return Array.Empty<BlockerCandidate>();
+        }
+
         bool attackerHasCollision = ReadBool(attacker.Metadata, HasCollisionKey) ||
             ReadBool(attackerCard.Metadata, HasCollisionKey);
 

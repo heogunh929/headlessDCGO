@@ -257,6 +257,8 @@ public sealed class DigivolveAction
         // lets the player digivolve without satisfying the printed evolution condition.
         if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
             && !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId)
+            && !(CanIgnoreColorRequirement(context, playerId, payload.CardId)
+                && MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard, ignoreColor: true))
             && !MatchesAddedDigivolutionRequirement(context, payload.CardId, playerId, targetCard))
         {
             return DigivolveValidation.Illegal(
@@ -366,14 +368,24 @@ public sealed class DigivolveAction
     /// Mirrors AS-IS <c>Player.CanIgnoreDigivolutionRequirement</c>.</summary>
     public const string IgnoreDigivolutionRequirementKey = "ignoreDigivolutionRequirement";
 
-    private static bool CanIgnoreDigivolutionRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId)
+    // (PRIM-W3 UseRequirements / IgnoreColorConditionClass) continuous "ignore the color part of the
+    // digivolution requirement" (level still enforced).
+    public const string IgnoreColorRequirementKey = "ignoreColorRequirement";
+
+    private static bool CanIgnoreDigivolutionRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
+        HasContinuousFlag(context, playerId, cardId, IgnoreDigivolutionRequirementKey);
+
+    private static bool CanIgnoreColorRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
+        HasContinuousFlag(context, playerId, cardId, IgnoreColorRequirementKey);
+
+    private static bool HasContinuousFlag(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId, string flagKey)
     {
         IEffectQueryService registry = context.EffectRegistry;
         string scope = ContinuousRestrictionGate.Scope;
 
         foreach (EffectRequest effect in registry.GetContinuousEffects(new EffectQueryContext(scope, targetEntityId: cardId)))
         {
-            if (ReadBool(effect.Context.Values, IgnoreDigivolutionRequirementKey))
+            if (ReadBool(effect.Context.Values, flagKey))
             {
                 return true;
             }
@@ -383,7 +395,7 @@ public sealed class DigivolveAction
             && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def : null;
         foreach (EffectRequest effect in PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, playerId, card))
         {
-            if (ReadBool(effect.Context.Values, IgnoreDigivolutionRequirementKey))
+            if (ReadBool(effect.Context.Values, flagKey))
             {
                 return true;
             }
@@ -444,7 +456,7 @@ public sealed class DigivolveAction
         return MatchesEvolutionCondition(token, targetCard);
     }
 
-    private static bool MatchesEvolutionCondition(string? condition, CardRecord targetCard)
+    private static bool MatchesEvolutionCondition(string? condition, CardRecord targetCard, bool ignoreColor = false)
     {
         if (string.IsNullOrWhiteSpace(condition))
         {
@@ -470,7 +482,9 @@ public sealed class DigivolveAction
             // target's actual color(s) and level; only fall back to the legacy id/number/type tokens.
             if (TryParseColorLevel(normalized, out string? fromColor, out int fromLevel))
             {
-                return TargetHasColor(targetCard, fromColor!) && TargetLevel(targetCard) == fromLevel;
+                // (PRIM-W3 UseRequirements / IgnoreColorConditionClass) when color is ignored, only the
+                // level must match — the printed color requirement is waived.
+                return (ignoreColor || TargetHasColor(targetCard, fromColor!)) && TargetLevel(targetCard) == fromLevel;
             }
 
             return string.Equals(normalized, targetCard.Id.Value, StringComparison.Ordinal) ||

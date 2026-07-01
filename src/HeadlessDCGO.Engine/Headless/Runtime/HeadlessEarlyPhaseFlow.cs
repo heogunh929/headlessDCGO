@@ -211,7 +211,9 @@ public sealed class HeadlessEarlyPhaseFlow
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
             !ReadBool(record.Metadata, "isSuspended") ||
-            (!ignoreCanUnsuspend && ReadBool(record.Metadata, "canUnsuspend", defaultValue: true) == false))
+            (!ignoreCanUnsuspend && ReadBool(record.Metadata, "canUnsuspend", defaultValue: true) == false) ||
+            // (PRIM-W3) continuous "does not unsuspend" restriction (CantUnsuspendStaticEffect).
+            (!ignoreCanUnsuspend && ContinuousRestrictionGate.EvaluateUnsuspend(context, cardId).IsRestricted))
         {
             return false;
         }

@@ -35,7 +35,18 @@
 | CanNotAttackStaticEffect (6) | `CardEffectFactory/CanNotAttack.cs` | 제약(대상) |
 | ArtsDigivolveEffect (6) | `KeyWordEffects/ArtsDigivolve.cs` | 특수진화 |
 
-## 진행 요약
+## 진행 (27/27 ✅ 완료, 269 green, RuleAudit 0)
+- [x] **키워드 grant 9종**: Blitz·Decode·Progress·Partition(Batch2) + Iceclad·Decoy·Fragment·Execute·Scapegoat(SelfKeywordByNameEffect + 상수). **G9-032**.
+- [x] **정적 non-self 3종**: RushStatic·RebootStatic(player-scope 키워드) + CanNotAttackStatic(player-scope 제약). **G9-033**.
+- [x] **메모리 2종**: Gain1MemoryTamerOpponentDigimon·Gain2MemoryOptionDelay(신규 TriggeredGainMemoryEffect). **G9-034**.
+- [x] **게이트-추가 제약 3종**: CantUnsuspend(언서스펜드 스텝)·CanNotBeBlocked(블록 후보 열거)·CanNotBeDestroyedBySkill(효과-삭제 경로). RestrictionHelpers 키·kind·helper + 각 게이트 consult 추가. **G9-035**(삭제는 end-to-end).
+- [x] **재사용/서브시스템-래퍼 6종**: ChangeSAttackStatic(player-scope SA 수정자)·ReturnToLibraryBottom(ReturnDigivolutionCardsKind)·ReplaceBottomSecurity x2(AddToSecurity+ReturnToHand)·Training(신규 TrainKind→TrainAsync)·MaterialSave(신규 MaterialSaveKind→MoveSourcesBottom). **G9-036** end-to-end.
+- [x] **subsume 2종**: Arts(FreeDigivolveHelpers Blast/Arts)·BlastDNA(SpecialPlayKind.DnaDigivolve free-recipe). 신규 코드 불요.
+- [x] **최종 4종**: MindLink(키워드 grant)·ChangeSelfLinkMax(LinkedMaxDelta 수정자)·GrantedReduceLinkCost(LinkCostDelta 수정자)·UseRequirements(ignore-color 플래그, DigivolveAction consult 배선). **G9-037**.
+
+> **preemptive-seal(grant live, behavior-consumer latent)**: MindLink(tamer-as-Digimon 소비자)·ChangeSelfLinkMax/GrantedReduceLinkCost(링크 서브시스템 소비자 EnforceLinkedMaxAsync/LinkSelfEffect가 registry 미보유 → 별도 마이그레이션). fidelity_debt.md 참조. 나머지는 behavior-live.
+
+## 이전 진행 요약(원안)
 - [ ] 키워드류(Partition·Blitz·Iceclad·Decoy·Fragment·Execute·Progress·Rush/Reboot-static)
 - [ ] would-be-deleted 대체군(Scapegoat·Decoy·Fragment) — 공통 창(DeletionReplacement) 재사용 검토
 - [ ] 메모리(Gain1/Gain2)·시큐리티 교체(ReplaceBottomSecurity)·특수진화(BlastDNA·Arts)

@@ -15,6 +15,10 @@ public enum CannotRestrictionKind
     Suspend = 5,
     // D-A5: "this Digimon cannot digivolve" continuous restriction.
     Digivolve = 6,
+    // (PRIM-W3) continuous restrictions consulted by the unsuspend step / block gate / effect-delete path.
+    Unsuspend = 7,
+    BeBlocked = 8,
+    DeleteBySkill = 9,
 }
 
 public sealed record CannotRestriction
@@ -195,6 +199,9 @@ public static class RestrictionHelpers
     public const string CannotReturnToLibraryKey = "cannotReturnToLibrary";
     public const string CannotSuspendKey = "cannotSuspend";
     public const string CannotDigivolveKey = "cannotDigivolve";
+    public const string CannotUnsuspendKey = "cannotUnsuspend";
+    public const string CannotBeBlockedKey = "cannotBeBlocked";
+    public const string CannotBeDeletedBySkillKey = "cannotBeDeletedBySkill";
 
     public static CannotRestrictionResult Evaluate(CannotRestrictionRequest request)
     {
@@ -354,6 +361,34 @@ public static class RestrictionHelpers
         return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.Digivolve, targetId, restrictions, sourceEntityId));
     }
 
+    // (PRIM-W3) "this Digimon does not unsuspend" — consulted by the Unsuspend step.
+    public static CannotRestrictionResult CannotUnsuspend(
+        HeadlessEntityId targetId,
+        IReadOnlyList<CannotRestriction> restrictions,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.Unsuspend, targetId, restrictions, sourceEntityId));
+    }
+
+    // (PRIM-W3) "this attacker cannot be blocked" — consulted when enumerating blocker candidates.
+    public static CannotRestrictionResult CannotBeBlocked(
+        HeadlessEntityId attackerId,
+        IReadOnlyList<CannotRestriction> restrictions,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.BeBlocked, attackerId, restrictions, sourceEntityId));
+    }
+
+    // (PRIM-W3) "this Digimon cannot be deleted by effects/skills" (battle deletion still applies) —
+    // consulted by the effect-sourced delete path.
+    public static CannotRestrictionResult CannotBeDeletedBySkill(
+        HeadlessEntityId targetId,
+        IReadOnlyList<CannotRestriction> restrictions,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.DeleteBySkill, targetId, restrictions, sourceEntityId));
+    }
+
     private static IEnumerable<CannotRestriction> ReadRestrictionsFromFlags(IReadOnlyDictionary<string, bool> flags)
     {
         foreach (KeyValuePair<string, bool> pair in flags)
@@ -397,7 +432,7 @@ public static class RestrictionHelpers
         IReadOnlyDictionary<string, object?> values,
         HeadlessEntityId? effectId)
     {
-        foreach (string key in new[] { CannotAttackKey, CannotBlockKey, CannotDeleteKey, CannotBeDeletedKey, CannotReturnToHandKey, CannotReturnToDeckKey, CannotReturnToLibraryKey, CannotSuspendKey, CannotDigivolveKey })
+        foreach (string key in new[] { CannotAttackKey, CannotBlockKey, CannotDeleteKey, CannotBeDeletedKey, CannotReturnToHandKey, CannotReturnToDeckKey, CannotReturnToLibraryKey, CannotSuspendKey, CannotDigivolveKey, CannotUnsuspendKey, CannotBeBlockedKey, CannotBeDeletedBySkillKey })
         {
             if (TryReadBool(values, key, out bool isRestricted) && isRestricted)
             {
@@ -488,12 +523,15 @@ public static class RestrictionHelpers
             CannotReturnToLibraryKey => CannotRestrictionKind.ReturnToDeck,
             CannotSuspendKey => CannotRestrictionKind.Suspend,
             CannotDigivolveKey => CannotRestrictionKind.Digivolve,
+            CannotUnsuspendKey => CannotRestrictionKind.Unsuspend,
+            CannotBeBlockedKey => CannotRestrictionKind.BeBlocked,
+            CannotBeDeletedBySkillKey => CannotRestrictionKind.DeleteBySkill,
             _ => default,
         };
 
         return key is CannotAttackKey or CannotBlockKey or CannotDeleteKey or CannotBeDeletedKey or
             CannotReturnToHandKey or CannotReturnToDeckKey or CannotReturnToLibraryKey or CannotSuspendKey or
-            CannotDigivolveKey;
+            CannotDigivolveKey or CannotUnsuspendKey or CannotBeBlockedKey or CannotBeDeletedBySkillKey;
     }
 
     private static IEnumerable<object?> FlattenObjects(object raw)
