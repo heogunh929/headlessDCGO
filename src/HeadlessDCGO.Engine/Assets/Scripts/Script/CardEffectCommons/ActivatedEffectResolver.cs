@@ -134,6 +134,22 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case DeckBottomBounceEffect bounce:
+                {
+                    // (PRIM-W2) direct-return a pre-computed target list to the deck bottom — no choice.
+                    bounce.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
+                case LinkSelfEffect link:
+                {
+                    // (PRIM-W2) <Link>: choose a host + attach this card as a link card (LinkHelpers).
+                    await link.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case HatchDigiEggEffect hatch:
                 {
                     // (BT-PRE-A4) CanHatch-gated digi-egg hatch — no choice; a direct ZoneMover move (no sink

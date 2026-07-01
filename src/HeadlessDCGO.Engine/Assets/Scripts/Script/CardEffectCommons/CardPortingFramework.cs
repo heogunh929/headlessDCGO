@@ -373,6 +373,69 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
     }
 }
 
+/// <summary>(PRIM-W2) Mirror of the original <c>&lt;Link&gt;</c> activation (<c>CardEffectFactory.LinkEffect</c>):
+/// attach THIS card as a link card to a chosen own battle-area Digimon, paying the link cost. Drives the
+/// host choice through the activation <c>ChoiceProvider</c> and attaches via
+/// <see cref="Runtime.LinkHelpers.AddLinkCardAsync"/> (which emits the WhenLinked window / trims the host's
+/// link max). Bounded to the self-play synchronous flow; the link CONDITION (which hosts are valid) is a
+/// per-card predicate.</summary>
+public sealed class LinkSelfEffect : IActivatedCardEffect
+{
+    public LinkSelfEffect(CardSource card, int linkCost, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        LinkCost = linkCost;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public int LinkCost { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(CancellationToken cancellationToken)
+    {
+        EngineContext context = Card.Context;
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        List<ChoiceCandidate> candidates = zones.GetCards(Card.Owner, ChoiceZone.BattleArea)
+            .Where(id => id != Card.InstanceId && CardEffectCommons.IsOwnerBattleAreaDigimon(Card, id))
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: Card.Owner))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return; // no valid host.
+        }
+
+        var request = new ChoiceRequest(
+            ChoiceType.Card, Card.Owner, Description, minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.BattleArea, candidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.IsSkipped || result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        if (LinkCost > 0)
+        {
+            context.MemoryController.Pay(LinkCost);
+        }
+
+        ChoiceZone from = zones.GetCards(Card.Owner, ChoiceZone.Hand).Contains(Card.InstanceId) ? ChoiceZone.Hand : ChoiceZone.BattleArea;
+        await LinkHelpers.AddLinkCardAsync(
+            context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0], Card.InstanceId, from, context.GameEventQueue, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Link effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>(PRIM-W1-6/9) A continuous "added digivolution requirement" on self — grants this card an
 /// ADDITIONAL "Color@Level" from-condition (AS-IS AddDigivolutionRequirementStaticEffect /
 /// AddDigivolutionRequirementClass). Registered under <see cref="ContinuousRestrictionGate.Scope"/> carrying
@@ -508,6 +571,113 @@ public sealed class SelfKeywordBatch2Effect : ICardEffect
             isInherited: IsInheritedEffect,
             isLinked: false);
         return KeywordBaseBatch2Factory.ToBinding(effect, Card.Controller, context);
+    }
+}
+
+/// <summary>(PRIM-W2) A self-static keyword grant BY NAME — for keywords outside the Batch1/Batch2 enums
+/// (Raid / Barrier / Collision / Fortitude / Evade) whose behaviour gates read a metadata flag. Registers a
+/// keyword binding (keywords = [name], target self) so <see cref="ContinuousKeywordGate.HasKeyword"/> reports
+/// it live; the same bar as the Batch2 self-statics. Condition / inherited carried on the binding values.</summary>
+public sealed class SelfKeywordByNameEffect : ICardEffect
+{
+    public SelfKeywordByNameEffect(CardSource card, string keywordName, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keywordName);
+        Card = card;
+        KeywordName = keywordName;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public string KeywordName { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: new[] { KeywordName }, EffectQueryRole.Continuous, queryScopes: null, effect: null, duration: null);
+    }
+}
+
+/// <summary>(PRIM-W2) A continuous PLAYER-SCOPE keyword grant — grants a keyword to a player's cards
+/// (optionally narrowed by CardType), e.g. "your Digimon gain &lt;Blocker&gt;". Registers a keyword binding
+/// (keywords = [name]) carrying the player-scope markers; <see cref="ContinuousKeywordGate.HasKeyword"/>
+/// (context overload) resolves it for any of the scoped player's cards.</summary>
+public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
+{
+    private readonly HeadlessPlayerId _scopePlayerId;
+
+    public ContinuousPlayerScopeKeywordEffect(CardSource card, HeadlessPlayerId scopePlayerId, string keywordName, string? scopeCardType, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keywordName);
+        Card = card;
+        _scopePlayerId = scopePlayerId;
+        KeywordName = keywordName;
+        ScopeCardType = scopeCardType;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public string KeywordName { get; }
+
+    public string? ScopeCardType { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
+            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
+        };
+        if (!string.IsNullOrWhiteSpace(ScopeCardType))
+        {
+            values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
+        }
+
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: new[] { KeywordName }, EffectQueryRole.Continuous, queryScopes: null, effect: null, duration: null);
     }
 }
 
@@ -1103,6 +1273,64 @@ public sealed class TriggeredUnsuspendSelfEffect : ICardEffect, IHeadlessCardEff
     }
 }
 
+/// <summary>(PRIM-W2) A triggered "set your memory to <see cref="TargetMemory"/> if it is
+/// &lt;= <see cref="Threshold"/>" effect — the Tamer memory-setter family (AS-IS SetMemoryTo3TamerEffect:
+/// "[Start of Your Turn] If you have 2 or less memory, set your memory to 3."). Auto-registered under its
+/// timing (OnStartTurn); resolves only on the owner's turn (mirrors IsOwnerTurn) and only when the current
+/// memory is at or below the threshold, emitting a SetMemory mutation.</summary>
+public sealed class TriggeredSetMemoryEffect : ICardEffect, IHeadlessCardEffect
+{
+    public TriggeredSetMemoryEffect(CardSource card, EffectTiming timing, int targetMemory, int threshold, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        TargetMemory = targetMemory;
+        Threshold = threshold;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:setmemory:{trigger}"), card.InstanceId, description, trigger, isOptional: false);
+    }
+
+    public CardSource Card { get; }
+
+    public int TargetMemory { get; }
+
+    public int Threshold { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // AS-IS IsOwnerTurn + "2 or less memory" gate.
+        if (Card.Context.TurnController.Current.TurnPlayerId != Card.Owner
+            || Card.Context.MemoryController.Current.Current > Threshold)
+        {
+            return ValueTask.FromResult(EffectResult.Success("Set-memory condition not met; no change."));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.SetMemoryKind,
+            Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = TargetMemory }));
+        return ValueTask.FromResult(EffectResult.Success($"Set memory to {TargetMemory}."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
+}
+
 /// <summary>
 /// An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
 /// <paramref name="trashCount"/> of each host's digivolution cards" effect (e.g. ST2_03 / ST2_06 / ST2_09).
@@ -1273,6 +1501,57 @@ public sealed class SimplifiedSelectCardConditionClass
     public int MaxCount { get; }
 }
 
+/// <summary>(PRIM-W2) Mirror of the original <c>SelectCardConditionClass</c>
+/// (CardEffectCommons/RevealLibrary.cs) — the fuller reveal-select descriptor
+/// (<see cref="SimplifiedSelectCardConditionClass"/> is the simplified twin, which the original maps onto
+/// this). Consumed by the same reveal-select mechanism (<see cref="SimplifiedRevealAndSelectEffect"/>) via
+/// <see cref="ToSimplified"/>. The advanced predicates (by-pre-selected-list / can-end-select) and the
+/// <c>Mode.Custom</c> per-card select action are accepted for 1:1 source fidelity but resolved per-card.</summary>
+public sealed class SelectCardConditionClass
+{
+    public SelectCardConditionClass(
+        Func<HeadlessEntityId, bool> canTargetCondition,
+        Func<IReadOnlyList<HeadlessEntityId>, HeadlessEntityId, bool>? canTargetConditionByPreSelectedList,
+        Func<IReadOnlyList<HeadlessEntityId>, bool>? canEndSelectCondition,
+        bool canNoSelect,
+        string message,
+        int maxCount,
+        bool canEndNotMax,
+        RevealDestination selectedTo)
+    {
+        ArgumentNullException.ThrowIfNull(canTargetCondition);
+        CanTargetCondition = canTargetCondition;
+        CanTargetConditionByPreSelectedList = canTargetConditionByPreSelectedList;
+        CanEndSelectCondition = canEndSelectCondition;
+        CanNoSelect = canNoSelect;
+        Message = message ?? string.Empty;
+        MaxCount = maxCount;
+        CanEndNotMax = canEndNotMax;
+        SelectedTo = selectedTo;
+    }
+
+    public Func<HeadlessEntityId, bool> CanTargetCondition { get; }
+
+    public Func<IReadOnlyList<HeadlessEntityId>, HeadlessEntityId, bool>? CanTargetConditionByPreSelectedList { get; }
+
+    public Func<IReadOnlyList<HeadlessEntityId>, bool>? CanEndSelectCondition { get; }
+
+    public bool CanNoSelect { get; }
+
+    public string Message { get; }
+
+    public int MaxCount { get; }
+
+    public bool CanEndNotMax { get; }
+
+    public RevealDestination SelectedTo { get; }
+
+    /// <summary>The core (condition/message/destination/maxCount) as the simplified twin the reveal-select
+    /// mechanism consumes.</summary>
+    public SimplifiedSelectCardConditionClass ToSimplified() =>
+        new(CanTargetCondition, Message, SelectedTo, MaxCount);
+}
+
 /// <summary>
 /// (BT-PRE-A2) Mirror of the original <c>CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect</c>: reveal
 /// the top <see cref="RevealCount"/> library cards, run each <see cref="SimplifiedSelectCardConditionClass"/>
@@ -1436,6 +1715,49 @@ public sealed class DestroyPermanentsEffect : IActivatedCardEffect
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Destroy-permanents effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(PRIM-W2) Mirror of the original <c>DeckBottomBounceClass</c> (CardController.cs): return a
+/// pre-computed list of permanents to the bottom of their owners' decks. Each target is staged as a
+/// <c>ReturnToDeckBottom</c> sink mutation; the sink's centralised immunity gate filters (source = this
+/// card), mirroring <see cref="DestroyPermanentsEffect"/> for the delete case.</summary>
+public sealed class DeckBottomBounceEffect : IActivatedCardEffect
+{
+    private readonly IReadOnlyList<HeadlessEntityId> _targets;
+
+    public DeckBottomBounceEffect(CardSource card, IReadOnlyList<HeadlessEntityId> targets, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _targets = targets;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        foreach (HeadlessEntityId target in _targets)
+        {
+            if (target.IsEmpty)
+            {
+                continue;
+            }
+
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.ReturnToDeckBottomKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Deck-bottom-bounce effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>
@@ -2006,6 +2328,93 @@ public static partial class CardEffectFactory
     /// derives its binding from the card source, so it is not otherwise needed.</summary>
     public static ICardEffect VortexSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null) =>
         new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Vortex, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>RushSelfStaticEffect</c> — grants Rush to self (Batch2).</summary>
+    public static ICardEffect RushSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Rush, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>RetaliationSelfEffect(isInheritedEffect, card, condition, isLinkedEffect = false)</c>
+    /// — grants Retaliation to self (Batch2). <paramref name="isLinkedEffect"/> is accepted for source-signature
+    /// fidelity; the headless grant derives from the card source.</summary>
+    public static ICardEffect RetaliationSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Retaliation, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>RaidSelfEffect</c> — grants Raid (attack-switch) to self.
+    /// <paramref name="rootCardEffect"/>/<paramref name="isLinkedEffect"/> accepted for source fidelity.</summary>
+    public static ICardEffect RaidSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null, bool isLinkedEffect = false) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Raid, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>BarrierSelfEffect</c> — grants Barrier (deletion-replacement) to self.</summary>
+    public static ICardEffect BarrierSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Barrier, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>CollisionSelfStaticEffect</c> — grants Collision (forced-block) to self.</summary>
+    public static ICardEffect CollisionSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Collision, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>FortitudeSelfEffect</c> — grants Fortitude (post-deletion replay) to self.</summary>
+    public static ICardEffect FortitudeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Fortitude, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>EvadeSelfEffect</c> — grants Evade (deletion-replacement) to self.</summary>
+    public static ICardEffect EvadeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Evade, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>SaveEffect(card)</c> — grants Save (deletion-replacement: place under a
+    /// Tamer instead of trashing) to self.</summary>
+    public static ICardEffect SaveEffect(CardSource card) =>
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Save, isInheritedEffect: false, condition: null);
+
+    /// <summary>(PRIM-W2) Original: <c>PlaceSelfDelayOptionSecurityEffect(card)</c> — "[Security] place this
+    /// card in the battle area" (a Delay Option triggered from security). Reuses the play-this-card-to-battle
+    /// mechanism (<see cref="PlayThisCardToBattleEffect"/>, cost-free move to the battle area); the Delay
+    /// option's later trigger is a per-card effect on the placed card.</summary>
+    public static ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card) =>
+        new PlayThisCardToBattleEffect(card, "[Security] Place this card in the battle area.");
+
+    /// <summary>(PRIM-W2) Original: <c>PlaySelfDigimonAfterBattleSecurityEffect(card, deleteDigimon)</c> —
+    /// "[Security] play this Digimon" (from security to the battle area). Reuses the play-this-card-to-battle
+    /// mechanism (<see cref="PlayThisCardToBattleEffect"/>). The "at end of battle" timing and the temporary
+    /// (<c>deleteDigimon</c>) lifetime are per-card refinements on the placed Digimon.</summary>
+    public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card) =>
+        new PlayThisCardToBattleEffect(card, "[Security] Play this Digimon (from security).");
+
+    /// <summary>(PRIM-W2) Original: <c>LinkEffect(card, condition)</c> — the &lt;Link&gt; activation: attach
+    /// this card to a chosen own Digimon, paying the link cost (read from the card's <c>linkCost</c> data).</summary>
+    public static ICardEffect LinkEffect(CardSource card, Func<bool>? condition = null)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        int linkCost = card.Context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? inst) && inst is not null
+            && card.Context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
+            && def.Metadata.TryGetValue("linkCost", out object? raw) && raw is int cost ? cost : 0;
+        return new LinkSelfEffect(card, linkCost, $"Link (Cost: {linkCost}).");
+    }
+
+    /// <summary>(PRIM-W2) Original: <c>BlockerStaticEffect(permanentCondition, isInheritedEffect, card,
+    /// condition, isLinkedEffect)</c> — grants Blocker to a set of permanents. Modeled as a PLAYER-SCOPE
+    /// Blocker grant on the owner's Digimon (the common "your Digimon gain &lt;Blocker&gt;" form);
+    /// <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> accepted for source fidelity,
+    /// per-permanent narrowing beyond the owner scope is a per-card concern.</summary>
+    public static ICardEffect BlockerStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Blocker, scopeCardType: null, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W2) Original: <c>SetMemoryTo3TamerEffect(card)</c> — "[Start of Your Turn] If you have
+    /// 2 or less memory, set your memory to 3." (Tamer memory-setter). Triggered on OnStartTurn.</summary>
+    public static ICardEffect SetMemoryTo3TamerEffect(CardSource card) =>
+        new TriggeredSetMemoryEffect(card, EffectTiming.OnStartTurn, targetMemory: 3, threshold: 2,
+            "[Start of Your Turn] If you have 2 or less memory, set your memory to 3.");
+
+    /// <summary>(PRIM-W2) Original: <c>ArmorPurgeEffect(card)</c> — grants ArmorPurge to self (Batch2).</summary>
+    public static ICardEffect ArmorPurgeEffect(CardSource card) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.ArmorPurge, isInheritedEffect: false, condition: null);
+
+    /// <summary>(PRIM-W2) Original: <c>CanNotAttackSelfStaticEffect(defenderCondition, isInheritedEffect, card,
+    /// condition, effectName)</c> — "this Digimon cannot attack" (self). Registers a CannotAttack restriction
+    /// (reusable <see cref="ContinuousSelfRestrictionEffect"/>) that AttackPermanentAction consults via
+    /// ContinuousRestrictionGate.EvaluateAttack. <paramref name="defenderCondition"/>/<paramref name="effectName"/>
+    /// are accepted for source fidelity; per-defender narrowing is a per-card concern.</summary>
+    public static ICardEffect CanNotAttackSelfStaticEffect(Func<Permanent, bool>? defenderCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
+        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotAttackKey, isInheritedEffect, condition);
 
     /// <summary>Original: <c>ChangeDPStaticEffect</c> — continuous ±DP on a set of permanents. Here scoped
     /// to the owner's Digimon (the common "your Digimon get +X DP" form); <paramref name="permanentCondition"/>

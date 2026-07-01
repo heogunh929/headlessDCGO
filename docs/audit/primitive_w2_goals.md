@@ -32,7 +32,30 @@
 > 권장 소순서: **키워드류(W2-4/6/7/10/14/16/19)** 먼저(기존 팩토리 관용 복제로 저비용) → 메모리(W2-2) → 시큐리티(W2-8/13) → 특수진화(W2-3)·링크(W2-5)·앱퓨즈(W2-17) → 프레임워크(W2-1)·리치select(W2-15) → 나머지.
 
 ## 진행 요약
-- [ ] 키워드 7종 (Retaliation·Raid·Barrier·Rush·Collision·Fortitude·Evade)
+- [x] **키워드 7종 — 완료** (G9-025 8/8, 257 green):
+  - Rush·Retaliation·(ArmorPurge 등): Batch2 enum → `SelfKeywordBatch2Effect` 1줄.
+  - Raid·Barrier·Collision·Fortitude·Evade: 신설 `SelfKeywordByNameEffect`(이름별 keyword 바인딩) + `ContinuousKeywordGate` 상수 5개 추가 → `HasKeyword` grant live.
+  - **바(bar)**: Alliance/Overclock와 동일 = grant가 게이트에 live(HasKeyword). behavior 소비자(메타 플래그 hasRaid 등)를 HasKeyword로 마이그레이션하는 건 per-gate 후속(behavior, grant 프리미티브 아님 — 코드베이스 "preemptive seal" 관용).
+  - 재사용: `SelfKeywordByNameEffect`는 이후 이름-기반 키워드 grant에 재사용.
+- [x] **SetMemoryTo3Tamer** — 신설 `TriggeredSetMemoryEffect`(OnStartTurn 트리거, IsOwnerTurn+메모리≤2 가드 → sink SetMemory). G9-026 4/4. 258 green.
+- [x] **ArmorPurge** (Batch2 enum) · **CanNotAttackSelf** (`ContinuousSelfRestrictionEffect` 재사용) · **DeckBottomBounce** (`DeckBottomBounceEffect` = ReturnToDeckBottom sink, Destroy 미러) — G9-027 3/3. 259 green.
+- [x] **BlastDigivolve — SUBSUMED**: `SpecialPlayKind.Blast` 이미 존재(SpecialPlayAction + FreeDigivolveHelpers, 레시피 데이터 구동). 카드-facing 프리미티브 불필요(jogress 패턴).
+- [x] **ActivateClassesForSharedEffects — SUBSUMED**: 원본은 `List<ICardEffect>` 병합 authoring 헬퍼. 헤드리스는 카드가 효과 리스트 직접 반환 → 런타임 프리미티브 아님.
+- [x] **Save** — keyword grant(`SelfKeywordByNameEffect(Save)`, ContinuousKeywordGate.Save). G9-025 10/10.
+- [x] **BlockerStatic**(비-self) — 신설 `ContinuousPlayerScopeKeywordEffect`(player-scope 키워드) + `HasKeyword` player-scope 확장(additive, BlockTiming이 읽는 seam). G9-028 3/3. 260 green. **재사용 기반**.
+- [x] **SelectCardConditionClass** — 신설 디스크립터 + `ToSimplified()`로 reveal-select 메커니즘 연결. `TfxSelectCardCond`/G9-029.
+- [x] **시큐리티 2**(PlaceSelfDelayOption·PlayAfterBattleSecurity) — `PlayThisCardToBattleEffect` 재사용(시큐리티→배틀). G9-031.
+- [x] **AddAppfuse** — `SpecialPlayKind.AppFusion` 추가(DigiXros fusion 경로, 레시피 데이터-구동). G9-030.
+- [x] **Link** — 신설 `LinkSelfEffect`(host 선택 + 링크코스트 지불 + `LinkHelpers.AddLinkCardAsync` attach) + resolver case. G9-031.
+
+## ✅ PRIM-W2 전부 완료 (20/20)
+263 green, RuleAudit 0. 신설 재사용 인프라: `SelfKeywordByNameEffect`·`TriggeredSetMemoryEffect`·`DeckBottomBounceEffect`·`ContinuousPlayerScopeKeywordEffect`(+HasKeyword player-scope)·`SelectCardConditionClass`·`LinkSelfEffect`·`SpecialPlayKind.AppFusion`. subsumed: BlastDigivolve·ActivateClassesForShared. 테스트 G9-025~031.
+
+## W2 누적 (15/20 해소: 13 built + 2 subsumed)
+키워드 7·SetMemory·ArmorPurge·CanNotAttackSelf·DeckBottomBounce·Save·BlockerStatic + Blast/ActivateClassesForShared(subsumed). 신설 재사용 인프라: `SelfKeywordByNameEffect`·`TriggeredSetMemoryEffect`·`DeckBottomBounceEffect`·`ContinuousPlayerScopeKeywordEffect`+HasKeyword player-scope. 테스트 G9-025~028.
+
+## W2 누적 완료 (11/20)
+키워드 7 · SetMemoryTo3Tamer · ArmorPurge · CanNotAttackSelf · DeckBottomBounce. 신설 재사용 인프라: `SelfKeywordByNameEffect`·`TriggeredSetMemoryEffect`·`DeckBottomBounceEffect`. 테스트 G9-025~027.
 - [ ] 메모리(SetMemoryTo3Tamer) · 시큐리티(PlaceSelfDelayOption·PlayAfterBattle)
 - [ ] 특수진화(Blast) · 링크(Link) · 앱퓨즈(AddAppfuse) · 바운스(DeckBottomBounce)
 - [ ] 프레임워크(ActivateClassesForShared) · 리치select(SelectCardCondition) · ArmorPurge · Save · BlockerStatic · CanNotAttackSelf

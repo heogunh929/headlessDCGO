@@ -17,6 +17,11 @@ public enum SpecialPlayKind
 
     /// <summary>Blast Digivolve: a single battle-area target is digivolved into for free.</summary>
     Blast,
+
+    /// <summary>(PRIM-W2) App Fusion: named [App] material Digimon fuse under the new top — mechanically the
+    /// same "materials -> sources" fusion as DigiXros (routed through FusionKind.DigiXros in ProcessAsync).
+    /// The recipe (material names + cost) is data-driven via SpecialPlayRecipeRegistry, like DigiXros.</summary>
+    AppFusion,
 }
 
 // (G6-004) Special plays that put a card onto the battle area by consuming materials, rather than the

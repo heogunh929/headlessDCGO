@@ -39,14 +39,57 @@ public static class ContinuousKeywordGate
     public const string Decode = "Decode";
     public const string Partition = "Partition";
     public const string Vortex = "Vortex"; // GR-006: end-of-turn effect-driven attack (opponent Digimon).
+    // (PRIM-W2 preemptive seal) same presence-flag pattern — behaviour consumers currently read the metadata
+    // flags hasRaid (RaidAttackSwitch) / hasCollision (BlockTiming) / hasFortitude·hasBarrier·hasEvade
+    // (DeletionReplacementGate). Wiring the gate names now means a self-static grant is queryable via
+    // HasKeyword (same bar as Alliance/Overclock); migrating those consumers to also read HasKeyword is a
+    // per-gate follow-up (behaviour, not this grant primitive).
+    public const string Raid = "Raid";
+    public const string Barrier = "Barrier";
+    public const string Collision = "Collision";
+    public const string Fortitude = "Fortitude";
+    public const string Evade = "Evade";
+    public const string Save = "Save"; // (PRIM-W2) deletion-replacement keyword (hasSave, DeletionReplacementGate).
 
     /// <summary>True if an active self-static <paramref name="keyword"/> binding in the registry is sourced
     /// from (or targets) <paramref name="cardId"/>.</summary>
     public static bool HasKeyword(EngineContext context, HeadlessEntityId cardId, string keyword)
     {
         ArgumentNullException.ThrowIfNull(context);
-        return HasKeyword(context.EffectRegistry, cardId, keyword);
+        if (HasKeyword(context.EffectRegistry, cardId, keyword))
+        {
+            return true;
+        }
+
+        // (PRIM-W2) a PLAYER-SCOPE keyword grant ("your Digimon gain <Blocker>") applies to any of the scoped
+        // player's cards (optionally CardType-narrowed). Additive over the direct self/target check.
+        if (cardId.IsEmpty || string.IsNullOrWhiteSpace(keyword)
+            || !context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null)
+        {
+            return false;
+        }
+
+        CardRecord? card = context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) ? def : null;
+        foreach (EffectBinding binding in context.EffectRegistry.GetKeywordEffects(keyword))
+        {
+            IReadOnlyDictionary<string, object?> values = binding.Request.Context.Values;
+            if (values.TryGetValue(Effects.PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scoped) && scoped is true
+                && ReadPlayerScopeId(values) == instance.OwnerId.Value
+                && Effects.PlayerScopeContinuousHelpers.ConditionMatches(values, card)
+                && KeywordConditionPasses(values))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
+
+    private static int ReadPlayerScopeId(IReadOnlyDictionary<string, object?> values) =>
+        values.TryGetValue(Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? raw) && raw is int id ? id : -1;
+
+    private static bool KeywordConditionPasses(IReadOnlyDictionary<string, object?> values) =>
+        !values.TryGetValue("continuous.condition", out object? raw) || raw is not Func<bool> condition || condition();
 
     /// <summary>Registry-only overload for consumers that hold an <see cref="EffectRegistry"/> but not the
     /// full <see cref="EngineContext"/> (e.g. DeletionReplacementGate's context-less resolution methods).</summary>
