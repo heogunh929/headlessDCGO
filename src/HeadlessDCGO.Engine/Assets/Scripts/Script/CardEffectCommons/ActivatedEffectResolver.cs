@@ -108,6 +108,49 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case DrawEffect draw:
+                {
+                    // (BT-PRE-A1) "draw N" — no choice; stage the DrawCards mutation on the shared sink.
+                    draw.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
+                case SimplifiedRevealAndSelectEffect reveal:
+                {
+                    // (BT-PRE-A2) reveal top N + per-condition select + destination routing. Drives the
+                    // ChoiceProvider itself (multi-step), staging every move on the shared sink.
+                    await reveal.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case DestroyPermanentsEffect destroy:
+                {
+                    // (BT-PRE-A3) direct-delete a pre-computed target list — no choice; the sink's centralised
+                    // immunity / deletion-prevention gates filter.
+                    destroy.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
+                case HatchDigiEggEffect hatch:
+                {
+                    // (BT-PRE-A4) CanHatch-gated digi-egg hatch — no choice; a direct ZoneMover move (no sink
+                    // kind for hatch), re-run safe via the empty-breeding-area guard.
+                    await hatch.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case PlayCardEffect playCard:
+                {
+                    // (BT-PRE-A5) cost-free play of a pre-selected card — no choice; stage the PlayCard mutation.
+                    playCard.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
                 case PlayThisCardToBattleEffect playSelf:
                 {
                     // (G10-003) A Tamer's [Security] "play this Tamer": play the revealed card onto the

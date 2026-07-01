@@ -1022,6 +1022,349 @@ public sealed class ActivatedMemoryEffect : IActivatedCardEffect
 }
 
 /// <summary>
+/// (BT-PRE-A1) Mirror of the original <c>DrawClass</c> (DCGO/Assets/Scripts/Script/CardController.cs):
+/// "draw <see cref="DrawCount"/> cards" from the top of the controller's library to their hand. The AS-IS
+/// <c>Draw()</c> guards drawCount &gt; 0 and an empty library (no-op), and draws min(count, available); those
+/// guards live in <c>ZoneMover.DrawAsync</c>, which this stages via the sink's <c>DrawCards</c> mutation so
+/// it flushes once with the rest of the activation (re-run safe under the deferred-choice cycle — a later
+/// effect suspending will NOT double-draw, since nothing flushes until resolution completes).
+/// </summary>
+public sealed class DrawEffect : IActivatedCardEffect
+{
+    public DrawEffect(CardSource card, int drawCount, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        DrawCount = drawCount;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public int DrawCount { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        // AS-IS DrawClass.Draw(): `if (_drawCount <= 0) yield break;` — emit nothing for a non-positive count.
+        if (DrawCount <= 0)
+        {
+            return;
+        }
+
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.DrawCardsKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.PlayerIdKey] = Card.Owner,
+                [MatchStateMutationSink.CountKey] = DrawCount,
+            }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Draw effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// (BT-PRE-A2) Mirror of the original <c>SimplifiedSelectCardConditionClass</c>
+/// (DCGO/Assets/Scripts/Script/CardEffectCommons/RevealLibrary.cs): a single "select up to
+/// <see cref="MaxCount"/> revealed cards matching <see cref="CanTargetCondition"/>, sending the chosen ones
+/// to <see cref="SelectedTo"/>" condition, used inside <see cref="SimplifiedRevealAndSelectEffect"/>. The
+/// AS-IS <c>mode</c> (<c>SelectCardEffect.Mode</c>) is represented by a <see cref="RevealDestination"/> — the
+/// dominant BT usage is <c>Mode.AddHand</c> → <see cref="RevealDestination.Hand"/> (tutor). The AS-IS
+/// <c>selectCardCoroutine</c> (Mode.Custom) per-card action is a per-card follow-up (not modeled here).
+/// </summary>
+public sealed class SimplifiedSelectCardConditionClass
+{
+    public SimplifiedSelectCardConditionClass(
+        Func<HeadlessEntityId, bool> canTargetCondition,
+        string message,
+        RevealDestination selectedTo,
+        int maxCount)
+    {
+        ArgumentNullException.ThrowIfNull(canTargetCondition);
+        CanTargetCondition = canTargetCondition;
+        Message = message ?? string.Empty;
+        SelectedTo = selectedTo;
+        MaxCount = maxCount;
+    }
+
+    public Func<HeadlessEntityId, bool> CanTargetCondition { get; }
+
+    public string Message { get; }
+
+    public RevealDestination SelectedTo { get; }
+
+    public int MaxCount { get; }
+}
+
+/// <summary>
+/// (BT-PRE-A2) Mirror of the original <c>CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect</c>: reveal
+/// the top <see cref="RevealCount"/> library cards, run each <see cref="SimplifiedSelectCardConditionClass"/>
+/// in turn (select condition-matching revealed cards → that condition's destination), then send every
+/// still-unselected revealed card to <see cref="RemainingTo"/>. Choices flow through the activation
+/// <c>ChoiceProvider</c> (re-run safe: choose-then-stage, all moves staged on the sink and flushed once).
+/// </summary>
+public sealed class SimplifiedRevealAndSelectEffect : IActivatedCardEffect
+{
+    private readonly IReadOnlyList<SimplifiedSelectCardConditionClass> _conditions;
+
+    public SimplifiedRevealAndSelectEffect(
+        CardSource card,
+        int revealCount,
+        IReadOnlyList<SimplifiedSelectCardConditionClass> conditions,
+        RevealDestination remainingTo,
+        string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(conditions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        RevealCount = revealCount;
+        _conditions = conditions;
+        RemainingTo = remainingTo;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public int RevealCount { get; }
+
+    public RevealDestination RemainingTo { get; }
+
+    public string Description { get; }
+
+    /// <summary>Reveal + per-condition select + destination routing. Driven by <see cref="ActivatedEffectResolver"/>
+    /// (which has the live ChoiceProvider); all moves are staged on <paramref name="sink"/> for one flush.</summary>
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        HeadlessPlayerId player = Card.Owner;
+        List<HeadlessEntityId> revealed = zones.GetCards(player, ChoiceZone.Library)
+            .Take(Math.Max(0, RevealCount)).ToList();
+        if (revealed.Count == 0)
+        {
+            return; // AS-IS: nothing to reveal -> no-op.
+        }
+
+        var picked = new HashSet<HeadlessEntityId>();
+        foreach (SimplifiedSelectCardConditionClass condition in _conditions)
+        {
+            List<ChoiceCandidate> candidates = revealed
+                .Where(id => !picked.Contains(id) && condition.CanTargetCondition(id))
+                .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Library, IsSelectable: true, ownerId: player))
+                .ToList();
+            if (candidates.Count == 0)
+            {
+                continue; // no match for this condition -> skip it (AS-IS surfaces an empty/auto selection).
+            }
+
+            int max = Math.Min(condition.MaxCount, candidates.Count);
+            var request = new ChoiceRequest(
+                ChoiceType.Card, player, string.IsNullOrEmpty(condition.Message) ? Description : condition.Message,
+                minCount: 0, maxCount: Math.Max(1, max), canSkip: true, ChoiceZone.Library, candidates);
+
+            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+            if (result.IsSkipped)
+            {
+                continue;
+            }
+
+            foreach (HeadlessEntityId id in result.SelectedIds)
+            {
+                if (picked.Add(id))
+                {
+                    StageMove(sink, id, condition.SelectedTo);
+                }
+            }
+        }
+
+        foreach (HeadlessEntityId id in revealed)
+        {
+            if (!picked.Contains(id))
+            {
+                StageMove(sink, id, RemainingTo);
+            }
+        }
+    }
+
+    private void StageMove(MatchStateMutationSink sink, HeadlessEntityId cardId, RevealDestination destination)
+    {
+        string kind = destination switch
+        {
+            RevealDestination.Hand => MatchStateMutationSink.ReturnToHandKind,
+            RevealDestination.DeckTop => MatchStateMutationSink.ReturnToDeckTopKind,
+            RevealDestination.DeckBottom => MatchStateMutationSink.ReturnToDeckBottomKind,
+            RevealDestination.Trash => MatchStateMutationSink.TrashCardKind,
+            _ => MatchStateMutationSink.ReturnToDeckBottomKind,
+        };
+        sink.Apply(new EffectMutation(
+            kind, Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Reveal-and-select effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// (BT-PRE-A3) Mirror of the original <c>DestroyPermanentsClass</c>
+/// (DCGO/Assets/Scripts/Script/CardController.cs): DIRECTLY delete a pre-computed list of permanents (no
+/// selection — the card already filtered them, e.g. "all enemy Digimon with the same name"). Each target is
+/// staged as a <c>Delete</c> sink mutation whose source is this card, so the sink's CENTRALISED gates apply:
+/// opponent-effect immunity (<see cref="Runtime.ContinuousImmunityGate"/> — AS-IS <c>CanNotBeAffected</c>) and
+/// deletion-prevention (<c>cannotBeDeleted</c> / continuous prevent) / the optional would-be-deleted window.
+/// The AS-IS filter is NOT re-implemented here (EX8_074 lesson). NOTE: the AS-IS <c>CanBeDestroyedBySkill</c>
+/// (skill-destroy immunity) is not modeled engine-wide (<c>CanNotBeDestroyedBySkillClass</c> is an unported
+/// skeleton — no card sets it), so it is a documented engine gap, not re-implemented in this predicate.
+/// </summary>
+public sealed class DestroyPermanentsEffect : IActivatedCardEffect
+{
+    private readonly IReadOnlyList<HeadlessEntityId> _targets;
+
+    public DestroyPermanentsEffect(CardSource card, IReadOnlyList<HeadlessEntityId> targets, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(targets);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _targets = targets;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        foreach (HeadlessEntityId target in _targets)
+        {
+            if (target.IsEmpty)
+            {
+                continue;
+            }
+
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.DeleteKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Destroy-permanents effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// (BT-PRE-A4) Mirror of the original <c>HatchDigiEggClass</c>
+/// (DCGO/Assets/Scripts/Script/CardController.cs): if the controller <c>CanHatch</c> (an empty breeding area
+/// and an available digi-egg), move the top digi-egg from the digitama library into the breeding area. The
+/// AS-IS <c>CanHatch</c> guard is mirrored explicitly here — the raw <c>ZoneMover.HatchDigitamaAsync</c> only
+/// checks for an available egg, NOT the empty-breeding-area rule (that lives on the legal-action dispatcher),
+/// so the effect re-checks it (also keeping this re-run safe: a second pass finds the breeding area occupied
+/// and no-ops).
+/// </summary>
+public sealed class HatchDigiEggEffect : IActivatedCardEffect
+{
+    public HatchDigiEggEffect(CardSource card, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(CancellationToken cancellationToken)
+    {
+        EngineContext context = Card.Context;
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        HeadlessPlayerId player = Card.Owner;
+        // AS-IS CanHatch: an empty breeding area AND an available digi-egg.
+        if (zones.GetCards(player, ChoiceZone.BreedingArea).Count > 0
+            || zones.GetCards(player, ChoiceZone.DigitamaLibrary).Count == 0)
+        {
+            return;
+        }
+
+        await context.ZoneMover.HatchDigitamaAsync(player, cancellationToken).ConfigureAwait(false);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Hatch effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
+/// (BT-PRE-A5) Mirror of the original <c>PlayCardClass</c>
+/// (DCGO/Assets/Scripts/Script/CardController.cs) for the SIMPLE cost-free play the BT sets actually use
+/// (BT1_078: <c>payCost: false, root: Library</c>): play <see cref="TargetCardId"/> from <see cref="FromZone"/>
+/// onto the battle area at no cost. Staged as a <c>PlayCard</c> sink mutation (same seam as
+/// <see cref="PlayThisCardToBattleEffect"/>, generalised to an arbitrary target). The original's
+/// jogress / burst / app-fusion / targetPermanent / isTapped / <c>payCost:true</c> branches are NOT modeled
+/// here (out of BT-PRE scope — no such mechanism is invented until a card needs it).
+/// </summary>
+public sealed class PlayCardEffect : IActivatedCardEffect
+{
+    public PlayCardEffect(CardSource card, HeadlessEntityId targetCardId, ChoiceZone fromZone, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        TargetCardId = targetCardId;
+        FromZone = fromZone;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public HeadlessEntityId TargetCardId { get; }
+
+    public ChoiceZone FromZone { get; }
+
+    public string Description { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        if (TargetCardId.IsEmpty)
+        {
+            return;
+        }
+
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.PlayCardKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = TargetCardId.Value,
+                [MatchStateMutationSink.FromZoneKey] = FromZone.ToString(),
+            }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Play-card effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>
 /// An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack and/or
 /// block for a <see cref="EffectDuration"/>" effect (e.g. ST2_14). <see cref="ApplyRestriction"/> registers
 /// one duration-tagged restriction binding per chosen target, queried by <c>RestrictionHelpers</c> via the
