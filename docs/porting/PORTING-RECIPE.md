@@ -66,6 +66,18 @@ bash scripts/run-tests.sh          # SUMMARY: PASS=N FAIL=0 여야 함
 
 ---
 
+## 4-b. 코루틴 효과 = 구문 미러 아님, **의도→팩토리 번역**
+원본의 **활성/트리거 효과는 코루틴 빌더**입니다(`ActivateClass` + `IEnumerator ActivateCoroutine` 안에서 `new DrawClass(...).Draw()` / `CardEffectCommons.ChangeDigimonDP(...)` / `.Tap()` / `.Destroy()`). 헤드리스는 **선언형**(ICardEffect + mutation)이라 이 코루틴을 **그대로 옮기지 못합니다.** 대신 **의도를 읽어 대응 팩토리**를 고른다.
+
+| 원본 코루틴 의도 | 헤드리스 팩토리 |
+|---|---|
+| `new DrawClass(owner, N, ..).Draw()` | `CardEffectFactory.DrawCardsEffect(card, N)` |
+| `owner.AddMemory(±N)` / 메모리 증감 | `AddMemoryTriggerEffect(timing, ±N, ...)` (트리거형) |
+| `[All Turns]` 스탯/키워드 (timing==None) | 해당 `*SelfStaticEffect` / `*SelfEffect` (연속형, 미러 OK) |
+| 대체 진화원 | `AddSelfDigivolutionRequirementStaticEffect(permanentCondition, ...)` |
+
+> **판정법**: 효과가 `timing == None`의 **연속/키워드/스탯 팩토리**면 **구문 미러 OK**(카탈로그에서 찾아 그대로). 효과가 **코루틴(`IEnumerator`/`.Draw()/.Tap()/.Destroy()`)**이면 → **의도를 읽어 대응 팩토리가 카탈로그에 있으면 사용, 없으면 STOP**(강모델). 코루틴을 억지로 옮기지 말 것.
+
 ## 5. STOP — 강모델 에스컬레이션 조건
 아래 중 하나면 **직접 해결하지 말고** 카드 id + 이유를 기록하고 넘어간다:
 - 원본이 부르는 팩토리가 **카탈로그에 없음**.

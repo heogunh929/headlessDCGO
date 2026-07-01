@@ -2699,6 +2699,12 @@ public static partial class CardEffectFactory
         Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1) =>
         new AddedDigivolutionRequirementPredicateEffect(card, permanentCondition, digivolutionCost, ignoreDigivolutionRequirement, isInheritedEffect: false, condition);
 
+    /// <summary>(PRIM-W5) <c>DrawCardsEffect</c> — the declarative form of the AS-IS
+    /// <c>new DrawClass(owner, count, ...).Draw()</c> coroutine: the owner draws <paramref name="count"/>
+    /// cards. Use this in place of the original draw coroutine.</summary>
+    public static IActivatedCardEffect DrawCardsEffect(CardSource card, int count) =>
+        new DrawEffect(card, count, $"Draw {count} card(s).");
+
     /// <summary>Original: <c>PierceSelfEffect</c> — grants Piercing to self.</summary>
     public static ICardEffect PierceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new SelfKeywordEffect(card, KeywordBaseBatch1Kind.Piercing, isInheritedEffect, condition);
