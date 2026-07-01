@@ -254,7 +254,9 @@ public sealed class EngineContext
                         {
                             HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(selfRef, id, controller);
                         }
-                    }),
+                    },
+                    // (PRIM-W4 AceOverflow) turn-relative memory sign for a leaving ACE's overflow penalty.
+                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId),
                 strictUnbound: strictUnbound));
 
         // G7-005: opt into the interactive DeferredChoiceProvider (suspend/resume) instead of the default

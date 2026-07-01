@@ -60,6 +60,12 @@ public static class ContinuousKeywordGate
     // (PRIM-W3) MindLink: a Tamer↔Digimon link (tamer treated as a Digimon for certain effects). Grant is
     // live via HasKeyword; the tamer-as-Digimon behavior consumer migrates separately (latent).
     public const string MindLink = "MindLink";
+    // (PRIM-W4) Ascension: a post-deletion response (hasAscension, DeletionReplacementGate) — place the
+    // deleted card into the security stack.
+    public const string Ascension = "Ascension";
+    // (PRIM-W4) TreatAsDigimon: this card is also treated as a Digimon. Grant live via HasKeyword; the
+    // card-type-aware consumers migrate separately (latent, same bar as MindLink).
+    public const string TreatAsDigimon = "TreatAsDigimon";
 
     /// <summary>True if an active self-static <paramref name="keyword"/> binding in the registry is sourced
     /// from (or targets) <paramref name="cardId"/>.</summary>

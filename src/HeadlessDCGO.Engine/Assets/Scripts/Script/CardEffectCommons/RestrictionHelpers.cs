@@ -19,6 +19,8 @@ public enum CannotRestrictionKind
     Unsuspend = 7,
     BeBlocked = 8,
     DeleteBySkill = 9,
+    // (PRIM-W4) "this Digimon cannot be attacked" — consulted by AttackPermanentAction on the defender.
+    BeAttacked = 10,
 }
 
 public sealed record CannotRestriction
@@ -202,6 +204,7 @@ public static class RestrictionHelpers
     public const string CannotUnsuspendKey = "cannotUnsuspend";
     public const string CannotBeBlockedKey = "cannotBeBlocked";
     public const string CannotBeDeletedBySkillKey = "cannotBeDeletedBySkill";
+    public const string CannotBeAttackedKey = "cannotBeAttacked";
 
     public static CannotRestrictionResult Evaluate(CannotRestrictionRequest request)
     {
@@ -379,6 +382,15 @@ public static class RestrictionHelpers
         return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.BeBlocked, attackerId, restrictions, sourceEntityId));
     }
 
+    // (PRIM-W4) "this Digimon cannot be attacked" — consulted on the defender by AttackPermanentAction.
+    public static CannotRestrictionResult CannotBeAttacked(
+        HeadlessEntityId defenderId,
+        IReadOnlyList<CannotRestriction> restrictions,
+        HeadlessEntityId? sourceEntityId = null)
+    {
+        return Evaluate(new CannotRestrictionRequest(CannotRestrictionKind.BeAttacked, defenderId, restrictions, sourceEntityId));
+    }
+
     // (PRIM-W3) "this Digimon cannot be deleted by effects/skills" (battle deletion still applies) —
     // consulted by the effect-sourced delete path.
     public static CannotRestrictionResult CannotBeDeletedBySkill(
@@ -432,7 +444,7 @@ public static class RestrictionHelpers
         IReadOnlyDictionary<string, object?> values,
         HeadlessEntityId? effectId)
     {
-        foreach (string key in new[] { CannotAttackKey, CannotBlockKey, CannotDeleteKey, CannotBeDeletedKey, CannotReturnToHandKey, CannotReturnToDeckKey, CannotReturnToLibraryKey, CannotSuspendKey, CannotDigivolveKey, CannotUnsuspendKey, CannotBeBlockedKey, CannotBeDeletedBySkillKey })
+        foreach (string key in new[] { CannotAttackKey, CannotBlockKey, CannotDeleteKey, CannotBeDeletedKey, CannotReturnToHandKey, CannotReturnToDeckKey, CannotReturnToLibraryKey, CannotSuspendKey, CannotDigivolveKey, CannotUnsuspendKey, CannotBeBlockedKey, CannotBeDeletedBySkillKey, CannotBeAttackedKey })
         {
             if (TryReadBool(values, key, out bool isRestricted) && isRestricted)
             {
@@ -526,12 +538,13 @@ public static class RestrictionHelpers
             CannotUnsuspendKey => CannotRestrictionKind.Unsuspend,
             CannotBeBlockedKey => CannotRestrictionKind.BeBlocked,
             CannotBeDeletedBySkillKey => CannotRestrictionKind.DeleteBySkill,
+            CannotBeAttackedKey => CannotRestrictionKind.BeAttacked,
             _ => default,
         };
 
         return key is CannotAttackKey or CannotBlockKey or CannotDeleteKey or CannotBeDeletedKey or
             CannotReturnToHandKey or CannotReturnToDeckKey or CannotReturnToLibraryKey or CannotSuspendKey or
-            CannotDigivolveKey or CannotUnsuspendKey or CannotBeBlockedKey or CannotBeDeletedBySkillKey;
+            CannotDigivolveKey or CannotUnsuspendKey or CannotBeBlockedKey or CannotBeDeletedBySkillKey or CannotBeAttackedKey;
     }
 
     private static IEnumerable<object?> FlattenObjects(object raw)

@@ -73,4 +73,8 @@ public static class ContinuousRestrictionGate
     // (PRIM-W3) Continuous "cannot be deleted by effect/skill" restriction — consulted by the effect-delete path.
     public static CannotRestrictionResult EvaluateDeleteBySkill(EngineContext context, HeadlessEntityId targetId) =>
         RestrictionHelpers.CannotBeDeletedBySkill(targetId, Evaluate(context, targetId));
+
+    // (PRIM-W4) Continuous "cannot be attacked" restriction on the defender — consulted by AttackPermanentAction.
+    public static CannotRestrictionResult EvaluateBeAttacked(EngineContext context, HeadlessEntityId defenderId) =>
+        RestrictionHelpers.CannotBeAttacked(defenderId, Evaluate(context, defenderId));
 }

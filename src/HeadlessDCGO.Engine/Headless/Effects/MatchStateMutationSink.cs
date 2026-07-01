@@ -75,6 +75,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string TrainKind = "Train";                                     // (C-24) target = self; suspend + library top -> own stack bottom
     public const string MaterialSaveKind = "MaterialSave";                       // (C-23) source = from-host; toEntityId, count -> move sources to another stack
     public const string ToEntityIdKey = "toEntityId";
+    public const string ImmuneStackTrashingKey = "immuneStackTrashing"; // (PRIM-W4) host source-trash immunity flag
     // G10-007: play a SPECIFIC digivolution source out from under its host as a new battle-area Digimon
     // (cost-free). target = the under-card to play; HostEntityIdKey = the host it sits under.
     public const string PlayDigivolutionAsDigimonKind = "PlayDigivolutionAsDigimon";
@@ -166,6 +167,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     private readonly List<Func<CancellationToken, Task>> _pendingAsync = new();
 
     private readonly Action<HeadlessEntityId, HeadlessPlayerId>? _onCardEnteredPlay;
+    // (PRIM-W4 AceOverflow) supplies the current turn player so a leaving ACE's memory penalty is applied with
+    // the correct turn-relative sign. Null in contexts without turn state (falls back to owner-is-active).
+    private readonly Func<HeadlessPlayerId?>? _currentTurnPlayer;
 
     public MatchStateMutationSink(
         ICardInstanceRepository repository,
@@ -174,7 +178,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         IHeadlessMemoryController? memory = null,
         EffectRegistry? effectRegistry = null,
         GameEventQueue? gameEventQueue = null,
-        Action<HeadlessEntityId, HeadlessPlayerId>? onCardEnteredPlay = null)
+        Action<HeadlessEntityId, HeadlessPlayerId>? onCardEnteredPlay = null,
+        Func<HeadlessPlayerId?>? currentTurnPlayer = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _log = log;
@@ -185,6 +190,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (G8-002) Invoked when an effect plays a card onto the field (PlayCardKind), so the played card's
         // ported effects auto-register — the enter-play hook the action layer wires to CardEffectRegistrar.
         _onCardEnteredPlay = onCardEnteredPlay;
+        _currentTurnPlayer = currentTurnPlayer;
     }
 
     public int AppliedCount => _applied.Count;
@@ -267,6 +273,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 ApplyDpModifier(mutation, record, targetId);
                 break;
             case SuspendKind:
+                // (PRIM-W4 CantSuspendStaticEffect) a continuous "cannot suspend" restriction blocks it.
+                if (HasSelfRestriction(targetId, CannotRestrictionKind.Suspend))
+                {
+                    _skipped.Add(mutation);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
+                    break;
+                }
+
                 WriteMetadata(record, targetId, mutation.Kind, SuspendedFlagKey, true);
                 EmitTiming(TriggerTimings.OnTapped, record.OwnerId);
                 break;
@@ -287,12 +301,38 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToTrashAsync(owner, id, ct));
                 break;
             case ReturnToHandKind:
+                // (PRIM-W4 CannotReturnToHandStaticEffect) a continuous "cannot return to hand" restriction blocks it.
+                if (HasSelfRestriction(targetId, CannotRestrictionKind.ReturnToHand))
+                {
+                    _skipped.Add(mutation);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
+                    break;
+                }
+
+                ApplyAceOverflowOnLeave(record, targetId, mutation);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToHandAsync(owner, id, ct));
                 break;
             case ReturnToDeckTopKind:
+                if (HasSelfRestriction(targetId, CannotRestrictionKind.ReturnToDeck))
+                {
+                    _skipped.Add(mutation);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
+                    break;
+                }
+
+                ApplyAceOverflowOnLeave(record, targetId, mutation);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.MoveToDeckTopAsync(owner, id, ct));
                 break;
             case ReturnToDeckBottomKind:
+                // (PRIM-W4 CannotReturnToDeckStaticEffect) a continuous "cannot return to deck" restriction blocks it.
+                if (HasSelfRestriction(targetId, CannotRestrictionKind.ReturnToDeck))
+                {
+                    _skipped.Add(mutation);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
+                    break;
+                }
+
+                ApplyAceOverflowOnLeave(record, targetId, mutation);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.MoveToDeckBottomAsync(owner, id, ct));
                 break;
             case AddToSecurityKind:
@@ -591,6 +631,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             return;
         }
 
+        // (PRIM-W4 AceOverflow) an un-flipped ACE leaving the field (here: deleted to trash) costs its owner
+        // the printed Overflow memory. Applied before the marker/move while the card is still on the field.
+        ApplyAceOverflowOnLeave(record, targetId, mutation);
+
         // Stamp the deletion marker before the move so OnDeletion-scoped triggers can read it.
         var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
         {
@@ -613,6 +657,79 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // DeletionReplacementTiming), opened by the common loop once the card is in the trash — no longer
         // auto-applied here.
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletedByEffectKey));
+    }
+
+    // (PRIM-W4) registry-only self-restriction probe (no full EngineContext needed) — mirrors the
+    // continuous-restriction read used by IsDeletionPreventedByContinuous. Used by the suspend / return
+    // sink paths to honour CantSuspend / CannotReturnToHand / CannotReturnToDeck.
+    private bool HasSelfRestriction(HeadlessEntityId cardId, CannotRestrictionKind kind)
+    {
+        if (_effectRegistry is null)
+        {
+            return false;
+        }
+
+        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
+            _effectRegistry,
+            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId));
+
+        foreach (CannotRestriction restriction in result.Restrictions)
+        {
+            if (restriction.Kind == kind)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // (PRIM-W4 AceOverflow) when an un-flipped ACE Digimon leaves the field (battle / breeding area), its
+    // owner loses memory equal to its printed Overflow value. Called at the field-leave mutations; the
+    // on-field check makes a card moved from deck/hand (never on field) a no-op.
+    private void ApplyAceOverflowOnLeave(CardInstanceRecord record, HeadlessEntityId cardId, EffectMutation mutation)
+    {
+        if (_memory is null || ReadBool(mutation.Values, AceOverflowGate.IgnoreOverflowKey))
+        {
+            return;
+        }
+
+        int overflow = AceOverflowGate.OverflowFor(record);
+        if (overflow <= 0 || _zoneMover is not IZoneStateReader reader)
+        {
+            return;
+        }
+
+        bool onField = reader.GetCards(record.OwnerId, ChoiceZone.BattleArea).Contains(cardId)
+            || reader.GetCards(record.OwnerId, ChoiceZone.BreedingArea).Contains(cardId);
+        if (!onField)
+        {
+            return;
+        }
+
+        int delta = AceOverflowGate.MemoryDelta(overflow, record.OwnerId, _currentTurnPlayer?.Invoke());
+        _memory.Add(delta);
+        _applied.Add(new AppliedMutation(mutation.Kind, cardId, "aceOverflow"));
+    }
+
+    // (PRIM-W4) registry-only "does a continuous effect on this card carry <paramref name="flagKey"/>=true".
+    private bool HasSelfFlag(HeadlessEntityId cardId, string flagKey)
+    {
+        if (_effectRegistry is null)
+        {
+            return false;
+        }
+
+        foreach (EffectRequest effect in _effectRegistry.GetContinuousEffects(
+            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId)))
+        {
+            if (effect.Context.Values.TryGetValue(flagKey, out object? raw) && raw is bool flag && flag)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId)
@@ -779,6 +896,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         }
         else
         {
+            // (PRIM-W4 ImmuneStackTrashingClass / CanNotBeTrashedBySkill) a continuous "immune from
+            // digivolution-stack trashing" flag on the host prevents effect-driven source trashing.
+            if (HasSelfFlag(hostId, ImmuneStackTrashingKey))
+            {
+                _skipped.Add(mutation);
+                _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));
+                return;
+            }
+
             _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(_repository, zoneMover, hostId, count, fromBottom, ct));
         }
 

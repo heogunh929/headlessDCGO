@@ -48,11 +48,18 @@
 
 > 타이밍 트리거(Start/WhenMoving/OnDeletion)는 **엔진 타이밍 창 신설**이 필요할 수 있음 — probe 후 기존 `EffectTiming`/트리거 emit 경로에 없으면 신설(EX8 OnEndTurn 신설 선례).
 
-## 진행 요약
-- [ ] 저빈도 변형(2–5): 기존 프리미티브의 비-self/정적/조건부 변형 위주 — 저비용 일괄
-- [ ] 단일사용(1): 키워드·제약 나머지
-- [ ] 프레임워크/타이밍: ExtendActivate·타이밍 트리거 4종(신설 판단)
-- ✅ 완료 시 **MISSING 90 전부 소진** → 로컬 모델 카드 포팅 진입.
+## 진행 (32/32 처리 · 273 green · RuleAudit 0)
+- [x] **배치1a (7)**: CanNotBlockSelf/Static(제약)·CanNotBeDestroyed(Delete/Prevent replacement, battle+effect)·ImmuneFromDPMinus(DpReduction/Immune)·Alliance·Jamming(player-scope 키워드)·Ascension(키워드). **G9-038**.
+- [x] **배치1b (8)**: ChangeBaseDPGlobal(BaseDp)·InvertSAttack(InvertSA)·Collision·Vortex(player-scope 키워드)·ChangeLinkMax(LinkedMaxDelta)·TreatAsDigimon(키워드)·Gain1OwnerConditional·EoTLose3(메모리). **G9-039**.
+- [x] **배치1d (5)**: CantSuspend·CannotReturnToHand·CannotReturnToDeck(sink consult 신설)·CanNotBeDestroyedByBattle(배틀 전용 flag)·ImmuneStackTrashing/CanNotBeTrashedBySkill(진화원 트래시 면역). **G9-040** end-to-end.
+- [x] **특수/프레임워크 (4)**: ReplaceTopSecurity·PlayMindLinkTamer(play-from-under 재사용)·RevealLibrary(정보성 no-op)·CanNotBeAttacked(방어자 제약 신설)·WhenMoving(EffectTiming.OnMove 신설, CV-A4 emit). **G9-041**.
+- [x] **already-supported 타이밍 (4)**: WhenDigivolving·StartOfYourTurn·StartOfYourMainPhase(→OnStartTurn)·OnDeletion(→OnDestroyedAnyone) — EffectTiming enum 값 존재 + emit 발화. 신규 코드 불요.
+- [x] **AceOverflow** — 정독 결과 서브시스템이 아니라 **중앙 엔진 규칙**(ACE가 필드 이탈 시 소유자 -OverflowMemory). `AceOverflowGate` + sink 필드-이탈 hook(Delete/ReturnToHand/ReturnToDeck) + turn-relative 부호. 데이터 기반(`isAce`/`overflowMemory`/`isFlipped` 메타, 팩토리 불요). **G9-042** end-to-end(9 케이스: 이탈경로 4 + off-turn 부호 + control 4). 설계: `ace_overflow_design.md`.
+- [ ] **분류-제외 (2, 프리미티브 아님)**: 
+  - **DigiXrosEffectFromNames** — DigiXros 특수플레이(SpecialPlayKind.DigiXros)는 존재; by-names 레시피는 **데이터 기반 config**(카드별). 메커니즘 완성, 남은 건 데이터.
+  - **ExtendActivateClass** — EX2_057의 **nested 클래스**(카드 전용), 공유 프리미티브 아님 → 백로그 분류 오류.
+
+> **preemptive-seal(grant live, behavior-consumer latent)**: Collision·Vortex·TreatAsDigimon·Ascension(키워드 grant, 동작 소비자는 metadata flag)·ChangeLinkMax(링크 수정자). fidelity_debt.md 참조. 나머지 20종은 behavior-live.
 
 ---
 

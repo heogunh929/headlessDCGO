@@ -113,3 +113,17 @@
 | **GrantedReduceLinkCost** | `linkCostDelta` 연속 수정자 | `LinkSelfEffect` 코스트 지불부 | Link 코스트 해석을 `ContinuousModifierGate` 경유로 변경 |
 
 **behavior-live(소비자 배선 완료, 실제 동작함)**: 키워드 grant 9종·Rush/Reboot/CanNotAttack static·Gain1/Gain2·CantUnsuspend·CanNotBeBlocked·CanNotBeDestroyedBySkill·ChangeSAttackStatic·ReturnToLibraryBottom·ReplaceBottomSecurity·Training·MaterialSave·**UseRequirements(ignore-color, DigivolveAction consult 배선)**·Arts/BlastDNA(subsume). = W3 24/27 behavior-live, 3/27 seal.
+
+## PRIM-W4 preemptive-seal + deferred
+
+| 항목 | 상태 | 소비자(latent)/사유 |
+|---|---|---|
+| Collision / Vortex StaticEffect | seal | BlockTiming.hasCollision / Vortex 공격 소비자가 metadata flag를 읽음 (grant는 HasKeyword로 live) |
+| TreatAsDigimon | seal | 카드타입 판정 소비자 (grant HasKeyword live) |
+| Ascension | seal | DeletionReplacementGate.hasAscension (grant HasKeyword live) |
+| ChangeLinkMax / ChangeSelfLinkMax | seal | LinkHelpers.EnforceLinkedMaxAsync (registry 미보유) |
+| DigiXrosEffectFromNames | config | DigiXros 특수플레이 존재; by-names 레시피는 데이터 config |
+| ExtendActivateClass | per-card | EX2_057 nested 클래스, 공유 프리미티브 아님 |
+| AceOverflowClass | ✅ done | 중앙 규칙으로 구현(AceOverflowGate + sink 필드-이탈 hook, G9-042) |
+
+**W4 behavior-live 21/32 · seal 5 · already-supported 4(타이밍) · 분류-제외 2(DigiXros config·ExtendActivate per-card).**

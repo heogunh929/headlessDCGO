@@ -22,6 +22,10 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// </summary>
 public static class BattleDeletionGate
 {
+    // (PRIM-W4 CanNotBeDestroyedByBattleStaticEffect) a continuous BATTLE-ONLY deletion immunity flag —
+    // read here (battle path) but NOT by the effect-delete path, so effect deletion still applies.
+    public const string PreventBattleDeletionKey = "preventBattleDeletion";
+
     public static bool PreventsBattleDeletion(EngineContext context, HeadlessEntityId cardId)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -38,6 +42,16 @@ public static class BattleDeletionGate
         {
             if (replacement.EventKind == ReplacementEventKind.Delete &&
                 replacement.ActionKind == ReplacementActionKind.Prevent)
+            {
+                return true;
+            }
+        }
+
+        // Battle-only immunity (does not prevent effect deletion).
+        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(
+            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId)))
+        {
+            if (effect.Context.Values.TryGetValue(PreventBattleDeletionKey, out object? raw) && raw is bool flag && flag)
             {
                 return true;
             }

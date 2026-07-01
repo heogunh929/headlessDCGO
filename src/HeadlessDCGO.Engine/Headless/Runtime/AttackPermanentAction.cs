@@ -251,6 +251,16 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack ({attackRestriction.Reason}).");
         }
 
+        // (PRIM-W4 CanNotBeAttackedSelfStaticEffect) the defending permanent may be untargetable by attacks.
+        if (targetId is { } defenderId)
+        {
+            CannotRestrictionResult beAttacked = ContinuousRestrictionGate.EvaluateBeAttacked(context, defenderId);
+            if (beAttacked.IsRestricted)
+            {
+                return AttackPermanentValidation.Illegal($"Target '{defenderId}' cannot be attacked ({beAttacked.Reason}).");
+            }
+        }
+
         if (ReadBool(attacker.Metadata, EnteredThisTurnKey)
             && !ReadBool(attacker.Metadata, HasRushKey) && !ReadBool(attackerCard.Metadata, HasRushKey)
             && !ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Rush))
