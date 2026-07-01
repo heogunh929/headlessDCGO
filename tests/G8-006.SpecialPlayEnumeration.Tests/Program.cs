@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -95,7 +96,8 @@ async Task ValidatorTreatsSpecialPlayAsAgentFacing()
 async Task<(EngineContext, HeadlessEntityId, HeadlessEntityId, HeadlessEntityId)> Board(bool includeBoth)
 {
     SpecialPlayRecipeRegistry.Clear();
-    SpecialPlayRecipeRegistry.Register("XROS", new SpecialPlayRecipe(SpecialPlayKind.DigiXros, new[] { "Shoutmon X4", "Beelzemon" }, MemoryCost: 2));
+    SpecialPlayRecipeRegistry.Register("XROS", new SpecialPlayRecipe(SpecialPlayKind.DigiXros,
+        new[] { CardEffectFactory.MaterialByName("Shoutmon X4"), CardEffectFactory.MaterialByName("Beelzemon") }, MemoryCost: 2));
 
     EngineContext context = EngineContext.CreateDefault(randomSeed: 806);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);

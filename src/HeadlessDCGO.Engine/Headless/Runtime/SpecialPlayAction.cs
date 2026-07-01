@@ -55,13 +55,24 @@ public sealed class SpecialPlayAction
         foreach (HeadlessEntityId handCard in zones.GetCards(playerId, ChoiceZone.Hand))
         {
             if (!context.CardInstanceRepository.TryGetInstance(handCard, out CardInstanceRecord? instance) || instance is null
-                || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null
-                || !SpecialPlayRecipeRegistry.TryGet(def.CardNumber, out SpecialPlayRecipe? recipe) || recipe is null)
+                || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) || def is null)
             {
                 continue;
             }
 
-            if (TryMatchMaterials(context, battle, recipe.MaterialNames, out List<HeadlessEntityId> materials)
+            // (PRIM-W5) A ported special-play card declares its recipe inside its effect code
+            // (DigiXrosEffectFromNames / BlastDigivolveEffect / ...). That code only runs when the card enters
+            // play, but the recipe is needed HERE (card still in hand) to offer the play. So register it
+            // on-demand: run the card's effect declaration (discarding the returned effects — only the
+            // special-play factories have a registry side-effect) the first time we consider it.
+            EnsureSpecialPlayRecipe(context, def, handCard, playerId);
+
+            if (!SpecialPlayRecipeRegistry.TryGet(def.CardNumber, out SpecialPlayRecipe? recipe) || recipe is null)
+            {
+                continue;
+            }
+
+            if (TryMatchMaterials(context, battle, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
                 && context.MemoryController.CanPay(recipe.MemoryCost))
             {
                 actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
@@ -73,12 +84,36 @@ public sealed class SpecialPlayAction
             .ToArray();
     }
 
+    // (PRIM-W5) Register a hand card's special-play recipe on demand (idempotent): if none is registered,
+    // instantiate the card's effect class and run its declaration across timings so the special-play factory's
+    // registry side-effect fires. Returned effects are discarded — only recipe registration happens here.
+    private static void EnsureSpecialPlayRecipe(EngineContext context, CardRecord def, HeadlessEntityId cardId, HeadlessPlayerId owner)
+    {
+        if (SpecialPlayRecipeRegistry.TryGet(def.CardNumber, out _))
+        {
+            return;
+        }
+
+        if (!Assets.Scripts.Script.CardEffectCommons.CardEffectDispatch.TryCreateForCard(def, out Assets.Scripts.Script.CardEffectCommons.CEntity_Effect? effect) || effect is null)
+        {
+            return;
+        }
+
+        var card = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner);
+        foreach (Assets.Scripts.Script.CardEffectCommons.EffectTiming timing in Enum.GetValues<Assets.Scripts.Script.CardEffectCommons.EffectTiming>())
+        {
+            try { _ = effect.CardEffects(timing, card); }
+            catch { /* declaration must not throw during enumeration; ignore per-timing failures */ }
+        }
+    }
+
     private static bool TryMatchMaterials(
-        EngineContext context, IReadOnlyList<HeadlessEntityId> battle, IReadOnlyList<string> names, out List<HeadlessEntityId> materials)
+        EngineContext context, IReadOnlyList<HeadlessEntityId> battle, IReadOnlyList<SpecialPlayMaterial> required,
+        HeadlessPlayerId owner, out List<HeadlessEntityId> materials)
     {
         materials = new List<HeadlessEntityId>();
         var used = new HashSet<HeadlessEntityId>();
-        foreach (string name in names)
+        foreach (SpecialPlayMaterial slot in required)
         {
             HeadlessEntityId match = default;
             foreach (HeadlessEntityId id in battle)
@@ -88,9 +123,9 @@ public sealed class SpecialPlayAction
                     continue;
                 }
 
-                if (context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? i) && i is not null
-                    && context.CardRepository.TryGetCard(i.DefinitionId, out CardRecord? d) && d is not null
-                    && string.Equals(d.Name, name, StringComparison.OrdinalIgnoreCase))
+                // Evaluate the card-authored material predicate against the candidate (1:1 with the original
+                // CanSelectCardCondition) — not a mere card-name equality.
+                if (slot.Matches(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, id, owner, owner)))
                 {
                     match = id;
                     break;
@@ -256,7 +291,12 @@ public sealed class SpecialPlayAction
 /// <summary>(G8-006) A card's special-play requirement: the kind and the material card NAMES that must be
 /// present (one battle-area material per name), plus the memory cost. Derived from per-card effect data
 /// (e.g. a DigiXros condition "Shoutmon X4 + Beelzemon").</summary>
-public sealed record SpecialPlayRecipe(SpecialPlayKind Kind, IReadOnlyList<string> MaterialNames, int MemoryCost);
+/// <summary>One material slot of a special-play recipe. <see cref="Matches"/> mirrors the original
+/// DigiXros/DNA <c>CanSelectCardCondition(CardSource)</c> — an arbitrary predicate over a candidate, NOT just
+/// a card-name equality — so the ported condition is preserved 1:1. <see cref="Label"/> is for logging.</summary>
+public sealed record SpecialPlayMaterial(Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> Matches, string Label);
+
+public sealed record SpecialPlayRecipe(SpecialPlayKind Kind, IReadOnlyList<SpecialPlayMaterial> Materials, int MemoryCost);
 
 /// <summary>(G8-006) Maps a card number to its special-play recipe. Populated by ported DigiXros / DNA /
 /// Blast cards (the recipe registry, analogous to the effect dispatch).</summary>

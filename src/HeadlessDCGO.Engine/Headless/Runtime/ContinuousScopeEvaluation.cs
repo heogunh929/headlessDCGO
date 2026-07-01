@@ -25,42 +25,49 @@ public static class ContinuousScopeEvaluation
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
         var queryContext = new EffectQueryContext(scope, targetEntityId: cardId);
+        ResolveCard(context, cardId, out _, out CardRecord? card, out CardInstanceRecord? instance);
+        EffectRequest[] combined = ApplicableEffects(context, scope, cardId);
+
+        return ContinuousEffectEvaluator.Evaluate(
+            new ContinuousEvaluationRequest(queryContext, combined, card, instance, state: null));
+    }
+
+    /// <summary>(FR-P3) The continuous effects that APPLY to <paramref name="cardId"/> under <paramref name="scope"/>
+    /// — card-targeted + inherited + player-scope (owner + condition + arbitrary permanentCondition predicate,
+    /// evaluated 1:1) — after disable/condition filtering and dynamic-value resolution. Registry-only gates
+    /// (sink / battle-deletion) scan this to honour player-scope effects with predicates, not just self.</summary>
+    public static EffectRequest[] ApplicableEffects(EngineContext context, string scope, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+
+        var queryContext = new EffectQueryContext(scope, targetEntityId: cardId);
         IEffectQueryService registry = context.EffectRegistry;
 
-        // Card-targeted MAIN effects (an inherited effect targeting its own source is excluded here — it
-        // reaches the top card only through the inherited-source path below).
         IReadOnlyList<EffectRequest> cardTargeted = registry.GetContinuousEffects(queryContext)
             .Where(effect => !IsInherited(effect))
             .ToArray();
 
-        // Inherited effects: every active (non-flipped) digivolution source under this card grants its
-        // inherited continuous effects to this card (the top). Mirrors the original Permanent.GetDP /
-        // GetSAttack folding in under-card inherited effects.
         IReadOnlyList<EffectRequest> inherited = CollectInheritedEffects(context, registry, scope, cardId);
 
-        ResolveCard(context, cardId, out HeadlessPlayerId owner, out CardRecord? card, out CardInstanceRecord? instance);
+        ResolveCard(context, cardId, out HeadlessPlayerId owner, out CardRecord? card, out _);
 
         IReadOnlyList<EffectRequest> playerScoped = owner.IsEmpty
             ? Array.Empty<EffectRequest>()
-            : PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, owner, card, ResolveZoneName(context, owner, cardId));
+            : PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, owner, card, ResolveZoneName(context, owner, cardId))
+                .Where(effect => PlayerScopePredicatePasses(context, effect, cardId, owner))
+                .ToArray();
 
-        EffectRequest[] combined = cardTargeted
+        return cardTargeted
             .Concat(inherited)
             .Concat(playerScoped)
             .GroupBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .Select(group => group.First())
-            // D-7: a continuous effect whose SOURCE card is invalidated ("disable effects") is inert.
-            // (IsEffectsDisabled queries the registry directly, not EvaluateForCard, so no recursion.)
             .Where(effect => !EffectInvalidation.IsEffectsDisabled(context, effect.Context.SourceEntityId))
-            // A card-authored `condition` predicate (Func<bool>) gates the effect at read time.
             .Where(ConditionPasses)
-            // A card-authored dynamic delta (Func<int>) is resolved to a concrete value at read time.
             .Select(ResolveDynamicValue)
             .OrderBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .ToArray();
-
-        return ContinuousEffectEvaluator.Evaluate(
-            new ContinuousEvaluationRequest(queryContext, combined, card, instance, state: null));
     }
 
     // The zones a player-scope effect can scope to (battle-area buffs and security-Digimon buffs). Returns
@@ -92,6 +99,20 @@ public static class ContinuousScopeEvaluation
         }
 
         return true;
+    }
+
+    // (FR-P1) Evaluate a player-scope effect's arbitrary per-permanent predicate (permanentCondition, stored
+    // as Func<CardSource,bool>) against the candidate card. No predicate = applies (subject to the coarse
+    // scope already checked). This makes "your <X> Digimon get ..." target exactly the original's set.
+    private static bool PlayerScopePredicatePasses(EngineContext context, EffectRequest effect, HeadlessEntityId cardId, HeadlessPlayerId owner)
+    {
+        if (!effect.Context.Values.TryGetValue(PlayerScopeContinuousHelpers.ScopePredicateKey, out object? raw)
+            || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
+        {
+            return true;
+        }
+
+        return predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner));
     }
 
     private static EffectRequest ResolveDynamicValue(EffectRequest effect)

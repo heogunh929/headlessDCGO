@@ -92,7 +92,8 @@ public static class ContinuousKeywordGate
             if (values.TryGetValue(Effects.PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scoped) && scoped is true
                 && ReadPlayerScopeId(values) == instance.OwnerId.Value
                 && Effects.PlayerScopeContinuousHelpers.ConditionMatches(values, card)
-                && KeywordConditionPasses(values))
+                && KeywordConditionPasses(values)
+                && ScopePredicatePasses(context, values, cardId, instance.OwnerId))
             {
                 return true;
             }
@@ -103,6 +104,18 @@ public static class ContinuousKeywordGate
 
     private static int ReadPlayerScopeId(IReadOnlyDictionary<string, object?> values) =>
         values.TryGetValue(Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? raw) && raw is int id ? id : -1;
+
+    // (FR-P1) honour a player-scope keyword grant's arbitrary per-permanent predicate (permanentCondition).
+    private static bool ScopePredicatePasses(EngineContext context, IReadOnlyDictionary<string, object?> values, HeadlessEntityId cardId, HeadlessPlayerId owner)
+    {
+        if (!values.TryGetValue(Effects.PlayerScopeContinuousHelpers.ScopePredicateKey, out object? raw)
+            || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
+        {
+            return true;
+        }
+
+        return predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner));
+    }
 
     private static bool KeywordConditionPasses(IReadOnlyDictionary<string, object?> values) =>
         !values.TryGetValue("continuous.condition", out object? raw) || raw is not Func<bool> condition || condition();

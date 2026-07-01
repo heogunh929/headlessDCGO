@@ -256,7 +256,9 @@ public sealed class EngineContext
                         }
                     },
                     // (PRIM-W4 AceOverflow) turn-relative memory sign for a leaving ACE's overflow penalty.
-                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId),
+                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
+                    // (FR-P3) EngineContext so restriction/immunity checks honour player-scope predicates.
+                    context: selfRef),
                 strictUnbound: strictUnbound));
 
         // G7-005: opt into the interactive DeferredChoiceProvider (suspend/resume) instead of the default

@@ -42,7 +42,46 @@ public static class ContinuousRestrictionGate
         HeadlessEntityId attackerId,
         HeadlessEntityId? defenderId = null)
     {
-        return RestrictionHelpers.CannotAttack(attackerId, Evaluate(context, attackerId), defenderId);
+        CannotRestrictionResult result = RestrictionHelpers.CannotAttack(attackerId, Evaluate(context, attackerId), defenderId);
+        if (!result.IsRestricted || defenderId is not { } defender)
+        {
+            return result;
+        }
+
+        // (FR-P3) A CannotAttack restriction may be defender-conditional (AS-IS defenderCondition): it only
+        // forbids attacking defenders matching its predicate. If EVERY applicable CannotAttack effect carries
+        // a defenderPredicate that this defender fails, the attacker may attack it after all.
+        bool appliesToThisDefender = false;
+        bool anyDefenderConditional = false;
+        HeadlessPlayerId defenderOwner = context.CardInstanceRepository.TryGetInstance(defender, out CardInstanceRecord? di) && di is not null ? di.OwnerId : default;
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, Scope, attackerId))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!(values.TryGetValue(RestrictionHelpers.CannotAttackKey, out object? on) && on is bool b && b))
+            {
+                continue;
+            }
+
+            if (values.TryGetValue(RestrictionHelpers.DefenderPredicateKey, out object? raw)
+                && raw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> pred)
+            {
+                anyDefenderConditional = true;
+                if (pred(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, defender, defenderOwner, defenderOwner)))
+                {
+                    appliesToThisDefender = true;
+                    break;
+                }
+            }
+            else
+            {
+                appliesToThisDefender = true; // unconditional CannotAttack
+                break;
+            }
+        }
+
+        return (anyDefenderConditional && !appliesToThisDefender)
+            ? CannotRestrictionResult.Success(false, "Defender not in the restricted set.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>())
+            : result;
     }
 
     public static CannotRestrictionResult EvaluateBlock(

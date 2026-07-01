@@ -205,6 +205,9 @@ public static class RestrictionHelpers
     public const string CannotBeBlockedKey = "cannotBeBlocked";
     public const string CannotBeDeletedBySkillKey = "cannotBeDeletedBySkill";
     public const string CannotBeAttackedKey = "cannotBeAttacked";
+    // (FR-P3) attached to a CannotAttack restriction: only defenders matching this predicate are off-limits
+    // (AS-IS CanNotAttackTargetDefendingPermanent's defenderCondition). Value: Func<CardSource,bool>.
+    public const string DefenderPredicateKey = "defenderPredicate";
 
     public static CannotRestrictionResult Evaluate(CannotRestrictionRequest request)
     {

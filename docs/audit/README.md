@@ -39,6 +39,7 @@
 - [primitive_w4_goals.md](primitive_w4_goals.md) — W4 저빈도 tail + 프레임워크/타이밍 (30)
 - [ace_overflow_design.md](ace_overflow_design.md) — AceOverflow 중앙 규칙 설계
 - [**fidelity_debt.md**](fidelity_debt.md) — 충실도 부채 레저 + preemptive-seal 목록
+- [**fidelity_remediation_goals.md**](fidelity_remediation_goals.md) — permanentCondition 술어 무시 복원 goal (P1~P5) · 상세: [fidelity_remediation.md](fidelity_remediation.md)
 
 ## 4. 카드 포팅 goal (예정)
 

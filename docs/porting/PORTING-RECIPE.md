@@ -73,10 +73,41 @@ bash scripts/run-tests.sh          # SUMMARY: PASS=N FAIL=0 여야 함
 |---|---|
 | `new DrawClass(owner, N, ..).Draw()` | `CardEffectFactory.DrawCardsEffect(card, N)` |
 | `owner.AddMemory(±N)` / 메모리 증감 | `AddMemoryTriggerEffect(timing, ±N, ...)` (트리거형) |
+| `new SuspendPermanentsClass(perms,..).Tap()` (선택-서스펜드) | `SelectAndSuspendEffect(card, canTarget, maxCount, canEndNotMax, desc)` |
+| 선택-언서스펜드 / 선택-바운스 | `SelectAndUnsuspendEffect(...)` / `SelectAndBounceEffect(...)` |
+| `new DestroyPermanentsClass(perms,..).Destroy()` (선택-파괴) | `SelectAndDestroyEffect(card, canTarget, maxCount, canEndNotMax, desc)` |
+| `CardEffectCommons.ChangeDigimonDP(target, ±N, dur, ..)` (선택-DP) | `SelectAndBuffDpEffect(card, canTarget, maxCount, ±N, duration, desc)` |
+| `[All Turns]` 옵션/시큐리티 스탯 버프(플레이어 스코프) | `PlayerScopeBuffSAttackEffect` / `PlayerScopeBuffSecurityDpEffect` |
+| `CardEffectCommons.PlayPermanentCards(sel, .., root)` (존에서 select-and-play) | `SelectAndPlayFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, desc)` (root→fromZone: Trash/Hand) |
+| `CardEffectCommons.ChangeDigimonSAttack(target, ±N, dur, ..)` (선택-SA) | `SelectAndBuffSAttackEffect(card, canTarget, maxCount, ±N, duration, desc)` |
+| `CardEffectCommons.AddThisCardToHand(..)` | `AddThisCardToHandEffect(card)` |
+| `new IgnoreColorConditionClass(cardCondition)` | `UseRequirements(card, cardCondition)` |
+| `new CanNotSuspendClass(PermanentCondition)` (self) | `CantSuspendStaticEffect(permanentCondition, false, card, condition)` |
+| `new CanNotBeDestroyedClass(..)` / `CanNotBeDeleted` (self) | `CanNotBeDestroyedStaticEffect(permanentCondition, false, card, condition, name)` |
+| `new ChangeCostClass()` / 자기 플레이코스트 증감 | `ChangePlayCostStaticEffect(...)` (연속) |
+| `CardEffectCommons.DigivolveIntoHandOrTrashCard(..)` (선택-디제너) | `SelectAndDeDigivolveEffect(card, canTarget, maxCount, count, canEndNotMax, desc)` |
+| `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(..)` | `SimplifiedRevealDeckTopCardsAndSelect(card, revealCount, conditions, remainingTo, desc)` |
+| `new CanNotAffectedClass()` (효과 면역) | `CanNotAffectedStaticEffect(permanentCondition, false, card, condition)` |
+| `new ChangeCardNamesClass()` (이름 추가) | `ChangeCardNamesStaticEffect(addedName, false, card, condition)` |
+| `CardEffectFactory.BlastDigivolveEffect(card, cond)` | `BlastDigivolveEffect(card, condition)` (레시피 선언, 엔진이 실행) |
+| `CardEffectFactory.DigiXrosEffectFromNames(card, cr, .., names)` | `DigiXrosEffectFromNames(card, costReduction, canTarget, names)` |
+| `new AddDigiXrosConditionClass(); SetUp(GetDigiXros)` — 재료가 **이름만** | `DigiXrosEffectFromNames(card, cr, null, names…)` |
+| `new AddDigiXrosConditionClass(); SetUp(GetDigiXros)` — 재료에 **임의 조건**(`CanSelectCardCondition`) | `DigiXrosEffect(card, cr, new SpecialPlayMaterial(cs => …원본 술어 1:1…, "label"), …)` — **술어를 뭉개지 말 것** |
+| `CardEffectFactory.BlastDNADigivolveEffect(card, conds, cond)` | `BlastDNADigivolveEffect(card, blastDNAConditions, condition)` |
+| `new AddJogressConditionClass(); SetUp(GetJogress)` (DNA/Jogress) | `JogressEffectFromNames(card, condition, names…)` (GetJogress 재료 이름 번역) |
+
+> **STOP-목록(강모델 전용)**: `new AddSkillClass()`(효과 동적 부여)·`CardEffectCommons.AddEffectToPlayer(..)`(플레이어 딜레이)·`CardEffectCommons.PlayOptionCards(..)`·`AddSelfLinkConditionStaticEffect`(대체 링크원)·`AddMaxTrashCountDigiXrosClass`(DigiXros 트래시-보정)·중첩 커스텀 coroutine(예: removal-prevent, `ChangeEndTurnMinMemoryClass`). 이들은 STOP 후 강모델로.
+> **특수플레이 DigiXros/Blast/DNA/Jogress는 이제 위 팩토리로 선언 = 로컬모델 가능**(재료 이름/조건만 config).
 | `[All Turns]` 스탯/키워드 (timing==None) | 해당 `*SelfStaticEffect` / `*SelfEffect` (연속형, 미러 OK) |
 | 대체 진화원 | `AddSelfDigivolutionRequirementStaticEffect(permanentCondition, ...)` |
 
 > **판정법**: 효과가 `timing == None`의 **연속/키워드/스탯 팩토리**면 **구문 미러 OK**(카탈로그에서 찾아 그대로). 효과가 **코루틴(`IEnumerator`/`.Draw()/.Tap()/.Destroy()`)**이면 → **의도를 읽어 대응 팩토리가 카탈로그에 있으면 사용, 없으면 STOP**(강모델). 코루틴을 억지로 옮기지 말 것.
+
+## 4-c. 부분 포팅 (PARTIAL) — 분기별로 처리
+한 카드는 **타이밍 분기별로 독립**(`if (timing == ...)`)입니다. 어떤 분기는 매핑되고 어떤 분기는 STOP일 수 있다 → **매핑되는 분기는 포팅하고, STOP 분기만 남긴다.** 카드를 통째로 STOP하지 말 것.
+- 매핑되는 분기: 정상 미러/팩토리로 채운다.
+- STOP 분기: 그 분기 자리에 주석 `// STOP: <이유> — 강모델` 을 남기고 `cardEffects.Add` 를 생략(또는 `DeferredCardEffect`). 카드 id + STOP 분기를 기록해 강모델에 넘긴다.
+- 결과: 카드는 부분 동작(포팅된 분기만)하고 컴파일/테스트는 통과. 강모델이 나중에 STOP 분기를 채운다.
 
 ## 5. STOP — 강모델 에스컬레이션 조건
 아래 중 하나면 **직접 해결하지 말고** 카드 id + 이유를 기록하고 넘어간다:

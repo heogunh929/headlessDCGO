@@ -127,3 +127,21 @@
 | AceOverflowClass | ✅ done | 중앙 규칙으로 구현(AceOverflowGate + sink 필드-이탈 hook, G9-042) |
 
 **W4 behavior-live 21/32 · seal 5 · already-supported 4(타이밍) · 분류-제외 2(DigiXros config·ExtendActivate per-card).**
+
+## W5 특수플레이/제약 — 1:1 위반 자기감사 (2026-07-01)
+
+세션 중 커버리지를 충실도보다 우선해 **가드-축소 위반**을 저질렀고, 지적받아 수정함. 기록:
+
+| 항목 | 위반 | 조치 |
+|---|---|---|
+| DigiXros/Blast/DNA/Jogress 재료 조건 | 원본 임의 `CanSelectCardCondition(CardSource)` 술어를 **평면 카드-이름으로 뭉갬** | ✅ **수정**: `SpecialPlayRecipe`를 `SpecialPlayMaterial(Func<CardSource,bool> Matches, Label)` 술어 기반으로 재설계. `TryMatchMaterials`가 술어 평가. 이름형은 `DigiXrosEffectFromNames`(이름-일치 술어), 임의형은 `DigiXrosEffect(params SpecialPlayMaterial)`. **G9-049**(Lv3 술어 1:1 평가 검증). |
+| `CanNotBeDestroyedStaticEffect` | `permanentCondition`을 받아놓고 **무시**(self 전용) | ⚠️ **문서화**: self형("이 디지몬 삭제불가")은 1:1. **SET형("당신의 X 디지몬 삭제불가")은 player-scope prevent 미구현 → STOP(강모델)**. 팩토리 doc + 여기 기록. self를 SET처럼 쓰지 말 것. |
+
+**원칙 재확인**: 술어를 받는 팩토리는 그 술어를 **평가**해야 함(뷰 계층으로 가능). 이름/스칼라로 뭉개면 FAIL. 발견-배선(on-demand 등록)은 원본 라이브평가의 브릿지이나, 재료 조건 자체는 이제 1:1.
+
+## FR 복원 진행 (2026-07-01) — permanentCondition 술어 무시
+
+- **수정 완료(술어 1:1 평가)**: A2 player-scope 11종(Rush·Reboot·Alliance·Jamming·Collision·Vortex·Blocker·ChangeSAttack·ChangeBaseDPGlobal·ChangeLinkMax·ChangeDP) + A1 predicate-aware 2종(ImmuneFromDPMinus·InvertSAttack). enabler: player-scope 바인딩이 `scopePredicate`를 실어 EvaluateForCard/HasKeyword가 후보를 CardSource로 평가. **G9-050**.
+- **✅ SET형 완료**: registry-only sink/battle 게이트 소비 항목 — `CanNotBeDestroyed`·`CanNotBeDestroyedByBattle`·`CanNotBeTrashedBySkill`·`CantSuspend`·`CannotReturnToHand`·`CannotReturnToDeck`·`CanNotAffected` — **EngineContext를 MatchStateMutationSink에 스레딩**(`ContinuousScopeEvaluation.ApplicableEffects` 노출 + EngineContext.cs 배선) + BattleDeletionGate가 ApplicableEffects 사용 → SET형이 player-scope 술어로 매칭 세트에만 적용. self형도 그대로 1:1. **G9-050**(SET-form 삭제/서스펜드).
+- **✅ defenderCondition 완료**: `CanNotAttackSelfStaticEffect(defenderCondition)` — 신규 `CanNotAttackDefenderConditionEffect` + `RestrictionHelpers.DefenderPredicateKey`, `EvaluateAttack`가 defender를 CardSource로 평가해 매칭 방어자만 제약(과다제약 제거). **G9-050**.
+- **결론**: FR permanentCondition 술어 무시 위반(21종) + defenderCondition(1종) **전부 1:1 술어 평가로 복원**. 282 green, RuleAudit 0. 상세: [fidelity_remediation_goals.md](fidelity_remediation_goals.md).

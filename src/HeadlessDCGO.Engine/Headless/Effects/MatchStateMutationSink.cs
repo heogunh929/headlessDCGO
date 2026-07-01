@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Effects;
 
 using System.Globalization;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -76,6 +77,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string MaterialSaveKind = "MaterialSave";                       // (C-23) source = from-host; toEntityId, count -> move sources to another stack
     public const string ToEntityIdKey = "toEntityId";
     public const string ImmuneStackTrashingKey = "immuneStackTrashing"; // (PRIM-W4) host source-trash immunity flag
+    public const string DeDigivolveKind = "DeDigivolve";                // (PRIM-W5) target = card; count -> remove N top digivolution cards
     // G10-007: play a SPECIFIC digivolution source out from under its host as a new battle-area Digimon
     // (cost-free). target = the under-card to play; HostEntityIdKey = the host it sits under.
     public const string PlayDigivolutionAsDigimonKind = "PlayDigivolutionAsDigimon";
@@ -170,6 +172,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // (PRIM-W4 AceOverflow) supplies the current turn player so a leaving ACE's memory penalty is applied with
     // the correct turn-relative sign. Null in contexts without turn state (falls back to owner-is-active).
     private readonly Func<HeadlessPlayerId?>? _currentTurnPlayer;
+    // (FR-P3) the engine context, used so the restriction/immunity checks below can honour PLAYER-SCOPE
+    // effects with an arbitrary permanentCondition predicate ("your <X> Digimon cannot be ...") — not just the
+    // card's own self restriction. Null in contexts without a full EngineContext (falls back to self-only).
+    private readonly EngineContext? _context;
 
     public MatchStateMutationSink(
         ICardInstanceRepository repository,
@@ -179,7 +185,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         EffectRegistry? effectRegistry = null,
         GameEventQueue? gameEventQueue = null,
         Action<HeadlessEntityId, HeadlessPlayerId>? onCardEnteredPlay = null,
-        Func<HeadlessPlayerId?>? currentTurnPlayer = null)
+        Func<HeadlessPlayerId?>? currentTurnPlayer = null,
+        EngineContext? context = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _log = log;
@@ -191,6 +198,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // ported effects auto-register — the enter-play hook the action layer wires to CardEffectRegistrar.
         _onCardEnteredPlay = onCardEnteredPlay;
         _currentTurnPlayer = currentTurnPlayer;
+        _context = context;
     }
 
     public int AppliedCount => _applied.Count;
@@ -362,6 +370,20 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case TrashLinkCardsKind:
                 ApplyTrashLinkCards(mutation, targetId);
+                break;
+            case DeDigivolveKind:
+                // (PRIM-W5 DigivolveIntoHandOrTrashCard) remove N top digivolution cards from the target.
+                if (_zoneMover is { } ddMover)
+                {
+                    int ddCount = ReadInt(mutation.Values, CountKey) ?? 1;
+                    _pendingAsync.Add(ct => DeDigivolveHelpers.DeDigivolveAsync(_repository, ddMover, targetId, ddCount, _gameEventQueue, ct));
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeDigivolveKind));
+                }
+                else
+                {
+                    _unsupported.Add(mutation);
+                }
+
                 break;
             case TrainKind:
                 // (C-24 Training) suspend self + place the owner's top library card at the bottom of self's stack.
@@ -659,29 +681,46 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletedByEffectKey));
     }
 
-    // (PRIM-W4) registry-only self-restriction probe (no full EngineContext needed) — mirrors the
-    // continuous-restriction read used by IsDeletionPreventedByContinuous. Used by the suspend / return
-    // sink paths to honour CantSuspend / CannotReturnToHand / CannotReturnToDeck.
-    private bool HasSelfRestriction(HeadlessEntityId cardId, CannotRestrictionKind kind)
+    // (FR-P3) The continuous effects applicable to a card: player-scope + arbitrary predicate aware when an
+    // EngineContext is wired (so "your <X> Digimon cannot be ..." reaches the matching set), else registry-only
+    // card-targeted (self) fallback.
+    private IReadOnlyList<EffectRequest> ScopedEffects(HeadlessEntityId cardId)
     {
-        if (_effectRegistry is null)
+        if (_context is not null)
         {
-            return false;
+            return ContinuousScopeEvaluation.ApplicableEffects(_context, ContinuousRestrictionGate.Scope, cardId);
         }
 
-        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-            _effectRegistry,
-            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId));
+        return _effectRegistry is null
+            ? Array.Empty<EffectRequest>()
+            : _effectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId)).ToArray();
+    }
 
-        foreach (CannotRestriction restriction in result.Restrictions)
+    private bool HasValueFlag(HeadlessEntityId cardId, string flagKey)
+    {
+        foreach (EffectRequest effect in ScopedEffects(cardId))
         {
-            if (restriction.Kind == kind)
+            if (effect.Context.Values.TryGetValue(flagKey, out object? raw) && raw is bool flag && flag)
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    // (PRIM-W4/FR-P3) restriction probe honouring self AND player-scope-with-predicate. Used by the suspend /
+    // return sink paths (CantSuspend / CannotReturnToHand / CannotReturnToDeck).
+    private bool HasSelfRestriction(HeadlessEntityId cardId, CannotRestrictionKind kind)
+    {
+        string? key = kind switch
+        {
+            CannotRestrictionKind.Suspend => Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotSuspendKey,
+            CannotRestrictionKind.ReturnToHand => Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToHandKey,
+            CannotRestrictionKind.ReturnToDeck => Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey,
+            _ => null,
+        };
+        return key is not null && HasValueFlag(cardId, key);
     }
 
     // (PRIM-W4 AceOverflow) when an un-flipped ACE Digimon leaves the field (battle / breeding area), its
@@ -712,58 +751,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _applied.Add(new AppliedMutation(mutation.Kind, cardId, "aceOverflow"));
     }
 
-    // (PRIM-W4) registry-only "does a continuous effect on this card carry <paramref name="flagKey"/>=true".
-    private bool HasSelfFlag(HeadlessEntityId cardId, string flagKey)
-    {
-        if (_effectRegistry is null)
-        {
-            return false;
-        }
-
-        foreach (EffectRequest effect in _effectRegistry.GetContinuousEffects(
-            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId)))
-        {
-            if (effect.Context.Values.TryGetValue(flagKey, out object? raw) && raw is bool flag && flag)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // (PRIM-W4/FR-P3) "does an applicable (self OR player-scope-with-predicate) continuous effect carry
+    // <paramref name="flagKey"/>=true".
+    private bool HasSelfFlag(HeadlessEntityId cardId, string flagKey) => HasValueFlag(cardId, flagKey);
 
     private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId)
     {
-        if (_effectRegistry is null)
-        {
-            return false;
-        }
-
-        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-            _effectRegistry,
-            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId));
-
-        foreach (ReplacementEffect replacement in result.Replacements)
-        {
-            if (replacement.EventKind == ReplacementEventKind.Delete &&
-                replacement.ActionKind == ReplacementActionKind.Prevent)
-            {
-                return true;
-            }
-        }
-
-        // (PRIM-W3) "this Digimon cannot be deleted by effects/skills" continuous restriction
-        // (CanNotBeDestroyedBySkillStaticEffect). ApplyDelete is the effect-sourced delete path (battle
-        // deletion runs through BattleDeletionGate), so this restriction applies exactly here.
-        foreach (CannotRestriction restriction in result.Restrictions)
-        {
-            if (restriction.Kind == CannotRestrictionKind.DeleteBySkill)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // (FR-P3) honour self AND player-scope-with-predicate. PreventDeletion (Delete/Prevent replacement) and
+        // CanNotBeDeletedBySkill are both stored as value flags on the applicable continuous effects. ApplyDelete
+        // is the effect-sourced delete path (battle deletion runs through BattleDeletionGate).
+        return HasValueFlag(cardId, Assets.Scripts.Script.CardEffectCommons.ReplacementHelpers.PreventDeletionKey)
+            || HasValueFlag(cardId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotBeDeletedBySkillKey);
     }
 
     private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key)
@@ -973,7 +971,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
                 or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind
                 or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind
-                or TrainKind or MaterialSaveKind
+                or TrainKind or MaterialSaveKind or DeDigivolveKind
                 or PlayDigivolutionAsDigimonKind;
     }
 

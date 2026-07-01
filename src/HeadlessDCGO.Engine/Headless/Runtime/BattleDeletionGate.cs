@@ -34,24 +34,15 @@ public static class BattleDeletionGate
             return false;
         }
 
-        ContinuousEvaluationResult result = ContinuousEffectEvaluator.Evaluate(
-            context.EffectRegistry,
-            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId));
-
-        foreach (ReplacementEffect replacement in result.Replacements)
+        // (FR-P3) Scan the effects that APPLY to this card — card-targeted AND player-scope (owner + arbitrary
+        // permanentCondition predicate, evaluated 1:1) — so "your <X> Digimon cannot be deleted" reaches the
+        // matching set, not just the source itself. A Delete/Prevent replacement is registered as the
+        // preventDeletion flag; battle-only immunity is preventBattleDeletion.
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {
-            if (replacement.EventKind == ReplacementEventKind.Delete &&
-                replacement.ActionKind == ReplacementActionKind.Prevent)
-            {
-                return true;
-            }
-        }
-
-        // Battle-only immunity (does not prevent effect deletion).
-        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(
-            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: cardId)))
-        {
-            if (effect.Context.Values.TryGetValue(PreventBattleDeletionKey, out object? raw) && raw is bool flag && flag)
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if ((values.TryGetValue(ReplacementHelpers.PreventDeletionKey, out object? del) && del is bool d && d)
+                || (values.TryGetValue(PreventBattleDeletionKey, out object? bat) && bat is bool b && b))
             {
                 return true;
             }

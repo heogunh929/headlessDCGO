@@ -24,6 +24,14 @@ public static class PlayerScopeContinuousHelpers
     /// <summary>Optional condition: the card's <c>CardType</c> must equal this (case-insensitive).</summary>
     public const string ScopeCardTypeKey = "scopeCardType";
 
+    /// <summary>(FR-P1) Optional condition: an ARBITRARY per-permanent predicate (the ported card's
+    /// <c>Func&lt;Permanent,bool&gt; permanentCondition</c> as a <c>Func&lt;CardSource,bool&gt;</c>). Unlike
+    /// <see cref="ScopeCardTypeKey"/> this is not a coarse type filter — it lets a player-scope effect target
+    /// exactly the original's set ("your Digimon with trait X", "your Lv.3 Digimon"). Evaluated by
+    /// ContinuousScopeEvaluation against the candidate card. When present, the coarse scope filters still
+    /// apply first (cheap), then this predicate.</summary>
+    public const string ScopePredicateKey = "scopePredicate";
+
     /// <summary>Optional condition: the card's metadata must contain this key...</summary>
     public const string ScopeMetaKeyKey = "scopeMetaKey";
 

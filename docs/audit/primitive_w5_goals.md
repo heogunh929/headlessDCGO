@@ -51,10 +51,11 @@
 ## 진행
 - [x] **W5-0 질의 뷰 계층 (근본 enabler)** — 드라이런에서 발견: 진짜 병목은 액션 래퍼가 아니라 카드 술어가 읽는 `permanent.*`/`TopCard.*`/`cardSource.*` 멤버 부재. 헤드리스 `Permanent`={Instance,Owner}뿐이라 술어-보유 카드는 컴파일조차 불가. → `CardSource`에 뷰 멤버 14종(IsDigimon/IsTamer/IsToken/Level/HasLevel/IsLevel/CardColors/HasCardColor/CardNames/EqualsCardName/ContainsCardName/CardTraits/EqualsTraits/ContainsTraits) + `Permanent`에 DP(연속수정자 접힘)/TopCard(→CardSource 재사용)/Level/IsDigimon/IsTamer/IsToken/IsSuspended/DigivolutionCards/HasNoDigivolutionCards. 엔진 상태 기반 **평가 가능**. **G9-043**(술어 `p.DP==0 && p.TopCard.ContainsCardName(...)` 실평가 포함). 275 green.
   - 잔여 롱테일 멤버(GetCostItself·CanAttack·CanNotBeAffected·HasCSTraits·HasText·PermanentFrame 등)는 실제 카드 포팅 시 수요 맞춰 확장.
-- [ ] W5-a 얇은 별칭(HAVE 재사용: IgnoreColor→UseRequirements, GainX→키워드, CanNotSuspend, SelectTrashDigivolution, DestroyPermanents, SimplifiedSelectCardCondition) — 저비용 일괄
-- [x] **AddSelfDigivolutionRequirementStaticEffect (1106장)** — 예측형 대체 진화원. 뷰 계층으로 `Func<Permanent,bool>` 술어가 컴파일+평가 → DigivolveAction이 target 언더카드를 Permanent로 만들어 술어 평가(인쇄 요건 실패해도 매칭 시 진화 합법). `AddedDigivolutionRequirementPredicateEffect` + `AddedEvolutionPredicateKey`. **G9-044**. 276 green.
-- [ ] W5-b 노출 래퍼(Draw/ChangeCost/DestroyPermanents/RevealAndSelect)
-- [ ] W5-c 타겟 수정자(ChangeDigimonDP/SAttack, Suspend/Delete 타겟)
-- [ ] W5-d 인터랙션 코어(PlayPermanentCards + SELECT) — 진짜 신규
-- [ ] W5-e 나머지(Link조건/Skill/CardName/CanNotAffected/PlayOption 등)
+- [x] **AddSelfDigivolutionRequirementStaticEffect (1106장)** — 예측형 대체 진화원. 뷰 계층으로 `Func<Permanent,bool>` 술어 컴파일+평가. **G9-044**.
+- [x] **W5-a/b/c/d 선언형 액션 vocabulary** (원본 코루틴 → 팩토리): `DrawCardsEffect`(444)·`SelectAndSuspend/Unsuspend/Bounce`(282)·`SelectAndDestroy`(269)·`SelectAndBuffDp/SAttack`(451/122)·`AddThisCardToHandEffect`(121)·`SelectAndDeDigivolveEffect`(300, 신규 DeDigivolveKind)·**`SelectAndPlayFromZoneEffect`(723, 인터랙션 코어)**. **G9-045/046**. 레시피 §4-b intent-매핑에 전부 등재.
+- [x] **별칭 매핑**(신규코드 0): IgnoreColor→UseRequirements·CanNotSuspend→CantSuspend·CanNotBeDestroyed→CanNotBeDestroyedStatic·ChangeCost→ChangePlayCostStatic·GainX→키워드. 레시피 등재.
+- [x] **W5-e tail**: `SimplifiedRevealDeckTopCardsAndSelect`(343, 팩토리화)·`CanNotAffectedStaticEffect`(36, ImmuneFromEffects)·`ChangeCardNamesStaticEffect`(49, behavior-live — CardSource.CardNames 폴드). **G9-047**.
+  - **STOP-목록(강모델 전용)**: AddSkillClass(효과 동적부여)·AddEffectToPlayer(플레이어 딜레이)·PlayOptionCards·AddSelfLinkCondition(대체 링크원)·특수플레이. 레시피 §4-b에 명시.
+- [x] **특수플레이 선언 팩토리** (STOP→로컬모델 가능): `DigiXrosEffectFromNames`·`BlastDigivolveEffect`·`BlastDNADigivolveEffect`·`JogressEffectFromNames` — 카드가 `SpecialPlayRecipeRegistry`에 레시피(Kind+재료이름+cost) 등록, SpecialPlayAction이 실행. `CardSource.CardNumber` + `BlastDNACondition` shim + `SpecialPlayRecipeMarkerEffect`. **G9-048**. 재드라이런: **BT10_012(DigiXros) 완전 포팅** 가능화.
+- 280 green, RuleAudit 0. 카탈로그 **119 팩토리**로 재생성. **W5 사실상 완료** — 남은 STOP은 강모델 니치(AddSkill·AddEffectToPlayer·PlayOption·AddSelfLinkCondition·AddMaxTrashCountDigiXros·커스텀 coroutine)뿐.
 - 완료 → 카탈로그 재생성(원본 심볼 키 + honored/ignored 주석 + STOP-목록) + 스킬 범위 재조정.
