@@ -1,7 +1,7 @@
 # 개발 로드맵 (앞으로의 계획)
 
 - 작성일: 2026-06-29
-- 기준: 엔진 코어 완성(테스트 199/199 green). 상세 항목은 [engine_completion_backlog.md](engine_completion_backlog.md), 작업기준은 [engine_completion_handoff.md](engine_completion_handoff.md) §2.
+- 기준: 엔진 코어 완성(테스트 199/199 green). 상세 항목은 [engine_completion_backlog.md](archive/engine_completion_backlog.md), 작업기준은 [engine_completion_handoff.md](archive/engine_completion_handoff.md) §2.
 
 ## 현재 위치
 - **A 기반 + B 공통연산 + C 키워드(소비측) + D 서브시스템(코어) + 엔진 잔여(B-10·D-7정밀화·F-5.3·F-6.3 OnKnockOut·F-1.7·F-8.5) 전부 완료.**

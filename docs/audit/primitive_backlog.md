@@ -10,7 +10,21 @@
 - **probe-first**: 엔진 메커니즘 재사용(대부분 "엔진 있음 / 카드-facing 없음"). `Headless/**` change-control. 없는 메커니즘은 **BT/실 카드 수요 범위만**, 나머지 분기는 NotSupported 명시.
 - 신설 위치: 카드-facing은 `CardPortingFramework.cs` / `CardEffectFactory`(원본 이름), 엔진 배관은 `Headless/`. 픽스처 `TestFixtures/Tfx*.cs`.
 
-## 기준 / 현황
+## ✅ 전 웨이브 완료 (2026-07-01)
+> **MISSING 90 소진 완료 — 로컬 모델 카드 포팅 진입 가능.** 전체 **274 green, RuleAudit 0**.
+>
+> | 웨이브 | 프리미티브 | 문서 |
+> |---|---|---|
+> | BT-PRE-A | 5 (액션형) | (archive/bt_pre_a_goals.md) |
+> | W1 | 6 (진화 기반) | [primitive_w1_goals.md](primitive_w1_goals.md) |
+> | W2 | 20 (고빈도) | [primitive_w2_goals.md](primitive_w2_goals.md) |
+> | W3 | 27 (중빈도) | [primitive_w3_goals.md](primitive_w3_goals.md) |
+> | W4 | 30 (저빈도+FW/타이밍) | [primitive_w4_goals.md](primitive_w4_goals.md) |
+> | **누적** | **88** | |
+>
+> 분류: behavior-live 다수 · preemptive-seal(grant live, 소비자 latent) 일부 · 분류-제외 2(DigiXros 데이터 config·ExtendActivate per-card). 상세: [fidelity_debt.md](fidelity_debt.md).
+
+## 기준 / 현황 (이력)
 - HEAD `d8b9daba`(+ 미커밋: run-tests 튜닝·EX8_074 fix·brick2b·BT 문서·BT-PRE-A). 전체 **251 green, RuleAudit 0**.
 - ✅ **완료**: BT-PRE-A 5종(Draw·SimplifiedSelect·Destroy·Hatch·PlayCard) — 아래 목록에서 제외.
 

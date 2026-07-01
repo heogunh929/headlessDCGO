@@ -1,132 +1,57 @@
-# 감사 요약 (한눈에 보기)
+# headlessDCGO 문서 인덱스 (현재 상태)
 
-- 작성일: 2026-06-25
-- 이 폴더는 Phase 3 완료 이후 "지금 엔진 상태"를 점검한 결과입니다.
-- 상세 문서:
-  - [Phase 3 parity 감사](phase3_parity_audit_report.md) — goal별 완료/결함 분석
-  - [엔진 흐름도 AS-IS vs TO-BE](engine_flow_asis_vs_tobe.md) — 원본 Unity vs 현재 구현 비교
-  - [RL 갭 조치 설계](rl_gap_remediation_design.md) — A1~C2 (RL 인터페이스/규칙 갭 수정, 완료)
-  - [Phase 4 사전 배선 계획](prephase4_wiring_plan.md) — W1~W7 (효과 인프라 배선)
-  - [**Phase 4 진행 전 체크리스트**](phase4_pre_checklist.md) — 착수 게이트 (GPT 7건 검증 + 우선순위)
+- 갱신: 2026-07-01
+- 이 폴더는 headless 엔진 포팅 프로젝트의 작업 문서입니다. 아래는 **현재 authoritative** 문서만 정리한 인덱스이며, 완료된 엔진-완성기·감사·후속 goal 이력은 [`archive/`](archive/)로 이동했습니다.
 
 ---
 
-## 1. 결론 한 줄
+## 1. 현재 위치 (2026-07-01)
 
-> **Phase 3는 테스트 기준으로 "완료"지만, 만든 helper가 게임 루프에 연결되지 않아 "엔진이 실제로 동작하지는 않는다".**
-> Phase 4(카드 포팅) 전에 **연결 작업(통합 수정)** 이 먼저 필요하다.
+> **엔진 코어 완성 + 프리미티브 선행개발 전 웨이브 완료(88종). 다음 = 로컬 모델의 per-card 포팅(config-only).**
 
----
+| 단계 | 상태 |
+|---|---|
+| 엔진 코어 (A~D · F · G · X 시리즈) | ✅ 완료 (archive 참조) |
+| 라이브 통합 / 실루프 배선 | ✅ 완료 |
+| **프리미티브 선행개발 (BT-PRE-A · W1~W4)** | ✅ **88종 완료** |
+| 카드 데이터 로더 | 🔴 대량 포팅 선결 |
+| per-card 대량 포팅 (로컬 LLM) | 🟠 다음 본작업 |
+| 통합 / RL | 🟢 마무리 |
 
-## 2. 지금 상태 (사실 확인)
+- 전체 테스트: `bash scripts/run-tests.sh` — **274 green**, `tools/RuleAudit` 위반 0.
 
-| 항목 | 상태 |
-|------|------|
-| Phase 3 단위테스트 | 244개 전부 통과 (재실행 확인) |
-| Phase 3 gate | Phase 4 착수 ALLOWED |
-| 원본 DCGO 소스 | 확인됨 (`DCGO/Assets/Scripts/Script`) |
-| Unity 대체 기반 (Phase 1) | 정상 동작 |
-| 게임플레이 연결 | **다수 끊김** (아래 참고) |
+## 2. 로드맵 · 기준
 
-"완료"의 의미: **helper와 contract는 만들어졌다.** 하지만 그것을 호출해 게임 상태를 바꾸는 배선이 빠져 있다.
+- [**development_roadmap.md**](development_roadmap.md) — Phase 1~5 계획 (수직슬라이스 → 데이터로더 → 대량포팅 → 타이밍보강 → RL)
+- [card_porting_standard.md](card_porting_standard.md) — 카드 포팅 표준(구조 1:1 미러 원칙)
+- [card_porting_recipe.md](card_porting_recipe.md) — 포팅 레시피(반복 패턴·체크리스트)
+- [card_group_standard.md](card_group_standard.md) — goal·테스트 단위 기준
+- [ci_check_procedure.md](ci_check_procedure.md) — CI 확인 절차
 
----
+## 3. 프리미티브 선행개발 (완료, 88종)
 
-## 3. 핵심 문제 (그림 한 장)
+> 강모델이 카드-facing 프리미티브를 전부 선행개발 → 로컬모델 포팅은 파라미터화만. **카드 포팅 중 프리미티브 개발 없음.**
 
-```mermaid
-flowchart LR
-    subgraph built [만들어진 부품 - 테스트 통과]
-        K["키워드 효과"]
-        E["카드효과 실행계약"]
-        B["전투/시큐리티/블록 처리기"]
-        C["지속효과 평가기"]
-        A["자동효과 수집기"]
-    end
-    subgraph loop [실제 게임 루프]
-        L["HeadlessGameLoop"]
-        S["EffectScheduler"]
-        M["ActionProcessor"]
-    end
-    K -.끊김.-> S
-    E -.끊김.-> S
-    B -.끊김.-> M
-    C -.끊김.-> M
-    A -.끊김.-> L
-```
+- [**primitive_backlog.md**](primitive_backlog.md) — 마스터 백로그(전 DCGO census)
+- [primitive_w1_goals.md](primitive_w1_goals.md) — W1 진화 기반 (6)
+- [primitive_w2_goals.md](primitive_w2_goals.md) — W2 고빈도 (20)
+- [primitive_w3_goals.md](primitive_w3_goals.md) — W3 중빈도 (27)
+- [primitive_w4_goals.md](primitive_w4_goals.md) — W4 저빈도 tail + 프레임워크/타이밍 (30)
+- [ace_overflow_design.md](ace_overflow_design.md) — AceOverflow 중앙 규칙 설계
+- [**fidelity_debt.md**](fidelity_debt.md) — 충실도 부채 레저 + preemptive-seal 목록
 
-> 부품은 다 있는데 **배선(점선)이 안 되어 있다.** 통합 수정 = 점선을 실선으로 바꾸는 일.
+## 4. 카드 포팅 goal (예정)
 
----
+- [bt1_porting_goals.md](bt1_porting_goals.md) — BT1 포팅 goal
+- [cards_st2_blue_goal.md](cards_st2_blue_goal.md) · [cards_st3_yellow_goal.md](cards_st3_yellow_goal.md) — ST 색상별 goal
 
-## 4. 이슈 정리 (심각도순)
+## 5. 세션 연속성
 
-### 즉시 고쳐야 함 (P0) — "효과가 아예 상태를 못 바꿈"
-
-| # | 문제 | 쉬운 설명 | 파일 |
-|---|------|-----------|------|
-| 1 | **효과 실행기가 빈 껍데기** | 카드 효과를 큐에 넣어도 "성공"만 찍고 아무것도 안 함 | `EffectScheduler.cs` (B-03) |
-| 2 | **키워드 결과가 버려짐** | Blocker/Rush 등이 "이렇게 바꿔라" 신호를 내지만 받는 곳이 없음 | `KeywordBaseBatch1/2.cs` (B-02) |
-| 3 | **카드 조회가 player 1 고정** | 효과 바인딩 조회가 항상 1번 플레이어 기준 → 잘못된 결과 가능 | `CardEffectFactoryBinding.cs:247` (B-01) |
-
-### 통합에 필요 (P1) — "흐름이 Unity와 다름"
-
-| # | 문제 | 쉬운 설명 | 파일 |
-|---|------|-----------|------|
-| 4 | **공격이 선언만 됨** | 공격 선언 후 블록→전투→시큐리티→종료 단계가 안 이어짐 | `MetadataActionProcessor.cs` (X-01) |
-| 5 | **자동효과가 안 돎** | "카드 냈을 때/공격할 때" 트리거를 모으는 코드가 루프에서 호출 안 됨 | `HeadlessGameLoop.cs` (X-05) |
-| 6 | **지속효과 반영 안 됨** | "공격 불가" 같은 효과가 가능한 행동 목록에 안 들어감 | `LegalActionDispatcher` (X-04) |
-| 7 | **승패 판정 안 붙음** | 승패 조건 계산기가 매치 결과에 연결 안 됨 | `PlayerRuleAdapter` (X-02) |
-
-### 점진적 (P2) — "규칙 범위 부족"
-
-| # | 문제 | 쉬운 설명 |
-|---|------|-----------|
-| 8 | 트리거 3종만 | 원본은 42종, 지금은 OnPlay/OnDigivolve/WhenAttacking만 (R-01) |
-| 9 | 키워드 8개만 | 원본 29개 중 8개 (Evade, Decoy 등 미구현) (R-02) |
-| 10 | 삭제 제한 뭉뚱그림 | "전투로 삭제 불가" vs "효과로 삭제 불가" 구분 없음 (R-03) |
-| 11 | 기타 세부 규칙 | 대체효과 우선순위, InvertDelta, once-flag reset 등 (R-04~R-15) |
+- [session_handoff.md](session_handoff.md) — 다른 PC에서 이어서
+- [memory_mirror.md](memory_mirror.md) — auto-memory ↔ repo 미러
 
 ---
 
-## 5. 가장 중요한 인사이트
+## 아카이브 ([`archive/`](archive/))
 
-원본(AS-IS)은 모든 phase가 **하나의 공통 루프**를 돈다.
-
-```
-AutoProcessCheck()  ↔  attackProcess.ProcessNextState()  ↔  EndTurnCheck()
-   (자동효과)            (공격 한 단계 진행)                (승패/턴종료)
-```
-
-→ 효과·공격·승패가 **한 덩어리**로 맞물려 돈다.
-
-현재(TO-BE)는 `action 꺼내기 → 효과 resolve(빈 동작) → terminal 확인`만 한다.
-
-> **즉 위 P1 이슈(4·5·6·7)는 따로따로 고칠 문제가 아니라, "공통 루프"를 TO-BE에 이식하면 한 번에 풀린다.**
-
----
-
-## 6. 권장 진행 순서
-
-```mermaid
-flowchart TD
-    P0["P0: 효과 실행기 + 키워드 sink + player 조회 수정"] --> P1["P1: 공통 루프 이식 (공격/자동효과/지속효과/승패)"]
-    P1 --> Smoke["대표 카드 소수로 통합 E2E 테스트"]
-    Smoke --> P4["Phase 4: 카드 대량 포팅"]
-    P1 --> P2["P2: 트리거/키워드/규칙 범위 확대 (병행)"]
-```
-
-1. **P0 먼저** — 안 하면 카드 포팅해도 효과가 안 나옴
-2. **P1 (공통 루프 이식)** — Unity와 같은 흐름 복원
-3. **대표 카드로 통합 테스트** — Blocker 덱 + 옵션 1장 + 공격 1턴
-4. **그 다음에 Phase 4** 본격 시작
-
----
-
-## 7. 지금 결정할 것
-
-- [ ] 통합 수정을 **별도 Phase(예: Phase 3.5)** 로 둘지 -> 별도 페이즈로 작업한다 3.5
-- [ ] 시작 지점: **P0만** / **P0+P1 묶음** / **공통 루프부터** -> 시작지점은 P0부터 
-- [ ] "공통 루프 이식" 설계안을 먼저 만들지 -> 설계안을 최우선적으로 만든다.
-
-원하시면 위 P0 또는 공통 루프 이식을 goal 단위(G3.5-001 ...)로 쪼갠 작업 목록을 만들어 드립니다.
+완료된 이력 문서(37종): 엔진-완성기(engine_completion_*, phase3/4, rl_gap, prephase4_wiring), 감사(original_vs_port_*, asis_fidelity, phase3_parity), 후속 goal(g11~g16, gr_*, live_*, integration_*, fidelity_repayment, bt_pre_a 등), 서브시스템 설계(s1/s2_s4, f68, cgroup4). git 히스토리 + 이 폴더에 보존.

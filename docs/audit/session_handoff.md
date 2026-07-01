@@ -3,6 +3,8 @@
 > 이 문서 하나로 새 PC(또는 새 대화)에서 작업을 이어받을 수 있다. 저장소: **https://github.com/heogunh929/headlessDCGO** (branch `main`).
 > 메모리 내용은 `docs/audit/memory_mirror.md`에 미러돼 있다(메모리 폴더는 git 밖).
 
+> **현재 상태(2026-07-01):** 엔진 코어 + 프리미티브 선행개발 **전 웨이브 완료(88종, 274 green)**. 다음 = 로컬 모델 per-card 포팅. 인덱스: [`README.md`](README.md), 로드맵: [`development_roadmap.md`](development_roadmap.md).
+
 ## 0. 새 PC 셋업 체크리스트
 
 공통: 1) clone, 2) `DCGO/` 복사(필수, git-ignored — AS-IS 1:1 대조 기준; C# 소스+.meta라 크로스플랫폼 복사 OK), 3) .NET 8 SDK, 4) (선택) 메모리 복원(`memory_mirror.md` 각 절을 `~/.claude/projects/<project>/memory/<name>.md`로; 또는 새 대화에서 "session_handoff.md + memory_mirror.md 읽고 이어서"), 5) 검증.
@@ -15,7 +17,7 @@ curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0  # 또
 
 git clone https://github.com/heogunh929/headlessDCGO.git && cd headlessDCGO
 # DCGO/ 를 기존 PC에서 루트로 복사 (scp/USB/클라우드)
-bash scripts/run-tests.sh            # SUMMARY: PASS=244 FAIL=0
+bash scripts/run-tests.sh            # SUMMARY: PASS=274 FAIL=0
 dotnet run --project tools/RuleAudit # No rule-invariant violations
 ```
 - **`.dotnet/` 복사 금지** — Windows 바이너리. `run-tests.sh`는 `.dotnet/`가 없으면 시스템 `dotnet`을 쓴다(`[ -d ".dotnet" ] && export PATH=...`). 격리하고 싶으면 `dotnet-install.sh --install-dir ./.dotnet`로 **Linux** SDK를 `.dotnet/`에 깔면 된다.
