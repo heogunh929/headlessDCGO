@@ -16,7 +16,12 @@
 - [Engine completion progress](engine-completion-progress.md) — current state + read docs/audit/engine_completion_handoff.md first (PC-move handoff)
 - [Fidelity debt](fidelity-debt.md) — ST1/2/3 부채 전부 상환(G10): 35/35 진짜 1:1; 엄격 PASS 기준(빈도·추측 금지)
 - [Porting standard](porting-standard.md) — 포팅 표준: 원본구조 동일(파일·팩토리 이름 1:1, 행동만 아님); docs/audit/card_porting_standard.md
+- [Primitive pre-development role](primitive-predevelopment-role.md) — 강모델이 프리미티브 전부 선행개발; 카드 포팅(로컬모델)중 프리미티브 개발 0, "per-card 이연" 금지
 ```
+
+## primitive-predevelopment-role.md (type: feedback)
+
+지배 지침(사용자 확정): **추후 카드 포팅은 로컬 모델이 수행하므로, 강모델(지금)은 카드-facing 프리미티브(메커니즘)를 전부 미리 개발해 둔다. 카드 포팅 중 프리미티브 개발은 없다.** Why: 로컬 모델 작업이 기계적·확정적이려면 필요한 프리미티브가 다 존재해야 함(포팅 중 새 메커니즘 생성 불가). How: (1) 프리미티브를 "per-card 포팅 시로 이연"하지 말 것(지금 만든다), (2) 카드 포팅 = 기존 프리미티브 파라미터화/조합만(새 메커니즘 아님), (3) 프리미티브는 포팅이 순수 설정이 되도록 충분히 일반적으로, (4) 처리 4유형(데이터 subsume/seam 미러/재사용 인프라/바운드 서브시스템 확장) 중 "subsume"만 데이터-구동으로 OK, "이연"은 금지. 마스터 백로그 `docs/audit/primitive_backlog.md`(MISSING 90, W1~W4), 웨이브 goal `primitive_w{1..4}_goals.md`.
 
 ---
 

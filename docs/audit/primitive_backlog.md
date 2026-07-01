@@ -88,6 +88,12 @@
 
 ---
 
+## 선행개발 웨이브 — goal 문서 (각 문서에 실행 대화문 포함)
+- **W1** 진화 기반 → `docs/audit/primitive_w1_goals.md`
+- **W2** 고빈도(20+) → `docs/audit/primitive_w2_goals.md`
+- **W3** 중빈도(6–19) → `docs/audit/primitive_w3_goals.md`
+- **W4** tail(1–5)+프레임워크/타이밍 → `docs/audit/primitive_w4_goals.md`
+
 ## 선행개발 웨이브 (권장 순서 — 임팩트/의존)
 - **W1 — 진화 기반(G1)**: `AddSelfDigivolutionRequirementStaticEffect`(1282) 단독으로 거의 모든 디지몬의 진화 조건 해금. 진화 코스트/제약 포함. **최우선 단일 임팩트 최대.**
 - **W2 — 고빈도 키워드(G2 상위) + 특수진화(G3) + 링크(G4 상위) + 메모리(G5 상위) + 시큐리티(G6)**: Retaliation/Raid/Barrier/Rush/Blast/Link/SetMemoryTo3Tamer/PlaceSelfDelayOptionSecurity 등 20–90회대.
