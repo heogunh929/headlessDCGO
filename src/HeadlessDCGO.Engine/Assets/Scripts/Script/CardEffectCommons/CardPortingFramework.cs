@@ -253,6 +253,177 @@ public sealed class ContinuousSelfModifierEffect : ICardEffect
     }
 }
 
+/// <summary>(PRIM-W1) A continuous SELF restriction (cannot digivolve / attack / block / suspend / …) — the
+/// restriction analogue of <see cref="ContinuousSelfModifierEffect"/>. Registers a <c>Restriction</c>-role
+/// binding under <see cref="ContinuousRestrictionGate.Scope"/> carrying the given restriction flag, targeting
+/// this card; the various actions (DigivolveAction / AttackPermanentAction / BlockTiming / …) already consult
+/// <see cref="ContinuousRestrictionGate"/>. Condition / inherited-effect are honoured (same
+/// <c>ContinuousScopeEvaluation</c> as the modifier gate). Reused across the CanNot* self-static primitives.</summary>
+public sealed class ContinuousSelfRestrictionEffect : ICardEffect
+{
+    public ContinuousSelfRestrictionEffect(CardSource card, string restrictionKey, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
+        Card = card;
+        RestrictionKey = restrictionKey;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public string RestrictionKey { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [RestrictionHelpers.RestrictionTargetEntityIdKey] = Card.InstanceId.Value,
+            [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
+            [RestrictionKey] = true,
+        };
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        // Role Continuous (not Restriction): ContinuousRestrictionGate.Evaluate reads restrictions off the
+        // CONTINUOUS-role effects (ContinuousScopeEvaluation.EvaluateForCard -> GetContinuousEffects ->
+        // RestrictionHelpers.ReadRestrictions on their values), the same seam ContinuousSelfModifierEffect
+        // rides. This also gets condition / inherited honouring for free.
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(PRIM-W1) A continuous PLAYER-SCOPE restriction — the restriction analogue of the player-scope
+/// buff. Registers a <c>Restriction</c> flag over a player's cards (optionally narrowed by CardType) under
+/// <see cref="ContinuousRestrictionGate.Scope"/>, collected by <c>ContinuousScopeEvaluation</c>'s player-scope
+/// path. Covers the structured "your opponent's Digimon cannot digivolve" style; arbitrary per-permanent
+/// predicates (the original's <c>Func&lt;Permanent,bool&gt;</c>) beyond CardType/meta scoping are per-card.</summary>
+public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
+{
+    private readonly HeadlessPlayerId _scopePlayerId;
+
+    public ContinuousPlayerScopeRestrictionEffect(CardSource card, HeadlessPlayerId scopePlayerId, string restrictionKey, string? scopeCardType, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
+        Card = card;
+        _scopePlayerId = scopePlayerId;
+        RestrictionKey = restrictionKey;
+        ScopeCardType = scopeCardType;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public string RestrictionKey { get; }
+
+    public string? ScopeCardType { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
+            [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
+            [RestrictionKey] = true,
+        };
+        if (!string.IsNullOrWhiteSpace(ScopeCardType))
+        {
+            values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
+        }
+
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(PRIM-W1-6/9) A continuous "added digivolution requirement" on self — grants this card an
+/// ADDITIONAL "Color@Level" from-condition (AS-IS AddDigivolutionRequirementStaticEffect /
+/// AddDigivolutionRequirementClass). Registered under <see cref="ContinuousRestrictionGate.Scope"/> carrying
+/// <see cref="DigivolveAction.AddedEvolutionConditionKey"/>; DigivolveAction consults it when the printed
+/// condition fails. Condition / inherited honoured. (Per-path cost is composed via
+/// <c>ChangeDigivolutionCostStaticEffect</c> or handled per-card.)</summary>
+public sealed class AddedDigivolutionRequirementEffect : ICardEffect
+{
+    public AddedDigivolutionRequirementEffect(CardSource card, string fromCondition, bool isInheritedEffect, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fromCondition);
+        Card = card;
+        FromCondition = fromCondition;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public string FromCondition { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [DigivolveAction.AddedEvolutionConditionKey] = FromCondition,
+        };
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
 /// <summary>A self keyword grant (Blocker / Jamming / Reboot / Piercing) reusing the existing
 /// <see cref="KeywordBaseBatch1Effect"/> resolution + gate wiring.</summary>
 public sealed class SelfKeywordEffect : ICardEffect
@@ -1767,6 +1938,41 @@ public static partial class CardEffectFactory
     /// <summary>Original: <c>ChangeSelfDPStaticEffect</c> — continuous ±DP on self.</summary>
     public static ICardEffect ChangeSelfDPStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousSelfModifierEffect(card, ModifierHelpers.DpDeltaKey, changeValue, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W1-3) Original: <c>ChangeDigivolutionCostStaticEffect</c> — continuous ±digivolution
+    /// cost on self (delta). Registers a <see cref="DigivolutionCostHelpers.DigivolutionCostDeltaKey"/> modifier
+    /// under the continuous-modifier scope, which <c>ContinuousModifierGate.ResolveDigivolutionCost</c> folds
+    /// into this card's evolution cost (D-8; "cannot be reduced" replacement honoured). <paramref name="changeValue"/>
+    /// is signed (negative = reduction). The original's <c>setFixedCost</c> (SET rather than ±) and per-target
+    /// permanent/root conditions are out of this delta primitive's scope (per-card follow-up).</summary>
+    public static ICardEffect ChangeDigivolutionCostStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfModifierEffect(card, DigivolutionCostHelpers.DigivolutionCostDeltaKey, changeValue, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W1-3) Dynamic (<c>Func&lt;int&gt;</c>) variant of <see cref="ChangeDigivolutionCostStaticEffect(int,bool,CardSource,Func{bool})"/>.</summary>
+    public static ICardEffect ChangeDigivolutionCostStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfModifierEffect(card, DigivolutionCostHelpers.DigivolutionCostDeltaKey, changeValue: 0, isInheritedEffect, condition, dynamicValue: changeValue);
+
+    /// <summary>(PRIM-W1-5) Original: <c>CanNotDigivolveStaticSelfEffect</c> — a continuous "this card cannot
+    /// be digivolved (as the digivolution source)" restriction on self. Registers a
+    /// <see cref="RestrictionHelpers.CannotDigivolveKey"/> restriction that <c>DigivolveAction</c> already
+    /// consults (<c>ContinuousRestrictionGate.EvaluateDigivolve</c> on the target under-card).</summary>
+    public static ICardEffect CanNotDigivolveStaticSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotDigivolveKey, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W1-8) Original: <c>CanNotDigivolveStaticEffect</c> — a continuous "the scoped player's
+    /// Digimon (optionally of <paramref name="scopeCardType"/>) cannot digivolve" restriction. Covers the
+    /// structured scope (e.g. "your opponent's Digimon cannot digivolve" — <paramref name="scopePlayerId"/> =
+    /// the opponent); the original's arbitrary per-permanent predicate beyond CardType is a per-card concern.</summary>
+    public static ICardEffect CanNotDigivolveStaticEffect(HeadlessPlayerId scopePlayerId, string? scopeCardType, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayerId, RestrictionHelpers.CannotDigivolveKey, scopeCardType, isInheritedEffect, condition);
+
+    /// <summary>(PRIM-W1-6/9) Original: <c>AddDigivolutionRequirementStaticEffect</c> — grant this card an
+    /// ADDITIONAL digivolution path "from <paramref name="fromColor"/> Lv<paramref name="fromLevel"/>". When
+    /// the printed condition fails but this added condition matches the target, DigivolveAction allows the
+    /// digivolve. (Per-path cost via <see cref="ChangeDigivolutionCostStaticEffect(int,bool,CardSource,Func{bool})"/>
+    /// or per-card; arbitrary per-permanent predicates beyond Color@Level are per-card.)</summary>
+    public static ICardEffect AddDigivolutionRequirementStaticEffect(string fromColor, int fromLevel, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new AddedDigivolutionRequirementEffect(card, $"{fromColor}@{fromLevel}", isInheritedEffect, condition);
 
     /// <summary>Original: <c>PierceSelfEffect</c> — grants Piercing to self.</summary>
     public static ICardEffect PierceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>

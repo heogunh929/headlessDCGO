@@ -256,7 +256,8 @@ public sealed class DigivolveAction
         // F-5.3: a continuous "ignore digivolution requirement" effect (AS-IS CanIgnoreDigivolutionRequirement)
         // lets the player digivolve without satisfying the printed evolution condition.
         if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
-            && !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId))
+            && !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId)
+            && !MatchesAddedDigivolutionRequirement(context, payload.CardId, playerId, targetCard))
         {
             return DigivolveValidation.Illegal(
                 $"Target card '{target.DefinitionId}' does not satisfy evolution condition '{evolvingCard.EvolutionCondition}'.",
@@ -389,6 +390,58 @@ public sealed class DigivolveAction
         }
 
         return false;
+    }
+
+    /// <summary>(PRIM-W1-6/9) A continuous "added digivolution requirement" — an ADDITIONAL "Color@Level"
+    /// from-condition granted by an effect (AS-IS AddDigivolutionRequirementStaticEffect /
+    /// AddDigivolutionRequirementClass). If the printed condition fails but an added condition matches the
+    /// target, the digivolve is legal. Read off continuous effects on the evolving card (and player-scope),
+    /// same query seam as the ignore-requirement effect. (Per-path digivolution cost is composed via
+    /// ChangeDigivolutionCostStaticEffect / handled per-card.)</summary>
+    public const string AddedEvolutionConditionKey = "addedEvolutionCondition";
+
+    private static bool MatchesAddedDigivolutionRequirement(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, CardRecord targetCard)
+    {
+        IEffectQueryService registry = context.EffectRegistry;
+        string scope = ContinuousRestrictionGate.Scope;
+
+        foreach (EffectRequest effect in registry.GetContinuousEffects(new EffectQueryContext(scope, targetEntityId: cardId)))
+        {
+            if (AddedConditionActive(effect, targetCard))
+            {
+                return true;
+            }
+        }
+
+        CardRecord? card = context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? inst) && inst is not null
+            && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) ? def : null;
+        foreach (EffectRequest effect in PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, playerId, card))
+        {
+            if (AddedConditionActive(effect, targetCard))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // A raw registry read does not run ContinuousScopeEvaluation's condition filter, so honour the
+    // card-authored `continuous.condition` predicate here before applying the added requirement.
+    private static bool AddedConditionActive(EffectRequest effect, CardRecord targetCard)
+    {
+        if (!effect.Context.Values.TryGetValue(AddedEvolutionConditionKey, out object? raw) || raw is not string token)
+        {
+            return false;
+        }
+
+        if (effect.Context.Values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+            && condRaw is Func<bool> condition && !condition())
+        {
+            return false;
+        }
+
+        return MatchesEvolutionCondition(token, targetCard);
     }
 
     private static bool MatchesEvolutionCondition(string? condition, CardRecord targetCard)
