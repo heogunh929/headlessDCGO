@@ -36,7 +36,10 @@ public sealed class BlockTiming
         ArgumentNullException.ThrowIfNull(attackerCard);
 
         // (PRIM-W3) an unblockable attacker (CanNotBeBlockedStaticSelfEffect) offers no blocker candidates.
-        if (ContinuousRestrictionGate.EvaluateBeBlocked(context, attack.AttackerId.Value).IsRestricted)
+        // (W6-G) a BLOCKER-conditional CannotBeBlocked (GainCanNotBeBlocked defenderCondition) is instead
+        // applied per candidate below (passing the attacker itself keeps the unconditional form fatal here).
+        if (ContinuousRestrictionGate.EvaluateBeBlocked(context, attack.AttackerId.Value).IsRestricted &&
+            ContinuousRestrictionGate.EvaluateBeBlocked(context, attack.AttackerId.Value, blockerId: attack.AttackerId.Value).IsRestricted)
         {
             return Array.Empty<BlockerCandidate>();
         }
@@ -242,7 +245,11 @@ public sealed class BlockTiming
         }
 
         // (X-04) Continuous effects from other cards can forbid this Digimon from blocking.
-        if (ContinuousRestrictionGate.EvaluateBlock(context, blockerId, attack.AttackerId).IsRestricted)
+        // (W6-G) blocker-side CannotBlock (attacker-conditional supported) AND attacker-side
+        // CannotBeBlocked evaluated against THIS blocker.
+        if (ContinuousRestrictionGate.EvaluateBlock(context, blockerId, attack.AttackerId).IsRestricted ||
+            (attack.AttackerId is HeadlessEntityId atkForPair &&
+             ContinuousRestrictionGate.EvaluateBeBlocked(context, atkForPair, blockerId).IsRestricted))
         {
             return null;
         }

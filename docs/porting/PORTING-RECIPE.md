@@ -76,16 +76,16 @@ bash scripts/run-tests.sh          # SUMMARY: PASS=N FAIL=0 여야 함
 | `new SuspendPermanentsClass(perms,..).Tap()` (선택-서스펜드) | `SelectAndSuspendEffect(card, canTarget, maxCount, canEndNotMax, desc)` |
 | 선택-언서스펜드 / 선택-바운스 | `SelectAndUnsuspendEffect(...)` / `SelectAndBounceEffect(...)` |
 | `new DestroyPermanentsClass(perms,..).Destroy()` (선택-파괴) | `SelectAndDestroyEffect(card, canTarget, maxCount, canEndNotMax, desc)` |
-| `CardEffectCommons.ChangeDigimonDP(target, ±N, dur, ..)` (선택-DP) | `SelectAndBuffDpEffect(card, canTarget, maxCount, ±N, duration, desc)` |
+| `CardEffectCommons.ChangeDigimonDP(target, ±N, dur, ..)` | **동명 커먼즈** `ChangeDigimonDP(targetPermanent, ±N, duration, card)` (선택이 필요한 형태는 SelectAndBuffDpEffect도 가능) |
 | `[All Turns]` 옵션/시큐리티 스탯 버프(플레이어 스코프) | `PlayerScopeBuffSAttackEffect` / `PlayerScopeBuffSecurityDpEffect` |
-| `CardEffectCommons.PlayPermanentCards(sel, .., root)` (존에서 select-and-play) | `SelectAndPlayFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, desc)` (root→fromZone: Trash/Hand) |
-| `CardEffectCommons.ChangeDigimonSAttack(target, ±N, dur, ..)` (선택-SA) | `SelectAndBuffSAttackEffect(card, canTarget, maxCount, ±N, duration, desc)` |
-| `CardEffectCommons.AddThisCardToHand(..)` | `AddThisCardToHandEffect(card)` |
+| `CardEffectCommons.PlayPermanentCards(sel, .., root)` | **동명 커먼즈** `PlayPermanentCards(cards, card, payCost, isTapped, root존, activateETB, …)` — 선택이 앞서는 형태는 `SelectAndPlayFromZoneEffect`로도 가능 |
+| `CardEffectCommons.ChangeDigimonSAttack(target, ±N, dur, ..)` | **동명 커먼즈** `ChangeDigimonSAttack(targetPermanent, ±N, duration, card)` |
+| `CardEffectCommons.AddThisCardToHand(..)` | **동명 커먼즈** `AddThisCardToHand(card1, card)` (팩토리형 `AddThisCardToHandEffect(card)`도 유지) |
 | `new IgnoreColorConditionClass(cardCondition)` | `UseRequirements(card, cardCondition)` |
 | `new CanNotSuspendClass(PermanentCondition)` (self) | `CantSuspendStaticEffect(permanentCondition, false, card, condition)` |
 | `new CanNotBeDestroyedClass(..)` / `CanNotBeDeleted` (self) | `CanNotBeDestroyedStaticEffect(permanentCondition, false, card, condition, name)` |
 | `new ChangeCostClass()` / 자기 플레이코스트 증감 | `ChangePlayCostStaticEffect(...)` (연속) |
-| `CardEffectCommons.DigivolveIntoHandOrTrashCard(..)` (선택-디제너) | `SelectAndDeDigivolveEffect(card, canTarget, maxCount, count, canEndNotMax, desc)` |
+| `CardEffectCommons.DigivolveIntoHandOrTrashCard(..)` (손/트래시에서 골라 **그 위로 진화**) | **동명 커먼즈**(async): `CardEffectCommons.DigivolveIntoHandOrTrashCard(targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple, ignoreFixedCost, isHand, card, successProcess, …)` — ⚠️ 이전 매핑(SelectAndDeDigivolve=디제너)은 **반대 방향 오류**였음 |
 | `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(..)` | `SimplifiedRevealDeckTopCardsAndSelect(card, revealCount, conditions, remainingTo, desc)` |
 | `new CanNotAffectedClass()` (효과 면역) | `CanNotAffectedStaticEffect(permanentCondition, false, card, condition)` |
 | `new ChangeCardNamesClass()` (이름 추가) | `ChangeCardNamesStaticEffect(addedName, false, card, condition)` |

@@ -24,6 +24,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("IsJogress reads the event flag", JogressFlag),
     ("CanActivateOnDeletion: true deletion (top in trash) vs bounce; token unconditional", ActivateOnDeletion),
     ("CanTriggerWhenLoseSecurity: the losing player's condition over the moved card's owner", LoseSecurity),
+    ("(롱테일) WouldPlay/WouldDigivolve: BeforePayCost isEvolution + target predicate", WouldGates),
+    ("(롱테일) WhenLinked / OnAddDigivolutionCard: link-card and added-cards predicates", LinkAndSourcesGates),
+    ("(롱테일) IsByBattle + hashtable accessors + Tamer/Security predicates", ByBattleAndAccessors),
 };
 
 var failures = new List<string>();
@@ -152,6 +155,65 @@ async Task LoseSecurity()
     AssertTrue(!CardEffectCommons.CanTriggerWhenLoseSecurity(evt, V(ctx, self), p => p == P1), "the other player does not");
 }
 
+async Task WouldGates()
+{
+    EngineContext ctx = Ctx();
+    var self = await Place(ctx, P1, "SELF");
+    var playing = await Place(ctx, P1, "PLAYING", level: 5);
+    var target = await Place(ctx, P1, "EVOTGT", level: 4);
+
+    var wouldPlay = ResolveCtx(ctx, subject: playing, values: new() { [$"{GameFlowProcessor.EventValuePrefix}isEvolution"] = false });
+    AssertTrue(CardEffectCommons.CanTriggerWhenPermanentWouldPlay(wouldPlay, V(ctx, self), cs => cs.Level == 5), "would-PLAY passes with the card predicate");
+    AssertTrue(!CardEffectCommons.CanTriggerWhenPermanentWouldDigivolve(wouldPlay, V(ctx, self)), "a play is not a would-digivolve");
+
+    var wouldEvo = ResolveCtx(ctx, subject: playing, values: new()
+    {
+        [$"{GameFlowProcessor.EventValuePrefix}isEvolution"] = true,
+        [$"{GameFlowProcessor.EventValuePrefix}targetCardId"] = target.Value,
+    });
+    AssertTrue(CardEffectCommons.CanTriggerWhenPermanentWouldDigivolve(wouldEvo, V(ctx, self), p => p.Level == 4, cs => cs.Level == 5),
+        "would-DIGIVOLVE evaluates the target permanent AND the digivolving card");
+    AssertTrue(!CardEffectCommons.CanTriggerWhenPermanentWouldPlay(wouldEvo, V(ctx, self)), "an evolution is not a would-play");
+}
+
+async Task LinkAndSourcesGates()
+{
+    EngineContext ctx = Ctx();
+    var self = await Place(ctx, P1, "SELF");
+    var host = await Place(ctx, P1, "HOST", level: 5);
+    var link = await Place(ctx, P1, "LINKC", level: 3);
+
+    var linked = ResolveCtx(ctx, subject: host, values: new() { [$"{GameFlowProcessor.EventValuePrefix}linkCardId"] = link.Value });
+    AssertTrue(CardEffectCommons.CanTriggerWhenLinked(linked, V(ctx, self), p => p.Level == 5, cs => cs.Level == 3),
+        "host + link-card predicates both evaluated");
+    AssertTrue(!CardEffectCommons.CanTriggerWhenLinked(linked, V(ctx, self), p => p.Level == 5, cs => cs.Level == 9), "link mismatch fails");
+
+    var added = ResolveCtx(ctx, subject: host, values: new() { [$"{GameFlowProcessor.EventValuePrefix}addedCardIds"] = link.Value });
+    AssertTrue(CardEffectCommons.CanTriggerOnAddDigivolutionCard(added, V(ctx, self), p => p.Level == 5, null, cs => cs.Level == 3),
+        "added-source predicate hits");
+}
+
+async Task ByBattleAndAccessors()
+{
+    EngineContext ctx = Ctx();
+    var self = await Place(ctx, P1, "SELF");
+    var dead = await Place(ctx, P2, "DEAD");
+    var evt = ResolveCtx(ctx, subject: dead, values: new());
+
+    AssertTrue(!CardEffectCommons.IsByBattle(evt, V(ctx, self)), "no battle marker -> false");
+    SetMeta(ctx, dead, BattleResolver.DeletedByBattleKey, true);
+    AssertTrue(CardEffectCommons.IsByBattle(evt, V(ctx, self)), "battle-deletion marker -> true");
+
+    AssertTrue(CardEffectCommons.GetPermanentFromHashtable(evt, V(ctx, self))?.InstanceId == dead, "GetPermanentFromHashtable = subject view");
+    AssertTrue(CardEffectCommons.GetCardFromHashtable(evt, V(ctx, self))?.InstanceId == dead, "GetCardFromHashtable = subject card");
+    AssertTrue(CardEffectCommons.GetPermanentsFromHashtable(evt, V(ctx, self)).Count == 1, "GetPermanents = single-subject list");
+
+    var tamer = await Place(ctx, P1, "TAMER", cardType: "Tamer");
+    AssertTrue(CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaTamer(new Permanent(ctx, tamer, P1), V(ctx, self)), "owner battle-area Tamer");
+    var sec = await Put(ctx, P1, "SEC", ChoiceZone.Security);
+    AssertTrue(CardEffectCommons.HasMatchConditionOwnersSecurity(V(ctx, self), cs => cs.InstanceId == sec), "security predicate hits");
+}
+
 // --- Harness ---
 
 CardEffectResolveContext ResolveCtx(EngineContext ctx, HeadlessEntityId subject, Dictionary<string, object?> values)
@@ -168,12 +230,25 @@ EngineContext Ctx()
     return ctx;
 }
 
-async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag, int level = 4)
+async Task<HeadlessEntityId> Put(EngineContext ctx, HeadlessPlayerId owner, string tag, ChoiceZone zone, int level = 4, string cardType = "Digimon")
 {
     var cards = (CardDatabase)ctx.CardRepository;
     var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
     cards.Upsert(new CardRecord(defId, tag, tag,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000, ["level"] = level }, CardType: "Digimon"));
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000, ["level"] = level }, CardType: cardType));
+    var id = new HeadlessEntityId($"{owner.Value}:{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000 }));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone));
+    return id;
+}
+
+async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag, int level = 4, string cardType = "Digimon")
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
+    cards.Upsert(new CardRecord(defId, tag, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000, ["level"] = level }, CardType: cardType));
     var id = new HeadlessEntityId($"{owner.Value}:{tag}");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000 }));

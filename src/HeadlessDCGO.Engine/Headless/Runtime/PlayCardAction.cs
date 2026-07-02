@@ -105,7 +105,8 @@ public sealed class PlayCardAction
         }
 
         // F-6.7: wrap the play-cost payment with the Before/AfterPayCost windows (subject = the card).
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId,
+            extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isEvolution"] = false });
 
         // (EX8_074 Stage 3 brick 2) "When this card would be played" activated effects — e.g. suspend N of
         // your Digimon to reduce this card's play cost (SuspendCostReductionEffect). Resolve them BEFORE the

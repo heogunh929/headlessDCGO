@@ -173,7 +173,8 @@ public sealed class DigivolveAction
                 targetZone),
             cancellationToken).ConfigureAwait(false);
         // F-6.7: wrap the digivolve-cost payment with the Before/AfterPayCost windows.
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId,
+            extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isEvolution"] = true, ["targetCardId"] = payload.TargetCardId.Value });
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
@@ -215,7 +216,11 @@ public sealed class DigivolveAction
                 context.GameEventQueue,
                 TriggerTimings.OnAddDigivolutionCards,
                 actor: action.PlayerId,
-                subject: payload.CardId);
+                subject: payload.CardId,
+                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["addedCardIds"] = string.Join(",", sourceIds.Select(id => id.Value)),
+                });
         }
 
         // G6-001: the digivolving card is the new top entering play — auto-register its ported effects.

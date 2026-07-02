@@ -255,7 +255,7 @@ public sealed class AttackPermanentAction
         // (PRIM-W4 CanNotBeAttackedSelfStaticEffect) the defending permanent may be untargetable by attacks.
         if (targetId is { } defenderId)
         {
-            CannotRestrictionResult beAttacked = ContinuousRestrictionGate.EvaluateBeAttacked(context, defenderId);
+            CannotRestrictionResult beAttacked = ContinuousRestrictionGate.EvaluateBeAttacked(context, defenderId, attackerId);
             if (beAttacked.IsRestricted)
             {
                 return AttackPermanentValidation.Illegal($"Target '{defenderId}' cannot be attacked ({beAttacked.Reason}).");

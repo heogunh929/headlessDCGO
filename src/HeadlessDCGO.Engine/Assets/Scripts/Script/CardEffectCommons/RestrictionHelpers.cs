@@ -209,6 +209,11 @@ public static class RestrictionHelpers
     // (AS-IS CanNotAttackTargetDefendingPermanent's defenderCondition). Value: Func<CardSource,bool>.
     public const string DefenderPredicateKey = "defenderPredicate";
 
+    /// <summary>(W6-G) the restriction's COUNTERPART predicate — for CannotBlock/CannotBeAttacked the
+    /// ATTACKER filter, for CannotBeBlocked the BLOCKER filter (AS-IS attackerCondition/defenderCondition
+    /// on the Gain grants). Stored as a <c>Func&lt;CardSource,bool&gt;</c> over the counterpart's top card.</summary>
+    public const string CounterpartPredicateKey = "restriction.counterpartPredicate";
+
     // (FR2/M-2) attached to a return/trash restriction: the restriction only blocks effects whose CAUSING
     // effect matches this predicate (AS-IS cardEffectCondition, e.g. IsOpponentEffect = "cannot be returned/
     // trashed by the OPPONENT's effects, but may be by your own"). Evaluated against the causing effect's

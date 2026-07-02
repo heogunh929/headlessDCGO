@@ -89,7 +89,56 @@ public static class ContinuousRestrictionGate
         HeadlessEntityId blockerId,
         HeadlessEntityId? attackerId = null)
     {
-        return RestrictionHelpers.CannotBlock(blockerId, Evaluate(context, blockerId), attackerId);
+        CannotRestrictionResult result = RestrictionHelpers.CannotBlock(blockerId, Evaluate(context, blockerId), attackerId);
+        return SoftenByCounterpart(context, result, RestrictionHelpers.CannotBlockKey, blockerId, attackerId);
+    }
+
+    /// <summary>(W6-G) FR-P3 generalised: a counterpart-conditional restriction (AS-IS attackerCondition /
+    /// defenderCondition on the Gain grants) only applies when the counterpart matches its predicate — if
+    /// EVERY applicable effect of <paramref name="restrictionKey"/> carries a counterpart predicate that
+    /// <paramref name="counterpartId"/> fails, the restriction does not apply to this pairing.</summary>
+    private static CannotRestrictionResult SoftenByCounterpart(
+        EngineContext context, CannotRestrictionResult result, string restrictionKey,
+        HeadlessEntityId subjectId, HeadlessEntityId? counterpartId)
+    {
+        if (!result.IsRestricted || counterpartId is not { } counterpart || counterpart.IsEmpty)
+        {
+            return result;
+        }
+
+        bool appliesToCounterpart = false;
+        bool anyConditional = false;
+        HeadlessPlayerId counterpartOwner = context.CardInstanceRepository.TryGetInstance(counterpart, out CardInstanceRecord? ci) && ci is not null
+            ? ci.OwnerId
+            : default;
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, Scope, subjectId))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!(values.TryGetValue(restrictionKey, out object? on) && on is bool b && b))
+            {
+                continue;
+            }
+
+            if (values.TryGetValue(RestrictionHelpers.CounterpartPredicateKey, out object? raw)
+                && raw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> pred)
+            {
+                anyConditional = true;
+                if (pred(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, counterpart, counterpartOwner, counterpartOwner)))
+                {
+                    appliesToCounterpart = true;
+                    break;
+                }
+            }
+            else
+            {
+                appliesToCounterpart = true;   // unconditional restriction
+                break;
+            }
+        }
+
+        return (anyConditional && !appliesToCounterpart)
+            ? CannotRestrictionResult.Success(false, "Counterpart not in the restricted set.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>())
+            : result;
     }
 
     // (D-A5) Continuous "cannot digivolve" restriction targeting the under-card being evolved.
@@ -111,14 +160,16 @@ public static class ContinuousRestrictionGate
         RestrictionHelpers.CannotSuspend(targetId, Evaluate(context, targetId));
 
     // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
-    public static CannotRestrictionResult EvaluateBeBlocked(EngineContext context, HeadlessEntityId attackerId) =>
-        RestrictionHelpers.CannotBeBlocked(attackerId, Evaluate(context, attackerId));
+    // (W6-G) blocker-conditional form supported (AS-IS GainCanNotBeBlocked defenderCondition).
+    public static CannotRestrictionResult EvaluateBeBlocked(EngineContext context, HeadlessEntityId attackerId, HeadlessEntityId? blockerId = null) =>
+        SoftenByCounterpart(context, RestrictionHelpers.CannotBeBlocked(attackerId, Evaluate(context, attackerId)), RestrictionHelpers.CannotBeBlockedKey, attackerId, blockerId);
 
     // (PRIM-W3) Continuous "cannot be deleted by effect/skill" restriction — consulted by the effect-delete path.
     public static CannotRestrictionResult EvaluateDeleteBySkill(EngineContext context, HeadlessEntityId targetId) =>
         RestrictionHelpers.CannotBeDeletedBySkill(targetId, Evaluate(context, targetId));
 
     // (PRIM-W4) Continuous "cannot be attacked" restriction on the defender — consulted by AttackPermanentAction.
-    public static CannotRestrictionResult EvaluateBeAttacked(EngineContext context, HeadlessEntityId defenderId) =>
-        RestrictionHelpers.CannotBeAttacked(defenderId, Evaluate(context, defenderId));
+    // (W6-G) attacker-conditional form supported (AS-IS GainCanNotBeAttacked attackerCondition).
+    public static CannotRestrictionResult EvaluateBeAttacked(EngineContext context, HeadlessEntityId defenderId, HeadlessEntityId? attackerId = null) =>
+        SoftenByCounterpart(context, RestrictionHelpers.CannotBeAttacked(defenderId, Evaluate(context, defenderId)), RestrictionHelpers.CannotBeAttackedKey, defenderId, attackerId);
 }

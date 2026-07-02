@@ -139,6 +139,53 @@ public static class DigivolutionStackHelpers
         CancellationToken cancellationToken = default) =>
         RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken);
 
+    /// <summary>(W6 process) Trash SPECIFIC digivolution sources of <paramref name="hostId"/> (AS-IS
+    /// <c>ITrashDigivolutionCards(permanent, selectedCards, …)</c>). Returns the count trashed.</summary>
+    public static async Task<int> TrashSpecificSourcesAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId hostId,
+        IReadOnlyList<HeadlessEntityId> cardIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        ArgumentNullException.ThrowIfNull(cardIds);
+        if (!repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null ||
+            !host.Metadata.TryGetValue("sourceIds", out object? raw) || raw is not IEnumerable<string> existing)
+        {
+            return 0;
+        }
+
+        List<string> sources = existing.ToList();
+        int trashed = 0;
+        foreach (HeadlessEntityId cardId in cardIds)
+        {
+            if (!sources.Remove(cardId.Value))
+            {
+                continue;
+            }
+
+            HeadlessPlayerId owner = repository.TryGetInstance(cardId, out CardInstanceRecord? card) && card is not null
+                ? card.OwnerId
+                : host.OwnerId;
+            await zoneMover.MoveAsync(
+                new ZoneMoveRequest(owner, cardId, ChoiceZone.None, ChoiceZone.Trash), cancellationToken).ConfigureAwait(false);
+            trashed++;
+        }
+
+        if (trashed > 0)
+        {
+            repository.TryGetInstance(hostId, out CardInstanceRecord? refreshed);
+            repository.Upsert(refreshed! with
+            {
+                Metadata = new Dictionary<string, object?>(refreshed!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = sources.ToArray() }
+            });
+        }
+
+        return trashed;
+    }
+
     /// <summary>(B-10) Return <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
     /// to <paramref name="destination"/> (Hand / Library top via MoveToDeck-style zones). Returns the count moved.</summary>
     public static Task<int> ReturnSourcesAsync(

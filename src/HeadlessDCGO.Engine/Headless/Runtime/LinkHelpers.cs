@@ -125,7 +125,8 @@ public static class LinkHelpers
 
         if (gameEventQueue is not null)
         {
-            TriggerEventEmitter.Emit(gameEventQueue, TriggerTimings.WhenLinked, actor: current.OwnerId, subject: hostId);
+            TriggerEventEmitter.Emit(gameEventQueue, TriggerTimings.WhenLinked, actor: current.OwnerId, subject: hostId,
+                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["linkCardId"] = linkCardId.Value });
         }
 
         // AS-IS: if over max, force-trash the oldest excess link cards.

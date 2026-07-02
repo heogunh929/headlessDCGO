@@ -26,8 +26,7 @@ PORT_FILES = [
 
 # Coroutine/process symbols the recipe maps to differently-named factories (intent translation).
 KNOWN_TRANSLATED = {
-    "PlayPermanentCards", "ChangeDigimonDP", "ChangeDigimonSAttack", "DigivolveIntoHandOrTrashCard",
-    "AddThisCardToHand", "ShowReducedCost", "CardEffectHashtable", "RevealDeckTopCardsAndProcessForAll",
+    "ShowReducedCost", "CardEffectHashtable", "RevealDeckTopCardsAndProcessForAll",
     "SimplifiedRevealDeckTopCardsAndSelect", "RevealDeckTopCardsAndSelect",
     "ActivateClassesForSharedEffects", "customPermanentMessageArray_ChangeDP",
 }
