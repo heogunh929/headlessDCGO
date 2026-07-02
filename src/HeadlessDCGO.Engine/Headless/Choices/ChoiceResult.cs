@@ -82,6 +82,14 @@ public sealed record ChoiceResult
         }
 
         ValidateSelectedIds(request, failures);
+
+        // (P2) the AS-IS combination gate (CanEndSelect) — an individually-legal set can still be an
+        // illegal combination.
+        if (failures.Count == 0 && request.SelectionValidator is not null && !request.SelectionValidator(SelectedIds))
+        {
+            failures.Add("Selected ids are individually legal but the combination fails the request's selection validator.");
+        }
+
         return ChoiceResultValidation.FromFailures(failures);
     }
 

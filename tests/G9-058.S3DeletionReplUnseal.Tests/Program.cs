@@ -17,6 +17,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Evade granted via keyword -> EvadeOption offered (un-sealed)", () => Offered("EVADE", CardEffectFactory.EvadeSelfEffect, DeletionReplacementTiming.EvadeOption, byBattle: false)),
     ("Without the keyword -> no EvadeOption (control)", () => NotOffered("PLAIN", DeletionReplacementTiming.EvadeOption, byBattle: false)),
     ("Barrier granted via keyword (byBattle) -> BarrierOption offered", () => Offered("BARRIER", CardEffectFactory.BarrierSelfEffect, DeletionReplacementTiming.BarrierOption, byBattle: true, security: true)),
+    ("(C1) Fragment <3>: the grant's trashValue gates the option (2 sources no / 3 sources yes)", FragmentTrashValueGates),
 };
 
 var failures = new List<string>();
@@ -46,6 +47,39 @@ async Task NotOffered(string tag, string option, bool byBattle)
     var record = Rec(ctx, id);
     var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle, ctx.EffectRegistry);
     AssertTrue(!options.Contains(option), $"{option} NOT offered without the keyword");
+}
+
+// (C1) AS-IS Fragment <X>: CanActivateFragment(p, trashValue) — the grant's X (previously dropped,
+// collapsing every Fragment to 1) gates on DigivolutionCards.Count >= X.
+async Task FragmentTrashValueGates()
+{
+    foreach ((int sourceCount, bool offered) in new[] { (2, false), (3, true) })
+    {
+        EngineContext ctx = Ctx();
+        var id = await Place(ctx, P1, $"FRAG{sourceCount}");
+        var sources = Enumerable.Range(1, sourceCount).Select(i => new HeadlessEntityId($"frag-src-{i}")).ToArray();
+        foreach (HeadlessEntityId src in sources)
+        {
+            ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(src, new HeadlessEntityId("DEF:SRC"), P1));
+        }
+
+        var rec0 = Rec(ctx, id);
+        ctx.CardInstanceRepository.Upsert(rec0 with
+        {
+            Metadata = new Dictionary<string, object?>(rec0.Metadata, StringComparer.Ordinal)
+            {
+                [DeletionReplacementGate.SourceIdsKey] = sources.Select(s => s.Value).ToArray(),
+            }
+        });
+        ctx.EffectRegistry.Register(CardEffectFactory.FragmentSelfEffect(
+            false, new CardSource(ctx, id, P1), null, trashValue: 3).ToBinding($"frag:{id.Value}"));
+
+        var record = Rec(ctx, id);
+        AssertTrue(DeletionReplacementGate.FragmentCostOf(record, ctx.EffectRegistry) == 3, "the grant's trashValue is the cost");
+        var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle: false, ctx.EffectRegistry);
+        AssertTrue(options.Contains(DeletionReplacementTiming.FragmentOption) == offered,
+            $"{sourceCount} sources with Fragment<3> -> offered={offered}");
+    }
 }
 
 // --- Helpers ---

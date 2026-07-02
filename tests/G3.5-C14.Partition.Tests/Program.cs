@@ -3,6 +3,8 @@
 // source per colour group). Ported onto the F-6.8 POST window as a repeated single-select (2 picks) reusing
 // the Decode play-for-free primitive. Engine: DeletionReplacementTiming PartitionOption +
 // DeletionReplacementGate.TryPartitionPlaySourceAsync; grant GrantPartition -> hasPartition.
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -20,6 +22,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Partition is not offered with a single source", PartitionNeedsTwoSources),
     ("Partition plays two chosen sources to the battle area for free", PartitionPlaysTwoSources),
     ("Battle removal does not trigger Partition", PartitionNotOnBattleRemoval),
+    ("(A4) colour groups: pick #1 = group[0] only, pick #2 = group[1] only (BT16_012 shape)", PartitionColourGroups),
+    ("(A4) an empty colour group means Partition is not offered (AS-IS CanActivateCondition)", PartitionGroupEmptyNotOffered),
+    ("(A4) mutual exclusion: group 2's sole candidate is reserved from pick #1 (AS-IS pre-adjust)", PartitionMutualExclusion),
 };
 
 var failures = new List<string>();
@@ -105,6 +110,112 @@ async Task PartitionNotOnBattleRemoval()
 
     AssertFalse(ResolveActions(match, P1).Any(a => a.Id.Value.Contains("#partition", StringComparison.Ordinal)),
         "battle removal offers no Partition option");
+}
+
+// (A4) AS-IS Partition.cs: the two PartitionConditions define colour group 1 ([0]) and group 2 ([1]);
+// activation needs BOTH groups non-empty and one source is played from EACH group. The grant is the
+// KEYWORD binding (PartitionSelfEffect + conditions) — no metadata flag — so this also exercises the
+// sink's deletion-time keyword/conditions snapshot.
+
+async Task PartitionColourGroups()
+{
+    var red1 = ("RED1", new[] { "Red" });
+    var red2 = ("RED2", new[] { "Red" });
+    var yellow = ("YEL1", new[] { "Yellow" });
+    var blue = ("BLU1", new[] { "Blue" });
+    (DcgoMatch match, HeadlessEntityId holder, Dictionary<string, HeadlessEntityId> src) =
+        await EffectDeleteConditionedPartitioner(new[] { red1, red2, yellow, blue },
+            new PartitionCondition(4, "Red"), new PartitionCondition(4, "Yellow"));
+
+    LegalAction activate = ResolveActions(match, P1).Single(a =>
+        a.Id.Value.Contains("#partition", StringComparison.Ordinal) && src.Values.All(s => !a.Id.Value.Contains(s.Value, StringComparison.Ordinal)));
+    await match.ApplyActionAsync(activate);
+    await match.StepAsync();
+
+    var pick1 = ResolveActions(match, P1).Where(a => src.Values.Any(s => a.Id.Value.Contains(s.Value, StringComparison.Ordinal))).ToArray();
+    AssertTrue(pick1.Any(a => a.Id.Value.Contains(src["RED1"].Value, StringComparison.Ordinal)), "pick #1 offers Red Lv4");
+    AssertFalse(pick1.Any(a => a.Id.Value.Contains(src["YEL1"].Value, StringComparison.Ordinal)), "pick #1 does NOT offer Yellow (group[0] only)");
+    AssertFalse(pick1.Any(a => a.Id.Value.Contains(src["BLU1"].Value, StringComparison.Ordinal)), "pick #1 does NOT offer Blue (no group)");
+
+    await match.ApplyActionAsync(pick1.First(a => a.Id.Value.Contains(src["RED1"].Value, StringComparison.Ordinal)));
+    await match.StepAsync();
+
+    var pick2 = ResolveActions(match, P1).Where(a => src.Values.Any(s => a.Id.Value.Contains(s.Value, StringComparison.Ordinal))).ToArray();
+    AssertTrue(pick2.Any(a => a.Id.Value.Contains(src["YEL1"].Value, StringComparison.Ordinal)), "pick #2 offers Yellow (group[1])");
+    AssertFalse(pick2.Any(a => a.Id.Value.Contains(src["RED2"].Value, StringComparison.Ordinal)), "pick #2 does NOT offer the other Red");
+
+    await match.ApplyActionAsync(pick2.First(a => a.Id.Value.Contains(src["YEL1"].Value, StringComparison.Ordinal)));
+    await match.StepAsync();
+
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, src["RED1"]), "the Red pick was played");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, src["YEL1"]), "the Yellow pick was played");
+}
+
+async Task PartitionGroupEmptyNotOffered()
+{
+    (DcgoMatch match, HeadlessEntityId holder, _) =
+        await EffectDeleteConditionedPartitioner(new[] { ("RED1", new[] { "Red" }), ("RED2", new[] { "Red" }) },
+            new PartitionCondition(4, "Red"), new PartitionCondition(4, "Yellow"));
+
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, holder), "holder in trash");
+    AssertFalse(ResolveActions(match, P1).Any(a => a.Id.Value.Contains("#partition", StringComparison.Ordinal)),
+        "no Partition option when a colour group is empty");
+}
+
+async Task PartitionMutualExclusion()
+{
+    // A = Red only; B = Red AND Yellow (dual). Group Red = {A, B}, group Yellow = {B} -> B is reserved
+    // for group 2, so pick #1 offers only A (AS-IS Except pre-adjust).
+    (DcgoMatch match, HeadlessEntityId holder, Dictionary<string, HeadlessEntityId> src) =
+        await EffectDeleteConditionedPartitioner(new[] { ("A", new[] { "Red" }), ("B", new[] { "Red", "Yellow" }) },
+            new PartitionCondition(4, "Red"), new PartitionCondition(4, "Yellow"));
+
+    LegalAction activate = ResolveActions(match, P1).Single(a =>
+        a.Id.Value.Contains("#partition", StringComparison.Ordinal) && src.Values.All(s => !a.Id.Value.Contains(s.Value, StringComparison.Ordinal)));
+    await match.ApplyActionAsync(activate);
+    await match.StepAsync();
+
+    var pick1 = ResolveActions(match, P1).Where(a => src.Values.Any(s => a.Id.Value.Contains(s.Value, StringComparison.Ordinal))).ToArray();
+    AssertTrue(pick1.Any(a => a.Id.Value.Contains(src["A"].Value, StringComparison.Ordinal)), "pick #1 offers A");
+    AssertFalse(pick1.Any(a => a.Id.Value.Contains(src["B"].Value, StringComparison.Ordinal)),
+        "pick #1 reserves B for group 2 (mutual exclusion)");
+}
+
+async Task<(DcgoMatch, HeadlessEntityId, Dictionary<string, HeadlessEntityId>)> EffectDeleteConditionedPartitioner(
+    (string Tag, string[] Colors)[] sourceSpecs, PartitionCondition group0, PartitionCondition group1)
+{
+    EngineContext context = await NewMatchContext();
+    DcgoMatch match = await StartedMatch(context);
+
+    HeadlessEntityId holder = HandCard(match, P1, 1);
+    var cards = (CardDatabase)context.CardRepository;
+    var src = new Dictionary<string, HeadlessEntityId>(StringComparer.Ordinal);
+    foreach ((string tag, string[] colors) in sourceSpecs)
+    {
+        var defId = new HeadlessEntityId($"def:part-{tag}");
+        cards.Upsert(new CardRecord(defId, tag, tag,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = colors, ["level"] = 4, ["dp"] = 3000 }, CardType: "Digimon"));
+        var id = new HeadlessEntityId($"P1-Part-{tag}");
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, P1));
+        src[tag] = id;
+    }
+
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [DeletionReplacementGate.SourceIdsKey] = src.Values.Select(s => s.Value).ToArray(),
+    });
+    // KEYWORD grant with the AS-IS condition pair — no HasPartitionKey metadata (snapshot path).
+    context.EffectRegistry.Register(CardEffectFactory.PartitionSelfEffect(
+        false, new CardSource(context, holder, P1), null,
+        new[] { group0, group1 }).ToBinding($"part:{holder.Value}"));
+
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
+        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = holder.Value }));
+    await sink.FlushAsync();
+    await match.StepAsync();
+    return (match, holder, src);
 }
 
 // --- Shared setup --------------------------------------------------------

@@ -230,10 +230,9 @@ public static class AllianceAttackBoost
             ReadFlag(card.Metadata, HasAllianceKey);
     }
 
+    // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
     private static bool IsDigimon(EngineContext context, CardInstanceRecord instance) =>
-        context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) &&
-        card is not null &&
-        string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        ContinuousKeywordGate.IsDigimon(context, instance.InstanceId);
 
     private static bool TryReadDigimonDp(EngineContext context, HeadlessEntityId id, CardInstanceRecord instance, out int dp)
     {

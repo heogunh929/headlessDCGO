@@ -200,7 +200,8 @@ public static class RaidAttackSwitch
         dp = 0;
         if (!context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) ||
             card is null ||
-            !IsDigimon(card))
+            // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+            (!IsDigimon(card) && !ContinuousKeywordGate.IsDigimon(context, id)))
         {
             return false;
         }

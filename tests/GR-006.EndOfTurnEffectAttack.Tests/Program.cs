@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -21,6 +22,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Vortex can target an UNSUSPENDED opponent Digimon (isVortex)", VortexHitsUnsuspended),
     ("A suspended Vortex Digimon opens no window (its attack would suspend it)", SuspendedVortexNoWindow),
     ("EndTurn opens the Vortex window before handover; re-EndTurn then ends the turn", EndTurnOpensWindowLive),
+    ("(K1) VortexCanAttackPlayers marker -> the PLAYER becomes a Vortex target", MarkerAllowsPlayerTarget),
+    ("(K1) marker with no opponent Digimon -> the window still opens (player-only)", MarkerOpensPlayerOnlyWindow),
+    ("(K1) marker attackerCondition NOT matching the attacker -> player stays untargetable", MarkerAttackerConditionHonored),
+    ("(K1) the marker alone does NOT grant Vortex (un-flatten): no end-of-turn window", MarkerAloneIsNotVortex),
 };
 
 var failures = new List<string>();
@@ -101,6 +106,60 @@ async Task EndTurnOpensWindowLive()
     AssertEqual(P2.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn handed over after the window closed");
 }
 
+// (K1) AS-IS CanActivateVortex: `... || PermanentHasVortexCanAttackPlayers(...)` — an active
+// IVortexCanAttackPlayersEffect makes the PLAYER a legal Vortex target (evaluated once per offer).
+
+async Task MarkerAllowsPlayerTarget()
+{
+    EngineContext context = Context();
+    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
+    var foe = await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
+    RegisterVortex(context, vortex, P1);
+    RegisterMarker(context, vortex, attackerCondition: null);
+
+    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opened");
+    var req = context.ChoiceController.PendingRequest!;
+    AssertTrue(req.Candidates.Any(c => c.Label.Contains(foe.Value, StringComparison.Ordinal)), "the opponent Digimon is still a target");
+    AssertTrue(req.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+        "the PLAYER is a Vortex target while the marker is active");
+}
+
+async Task MarkerOpensPlayerOnlyWindow()
+{
+    EngineContext context = Context();
+    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
+    RegisterVortex(context, vortex, P1);
+    RegisterMarker(context, vortex, attackerCondition: null);
+
+    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "no opponent Digimon, but canAttackPlayers -> window opens");
+    AssertTrue(context.ChoiceController.PendingRequest!.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+        "the player is the offered target");
+}
+
+async Task MarkerAttackerConditionHonored()
+{
+    EngineContext context = Context();
+    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false); // level 4
+    await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
+    RegisterVortex(context, vortex, P1);
+    RegisterMarker(context, vortex, attackerCondition: p => p.Level == 5); // attacker is Lv4 -> no match
+
+    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opened (Digimon target exists)");
+    AssertTrue(!context.ChoiceController.PendingRequest!.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+        "attackerCondition not matching -> the player is NOT a target (predicate honored)");
+}
+
+async Task MarkerAloneIsNotVortex()
+{
+    EngineContext context = Context();
+    var plain = await PlaceDigimon(context, P1, "PLAIN", dp: 4000, suspended: false);
+    await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
+    RegisterMarker(context, plain, attackerCondition: null); // marker only — NO Vortex grant
+
+    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
+        "VortexCanAttackPlayers does not grant Vortex — no end-of-turn window (flatten regression)");
+}
+
 // --- Helpers -------------------------------------------------------------
 
 EngineContext Context()
@@ -129,6 +188,10 @@ static void RegisterVortex(EngineContext context, HeadlessEntityId cardId, Headl
     var binding = KeywordBaseBatch2Factory.ToBinding(effect, controller, new EffectContext(controller, cardId));
     context.EffectRegistry.Register(binding);
 }
+
+void RegisterMarker(EngineContext context, HeadlessEntityId sourceId, Func<Permanent, bool>? attackerCondition) =>
+    context.EffectRegistry.Register(CardEffectFactory.VortexCanAttackPlayersStaticEffect(
+        attackerCondition, false, new CardSource(context, sourceId, P1), null).ToBinding($"vcap:{sourceId.Value}"));
 
 static MatchConfig BuildMatchConfig()
 {

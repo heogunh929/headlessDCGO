@@ -15,8 +15,103 @@ using HeadlessDCGO.Engine.Headless.State;
 /// decision), and (c) declares the attack, applying per-effect options. Unlocks C-20 Vortex / C-16 Overclock
 /// (attack part); reused by later effect-attack cards.
 /// </summary>
+/// <summary>(P3) The pending multi-attacker queue for an AS-IS sequential Attack-mode selection
+/// (SelectPermanentEffect.Mode.Attack over several attackers). Registered as a context service so the
+/// per-attacker <see cref="EffectAttackOptions"/> (which carries Funcs) never needs serialising. The
+/// AttackPipeline's cleanup step dequeues the next attacker once the current attack fully completes.</summary>
+public sealed class EffectAttackQueue
+{
+    private readonly Queue<HeadlessEntityId> _attackers = new();
+
+    public EffectAttackOptions? Options { get; private set; }
+
+    public int Count => _attackers.Count;
+
+    public void Enqueue(IEnumerable<HeadlessEntityId> attackers, EffectAttackOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(attackers);
+        ArgumentNullException.ThrowIfNull(options);
+        Options = options;
+        foreach (HeadlessEntityId attacker in attackers)
+        {
+            if (!attacker.IsEmpty)
+            {
+                _attackers.Enqueue(attacker);
+            }
+        }
+    }
+
+    public bool TryDequeue(out HeadlessEntityId attackerId)
+    {
+        if (_attackers.Count > 0)
+        {
+            attackerId = _attackers.Dequeue();
+            return true;
+        }
+
+        attackerId = default;
+        return false;
+    }
+
+    public void Clear()
+    {
+        _attackers.Clear();
+        Options = null;
+    }
+}
+
 public static class EffectDrivenAttack
 {
+    /// <summary>(P3) Opens the effect-attack choice for the FIRST attacker and queues the rest — the AS-IS
+    /// Attack mode iterates the selected attackers sequentially (SelectPermanentEffect.cs:1009-1027), each
+    /// re-checked (alive + targets) when its turn comes. Returns true when a choice opened.</summary>
+    public static bool RequestQueuedChoices(
+        EngineContext context, IReadOnlyList<HeadlessEntityId> attackers, EffectAttackOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(attackers);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var queue = GetQueue(context);
+        queue.Enqueue(attackers, options);
+        return TryOpenNextQueued(context);
+    }
+
+    /// <summary>(P3) Opens the choice for the next queued attacker that is still on the battle area and has
+    /// a legal target. Called after an attack completes (AttackPipeline cleanup). Returns true when a choice
+    /// opened.</summary>
+    public static bool TryOpenNextQueued(EngineContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (!context.TryGetService(out EffectAttackQueue? queue) || queue is null || queue.Options is not EffectAttackOptions options)
+        {
+            return false;
+        }
+
+        while (queue.TryDequeue(out HeadlessEntityId attackerId))
+        {
+            // AS-IS re-checks each attacker when its turn comes (`if (selectedPermanent.CanAttack(...))`).
+            if (RequestChoice(context, attackerId, options))
+            {
+                return true;
+            }
+        }
+
+        queue.Clear();
+        return false;
+    }
+
+    private static EffectAttackQueue GetQueue(EngineContext context)
+    {
+        if (context.TryGetService(out EffectAttackQueue? queue) && queue is not null)
+        {
+            return queue;
+        }
+
+        var created = new EffectAttackQueue();
+        context.RegisterService(created);
+        return created;
+    }
     public const string RequestIdPrefix = "effect-attack";
     public const string WithoutTapPendingKey = "effectAttackWithoutTap";
     public const string IsSuspendedKey = "isSuspended";
@@ -57,6 +152,13 @@ public static class EffectDrivenAttack
 
                 // Normal attacks only hit SUSPENDED Digimon; TargetUnsuspended lifts that (AS-IS isVortex).
                 if (!options.TargetUnsuspended && !ReadFlag(target.Metadata, IsSuspendedKey))
+                {
+                    continue;
+                }
+
+                // (B5) AS-IS SelectAttackEffect.defenderCondition — a per-effect predicate narrowing which
+                // specific Digimon may be attacked (default _ => true).
+                if (options.DefenderCondition is not null && !options.DefenderCondition(targetId))
                 {
                     continue;
                 }
@@ -187,6 +289,8 @@ public static class EffectDrivenAttack
 
         if (result.IsSkipped || result.SelectedIds.Count == 0)
         {
+            // (P3) a declined attacker still advances the AS-IS sequential loop — offer the next queued one.
+            TryOpenNextQueued(context);
             return true;   // declined
         }
 
@@ -194,6 +298,7 @@ public static class EffectDrivenAttack
         AttackTargetCandidate? target = ResolveTarget(context, attackerId, result.SelectedIds[0], options);
         if (target is null)
         {
+            TryOpenNextQueued(context);
             return true;   // target no longer legal
         }
 
@@ -270,4 +375,9 @@ public sealed record EffectAttackOptions(
     bool WithoutTap = false,         // attacker is NOT suspended (Overclock untapped attack)
     bool AllowPlayerTarget = true,   // may attack the player directly (security)
     bool AllowDigimonTarget = true,  // may attack opponent Digimon (Overclock = false: player only)
-    bool TargetUnsuspended = true);  // unsuspended Digimon are also targetable (AS-IS isVortex)
+    bool TargetUnsuspended = true)   // unsuspended Digimon are also targetable (AS-IS isVortex)
+{
+    /// <summary>(B5) AS-IS <c>SelectAttackEffect._defenderCondition</c> — narrows which opponent Digimon are
+    /// legal targets for this effect-driven attack (null = all, the AS-IS default <c>_ =&gt; true</c>).</summary>
+    public Func<HeadlessEntityId, bool>? DefenderCondition { get; init; }
+}

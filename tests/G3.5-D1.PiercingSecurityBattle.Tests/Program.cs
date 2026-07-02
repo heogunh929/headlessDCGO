@@ -20,6 +20,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Piercing into a stronger security Digimon deletes the attacker", PiercingIntoStrongerSecurityDeletesAttacker),
     ("Piercing into a weaker security Digimon leaves the attacker alive", PiercingIntoWeakerSecuritySurvives),
     ("Piercing fires the revealed security card's OnSecurityCheck effect", PiercingFiresSecurityEffect),
+    ("(A1) Piercing into EMPTY security does nothing — no invented game loss", PiercingIntoEmptySecurityNoLoss),
+    ("(B2) battle triggers drain BEFORE the piercing check: a knock-out trigger that kills the attacker cancels it", TriggerKillsAttackerBeforePiercing),
 };
 
 var failures = new List<string>();
@@ -74,6 +76,45 @@ async Task PiercingFiresSecurityEffect()
     await DeclareTargetAttackAsync(match);
 
     AssertEqual(1, securityEffect.ResolveCalls, "the revealed security card's OnSecurityCheck effect fired via piercing");
+}
+
+// (A1) AS-IS CanActivatePierce: Pierce fires only with >= 1 security; with 0 security nothing happens.
+// The empty-security game loss belongs only to the DIRECT-attack path.
+async Task PiercingIntoEmptySecurityNoLoss()
+{
+    DcgoMatch match = await Setup(attackerDp: 5000, targetDp: 3000, topSecurityDp: 1000, piercing: true);
+    var zones = (IZoneStateReader)match.Context.ZoneMover;
+    foreach (HeadlessEntityId securityCard in zones.GetCards(P2, ChoiceZone.Security).ToArray())
+    {
+        await match.Context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, securityCard, ChoiceZone.Security, ChoiceZone.Trash));
+    }
+
+    await DeclareTargetAttackAsync(match);
+
+    AssertFalse(match.Context.PlayerStatusController.IsLose(P2), "the defending player did NOT lose (Pierce no-op at 0 security)");
+    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "attacker survives (battle won, no security battle)");
+    AssertInZone(match, P2, ChoiceZone.Trash, TargetId, "the defending Digimon was deleted by the field battle");
+}
+
+// (B2) AS-IS AttackProcess: battle → TriggeredSkillProcess (drain) → `if (AttackingPermanent.TopCard ==
+// null) End` → security check. A battle-generated trigger that removes the attacker must cancel Piercing.
+async Task TriggerKillsAttackerBeforePiercing()
+{
+    DcgoMatch match = await Setup(attackerDp: 5000, targetDp: 3000, topSecurityDp: 1000, piercing: true);
+    int before = ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Security).Count;
+
+    var killer = new AttackerKillingEffect("ko-fx", TargetId.Value, TriggerTimings.OnKnockOut, AttackerId);
+    match.Context.EffectRegistry.Register(new EffectBinding(
+        new EffectRequest(new HeadlessEntityId("ko-fx"), P2, TriggerTimings.OnKnockOut,
+            new EffectContext(P2, P2, TargetId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>())),
+        effect: killer));
+
+    await DeclareTargetAttackAsync(match);
+
+    AssertEqual(1, killer.ResolveCalls, "the knock-out trigger resolved");
+    AssertInZone(match, P1, ChoiceZone.Trash, AttackerId, "the attacker was deleted by the drained trigger");
+    AssertEqual(before, ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Security).Count,
+        "NO security was checked — Piercing was cancelled by the pre-check survival test");
 }
 
 // --- Harness (from C2) ---------------------------------------------------
@@ -176,6 +217,41 @@ static void AssertEqual<T>(T expected, T actual, string label)
 static void AssertFalse(bool value, string label)
 {
     if (value) throw new InvalidOperationException($"{label}: expected false.");
+}
+
+// (B2) a knock-out trigger that deletes the attacker via the mutation sink.
+internal sealed class AttackerKillingEffect : IHeadlessCardEffect
+{
+    private readonly HeadlessEntityId _attackerId;
+
+    public AttackerKillingEffect(string effectId, string sourceId, string timing, HeadlessEntityId attackerId)
+    {
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
+        _attackerId = attackerId;
+    }
+
+    public CardEffectDefinition Definition { get; }
+
+    public int ResolveCalls { get; private set; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(
+        CardEffectResolveContext context,
+        IEffectMutationSink mutations,
+        CancellationToken cancellationToken = default)
+    {
+        ResolveCalls++;
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.DeleteKind,
+            Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = _attackerId.Value,
+            }));
+        return ValueTask.FromResult(EffectResult.Success("attacker deleted"));
+    }
 }
 
 internal sealed class RecordingFakeEffect : IHeadlessCardEffect

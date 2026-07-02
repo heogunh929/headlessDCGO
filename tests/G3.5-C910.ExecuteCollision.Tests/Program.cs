@@ -26,6 +26,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Execute: canAttackUnsuspendedDigimon lets it declare an attack on an unsuspended Digimon", ExecuteCanAttackUnsuspended),
     ("Collision: GrantCollision forces the opponent to block with any Digimon", CollisionForcesBlock),
     ("S4: Collision granted via the KEYWORD (no metadata) forces block — un-sealed", CollisionViaKeywordUnsealed),
+    ("(K3) a CanNotAffected(opponent-Digimon) defender is NOT forced by Collision (per-defender guard)", CollisionImmuneDefenderNotForced),
     ("S5: Execute granted via the KEYWORD self-deletes after its attack — un-sealed", ExecuteViaKeywordSelfDeletes),
 };
 
@@ -153,6 +154,34 @@ async Task CollisionViaKeywordUnsealed()
     AssertTrue(result.IsSuccess, "block timing opened");
     AssertTrue(result.Candidates.Any(c => c.BlockerId == blocker), "keyword Collision forces a plain Digimon to be a blocker (un-sealed)");
     AssertFalse(match.Context.ChoiceController.Current.CanSkip, "keyword Collision block cannot be skipped");
+}
+
+// (K3) AS-IS Permanent.HasBlocker: the forced-Blocker grant is guarded per-defender by
+// `!CanNotBeAffected(fakeCollisionClass)` with source = the ATTACKER — an immune defender is not forced.
+async Task CollisionImmuneDefenderNotForced()
+{
+    DcgoMatch match = await NewMatch();
+    used.Clear();
+    HeadlessEntityId attacker = await Establish(match, P1, dp: 6000, suspended: false, flag: null);
+    HeadlessEntityId immune = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
+    HeadlessEntityId plain = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
+
+    match.Context.EffectRegistry.Register(
+        CardEffectFactory.CollisionStaticEffect(null, false, new CardSource(match.Context, attacker, P1), null).ToBinding($"col:{attacker.Value}"));
+    // The immune defender cannot be affected by the OPPONENT's Digimon effects (AS-IS SkillCondition shape).
+    match.Context.EffectRegistry.Register(
+        CardEffectFactory.CanNotAffectedStaticEffect(
+            permanentCondition: null,
+            skillCondition: src => src.Owner != P2 && src.IsDigimon,
+            isInheritedEffect: false, card: new CardSource(match.Context, immune, P2), condition: null).ToBinding($"cna:{immune.Value}"));
+
+    match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
+    BlockTimingResult result = new BlockTiming().RequestBlockChoice(match.Context);
+
+    AssertTrue(result.IsSuccess, "block timing opened");
+    AssertTrue(result.Candidates.Any(c => c.BlockerId == plain), "the plain defender is still forced");
+    AssertFalse(result.Candidates.Any(c => c.BlockerId == immune),
+        "a CanNotAffected(opponent-Digimon-effects) defender is NOT forced by Collision");
 }
 
 // --- Harness -------------------------------------------------------------

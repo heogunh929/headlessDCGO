@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -25,6 +26,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Tap mode marks the selected target suspended", TapApplies),
     ("Bounce mode returns the selected target to hand", BounceApplies),
     ("BuildMutations maps each Mode to the matching mutation kind", ModeMapping),
+    ("(B5) Degenerate mode de-digivolves the selected permanent (AS-IS IDegeneration)", DegenerateApplies),
+    ("(B5) Attack mode honours defenderCondition and canAttackPlayer (AS-IS SelectAttackEffect.SetUp)", AttackModeConditions),
+    ("(B5) the AS-IS combination gate (canEndSelectCondition) validates selection SETS", CombinationGate),
+    ("(P2) the combination gate rides the ChoiceRequest: an illegal SET is rejected at resolve (retry)", CombinationGateRejectsAtResolve),
+    ("(P3) multi-attacker Attack mode queues sequentially: declining #1 opens #2 (AS-IS foreach)", MultiAttackerQueue),
 };
 
 var failures = new List<string>();
@@ -174,6 +180,131 @@ Task ModeMapping()
 }
 
 // --- Helpers -------------------------------------------------------------
+
+// --- (B5) -----------------------------------------------------------------
+
+async Task DegenerateApplies()
+{
+    EngineContext context = await SetupBoard();
+    var source = new HeadlessEntityId("p2:src:B1u");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId(source.Value), P2));
+    SetSources(context, B1, source);
+
+    var sel = new SelectPermanentEffect();
+    sel.SetUp(P1, id => id == B1, maxCount: 1, canNoSelect: false, canEndNotMax: false,
+        SelectPermanentEffect.Mode.Degenerate, new HeadlessEntityId("src"));
+    sel.SetDegenerationCount(1);
+
+    MatchStateMutationSink sink = Sink(context);
+    sel.Apply(sink, new[] { B1 });
+    await sink.FlushAsync();
+
+    AssertTrue(InZone(context, P2, ChoiceZone.Trash, B1), "the selected top card was de-digivolved to the trash");
+    AssertTrue(InZone(context, P2, ChoiceZone.BattleArea, source), "the under-source was promoted");
+}
+
+async Task AttackModeConditions()
+{
+    EngineContext context = await SetupBoard();
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)context.CardRepository;
+    foreach (HeadlessEntityId id in new[] { A1, B1, B2 })
+    {
+        cards.Upsert(new CardRecord(new HeadlessEntityId(id.Value), id.Value, id.Value,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }, CardType: "Digimon"));
+        Suspend(context, id, id != A1);   // defenders suspended (normal attack targeting)
+    }
+
+    var sel = new SelectPermanentEffect();
+    sel.SetUp(P1, id => id == A1, maxCount: 1, canNoSelect: false, canEndNotMax: false,
+        SelectPermanentEffect.Mode.Attack, new HeadlessEntityId("src"));
+    sel.SetAttackOptions(canAttackPlayer: false, defenderCondition: id => id == B1);
+
+    AssertTrue(sel.TryOpenAttack(context, new[] { A1 }), "the attack target choice opened for the selected attacker");
+    var candidates = context.ChoiceController.PendingRequest!.Candidates;
+    AssertTrue(candidates.Any(c => c.Id == B1), "the defenderCondition-matching Digimon is a target");
+    AssertFalse(candidates.Any(c => c.Id == B2), "the non-matching Digimon is NOT a target (predicate honoured)");
+    AssertFalse(candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+        "canAttackPlayer:false removes the direct-attack option");
+}
+
+async Task CombinationGate()
+{
+    EngineContext context = await SetupBoard();
+    var sel = new SelectPermanentEffect();
+    sel.SetUp(P1, _ => true, maxCount: 2, canNoSelect: false, canEndNotMax: false,
+        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
+    // "the two picks must have different owners" (an AS-IS combination-style constraint).
+    sel.SetCanEndSelectCondition(selection =>
+        selection.Count == 2 && selection[0].Value[..2] != selection[1].Value[..2]);
+
+    AssertTrue(sel.IsValidSelection(new[] { A1, B1 }), "a cross-owner pair passes the gate");
+    AssertFalse(sel.IsValidSelection(new[] { B1, B2 }), "a same-owner pair fails the gate (AS-IS CanEndSelect)");
+}
+
+async Task CombinationGateRejectsAtResolve()
+{
+    EngineContext context = await SetupBoard();
+    var sel = new SelectPermanentEffect();
+    sel.SetUp(P1, _ => true, maxCount: 2, canNoSelect: false, canEndNotMax: false,
+        SelectPermanentEffect.Mode.Tap, new HeadlessEntityId("src"));
+    sel.SetCanEndSelectCondition(selection =>
+        selection.Count == 2 && selection[0].Value[..2] != selection[1].Value[..2]);
+
+    ChoiceRequest request = sel.BuildRequest(Zones(context), Both);
+    context.ChoiceController.RequestChoice(request, new HeadlessEntityId("p2-test"));
+
+    bool rejected = false;
+    try { context.ChoiceController.ResolveChoice(ChoiceResult.Select(B1, B2)); }
+    catch (InvalidOperationException) { rejected = true; }
+    AssertTrue(rejected, "the same-owner pair is rejected at resolve (AS-IS CanEndSelect gate)");
+    AssertTrue(context.ChoiceController.Current.IsPending, "the choice stays pending for a retry");
+
+    context.ChoiceController.ResolveChoice(ChoiceResult.Select(A1, B1));
+    AssertTrue(!context.ChoiceController.Current.IsPending, "the legal combination resolves");
+}
+
+async Task MultiAttackerQueue()
+{
+    EngineContext context = await SetupBoard();
+    context.TurnController.Initialize(new[] { P2, P1 }, P2);   // P2 is the turn player: B1/B2 attack, A1 defends
+    var cards = (CardDatabase)context.CardRepository;
+    foreach (HeadlessEntityId id in new[] { A1, B1, B2 })
+    {
+        cards.Upsert(new CardRecord(new HeadlessEntityId(id.Value), id.Value, id.Value,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }, CardType: "Digimon"));
+        Suspend(context, id, id == A1);   // the defender is suspended, the attackers are not
+    }
+
+    var sel = new SelectPermanentEffect();
+    sel.SetUp(P2, id => id.Value.StartsWith("p2", StringComparison.Ordinal), maxCount: 2,
+        canNoSelect: false, canEndNotMax: false, SelectPermanentEffect.Mode.Attack, new HeadlessEntityId("src"));
+    sel.SetAttackOptions(canAttackPlayer: false);
+
+    AssertTrue(sel.TryOpenAttack(context, new[] { B1, B2 }), "attacker #1's target choice opened");
+    // Decline #1 -> the AS-IS sequential loop moves to attacker #2.
+    AssertTrue(HeadlessDCGO.Engine.Headless.Runtime.EffectDrivenAttack.ResolveChoice(context, ChoiceResult.Skip()),
+        "attacker #1 declined");
+    AssertTrue(context.ChoiceController.Current.IsPending, "attacker #2's target choice opened automatically");
+}
+
+void Suspend(EngineContext context, HeadlessEntityId id, bool suspended)
+{
+    context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r);
+    context.CardInstanceRepository.Upsert(r! with
+    {
+        Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal) { ["isSuspended"] = suspended }
+    });
+}
+
+void SetSources(EngineContext context, HeadlessEntityId host, HeadlessEntityId source)
+{
+    context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? r);
+    context.CardInstanceRepository.Upsert(r! with
+    {
+        Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = new[] { source.Value } }
+    });
+}
 
 MatchStateMutationSink Sink(EngineContext context) =>
     new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);

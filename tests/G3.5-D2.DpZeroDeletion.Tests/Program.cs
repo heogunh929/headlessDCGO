@@ -20,6 +20,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("DP above 0 survives the rule sweep", DpPositiveSurvives),
     ("A Digimon with no defined DP is left alone", NoDpSurvives),
     ("A non-Digimon at DP 0 is not deleted by the Digimon rule", NonDigimonSurvives),
+    ("(B3) a DP-zero death runs the deletion pipeline: Fortitude replays the Digimon", DpZeroFortitudeReplays),
+    ("(B3) a DP-zero death opens the would-be-deleted (Evade) window", DpZeroOpensPreWindow),
+    ("(B3) the AS-IS DPZero flag is stamped on the deleted card", DpZeroFlagStamped),
+    ("(P7) a no-DP Digi-Egg on the BATTLE area is trashed directly (no deletion triggers)", NoDpEggTrashed),
+    ("(P7) an un-played Option lingers -> trashed; the played-option flag exempts it", NoDpOptionRules),
 };
 
 var failures = new List<string>();
@@ -74,6 +79,94 @@ async Task NonDigimonSurvives()
     DcgoMatch match = await FieldDigimonAsync(cardType: "Tamer", dp: 0, modifiers: null);
     await RuleProcessAsync(match);
     AssertOnField(match, "non-Digimon at DP 0 is not deleted by the Digimon rule");
+}
+
+// (B3) AS-IS DigimonLackDPProcess routes DP<=0 through DestroyPermanentsClass — the SAME deletion path as
+// effects (would-be-deleted windows, OnDeletion, Fortitude, the DPZero flag). Previously a raw zone move.
+
+async Task DpZeroFortitudeReplays()
+{
+    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
+        modifiers: new[] { DpModifier.Relative(-3000) });
+    var source = new HeadlessEntityId("P1-FortSrc");
+    match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId("P1-M02"), P1));
+    SetMetadata(match, Card, new Dictionary<string, object?>
+    {
+        [DeletionReplacementGate.HasFortitudeKey] = true,
+        [DeletionReplacementGate.SourceIdsKey] = new[] { source.Value },
+    });
+
+    await RuleProcessAsync(match);
+    // The persistent -DP modifier kills the replayed Digimon again (AS-IS: the rule process re-runs), so
+    // the end state is the trash — but the FIRST death ran Fortitude: the digivolution source was consumed
+    // (a raw sweep leaves sourceIds untouched on the trashed record).
+    AssertInTrash(match, "the re-replayed Digimon died again to the persistent -DP");
+    AssertTrue(!HasSourceIds(match, Card), "Fortitude consumed the source on the first death (pipeline ran)");
+}
+
+bool HasSourceIds(DcgoMatch match, HeadlessEntityId cardId) =>
+    match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? r) && r is not null
+        && r.Metadata.TryGetValue(DeletionReplacementGate.SourceIdsKey, out object? raw)
+        && raw is IEnumerable<string> ids && ids.Any();
+
+async Task DpZeroOpensPreWindow()
+{
+    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
+        modifiers: new[] { DpModifier.Relative(-3000) });
+    SetMetadata(match, Card, new Dictionary<string, object?> { [DeletionReplacementGate.HasEvadeKey] = true });
+
+    await RuleProcessAsync(match);
+    AssertOnField(match, "the card is not swept while the Evade window is open");
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "a would-be-deleted (PRE) choice is open");
+    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+}
+
+async Task DpZeroFlagStamped()
+{
+    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
+        modifiers: new[] { DpModifier.Relative(-3000) });
+    await RuleProcessAsync(match);
+    AssertInTrash(match, "DP-zero Digimon deleted");
+    AssertTrue(ReadFlag(match, Card, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.IsDpZeroKey),
+        "the AS-IS DPZero flag travels with the deletion");
+}
+
+bool ReadFlag(DcgoMatch match, HeadlessEntityId cardId, string key) =>
+    match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? r) && r is not null
+        && r.Metadata.TryGetValue(key, out object? raw) && raw is bool b && b;
+
+// (P7) AS-IS TrashNoDPPermanentProcess: a no-DP Digi-Egg / un-played Option on the battle area is trashed
+// DIRECTLY (DiscardEvoRoots + RemoveField + AddTrash — not a destroy).
+async Task NoDpEggTrashed()
+{
+    DcgoMatch match = await FieldDigimonAsync(cardType: "DigiEgg", dp: null, modifiers: null);
+    // Give it a source and a POST keyword flag — a direct trash must fire NO deletion windows.
+    var source = new HeadlessEntityId("P1-EggSrc");
+    match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId("P1-M02"), P1));
+    SetMetadata(match, Card, new Dictionary<string, object?>
+    {
+        [DeletionReplacementGate.SourceIdsKey] = new[] { source.Value },
+        [DeletionReplacementGate.HasAscensionKey] = true,
+    });
+
+    await RuleProcessAsync(match);
+
+    AssertInTrash(match, "the no-DP Digi-Egg was trashed");
+    var zones = (IZoneStateReader)match.Context.ZoneMover;
+    AssertTrue(zones.GetCards(P1, ChoiceZone.Trash).Contains(source), "its digivolution source was discarded too (DiscardEvoRoots)");
+    AssertTrue(!match.Context.ChoiceController.Current.IsPending, "NO deletion-replacement window (direct trash, not a destroy)");
+}
+
+async Task NoDpOptionRules()
+{
+    DcgoMatch trashed = await FieldDigimonAsync(cardType: "Option", dp: null, modifiers: null);
+    await RuleProcessAsync(trashed);
+    AssertInTrash(trashed, "an un-played no-DP Option is trashed");
+
+    DcgoMatch kept = await FieldDigimonAsync(cardType: "Option", dp: null, modifiers: null);
+    SetMetadata(kept, Card, new Dictionary<string, object?> { [GameFlowProcessor.IsPlayedOptionPermanentKey] = true });
+    await RuleProcessAsync(kept);
+    AssertOnField(kept, "a played-option permanent is exempt (AS-IS IsPlayedOptionPermanent)");
 }
 
 // --- Harness -------------------------------------------------------------

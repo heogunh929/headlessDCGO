@@ -218,13 +218,14 @@ public sealed class BlockTiming
         ArgumentNullException.ThrowIfNull(blocker);
         ArgumentNullException.ThrowIfNull(blockerCard);
         if (blocker.OwnerId != attack.DefendingPlayerId ||
-            !IsDigimon(blockerCard) ||
+            // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+            (!IsDigimon(blockerCard) && !ContinuousKeywordGate.IsDigimon(context, blockerId)) ||
             ReadBool(blocker.Metadata, IsSuspendedKey) ||
             !ReadBool(blocker.Metadata, CanSuspendKey, defaultValue: true) ||
             ReadBool(blocker.Metadata, CannotBlockKey) ||
             ReadBool(blockerCard.Metadata, CannotBlockKey) ||
             !ReadBool(blocker.Metadata, CanBlockKey, defaultValue: true) ||
-            !(HasBlocker(blocker, blockerCard, attackerHasCollision)
+            !(HasBlocker(context, attack, blocker, blockerCard, attackerHasCollision)
                 // (GR-005) a self-static <Blocker> lives as a registry keyword binding, not the hasBlocker
                 // metadata flag — derive it from the registry so ported blockers actually block in live play.
                 || ContinuousKeywordGate.HasKeyword(context, blockerId, ContinuousKeywordGate.Blocker)))
@@ -246,6 +247,8 @@ public sealed class BlockTiming
     }
 
     private static bool HasBlocker(
+        EngineContext context,
+        HeadlessAttackState attack,
         CardInstanceRecord blocker,
         CardRecord blockerCard,
         bool attackerHasCollision)
@@ -255,9 +258,16 @@ public sealed class BlockTiming
             return true;
         }
 
+        // (K3) AS-IS Permanent.HasBlocker (Permanent.cs:2401-2417): the Collision forced-Blocker grant is
+        // guarded per-defender by `!TopCard.CanNotBeAffected(fakeCollisionClass)` with the effect source =
+        // the ATTACKER's top card — a defender immune to the attacker's (opponent-Digimon) effects is not
+        // forced. The metadata key stays for test-set grants; the live check is the immunity gate.
         return attackerHasCollision &&
             !ReadBool(blocker.Metadata, CannotBeAffectedByCollisionKey) &&
-            !ReadBool(blockerCard.Metadata, CannotBeAffectedByCollisionKey);
+            !ReadBool(blockerCard.Metadata, CannotBeAffectedByCollisionKey) &&
+            !(attack.AttackerId is HeadlessEntityId attackerId &&
+              ContinuousImmunityGate.BlocksOpponentEffect(
+                  context.EffectRegistry, context.CardInstanceRepository, blocker.InstanceId, attackerId, context));
     }
 
     private static bool CanSkipBlock(

@@ -19,6 +19,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Without the added source, the off-color target is illegal (control)", NoEffectIllegal),
     ("A non-matching predicate (Level==6) stays illegal (control)", NonMatchingIllegal),
     ("costEquation (dynamic cost) applies over the fixed cost", DynamicCost),
+    ("(A2) exact level gate: Lv5 source accepted, Lv4/Lv6 rejected even when the predicate matches", ExactLevelGate),
+    ("(A2) minLevel gate (EX6_073 shape): trait-only predicate no longer digivolves at ANY level", MinLevelGate),
+    ("(A2) a source WITHOUT a level never passes a configured gate", NoLevelSourceRejected),
 };
 
 var failures = new List<string>();
@@ -72,6 +75,56 @@ async Task NonMatchingIllegal()
     var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), ctx);
     AssertTrue(!result.IsSuccess, "illegal when the predicate does not match");
 }
+
+// (A2) AS-IS GetEvoCost: level/minLevel/maxLevel is a HARD gate on the digivolving-FROM permanent,
+// OUTSIDE the predicate — a matching predicate alone must not pass.
+
+async Task ExactLevelGate()
+{
+    foreach ((int sourceLevel, bool legal) in new[] { (5, true), (4, false), (6, false) })
+    {
+        EngineContext ctx = Ctx();
+        ctx.MemoryController.Set(5);
+        var target = await PlaceBase(ctx, "BLUE", color: "Blue", level: sourceLevel);
+        var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@4", cost: 2);
+        RegisterLeveled(ctx, evo, p => true, level: 5);   // predicate always true — the gate decides
+
+        var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
+        AssertTrue(result.IsSuccess == legal, $"source Lv{sourceLevel} with level:5 gate -> legal={legal} ({result.Message})");
+    }
+}
+
+async Task MinLevelGate()
+{
+    foreach ((int sourceLevel, bool legal) in new[] { (5, true), (6, true), (4, false) })
+    {
+        EngineContext ctx = Ctx();
+        ctx.MemoryController.Set(5);
+        var target = await PlaceBase(ctx, "BLUE", color: "Blue", level: sourceLevel);
+        var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@7", cost: 2);
+        RegisterLeveled(ctx, evo, p => true, minLevel: 5); // EX6_073: predicate = trait only, minLevel is the sole level constraint
+
+        var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
+        AssertTrue(result.IsSuccess == legal, $"source Lv{sourceLevel} with minLevel:5 gate -> legal={legal} ({result.Message})");
+    }
+}
+
+async Task NoLevelSourceRejected()
+{
+    EngineContext ctx = Ctx();
+    ctx.MemoryController.Set(5);
+    var target = await PlaceBase(ctx, "NOLEVEL", color: "Blue", level: -1); // no printed level
+    var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@4", cost: 2);
+    RegisterLeveled(ctx, evo, p => true, minLevel: 3);
+
+    var result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
+    AssertTrue(!result.IsSuccess, "AS-IS: a configured gate requires HasLevel — a no-level source is rejected");
+}
+
+void RegisterLeveled(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate, int level = -1, int minLevel = -1, int maxLevel = -1) =>
+    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+        permanentCondition: predicate, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
+        card: new CardSource(ctx, evo, P1), condition: null, level: level, minLevel: minLevel, maxLevel: maxLevel).ToBinding($"asdrl:{evo.Value}"));
 
 // --- Helpers -------------------------------------------------------------
 

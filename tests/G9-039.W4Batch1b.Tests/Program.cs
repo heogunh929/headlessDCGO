@@ -21,8 +21,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ChangeLinkMaxStatic +1 -> linkedMaxDelta carried (player-scope)", () =>
         CarriedScoped(c => CardEffectFactory.ChangeLinkMaxStaticEffect(null, 1, false, c, null), ModifierHelpers.LinkedMaxDeltaKey)),
     ("Collision -> owner's ally has Collision", () => Keyword(c => CardEffectFactory.CollisionStaticEffect(null, false, c, null), ContinuousKeywordGate.Collision)),
-    ("Vortex -> owner's ally has Vortex", () => Keyword(c => CardEffectFactory.VortexCanAttackPlayersStaticEffect(null, false, c, null), ContinuousKeywordGate.Vortex)),
+    // (K1) un-flattened: the marker is its OWN keyword (player-target eligibility), NOT a Vortex grant.
+    ("VortexCanAttackPlayers -> owner's ally has the marker (not Vortex)", () => Keyword(c => CardEffectFactory.VortexCanAttackPlayersStaticEffect(null, false, c, null), ContinuousKeywordGate.VortexCanAttackPlayers)),
     ("TreatAsDigimon -> HasKeyword(TreatAsDigimon)", TreatAsDigimon),
+    ("(K4) IsDigimon chokepoint: a TreatAsDigimon Tamer counts as a Digimon (predicate honored)", TreatAsDigimonChokepoint),
+    ("(K4) a TreatAsDigimon Tamer with hasBlocker is an eligible blocker (consumer wired)", TreatAsDigimonBlocks),
     ("Gain1TamerOwnerConditional: condition true -> +1 / false -> 0", Gain1Conditional),
     ("EoTLose3Memory: 5 -> 2 at end of your turn", EoTLose3),
 };
@@ -55,6 +58,50 @@ async Task TreatAsDigimon()
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.TreatAsDigimon), "absent before");
     context.EffectRegistry.Register(CardEffectFactory.TreatAsDigimonStaticEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"tad:{id.Value}"));
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.TreatAsDigimon), "TreatAsDigimon live");
+}
+
+// (K4) AS-IS Permanent.IsDigimon single chokepoint: native CardType OR an active ITreatAsDigimonEffect
+// whose permanentCondition accepts the permanent being judged.
+async Task TreatAsDigimonChokepoint()
+{
+    EngineContext context = Context();
+    var tamer = await Place(context, P1, "TAMER", cardType: "Tamer");
+    var option = await Place(context, P1, "OPTION", cardType: "Option");
+    var digimon = await Place(context, P1, "DIGIMON");
+
+    AssertTrue(!ContinuousKeywordGate.IsDigimon(context, tamer), "the Tamer is not a Digimon before the grant");
+    context.EffectRegistry.Register(CardEffectFactory.TreatAsDigimonStaticEffect(
+        p => p.IsTamer, false, new CardSource(context, tamer, P1), null).ToBinding($"tad:{tamer.Value}"));
+
+    AssertTrue(ContinuousKeywordGate.IsDigimon(context, tamer), "the Tamer is treated as a Digimon");
+    AssertTrue(!ContinuousKeywordGate.IsDigimon(context, option), "the predicate is honored (Option not matched)");
+    AssertTrue(ContinuousKeywordGate.IsDigimon(context, digimon), "a native Digimon stays a Digimon");
+}
+
+async Task TreatAsDigimonBlocks()
+{
+    EngineContext context = Context();
+    var attacker = await Place(context, P1, "ATK");
+    var tamer = await Place(context, P2, "TAMER", cardType: "Tamer");
+    SetFlag(context, tamer, BlockTiming.HasBlockerKey, true);
+
+    context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
+    var withoutKeyword = new BlockTiming().GetBlockerCandidates(context);
+    AssertTrue(!withoutKeyword.Any(c => c.BlockerId == tamer), "without the keyword a Tamer cannot block (control)");
+
+    context.EffectRegistry.Register(CardEffectFactory.TreatAsDigimonStaticEffect(
+        p => p.IsTamer, false, new CardSource(context, tamer, P2), null).ToBinding($"tad:{tamer.Value}"));
+    var withKeyword = new BlockTiming().GetBlockerCandidates(context);
+    AssertTrue(withKeyword.Any(c => c.BlockerId == tamer), "the TreatAsDigimon Tamer is an eligible blocker");
+}
+
+void SetFlag(EngineContext context, HeadlessEntityId id, string key, bool value)
+{
+    context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? inst);
+    context.CardInstanceRepository.Upsert(inst! with
+    {
+        Metadata = new Dictionary<string, object?>(inst!.Metadata, StringComparer.Ordinal) { [key] = value }
+    });
 }
 
 async Task Gain1Conditional()
@@ -136,12 +183,12 @@ EngineContext Context()
     return context;
 }
 
-async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner, string tag)
+async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner, string tag, string cardType = "Digimon")
 {
     var cards = (CardDatabase)context.CardRepository;
     var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
     cards.Upsert(new CardRecord(defId, defId.Value, tag,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: cardType));
     var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));

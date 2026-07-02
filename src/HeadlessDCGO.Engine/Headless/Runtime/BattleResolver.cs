@@ -157,11 +157,20 @@ public sealed class BattleResolver
         foreach (BattleParticipant participant in deleted)
         {
             MarkDeletedByBattle(context, participant);
+            // F-6.3/P1: the knock-out window is SUBJECT-scoped — it is the dead card's OWN triggers. AS-IS
+            // stacks AND resolves the dying permanent's effects DURING its deletion processing
+            // (TriggeredSkillProcess after battle) and only then lets them lapse — so resolve them
+            // synchronously BEFORE the leave-play cleanup drops the bindings (the scheduler resolves
+            // requests through the registry; a dropped binding would be a no-op). Same seam as the
+            // OnStartBattle window (G8-003).
+            await ResolveKnockOutWindowAsync(context, participant, cancellationToken).ConfigureAwait(false);
+            // (P1) leave-play cleanup BEFORE the move (and before Fortitude reads the keyword state):
+            // snapshot the dead card's post-deletion keywords, then drop its bindings — previously the
+            // battle path never dropped them, so a battle-deleted card's continuous effects kept applying.
+            CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, participant.InstanceId);
             movementResults.Add(await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(participant.OwnerId, participant.InstanceId, ChoiceZone.BattleArea, ChoiceZone.Trash),
                 cancellationToken).ConfigureAwait(false));
-            // F-6.3: open the knock-out window for the Digimon deleted by battle (subject = the card).
-            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnKnockOut, actor: participant.OwnerId, subject: participant.InstanceId);
         }
 
         // C-6 Fortitude: mandatory post-deletion replay. (Armor Purge / Ascension / Save are OPTIONAL POST
@@ -276,13 +285,11 @@ public sealed class BattleResolver
         return Math.Clamp(attacker.Dp.CompareTo(defender.Dp), -1, 1);
     }
 
-    /// <summary>The number of digivolution sources under a participant (AS-IS <c>DigivolutionCards.Count</c>).</summary>
-    private static int SourceCount(BattleParticipant participant)
-    {
-        return participant.Instance.Metadata.TryGetValue(SourceIdsKey, out object? raw) && raw is IEnumerable<string> ids
-            ? ids.Count()
-            : 0;
-    }
+    /// <summary>The number of digivolution sources under a participant (AS-IS <c>DigivolutionCards.Count</c>).
+    /// (C4) reads sourceIds through the shared tolerant parser — entity-id-typed lists previously read as 0
+    /// and silently flipped the Iceclad comparison.</summary>
+    private static int SourceCount(BattleParticipant participant) =>
+        DeletionReplacementGate.ReadSourceIds(participant.Instance.Metadata).Count;
 
     private static bool HasFlag(BattleParticipant participant, string key)
     {
@@ -350,6 +357,30 @@ public sealed class BattleResolver
         return null;
     }
 
+    // (P1) resolve the dead card's OnKnockOut triggers synchronously BEFORE its bindings drop (AS-IS:
+    // battle → TriggeredSkillProcess → security; the dead card's effects run during its own deletion
+    // processing, then lapse).
+    private static async Task ResolveKnockOutWindowAsync(EngineContext context, BattleParticipant participant, CancellationToken cancellationToken)
+    {
+        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [AutoProcessingTriggerCollector.TriggerTimingKey] = TriggerTimings.OnKnockOut,
+            [AutoProcessingTriggerCollector.SourceEntityIdKey] = participant.InstanceId,
+        };
+        var gameEvent = new GameEvent(0, GameEventType.StateChanged, $"Timing window: {TriggerTimings.OnKnockOut}", metadata)
+        {
+            Actor = participant.OwnerId,
+            Subject = participant.InstanceId,
+            Cause = TriggerTimings.OnKnockOut,
+        };
+        TriggerCollectionResult collected = new AutoProcessingTriggerCollector(context.EffectRegistry)
+            .CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
+        if (collected.EnqueuedCount > 0)
+        {
+            await context.EffectScheduler.ResolveAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     // (G8-003) Resolve the subject's OnStartBattle effects synchronously through the scheduler (the same
     // collector path the game loop uses), scoped to the subject so only its window fires.
     private static async Task ResolveStartBattleWindowAsync(
@@ -402,7 +433,8 @@ public sealed class BattleResolver
             return $"{role} definition '{instance.DefinitionId}' was not found.";
         }
 
-        if (!IsDigimon(definition))
+        // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+        if (!IsDigimon(definition) && !ContinuousKeywordGate.IsDigimon(context, instanceId))
         {
             return $"{role} '{instanceId}' is not a Digimon.";
         }

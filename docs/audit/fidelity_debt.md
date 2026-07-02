@@ -194,3 +194,34 @@
 ## S5 Execute 부분 완료 (2026-07-02)
 - ✅ 공격 대상 확장(상대 미서스펜드 공격 가능) + 종료 시 self-delete: `AttackPermanentAction`/`AttackPipeline`가 `HasKeyword(Execute)` 인식. G3.5-C910.
 - **STOP**: (1) "턴 종료 시 이 디지몬 공격 가능"(end-of-turn 공격창)은 헤드리스 미모델 → 별도 mechanic 필요.
+
+## M-4/M-5 잔여 구현 (2026-07-02) — D1·K1~K5 완료, debt/축소 기록
+
+설계·근거: [fidelity_m4m5_design.md](fidelity_m4m5_design.md). 완료: **D1** Decoy 술어(G9-055), **K1** VortexCanAttackPlayers un-flatten(GR-006·G9-039), **K2** Ascension top 삽입(G3.5-F68), **K3** Collision per-defender 면역 가드(G3.5-C910), **K4** TreatAsDigimon 중앙 chokepoint(G9-039), **K5** MindLinkClass + PlayMindLinkTamer 교정(G9-060). M-5 두 건은 AS-IS 검증으로 close(구현 불요).
+
+**신규/잔여 debt:**
+- **K2 — `CanAddSecurity` 게이트 미폴딩**: AS-IS AscensionProcess(·Save 등)는 `Owner.CanAddSecurity(효과)` 게이트를 거침. 그 제한 효과(`CannotAddSecurityClass`)가 **미포팅 스켈레톤**(grant 0)이라 현재 폴딩할 대상이 없음 — 해당 클래스 포팅 시 `TryAscensionAsync`/`TrySaveAsync`류에 게이트 추가 필요.
+- **K3 — 시큐리티 카드 OnCounterTiming Collision 스캔 엣지**: AS-IS `Permanent.HasCollision`은 face-up **시큐리티 카드**의 효과도 스캔(Permanent.cs:3069). 포트 키워드 게이트는 필드 grant만 — 시큐리티-발 Collision grant 카드 존재 여부 census 후 필요 시 확장.
+- **K5 — face-up/flipped 축소(검증된 1:1 축소)**: AS-IS MindLink 조건 `DigivolutionCards.Count(cs => cs.IsTamer && !cs.IsFlipped) == 0`에서 `!IsFlipped`는 축소 — 헤드리스에 under-card flip 모델 없음(전부 face-up = AS-IS 기본 상태). flip 메커니즘 도입 시 재방문.
+- **K5 — leave-field 트리거 미발화**: `MindLinkClass.MindLink`의 테이머 필드 이탈은 직접 zone-move(레지스트리 정리는 수행)라 leave-field 트리거 창을 열지 않음. AS-IS `IPlacePermanentToDigivolutionCards`의 이탈 처리 대조 후 필요 시 sink 경유로 전환.
+- **기존 debt 유지**: Decoy/Save의 first-candidate 결정론(AS-IS "select 1"; Decoy는 F68D per-card condition 창으로 부분 해소), Execute 턴종료 공격창.
+
+**부수 수정(일반 버그, 이번 세션 발견):**
+- `ContinuousKeywordGate.HasKeyword(registry-only)`가 **player-scope grant의 source 카드를 홀더로 오인**(스코프·술어 우회) → player-scope 바인딩은 context 경로에서만 매칭하도록 수정.
+- `PlayMindLinkTamerFromDigivolutionCards`가 Digimon-only 필터 재사용으로 **테이머를 영원히 못 꺼내던** 버그 → cardType/cardName 필터 추가.
+- `DeletionReplacementTiming.PreOptions`(정적 superset 경로)의 Decoy 후보 계산에 effectRegistry 미전달 → 키워드-only Decoy가 sweep 경로에서 0 후보이던 갭 수정.
+
+## 위반 조치 구현 (2026-07-02) — A1~A4·B1~B5·C군, 신규 debt
+
+설계·검증표: [fidelity_violation_fix_design.md](fidelity_violation_fix_design.md). 전 항목 구현·green.
+> **→ 선행조치 P1~P8 설계·구현**: [**fidelity_debt_prereq_design.md**](fidelity_debt_prereq_design.md) — **P1·P2·P3·P5·P7·P8 구현 완료(2026-07-02)** → 아래 debt 중 #1(leak 실버그로 재정의)·#2·#3·#5·#7·#8 **해소**. 잔여 = **#4**(B4 멀티패스, P4 설계 대기 — BT10-096형 포팅 시)·**#6**(희생 재귀, P6 별도 goal). 신규 관찰: 죽은 카드 자신의 트리거는 이제 "삭제 처리 중 동기 해소"(knockout/security-check 창) — 다른 삭제-타이밍 창을 추가할 때 같은 패턴을 쓸 것(drop 후 큐잉은 무효).
+
+**신규/잔여 debt (P1~P8 반영 전 기준; 위 표기대로 6건 해소됨):**
+- **삭제시점 키워드 스냅샷의 배틀-경로 갭**: sink `ApplyDelete`는 삭제 직전 POST 키워드(Fortitude/Ascension/Save/Decode/Partition/ArmorPurge)+Partition 조건을 메타로 스냅샷하지만(A4 부수 구현 — 없으면 binding drop으로 키워드-grant POST가 전부 inert), **배틀 삭제 경로(BattleResolver finalize)는 미적용** — 배틀 삭제로 죽는 키워드-grant Ascension/Save/Fortitude는 여전히 레지스트리 drop 시점에 따라 유실 가능. 배틀 finalize에 동일 스냅샷 폴딩 필요.
+- **B5 다중-공격자 Attack 모드**: `SelectPermanentEffect.TryOpenAttack`은 첫 공격자 1개만 초이스 오픈(포팅된 Attack-모드 카드는 maxCount 1). AS-IS는 선택된 전 공격자 순차 — 다중 선택 카드 등장 시 공격자 큐 파킹 확장.
+- **B5 조합 술어(canEndSelectCondition)**: 저장+`IsValidSelection` 노출까지 — ChoiceRequest 스키마가 집합 제약을 표현 못 해 초이스 공급자(RL/스크립트)가 소비해야 함. 중앙 검증-재요청 루프는 초이스 인프라 확장 시.
+- **B4 다중 조건 reveal 패스**(BT10-096형 `SelectCardConditionClass[]`+mutualConditions): 미모델 — 해당 카드 포팅 시 조건별 순차 RequestChoice 루프로 확장(설계 골격은 fix_design B4-6).
+- **C5 Counter 2-pass**: 비-[Counter]→[Counter] 순서 분리는 [Counter] 마커가 포트 효과 모델에 없어 **probe 후 보류** — counter 효과 모델링 시 재방문.
+- **C3 중첩 치환**: 희생 대상의 자체 would-be-deleted 치환(희생당하는 Evade 홀더 등) 재귀는 미모델(CannotBeDeleted 가드만 폴딩). AS-IS는 DeletePermanent 전 과정 경유.
+- **B3 무DP permanent**: `TrashNoDPPermanentProcess`(printed DP 없는 permanent의 직접 트래시)는 포트 sweep이 미포괄(HasLethalDp가 defined-DP 요구) — 배틀에리어에 무DP 카드가 놓이는 메커니즘 등장 시 폴딩.
+- **B2 시큐리티-디지몬 배틀 앞 OnSecurityCheck 순서**: battle→pierce 구간은 파킹으로 복원; SecurityResolver 내부(OnSecurityCheck 스킬 → 시큐리티 배틀) 순서는 후속(동일 파킹 패턴 적용 조사).

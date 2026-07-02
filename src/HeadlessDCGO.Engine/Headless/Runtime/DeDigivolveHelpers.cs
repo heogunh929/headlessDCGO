@@ -29,6 +29,78 @@ public static class DeDigivolveHelpers
     public const int LevelFloor = 3;
 
     /// <summary>
+    /// (B1) The Armor Purge top-trash: trash ONLY the top card and promote the immediate under-source —
+    /// the permanent survives (AS-IS ArmorPurgeProcess: <c>willBeRemoveField = false</c>). Unlike
+    /// de-digivolve there is NO rookie floor and NO de-digivolve immunity (those guards belong to
+    /// IDegeneration only), and a TOKEN top is removed without being trashed (AS-IS ArmorPurge.cs:54-57).
+    /// Emits <see cref="TriggerTimings.WhenTopCardTrashed"/> (AS-IS :69-79). Returns false when there is no
+    /// under-source to promote.
+    /// </summary>
+    public static async Task<bool> ArmorPurgeTopAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId cardId,
+        GameEventQueue? gameEventQueue = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (!repository.TryGetInstance(cardId, out CardInstanceRecord? top) || top is null)
+        {
+            return false;
+        }
+
+        IReadOnlyList<HeadlessEntityId> sources = ReadSourceIds(top.Metadata);
+        if (sources.Count == 0 ||
+            !repository.TryGetInstance(sources[0], out CardInstanceRecord? promoted) || promoted is null)
+        {
+            return false;
+        }
+
+        // The trashed top is NOT a deleted permanent (the deletion was replaced) — strip the deletion
+        // markers so no OnDeletion/POST window opens for it, then move it out.
+        var topMetadata = new Dictionary<string, object?>(top.Metadata, StringComparer.Ordinal);
+        topMetadata.Remove(GameFlowProcessor.PendingDeletionKey);
+        topMetadata.Remove(DeletedByBattleKey);
+        topMetadata.Remove(DeletedByEffectKey);
+        topMetadata.Remove(DeletionReplacementGate.DeletedByOwnEffectKey);
+        bool isToken = ReadFlag(top.Metadata, "isToken");
+        repository.Upsert(top with { Metadata = topMetadata });
+
+        await zoneMover.MoveAsync(
+            new ZoneMoveRequest(top.OwnerId, cardId, ChoiceZone.BattleArea, isToken ? ChoiceZone.None : ChoiceZone.Trash),
+            cancellationToken).ConfigureAwait(false);
+        await zoneMover.MoveAsync(
+            new ZoneMoveRequest(promoted.OwnerId, sources[0], ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true),
+            cancellationToken).ConfigureAwait(false);
+
+        var metadata = new Dictionary<string, object?>(promoted.Metadata, StringComparer.Ordinal);
+        string[] remaining = sources.Skip(1).Select(id => id.Value).ToArray();
+        if (remaining.Length > 0)
+        {
+            metadata[SourceIdsKey] = remaining;
+        }
+        else
+        {
+            metadata.Remove(SourceIdsKey);
+        }
+
+        // The permanent persists: carry tap state to the new top (AS-IS SetChangedLocationTime — continuous
+        // effects re-derive from the new top), no deletion markers.
+        metadata[IsSuspendedKey] = ReadFlag(top.Metadata, IsSuspendedKey);
+        metadata.Remove(DeletedByBattleKey);
+        metadata.Remove(DeletedByEffectKey);
+        repository.Upsert(promoted with { Metadata = metadata });
+
+        if (gameEventQueue is not null)
+        {
+            TriggerEventEmitter.Emit(gameEventQueue, TriggerTimings.WhenTopCardTrashed, subject: sources[0]);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// De-digivolve <paramref name="cardId"/> by up to <paramref name="count"/>. Returns the number of
     /// top cards actually trashed (0 if immune or no sources).
     /// </summary>

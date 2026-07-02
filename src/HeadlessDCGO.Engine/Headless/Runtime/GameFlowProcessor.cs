@@ -165,6 +165,20 @@ public sealed class GameFlowProcessor
                         continue;
                     }
 
+                    // (P7) AS-IS TrashNoDPPermanentProcess (AutoProcessing.cs:439-465): a battle-area
+                    // permanent with NO DP — a Digi-Egg or an un-played Option lingering on the field — is
+                    // trashed DIRECTLY (DiscardEvoRoots + RemoveField + AddTrash; NOT a destroy, no
+                    // deletion triggers/replacements). The AS-IS predicate's Digimon branch is unreachable
+                    // for real cards (printed DP always exists; modifier-negative DP is the lethal rule),
+                    // so the port scopes to the reachable types.
+                    // AS-IS scans GetBattleAreaPermanents ONLY — a Digi-Egg in the breeding area is safe.
+                    if (!pending && zone == ChoiceZone.BattleArea && IsNoDpTrashablePermanent(context, cardId))
+                    {
+                        await TrashNoDpPermanentAsync(context, playerId, cardId, zone, cancellationToken).ConfigureAwait(false);
+                        progressed = true;
+                        continue;
+                    }
+
                     bool lethalDp = !pending && HasLethalDp(context, cardId);
                     if (!pending && !lethalDp)
                     {
@@ -173,12 +187,33 @@ public sealed class GameFlowProcessor
 
                     if (pending)
                     {
+                        // The deletion markers/windows were processed when the deletion was deferred —
+                        // finishing it is the removal. (P1) leave-play cleanup before the move: snapshot the
+                        // post-deletion keywords, then drop the dead card's bindings (previously leaked).
                         ClearPendingDeletion(context, cardId);
+                        CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, cardId);
+                        await context.ZoneMover.MoveAsync(
+                            new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
+                            cancellationToken).ConfigureAwait(false);
+                        progressed = true;
+                        continue;
                     }
 
-                    await context.ZoneMover.MoveAsync(
-                        new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
-                        cancellationToken).ConfigureAwait(false);
+                    // (B3) AS-IS DigimonLackDPProcess routes DP<=0 deaths through DestroyPermanentsClass —
+                    // the SAME path as effect deletions (would-be-deleted windows, OnDeletion triggers,
+                    // Fortitude, the DPZero flag). The previous raw zone move skipped all of it.
+                    var sink = new MatchStateMutationSink(
+                        context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
+                        context.EffectRegistry, context.GameEventQueue, context: context);
+                    sink.Apply(new EffectMutation(
+                        MatchStateMutationSink.DeleteKind,
+                        new HeadlessEntityId("rule:dp-zero"),
+                        new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value,
+                            [MatchStateMutationSink.IsDpZeroKey] = true,
+                        }));
+                    await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
                     progressed = true;
                 }
             }
@@ -193,6 +228,67 @@ public sealed class GameFlowProcessor
     /// Digimon with no printed DP at all is left alone (mirrors BattleResolver's "no battle DP" guard
     /// and avoids deleting DP-less abstract fixtures).
     /// </summary>
+    /// <summary>(P7) mirror of AS-IS <c>IsPlaceToTrashDueToNotHavingDP</c> (default true; effects may clear).</summary>
+    public const string PlaceToTrashDueToNoDpKey = "isPlaceToTrashDueToNotHavingDP";
+
+    /// <summary>(P7) mirror of AS-IS <c>Permanent.IsPlayedOptionPermanent</c> — an Option "permanent" that a
+    /// card effect legitimately keeps on the battle area is exempt.</summary>
+    public const string IsPlayedOptionPermanentKey = "isPlayedOptionPermanent";
+
+    // (P7) AS-IS IsNotHavingDP (AutoProcessing.cs:165-193): DP < 0 && IsPlaceToTrashDueToNotHavingDP &&
+    // (IsDigimon — which includes Digi-Eggs — || un-played Option). Reachable types headless-side: a
+    // Digi-Egg on the battle area, or an Option not marked isPlayedOptionPermanent.
+    private static bool IsNoDpTrashablePermanent(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||
+            instance is null ||
+            !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) ||
+            definition is null)
+        {
+            return false;
+        }
+
+        // A card with any defined DP is the lethal-DP rule's business, not this one.
+        if (TryReadInt(instance.Metadata, BattleResolver.DpKey, out _) ||
+            TryReadInt(definition.Metadata, BattleResolver.DpKey, out _))
+        {
+            return false;
+        }
+
+        if (instance.Metadata.TryGetValue(PlaceToTrashDueToNoDpKey, out object? optOut) && optOut is false)
+        {
+            return false;
+        }
+
+        bool isDigiEgg = string.Equals(definition.CardType, "DigiEgg", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(definition.CardType, "Digitama", StringComparison.OrdinalIgnoreCase);
+        bool isUnplayedOption = string.Equals(definition.CardType, "Option", StringComparison.OrdinalIgnoreCase)
+            && !(instance.Metadata.TryGetValue(IsPlayedOptionPermanentKey, out object? played) && played is true);
+        return isDigiEgg || isUnplayedOption;
+    }
+
+    // (P7) AS-IS: DiscardEvoRoots (sources -> trash) then RemoveField + AddTrashCard — a direct trash, NOT a
+    // destroy (no deletion triggers, no would-be-deleted windows).
+    private static async Task TrashNoDpPermanentAsync(
+        EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId, ChoiceZone zone, CancellationToken cancellationToken)
+    {
+        if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null)
+        {
+            foreach (HeadlessEntityId sourceId in DeletionReplacementGate.ReadSourceIds(record.Metadata))
+            {
+                await context.ZoneMover.MoveAsync(
+                    new ZoneMoveRequest(playerId, sourceId, ChoiceZone.None, ChoiceZone.Trash, FaceUp: true),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // Not a deletion: bindings drop, but no post-deletion keyword snapshot (nothing may respond).
+        CardLeavePlayCleanup.OnLeftPlay(context.EffectRegistry, cardId);
+        await context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private static bool HasLethalDp(EngineContext context, HeadlessEntityId cardId)
     {
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||

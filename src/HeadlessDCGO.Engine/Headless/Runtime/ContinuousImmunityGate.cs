@@ -23,6 +23,11 @@ public static class ContinuousImmunityGate
     // Value: Func<CardSource,bool> over the causing effect's source. Evaluated when an EngineContext is available.
     public const string SkillPredicateKey = "immunitySkillPredicate";
 
+    // (C2) AS-IS CanNotAffectedClass.CardCondition (the factory's permanentCondition) — WHICH permanents the
+    // immunity protects (AS-IS: CanNotAffect = CardCondition(target) && SkillCondition(cause)). A grant
+    // carrying this key is registered field-wide (no target) and evaluated live against the PROTECTED card.
+    public const string TargetPredicateKey = "immunity.targetPredicate";
+
     /// <summary>True when an opponent-sourced effect mutation on <paramref name="targetId"/> is prevented by
     /// an active opponent-only immunity. Works from the registry + repository alone (the sink has no
     /// EngineContext). Returns false when the source is the target's own controller (own/ally effect), when
@@ -70,6 +75,31 @@ public static class ContinuousImmunityGate
                 && source.OwnerId != target.OwnerId)
             {
                 return true;
+            }
+        }
+
+        // (C2) predicate-scoped immunity grants (registered field-wide, no target): AS-IS CanNotAffect =
+        // CardCondition(target) && SkillCondition(cause) — BOTH must be present and pass (CanNotAffectedClass
+        // returns true only when both conditions are non-null and match). Needs the EngineContext to build
+        // the CardSource views; context-less callers skip (no such grant exists without a ported card).
+        if (context is not null)
+        {
+            foreach (EffectRequest request in registry.GetContinuousEffects(new EffectQueryContext(Scope)))
+            {
+                IReadOnlyDictionary<string, object?> values = request.Context.Values;
+                if (!values.TryGetValue(TargetPredicateKey, out object? targetRaw)
+                    || targetRaw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> targetPredicate
+                    || !values.TryGetValue(SkillPredicateKey, out object? skillRaw)
+                    || skillRaw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> skillPredicate)
+                {
+                    continue;
+                }
+
+                if (targetPredicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, targetId, target.OwnerId, target.OwnerId))
+                    && skillPredicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, sourceEntityId, source.OwnerId, source.OwnerId)))
+                {
+                    return true;
+                }
             }
         }
 

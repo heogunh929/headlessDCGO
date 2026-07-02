@@ -24,7 +24,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Scapegoat is a two-step choice: activate, then pick which ally to sacrifice", ScapegoatTwoStep),
     ("Fragment is a two-step choice: activate, then pick which source to trash", FragmentTwoStep),
     ("Decoy is a two-step choice: activate, then pick which Decoy ally to sacrifice", DecoyTwoStep),
-    ("Armor Purge is a post-deletion choice that promotes the under-source", ArmorPurgePostChoice),
+    ("(B1) Armor Purge is a WOULD-BE-DELETED replacement: top trashed, permanent survives", ArmorPurgePostChoice),
     ("Save is a post-deletion two-step choice: activate, then pick the permanent", SaveTwoStep),
     ("Battle: activating Barrier in the window trashes a security and survives", BarrierBattleChoice),
     ("Battle: activating Evade in the window suspends and survives", EvadeBattleChoice),
@@ -107,6 +107,9 @@ async Task ActivateAscension()
 
     AssertTrue(InZone(match, P2, ChoiceZone.Security, card), "activated ascension places the card into security");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, card), "card left the trash");
+    // (K2) AS-IS AscensionProcess: AddSecurityCard(card, true) = the TOP of security (index 0), not the bottom.
+    var zones = (IZoneStateReader)match.Context.ZoneMover;
+    AssertEqual(card, zones.GetCards(P2, ChoiceZone.Security)[0], "the card is the TOP security card (AS-IS toTop)");
 }
 
 async Task DeclineAscension()
@@ -295,15 +298,19 @@ async Task ArmorPurgePostChoice()
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = top.Value }));
     await sink.FlushAsync();
-    await match.StepAsync();   // top trashed, POST window opens
+    await match.StepAsync();   // (B1) deletion DEFERRED — Armor Purge is a would-be-deleted replacement
 
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, top), "purged top is in the trash");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, top), "the top is still on the battle area (deletion deferred)");
+    AssertTrue(ReadFlag(match, top, GameFlowProcessor.PendingDeletionKey), "pendingDeletion set (PRE window)");
     LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#armorpurge", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, src), "the under-source is promoted to the battle area");
-    AssertTrue(ReadFlag(match, src, DeletionReplacementGate.ArmorPurgedKey), "armorPurged marker stamped");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, top), "ONLY the top card was trashed (AS-IS ArmorPurgeProcess)");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, src), "the under-source is promoted — the permanent survived");
+    AssertFalse(ReadFlag(match, top, DeletionReplacementGate.DeletedByEffectKey),
+        "the trashed top is NOT a deleted permanent (no OnDeletion / no POST windows)");
+    AssertFalse(match.Context.ChoiceController.Current.IsPending, "no follow-up POST window for the purged top");
 }
 
 async Task SaveTwoStep()

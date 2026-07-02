@@ -203,7 +203,8 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not in the battle area.");
         }
 
-        if (!IsDigimon(attackerCard))
+        // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+        if (!IsDigimon(attackerCard) && !ContinuousKeywordGate.IsDigimon(context, attackerId))
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not a Digimon.");
         }
@@ -300,7 +301,8 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not in the defending battle area.");
         }
 
-        if (!IsDigimon(targetCard))
+        // (K4) a Tamer "also treated as a Digimon" is attackable (AS-IS Permanent.IsDigimon).
+        if (!IsDigimon(targetCard) && !ContinuousKeywordGate.IsDigimon(context, targetId.Value))
         {
             return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not a Digimon.");
         }

@@ -131,12 +131,11 @@ public sealed class SecurityResolver
             checkedCards.Add(checkedCardId);
             movementResults.Add(move);
 
-            // W1/W4: open the OnSecurityCheck timing window for each revealed security card (scoped).
-            TriggerEventEmitter.Emit(
-                context.GameEventQueue,
-                TriggerTimings.OnSecurityCheck,
-                actor: defendingPlayerId,
-                subject: checkedCardId);
+            // W1/W4/P8: resolve the OnSecurityCheck timing window for the revealed card SYNCHRONOUSLY —
+            // AS-IS (CardController.cs:4108-4184) resolves AutoProcessCheck + the stacked OnSecurityCheck
+            // skills BEFORE the security-Digimon battle (:4177). The queued emit drained only after the
+            // whole loop, so a checked-card trigger that buffs the attacker resolved too late.
+            await ResolveSecurityCheckWindowAsync(context, defendingPlayerId, checkedCardId, cancellationToken).ConfigureAwait(false);
 
             // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
             // security skill). No-op for cards with no ported SecuritySkill effect.
@@ -173,6 +172,30 @@ public sealed class SecurityResolver
         }
 
         return new SecurityCheckLoopResult(checkedCards, movementResults, securityDigimonBattles, attackerDeletedBySecurity);
+    }
+
+    // (P8) same seam as the OnStartBattle/OnKnockOut windows: collect the subject-scoped triggers and
+    // resolve them through the scheduler before the loop proceeds to the security-Digimon battle.
+    private static async Task ResolveSecurityCheckWindowAsync(
+        EngineContext context, HeadlessPlayerId defendingPlayerId, HeadlessEntityId checkedCardId, CancellationToken cancellationToken)
+    {
+        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [AutoProcessingTriggerCollector.TriggerTimingKey] = TriggerTimings.OnSecurityCheck,
+            [AutoProcessingTriggerCollector.SourceEntityIdKey] = checkedCardId,
+        };
+        var gameEvent = new GameEvent(0, GameEventType.StateChanged, $"Timing window: {TriggerTimings.OnSecurityCheck}", metadata)
+        {
+            Actor = defendingPlayerId,
+            Subject = checkedCardId,
+            Cause = TriggerTimings.OnSecurityCheck,
+        };
+        TriggerCollectionResult collected = new AutoProcessingTriggerCollector(context.EffectRegistry)
+            .CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
+        if (collected.EnqueuedCount > 0)
+        {
+            await context.EffectScheduler.ResolveAllAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static string? ValidateSecurityCheck(
@@ -231,7 +254,8 @@ public sealed class SecurityResolver
             return $"Attacker definition '{attacker.DefinitionId}' was not found.";
         }
 
-        if (!IsDigimon(attackerCard))
+        // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+        if (!IsDigimon(attackerCard) && !ContinuousKeywordGate.IsDigimon(context, attack.AttackerId.Value))
         {
             return $"Attacker '{attack.AttackerId.Value}' is not a Digimon.";
         }

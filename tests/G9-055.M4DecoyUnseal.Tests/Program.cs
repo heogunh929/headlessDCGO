@@ -17,6 +17,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Decoy-keyword ally is found as a redirect for an enemy-caused deletion", KeywordRecognised),
     ("Without the effectRegistry (no keyword lookup) the holder is NOT found (control = old behaviour)", NoRegistryControl),
     ("An ally WITHOUT Decoy is not a redirect (control)", NoDecoyControl),
+    ("(D1) permanentCondition: MATCHING protected target -> redirect found", PredicateMatchRedirects),
+    ("(D1) permanentCondition: NON-matching protected target -> no redirect (predicate honored, not flattened)", PredicateMismatchNoRedirect),
+    ("(D1) permanentCondition without context (sink defer superset) -> still eligible", PredicateWithoutContextSuperset),
+    ("(D1) AS-IS protects DIGIMON only: a Tamer target is not redirected (with context)", TamerTargetNotProtected),
 };
 
 var failures = new List<string>();
@@ -66,10 +70,71 @@ async Task NoDecoyControl()
     AssertTrue(redirect is null, "no Decoy ally -> no redirect");
 }
 
+// (D1) AS-IS Decoy.cs:51 — permanentCondition narrows the PROTECTED permanent (e.g. "Decoy ([Bagra
+// Army])"), evaluated live at redirect time. Modeled here with a Level predicate (Level==4).
+
+async Task PredicateMatchRedirects()
+{
+    EngineContext ctx = Ctx();
+    var target = await Place(ctx, P1, "TARGET", level: 4);
+    var holder = await Place(ctx, P1, "HOLDER", level: 3);
+    var enemyDeleter = await Place(ctx, P2, "ENEMY");
+    GrantDecoy(ctx, holder, p => p.Level == 4);
+
+    var redirect = DeletionReplacementGate.FindDecoyRedirect(
+        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
+        effectRegistry: ctx.EffectRegistry, context: ctx);
+    AssertTrue(redirect == holder, "matching protected target -> the predicate Decoy redirects");
+}
+
+async Task PredicateMismatchNoRedirect()
+{
+    EngineContext ctx = Ctx();
+    var target = await Place(ctx, P1, "TARGET", level: 3);
+    var holder = await Place(ctx, P1, "HOLDER", level: 3);
+    var enemyDeleter = await Place(ctx, P2, "ENEMY");
+    GrantDecoy(ctx, holder, p => p.Level == 4);
+
+    var redirect = DeletionReplacementGate.FindDecoyRedirect(
+        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
+        effectRegistry: ctx.EffectRegistry, context: ctx);
+    AssertTrue(redirect is null, "non-matching protected target -> the predicate Decoy does NOT redirect");
+}
+
+async Task PredicateWithoutContextSuperset()
+{
+    EngineContext ctx = Ctx();
+    var target = await Place(ctx, P1, "TARGET", level: 3);
+    var holder = await Place(ctx, P1, "HOLDER", level: 3);
+    var enemyDeleter = await Place(ctx, P2, "ENEMY");
+    GrantDecoy(ctx, holder, p => p.Level == 4);
+
+    // Context-less = the sink's defer decision (documented safe superset): a stored predicate passes;
+    // the context-aware choice paths re-evaluate strictly (previous test).
+    var redirect = DeletionReplacementGate.FindDecoyRedirect(
+        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
+        effectRegistry: ctx.EffectRegistry);
+    AssertTrue(redirect == holder, "no context -> predicate treated as passing (superset defer)");
+}
+
+async Task TamerTargetNotProtected()
+{
+    EngineContext ctx = Ctx();
+    var target = await Place(ctx, P1, "TARGET", cardType: "Tamer");
+    var holder = await Place(ctx, P1, "HOLDER");
+    var enemyDeleter = await Place(ctx, P2, "ENEMY");
+    GrantDecoy(ctx, holder);
+
+    var redirect = DeletionReplacementGate.FindDecoyRedirect(
+        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
+        effectRegistry: ctx.EffectRegistry, context: ctx);
+    AssertTrue(redirect is null, "a Tamer target is not a Decoy-protected permanent (AS-IS Digimon-only)");
+}
+
 // --- Helpers ---
 
-void GrantDecoy(EngineContext ctx, HeadlessEntityId holder) =>
-    ctx.EffectRegistry.Register(CardEffectFactory.DecoySelfEffect(false, new CardSource(ctx, holder, P1), null).ToBinding($"decoy:{holder.Value}"));
+void GrantDecoy(EngineContext ctx, HeadlessEntityId holder, Func<Permanent, bool>? permanentCondition = null) =>
+    ctx.EffectRegistry.Register(CardEffectFactory.DecoySelfEffect(false, new CardSource(ctx, holder, P1), null, permanentCondition).ToBinding($"decoy:{holder.Value}"));
 
 CardInstanceRecord Rec(EngineContext ctx, HeadlessEntityId id) =>
     ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r : throw new InvalidOperationException("no record");
@@ -81,15 +146,15 @@ EngineContext Ctx()
     return ctx;
 }
 
-async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag)
+async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag, int level = 4, string cardType = "Digimon")
 {
     var cards = (CardDatabase)ctx.CardRepository;
     var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
     cards.Upsert(new CardRecord(defId, tag, tag,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = level }, CardType: cardType));
     var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
-        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false, ["level"] = level }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
     return id;
 }

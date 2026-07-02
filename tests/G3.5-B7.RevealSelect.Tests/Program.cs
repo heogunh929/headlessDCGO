@@ -17,6 +17,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Selected card goes to hand; the rest go to the deck bottom", SelectedToHandRestToBottom),
     ("Skipping sends all revealed cards to the remaining destination", SkipSendsAllToRemaining),
     ("An empty library opens no reveal choice", EmptyLibraryNoChoice),
+    ("(B4) selectCondition: non-matching revealed cards are shown but NOT selectable; max clamps to the pool", ConditionFiltersSelectables),
+    ("(B4) ProcessForAll: no selection — every matching card is processed mandatorily", ProcessForAllMandatory),
+    ("(B4) DeckTop ordering: the FIRST pick ends topmost (AS-IS Reverse)", TopOrderReversed),
+    ("(B4) DeckTopOrBottom: the controller picks top/bottom, then the order", TopOrBottomTwoStep),
+    ("(B4) isOpponentDeck reveals the OPPONENT's library", OpponentDeckReveal),
 };
 
 var failures = new List<string>();
@@ -56,12 +61,16 @@ async Task SelectedToHandRestToBottom()
 
     AssertTrue(InZone(context, P1, ChoiceZone.Hand, top[0]), "the selected card is in hand");
     AssertEqual(handBefore + 1, Count(context, P1, ChoiceZone.Hand), "hand grew by exactly 1");
-    AssertTrue(InZone(context, P1, ChoiceZone.Library, top[1]), "unselected revealed card stays in the library");
-    AssertTrue(InZone(context, P1, ChoiceZone.Library, top[2]), "unselected revealed card stays in the library");
     AssertFalse(InZone(context, P1, ChoiceZone.Hand, top[1]), "unselected card is not in hand");
-    // The remaining revealed cards were sent to the bottom: they are no longer the library top.
-    HeadlessEntityId[] newTop = Top(context, P1, 2);
-    AssertFalse(newTop.Contains(top[1]) && newTop.Contains(top[2]), "remaining revealed cards moved off the top (to the bottom)");
+
+    // (B4) >= 2 remaining cards bound for the deck: the controller specifies the ORDER (AS-IS
+    // ReturnRevealedCardsToLibraryBottom) — pick top[2] first so it ends up higher at the bottom.
+    AssertTrue(context.ChoiceController.Current.IsPending, "an ordering choice opened for the remaining cards");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[2], top[1]));
+
+    HeadlessEntityId[] library = ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Library).ToArray();
+    AssertEqual(top[2].Value, library[^2].Value, "first pick sits HIGHER at the bottom (AS-IS pick order)");
+    AssertEqual(top[1].Value, library[^1].Value, "second pick is the very bottom");
 }
 
 async Task SkipSendsAllToRemaining()
@@ -74,6 +83,9 @@ async Task SkipSendsAllToRemaining()
     await RevealAndSelect.ResolveChoice(context, ChoiceResult.Skip());
 
     AssertEqual(handBefore, Count(context, P1, ChoiceZone.Hand), "skipping adds nothing to hand");
+    // (B4) all three remaining -> ordering choice; resolve in reveal order.
+    AssertTrue(context.ChoiceController.Current.IsPending, "ordering choice opened");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top));
     foreach (HeadlessEntityId id in top)
     {
         AssertTrue(InZone(context, P1, ChoiceZone.Library, id), "all revealed cards remain in the library (sent to bottom)");
@@ -89,6 +101,99 @@ async Task EmptyLibraryNoChoice()
 
     AssertFalse(RevealAndSelect.RequestChoice(context, P1, revealCount: 3, maxSelect: 1, RevealDestination.Hand, RevealDestination.DeckBottom),
         "no reveal choice with an empty library");
+}
+
+// --- (B4) AS-IS parity ----------------------------------------------------
+
+async Task ConditionFiltersSelectables()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 3);
+
+    // Only the SECOND revealed card matches.
+    RevealAndSelect.RequestChoice(context, P1, revealCount: 3, maxSelect: 2,
+        RevealDestination.Hand, RevealDestination.DeckBottom, selectCondition: id => id == top[1]);
+
+    ChoiceRequest request = context.ChoiceController.PendingRequest!;
+    AssertEqual(3, request.Candidates.Count, "all revealed cards are SHOWN (public reveal)");
+    AssertFalse(request.Candidates.First(c => c.Id == top[0]).IsSelectable, "non-matching card is NOT selectable");
+    AssertTrue(request.Candidates.First(c => c.Id == top[1]).IsSelectable, "matching card is selectable");
+    AssertEqual(1, request.MaxCount, "maxCount clamps to the matching pool (AS-IS Min(MaxCount, matching))");
+}
+
+async Task ProcessForAllMandatory()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 3);
+    int handBefore = Count(context, P1, ChoiceZone.Hand);
+
+    // Matches = top[0] and top[2] — both MUST go to hand, no player choice (AS-IS ProcessForAll).
+    bool choiceOpened = await RevealAndSelect.RevealAndProcessAllAsync(
+        context, P1, revealCount: 3, condition: id => id == top[0] || id == top[2],
+        matchedTo: RevealDestination.Hand, remainingTo: RevealDestination.DeckBottom);
+
+    AssertFalse(choiceOpened, "one remaining card -> no ordering prompt (AS-IS single-card no-prompt)");
+    AssertEqual(handBefore + 2, Count(context, P1, ChoiceZone.Hand), "BOTH matching cards were processed (mandatory)");
+    AssertTrue(InZone(context, P1, ChoiceZone.Hand, top[0]) && InZone(context, P1, ChoiceZone.Hand, top[2]), "the matches are in hand");
+    HeadlessEntityId[] library = ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Library).ToArray();
+    AssertEqual(top[1].Value, library[^1].Value, "the non-matching card went to the deck bottom");
+}
+
+async Task TopOrderReversed()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 3);
+
+    RevealAndSelect.RequestChoice(context, P1, revealCount: 3, maxSelect: 1, RevealDestination.Hand, RevealDestination.DeckTop);
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[0]));
+    AssertTrue(context.ChoiceController.Current.IsPending, "ordering choice opened (DeckTop)");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[2], top[1]));
+
+    HeadlessEntityId[] newTop = Top(context, P1, 2);
+    AssertEqual(top[2].Value, newTop[0].Value, "the FIRST pick is topmost (AS-IS topCards.Reverse before insert)");
+    AssertEqual(top[1].Value, newTop[1].Value, "the second pick sits beneath it");
+}
+
+async Task TopOrBottomTwoStep()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 3);
+
+    RevealAndSelect.RequestChoice(context, P1, revealCount: 3, maxSelect: 1, RevealDestination.Hand, RevealDestination.DeckTopOrBottom);
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[0]));
+
+    // Step 2: Top vs Bottom (AS-IS ReturnRevealedCardsToLibraryTopOrBottom).
+    ChoiceRequest place = context.ChoiceController.PendingRequest!;
+    AssertEqual(2, place.Candidates.Count, "top/bottom binary choice");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(new HeadlessEntityId(RevealAndSelect.PlaceBottomCandidate)));
+
+    // Step 3: ordering.
+    AssertTrue(context.ChoiceController.Current.IsPending, "ordering choice opened after the placement pick");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[1], top[2]));
+
+    HeadlessEntityId[] library = ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Library).ToArray();
+    AssertEqual(top[1].Value, library[^2].Value, "bottom placement in pick order");
+    AssertEqual(top[2].Value, library[^1].Value, "bottom placement in pick order (2)");
+}
+
+async Task OpponentDeckReveal()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] opponentTop = Top(context, P2, 2);
+    int opponentHandBefore = Count(context, P2, ChoiceZone.Hand);
+    int myHandBefore = Count(context, P1, ChoiceZone.Hand);
+
+    // P1 reveals the top of P2's deck and trashes the selected card (AS-IS isOpponentDeck).
+    RevealAndSelect.RequestChoice(context, P1, revealCount: 2, maxSelect: 1,
+        RevealDestination.Trash, RevealDestination.DeckBottom, isOpponentDeck: true);
+    ChoiceRequest request = context.ChoiceController.PendingRequest!;
+    AssertTrue(request.Candidates.All(c => opponentTop.Contains(c.Id)), "the OPPONENT's top cards were revealed");
+    AssertEqual(P1.Value, request.PlayerId.Value, "P1 (the effect controller) selects");
+
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(opponentTop[0]));
+    AssertTrue(InZone(context, P2, ChoiceZone.Trash, opponentTop[0]), "the selected opponent card was trashed (owner's trash)");
+    AssertEqual(myHandBefore, Count(context, P1, ChoiceZone.Hand), "nothing entered P1's zones");
+    AssertEqual(opponentHandBefore, Count(context, P2, ChoiceZone.Hand), "nothing entered P2's hand");
 }
 
 // --- Harness -------------------------------------------------------------

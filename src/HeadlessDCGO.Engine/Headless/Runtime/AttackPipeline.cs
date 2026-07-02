@@ -20,6 +20,10 @@ using HeadlessDCGO.Engine.Headless.Services;
 // substituted in tests (e.g. forcing a non-converging loop to exercise MaxIterationsExceeded, GPT-#3).
 public class AttackPipeline
 {
+    // (P5) per-attack markers for the two counter-timing passes (cleared at attack cleanup).
+    public const string CounterPass1DoneKey = "counterPass1Done";
+    public const string CounterPass2DoneKey = "counterPass2Done";
+
     private readonly BlockTiming _blockTiming;
     private readonly BattleResolver _battleResolver;
     private readonly SecurityResolver _securityResolver;
@@ -48,6 +52,7 @@ public class AttackPipeline
             AttackPhase.Blocking => AdvanceAfterBlock(context),
             AttackPhase.Combat => await AdvanceCombatAsync(context, attack, cancellationToken).ConfigureAwait(false),
             AttackPhase.DeletionReplacement => await AdvanceDeletionReplacementAsync(context, attack, cancellationToken).ConfigureAwait(false),
+            AttackPhase.PiercingSecurity => await AdvancePiercingSecurityAsync(context, attack, cancellationToken).ConfigureAwait(false),
             AttackPhase.Resolved => await AdvanceEndAttackAsync(context, attack, cancellationToken).ConfigureAwait(false),
             AttackPhase.Completed => AdvanceCleanup(context),
             _ => AttackAdvanceResult.Idle(),
@@ -79,14 +84,51 @@ public class AttackPipeline
         // auto-expires with the attack (UntilEndAttack); HasEffect guards against re-registering on re-entry.
         ProgressImmunity.TryRegister(context);
 
-        // W6: the counter timing window opens once per attack, before block timing (AS-IS
-        // AttackProcess: State=Counter → CounterTiming → Block). A global window (no subject filter) so
-        // any card's OnCounterTiming / [Counter] effect is collected and self-gates, mirroring the
-        // original StackSkillInfos(OnCounterTiming).
-        TriggerEventEmitter.Emit(
-            context.GameEventQueue,
-            TriggerTimings.OnCounter,
-            actor: context.AttackController.Current.AttackingPlayerId);
+        // W6/P5: the counter timing window opens once per attack, before block timing (AS-IS
+        // AttackProcess: State=Counter → CounterTiming → Block) — in TWO ordered passes
+        // (AttackProcess.cs:266-296): non-[Counter] OnCounterTiming effects resolve first, then the
+        // [Counter] ones. Each pass parks the pipeline for one loop iteration so the common loop drains
+        // the pass's triggers before the next step.
+        if (context.AttackController.Current.AttackerId is HeadlessEntityId counterAttackerId
+            && context.CardInstanceRepository.TryGetInstance(counterAttackerId, out CardInstanceRecord? counterAttacker)
+            && counterAttacker is not null)
+        {
+            if (!ReadInstanceFlag(context, counterAttackerId, CounterPass1DoneKey))
+            {
+                SetInstanceFlag(context, counterAttackerId, CounterPass1DoneKey);
+                TriggerEventEmitter.Emit(
+                    context.GameEventQueue,
+                    TriggerTimings.OnCounter,
+                    actor: context.AttackController.Current.AttackingPlayerId,
+                    extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        [AutoProcessingTriggerCollector.CounterPassKey] = AutoProcessingTriggerCollector.CounterPassRegular,
+                    });
+                return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Declared);
+            }
+
+            if (!ReadInstanceFlag(context, counterAttackerId, CounterPass2DoneKey))
+            {
+                SetInstanceFlag(context, counterAttackerId, CounterPass2DoneKey);
+                TriggerEventEmitter.Emit(
+                    context.GameEventQueue,
+                    TriggerTimings.OnCounter,
+                    actor: context.AttackController.Current.AttackingPlayerId,
+                    extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        [AutoProcessingTriggerCollector.CounterPassKey] = AutoProcessingTriggerCollector.CounterPassCounter,
+                    });
+                return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Declared);
+            }
+        }
+        else
+        {
+            // No live attacker record (contract-level pipelines): the single legacy counter emit.
+            TriggerEventEmitter.Emit(
+                context.GameEventQueue,
+                TriggerTimings.OnCounter,
+                actor: context.AttackController.Current.AttackingPlayerId);
+        }
 
         BlockTimingResult block = _blockTiming.RequestBlockChoice(context);
         if (block.IsSuccess && block.ChoiceRequested)
@@ -156,13 +198,42 @@ public class AttackPipeline
         }
 
         // G3.5-RL-C2: Piercing — a surviving attacker that deleted the defender in battle also
-        // checks the defending player's security.
+        // checks the defending player's security. (B2) PARK first: AS-IS resolves the battle-generated
+        // triggers (TriggeredSkillProcess) BEFORE the piercing check, so the common loop drains the queue
+        // for one iteration before PiercingSecurity resumes.
         if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
+        {
+            context.AttackController.AdvancePhase(AttackPhase.PiercingSecurity, "Piercing security check pending (triggers drain first).");
+            return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.PiercingSecurity, battleResolved: true);
+        }
+
+        return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved, battleResolved: true);
+    }
+
+    // (B2) Resume after the battle triggers drained. AS-IS AttackProcess re-checks the attacker survived
+    // the drained triggers (`if (AttackingPermanent.TopCard == null) { State = End; }`) before the
+    // security check.
+    private async Task<AttackAdvanceResult> AdvancePiercingSecurityAsync(
+        EngineContext context,
+        HeadlessAttackState attack,
+        CancellationToken cancellationToken)
+    {
+        bool attackerAlive = attack.AttackerId is HeadlessEntityId attackerId &&
+            attack.AttackingPlayerId is HeadlessPlayerId attackingPlayer &&
+            context.ZoneMover is IZoneStateReader zones &&
+            zones.GetCards(attackingPlayer, ChoiceZone.BattleArea).Contains(attackerId);
+        if (attackerAlive)
         {
             await ApplyPiercingSecurityAsync(context, attack, cancellationToken).ConfigureAwait(false);
         }
 
-        return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.Resolved, battleResolved: true);
+        // Always leave the parked phase (AdvancePhase self-guards on a cleared attack) — staying in
+        // PiercingSecurity would re-run the check every loop iteration.
+        context.AttackController.AdvancePhase(AttackPhase.Resolved, attackerAlive
+            ? "Piercing security check resolved."
+            : "Piercing skipped: the attacker did not survive the battle triggers.");
+
+        return AttackAdvanceResult.Transitioned(AttackPhase.PiercingSecurity, AttackPhase.Resolved, securityResolved: attackerAlive);
     }
 
     // F-6.8: the would-be-deleted replacement windows for this battle have all resolved (the common loop
@@ -183,7 +254,9 @@ public class AttackPipeline
 
         if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
         {
-            await ApplyPiercingSecurityAsync(context, attack, cancellationToken).ConfigureAwait(false);
+            // (B2) same parking as the direct combat path: triggers drain, then PiercingSecurity resumes.
+            context.AttackController.AdvancePhase(AttackPhase.PiercingSecurity, "Piercing security check pending (triggers drain first).");
+            return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.PiercingSecurity, battleResolved: true);
         }
 
         return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.Resolved, battleResolved: true);
@@ -192,7 +265,7 @@ public class AttackPipeline
     // G3.5-RL-C2 / D-1: the security check a Piercing attacker performs after winning a battle. Reuses
     // SecurityResolver's shared per-card loop so it is IDENTICAL to a direct attack's check — including
     // the OnSecurityCheck window (W4) and the security-Digimon battle (W5), which the old stripped loop
-    // skipped. No-security → defending player loses.
+    // skipped.
     private async Task ApplyPiercingSecurityAsync(
         EngineContext context,
         HeadlessAttackState attack,
@@ -212,9 +285,12 @@ public class AttackPipeline
             return;
         }
 
+        // (A1) AS-IS CanActivatePierce (Pierce.cs:20-42): Pierce fires only while the defending player has
+        // >= 1 security — with 0 security it simply does nothing. Losing the game on an empty security
+        // stack belongs ONLY to the direct-attack path (AttackProcess.cs:423 EndGame); the previous
+        // MarkLose here was an invented rule that ended games a turn early.
         if (zoneReader.GetCards(defender, ChoiceZone.Security).Count == 0)
         {
-            context.PlayerStatusController.MarkLose(defender, "Piercing security check with no security to check.");
             return;
         }
 
@@ -226,6 +302,33 @@ public class AttackPipeline
             defender,
             strike,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    // (P5) per-attack instance flags.
+    private static bool ReadInstanceFlag(EngineContext context, HeadlessEntityId cardId, string key) =>
+        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
+            && record.Metadata.TryGetValue(key, out object? raw) && raw is true;
+
+    private static void SetInstanceFlag(EngineContext context, HeadlessEntityId cardId, string key)
+    {
+        if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null)
+        {
+            context.CardInstanceRepository.Upsert(record with
+            {
+                Metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal) { [key] = true }
+            });
+        }
+    }
+
+    private static void ClearInstanceFlag(EngineContext context, HeadlessEntityId cardId, string key)
+    {
+        if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
+            && record.Metadata.ContainsKey(key))
+        {
+            var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
+            metadata.Remove(key);
+            context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+        }
     }
 
     private static int ReadStrike(EngineContext context, HeadlessEntityId? attackerId)
@@ -361,9 +464,17 @@ public class AttackPipeline
         {
             RaidAttackSwitch.ClearResolved(context, attackerId);
             AllianceAttackBoost.ClearResolved(context, attackerId);
+            // (P5) counter-pass markers reset for the attacker's next attack.
+            ClearInstanceFlag(context, attackerId, CounterPass1DoneKey);
+            ClearInstanceFlag(context, attackerId, CounterPass2DoneKey);
         }
 
         context.AttackController.ClearAttack();
+
+        // (P3) a queued multi-attacker Attack-mode selection continues with the next attacker once this
+        // attack fully completed (AS-IS sequential SelectAttackEffect loop).
+        EffectDrivenAttack.TryOpenNextQueued(context);
+
         return AttackAdvanceResult.Transitioned(AttackPhase.Completed, AttackPhase.None);
     }
 }

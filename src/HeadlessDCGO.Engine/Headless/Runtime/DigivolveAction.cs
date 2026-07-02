@@ -414,6 +414,13 @@ public sealed class DigivolveAction
     // (AS-IS AddSelfDigivolutionRequirementStaticEffect's Func<Permanent,bool>).
     public const string AddedEvolutionPredicateKey = "addedEvolutionPredicate";
 
+    // (A2) AS-IS AddDigivolutionRequirement.cs GetEvoCost: the level range is a HARD GATE separate from (and
+    // OUTSIDE of) permanentCondition — exact `level` wins; min/max apply only when `level < 0`; a permanent
+    // without a level never passes a configured gate. -1 = unset (AS-IS default).
+    public const string AddedEvolutionLevelKey = "addedEvolutionLevel";
+    public const string AddedEvolutionMinLevelKey = "addedEvolutionMinLevel";
+    public const string AddedEvolutionMaxLevelKey = "addedEvolutionMaxLevel";
+
     // (FR2/M-3) the memory cost of an added digivolution path. When the printed condition fails and this added
     // requirement is used, this cost applies instead of the printed cost. AddedEvolutionCostEquationKey (a
     // Func<int>) overrides the fixed AddedEvolutionCostKey when present (AS-IS costEquation() ?? digivolutionCost).
@@ -429,7 +436,7 @@ public sealed class DigivolveAction
         cost = 0;
         foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {
-            if (!(AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner)))
+            if (!(AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, playerId, cardId, targetInstanceId, targetOwner)))
             {
                 continue;
             }
@@ -463,7 +470,7 @@ public sealed class DigivolveAction
         // 1:1 against the target — so a non-self cardCondition reaches every matching card, not just the source.
         foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, scope, cardId))
         {
-            if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, targetInstanceId, targetOwner))
+            if (AddedConditionActive(effect, targetCard) || AddedPredicateActive(context, effect, playerId, cardId, targetInstanceId, targetOwner))
             {
                 return true;
             }
@@ -474,7 +481,7 @@ public sealed class DigivolveAction
 
     // (PRIM-W5) honour a predicate-based added source: build the target under-card as a Permanent and evaluate
     // the card-authored Func<Permanent,bool> (with the same continuous.condition gating).
-    private static bool AddedPredicateActive(EngineContext context, EffectRequest effect, HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
+    private static bool AddedPredicateActive(EngineContext context, EffectRequest effect, HeadlessPlayerId playerId, HeadlessEntityId cardId, HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
     {
         if (!effect.Context.Values.TryGetValue(AddedEvolutionPredicateKey, out object? raw)
             || raw is not Func<Assets.Scripts.Script.CardEffectCommons.Permanent, bool> predicate)
@@ -488,8 +495,46 @@ public sealed class DigivolveAction
             return false;
         }
 
-        return predicate(new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetInstanceId, targetOwner));
+        var permanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetInstanceId, targetOwner);
+        // (A2) AS-IS GetEvoCost: the level gate is the OUTER guard — only after it passes are the card /
+        // permanent conditions evaluated (and only then is the cost returned).
+        if (!AddedLevelGatePasses(context, effect.Context.Values, playerId, cardId, permanent))
+        {
+            return false;
+        }
+
+        return predicate(permanent);
     }
+
+    // (A2) AS-IS AddDigivolutionRequirement.cs:64-72 — 1:1: no configured level => pass ("ignoreLevel");
+    // an active ignore-requirement effect also waives the gate (AS-IS ignore==Level/All &&
+    // CanIgnoreDigivolutionRequirement); otherwise the source permanent must HAVE a level and match the
+    // exact `level`, or (only when `level < 0`) the min/max range.
+    private static bool AddedLevelGatePasses(
+        EngineContext context, IReadOnlyDictionary<string, object?> values,
+        HeadlessPlayerId playerId, HeadlessEntityId cardId,
+        Assets.Scripts.Script.CardEffectCommons.Permanent permanent)
+    {
+        int level = ReadIntValue(values, AddedEvolutionLevelKey);
+        int minLevel = ReadIntValue(values, AddedEvolutionMinLevelKey);
+        int maxLevel = ReadIntValue(values, AddedEvolutionMaxLevelKey);
+        if ((level < 0 && minLevel < 0 && maxLevel < 0) || CanIgnoreDigivolutionRequirement(context, playerId, cardId))
+        {
+            return true;
+        }
+
+        if (!permanent.TopCard.HasLevel)
+        {
+            return false;
+        }
+
+        int actual = permanent.TopCard.Level;
+        return actual == level
+            || (level < 0 && (minLevel < 0 || actual >= minLevel) && (maxLevel < 0 || actual <= maxLevel));
+    }
+
+    private static int ReadIntValue(IReadOnlyDictionary<string, object?> values, string key) =>
+        values.TryGetValue(key, out object? raw) && raw is int value ? value : -1;
 
     // A raw registry read does not run ContinuousScopeEvaluation's condition filter, so honour the
     // card-authored `continuous.condition` predicate here before applying the added requirement.

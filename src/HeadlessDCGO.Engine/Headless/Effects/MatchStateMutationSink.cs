@@ -44,6 +44,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // replacements (same source the BattleDeletionGate consults) — and stamps `deletedByEffect` for any
     // OnDeletion triggers. (OnDeletion timing emission is wired separately in CV-A4.)
     public const string DeleteKind = "Delete";
+
+    /// <summary>(B3) marks a Delete mutation as the DP&lt;=0 rule process (AS-IS <c>{"DPZero": true}</c>
+    /// hashtable flag on DestroyPermanentsClass) — stamped onto the deleted card so DP-zero-aware
+    /// on-deletion predicates (AS-IS <c>IsDPZeroDelete</c>) can read it.</summary>
+    public const string IsDpZeroKey = "isDpZero";
     public const string CannotBeDeletedFlagKey = "cannotBeDeleted";
     public const string DeletedByEffectKey = "deletedByEffect";
     public const string DeletionPreventedKey = "deletionPrevented";
@@ -625,7 +630,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             bool hasPre = DeletionReplacementTiming.HasPreOption(_repository, preZones, record, byBattle: false, _effectRegistry);
             bool decoyEligible = DeletionReplacementGate
-                .FindDecoyRedirect(_repository, preZones, record, mutation.SourceEntityId, effectRegistry: _effectRegistry) is not null;
+                .FindDecoyRedirect(_repository, preZones, record, mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null;
             if (hasPre || decoyEligible)
             {
                 var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
@@ -634,6 +639,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     [DeletedByEffectKey] = true,
                     [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(mutation.SourceEntityId, record.OwnerId),
                 };
+                if (ReadBool(mutation.Values, IsDpZeroKey))
+                {
+                    deferMetadata[IsDpZeroKey] = true;   // (B3) AS-IS DPZero flag travels with the deletion
+                }
                 if (decoyEligible)
                 {
                     deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
@@ -665,6 +674,20 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             [DeletedByEffectKey] = true,
             [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(mutation.SourceEntityId, record.OwnerId),
         };
+        if (ReadBool(mutation.Values, IsDpZeroKey))
+        {
+            metadata[IsDpZeroKey] = true;   // (B3) AS-IS DPZero flag on the on-deletion hashtable
+        }
+
+        // (A4/P1) the card's own keyword grants are dropped below (it left play), but its POST deletion
+        // responses are judged AT deletion time (AS-IS reads the dead card's effects during its own
+        // deletion processing). Snapshot the live keyword state — and Partition's stored condition list —
+        // into the per-instance flags the POST window / Fortitude replay read.
+        if (_effectRegistry is not null)
+        {
+            Runtime.CardLeavePlayCleanup.SnapshotPostReplacementKeywords(_effectRegistry, _context, targetId, metadata);
+        }
+
         _repository.Upsert(record with { Metadata = metadata });
 
         HeadlessPlayerId owner = record.OwnerId;
@@ -687,6 +710,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // (S6) Whether the causing effect belongs to the deleted card's own controller (source owner == card owner).
     private bool IsOwnEffect(HeadlessEntityId sourceId, HeadlessPlayerId cardOwner) =>
         !sourceId.IsEmpty && _repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null && src.OwnerId == cardOwner;
+
+    // (A4/P1) the deletion-time keyword snapshot lives in Runtime.CardLeavePlayCleanup — shared with the
+    // battle-deletion and pending-sweep departure paths.
 
     // (FR-P3) The continuous effects applicable to a card: player-scope + arbitrary predicate aware when an
     // EngineContext is wired (so "your <X> Digimon cannot be ..." reaches the matching set), else registry-only

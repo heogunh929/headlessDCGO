@@ -73,6 +73,14 @@ public sealed record ChoiceRequest
 
     public IReadOnlyList<ChoiceCandidate> Candidates { get; }
 
+    /// <summary>(P2) An optional COMBINATION gate over the selected SET (AS-IS
+    /// <c>SelectPermanentEffect.CanEndSelect</c>'s <c>canEndSelectCondition(permanents)</c> — e.g. "two of
+    /// different colours"). Per-candidate legality lives in <see cref="ChoiceCandidate.IsSelectable"/>; this
+    /// validates the whole selection at resolve time. A failing set is rejected like any other invalid
+    /// result (the choice stays pending; the agent retries) — action masks cannot express set constraints,
+    /// so try-reject-retry is the contract. Skips are not validated.</summary>
+    public Func<IReadOnlyList<HeadlessEntityId>, bool>? SelectionValidator { get; init; }
+
     public IReadOnlyList<ChoiceCandidate> SelectableCandidates =>
         Candidates.Where(candidate => candidate.IsSelectable).ToArray();
 }

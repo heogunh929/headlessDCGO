@@ -23,6 +23,11 @@ public enum AttackPhase
     /// (Barrier/Evade/…): the pipeline parks here while the owner decides, then finalizes the battle.</summary>
     DeletionReplacement,
 
+    /// <summary>(B2) A Piercing follow-up security check is due. The pipeline parks for one loop iteration
+    /// so battle-generated triggers drain FIRST (AS-IS AttackProcess: battle → TriggeredSkillProcess →
+    /// security check), then re-verifies the attacker survived before checking security.</summary>
+    PiercingSecurity,
+
     /// <summary>Battle/security resolved; end-attack triggers not yet collected.</summary>
     Resolved,
 

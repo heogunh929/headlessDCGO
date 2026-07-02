@@ -22,6 +22,8 @@
 
 ## 🔲 잔여 백로그 (우선순위순)
 
+> **✅ 2차 위반 감사 + 조치 완료(2026-07-02)**: M-4/M-5 완료 후 "임의 구현" 전수 감사에서 A급 4건 + B급 9건 + C급 10건 발견([**fidelity_violation_audit2.md**](fidelity_violation_audit2.md)) → 설계·AS-IS 매칭 검증([**fidelity_violation_fix_design.md**](fidelity_violation_fix_design.md)) → **A1~A4·B1~B5·C즉시군 전부 구현·green**. 잔여는 debt로 기록(fidelity_debt.md "위반 조치 구현" 절): 배틀-경로 키워드 스냅샷, B4 다중조건 패스, B5 다중공격자, C5 [Counter] 마커, C7/C8/C9(별건).
+
 ### M-1 — FR2-A: per-card 술어
 - [x] **`ChangeSecurityDigimonCardDPStaticEffect(cardCondition)`** — 원본 확인: cardCondition이 대상 **플레이어까지** 결정(예: 적 security -DP). 기존 포팅은 owner-scope 하드코딩 = **wrong-player 버그**. → `ScopeAnyPlayerKey`(양 플레이어) + cardCondition을 scopePredicate로 평가. **G9-052**.
 - [x] **`UseRequirements(cardCondition)`** — 원본 확인: ignore-color는 owner가 cardCondition 매칭 Digimon/Tamer(배틀|브리딩) 보유 시에만 활성(CanUseCondition). 기존은 무조건. → 게이트 폴딩 + `HasContinuousFlag`을 condition-aware(`ApplicableEffects`)로. **G9-052**.
@@ -37,7 +39,7 @@
 - [x] **`ChangeDPStaticEffect(effectName: Func<string>)`** — 원본 확인: `SetEffectName`(표시 라벨)만, 게임 로직 미사용 = **cosmetic**. 무시가 1:1(gameplay 무영향).
 
 ### M-4 — preemptive-seal (grant는 live, 동작 소비자 미배선) — 침묵 아님(문서화됨)
-- [x] **Decoy 언실** (M-1에서 이동): `DeletionReplacementGate.FindDecoyRedirect`/`Candidates`가 `HasDecoy` 헬퍼로 **Decoy 키워드(라이브 grant)** 를 인식(메타 플래그 OR `ContinuousKeywordGate.HasKeyword(registry, ...)`); sink·timing 호출부에 `effectRegistry` 전달. Decoy가 이제 실제 작동. **G9-055**(키워드 홀더가 적-발동 삭제의 redirect로 인식·no-registry/no-decoy 대조). **잔여 refinement**: `DecoySelf(permanentCondition)`가 보호 **대상(target)** 을 좁히는 부분 — grant에 술어 저장 + FindDecoyRedirect가 target Permanent로 평가(context 스레딩) 필요. permanentCondition=null(다수)은 현재 1:1.
+- [x] **Decoy 언실** (M-1에서 이동): `DeletionReplacementGate.FindDecoyRedirect`/`Candidates`가 `HasDecoy` 헬퍼로 **Decoy 키워드(라이브 grant)** 를 인식(메타 플래그 OR `ContinuousKeywordGate.HasKeyword(registry, ...)`); sink·timing 호출부에 `effectRegistry` 전달. Decoy가 이제 실제 작동. **G9-055**(키워드 홀더가 적-발동 삭제의 redirect로 인식·no-registry/no-decoy 대조). ~~잔여 refinement~~ → **✅ D1 완료(2026-07-02)**: grant에 술어 저장(`SelfKeywordByNameEffect(permanentCondition)` + `keyword.permanentCondition` 키) + `FindDecoyRedirect/Candidates`가 **보호 대상**에 라이브 평가(EngineContext 스레딩; sink defer는 문서화된 superset) + AS-IS 보호대상=디지몬 조건 폴딩. **G9-055 +4 테스트**. 상세: [fidelity_m4m5_design.md](fidelity_m4m5_design.md) D1.
 - [x] **링크 3종 언실**: `ChangeSelfLinkMax`·`ChangeLinkMaxStatic`(linkedMaxDelta)·`GrantedReduceLinkCost`(linkCostDelta) — 이중 seal이었음(metric 없음 + read 미반영). `NumericModifierMetric.LinkedMax/LinkCost` 추가 + modifier emit + `LinkHelpers.ResolveLinkedMax`/`ResolveLinkCost`(EvaluateForCard fold) + EnforceLinkedMax/Link 지불에 context 스레딩. **G9-056**(max 1→3·cost 3→1·0 clamp).
 #### 🔴 삭제-치환 키워드 10종 = 단일 아키텍처 seal (전수조사 2026-07-01)
 `Evade·Barrier·Decoy·Fragment·Scapegoat·Save·Fortitude·Ascension·Decode·Partition` — **10종 전부** grant는 키워드(`SelfKeywordByNameEffect`)로 하는데, 모든 게이트가 **`Has*Key` 메타 플래그**를 읽음. 그 플래그는 **프로덕션에서 SET=0(테스트만), 키워드→메타 브릿지 없음** → 전부 inert였음.
@@ -47,12 +49,13 @@
 - 잔여 7종 언실 = 게이트를 라이브-읽기로 + 호출부 스레딩. 대기(사용자 지시).
 
 #### 키워드-동작(전투 메커닉, 별개)
-- [ ] `Collision`·`Vortex`·`Ascension`·`TreatAsDigimon`·`MindLink` 등: HasKeyword 소비자 0 — 각 battle 동작 미구현(위 삭제-치환과 별개 기능).
+- [x] `Collision`·`Vortex`·`Ascension`·`TreatAsDigimon`·`MindLink`: **전부 배선 완료(2026-07-02)** — 설계·구현: [**fidelity_m4m5_design.md**](fidelity_m4m5_design.md) (D1 Decoy 술어 · K1 Vortex player-target un-flatten · K2 Ascension top-삽입 · K3 Collision 면역 가드 · K4 TreatAsDigimon 중앙 chokepoint · K5 MindLinkClass). 잔여 debt(CanAddSecurity 스켈레톤·security-scan 엣지·flip 축소 등)는 fidelity_debt.md.
+  - 정정: 사전 조사에서 소비자 0은 MindLink·TreatAsDigimon 2종뿐이었음(나머지 3종은 검증 갭만).
 
 ### M-5 — 근사/스코프 단순화
 - [x] **`ChangeBaseDPGlobalEffect`** — 이중 버그였음: (1) 원본 "global"=양 플레이어인데 owner-scope만 → `scopeAnyPlayer`. (2) **BaseDp modifier를 아무도 소비 안 함**(ContinuousDpGate가 Dp metric만 접음) = DP 무영향 seal → `ContinuousDpGate.ResolveDp`가 BaseDp modifier를 base에 먼저 fold. **G9-052**(양측 Lv5 +1000, Lv4 아님).
-- [ ] `ReplaceBottomSecurity` — 바닥=security 리스트 마지막 원소 가정. (미확인)
-- [ ] `RevealLibraryClass` — 정보성 no-op(풀정보 모델). (미확인)
+- [x] `ReplaceBottomSecurity` — 바닥=security 리스트 마지막 원소 가정. **AS-IS 검증 완료(2026-07-02): 원본도 `Last()`=bottom/`Insert(0)`=top → 가정 정확, 1:1.** 근거: [fidelity_m4m5_design.md §6](fidelity_m4m5_design.md).
+- [x] `RevealLibraryClass` — 정보성 no-op(풀정보 모델). **AS-IS 검증 완료(2026-07-02): 원본도 순수 정보성(비파괴 read+UI/로그, 게임로직 소비자 0) → no-op이 1:1.** 근거: [fidelity_m4m5_design.md §6](fidelity_m4m5_design.md).
 
 ---
 

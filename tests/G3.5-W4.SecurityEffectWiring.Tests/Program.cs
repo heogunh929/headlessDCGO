@@ -91,20 +91,19 @@ async Task UnscopedFiresAll()
 
 async Task ResolverEmitsScopedWindow()
 {
+    // (P8) the OnSecurityCheck window now resolves SYNCHRONOUSLY inside the check loop (AS-IS resolves
+    // the revealed card's skills BEFORE the security-Digimon battle) — assert the scoped effect fired by
+    // the time ResolveAsync returns, with no drain, and the scoping held.
     DcgoMatch match = await CreateConfiguredMatchAsync(strike: 1, securityCount: 3);
+    RecordingFakeEffect revealed = Register(match.Context, "sec-fx-scope", SecurityOneId.Value, OnSecurityCheck);
+    RecordingFakeEffect other = Register(match.Context, "sec-fx-other", SecurityTwoId.Value, OnSecurityCheck);
     DeclareDirectAttack(match);
 
     SecurityResolutionResult result = await new SecurityResolver().ResolveAsync(match.Context);
     AssertTrue(result.IsSuccess, "security resolved");
 
-    GameEvent window = match.Context.GameEventQueue.DrainPending()
-        .Single(e => string.Equals(e.Cause, OnSecurityCheck, StringComparison.Ordinal));
-
-    AssertEqual(SecurityOneId, window.Subject, "window subject is the revealed card");
-    AssertTrue(
-        window.Metadata.TryGetValue(AutoProcessingTriggerCollector.SourceEntityIdKey, out object? scoped)
-            && scoped is HeadlessEntityId id && id == SecurityOneId,
-        "window carries a SourceEntityId filter scoped to the revealed card");
+    AssertEqual(1, revealed.ResolveCalls, "the revealed card's window resolved inline (before the security battle)");
+    AssertEqual(0, other.ResolveCalls, "the un-revealed card stayed dormant (SourceEntityId scoping)");
 }
 
 async Task EndToEndSecurityEffectFires()

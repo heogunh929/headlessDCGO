@@ -158,10 +158,9 @@ public static class OverclockEffect
             ReadFlag(card.Metadata, HasOverclockKey);
     }
 
+    // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
     private static bool IsDigimon(EngineContext context, CardInstanceRecord instance) =>
-        context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) &&
-        card is not null &&
-        string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        ContinuousKeywordGate.IsDigimon(context, instance.InstanceId);
 
     // S3 trait read: collect the instance + definition trait values (trait/traits/cardTraits keys) and match
     // the required trait case-insensitively (empty required trait = no trait gate, token-only).

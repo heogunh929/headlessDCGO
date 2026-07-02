@@ -10,6 +10,7 @@ using HeadlessDCGO.Engine.Headless.State;
 // Aliased (not a namespace import) to avoid pulling the sibling `...Script.CardEffectFactory` namespace
 // into scope, which would clash with the CardEffectFactory type below.
 using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
+using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
 
 // (Phase 1) Card-porting recipe foundation.
 //
@@ -162,11 +163,84 @@ public sealed class CardSource
         };
     }
 
-    /// <summary>The card's colors (mirror of <c>CardColors</c>).</summary>
-    public IReadOnlyList<string> CardColors => ReadStrings(Definition?.Metadata, "colors");
+    /// <summary>(A3) The card's BASE colors (mirror of <c>BaseCardColors</c>, CardSource.cs:364-401):
+    /// printed colors transformed by every active <see cref="CardEffects.ChangeBaseCardColorClass"/> effect,
+    /// Distinct. AS-IS scans self + all field permanents — the registry's active bindings are that set.</summary>
+    public IReadOnlyList<string> BaseCardColors
+    {
+        get
+        {
+            List<string> colors = ReadStrings(Definition?.Metadata, "colors").ToList();
+            colors = FoldListTransforms(colors, CardEffects.ChangeBaseCardColorClass.ChangeBaseCardColorsKey);
+            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
 
-    /// <summary>The card's traits (mirror of <c>CardTraits</c>).</summary>
-    public IReadOnlyList<string> CardTraits => ReadStrings(Definition?.Metadata, "traits");
+    /// <summary>(A3) The card's colors (mirror of <c>CardColors</c>, CardSource.cs:446-483): seeds from the
+    /// fully-resolved <see cref="BaseCardColors"/> (base-change BEFORE change, AS-IS two-stage order), then
+    /// every active <see cref="CardEffects.ChangeCardColorClass"/> effect transforms the list, Distinct.</summary>
+    public IReadOnlyList<string> CardColors
+    {
+        get
+        {
+            List<string> colors = BaseCardColors.ToList();
+            colors = FoldListTransforms(colors, CardEffects.ChangeCardColorClass.ChangeCardColorsKey);
+            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+
+    /// <summary>(A3) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604): printed traits
+    /// transformed by the card's OWN <see cref="CardEffects.ChangeTraitsClass"/> effects (AS-IS scans self
+    /// only; no Distinct).</summary>
+    public IReadOnlyList<string> CardTraits
+    {
+        get
+        {
+            List<string> traits = ReadStrings(Definition?.Metadata, "traits").ToList();
+            foreach (Func<CardSource, List<string>, List<string>> transform in
+                SelfTransforms<Func<CardSource, List<string>, List<string>>>(CardEffects.ChangeTraitsClass.ChangeTraitsKey))
+            {
+                traits = transform(this, traits);
+            }
+
+            return traits;
+        }
+    }
+
+    // (A3) fold ALL active list-transform bindings for `key` over the accumulator (AS-IS field-wide scan).
+    private List<string> FoldListTransforms(List<string> accumulator, string key)
+    {
+        foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        {
+            if (effect.Context.Values.TryGetValue(key, out object? raw)
+                && raw is Func<CardSource, List<string>, List<string>> transform
+                && EffectConditionPasses(effect))
+            {
+                accumulator = transform(this, accumulator);
+            }
+        }
+
+        return accumulator;
+    }
+
+    // (A3) the card's OWN transform bindings for `key` (AS-IS self EffectList scan).
+    private IEnumerable<T> SelfTransforms<T>(string key)
+    {
+        foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
+            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: InstanceId)))
+        {
+            if (effect.Context.Values.TryGetValue(key, out object? raw) && raw is T transform && EffectConditionPasses(effect))
+            {
+                yield return transform;
+            }
+        }
+    }
+
+    // (A3) the AS-IS `cardEffect.CanUse(null)` gate — the binding's stored continuous condition.
+    internal static bool EffectConditionPasses(EffectRequest effect) =>
+        !effect.Context.Values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? raw)
+        || raw is not Func<bool> condition
+        || condition();
 
     /// <summary>Continuous-binding key for an added card name (AS-IS ChangeCardNamesClass).</summary>
     public const string AddedCardNameKey = "addedCardName";
@@ -196,8 +270,28 @@ public sealed class CardSource
         }
     }
 
-    /// <summary>The card's level, or -1 (mirror of <c>Level</c>).</summary>
-    public int Level => Definition?.Metadata is { } m && m.TryGetValue("level", out object? raw) && raw is int lv ? lv : -1;
+    /// <summary>The card's PRINTED level, or -1. AS-IS <c>HasLevel</c> is printed-data based
+    /// (CEntity_Base.cs:317) — level-change folds never alter it.</summary>
+    private int PrintedLevel => Definition?.Metadata is { } m && m.TryGetValue("level", out object? raw) && raw is int lv ? lv : -1;
+
+    /// <summary>(A3) The card's level (mirror of <c>Level =&gt; TreatedLevel</c>, CardSource.cs:941-975):
+    /// printed level transformed by the card's OWN <see cref="CardEffects.ChangeCardLevelClass"/> effects
+    /// (AS-IS scans self only). -1 mirrors the AS-IS no-level sentinel (1145140) — no gameplay code compares
+    /// the sentinel; all consumers guard on <see cref="HasLevel"/> first.</summary>
+    public int Level
+    {
+        get
+        {
+            int level = PrintedLevel;
+            foreach (Func<CardSource, int, int> transform in
+                SelfTransforms<Func<CardSource, int, int>>(CardEffects.ChangeCardLevelClass.GetLevelKey))
+            {
+                level = transform(this, level);
+            }
+
+            return level;
+        }
+    }
 
     /// <summary>The card's printed number (e.g. "BT10-012"), used as the SpecialPlayRecipe key.</summary>
     public string CardNumber => Definition?.CardNumber ?? string.Empty;
@@ -208,7 +302,8 @@ public sealed class CardSource
     public bool IsToken => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
         && i.Metadata.TryGetValue("isToken", out object? t) && t is bool b && b;
 
-    public bool HasLevel => Level >= 0;
+    // (A3) printed-data based like AS-IS CEntity_Base.HasLevel — a level-change fold does not grant a level.
+    public bool HasLevel => PrintedLevel >= 0;
     public bool IsLevel(int level) => Level == level;
     public bool HasCardColor(string color) => CardColors.Any(c => string.Equals(c, color, StringComparison.OrdinalIgnoreCase));
     public bool EqualsCardName(string name) => CardNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
@@ -600,7 +695,7 @@ public sealed class AddedDigivolutionRequirementEffect : ICardEffect
 /// Cost/ignore-requirement are retained for fidelity; the primary behavior is enabling the digivolve.</summary>
 public sealed class AddedDigivolutionRequirementPredicateEffect : ICardEffect
 {
-    public AddedDigivolutionRequirementPredicateEffect(CardSource card, Func<Permanent, bool> predicate, int digivolutionCost, bool ignoreDigivolutionRequirement, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? targetCardCondition = null, Func<int>? costEquation = null)
+    public AddedDigivolutionRequirementPredicateEffect(CardSource card, Func<Permanent, bool> predicate, int digivolutionCost, bool ignoreDigivolutionRequirement, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? targetCardCondition = null, Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(predicate);
@@ -612,7 +707,17 @@ public sealed class AddedDigivolutionRequirementPredicateEffect : ICardEffect
         Condition = condition;
         TargetCardCondition = targetCardCondition;
         CostEquation = costEquation;
+        Level = level;
+        MinLevel = minLevel;
+        MaxLevel = maxLevel;
     }
+
+    /// <summary>(A2) AS-IS level / minLevel / maxLevel — a HARD level gate on the digivolving-FROM permanent,
+    /// separate from (and evaluated before) <see cref="Predicate"/>. Exact <see cref="Level"/> wins; the
+    /// min/max range applies only when Level &lt; 0. -1 = unset.</summary>
+    public int Level { get; }
+    public int MinLevel { get; }
+    public int MaxLevel { get; }
 
     public CardSource Card { get; }
     public Func<Permanent, bool> Predicate { get; }
@@ -642,6 +747,21 @@ public sealed class AddedDigivolutionRequirementPredicateEffect : ICardEffect
         if (CostEquation is not null)
         {
             values[DigivolveAction.AddedEvolutionCostEquationKey] = CostEquation;
+        }
+
+        if (Level >= 0)
+        {
+            values[DigivolveAction.AddedEvolutionLevelKey] = Level;
+        }
+
+        if (MinLevel >= 0)
+        {
+            values[DigivolveAction.AddedEvolutionMinLevelKey] = MinLevel;
+        }
+
+        if (MaxLevel >= 0)
+        {
+            values[DigivolveAction.AddedEvolutionMaxLevelKey] = MaxLevel;
         }
 
         if (TargetCardCondition is not null)
@@ -722,13 +842,14 @@ public sealed class SelfKeywordEffect : ICardEffect
 /// </summary>
 public sealed class SelfKeywordBatch2Effect : ICardEffect
 {
-    public SelfKeywordBatch2Effect(CardSource card, KeywordBaseBatch2Kind kind, bool isInheritedEffect, Func<bool>? condition)
+    public SelfKeywordBatch2Effect(CardSource card, KeywordBaseBatch2Kind kind, bool isInheritedEffect, Func<bool>? condition, IReadOnlyDictionary<string, object?>? extraValues = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         Card = card;
         Kind = kind;
         IsInheritedEffect = isInheritedEffect;
         Condition = condition;
+        ExtraValues = extraValues;
     }
 
     public CardSource Card { get; }
@@ -739,6 +860,10 @@ public sealed class SelfKeywordBatch2Effect : ICardEffect
 
     public Func<bool>? Condition { get; }
 
+    /// <summary>(A4) additional binding values carried on the grant (e.g. Partition's stored
+    /// <c>PartitionCondition</c> list) — consumed live by the keyword's behaviour gate.</summary>
+    public IReadOnlyDictionary<string, object?>? ExtraValues { get; }
+
     public EffectBinding ToBinding(string effectId)
     {
         var context = new EffectContext(
@@ -746,7 +871,8 @@ public sealed class SelfKeywordBatch2Effect : ICardEffect
             Card.Owner,
             Card.InstanceId,
             triggerEntityId: null,
-            targetEntityIds: new[] { Card.InstanceId });
+            targetEntityIds: new[] { Card.InstanceId },
+            values: ExtraValues);
         KeywordBaseBatch2Effect effect = KeywordBaseBatch2Factory.Create(
             Kind,
             Card.InstanceId,
@@ -763,7 +889,7 @@ public sealed class SelfKeywordBatch2Effect : ICardEffect
 /// it live; the same bar as the Batch2 self-statics. Condition / inherited carried on the binding values.</summary>
 public sealed class SelfKeywordByNameEffect : ICardEffect
 {
-    public SelfKeywordByNameEffect(CardSource card, string keywordName, bool isInheritedEffect, Func<bool>? condition)
+    public SelfKeywordByNameEffect(CardSource card, string keywordName, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? permanentCondition = null, IReadOnlyDictionary<string, object?>? extraValues = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(keywordName);
@@ -771,7 +897,12 @@ public sealed class SelfKeywordByNameEffect : ICardEffect
         KeywordName = keywordName;
         IsInheritedEffect = isInheritedEffect;
         Condition = condition;
+        PermanentCondition = permanentCondition;
+        ExtraValues = extraValues;
     }
+
+    /// <summary>(C1) additional binding values carried on the grant (e.g. Fragment's trashValue).</summary>
+    public IReadOnlyDictionary<string, object?>? ExtraValues { get; }
 
     public CardSource Card { get; }
 
@@ -780,6 +911,12 @@ public sealed class SelfKeywordByNameEffect : ICardEffect
     public bool IsInheritedEffect { get; }
 
     public Func<bool>? Condition { get; }
+
+    /// <summary>(D1) The keyword's per-card <c>permanentCondition</c>, evaluated against the OTHER
+    /// permanent the keyword acts on (AS-IS Decoy: the protected Digimon), not the holder. Stored on the
+    /// binding under <see cref="ContinuousKeywordGate.PermanentConditionKey"/> and read live by the
+    /// consuming gate (<see cref="ContinuousKeywordGate.KeywordGrantAcceptsSubject"/>).</summary>
+    public Func<CardSource, bool>? PermanentCondition { get; }
 
     public EffectBinding ToBinding(string effectId)
     {
@@ -793,6 +930,19 @@ public sealed class SelfKeywordByNameEffect : ICardEffect
         if (Condition is not null)
         {
             values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        if (PermanentCondition is not null)
+        {
+            values[ContinuousKeywordGate.PermanentConditionKey] = PermanentCondition;
+        }
+
+        if (ExtraValues is not null)
+        {
+            foreach (KeyValuePair<string, object?> pair in ExtraValues)
+            {
+                values[pair.Key] = pair.Value;
+            }
         }
 
         var context = new EffectContext(
@@ -899,7 +1049,30 @@ public sealed class Permanent
     /// <summary>Effective DP (base + continuous modifiers), or 0.</summary>
     public int DP => ContinuousDpGate.ResolveDp(_context, InstanceId, BaseDp());
 
-    public int Level => TopCard.Level;
+    /// <summary>(A3) Mirror of <c>Permanent.Level</c> (Permanent.cs:48-102): seeds from the top card's
+    /// (already card-level-folded) level, then EVERY active <see cref="CardEffects.ChangePermanentLevelClass"/>
+    /// effect transforms it (AS-IS scans all field permanents' + players' effects — the registry's active
+    /// bindings are that set).</summary>
+    public int Level
+    {
+        get
+        {
+            int level = TopCard.Level;
+            foreach (Headless.Effects.EffectRequest effect in _context.EffectRegistry.GetContinuousEffects(
+                new Headless.Services.EffectQueryContext(Headless.Runtime.ContinuousRestrictionGate.Scope)))
+            {
+                if (effect.Context.Values.TryGetValue(CardEffects.ChangePermanentLevelClass.GetPermanentLevelKey, out object? raw)
+                    && raw is Func<Permanent, int, int> transform
+                    && CardSource.EffectConditionPasses(effect))
+                {
+                    level = transform(this, level);
+                }
+            }
+
+            return level;
+        }
+    }
+
     public bool HasNoDigivolutionCards => DigivolutionCards.Count == 0;
     public bool IsDigimon => TopCard.IsDigimon;
     public bool IsTamer => TopCard.IsTamer;
@@ -2361,19 +2534,25 @@ public sealed class PlayCardEffect : IActivatedCardEffect
 /// source) so the immunity gate evaluates it 1:1. Null skill → opponent-only fallback.</summary>
 public sealed class ContinuousImmunityEffect : ICardEffect
 {
-    public ContinuousImmunityEffect(CardSource card, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, Func<bool>? condition)
+    public ContinuousImmunityEffect(CardSource card, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? targetPredicate = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         Card = card;
         SkillCondition = skillCondition;
         IsInheritedEffect = isInheritedEffect;
         Condition = condition;
+        TargetPredicate = targetPredicate;
     }
 
     public CardSource Card { get; }
     public Func<CardSource, bool>? SkillCondition { get; }
     public bool IsInheritedEffect { get; }
     public Func<bool>? Condition { get; }
+
+    /// <summary>(C2) AS-IS <c>CanNotAffectedClass.CardCondition</c> (the factory's permanentCondition) —
+    /// WHICH permanents this immunity protects, evaluated live against the protected target. Non-null →
+    /// the grant is registered field-wide (no target) and only reaches predicate-matching cards.</summary>
+    public Func<CardSource, bool>? TargetPredicate { get; }
 
     public EffectBinding ToBinding(string effectId)
     {
@@ -2388,6 +2567,11 @@ public sealed class ContinuousImmunityEffect : ICardEffect
             values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.ImmunityFromOpponentOnlyKey] = true;
         }
 
+        if (TargetPredicate is not null)
+        {
+            values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.TargetPredicateKey] = TargetPredicate;
+        }
+
         if (IsInheritedEffect)
         {
             values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
@@ -2399,7 +2583,10 @@ public sealed class ContinuousImmunityEffect : ICardEffect
         }
 
         var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
+            // (C2) predicate-scoped grants protect the predicate-matching set, not (implicitly) the holder.
+            targetEntityIds: TargetPredicate is null ? new[] { Card.InstanceId } : Array.Empty<HeadlessEntityId>(),
+            values: values);
         return new EffectBinding(
             new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
             keywords: null, EffectQueryRole.Continuous, new[] { HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.Scope }, effect: null, duration: null);
@@ -3006,12 +3193,21 @@ public sealed class PlayThisCardToBattleEffect : IActivatedCardEffect
 /// </summary>
 public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
 {
-    public ActivatedPlayFromUnderEffect(CardSource card, string description)
+    private readonly string _cardType;
+    private readonly string? _cardName;
+
+    /// <summary>(K5) <paramref name="cardType"/> selects which under-cards are candidates ("Digimon" for the
+    /// ST2_15-style play-from-under; "Tamer" for the MindLink play-back). <paramref name="cardName"/>
+    /// optionally narrows to a specific card name (AS-IS PlayMindLinkTamerFromDigivolutionCards).</summary>
+    public ActivatedPlayFromUnderEffect(CardSource card, string description, string cardType = "Digimon", string? cardName = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cardType);
         Card = card;
         Description = description;
+        _cardType = cardType;
+        _cardName = cardName;
     }
 
     public CardSource Card { get; }
@@ -3061,7 +3257,7 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
             DigivolutionStack stack = DigivolutionStackReader.Read(Card.Context.CardInstanceRepository, Card.Context.CardRepository, top);
             foreach (StackedCard under in stack.UnderCards)
             {
-                if (IsDigimonCard(under.InstanceId))
+                if (IsCandidateCard(under.InstanceId))
                 {
                     yield return (under.InstanceId, top);
                 }
@@ -3069,11 +3265,12 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         }
     }
 
-    private bool IsDigimonCard(HeadlessEntityId id)
+    private bool IsCandidateCard(HeadlessEntityId id)
     {
         return Card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
             && Card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
-            && string.Equals(def.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+            && string.Equals(def.CardType, _cardType, StringComparison.OrdinalIgnoreCase)
+            && (_cardName is null || string.Equals(def.Name, _cardName, StringComparison.OrdinalIgnoreCase));
     }
 
     public EffectBinding ToBinding(string effectId) =>
@@ -3149,7 +3346,9 @@ public static partial class CardEffectFactory
         Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1) =>
         // (FR2/M-1) cardCondition = which cards receive the added requirement; null → self only (AS-IS default
         // cs => cs == card), non-null → any owner's card matching it (e.g. ST8_04 UlforceVeedramon in hand).
-        new AddedDigivolutionRequirementPredicateEffect(card, permanentCondition, digivolutionCost, ignoreDigivolutionRequirement, isInheritedEffect: false, condition, targetCardCondition: cardCondition, costEquation: costEquation);
+        // (A2) level/minLevel/maxLevel = the AS-IS hard level gate on the digivolving-FROM permanent
+        // (GetEvoCost) — previously accepted and dropped, which silently widened ~111 cards' alt-digivolve.
+        new AddedDigivolutionRequirementPredicateEffect(card, permanentCondition, digivolutionCost, ignoreDigivolutionRequirement, isInheritedEffect: false, condition, targetCardCondition: cardCondition, costEquation: costEquation, level: level, minLevel: minLevel, maxLevel: maxLevel);
 
     /// <summary>(PRIM-W5) <c>DrawCardsEffect</c> — the declarative form of the AS-IS
     /// <c>new DrawClass(owner, count, ...).Draw()</c> coroutine: the owner draws <paramref name="count"/>
@@ -3239,23 +3438,39 @@ public static partial class CardEffectFactory
     public static ICardEffect ProgressSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Progress, isInheritedEffect, condition);
 
-    /// <summary>(PRIM-W3) <c>PartitionSelfEffect</c> — grants Partition to self (Batch2). The per-card
-    /// <c>cardSourceConditions</c> list is accepted for source fidelity (per-card).</summary>
-    public static ICardEffect PartitionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, object? cardSourceConditions = null) =>
-        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Partition, isInheritedEffect, condition);
+    /// <summary>(PRIM-W3/A4) <c>PartitionSelfEffect</c> — grants Partition to self (Batch2).
+    /// <paramref name="cardSourceConditions"/> = the AS-IS two-entry <c>PartitionCondition</c> list defining
+    /// colour group 1 ([0]) and group 2 ([1]) — stored on the grant and consumed by the per-group candidate
+    /// filter (previously accepted and dropped, which let any two sources be played).</summary>
+    public static ICardEffect PartitionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, IReadOnlyList<PartitionCondition>? cardSourceConditions = null) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Partition, isInheritedEffect, condition,
+            cardSourceConditions is null
+                ? null
+                : new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [PartitionCondition.PartitionConditionsKey] = cardSourceConditions,
+                });
 
     /// <summary>(PRIM-W3) <c>IcecladSelfStaticEffect</c> — grants Iceclad to self.</summary>
     public static ICardEffect IcecladSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Iceclad, isInheritedEffect, condition);
 
-    /// <summary>(PRIM-W3) <c>DecoySelfEffect</c> — grants Decoy (deletion-replacement) to self. Extra
-    /// per-card args accepted for fidelity.</summary>
+    /// <summary>(PRIM-W3) <c>DecoySelfEffect</c> — grants Decoy (deletion-replacement) to self.
+    /// (D1) <paramref name="permanentCondition"/> narrows the PROTECTED target (AS-IS Decoy.cs
+    /// <c>CanSelectPermanentCondition</c>: evaluated live against the other permanent being spared, e.g.
+    /// "Decoy ([Bagra Army])") — stored on the grant and read by <c>DeletionReplacementGate</c>.</summary>
     public static ICardEffect DecoySelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<Permanent, bool>? permanentCondition = null, string? effectName = null, string? effectDescription = null) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Decoy, isInheritedEffect, condition);
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Decoy, isInheritedEffect, condition, ScopePred(permanentCondition));
 
-    /// <summary>(PRIM-W3) <c>FragmentSelfEffect</c> — grants Fragment (deletion-replacement) to self.</summary>
+    /// <summary>(PRIM-W3/C1) <c>FragmentSelfEffect</c> — grants Fragment (deletion-replacement) to self.
+    /// <paramref name="trashValue"/> is the AS-IS Fragment &lt;X&gt; count (sources trashed to survive) —
+    /// stored on the grant and read by <c>DeletionReplacementGate.FragmentCostOf</c> (previously dropped,
+    /// collapsing every Fragment to X=1).</summary>
     public static ICardEffect FragmentSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, int trashValue = 0, string? effectName = null, string? effectDescription = null) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Fragment, isInheritedEffect, condition);
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Fragment, isInheritedEffect, condition,
+            extraValues: trashValue > 0
+                ? new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.FragmentTrashValueKey] = trashValue }
+                : null);
 
     /// <summary>(PRIM-W3) <c>ExecuteSelfEffect</c> — grants Execute to self.</summary>
     public static ICardEffect ExecuteSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -3441,10 +3656,13 @@ public static partial class CardEffectFactory
     public static ICardEffect CollisionStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Collision, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
-    /// <summary>(PRIM-W4) <c>VortexCanAttackPlayersStaticEffect</c> — grants Vortex to the owner's Digimon
-    /// (player-scope keyword). Grant live via HasKeyword; the Vortex attack consumer migrates separately.</summary>
+    /// <summary>(PRIM-W4/K1) <c>VortexCanAttackPlayersStaticEffect</c> — the AS-IS
+    /// <c>IVortexCanAttackPlayersEffect</c>: a marker letting a permanent that is resolving its Vortex
+    /// attack target the PLAYER (it does NOT grant Vortex itself — the previous Vortex-keyword lowering was
+    /// a flatten and wrongly opened the end-of-turn window for non-Vortex allies).
+    /// <paramref name="attackerCondition"/> = AS-IS AttackerCondition, evaluated against the attacker.</summary>
     public static ICardEffect VortexCanAttackPlayersStaticEffect(Func<Permanent, bool>? attackerCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Vortex, scopeCardType: null, isInheritedEffect, condition, ScopePred(attackerCondition));
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.VortexCanAttackPlayers, scopeCardType: null, isInheritedEffect, condition, ScopePred(attackerCondition));
 
     /// <summary>(PRIM-W4) <c>ChangeLinkMaxStaticEffect</c> — continuous ±link-maximum on the owner's Digimon
     /// (player-scope LinkedMaxDelta modifier, queryable). Link enforcement consumer migrates separately
@@ -3452,10 +3670,13 @@ public static partial class CardEffectFactory
     public static ICardEffect ChangeLinkMaxStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new PlayerScopeModifierEffect(card, ModifierHelpers.LinkedMaxDeltaKey, changeValue, scopeCardType: "Digimon", condition, scopePredicate: ScopePred(permanentCondition));
 
-    /// <summary>(PRIM-W4) <c>TreatAsDigimonStaticEffect</c> — grants the TreatAsDigimon keyword. Grant live via
-    /// HasKeyword; the card-type-aware consumers migrate separately (preemptive seal).</summary>
+    /// <summary>(PRIM-W4/K4) <c>TreatAsDigimonStaticEffect</c> — "also treated as a Digimon". AS-IS
+    /// <c>TreatAsDigimonClass.IsDigimon(permanent)</c> evaluates <paramref name="permanentCondition"/>
+    /// against the permanent BEING JUDGED (any of the owner's, e.g. a Tamer), so the grant is player-scope
+    /// with the predicate — the previous self-only lowering dropped the predicate. Consumed by the central
+    /// <see cref="ContinuousKeywordGate.IsDigimon(EngineContext, HeadlessEntityId)"/> chokepoint.</summary>
     public static ICardEffect TreatAsDigimonStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.TreatAsDigimon, isInheritedEffect, condition);
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.TreatAsDigimon, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W4) <c>Gain1MemoryTamerOwnerDigimonConditionalEffect</c> — "[Start of Your Turn] if you
     /// have a matching Digimon, gain 1 memory." The per-permanent predicate is captured in
@@ -3546,11 +3767,16 @@ public static partial class CardEffectFactory
     public static IActivatedCardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card) =>
         new ReplaceBottomSecurityWithFaceUpEffect(card, "[Main] Add your top security card to the hand. Then, place this card face up as the top security card.", top: true);
 
-    /// <summary>(PRIM-W4) <c>PlayMindLinkTamerFromDigivolutionCards</c> — plays a Tamer under-card (MindLink)
-    /// from a Digimon's digivolution stack onto the field (cost-free). Reuses the play-from-under primitive;
-    /// the <paramref name="cardName"/> narrowing is applied at porting time.</summary>
+    /// <summary>(PRIM-W4/K5) <c>PlayMindLinkTamerFromDigivolutionCards</c> — plays the Mind-Linked TAMER
+    /// under-card matching <paramref name="cardName"/> from a Digimon's digivolution stack onto the field
+    /// (cost-free). Candidates are TAMER under-cards (the previous Digimon-only reuse could never surface
+    /// the tamer), narrowed to the AS-IS card name.</summary>
     public static IActivatedCardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription) =>
-        new ActivatedPlayFromUnderEffect(card, string.IsNullOrWhiteSpace(effectDescription) ? $"Play {cardName} from under a Digimon." : effectDescription);
+        new ActivatedPlayFromUnderEffect(
+            card,
+            string.IsNullOrWhiteSpace(effectDescription) ? $"Play {cardName} from under a Digimon." : effectDescription,
+            cardType: "Tamer",
+            cardName: string.IsNullOrWhiteSpace(cardName) ? null : cardName);
 
     /// <summary>(PRIM-W4) <c>CanNotBeAttackedSelfStaticEffect</c> — this Digimon cannot be attacked (self
     /// CannotBeAttacked restriction consulted on the defender by AttackPermanentAction).</summary>
@@ -3704,7 +3930,9 @@ public static partial class CardEffectFactory
     /// for "opponent's Digimon effects only"). <b>skillCondition must be provided to mirror the original</b>; null
     /// falls back to opponent-only.</summary>
     public static ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousImmunityEffect(card, skillCondition, isInheritedEffect, condition);
+        // (C2) permanentCondition = AS-IS CardCondition (WHICH permanents are protected) — evaluated live
+        // against the protected target (previously accepted and dropped; null keeps the self-only grant).
+        new ContinuousImmunityEffect(card, skillCondition, isInheritedEffect, condition, targetPredicate: ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W5) <c>ChangeCardNamesClass</c> — grants this card an additional name
     /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>.</summary>

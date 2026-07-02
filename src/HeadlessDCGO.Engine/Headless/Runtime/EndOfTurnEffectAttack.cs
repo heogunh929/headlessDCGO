@@ -12,9 +12,11 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// keyword is recognised).
 ///
 /// AS-IS targets:
-///   &lt;Vortex&gt;    — attack an opponent's DIGIMON (any, incl. unsuspended; NOT the player), suspends, can
-///                  attack the turn it was played. (DataBase.VortexEffectDiscription / VortexProcess:
-///                  defenderCondition _ =&gt; true + SetIsVortex.)
+///   &lt;Vortex&gt;    — attack an opponent's DIGIMON (any, incl. unsuspended), suspends, can attack the turn
+///                  it was played. (DataBase.VortexEffectDiscription / VortexProcess: defenderCondition
+///                  _ =&gt; true + SetIsVortex.) The PLAYER becomes a legal target only while an
+///                  IVortexCanAttackPlayersEffect accepts this attacker (K1; CanActivateVortex
+///                  `|| PermanentHasVortexCanAttackPlayers`).
 ///   &lt;Overclock&gt; — delete a token/[trait] ally, then attack a PLAYER without suspending. Handled by
 ///                  <see cref="OverclockEffect.RequestChoice"/> (player-only: defenderCondition _ =&gt; false).
 /// </summary>
@@ -24,7 +26,8 @@ public static class EndOfTurnEffectAttack
     /// attacks WITHOUT suspending, so the suspend state alone would not stop a re-offer).</summary>
     public const string UsedKey = "endOfTurnAttackUsed";
 
-    // <Vortex>: opponent Digimon (any), not the player, attacker suspends (a normal attack).
+    // <Vortex>: opponent Digimon (any), attacker suspends (a normal attack). AllowPlayerTarget is decided
+    // per-offer (K1: VortexCanAttackPlayers marker).
     private static readonly EffectAttackOptions VortexOptions =
         new(WithoutTap: false, AllowPlayerTarget: false, AllowDigimonTarget: true, TargetUnsuspended: true);
 
@@ -64,9 +67,14 @@ public static class EndOfTurnEffectAttack
             }
 
             SetFlag(context, inst, UsedKey, true);
+            // (K1) AS-IS CanActivateVortex: the PLAYER becomes a legal Vortex target only while an active
+            // IVortexCanAttackPlayersEffect accepts this attacker — evaluated ONCE when the offer opens
+            // (mirrors the AS-IS canAttackPlayers snapshot at VortexProcess start).
+            bool vortexCanAttackPlayers = !overclock && ContinuousKeywordGate.HasKeyword(
+                context, id, ContinuousKeywordGate.VortexCanAttackPlayers);
             bool opened = overclock
                 ? OverclockEffect.RequestChoice(context, id)
-                : EffectDrivenAttack.RequestChoice(context, id, VortexOptions);
+                : EffectDrivenAttack.RequestChoice(context, id, VortexOptions with { AllowPlayerTarget = vortexCanAttackPlayers });
             if (opened)
             {
                 return true;

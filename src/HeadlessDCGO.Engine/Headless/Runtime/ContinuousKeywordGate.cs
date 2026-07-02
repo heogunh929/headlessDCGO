@@ -39,6 +39,11 @@ public static class ContinuousKeywordGate
     public const string Decode = "Decode";
     public const string Partition = "Partition";
     public const string Vortex = "Vortex"; // GR-006: end-of-turn effect-driven attack (opponent Digimon).
+    // (K1) AS-IS IVortexCanAttackPlayersEffect — NOT a Vortex grant: a marker that lets a permanent that IS
+    // resolving its Vortex attack choose the PLAYER as the target (Vortex.cs CanActivateVortex:
+    // `|| PermanentHasVortexCanAttackPlayers(...)`). Evaluated once when the Vortex offer opens (mirrors the
+    // AS-IS canAttackPlayers snapshot at VortexProcess start).
+    public const string VortexCanAttackPlayers = "VortexCanAttackPlayers";
     // (PRIM-W2 preemptive seal) same presence-flag pattern — behaviour consumers currently read the metadata
     // flags hasRaid (RaidAttackSwitch) / hasCollision (BlockTiming) / hasFortitude·hasBarrier·hasEvade
     // (DeletionReplacementGate). Wiring the gate names now means a self-static grant is queryable via
@@ -120,6 +125,71 @@ public static class ContinuousKeywordGate
     private static bool KeywordConditionPasses(IReadOnlyDictionary<string, object?> values) =>
         !values.TryGetValue("continuous.condition", out object? raw) || raw is not Func<bool> condition || condition();
 
+    /// <summary>(K4) The AS-IS single chokepoint <c>Permanent.IsDigimon</c> (Permanent.cs:3438): a card is a
+    /// Digimon when its printed CardType says so OR an active <c>ITreatAsDigimonEffect</c> accepts it —
+    /// live evaluation of the TreatAsDigimon keyword (self or player-scope, predicate-aware). Card-type
+    /// consumers (attack/block/battle/raid/security/CanMove) call this instead of a raw CardType check so
+    /// "also treated as a Digimon" reaches every judgement, mirroring the original's one getter.</summary>
+    public static bool IsDigimon(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (!cardId.IsEmpty &&
+            context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) && instance is not null &&
+            context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null &&
+            string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return HasKeyword(context, cardId, TreatAsDigimon);
+    }
+
+    /// <summary>(D1 Decoy) Binding-values key under which a self keyword grant stores its per-card
+    /// <c>permanentCondition</c> (adapted to <c>Func&lt;CardSource,bool&gt;</c>) — e.g. Decoy's
+    /// protected-target predicate ("Decoy ([Bagra Army])"). AS-IS evaluates it live against the OTHER
+    /// permanent being protected (Decoy.cs CanSelectPermanentCondition), not the keyword holder.</summary>
+    public const string PermanentConditionKey = "keyword.permanentCondition";
+
+    /// <summary>(D1 Decoy) True when SOME active <paramref name="keyword"/> grant held by
+    /// <paramref name="holderId"/> accepts <paramref name="subjectId"/> under its stored
+    /// <see cref="PermanentConditionKey"/> predicate (a grant without a predicate accepts everything).
+    /// Mirrors the AS-IS live evaluation of <c>permanentCondition(protected permanent)</c>. Context-less
+    /// callers (the sink's defer decision, a documented safe superset) treat a stored predicate as passing;
+    /// the context-aware choice paths re-evaluate strictly.</summary>
+    public static bool KeywordGrantAcceptsSubject(
+        EffectRegistry registry,
+        HeadlessEntityId holderId,
+        string keyword,
+        HeadlessEntityId subjectId,
+        HeadlessPlayerId subjectOwner,
+        EngineContext? context)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        if (holderId.IsEmpty || string.IsNullOrWhiteSpace(keyword))
+        {
+            return false;
+        }
+
+        foreach (EffectBinding binding in registry.GetKeywordEffects(keyword))
+        {
+            EffectContext effectContext = binding.Request.Context;
+            if (effectContext.SourceEntityId != holderId && !effectContext.TargetEntityIds.Contains(holderId))
+            {
+                continue;
+            }
+
+            if (!effectContext.Values.TryGetValue(PermanentConditionKey, out object? raw)
+                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate
+                || context is null
+                || predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, subjectId, subjectOwner, subjectOwner)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Registry-only overload for consumers that hold an <see cref="EffectRegistry"/> but not the
     /// full <see cref="EngineContext"/> (e.g. DeletionReplacementGate's context-less resolution methods).</summary>
     public static bool HasKeyword(EffectRegistry registry, HeadlessEntityId cardId, string keyword)
@@ -133,6 +203,14 @@ public static class ContinuousKeywordGate
         foreach (EffectBinding binding in registry.GetKeywordEffects(keyword))
         {
             EffectContext effectContext = binding.Request.Context;
+            // (K1) a PLAYER-SCOPE grant's SourceEntityId is the GRANTING card, not a holder — it resolves
+            // only through the context-aware scoped path (scope player + predicate). Matching it here made
+            // the source card "have" the keyword while bypassing the scope predicate entirely.
+            if (effectContext.Values.TryGetValue(Effects.PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scoped) && scoped is true)
+            {
+                continue;
+            }
+
             if (effectContext.SourceEntityId == cardId || effectContext.TargetEntityIds.Contains(cardId))
             {
                 return true;

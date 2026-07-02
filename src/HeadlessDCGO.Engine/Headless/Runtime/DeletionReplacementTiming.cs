@@ -4,6 +4,8 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
+using CardSourceView = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
+using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
 
 /// <summary>
 /// (F-6.8) The re-entrant deletion-replacement windows — sibling of <see cref="BlockTiming"/>. Restores
@@ -35,7 +37,7 @@ public sealed class DeletionReplacementTiming
     public const string ScapegoatOption = "scapegoat";  // PRE, sub = which ally to sacrifice
     public const string FragmentOption = "fragment";    // PRE, sub = which source(s) to trash (repeated)
     public const string AscensionOption = "ascension";  // POST, no sub
-    public const string ArmorPurgeOption = "armorpurge"; // POST, no sub (trash top, promote under-source)
+    public const string ArmorPurgeOption = "armorpurge"; // (B1) PRE, no sub — deletion CANCELLED: trash top only, promote under-source
     public const string DecoyOption = "decoy";          // PRE, effect/enemy-gated, sub = which Decoy ally
     public const string DecoyEligibleKey = "decoyEligible";
     public const string SaveOption = "save";            // POST, sub = which permanent to place this under
@@ -65,6 +67,15 @@ public sealed class DeletionReplacementTiming
             options.Add(BarrierOption);
         }
 
+        // (B1) AS-IS Armor Purge is a WOULD-BE-DELETED replacement (ArmorPurge.cs:63 willBeRemoveField=false),
+        // not a POST response: trash only the top card, promote the under-source, the permanent survives.
+        // Gate mirrors CanActivateArmorPurge (battle area + DigivolutionCards >= 1).
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasArmorPurgeKey, ContinuousKeywordGate.ArmorPurge, effectRegistry) &&
+            SourceIds(record.Metadata).Count >= 1)
+        {
+            options.Add(ArmorPurgeOption);
+        }
+
         if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasScapegoatKey, ContinuousKeywordGate.Scapegoat, effectRegistry) &&
             DeletionReplacementGate.FindScapegoatSacrificeCandidates(repository, zones, record, null, effectRegistry).Count > 0)
         {
@@ -72,14 +83,16 @@ public sealed class DeletionReplacementTiming
         }
 
         if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasFragmentKey, ContinuousKeywordGate.Fragment, effectRegistry) &&
-            SourceIds(record.Metadata).Count >= FragmentCost(record.Metadata))
+            SourceIds(record.Metadata).Count >= DeletionReplacementGate.FragmentCostOf(record, effectRegistry))
         {
             options.Add(FragmentOption);
         }
 
         // Decoy: offered only when the deferring deletion marked it enemy-eligible AND a Decoy ally exists.
+        // (D1) thread the registry so a keyword-only (production) Decoy grant is visible on this static
+        // superset path too — previously only the metadata-flag holder counted here.
         if (ReadFlag(record.Metadata, DecoyEligibleKey) &&
-            DeletionReplacementGate.FindDecoyRedirectCandidates(repository, zones, record).Count > 0)
+            DeletionReplacementGate.FindDecoyRedirectCandidates(repository, zones, record, null, effectRegistry).Count > 0)
         {
             options.Add(DecoyOption);
         }
@@ -112,6 +125,13 @@ public sealed class DeletionReplacementTiming
             options.Add(BarrierOption);
         }
 
+        // (B1) PRE Armor Purge — see the static overload.
+        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasArmorPurgeKey, ContinuousKeywordGate.ArmorPurge, context.EffectRegistry) &&
+            SourceIds(record.Metadata).Count >= 1)
+        {
+            options.Add(ArmorPurgeOption);
+        }
+
         if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasScapegoatKey, ContinuousKeywordGate.Scapegoat, context.EffectRegistry) &&
             DeletionReplacementGate.FindScapegoatSacrificeCandidates(
                 context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry).Count > 0)
@@ -120,14 +140,14 @@ public sealed class DeletionReplacementTiming
         }
 
         if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasFragmentKey, ContinuousKeywordGate.Fragment, context.EffectRegistry) &&
-            SourceIds(record.Metadata).Count >= FragmentCost(record.Metadata))
+            SourceIds(record.Metadata).Count >= DeletionReplacementGate.FragmentCostOf(record, context.EffectRegistry))
         {
             options.Add(FragmentOption);
         }
 
         if (ReadFlag(record.Metadata, DecoyEligibleKey) &&
             DeletionReplacementGate.FindDecoyRedirectCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry).Count > 0)
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry, context).Count > 0)
         {
             options.Add(DecoyOption);
         }
@@ -173,13 +193,6 @@ public sealed class DeletionReplacementTiming
             options.Add(AscensionOption);
         }
 
-        if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasArmorPurgeKey)
-                || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.ArmorPurge)) // GR-005 C-group seal
-            && SourceIds(record.Metadata).Count >= 1)
-        {
-            options.Add(ArmorPurgeOption);
-        }
-
         if (HasSaveTarget(context, zones, record))
         {
             options.Add(SaveOption);
@@ -198,13 +211,15 @@ public sealed class DeletionReplacementTiming
 
         // C-14 Partition: effect-deletion only, once per removal, offered with >= 2 playable Digimon sources
         // (AS-IS DigivolutionCards.Count >= 2). Plays two sources free as new permanents.
+        // (A4) with stored PartitionConditions the AS-IS activation gate applies instead: EACH colour group
+        // must be non-empty (CanActivateCondition, Partition.cs:145-159).
         if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey)
                 || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.Partition)) && // GR-005 C-group seal
             !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey) &&
             // (S6) AS-IS: "leave other than by one of YOUR effects or in battle" — exclude own-effect leaves.
             !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByOwnEffectKey) &&
             !ReadFlag(record.Metadata, DeletionReplacementGate.PartitionedKey) &&
-            FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption)).Count >= 2)
+            PartitionActivatable(context, record))
         {
             options.Add(PartitionOption);
         }
@@ -349,8 +364,9 @@ public sealed class DeletionReplacementTiming
             .Select(target => Candidate(record, $"{record.InstanceId.Value}{Delimiter}{option}{Delimiter}{target.Value}", target.Value))
             .ToArray();
 
-        // The sub-selection is mandatory once the keyword is activated (AS-IS canNoSelect:false).
-        OpenRequest(context, record, $"'{record.InstanceId.Value}' {option}: choose a target.", canSkip: false, candidates);
+        // The sub-selection is mandatory once the keyword is activated (AS-IS canNoSelect:false) —
+        // EXCEPT Save (C6): AS-IS SaveProcess selects with canNoSelect:true (the owner may still back out).
+        OpenRequest(context, record, $"'{record.InstanceId.Value}' {option}: choose a target.", canSkip: option == SaveOption, candidates);
         return true;
     }
 
@@ -372,12 +388,129 @@ public sealed class DeletionReplacementTiming
                 context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry),
             FragmentOption => SourceIds(record.Metadata),   // remaining digivolution sources to trash
             DecoyOption => DeletionReplacementGate.FindDecoyRedirectCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry),
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry, context),
             SaveOption => SaveTargets(context, zones, record, ResolveCondition(context, record, SaveOption)),
             DecodeOption => FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, DecodeOption)),
-            PartitionOption => FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption)),
+            PartitionOption => PartitionPickCandidates(context, record),
             _ => Array.Empty<HeadlessEntityId>(),
         };
+
+    // --- (A4) Partition colour groups -----------------------------------------------------------------
+
+    /// <summary>The holder's stored AS-IS <c>PartitionCondition</c> pair — from the sink's deletion-time
+    /// metadata snapshot (the grant binding is dropped when the card leaves play) or the live grant binding.
+    /// Null = the grant carries none (legacy flat behaviour).</summary>
+    private static IReadOnlyList<PartitionCondition>? PartitionConditionsOf(EngineContext context, CardInstanceRecord record)
+    {
+        if (record.Metadata.TryGetValue(PartitionCondition.PartitionConditionsKey, out object? snap)
+            && snap is IReadOnlyList<PartitionCondition> snapshot && snapshot.Count == 2)
+        {
+            return snapshot;
+        }
+
+        foreach (EffectBinding binding in context.EffectRegistry.GetKeywordEffects(ContinuousKeywordGate.Partition))
+        {
+            EffectContext effectContext = binding.Request.Context;
+            if (effectContext.SourceEntityId != record.InstanceId && !effectContext.TargetEntityIds.Contains(record.InstanceId))
+            {
+                continue;
+            }
+
+            if (effectContext.Values.TryGetValue(PartitionCondition.PartitionConditionsKey, out object? raw)
+                && raw is IReadOnlyList<PartitionCondition> conditions && conditions.Count == 2)
+            {
+                return conditions;
+            }
+        }
+
+        return null;
+    }
+
+    // (A4) AS-IS CanActivateCondition (Partition.cs:145-159): with conditions, EACH group must be non-empty;
+    // without (legacy grant), the flat >= 2 Digimon-source gate stands.
+    private static bool PartitionActivatable(EngineContext context, CardInstanceRecord record)
+    {
+        IReadOnlyList<PartitionCondition>? conditions = PartitionConditionsOf(context, record);
+        if (conditions is null)
+        {
+            return FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption)).Count >= 2;
+        }
+
+        return FindPartitionGroupCandidates(context, record, conditions, groupIndex: 0, applyMutualExclusion: false).Count > 0
+            && FindPartitionGroupCandidates(context, record, conditions, groupIndex: 1, applyMutualExclusion: false).Count > 0;
+    }
+
+    // (A4) pick #1 (remaining == 2) draws from group [0], pick #2 (remaining == 1) from group [1]. The pick-1
+    // pool mirrors the AS-IS pre-adjust (Partition.cs:161-170 `sourceOneCard.Except(sourceTwoCard)` when the
+    // other group has exactly one card); pick #2 exclusion is implicit — TryPartitionPlaySourceAsync already
+    // removed the first pick from sourceIds.
+    private IReadOnlyList<HeadlessEntityId> PartitionPickCandidates(EngineContext context, CardInstanceRecord record)
+    {
+        IReadOnlyList<PartitionCondition>? conditions = PartitionConditionsOf(context, record);
+        if (conditions is null)
+        {
+            return FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, PartitionOption));
+        }
+
+        int remaining = ReadInt(record.Metadata, FragmentRemainingKey, 1);
+        int groupIndex = remaining >= 2 ? 0 : 1;
+        return FindPartitionGroupCandidates(context, record, conditions, groupIndex, applyMutualExclusion: groupIndex == 0);
+    }
+
+    // (A4) AS-IS group filter (Partition.cs:66-117): one-colour = HasCardColor(colour) && HasLevel &&
+    // Level == condition.Level (EXACT); two-colour = either colour + exact level; by-name = EqualsCardName
+    // (level ignored). Level/colour read through the (A3) folded view.
+    private static IReadOnlyList<HeadlessEntityId> FindPartitionGroupCandidates(
+        EngineContext context, CardInstanceRecord record, IReadOnlyList<PartitionCondition> conditions, int groupIndex, bool applyMutualExclusion)
+    {
+        PartitionCondition condition = conditions[groupIndex];
+        var candidates = new List<HeadlessEntityId>();
+        foreach (HeadlessEntityId sourceId in SourceIds(record.Metadata))
+        {
+            if (MatchesPartitionCondition(context, record, sourceId, condition))
+            {
+                candidates.Add(sourceId);
+            }
+        }
+
+        if (applyMutualExclusion && groupIndex == 0)
+        {
+            // AS-IS pre-adjust: when group 2 has exactly one candidate, that card is reserved for group 2.
+            List<HeadlessEntityId> other = SourceIds(record.Metadata)
+                .Where(id => MatchesPartitionCondition(context, record, id, conditions[1]))
+                .ToList();
+            if (other.Count == 1)
+            {
+                candidates.Remove(other[0]);
+            }
+        }
+
+        return candidates;
+    }
+
+    private static bool MatchesPartitionCondition(EngineContext context, CardInstanceRecord record, HeadlessEntityId sourceId, PartitionCondition condition)
+    {
+        var source = new CardSourceView(context, sourceId, record.OwnerId);
+        if (condition.HasOneColour)
+        {
+            return condition.Color is not null && source.HasCardColor(condition.Color)
+                && source.HasLevel && source.Level == condition.Level;
+        }
+
+        if (condition.hasTwoColor)
+        {
+            return ((condition.Color is not null && source.HasCardColor(condition.Color))
+                    || (condition.Color2 is not null && source.HasCardColor(condition.Color2)))
+                && source.HasLevel && source.Level == condition.Level;
+        }
+
+        if (condition.hasName)
+        {
+            return condition.Name is not null && source.EqualsCardName(condition.Name);
+        }
+
+        return false; // AS-IS: an unrecognised condition nulls the group.
+    }
 
     // --- Resolve ------------------------------------------------------------
 
@@ -427,7 +560,7 @@ public sealed class DeletionReplacementTiming
             SetPendingOption(context, cardId, option);
             if (option == FragmentOption && context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? fr) && fr is not null)
             {
-                Upsert(context, cardId, m => m[FragmentRemainingKey] = FragmentCost(fr.Metadata));
+                Upsert(context, cardId, m => m[FragmentRemainingKey] = DeletionReplacementGate.FragmentCostOf(fr, context.EffectRegistry));
             }
 
             // C-14 Partition plays exactly two sources (one per AS-IS colour group) — a repeated single-select
@@ -465,6 +598,13 @@ public sealed class DeletionReplacementTiming
             ClearPendingOption(context, cardId);
             ClearFragmentRemaining(context, cardId);
             Mark(context, cardId, ReplacementDeclinedKey);
+            // (C6) a declined POST sub-selection (Save's optional target) closes the POST window — else it
+            // would reopen every loop iteration.
+            if (!IsPendingDeletion(context, cardId))
+            {
+                Mark(context, cardId, PostResolvedKey);
+            }
+
             return DeletionReplacementResolveResult.Declined(cardId);
         }
 
@@ -520,8 +660,10 @@ public sealed class DeletionReplacementTiming
                 return await DeletionReplacementGate
                     .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken: default, effectRegistry: context.EffectRegistry).ConfigureAwait(false);
             case ArmorPurgeOption:
-                return await DeletionReplacementGate
-                    .TryArmorPurgeAsync(context.CardInstanceRepository, context.ZoneMover, cardId, context.EffectRegistry).ConfigureAwait(false);
+                // (B1) PRE replacement — the deletion is CANCELLED (AS-IS willBeRemoveField=false): only the
+                // top card is trashed and the under-source is promoted; the permanent never leaves play.
+                return await DeDigivolveHelpers.ArmorPurgeTopAsync(
+                    context.CardInstanceRepository, context.ZoneMover, cardId, context.GameEventQueue).ConfigureAwait(false);
             default:
                 return false;
         }
@@ -532,12 +674,21 @@ public sealed class DeletionReplacementTiming
         switch (option)
         {
             case ScapegoatOption:
-                await DeletionReplacementGate.SacrificeAsync(context.CardInstanceRepository, context.ZoneMover, target).ConfigureAwait(false);
+                // (C3) the holder survives only when the sacrifice actually resolved (AS-IS successProcess).
+                if (!await DeletionReplacementGate.SacrificeAsync(context.CardInstanceRepository, context.ZoneMover, target).ConfigureAwait(false))
+                {
+                    return (false, false);
+                }
+
                 ClearDeletion(context, cardId);   // the holder survives
                 return (true, true);
             case DecoyOption:
-                // Sacrifice the chosen Decoy ally; the card being deleted survives.
-                await DeletionReplacementGate.SacrificeAsync(context.CardInstanceRepository, context.ZoneMover, target).ConfigureAwait(false);
+                // Sacrifice the chosen Decoy ally; the card being deleted survives only on success (C3).
+                if (!await DeletionReplacementGate.SacrificeAsync(context.CardInstanceRepository, context.ZoneMover, target).ConfigureAwait(false))
+                {
+                    return (false, false);
+                }
+
                 ClearDeletion(context, cardId);
                 return (true, true);
             case FragmentOption:

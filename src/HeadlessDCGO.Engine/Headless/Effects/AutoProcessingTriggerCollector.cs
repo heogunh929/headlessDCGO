@@ -207,11 +207,34 @@ public sealed class AutoProcessingTriggerCollector
         };
     }
 
+    /// <summary>(P5) event-metadata key selecting a counter-timing PASS: <c>"regular"</c> collects only
+    /// effects WITHOUT the [Counter] marker, <c>"counter"</c> only marked ones (AS-IS AttackProcess
+    /// CounterTiming's two ordered passes over EffectTiming.OnCounterTiming split by IsCounterEffect).
+    /// Absent = no filtering (non-attack counter windows behave as before).</summary>
+    public const string CounterPassKey = "counterPass";
+    public const string CounterPassRegular = "regular";
+    public const string CounterPassCounter = "counter";
+
+    /// <summary>(P5) binding-values marker mirroring AS-IS <c>ICardEffect.IsCounterEffect</c> — a true
+    /// [Counter] effect (resolves in the second counter pass).</summary>
+    public const string IsCounterEffectKey = "counter.isCounterEffect";
+
     private static bool MatchesEvent(
         EffectRequest effect,
         GameEvent gameEvent,
         string timing)
     {
+        // (P5) two-pass counter timing: the emitting pipeline tags the pass; effects split by their
+        // IsCounterEffect marker (AS-IS non-[Counter] resolve first, then [Counter]).
+        if (gameEvent.Metadata.TryGetValue(CounterPassKey, out object? passRaw) && passRaw is string pass)
+        {
+            bool isCounterEffect = effect.Context.Values.TryGetValue(IsCounterEffectKey, out object? marker) && marker is true;
+            if (isCounterEffect != string.Equals(pass, CounterPassCounter, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
         // (G12-003) "Anyone" timings (e.g. OnDestroyedAnyone) are board-wide: any registered effect fires
         // regardless of which card the event is about, and reads the subject (the deleted/affected card)
         // from the event metadata. The card-scoping filters below would otherwise drop a listener bound to a
