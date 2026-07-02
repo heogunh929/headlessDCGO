@@ -266,7 +266,7 @@ public sealed class SecurityResolver
 
     private static bool IsDigimon(CardRecord definition)
     {
-        return string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        return definition.IsCardType("Digimon");
     }
 
     private static int ReadStrike(EngineContext context, CardInstanceRecord attacker, CardRecord attackerCard)

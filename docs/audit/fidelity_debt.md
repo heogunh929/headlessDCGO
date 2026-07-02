@@ -108,9 +108,9 @@
 
 | 프리미티브 | 등록(live) | 소비자(latent) | 상환 방법 |
 |---|---|---|---|
-| **MindLink** | `HasKeyword(MindLink)` | tamer-as-Digimon 판정부 | 태머를 특정 효과에서 디지몬으로 취급하는 소비자에 `HasKeyword(MindLink)` 체크 추가 |
-| **ChangeSelfLinkMax** | `linkedMaxDelta` 연속 수정자 | `LinkHelpers.EnforceLinkedMaxAsync`(registry 미보유) | Enforce 경로에 registry/context 스레딩 후 `ReadLinkedMax`가 연속 수정자 합산 |
-| **GrantedReduceLinkCost** | `linkCostDelta` 연속 수정자 | `LinkSelfEffect` 코스트 지불부 | Link 코스트 해석을 `ContinuousModifierGate` 경유로 변경 |
+| ~~MindLink~~ | — | — | **✅ 해소(K5, 2026-07-02)**: 키워드가 아니라 프로세스였음 — `MindLinkClass` 신설(G9-060). 키워드 grant는 표시용 |
+| ~~ChangeSelfLinkMax~~ | — | — | **✅ 해소(G9-056)**: LinkedMax metric + Enforce 스레딩 |
+| ~~GrantedReduceLinkCost~~ | — | — | **✅ 해소(G9-056)**: LinkCost metric + 지불부 폴딩 |
 
 **behavior-live(소비자 배선 완료, 실제 동작함)**: 키워드 grant 9종·Rush/Reboot/CanNotAttack static·Gain1/Gain2·CantUnsuspend·CanNotBeBlocked·CanNotBeDestroyedBySkill·ChangeSAttackStatic·ReturnToLibraryBottom·ReplaceBottomSecurity·Training·MaterialSave·**UseRequirements(ignore-color, DigivolveAction consult 배선)**·Arts/BlastDNA(subsume). = W3 24/27 behavior-live, 3/27 seal.
 
@@ -135,7 +135,7 @@
 | 항목 | 위반 | 조치 |
 |---|---|---|
 | DigiXros/Blast/DNA/Jogress 재료 조건 | 원본 임의 `CanSelectCardCondition(CardSource)` 술어를 **평면 카드-이름으로 뭉갬** | ✅ **수정**: `SpecialPlayRecipe`를 `SpecialPlayMaterial(Func<CardSource,bool> Matches, Label)` 술어 기반으로 재설계. `TryMatchMaterials`가 술어 평가. 이름형은 `DigiXrosEffectFromNames`(이름-일치 술어), 임의형은 `DigiXrosEffect(params SpecialPlayMaterial)`. **G9-049**(Lv3 술어 1:1 평가 검증). |
-| `CanNotBeDestroyedStaticEffect` | `permanentCondition`을 받아놓고 **무시**(self 전용) | ⚠️ **문서화**: self형("이 디지몬 삭제불가")은 1:1. **SET형("당신의 X 디지몬 삭제불가")은 player-scope prevent 미구현 → STOP(강모델)**. 팩토리 doc + 여기 기록. self를 SET처럼 쓰지 말 것. |
+| `CanNotBeDestroyedStaticEffect` | `permanentCondition`을 받아놓고 **무시**(self 전용) | ⚠️ **문서화**: self형("이 디지몬 삭제불가")은 1:1. ~~SET형은 player-scope prevent 미구현 → STOP~~ → **✅ 해소(FR2 시기 구현 확인, 2026-07-02 재검증)**: non-null 술어는 `ContinuousPlayerScopeRestrictionEffect(PreventDeletionKey, ScopePred)` — SET형도 1:1. |
 
 **원칙 재확인**: 술어를 받는 팩토리는 그 술어를 **평가**해야 함(뷰 계층으로 가능). 이름/스칼라로 뭉개면 FAIL. 발견-배선(on-demand 등록)은 원본 라이브평가의 브릿지이나, 재료 조건 자체는 이제 1:1.
 
@@ -150,8 +150,8 @@
 
 - **✅ ChangeSecurityDigimonCardDPStaticEffect(cardCondition)** — 원본은 cardCondition이 대상 플레이어까지 결정(예: `cs.Owner == card.Owner.Enemy` = 적 security). 기존 포팅 owner-scope 하드코딩 = **wrong-player 버그**. `PlayerScopeContinuousHelpers.ScopeAnyPlayerKey`(양 플레이어 스코프) + cardCondition을 scopePredicate로 1:1 평가. **G9-052**.
 - **✅ UseRequirements(cardCondition)** — 원본 CanUseCondition: owner가 cardCondition 매칭 Digimon/Tamer(배틀|브리딩) 보유 시에만 ignore-color 활성. 기존은 무조건 grant. 게이트로 폴딩 + `DigivolveAction.HasContinuousFlag`을 condition-aware(`ApplicableEffects`)로 전환(ignore-digivolution-req 플래그도 이제 condition 존중). **G9-052**.
-- **STOP DecoySelfEffect(permanentCondition)** — permanentCondition은 Decoy 리다이렉트 **후보 퍼머넌트**를 좁힘. self-only 현행은 permanentCondition=null만 1:1. 좁힌 형태는 DeletionReplacementGate.FindDecoyRedirectCandidates에 permanentCondition 배선 필요(F-6.8 서브시스템).
-- **STOP AddSelfDigivolutionRequirementStaticEffect(cardCondition, costEquation)** — cardCondition은 추가 진화요구 **대상 카드 집합**(기본 self=1:1). non-default는 DigivolveAction 추가-요구 스코핑 필요. costEquation(동적 비용)은 고정값 사용 중 → DigivolveAction 비용해석에 동적 배선 필요.
+- ~~STOP DecoySelfEffect(permanentCondition)~~ → **✅ 해소(D1, 2026-07-02)**: grant에 술어 저장 + 보호 대상에 라이브 평가(G9-055). 주의: 술어는 **보호 대상**(홀더 아님)에 걸린다.
+- ~~STOP AddSelfDigivolutionRequirementStaticEffect(cardCondition, costEquation)~~ → **✅ 해소(G9-052/G9-044)** + **level/min/max 게이트도 A2(2026-07-02)로 해소** — 이 팩토리는 전 인자 실동작.
 
 ## FR2/M-2 진행 (2026-07-01) — per-effect / per-battle 술어
 
@@ -164,12 +164,12 @@
 - **✅ M-3b ChangeDP effectName** — `SetEffectName`(표시 라벨)만, gameplay 미사용 = cosmetic. 무시 1:1.
 - **✅ M-5 ChangeBaseDPGlobal** — 이중 버그: (1) "global"=양 플레이어인데 owner-scope만 → `scopeAnyPlayer`. (2) **BaseDp modifier를 아무도 소비 안 함**(ContinuousDpGate가 Dp metric만) = DP 무영향 seal → `ContinuousDpGate.ResolveDp`가 BaseDp를 base에 먼저 fold. **G9-052**.
 - **RevealLibraryClass** — `InformationalRevealEffect`(no-op). 풀정보 엔진에서 reveal은 숨은 정보가 없어 1:1(단 "공개 시" 트리거 소비자는 미존재).
-- **ReplaceBottomSecurity** — top/bottom 플래그로 양단 처리. 명백한 버그 아님(심층 검증 대기).
+- ~~ReplaceBottomSecurity 심층 검증 대기~~ → **✅ 해소(M-5, 2026-07-02)**: AS-IS도 `Last()`=bottom/`Insert(0)`=top — 1:1 확인.
 
 ## FR2/M-4 진행 (2026-07-01) — preemptive-seal 언실
 
 - **✅ Decoy 언실** — Decoy 키워드 grant(`DecoySelfEffect` → `ContinuousKeywordGate.Decoy`)가 redirect 메커니즘과 프로덕션 미연결이었음(`HasDecoyKey` 메타는 테스트에서만 설정). `DeletionReplacementGate.FindDecoyRedirect`/`Candidates`에 `HasDecoy` 헬퍼(메타 OR `HasKeyword(registry)`) + sink·DeletionReplacementTiming 호출부에 `effectRegistry` 전달 → Decoy 실제 작동. **G9-055**. 잔여: `DecoySelf(permanentCondition)`의 target-narrowing(grant에 술어 저장 + context 평가) — permanentCondition=null 다수는 현재 1:1.
-- **잔여 seal**(behavior 구현): 링크 3종(Enforce/LinkSelfEffect 소비자) · 키워드-동작(Collision/Vortex/Ascension/TreatAsDigimon/MindLink) · W2 seal(Barrier/Evade/Save). 각 서브시스템 동작 구현.
+- ~~잔여 seal~~ → **✅ 전부 해소**: 링크 3종(G9-056) · 키워드-동작 5종(K1~K5, 2026-07-02) · W2 seal(S3/G9-058).
 
 ## FR2/M-4 전수조사 (2026-07-01) — 삭제-치환 키워드 10종 단일 seal
 
@@ -186,14 +186,14 @@
 - ✅ **게이트가 라이브 키워드를 직접 읽기**(`ContinuousKeywordGate.HasKeyword`) = **AS-IS 미러**(원본은 `CanActivateDecoy`/`EvadeProcess`가 키워드/효과를 삭제 시점에 라이브 평가). Decoy가 이 방식(G9-055).
 - ❌ **메타 동기화 브릿지**(키워드→Has*Key 복사)는 **AS-IS에 없는 헤드리스 워크어라운드** → 채택 금지(시도 후 제거).
 
-**진행**: Decoy ✅. Scapegoat/Fragment 게이트 라이브-읽기 추가(호출부 registry 미전달로 실효 미완). 잔여 7종 + 호출부 스레딩(sink·BattleResolver·DeletionReplacementTiming, 20+ 지점) = **대기**(사용자: 문서화만).
+**진행**: Decoy ✅ → ~~잔여 7종 대기~~ → **✅ 전부 해소(S3/G9-058, 2026-07-02)**: 게이트 라이브-읽기 + 호출부 스레딩 완료.
 
 ## 참고: 이번 세션 발견·수정한 seal (4건)
 등록은 되나 소비자 없음 = 무동작이던 것들: **BaseDp**(ContinuousDpGate Dp metric만) · **linkedMax/linkCost**(metric 없음+read 미반영) · **Decoy**(키워드↔메타 미연결). 전부 라이브-소비 경로로 배선(정적 감사로 발견). 나머지 삭제-치환 9종은 동일 패턴, 대기.
 
 ## S5 Execute 부분 완료 (2026-07-02)
 - ✅ 공격 대상 확장(상대 미서스펜드 공격 가능) + 종료 시 self-delete: `AttackPermanentAction`/`AttackPipeline`가 `HasKeyword(Execute)` 인식. G3.5-C910.
-- **STOP**: (1) "턴 종료 시 이 디지몬 공격 가능"(end-of-turn 공격창)은 헤드리스 미모델 → 별도 mechanic 필요.
+- ~~STOP: Execute 파트1(턴종료 공격창)~~ → **✅ 해소(Execute-1, 2026-07-02)**: `EndOfTurnEffectAttack`에 Execute 배선 — 플레이어+미서스펜드 디지몬 타깃(AS-IS ExecuteProcess `canAttackPlayer: ()=>true` + isExecute), 소환둔화 미우회(Permanent.cs:2244 — Rush/isVortex만 우회), self-delete는 **창-공격에만 per-attack 플래그로 arm**(선언 시 스탬프, ResolveChoice). **부수 교정 2건**: (1) S5의 블랭킷 `HasKeyword(Execute)` self-delete가 일반 메인페이즈 공격에도 적용되던 과대적용 제거(AS-IS는 ExecuteProcess 내 UntilEndAttack DeleteSelfEffect만); (2) self-delete가 직접 AddToTrash → **sink Delete 경유**로 교체(would-be-deleted 치환 응답·P1 leave-play 정리·삭제 트리거 적용 — AS-IS DeleteSelfEffect는 정규 DeletePermanent). C910 테스트 3건(창 셀프삭제/일반공격 비삭제/소환둔화).
 
 ## M-4/M-5 잔여 구현 (2026-07-02) — D1·K1~K5 완료, debt/축소 기록
 
@@ -205,6 +205,7 @@
 - **K5 — face-up/flipped 축소(검증된 1:1 축소)**: AS-IS MindLink 조건 `DigivolutionCards.Count(cs => cs.IsTamer && !cs.IsFlipped) == 0`에서 `!IsFlipped`는 축소 — 헤드리스에 under-card flip 모델 없음(전부 face-up = AS-IS 기본 상태). flip 메커니즘 도입 시 재방문.
 - **K5 — leave-field 트리거 미발화**: `MindLinkClass.MindLink`의 테이머 필드 이탈은 직접 zone-move(레지스트리 정리는 수행)라 leave-field 트리거 창을 열지 않음. AS-IS `IPlacePermanentToDigivolutionCards`의 이탈 처리 대조 후 필요 시 sink 경유로 전환.
 - **기존 debt 유지**: Decoy/Save의 first-candidate 결정론(AS-IS "select 1"; Decoy는 F68D per-card condition 창으로 부분 해소), Execute 턴종료 공격창.
+- **B3 마커 뉘앙스(문서-구현 불일치 기록)**: fix_design은 rule 삭제(DP≤0)에 `DeletedByRuleKey` 신설을 제안했으나 구현은 sink의 기존 `DeletedByEffectKey` 스탬프를 유지하고 `isDpZero`만 추가함. 현 소비자 전부 무영향 검증(Decode/Partition은 `!byBattle`[&&`!ownEffect` — rule source는 인스턴스 미해석이라 ownEffect=false]만 보고, Decoy는 deleter-enemy 게이트로 자연 배제). **미래에 "IsByEffect" 술어 소비자가 생기면** rule 삭제가 효과 삭제로 오독될 수 있음 — 그때 rule 마커 분리.
 
 **부수 수정(일반 버그, 이번 세션 발견):**
 - `ContinuousKeywordGate.HasKeyword(registry-only)`가 **player-scope grant의 source 카드를 홀더로 오인**(스코프·술어 우회) → player-scope 바인딩은 context 경로에서만 매칭하도록 수정.
@@ -214,14 +215,14 @@
 ## 위반 조치 구현 (2026-07-02) — A1~A4·B1~B5·C군, 신규 debt
 
 설계·검증표: [fidelity_violation_fix_design.md](fidelity_violation_fix_design.md). 전 항목 구현·green.
-> **→ 선행조치 P1~P8 설계·구현**: [**fidelity_debt_prereq_design.md**](fidelity_debt_prereq_design.md) — **P1·P2·P3·P5·P7·P8 구현 완료(2026-07-02)** → 아래 debt 중 #1(leak 실버그로 재정의)·#2·#3·#5·#7·#8 **해소**. 잔여 = **#4**(B4 멀티패스, P4 설계 대기 — BT10-096형 포팅 시)·**#6**(희생 재귀, P6 별도 goal). 신규 관찰: 죽은 카드 자신의 트리거는 이제 "삭제 처리 중 동기 해소"(knockout/security-check 창) — 다른 삭제-타이밍 창을 추가할 때 같은 패턴을 쓸 것(drop 후 큐잉은 무효).
+> **→ 선행조치 P1~P8 전체 + C7~C9 구현 완료(2026-07-02)**: [**fidelity_debt_prereq_design.md**](fidelity_debt_prereq_design.md) — 아래 debt **#1~#8 전부 해소**, 별건 C7(dual)·C8(link 분리 — 재검증 결과 이미 분리돼 있었음)·C9(수명주기 — 표적 감사 후 isLinkedEffect 라이브 게이트 배선, rootCardEffect는 검증된 축소) 까지 완료. 로컬 LLM 포팅 전 선행 처리 방침에 따라 스킬 패키지(카탈로그 재생성 스크립트·레시피)도 갱신. 신규 관찰: 죽은 카드 자신의 트리거는 "삭제 처리 중 동기 해소"(knockout/security-check 창) — 다른 삭제-타이밍 창을 추가할 때 같은 패턴을 쓸 것(drop 후 큐잉은 무효).
 
 **신규/잔여 debt (P1~P8 반영 전 기준; 위 표기대로 6건 해소됨):**
 - **삭제시점 키워드 스냅샷의 배틀-경로 갭**: sink `ApplyDelete`는 삭제 직전 POST 키워드(Fortitude/Ascension/Save/Decode/Partition/ArmorPurge)+Partition 조건을 메타로 스냅샷하지만(A4 부수 구현 — 없으면 binding drop으로 키워드-grant POST가 전부 inert), **배틀 삭제 경로(BattleResolver finalize)는 미적용** — 배틀 삭제로 죽는 키워드-grant Ascension/Save/Fortitude는 여전히 레지스트리 drop 시점에 따라 유실 가능. 배틀 finalize에 동일 스냅샷 폴딩 필요.
 - **B5 다중-공격자 Attack 모드**: `SelectPermanentEffect.TryOpenAttack`은 첫 공격자 1개만 초이스 오픈(포팅된 Attack-모드 카드는 maxCount 1). AS-IS는 선택된 전 공격자 순차 — 다중 선택 카드 등장 시 공격자 큐 파킹 확장.
 - **B5 조합 술어(canEndSelectCondition)**: 저장+`IsValidSelection` 노출까지 — ChoiceRequest 스키마가 집합 제약을 표현 못 해 초이스 공급자(RL/스크립트)가 소비해야 함. 중앙 검증-재요청 루프는 초이스 인프라 확장 시.
-- **B4 다중 조건 reveal 패스**(BT10-096형 `SelectCardConditionClass[]`+mutualConditions): 미모델 — 해당 카드 포팅 시 조건별 순차 RequestChoice 루프로 확장(설계 골격은 fix_design B4-6).
-- **C5 Counter 2-pass**: 비-[Counter]→[Counter] 순서 분리는 [Counter] 마커가 포트 효과 모델에 없어 **probe 후 보류** — counter 효과 모델링 시 재방문.
-- **C3 중첩 치환**: 희생 대상의 자체 would-be-deleted 치환(희생당하는 Evade 홀더 등) 재귀는 미모델(CannotBeDeleted 가드만 폴딩). AS-IS는 DeletePermanent 전 과정 경유.
+- ~~B4 다중 조건 reveal 패스~~ → **✅ 해소(P4, 2026-07-02)**: `RequestMultiChoice`+`RevealSelectPass`+`RevealFlowState`(mutualConditions 정확 규칙 포함, B7 테스트).
+- ~~C5 Counter 2-pass~~ → **✅ 해소(P5, 2026-07-02)**: `IsCounterEffectKey` 마커 + 2-pass 파킹(W6 순서 테스트).
+- ~~C3 중첩 치환~~ → **✅ 해소(P6, 2026-07-02)**: 희생이 sink Delete 경유 — 대상의 자체 치환 발동 + `sacrificeAwaiting` 파킹(F68 양방향 테스트).
 - **B3 무DP permanent**: `TrashNoDPPermanentProcess`(printed DP 없는 permanent의 직접 트래시)는 포트 sweep이 미포괄(HasLethalDp가 defined-DP 요구) — 배틀에리어에 무DP 카드가 놓이는 메커니즘 등장 시 폴딩.
 - **B2 시큐리티-디지몬 배틀 앞 OnSecurityCheck 순서**: battle→pierce 구간은 파킹으로 복원; SecurityResolver 내부(OnSecurityCheck 스킬 → 시큐리티 배틀) 순서는 후속(동일 파킹 패턴 적용 조사).

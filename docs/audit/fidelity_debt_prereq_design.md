@@ -1,6 +1,10 @@
 # 잔여 debt 선행조치(P1~P8) 설계 (2026-07-02)
 
-> **✅ 구현 완료 (같은 날): P1 · P2 · P3 · P5 · P7 · P8** (P4·P6은 설계대로 카드 등장/별도 goal 대기).
+> **✅ 전체 구현 완료: P1~P8** — 사용자 방침("로컬 LLM 포팅 전 자잘한 작업 전부 선행 처리") 확정에 따라 P4·P6도 같은 날 구현.
+> - **P4**: BT10-096/BT10-097/ST17-11 실카드 probe로 AS-IS 확정(패스별 공유 풀·chosen 제외·빈 패스 skip·per-pass Mode·mutualConditions는 canNoSelect 완화 규칙, 현행 사용 0) → `RevealAndSelect.RequestMultiChoice` + `RevealSelectPass` + `RevealFlowState` 서비스(`Custom` 목적지 = `TakeCustomSelections()`). B7 +3.
+> - **P6**: 희생을 sink Delete 경유로 — 희생 대상의 자체 PRE 치환(Evade …) 발동, defer 시 홀더 `sacrificeAwaiting` 파킹, `SettleAwaitingSacrifices`가 대상 사망→홀더 스페어 / 대상 생존→홀더 사망 진행. 재진입 가드(pendingDeletion/awaiting 대상 후보 불가). F68 +2 (Evade 성공/거절 양방향).
+> - **추가 (C7~C9, 같은 방침)**: C7 dual 카드(`CardRecord.IsCardType` + `cardTypes` 메타, 전 타입판정 치환) · C8 재검증(link는 이미 `linkedCardIds`로 분리돼 있었음 — 잔여는 view뿐) · C9 표적 감사 완료(rootCardEffect = IsSameEffect 중복판정 전용 → binding id로 이미 구분, 검증된 축소; isLinkedEffect = 라이브 게이트) → `CardSource.IsLinked` + `LinkedGate`(9개 팩토리 배선). **부수 수정**: registry-only `HasKeyword`가 grant의 저장 condition을 미평가(조건부 self-키워드 항상-켜짐)이던 갭 수정. G9-063 신설 3.
+> - **스킬 패키지 갱신**: `scripts/generate-primitive-catalog.py`(카탈로그 마스터 자동 재생성, 121종) + PRIMITIVE-CATALOG 인자-실동작 경고·클래스 직접 생성 표면 섹션 + PORTING-RECIPE 의도→팩토리 표 13행 추가.
 > - **P1**: `CardLeavePlayCleanup` 신설(스냅샷 공용화+배틀/sweep drop). 구현 중 발견: 스케줄러는 레지스트리 경유로 effect를 해소하므로 drop 전 enqueue만으로는 부족 → **죽은 카드의 OnKnockOut 창을 finalize 내부에서 동기 해소**(G8-003 OnStartBattle 패턴, AS-IS TriggeredSkillProcess 위치와 일치). G9-062 신설 3(leak 노출 테스트 포함).
 > - **P2**: `ChoiceRequest.SelectionValidator` + `ChoiceResult.Validate` 조합 게이트 → resolve 거부·재선택. SelectPermanentEffect가 중앙 부착. CVA2 +1.
 > - **P3**: `EffectAttackQueue` 서비스 + `RequestQueuedChoices`/`TryOpenNextQueued`(공격 종료·decline·불법타깃 시 재개). CVA2 +1. → **debt#2 해소**.

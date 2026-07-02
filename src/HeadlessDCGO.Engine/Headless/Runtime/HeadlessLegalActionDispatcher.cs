@@ -120,7 +120,7 @@ public sealed class HeadlessLegalActionDispatcher
 
         // IsDigimon: the top card must be a Digimon card (a Digi-Egg / Tamer / Option cannot move).
         // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
-        if (!string.Equals(definition.CardType, "Digimon", StringComparison.Ordinal)
+        if (!definition.IsCardType("Digimon")
             && !ContinuousKeywordGate.IsDigimon(context, cardId))
         {
             return false;
@@ -128,7 +128,7 @@ public sealed class HeadlessLegalActionDispatcher
 
         // IsDigiEgg && DP <= 0: a Digi-Egg-typed card with no DP cannot move (defensive; redundant with the
         // Digimon check under the single-CardType model, but faithful to the original two-part guard).
-        if (string.Equals(definition.CardType, "DigiEgg", StringComparison.Ordinal) && ReadDp(context, instance, definition) <= 0)
+        if (definition.IsCardType("DigiEgg") && ReadDp(context, instance, definition) <= 0)
         {
             return false;
         }

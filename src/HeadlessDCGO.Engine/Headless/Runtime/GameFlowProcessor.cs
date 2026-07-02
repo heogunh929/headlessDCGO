@@ -51,6 +51,14 @@ public sealed class GameFlowProcessor
                 return FlowProcessResult.Paused(progressedAny, resolvedTotal, iterations);
             }
 
+            // (P6) settle holders whose chosen sacrifice's own window has resolved — BEFORE any window
+            // reopens for them (spared when the ally died, back to dying when it saved itself).
+            if (DeletionReplacementTiming.SettleAwaitingSacrifices(context))
+            {
+                progressedAny = true;
+                continue;
+            }
+
             // F-6.8: before the state-based sweep finishes any deferred deletion, open the would-be-deleted
             // replacement window for cards that carry an OPTIONAL replacement keyword, so the owner decides
             // (activate / skip) instead of it being auto-applied. Opening a choice pauses the loop.
@@ -160,7 +168,9 @@ public sealed class GameFlowProcessor
                     // swept yet — the deletion-replacement window resolves first (activate clears the flag,
                     // skip marks it declined so the next sweep finishes it). A BATTLE-deferred card
                     // (deletedByBattle) is finalized by BattleResolver.FinalizeDeferredAsync, never swept here.
-                    if (pending && (deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)))
+                    if (pending && (deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)
+                        // (P6) a holder waiting on its sacrifice's fate is settled by SettleAwaitingSacrifices.
+                        || IsSacrificeAwaiting(context, cardId)))
                     {
                         continue;
                     }
@@ -228,6 +238,11 @@ public sealed class GameFlowProcessor
     /// Digimon with no printed DP at all is left alone (mirrors BattleResolver's "no battle DP" guard
     /// and avoids deleting DP-less abstract fixtures).
     /// </summary>
+    // (P6) the holder parks while its chosen sacrifice decides its own would-be-deleted window.
+    private static bool IsSacrificeAwaiting(EngineContext context, HeadlessEntityId cardId) =>
+        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
+            && record.Metadata.ContainsKey(DeletionReplacementTiming.SacrificeAwaitingKey);
+
     /// <summary>(P7) mirror of AS-IS <c>IsPlaceToTrashDueToNotHavingDP</c> (default true; effects may clear).</summary>
     public const string PlaceToTrashDueToNoDpKey = "isPlaceToTrashDueToNotHavingDP";
 
@@ -260,9 +275,9 @@ public sealed class GameFlowProcessor
             return false;
         }
 
-        bool isDigiEgg = string.Equals(definition.CardType, "DigiEgg", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(definition.CardType, "Digitama", StringComparison.OrdinalIgnoreCase);
-        bool isUnplayedOption = string.Equals(definition.CardType, "Option", StringComparison.OrdinalIgnoreCase)
+        bool isDigiEgg = definition.IsCardType("DigiEgg")
+            || definition.IsCardType("Digitama");
+        bool isUnplayedOption = definition.IsCardType("Option")
             && !(instance.Metadata.TryGetValue(IsPlayedOptionPermanentKey, out object? played) && played is true);
         return isDigiEgg || isUnplayedOption;
     }
@@ -295,7 +310,7 @@ public sealed class GameFlowProcessor
             instance is null ||
             !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) ||
             definition is null ||
-            !string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase))
+            !definition.IsCardType("Digimon"))
         {
             return false;
         }

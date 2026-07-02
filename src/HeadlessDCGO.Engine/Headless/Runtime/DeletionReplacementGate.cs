@@ -443,7 +443,7 @@ public static class DeletionReplacementGate
     private static bool ProtectedTargetIsDigimon(EngineContext? context, CardInstanceRecord target) =>
         context is null ||
         (context.CardRepository.TryGetCard(target.DefinitionId, out CardRecord? definition) && definition is not null &&
-         string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase));
+         definition.IsCardType("Digimon"));
 
     // (M-4) Same seal as Decoy for the other deletion-replacement keywords: the metadata flag is only ever set
     // in tests, and there is no keyword->metadata bridge, so the live keyword grant (Fragment/Scapegoat/Save)

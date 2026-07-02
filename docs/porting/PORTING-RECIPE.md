@@ -95,6 +95,17 @@ bash scripts/run-tests.sh          # SUMMARY: PASS=N FAIL=0 여야 함
 | `new AddDigiXrosConditionClass(); SetUp(GetDigiXros)` — 재료에 **임의 조건**(`CanSelectCardCondition`) | `DigiXrosEffect(card, cr, new SpecialPlayMaterial(cs => …원본 술어 1:1…, "label"), …)` — **술어를 뭉개지 말 것** |
 | `CardEffectFactory.BlastDNADigivolveEffect(card, conds, cond)` | `BlastDNADigivolveEffect(card, blastDNAConditions, condition)` |
 | `new AddJogressConditionClass(); SetUp(GetJogress)` (DNA/Jogress) | `JogressEffectFromNames(card, condition, names…)` (GetJogress 재료 이름 번역) |
+| `partitionConditions.Add(new PartitionCondition(4, CardColor.Red)); …` (Partition 색 그룹) | 같은 이름 그대로: `new PartitionCondition(4, "Red")` 2개 배열 → `PartitionSelfEffect(false, card, cond, new[]{c0, c1})` — **조건을 빼먹지 말 것**(색 그룹이 메커니즘의 정의) |
+| `new MindLinkClass(tamer, digimonCondition, activateClass).MindLink()` (Mind Link) | `new MindLinkClass(new Permanent(ctx, tamerId, owner), digimonCondition, null)` → `BuildRequest()`/`MindLink(선택Id)` — 키워드 grant(`MindLinkSelfEffect`)는 표시용일 뿐 메커니즘이 아님 |
+| `new ChangeCardLevelClass(); SetUpChangeCardLevelClass(GetLevel)` (레벨/색/특성 변경) | 같은 클래스명 그대로 미러: `SetUpICardEffect(설명, CanUse, card)` + `SetUpChange...Class(원본 변환 Func 1:1)` — 색/특성은 `List<string>` |
+| `CardEffectCommons.RevealDeckTopCardsAndSelect(revealCount, 조건, remainingPlace, ..)` (단일 조건) | `RevealAndSelect.RequestChoice(ctx, player, revealCount, maxSelect, selectedTo, remainingTo, selectCondition, isOpponentDeck)` |
+| `RevealDeckTopCardsAndProcessForAll(...)` (선택 없음, 전 매칭 처리) | `RevealAndSelect.RevealAndProcessAllAsync(...)` — **초이스로 바꾸지 말 것**(mandatory) |
+| `RevealDeckTopCardsAndSelect(revealCount, SelectCardConditionClass[]{...}, ...)` (다중 조건, BT10-096형) | `RevealAndSelect.RequestMultiChoice(ctx, player, revealCount, new[]{ new RevealSelectPass(조건, max, 목적지, 메시지, canNoSelect, canEndNotMax), ... }, remainingTo)` — 원본 `Mode.Custom` = `RevealDestination.Custom`(카드 스크립트가 `RevealFlowState.TakeCustomSelections()`로 회수해 후속 처리) |
+| `SelectPermanentEffect` Attack/Degenerate 모드 | `SetUp(..., Mode.Attack/Degenerate, ...)` + `SetAttackOptions(canAttackPlayer, defenderCondition)`(원본 ctor 인자 그대로) / `SetDegenerationCount(n)`; Attack 실행은 `TryOpenAttack(ctx, selected)` — 다중 공격자는 자동 순차 |
+| `canEndSelectCondition`(선택 조합 제약, 예: "서로 다른 색 2장") | `SetCanEndSelectCondition(집합술어)` — resolve가 불법 조합을 중앙 거부 |
+| `activateClass.SetIsLinkedEffect(true)` (링크 상태 효과) | 해당 팩토리의 `isLinkedEffect: true` — 링크 중일 때만 활성(라이브 게이트) |
+| dual 카드(Digimon이자 Option) | 정의 메타 `"cardTypes"`에 추가 종류 배열 (`CardRecord.AdditionalCardTypesKey`) |
+| 카운터 타이밍의 진짜 [Counter] 효과 | binding values `AutoProcessingTriggerCollector.IsCounterEffectKey = true` (2-pass 순서: 비-[Counter] 먼저) |
 
 > **STOP-목록(강모델 전용)**: `new AddSkillClass()`(효과 동적 부여)·`CardEffectCommons.AddEffectToPlayer(..)`(플레이어 딜레이)·`CardEffectCommons.PlayOptionCards(..)`·`AddSelfLinkConditionStaticEffect`(대체 링크원)·`AddMaxTrashCountDigiXrosClass`(DigiXros 트래시-보정)·중첩 커스텀 coroutine(예: removal-prevent, `ChangeEndTurnMinMemoryClass`). 이들은 STOP 후 강모델로.
 > **특수플레이 DigiXros/Blast/DNA/Jogress는 이제 위 팩토리로 선언 = 로컬모델 가능**(재료 이름/조건만 config).

@@ -27,7 +27,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Collision: GrantCollision forces the opponent to block with any Digimon", CollisionForcesBlock),
     ("S4: Collision granted via the KEYWORD (no metadata) forces block — un-sealed", CollisionViaKeywordUnsealed),
     ("(K3) a CanNotAffected(opponent-Digimon) defender is NOT forced by Collision (per-defender guard)", CollisionImmuneDefenderNotForced),
-    ("S5: Execute granted via the KEYWORD self-deletes after its attack — un-sealed", ExecuteViaKeywordSelfDeletes),
+    ("(Execute-1) a NORMAL attack by an Execute keyword holder does NOT self-delete (AS-IS)", ExecuteKeywordNormalAttackNoSelfDelete),
+    ("(Execute-1) the end-of-turn window: player+unsuspended targets, attacker self-deletes after ITS attack", ExecuteEndOfTurnWindowSelfDeletes),
+    ("(Execute-1) summoning sickness blocks the Execute window (no Rush)", ExecuteWindowRespectsSummoningSickness),
 };
 
 var failures = new List<string>();
@@ -119,7 +121,10 @@ async Task CollisionForcesBlock()
     AssertFalse(match.Context.ChoiceController.Current.CanSkip, "collision block cannot be skipped");
 }
 
-async Task ExecuteViaKeywordSelfDeletes()
+// (Execute-1) AS-IS ExecuteProcess adds the self-delete only for the END-OF-TURN window's attack — a
+// normal attack by an Execute keyword holder does NOT self-delete (the earlier keyword-blanket S5
+// behavior was over-broad and is corrected).
+async Task ExecuteKeywordNormalAttackNoSelfDelete()
 {
     DcgoMatch match = await NewMatch();
     used.Clear();
@@ -132,8 +137,45 @@ async Task ExecuteViaKeywordSelfDeletes()
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
     await DriveAttackAsync(match);
 
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "keyword Execute attacker self-deleted at end of attack (un-sealed)");
-    AssertFalse(InZone(match, P1, ChoiceZone.BattleArea, attacker), "attacker left the battle area");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, attacker), "a NORMAL attack by an Execute holder does not self-delete (AS-IS)");
+    AssertFalse(InZone(match, P1, ChoiceZone.Trash, attacker), "attacker not trashed");
+}
+
+// (Execute-1) the <Execute> end-of-turn window: the offer allows the PLAYER and unsuspended Digimon;
+// taking it arms the per-attack self-delete — the attacker is trashed when the window's attack ends.
+async Task ExecuteEndOfTurnWindowSelfDeletes()
+{
+    DcgoMatch match = await NewMatch();
+    used.Clear();
+    HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
+    HeadlessEntityId defender = await Establish(match, P2, dp: 3000, suspended: false, flag: null);   // UNSUSPENDED
+    match.Context.EffectRegistry.Register(
+        CardEffectFactory.ExecuteSelfEffect(false, new CardSource(match.Context, attacker, P1), null).ToBinding($"exec:{attacker.Value}"));
+
+    AssertTrue(EndOfTurnEffectAttack.TryOpen(match.Context, P1), "the end-of-turn window offers the Execute attack");
+    ChoiceRequest offer = match.Context.ChoiceController.PendingRequest!;
+    AssertTrue(offer.Candidates.Any(c => c.Id.Value.EndsWith(":effect-attack-player", StringComparison.Ordinal)),
+        "the PLAYER is a legal Execute target (AS-IS canAttackPlayerCondition: () => true)");
+    AssertTrue(offer.Candidates.Any(c => c.Id == defender), "an UNSUSPENDED Digimon is a legal Execute target (isExecute)");
+
+    AssertTrue(EffectDrivenAttack.ResolveChoice(match.Context, ChoiceResult.Select(defender)), "Execute attack declared");
+    await DriveAttackAsync(match);
+
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, defender), "the 3000DP defender lost the battle");
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "the Execute attacker self-deleted at the end of the WINDOW's attack");
+}
+
+// (Execute-1) AS-IS Permanent.CanAttack: isExecute does NOT bypass summoning sickness — an Execute
+// Digimon that entered this turn (no Rush) is not offered the window.
+async Task ExecuteWindowRespectsSummoningSickness()
+{
+    DcgoMatch match = await NewMatch();
+    used.Clear();
+    HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: ("enteredThisTurn", true));
+    match.Context.EffectRegistry.Register(
+        CardEffectFactory.ExecuteSelfEffect(false, new CardSource(match.Context, attacker, P1), null).ToBinding($"exec:{attacker.Value}"));
+
+    AssertFalse(EndOfTurnEffectAttack.TryOpen(match.Context, P1), "an Execute Digimon played this turn (no Rush) gets no window");
 }
 
 async Task CollisionViaKeywordUnsealed()

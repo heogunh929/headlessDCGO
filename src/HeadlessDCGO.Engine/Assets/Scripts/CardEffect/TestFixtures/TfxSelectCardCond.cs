@@ -19,7 +19,7 @@ public sealed class TfxSelectCardCond : CEntity_Effect
             bool IsTamer(HeadlessEntityId id) =>
                 card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? inst) && inst is not null
                 && card.Context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
-                && string.Equals(def.CardType, "Tamer", StringComparison.OrdinalIgnoreCase);
+                && def.IsCardType("Tamer");
 
             var condition = new SelectCardConditionClass(
                 canTargetCondition: IsTamer,

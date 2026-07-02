@@ -243,7 +243,7 @@ public sealed class OptionActivateAction
             return false;
         }
 
-        if (!string.Equals(card.CardType, "Option", StringComparison.OrdinalIgnoreCase))
+        if (!card.IsCardType("Option"))
         {
             error = $"Card definition '{instance.DefinitionId}' is not an Option card.";
             card = null;

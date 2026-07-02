@@ -296,14 +296,39 @@ public sealed class CardSource
     /// <summary>The card's printed number (e.g. "BT10-012"), used as the SpecialPlayRecipe key.</summary>
     public string CardNumber => Definition?.CardNumber ?? string.Empty;
 
-    public bool IsDigimon => string.Equals(Definition?.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
-    public bool IsTamer => string.Equals(Definition?.CardType, "Tamer", StringComparison.OrdinalIgnoreCase);
-    public bool IsOption => string.Equals(Definition?.CardType, "Option", StringComparison.OrdinalIgnoreCase);
+    // (C7) type judgements go through CardRecord.IsCardType — AS-IS CardKinds is a LIST, so a dual card
+    // (e.g. Digimon/Option hybrid) reports true for BOTH kinds.
+    public bool IsDigimon => Definition?.IsCardType("Digimon") == true;
+    public bool IsTamer => Definition?.IsCardType("Tamer") == true;
+    public bool IsOption => Definition?.IsCardType("Option") == true;
     public bool IsToken => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
         && i.Metadata.TryGetValue("isToken", out object? t) && t is bool b && b;
 
     // (A3) printed-data based like AS-IS CEntity_Base.HasLevel — a level-change fold does not grant a level.
     public bool HasLevel => PrintedLevel >= 0;
+
+    /// <summary>(C9) mirror of AS-IS <c>CardSource.IsLinked</c> (CardSource.cs:2947):
+    /// <c>PermanentOfThisCard().LinkedCards.Contains(this)</c> — true while this card is a LINK card of a
+    /// battle-area permanent (link cards are tracked separately from digivolution sources:
+    /// <c>LinkHelpers.LinkedCardIdsKey</c>). Evaluated LIVE — breaking the link flips it false.</summary>
+    public bool IsLinked
+    {
+        get
+        {
+            var zones = (IZoneStateReader)Context.ZoneMover;
+            foreach (HeadlessEntityId hostId in zones.GetCards(Owner, ChoiceZone.BattleArea))
+            {
+                if (Context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? host) && host is not null
+                    && LinkHelpers.ReadLinkedCardIds(host.Metadata).Contains(InstanceId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
     public bool IsLevel(int level) => Level == level;
     public bool HasCardColor(string color) => CardColors.Any(c => string.Equals(c, color, StringComparison.OrdinalIgnoreCase));
     public bool EqualsCardName(string name) => CardNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
@@ -3397,12 +3422,12 @@ public static partial class CardEffectFactory
     /// — grants Retaliation to self (Batch2). <paramref name="isLinkedEffect"/> is accepted for source-signature
     /// fidelity; the headless grant derives from the card source.</summary>
     public static ICardEffect RetaliationSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
-        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Retaliation, isInheritedEffect, condition);
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Retaliation, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition));
 
     /// <summary>(PRIM-W2) Original: <c>RaidSelfEffect</c> — grants Raid (attack-switch) to self.
     /// <paramref name="rootCardEffect"/>/<paramref name="isLinkedEffect"/> accepted for source fidelity.</summary>
     public static ICardEffect RaidSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null, bool isLinkedEffect = false) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Raid, isInheritedEffect, condition);
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Raid, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition));
 
     /// <summary>(PRIM-W2) Original: <c>BarrierSelfEffect</c> — grants Barrier (deletion-replacement) to self.</summary>
     public static ICardEffect BarrierSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -3410,7 +3435,7 @@ public static partial class CardEffectFactory
 
     /// <summary>(PRIM-W2) Original: <c>CollisionSelfStaticEffect</c> — grants Collision (forced-block) to self.</summary>
     public static ICardEffect CollisionSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Collision, isInheritedEffect, condition);
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Collision, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition));
 
     /// <summary>(PRIM-W2) Original: <c>FortitudeSelfEffect</c> — grants Fortitude (post-deletion replay) to self.</summary>
     public static ICardEffect FortitudeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -3478,7 +3503,17 @@ public static partial class CardEffectFactory
 
     /// <summary>(PRIM-W3) <c>ScapegoatSelfEffect</c> — grants Scapegoat (deletion-replacement) to self.</summary>
     public static ICardEffect ScapegoatSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null, string? effectDescription = null, bool isLinkedEffect = false) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Scapegoat, isInheritedEffect, condition);
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Scapegoat, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition));
+
+    /// <summary>(C9) AS-IS linked-effect gate (Permanent.cs:1532 / ICardEffect.cs:403): an effect flagged
+    /// <c>isLinkedEffect</c> is ACTIVE only while its source card is a LINK card of a battle-area permanent
+    /// (<c>cardSource.IsLinked</c>), evaluated LIVE on every read — breaking the link stops the effect (the
+    /// original has no removal event, only the two live guards). Wrapping the stored condition gives that
+    /// gate to every consumer with no per-gate changes.</summary>
+    internal static Func<bool>? LinkedGate(CardSource card, bool isLinkedEffect, Func<bool>? condition) =>
+        !isLinkedEffect
+            ? condition
+            : () => card.IsLinked && (condition?.Invoke() ?? true);
 
     /// <summary>(FR-P2) Adapts a ported card's <c>Func&lt;Permanent,bool&gt; permanentCondition</c> into the
     /// player-scope predicate (evaluated against each candidate 1:1). Null → no predicate (whole scope).</summary>
@@ -3493,7 +3528,7 @@ public static partial class CardEffectFactory
     /// <summary>(PRIM-W3) <c>RebootStaticEffect(permanentCondition, ...)</c> — grants Reboot to the owner's
     /// Digimon (player-scope). <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> per-card.</summary>
     public static ICardEffect RebootStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Reboot, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Reboot, scopeCardType: null, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition), ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W3) <c>CanNotAttackStaticEffect(...)</c> — the scoped player's Digimon cannot attack
     /// (player-scope CannotAttack restriction consulted by AttackPermanentAction). Per-permanent predicate is
@@ -3603,12 +3638,11 @@ public static partial class CardEffectFactory
     public static ICardEffect CanNotBlockStaticEffect(HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousPlayerScopeRestrictionEffect(card, scopePlayerId, RestrictionHelpers.CannotBlockKey, scopeCardType: null, isInheritedEffect, condition);
 
-    /// <summary>(PRIM-W4) <c>CanNotBeDestroyedStaticEffect</c> — registers a continuous Delete/Prevent
-    /// replacement on the HOST (battle + effect deletion), honoured by BattleDeletionGate and the effect-delete
-    /// path. **FIDELITY: SELF-only.** <paramref name="permanentCondition"/> is currently NOT honoured — the
-    /// prevent is a self replacement, so this is 1:1 only for the "THIS Digimon cannot be deleted" form. The
-    /// SET form ("your &lt;X&gt; Digimon cannot be deleted") needs a player-scope prevent (not built) → STOP to
-    /// the strong model for that form. See fidelity_debt.md.</summary>
+    /// <summary>(PRIM-W4/FR2) <c>CanNotBeDestroyedStaticEffect</c> — registers a continuous Delete/Prevent
+    /// replacement (battle + effect deletion), honoured by BattleDeletionGate and the effect-delete path.
+    /// null <paramref name="permanentCondition"/> = the self form ("THIS Digimon cannot be deleted");
+    /// non-null = the SET form ("your &lt;X&gt; Digimon cannot be deleted") — a player-scope prevent with the
+    /// predicate evaluated 1:1 per permanent. (An earlier revision of this doc said SET was unbuilt — stale.)</summary>
     public static ICardEffect CanNotBeDestroyedStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
         permanentCondition is null
             ? new ContinuousSelfRestrictionEffect(card, ReplacementHelpers.PreventDeletionKey, isInheritedEffect, condition)
@@ -3629,12 +3663,12 @@ public static partial class CardEffectFactory
     /// <summary>(PRIM-W4) <c>JammingStaticEffect</c> — grants Jamming to the owner's Digimon (player-scope
     /// keyword). <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> per-card.</summary>
     public static ICardEffect JammingStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Jamming, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Jamming, scopeCardType: null, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition), ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W4) <c>AscensionSelfEffect</c> — grants the Ascension keyword (post-deletion → security).
     /// Grant live via HasKeyword; DeletionReplacementGate's hasAscension consumer migrates separately.</summary>
     public static ICardEffect AscensionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
-        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Ascension, isInheritedEffect, condition);
+        new SelfKeywordByNameEffect(card, ContinuousKeywordGate.Ascension, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition));
 
     /// <summary>(PRIM-W4) <c>ChangeBaseDPGlobalEffect</c> — continuous ±base-DP on the owner's Digimon
     /// (player-scope BaseDp modifier consulted by ContinuousDpGate). <paramref name="permanentCondition"/>
@@ -3747,8 +3781,8 @@ public static partial class CardEffectFactory
     /// BattleDeletionGate. Per-card predicates accepted for fidelity.</summary>
     public static ICardEffect CanNotBeDestroyedByBattleStaticEffect(Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition, Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null, bool isLinkedEffect = false) =>
         permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, BattleDeletionGate.PreventBattleDeletionKey, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, BattleDeletionGate.PreventBattleDeletionKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+            ? new ContinuousSelfRestrictionEffect(card, BattleDeletionGate.PreventBattleDeletionKey, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition))
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, BattleDeletionGate.PreventBattleDeletionKey, scopeCardType: null, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition), ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W4) <c>CanNotBeTrashedBySkillStaticEffect</c> / <c>ImmuneStackTrashingClass</c> — this
     /// Digimon's digivolution cards cannot be trashed by effects. Registers a stack-trash immunity flag read
@@ -3820,7 +3854,7 @@ public static partial class CardEffectFactory
     /// <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> accepted for source fidelity,
     /// per-permanent narrowing beyond the owner scope is a per-card concern.</summary>
     public static ICardEffect BlockerStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>
-        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Blocker, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Blocker, scopeCardType: null, isInheritedEffect, LinkedGate(card, isLinkedEffect, condition), ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W2) Original: <c>SetMemoryTo3TamerEffect(card)</c> — "[Start of Your Turn] If you have
     /// 2 or less memory, set your memory to 3." (Tamer memory-setter). Triggered on OnStartTurn.</summary>
@@ -4248,7 +4282,7 @@ public static class CardEffectCommons
 
         return card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
             && def is not null
-            && string.Equals(def.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+            && def.IsCardType("Digimon");
     }
 
     /// <summary>Resolved current DP of a battle-area card (base printed DP folded with continuous DP
@@ -4479,7 +4513,7 @@ public static class CardEffectCommons
 
         return card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
             && def is not null
-            && string.Equals(def.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+            && def.IsCardType("Digimon");
     }
 
     /// <summary>Mirror of the original <c>card.PermanentOfThisCard().battle.enemyPermanent(...)</c>: the

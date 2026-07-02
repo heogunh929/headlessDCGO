@@ -5,7 +5,10 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
-/// (GR-006) The end-of-turn effect-driven-attack window for &lt;Vortex&gt; / &lt;Overclock&gt;. Both keywords
+/// (GR-006 / Execute-1) The end-of-turn effect-driven-attack window for &lt;Vortex&gt; / &lt;Overclock&gt; /
+/// &lt;Execute&gt;. &lt;Execute&gt; — attack the PLAYER or any Digimon (incl. unsuspended); no summoning-sickness
+/// bypass; the attacker self-deletes when the window's attack ends (per-attack flag, NOT on normal
+/// main-phase attacks). The first two keywords
 /// had their resolution machinery (<see cref="EffectDrivenAttack"/> hub, the OverclockTarget/EffectAttack
 /// choice handlers) but NO live trigger — nothing offered them during a game, so they were inert. This
 /// opens the offer at end of turn, gated by <see cref="ContinuousKeywordGate"/> (so a ported self-static
@@ -55,13 +58,28 @@ public static class EndOfTurnEffectAttack
 
             bool overclock = ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Overclock);
             bool vortex = ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Vortex);
-            if (!overclock && !vortex)
+            // (Execute-1) <Execute>: "[End of Your Turn] this Digimon may attack; at the end of that attack,
+            // delete it." Same window (AS-IS cards register ExecuteSelfEffect at EffectTiming.OnEndTurn).
+            bool execute = !vortex && !overclock &&
+                ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Execute);
+            if (!overclock && !vortex && !execute)
             {
                 continue;
             }
 
-            // Vortex makes a normal (suspending) attack — a suspended Digimon cannot take it.
+            // Vortex/Execute make a normal (suspending) attack — a suspended Digimon cannot take it.
             if (!overclock && ReadFlag(inst.Metadata, "isSuspended"))
+            {
+                continue;
+            }
+
+            // AS-IS Permanent.CanAttack: isExecute does NOT bypass summoning sickness (only Rush/isVortex
+            // do, Permanent.cs:2244) — an Execute Digimon played this turn without <Rush> cannot take the
+            // window's attack.
+            if (execute &&
+                ReadFlag(inst.Metadata, "enteredThisTurn") &&
+                !ReadFlag(inst.Metadata, "hasRush") &&
+                !ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Rush))
             {
                 continue;
             }
@@ -70,11 +88,18 @@ public static class EndOfTurnEffectAttack
             // (K1) AS-IS CanActivateVortex: the PLAYER becomes a legal Vortex target only while an active
             // IVortexCanAttackPlayersEffect accepts this attacker — evaluated ONCE when the offer opens
             // (mirrors the AS-IS canAttackPlayers snapshot at VortexProcess start).
-            bool vortexCanAttackPlayers = !overclock && ContinuousKeywordGate.HasKeyword(
+            bool vortexCanAttackPlayers = vortex && ContinuousKeywordGate.HasKeyword(
                 context, id, ContinuousKeywordGate.VortexCanAttackPlayers);
+            // <Execute>'s attack may always target the PLAYER (AS-IS ExecuteProcess
+            // canAttackPlayerCondition: () => true) and any Digimon incl. unsuspended (isExecute lifts the
+            // suspended-defender gate, Permanent.cs:2311); the attacker self-deletes when the attack ends.
             bool opened = overclock
                 ? OverclockEffect.RequestChoice(context, id)
-                : EffectDrivenAttack.RequestChoice(context, id, VortexOptions with { AllowPlayerTarget = vortexCanAttackPlayers });
+                : EffectDrivenAttack.RequestChoice(context, id, VortexOptions with
+                {
+                    AllowPlayerTarget = execute || vortexCanAttackPlayers,
+                    SelfDeleteAtEndOfAttack = execute,
+                });
             if (opened)
             {
                 return true;

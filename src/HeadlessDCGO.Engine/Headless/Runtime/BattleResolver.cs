@@ -466,7 +466,7 @@ public sealed class BattleResolver
 
     private static bool IsDigimon(CardRecord definition)
     {
-        return string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        return definition.IsCardType("Digimon");
     }
 
     private static bool TryReadDp(

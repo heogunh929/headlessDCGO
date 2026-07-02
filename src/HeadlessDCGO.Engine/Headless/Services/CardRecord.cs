@@ -4,6 +4,11 @@ using System.Collections.ObjectModel;
 
 public sealed record CardRecord
 {
+    /// <summary>(C7) metadata key carrying ADDITIONAL card types for dual cards (AS-IS
+    /// <c>CardSource.CardKinds</c> is a LIST — a hybrid dual card is BOTH Digimon and Option). The primary
+    /// <see cref="CardType"/> stays single; extra kinds ride here so every type judgement sees both.</summary>
+    public const string AdditionalCardTypesKey = "cardTypes";
+
     private string _cardNumber = string.Empty;
     private string _name = string.Empty;
     private string _cardType = "Unknown";
@@ -92,6 +97,37 @@ public sealed record CardRecord
     {
         get => _metadata;
         init => _metadata = CopyMetadata(value);
+    }
+
+    /// <summary>(C7) whether this card is of <paramref name="cardType"/> — the single printed
+    /// <see cref="CardType"/> OR any additional kind under <see cref="AdditionalCardTypesKey"/> (AS-IS
+    /// <c>CardKinds.Contains(kind)</c>: a dual card reports true for BOTH its kinds). Every type
+    /// judgement must use this instead of comparing <see cref="CardType"/> directly.</summary>
+    public bool IsCardType(string cardType)
+    {
+        if (string.IsNullOrWhiteSpace(cardType))
+        {
+            return false;
+        }
+
+        if (string.Equals(CardType, cardType, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!Metadata.TryGetValue(AdditionalCardTypesKey, out object? raw) || raw is null)
+        {
+            return false;
+        }
+
+        return raw switch
+        {
+            IEnumerable<string> kinds => kinds.Any(kind => string.Equals(kind, cardType, StringComparison.OrdinalIgnoreCase)),
+            string text => text
+                .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(kind => string.Equals(kind, cardType, StringComparison.OrdinalIgnoreCase)),
+            _ => false,
+        };
     }
 
     private static IReadOnlyDictionary<string, object?> CopyMetadata(

@@ -301,7 +301,7 @@ public sealed class BlockTiming
 
     private static bool IsDigimon(CardRecord card)
     {
-        return string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        return card.IsCardType("Digimon");
     }
 
     private static bool ReadBool(

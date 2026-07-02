@@ -243,7 +243,7 @@ public sealed class PlayCardAction
 
         if (context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) &&
             card is not null &&
-            string.Equals(card.CardType, "Option", StringComparison.OrdinalIgnoreCase))
+            card.IsCardType("Option"))
         {
             return PlayCardValidation.Illegal(
                 $"Option card '{payload.CardId}' must be activated through ActivateOption.",

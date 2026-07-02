@@ -15,6 +15,57 @@ public enum RevealDestination
     /// <summary>(B4) AS-IS <c>RemainingCardsPlace.DeckTopOrBottom</c> — the controller first picks Top or
     /// Bottom for the remaining cards, then specifies their order.</summary>
     DeckTopOrBottom = 4,
+
+    /// <summary>(P4) AS-IS <c>SelectCardEffect.Mode.Custom</c> — no built-in move: the selected cards are
+    /// recorded on the <see cref="RevealFlowState"/> for the card script's follow-up (e.g. "play it for
+    /// free"). They are excluded from the remaining-cards handling.</summary>
+    Custom = 5,
+}
+
+/// <summary>(P4) One selection pass of a multi-condition reveal (AS-IS <c>SelectCardConditionClass</c>):
+/// only condition-matching revealed cards are selectable, up to MaxCount, sent to Destination.</summary>
+public sealed record RevealSelectPass(
+    Func<HeadlessEntityId, bool> Condition,
+    int MaxCount,
+    RevealDestination Destination,
+    string Message,
+    bool CanNoSelect = false,
+    bool CanEndNotMax = false);
+
+/// <summary>(P4) The in-flight multi-condition reveal flow — a context service (conditions are Funcs, so
+/// nothing is serialised into request ids). One flow at a time (choices serialise).</summary>
+public sealed class RevealFlowState
+{
+    public IReadOnlyList<RevealSelectPass> Passes { get; internal set; } = Array.Empty<RevealSelectPass>();
+    public int PassIndex { get; internal set; }
+    public List<HeadlessEntityId> Remaining { get; } = new();
+    public List<HeadlessEntityId> Chosen { get; } = new();
+    internal List<HeadlessEntityId> CustomSelections { get; } = new();
+    public RevealDestination RemainingTo { get; internal set; }
+    public HeadlessPlayerId Chooser { get; internal set; }
+    public HeadlessPlayerId Owner { get; internal set; }
+    public bool MutualConditions { get; internal set; }
+    public bool IsActive { get; internal set; }
+
+    /// <summary>The cards picked by <see cref="RevealDestination.Custom"/> passes — the card script's
+    /// follow-up consumes (and clears) them after the flow finishes.</summary>
+    public IReadOnlyList<HeadlessEntityId> TakeCustomSelections()
+    {
+        var taken = CustomSelections.ToArray();
+        CustomSelections.Clear();
+        return taken;
+    }
+
+    internal void Reset()
+    {
+        Passes = Array.Empty<RevealSelectPass>();
+        PassIndex = 0;
+        Remaining.Clear();
+        Chosen.Clear();
+        RemainingTo = RevealDestination.DeckBottom;
+        MutualConditions = false;
+        IsActive = false;
+    }
 }
 
 /// <summary>
@@ -36,18 +87,169 @@ public enum RevealDestination
 /// <item><b>ProcessForAll</b> — <see cref="RevealAndProcessAllAsync"/>: NO selection; every matching card is
 /// processed mandatorily (AS-IS <c>RevealDeckTopCardsAndProcessForAll</c> has no player choice).</item>
 /// </list>
-/// Multi-condition sequential passes (AS-IS <c>SelectCardConditionClass[]</c> + mutualConditions, BT10-096
-/// shape) are NOT modeled yet — extend when such a card is ported (fidelity_violation_fix_design.md B4-6).
+/// (P4) Multi-condition sequential passes (AS-IS <c>SelectCardConditionClass[]</c>, BT10-096/BT10-097/
+/// ST17-11 shape): <see cref="RequestMultiChoice"/> runs each pass over the SHARED revealed pool (chosen
+/// cards removed between passes, per-pass maxCount recomputed, empty passes skipped, per-pass Mode =
+/// destination — <see cref="RevealDestination.Custom"/> records for the card script). The AS-IS
+/// <c>mutualConditions</c> rule (relax canNoSelect on a later pass when the single already-chosen card also
+/// satisfied it and pass[0] has no candidates left) is mirrored; no current caller sets it.
 /// </summary>
 public static class RevealAndSelect
 {
     public const string RequestIdPrefix = "reveal-select";
     public const string OrderRequestIdPrefix = "reveal-order";
     public const string PlaceRequestIdPrefix = "reveal-place";
+    public const string MultiRequestIdPrefix = "reveal-multi";
     public const string PlaceTopCandidate = "reveal-place-top";
     public const string PlaceBottomCandidate = "reveal-place-bottom";
     private const char Delimiter = ':';
     private const char IdListDelimiter = '|';
+
+    /// <summary>(P4) Reveals the top <paramref name="revealCount"/> cards and runs the AS-IS
+    /// multi-condition selection: one choice per pass, sequentially. Returns true when a choice opened;
+    /// false when nothing was revealed (or every pass was empty and the remaining cards resolved without a
+    /// choice).</summary>
+    public static async Task<bool> RequestMultiChoice(
+        EngineContext context,
+        HeadlessPlayerId player,
+        int revealCount,
+        IReadOnlyList<RevealSelectPass> passes,
+        RevealDestination remainingTo,
+        bool isOpponentDeck = false,
+        bool mutualConditions = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(passes);
+        if (context.ChoiceController.Current.IsPending ||
+            context.ZoneMover is not IZoneStateReader zones ||
+            player.IsEmpty || passes.Count == 0)
+        {
+            return false;
+        }
+
+        HeadlessPlayerId revealPlayer = isOpponentDeck ? Opponent(context, player) : player;
+        if (revealPlayer.IsEmpty)
+        {
+            return false;
+        }
+
+        HeadlessEntityId[] revealed = zones.GetCards(revealPlayer, ChoiceZone.Library).Take(Math.Max(0, revealCount)).ToArray();
+        if (revealed.Length == 0)
+        {
+            return false;
+        }
+
+        RevealFlowState state = GetFlowState(context);
+        state.Reset();
+        state.IsActive = true;
+        state.Passes = passes;
+        state.Remaining.AddRange(revealed);
+        state.RemainingTo = remainingTo;
+        state.Chooser = player;
+        state.Owner = revealPlayer;
+        state.MutualConditions = mutualConditions;
+        return await OpenNextPassAsync(context, state).ConfigureAwait(false);
+    }
+
+    // (P4) AS-IS per-condition loop (RevealLibrary.cs:291-341): maxCount = Min(cond.MaxCount, matching in
+    // the CURRENT pool); a pass with no matching card is skipped (the loop continues); chosen cards leave
+    // the pool between passes.
+    private static async Task<bool> OpenNextPassAsync(EngineContext context, RevealFlowState state)
+    {
+        while (state.PassIndex < state.Passes.Count)
+        {
+            RevealSelectPass pass = state.Passes[state.PassIndex];
+            int matching = state.Remaining.Count(pass.Condition);
+            if (matching == 0)
+            {
+                state.PassIndex++;
+                continue;
+            }
+
+            bool canNoSelect = pass.CanNoSelect;
+            // AS-IS mutualConditions (RevealLibrary.cs:302-308): a later pass becomes optional when exactly
+            // one card was chosen so far, it also satisfies THIS pass, and pass[0] has no candidates left.
+            if (!canNoSelect && state.MutualConditions && state.PassIndex > 0 &&
+                state.Chosen.Count == 1 && pass.Condition(state.Chosen[0]) &&
+                !state.Remaining.Any(state.Passes[0].Condition))
+            {
+                canNoSelect = true;
+            }
+
+            int maxCount = Math.Min(pass.MaxCount, matching);
+            int minCount = canNoSelect ? 0 : (pass.CanEndNotMax ? Math.Min(1, maxCount) : maxCount);
+            ChoiceCandidate[] candidates = state.Remaining
+                .Select(id => new ChoiceCandidate(
+                    id, $"Reveal {id.Value}", ChoiceZone.Library,
+                    IsSelectable: pass.Condition(id), ownerId: state.Owner))
+                .ToArray();
+            var request = new ChoiceRequest(
+                ChoiceType.RevealSelect, state.Chooser, pass.Message,
+                minCount, maxCount, canSkip: canNoSelect, ChoiceZone.Library, candidates);
+            context.ChoiceController.RequestChoice(request, new HeadlessEntityId($"{MultiRequestIdPrefix}{Delimiter}{state.PassIndex}"));
+            return true;
+        }
+
+        // All passes done — the untouched revealed cards follow the remaining-cards flow.
+        var remaining = state.Remaining.ToArray();
+        RevealDestination remainingTo = state.RemainingTo;
+        HeadlessPlayerId chooser = state.Chooser;
+        HeadlessPlayerId owner = state.Owner;
+        state.Reset();
+        return await HandleRemainingAsync(context, chooser, owner, remaining, remainingTo).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> ResolveMultiChoice(EngineContext context, ChoiceRequest request, ChoiceResult result)
+    {
+        RevealFlowState state = GetFlowState(context);
+        if (!state.IsActive || state.PassIndex >= state.Passes.Count)
+        {
+            return false;
+        }
+
+        RevealSelectPass pass = state.Passes[state.PassIndex];
+
+        try
+        {
+            context.ChoiceController.ResolveChoice(result);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+
+        var selected = result.IsSkipped ? new List<HeadlessEntityId>() : result.SelectedIds.ToList();
+        foreach (HeadlessEntityId cardId in selected)
+        {
+            state.Remaining.Remove(cardId);
+            state.Chosen.Add(cardId);
+            if (pass.Destination == RevealDestination.Custom)
+            {
+                state.CustomSelections.Add(cardId);   // no move — the card script's follow-up handles it.
+            }
+            else
+            {
+                await MoveAsync(context, state.Owner, cardId, pass.Destination).ConfigureAwait(false);
+            }
+        }
+
+        state.PassIndex++;
+        await OpenNextPassAsync(context, state).ConfigureAwait(false);
+        return true;
+    }
+
+    private static RevealFlowState GetFlowState(EngineContext context)
+    {
+        if (context.TryGetService(out RevealFlowState? state) && state is not null)
+        {
+            return state;
+        }
+
+        var created = new RevealFlowState();
+        context.RegisterService(created);
+        return created;
+    }
 
     /// <summary>Reveals the top <paramref name="revealCount"/> library cards and opens the selection choice
     /// (up to <paramref name="maxSelect"/> of the condition-matching cards). Returns true when a choice
@@ -174,6 +376,11 @@ public static class RevealAndSelect
         if (requestId.StartsWith($"{PlaceRequestIdPrefix}{Delimiter}", StringComparison.Ordinal))
         {
             return await ResolvePlaceChoice(context, request, result, requestId).ConfigureAwait(false);
+        }
+
+        if (requestId.StartsWith($"{MultiRequestIdPrefix}{Delimiter}", StringComparison.Ordinal))
+        {
+            return await ResolveMultiChoice(context, request, result).ConfigureAwait(false);
         }
 
         return await ResolvePrimaryChoice(context, request, result, requestId).ConfigureAwait(false);

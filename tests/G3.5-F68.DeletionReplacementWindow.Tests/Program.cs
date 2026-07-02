@@ -29,6 +29,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Battle: activating Barrier in the window trashes a security and survives", BarrierBattleChoice),
     ("Battle: activating Evade in the window suspends and survives", EvadeBattleChoice),
     ("Retaliation: the targeted opponent may Evade the retaliation (window re-opens)", RetaliationOpponentCanEvade),
+    ("(P6) the sacrificed ally EVADES -> the sacrifice fails and the holder dies", () => ScapegoatAllyEvade(allyEvades: true)),
+    ("(P6) the sacrificed ally declines its Evade -> it dies and the holder is spared", () => ScapegoatAllyEvade(allyEvades: false)),
 };
 
 var failures = new List<string>();
@@ -170,6 +172,71 @@ async Task ScapegoatTwoStep()
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "scapegoat holder survives");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, holder), "holder not trashed");
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, ally), "the chosen ally is sacrificed");
+}
+
+// (P6) AS-IS Scapegoat.cs:416 resolves the sacrifice through DeletePermanent — the ally's OWN
+// would-be-deleted replacement (Evade) can fire; the holder is spared only when the ally actually died.
+async Task ScapegoatAllyEvade(bool allyEvades)
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
+    CardDatabase cards = (CardDatabase)context.CardRepository;
+    for (int index = 1; index <= 12; index++)
+    {
+        cards.Upsert(Digimon($"P1-M{index:D2}"));
+        cards.Upsert(Digimon($"P2-M{index:D2}"));
+    }
+
+    DcgoMatch match = new(context);
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
+    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
+    await AdvanceToMainAsync(match, P1);
+
+    HeadlessEntityId holder = HandCard(match, P2, 1);
+    HeadlessEntityId ally = HandCard(match, P2, 2);
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, ally, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.HasScapegoatKey] = true });
+    SetMetadata(match, ally, new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [DeletionReplacementGate.HasEvadeKey] = true,
+        [DeletionReplacementGate.IsSuspendedKey] = false,
+    });
+
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
+        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = holder.Value }));
+    await sink.FlushAsync();
+    await match.StepAsync();
+
+    LegalAction activate = ResolveActions(match, P2).Single(a =>
+        a.Id.Value.Contains("#scapegoat", StringComparison.Ordinal) && !a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
+    await match.ApplyActionAsync(activate);
+    await match.StepAsync();
+    LegalAction pickAlly = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
+    await match.ApplyActionAsync(pickAlly);
+    await match.StepAsync();
+
+    // The ALLY's own would-be-deleted (Evade) window is now open.
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the sacrificed ally's own Evade window opened");
+    if (allyEvades)
+    {
+        LegalAction evade = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+        await match.ApplyActionAsync(evade);
+        await match.StepAsync();
+
+        AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, ally), "the ally EVADED the sacrifice (suspends, survives)");
+        AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the sacrifice failed -> the holder's deletion proceeds");
+    }
+    else
+    {
+        LegalAction decline = ResolveActions(match, P2).Single(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
+        await match.ApplyActionAsync(decline);
+        await match.StepAsync();
+
+        AssertTrue(InZone(match, P2, ChoiceZone.Trash, ally), "the ally declined and was sacrificed");
+        AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "the holder is spared (AS-IS successProcess)");
+    }
 }
 
 async Task FragmentTwoStep()

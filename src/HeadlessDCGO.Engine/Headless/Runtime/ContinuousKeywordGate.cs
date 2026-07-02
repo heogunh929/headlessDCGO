@@ -136,7 +136,7 @@ public static class ContinuousKeywordGate
         if (!cardId.IsEmpty &&
             context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) && instance is not null &&
             context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null &&
-            string.Equals(definition.CardType, "Digimon", StringComparison.OrdinalIgnoreCase))
+            definition.IsCardType("Digimon")) // (C7) dual-kind aware
         {
             return true;
         }
@@ -207,6 +207,13 @@ public static class ContinuousKeywordGate
             // only through the context-aware scoped path (scope player + predicate). Matching it here made
             // the source card "have" the keyword while bypassing the scope predicate entirely.
             if (effectContext.Values.TryGetValue(Effects.PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scoped) && scoped is true)
+            {
+                continue;
+            }
+
+            // (C9) honour the grant's stored condition (AS-IS CanUseCondition, and the linked-effect gate)
+            // — a conditional self-keyword was previously always-on through this path.
+            if (!KeywordConditionPasses(effectContext.Values))
             {
                 continue;
             }

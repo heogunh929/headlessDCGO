@@ -114,6 +114,7 @@ public static class EffectDrivenAttack
     }
     public const string RequestIdPrefix = "effect-attack";
     public const string WithoutTapPendingKey = "effectAttackWithoutTap";
+    public const string SelfDeletePendingKey = "effectAttackSelfDelete";
     public const string IsSuspendedKey = "isSuspended";
     private const string PlayerTargetSuffix = ":effect-attack-player";
 
@@ -238,14 +239,22 @@ public static class EffectDrivenAttack
                 ownerId: t.PlayerId))
             .ToArray();
 
-        if (options.WithoutTap &&
+        if ((options.WithoutTap || options.SelfDeleteAtEndOfAttack) &&
             context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) &&
             attacker is not null)
         {
-            context.CardInstanceRepository.Upsert(attacker with
+            var metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal);
+            if (options.WithoutTap)
             {
-                Metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal) { [WithoutTapPendingKey] = true }
-            });
+                metadata[WithoutTapPendingKey] = true;
+            }
+
+            if (options.SelfDeleteAtEndOfAttack)
+            {
+                metadata[SelfDeletePendingKey] = true;
+            }
+
+            context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
         }
 
         HeadlessPlayerId attackingPlayerId = targets[0].PlayerId;
@@ -286,6 +295,7 @@ public static class EffectDrivenAttack
         }
 
         bool withoutTap = ConsumeWithoutTap(context, attackerId);
+        bool selfDelete = ConsumePendingFlag(context, attackerId, SelfDeletePendingKey);
 
         if (result.IsSkipped || result.SelectedIds.Count == 0)
         {
@@ -303,6 +313,20 @@ public static class EffectDrivenAttack
         }
 
         Initiate(context, attackerId, target, options);
+        if (selfDelete &&
+            context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? declared) && declared is not null)
+        {
+            // <Execute>: the window's attack was DECLARED — arm the end-of-attack self-delete for this
+            // attack (AS-IS ExecuteProcess adds the UntilEndAttack DeleteSelfEffect after the attack starts).
+            context.CardInstanceRepository.Upsert(declared with
+            {
+                Metadata = new Dictionary<string, object?>(declared.Metadata, StringComparer.Ordinal)
+                {
+                    [AttackPipeline.DeleteSelfAtEndOfAttackKey] = true,
+                }
+            });
+        }
+
         return true;
     }
 
@@ -331,17 +355,20 @@ public static class EffectDrivenAttack
         return null;
     }
 
-    private static bool ConsumeWithoutTap(EngineContext context, HeadlessEntityId attackerId)
+    private static bool ConsumeWithoutTap(EngineContext context, HeadlessEntityId attackerId) =>
+        ConsumePendingFlag(context, attackerId, WithoutTapPendingKey);
+
+    private static bool ConsumePendingFlag(EngineContext context, HeadlessEntityId attackerId, string key)
     {
         if (!context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) ||
             attacker is null ||
-            !ReadFlag(attacker.Metadata, WithoutTapPendingKey))
+            !ReadFlag(attacker.Metadata, key))
         {
             return false;
         }
 
         var metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal);
-        metadata.Remove(WithoutTapPendingKey);
+        metadata.Remove(key);
         context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
         return true;
     }
@@ -363,7 +390,7 @@ public static class EffectDrivenAttack
             return false;
         }
 
-        return !isDigimon || string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        return !isDigimon || card.IsCardType("Digimon");
     }
 
     private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key) =>
@@ -375,7 +402,10 @@ public sealed record EffectAttackOptions(
     bool WithoutTap = false,         // attacker is NOT suspended (Overclock untapped attack)
     bool AllowPlayerTarget = true,   // may attack the player directly (security)
     bool AllowDigimonTarget = true,  // may attack opponent Digimon (Overclock = false: player only)
-    bool TargetUnsuspended = true)   // unsuspended Digimon are also targetable (AS-IS isVortex)
+    bool TargetUnsuspended = true,   // unsuspended Digimon are also targetable (AS-IS isVortex)
+    bool SelfDeleteAtEndOfAttack = false) // <Execute>: delete the attacker when THIS attack ends (AS-IS
+                                          // ExecuteProcess adds UntilEndAttack DeleteSelfEffect — the
+                                          // window's attack only, NOT every attack by the keyword holder)
 {
     /// <summary>(B5) AS-IS <c>SelectAttackEffect._defenderCondition</c> — narrows which opponent Digimon are
     /// legal targets for this effect-driven attack (null = all, the AS-IS default <c>_ =&gt; true</c>).</summary>

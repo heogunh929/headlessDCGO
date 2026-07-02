@@ -424,34 +424,42 @@ public class AttackPipeline
         return AttackAdvanceResult.Transitioned(AttackPhase.Resolved, AttackPhase.Completed, enqueuedEndAttackTriggers: enqueued);
     }
 
-    private const string DeleteSelfAtEndOfAttackKey = "deleteSelfAtEndOfAttack";
-    private const string DeletedByEffectKey = "deletedByEffect";
+    public const string DeleteSelfAtEndOfAttackKey = "deleteSelfAtEndOfAttack";
 
     private static async Task DeleteSelfAtEndOfAttackAsync(
         EngineContext context,
         HeadlessAttackState attack,
         CancellationToken cancellationToken)
     {
+        // (Execute-1) the flag is PER-ATTACK: armed when the <Execute> end-of-turn window's attack is
+        // DECLARED (EffectDrivenAttack) or by an explicit grant mutation — AS-IS ExecuteProcess adds the
+        // UntilEndAttack DeleteSelfEffect only for the window's attack, so a normal main-phase attack by an
+        // Execute holder does NOT self-delete (the earlier blanket HasKeyword(Execute) check was wrong).
         if (attack.AttackerId is not HeadlessEntityId attackerId ||
             !context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) ||
             attacker is null ||
-            // (S5) Execute: "at the end of that attack, delete this Digimon" — granted as the live Execute keyword
-            // (the deleteSelfAtEndOfAttack metadata is only set by the grant mutation).
-            !(ReadSelfDeleteFlag(attacker.Metadata) || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Execute)) ||
+            !ReadSelfDeleteFlag(attacker.Metadata) ||
             context.ZoneMover is not IZoneStateReader zones ||
             !zones.GetCards(attacker.OwnerId, ChoiceZone.BattleArea).Contains(attackerId))
         {
             return;
         }
 
-        context.CardInstanceRepository.Upsert(attacker with
-        {
-            Metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal)
-            {
-                [DeletedByEffectKey] = true,
-            }
-        });
-        await context.ZoneMover.AddToTrashAsync(attacker.OwnerId, attackerId, cancellationToken).ConfigureAwait(false);
+        // Consume the one-shot flag, then run a REAL effect deletion through the sink (AS-IS
+        // DeleteSelfEffect is a normal DeletePermanent: would-be-deleted replacements may respond, and the
+        // P1 leave-play cleanup / deletion triggers apply).
+        var metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal);
+        metadata.Remove(DeleteSelfAtEndOfAttackKey);
+        context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
+
+        var sink = new MatchStateMutationSink(
+            context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
+            context.EffectRegistry, context.GameEventQueue, context: context);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.DeleteKind,
+            attackerId,   // the cause is the attacker's own Execute effect (own-effect deletion)
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = attackerId.Value }));
+        await sink.FlushAsync().ConfigureAwait(false);
     }
 
     private static bool ReadSelfDeleteFlag(IReadOnlyDictionary<string, object?> metadata) =>

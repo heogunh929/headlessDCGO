@@ -239,7 +239,7 @@ public static class AllianceAttackBoost
         dp = 0;
         if (!context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) ||
             card is null ||
-            !string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase))
+            !card.IsCardType("Digimon"))
         {
             return false;
         }

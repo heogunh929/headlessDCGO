@@ -346,7 +346,7 @@ public sealed class AttackPermanentAction
 
     private static bool IsDigimon(CardRecord card)
     {
-        return string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        return card.IsCardType("Digimon");
     }
 
     private static void SuspendAttacker(EngineContext context, HeadlessEntityId attackerId)

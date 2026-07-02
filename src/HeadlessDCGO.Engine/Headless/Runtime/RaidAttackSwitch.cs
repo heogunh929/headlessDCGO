@@ -222,7 +222,7 @@ public static class RaidAttackSwitch
             : Array.Empty<DpModifier>();
 
     private static bool IsDigimon(CardRecord card) =>
-        string.Equals(card.CardType, "Digimon", StringComparison.OrdinalIgnoreCase);
+        card.IsCardType("Digimon");
 
     private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key) =>
         metadata.TryGetValue(key, out object? raw) && raw is bool value && value;

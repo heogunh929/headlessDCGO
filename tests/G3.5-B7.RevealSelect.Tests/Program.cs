@@ -22,6 +22,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(B4) DeckTop ordering: the FIRST pick ends topmost (AS-IS Reverse)", TopOrderReversed),
     ("(B4) DeckTopOrBottom: the controller picks top/bottom, then the order", TopOrBottomTwoStep),
     ("(B4) isOpponentDeck reveals the OPPONENT's library", OpponentDeckReveal),
+    ("(P4) multi-condition passes share the pool; per-pass destination incl. Custom (BT10-096 shape)", MultiConditionPasses),
+    ("(P4) a pass with no matching revealed card is skipped (loop continues)", EmptyPassSkipped),
+    ("(P4) mutualConditions relaxes a later pass when the single chosen card consumed its only candidate", MutualConditionsRelaxes),
 };
 
 var failures = new List<string>();
@@ -195,6 +198,84 @@ async Task OpponentDeckReveal()
     AssertEqual(myHandBefore, Count(context, P1, ChoiceZone.Hand), "nothing entered P1's zones");
     AssertEqual(opponentHandBefore, Count(context, P2, ChoiceZone.Hand), "nothing entered P2's hand");
 }
+
+// (P4) AS-IS RevealDeckTopCardsAndSelect with SelectCardConditionClass[] (RevealLibrary.cs:291-341):
+// sequential passes over the SHARED revealed pool, chosen cards removed between passes, per-pass Mode.
+
+async Task MultiConditionPasses()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 3);
+
+    // Pass 0 (BT10-096 [0]): "the first revealed card", mandatory, to hand.
+    // Pass 1 (BT10-096 [1]): "the second revealed card", optional, Custom (card script plays it).
+    var passes = new[]
+    {
+        new RevealSelectPass(id => id == top[0], MaxCount: 1, RevealDestination.Hand, "Select the Xros Heart Digimon."),
+        new RevealSelectPass(id => id == top[1], MaxCount: 1, RevealDestination.Custom, "Select 1 Taiki Kudo.", CanNoSelect: true),
+    };
+    AssertTrue(await RevealAndSelect.RequestMultiChoice(context, P1, revealCount: 3, passes, RevealDestination.DeckBottom),
+        "pass 0 choice opened");
+    AssertFalse(context.ChoiceController.PendingRequest!.CanSkip, "pass 0 is mandatory (canNoSelect:false)");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[0]));
+
+    // Pass 1: the pool no longer offers top[0].
+    ChoiceRequest pass1 = context.ChoiceController.PendingRequest!;
+    AssertTrue(pass1.CanSkip, "pass 1 is optional (canNoSelect:true)");
+    AssertFalse(pass1.Candidates.Any(c => c.Id == top[0]), "the pass-0 pick left the shared pool");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[1]));
+
+    AssertTrue(InZone(context, P1, ChoiceZone.Hand, top[0]), "pass 0 pick went to hand");
+    var state = GetFlow(context);
+    var custom = state.TakeCustomSelections();
+    AssertEqual(1, custom.Count, "the Custom pick is recorded for the card script");
+    AssertEqual(top[1].Value, custom[0].Value, "the recorded pick is the pass-1 selection");
+    AssertTrue(InZone(context, P1, ChoiceZone.Library, top[1]), "a Custom pick is NOT moved by the flow");
+
+    // Remaining (top[2]) — single card, straight to the bottom without an ordering prompt.
+    HeadlessEntityId[] library = ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Library).ToArray();
+    AssertEqual(top[2].Value, library[^1].Value, "the untouched card went to the deck bottom");
+}
+
+async Task EmptyPassSkipped()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 2);
+
+    var passes = new[]
+    {
+        new RevealSelectPass(_ => false, MaxCount: 1, RevealDestination.Hand, "never matches"),
+        new RevealSelectPass(id => id == top[0], MaxCount: 1, RevealDestination.Hand, "matches the top"),
+    };
+    AssertTrue(await RevealAndSelect.RequestMultiChoice(context, P1, revealCount: 2, passes, RevealDestination.DeckBottom),
+        "a choice opened (pass 0 skipped, pass 1 offered — AS-IS the loop continues)");
+    AssertTrue(context.ChoiceController.PendingRequest!.Candidates.First(c => c.Id == top[0]).IsSelectable,
+        "the offered pass is the matching one");
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[0]));
+    AssertTrue(InZone(context, P1, ChoiceZone.Hand, top[0]), "pass 1 pick landed");
+}
+
+async Task MutualConditionsRelaxes()
+{
+    EngineContext context = await NewMatch();
+    HeadlessEntityId[] top = Top(context, P1, 2);
+
+    // Both passes match ONLY top[0]; pass 1 is mandatory by itself — the mutual rule relaxes it once
+    // pass 0 consumed the only candidate (AS-IS RevealLibrary.cs:302-308).
+    var passes = new[]
+    {
+        new RevealSelectPass(id => id == top[0], MaxCount: 1, RevealDestination.Hand, "first"),
+        new RevealSelectPass(id => id == top[0] || id == top[1], MaxCount: 1, RevealDestination.Hand, "second", CanNoSelect: false),
+    };
+    await RevealAndSelect.RequestMultiChoice(context, P1, revealCount: 2, passes, RevealDestination.DeckBottom, mutualConditions: true);
+    await RevealAndSelect.ResolveChoice(context, ChoiceResult.Select(top[0]));
+
+    ChoiceRequest pass1 = context.ChoiceController.PendingRequest!;
+    AssertTrue(pass1.CanSkip, "the mutual rule made the later pass optional (the chosen card also satisfied it and pass[0] is dry)");
+}
+
+RevealFlowState GetFlow(EngineContext context) =>
+    context.TryGetService(out RevealFlowState? state) && state is not null ? state : throw new InvalidOperationException("no flow state");
 
 // --- Harness -------------------------------------------------------------
 

@@ -32,6 +32,12 @@ public sealed class DeletionReplacementTiming
 
     public const string FragmentRemainingKey = "fragmentRemaining";
 
+    /// <summary>(P6) the holder is waiting for its chosen sacrifice's OWN would-be-deleted decision (value =
+    /// the sacrificed ally's id). AS-IS resolves the sacrifice through DeletePermanent — the ally's Evade/
+    /// Barrier can save it, and the holder is spared only when the sacrifice ACTUALLY resolved
+    /// (successProcess).</summary>
+    public const string SacrificeAwaitingKey = "sacrificeAwaiting";
+
     public const string EvadeOption = "evade";          // PRE, no sub
     public const string BarrierOption = "barrier";      // PRE, by-battle, no sub (trash top security)
     public const string ScapegoatOption = "scapegoat";  // PRE, sub = which ally to sacrifice
@@ -248,7 +254,7 @@ public sealed class DeletionReplacementTiming
 
             if (!context.CardRepository.TryGetCard(source.DefinitionId, out CardRecord? definition) ||
                 definition is null ||
-                !string.Equals(definition.CardType, "Digimon", StringComparison.Ordinal))
+                !definition.IsCardType("Digimon"))
             {
                 continue;
             }
@@ -340,6 +346,8 @@ public sealed class DeletionReplacementTiming
         return ReadFlag(record.Metadata, GameFlowProcessor.PendingDeletionKey) &&
             !ReadFlag(record.Metadata, ReplacementDeclinedKey) &&
             !HasPendingOption(record) &&
+            // (P6) a holder awaiting its sacrifice's fate does not reopen its own window.
+            !record.Metadata.ContainsKey(SacrificeAwaitingKey) &&
             PreOptions(context, zones, record, ByBattle(record)).Count > 0;
     }
 
@@ -629,6 +637,97 @@ public sealed class DeletionReplacementTiming
         return DeletionReplacementResolveResult.Activated(cardId, option);
     }
 
+    // --- (P6) sacrifice through the delete pipeline ---------------------------------------------------
+
+    private async Task<(bool Success, bool Complete)> ApplySacrificeAsync(EngineContext context, HeadlessEntityId holderId, HeadlessEntityId allyId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(allyId, out CardInstanceRecord? ally) || ally is null ||
+            // recursion guard: an ally that is itself mid-deletion / mid-sacrifice cannot be consumed.
+            ReadFlag(ally.Metadata, GameFlowProcessor.PendingDeletionKey) ||
+            ally.Metadata.ContainsKey(SacrificeAwaitingKey))
+        {
+            return (false, false);
+        }
+
+        var sink = new MatchStateMutationSink(
+            context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
+            context.EffectRegistry, context.GameEventQueue, context: context);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.DeleteKind,
+            holderId,   // the cause is the holder's own keyword effect (same owner -> own-effect deletion)
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = allyId.Value }));
+        await sink.FlushAsync().ConfigureAwait(false);
+
+        if (context.ZoneMover is IZoneStateReader zones &&
+            zones.GetCards(AllyOwner(context, allyId), ChoiceZone.Trash).Contains(allyId))
+        {
+            // The sacrifice resolved immediately (no PRE replacement) — the holder survives (AS-IS successProcess).
+            ClearDeletion(context, holderId);
+            return (true, true);
+        }
+
+        if (context.CardInstanceRepository.TryGetInstance(allyId, out CardInstanceRecord? deferred) && deferred is not null &&
+            ReadFlag(deferred.Metadata, GameFlowProcessor.PendingDeletionKey))
+        {
+            // The ally's own would-be-deleted window opened: park the holder until the ally's fate settles.
+            Upsert(context, holderId, m => m[SacrificeAwaitingKey] = allyId.Value);
+            return (true, true);
+        }
+
+        // Deletion prevented outright (cannotBeDeleted / continuous prevention) — the sacrifice failed.
+        return (false, false);
+    }
+
+    /// <summary>(P6) settle sacrifice-awaiting holders: once the sacrificed ally's own window resolved, the
+    /// holder is spared when the ally actually died, or resumes dying when the ally survived. Returns true
+    /// when any holder settled (the loop keeps iterating).</summary>
+    public static bool SettleAwaitingSacrifices(EngineContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return false;
+        }
+
+        bool settled = false;
+        foreach (CardInstanceRecord holder in context.CardInstanceRepository.Snapshot())
+        {
+            if (!holder.Metadata.TryGetValue(SacrificeAwaitingKey, out object? raw) || raw is not string allyValue)
+            {
+                continue;
+            }
+
+            var allyId = new HeadlessEntityId(allyValue);
+            bool allyStillDeciding = context.CardInstanceRepository.TryGetInstance(allyId, out CardInstanceRecord? ally) && ally is not null &&
+                ReadFlag(ally.Metadata, GameFlowProcessor.PendingDeletionKey);
+            if (allyStillDeciding)
+            {
+                continue;   // wait for the ally's window / sweep
+            }
+
+            bool allyDied = ally is null || zones.GetCards(ally.OwnerId, ChoiceZone.Trash).Contains(allyId);
+            Upsert(context, holder.InstanceId, m => m.Remove(SacrificeAwaitingKey));
+            if (allyDied)
+            {
+                ClearDeletion(context, holder.InstanceId);   // spared (AS-IS successProcess)
+            }
+            else
+            {
+                // The ally saved itself — the sacrifice failed; the holder's own deletion proceeds.
+                Mark(context, holder.InstanceId, ReplacementDeclinedKey);
+            }
+
+            settled = true;
+        }
+
+        return settled;
+    }
+
+    private static HeadlessPlayerId AllyOwner(EngineContext context, HeadlessEntityId allyId) =>
+        context.CardInstanceRepository.TryGetInstance(allyId, out CardInstanceRecord? ally) && ally is not null
+            ? ally.OwnerId
+            : default;
+
     // --- Apply --------------------------------------------------------------
 
     private async Task<bool> ApplyNoTarget(EngineContext context, HeadlessEntityId cardId, string option)
@@ -674,23 +773,13 @@ public sealed class DeletionReplacementTiming
         switch (option)
         {
             case ScapegoatOption:
-                // (C3) the holder survives only when the sacrifice actually resolved (AS-IS successProcess).
-                if (!await DeletionReplacementGate.SacrificeAsync(context.CardInstanceRepository, context.ZoneMover, target).ConfigureAwait(false))
-                {
-                    return (false, false);
-                }
-
-                ClearDeletion(context, cardId);   // the holder survives
-                return (true, true);
             case DecoyOption:
-                // Sacrifice the chosen Decoy ally; the card being deleted survives only on success (C3).
-                if (!await DeletionReplacementGate.SacrificeAsync(context.CardInstanceRepository, context.ZoneMover, target).ConfigureAwait(false))
-                {
-                    return (false, false);
-                }
-
-                ClearDeletion(context, cardId);
-                return (true, true);
+                // (P6) AS-IS resolves the sacrifice through the FULL delete pipeline (Scapegoat.cs:416
+                // DeletePeremanentAndProcessAccordingToResult): the ally's own would-be-deleted replacements
+                // (Evade/Barrier …) may fire, and the holder survives only when the sacrifice actually
+                // resolved. Route through the sink's Delete mutation; when the ally's window defers, park
+                // the holder as sacrifice-awaiting — the common loop settles it once the ally's fate is known.
+                return await ApplySacrificeAsync(context, cardId, target).ConfigureAwait(false);
             case FragmentOption:
                 return await ApplyFragmentSource(context, cardId, target).ConfigureAwait(false);
             case SaveOption:
