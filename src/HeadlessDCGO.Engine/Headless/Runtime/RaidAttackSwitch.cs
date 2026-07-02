@@ -76,7 +76,10 @@ public static class RaidAttackSwitch
             attack.AttackerId is not HeadlessEntityId attackerId ||
             attack.AttackingPlayerId is not HeadlessPlayerId attackingPlayerId ||
             !HasRaid(context, attackerId) ||
-            IsResolved(context, attackerId))
+            IsResolved(context, attackerId) ||
+            // (AD1-S) AS-IS SwitchDefender (AttackProcess.cs:519) refuses ANY retarget of a locked attacker
+            // — the Raid switch is a retarget, so the offer never opens.
+            AttackTargetSwitchGate.IsLocked(context, attackerId))
         {
             return false;
         }

@@ -114,37 +114,48 @@ public sealed class SpecialPlayAction
         EngineContext context, IReadOnlyList<HeadlessEntityId> battle, IReadOnlyList<SpecialPlayMaterial> required,
         HeadlessPlayerId owner, out List<HeadlessEntityId> materials)
     {
+        // (AD1-J) BACKTRACKING assignment, not greedy — AS-IS enumerates PERMUTATIONS
+        // (CanPlayJogress, CardSource.cs:2755 ParameterComparer.Enumerate), so a candidate that satisfies
+        // two slots must not starve the second slot when another candidate could take the first.
         materials = new List<HeadlessEntityId>();
         var used = new HashSet<HeadlessEntityId>();
-        foreach (SpecialPlayMaterial slot in required)
+        return Assign(0, materials, used);
+
+        bool Assign(int slotIndex, List<HeadlessEntityId> assigned, HashSet<HeadlessEntityId> taken)
         {
-            HeadlessEntityId match = default;
+            if (slotIndex >= required.Count)
+            {
+                return true;
+            }
+
+            SpecialPlayMaterial slot = required[slotIndex];
             foreach (HeadlessEntityId id in battle)
             {
-                if (used.Contains(id))
+                if (taken.Contains(id))
                 {
                     continue;
                 }
 
                 // Evaluate the card-authored material predicate against the candidate (1:1 with the original
                 // CanSelectCardCondition) — not a mere card-name equality.
-                if (slot.Matches(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, id, owner, owner)))
+                if (!slot.Matches(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, id, owner, owner)))
                 {
-                    match = id;
-                    break;
+                    continue;
                 }
+
+                taken.Add(id);
+                assigned.Add(id);
+                if (Assign(slotIndex + 1, assigned, taken))
+                {
+                    return true;
+                }
+
+                taken.Remove(id);
+                assigned.RemoveAt(assigned.Count - 1);
             }
 
-            if (match.IsEmpty)
-            {
-                return false;
-            }
-
-            used.Add(match);
-            materials.Add(match);
+            return false;
         }
-
-        return true;
     }
 
     public static LegalAction Create(

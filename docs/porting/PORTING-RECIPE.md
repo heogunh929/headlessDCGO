@@ -100,12 +100,26 @@ bash scripts/run-tests.sh          # SUMMARY: PASS=N FAIL=0 여야 함
 | `new ChangeCardLevelClass(); SetUpChangeCardLevelClass(GetLevel)` (레벨/색/특성 변경) | 같은 클래스명 그대로 미러: `SetUpICardEffect(설명, CanUse, card)` + `SetUpChange...Class(원본 변환 Func 1:1)` — 색/특성은 `List<string>` |
 | `CardEffectCommons.RevealDeckTopCardsAndSelect(revealCount, 조건, remainingPlace, ..)` (단일 조건) | `RevealAndSelect.RequestChoice(ctx, player, revealCount, maxSelect, selectedTo, remainingTo, selectCondition, isOpponentDeck)` |
 | `RevealDeckTopCardsAndProcessForAll(...)` (선택 없음, 전 매칭 처리) | `RevealAndSelect.RevealAndProcessAllAsync(...)` — **초이스로 바꾸지 말 것**(mandatory) |
-| `RevealDeckTopCardsAndSelect(revealCount, SelectCardConditionClass[]{...}, ...)` (다중 조건, BT10-096형) | `RevealAndSelect.RequestMultiChoice(ctx, player, revealCount, new[]{ new RevealSelectPass(조건, max, 목적지, 메시지, canNoSelect, canEndNotMax), ... }, remainingTo)` — 원본 `Mode.Custom` = `RevealDestination.Custom`(카드 스크립트가 `RevealFlowState.TakeCustomSelections()`로 회수해 후속 처리) |
+| `RevealDeckTopCardsAndSelect(revealCount, SelectCardConditionClass[]{...}, remainingCardsPlace, canNoAction, ...)` (다중 조건, BT10-096형) | **같은 이름 팩토리**: `CardEffectFactory.RevealDeckTopCardsAndSelect(card, revealCount, new[]{ new RevealSelectPass(조건, maxCount, 목적지, 메시지, canNoSelect, canEndNotMax), ... }, remainingCardsPlace, 설명, canNoAction)` — 조건별 1 pass, `Mode.AddHand`→`RevealDestination.Hand`, `Mode.Custom`→`RevealDestination.Custom`(이동 없음; 후속 처리가 필요한 카드는 STOP 주석으로 후속만 강모델에 넘김) |
 | `SelectPermanentEffect` Attack/Degenerate 모드 | `SetUp(..., Mode.Attack/Degenerate, ...)` + `SetAttackOptions(canAttackPlayer, defenderCondition)`(원본 ctor 인자 그대로) / `SetDegenerationCount(n)`; Attack 실행은 `TryOpenAttack(ctx, selected)` — 다중 공격자는 자동 순차 |
 | `canEndSelectCondition`(선택 조합 제약, 예: "서로 다른 색 2장") | `SetCanEndSelectCondition(집합술어)` — resolve가 불법 조합을 중앙 거부 |
 | `activateClass.SetIsLinkedEffect(true)` (링크 상태 효과) | 해당 팩토리의 `isLinkedEffect: true` — 링크 중일 때만 활성(라이브 게이트) |
 | dual 카드(Digimon이자 Option) | 정의 메타 `"cardTypes"`에 추가 종류 배열 (`CardRecord.AdditionalCardTypesKey`) |
 | 카운터 타이밍의 진짜 [Counter] 효과 | binding values `AutoProcessingTriggerCollector.IsCounterEffectKey = true` (2-pass 순서: 비-[Counter] 먼저) |
+| **커먼즈 술어/게이트 (W6)** — `IsExistOnBattleAreaDigimon`·`HasMatchConditionOwnersCardInTrash`·`CanTriggerOnPlay/WhenDigivolving/OnAttack/OnDeletion`·`IsByEffect`·`IsMin/MaxDP/Level` 등 | **동명 그대로 복사** — CanActivateCondition(Hashtable h) 본문의 `CanTriggerX(hashtable, …)`는 `triggerGate: ctx => CardEffectCommons.CanTriggerX(ctx, card, …)`로 (Hashtable→ctx 치환만) |
+| `CardEffectCommons.GainX(target, duration, activateClass)` (키워드 부여 코루틴) | **동명 커먼즈**: `CardEffectCommons.GainX(targetPermanent, duration, card)` (동기, bool) — Blocker/Rush/Pierce/Retaliation/Collision/Jamming/Reboot/Alliance/Evade/Raid/Vortex/Execute/Fortitude/Iceclad/Barrier/Blitz |
+| `DeletePeremanentAndProcessAccordingToResult(targets, ac, success, failure)` (+Suspend/Bounce/DeckBounce/TrashDigivolutionCards/TrashLinkCards/TrashSecurity/TrashHand/PlaceSecurity 형제) | **동명 커먼즈**(async) — success는 **실발생**시에만; Delete형은 치환 창을 자동으로 기다림 |
+| `PlaceDelayOptionCards(card, cardEffect)` ([Delay] 배치) | **동명 커먼즈**(async bool); [Delay] 본체는 OnDeclaration 활성 + `CanDeclareOptionDelayEffect(card)` 게이트 그대로 |
+| `AddSelfLinkConditionStaticEffect(permanentCondition, linkCost, card)` + `LinkEffect(card)` | **동명 팩토리 그대로** (조건·비용이 실동작 — LinkEffect가 선언 비용을 읽음) |
+| `AddAppfuseMethodByName(names, card)` (앱퓨전) | **동명 팩토리 그대로** — 열거/실행은 엔진(DigivolveAction) 자동 |
+| `ArtsDigivolveEffect(card)` | **동명 팩토리 그대로** |
+| `AddDetailClass(...)` | **동명(표시 전용 no-op)** — 동작 없음, 그대로 미러 |
+| `WhenMovingClass/WhenDigivolvingClass/StartOfYourTurnClass/StartOfYourMainPhaseClass/OnDeletionClass(card, …, coroutine, …)` (타이밍-래퍼, 각 1장) | 해당 타이밍 분기 + 코루틴 의도-번역(래퍼는 프리셋 CanTriggerX 보일러플레이트일 뿐) |
+| `ActivateClassesForSharedEffects(…, 플래그들)` (타이밍 멀티플렉서, ~85장) | 켜진 플래그의 **각 타이밍 분기에 동일 의도 팩토리를 반복 등록** — STOP 아님 |
+| `CardEffectFactory.GetJogressConditionClass(perm술어1, 설명1, perm술어2, 설명2, card, cost, canUse)` (술어형 DNA) | **동명 팩토리 그대로** — cost는 원본 quirk대로 무시(항상 0) |
+| `CardEffectCommons.GainCanNotBeDeletedByBattle(target, 4-인자술어, duration, activateClass, name)` | **동명 커먼즈**: `CardEffectCommons.GainCanNotBeDeletedByBattle(targetPermanent, 술어, duration, card, name)` (동기) |
+| `UntilEachTurnEndEffects.Add(_ => PermanentEffectFactory.CanNotSwitchAttackTargetEffect(perm, ac))` | `ctx.EffectRegistry.Register(PermanentEffectFactory.CanNotSwitchAttackTargetEffect(perm, ac).ToBinding(id, EffectDuration.UntilEachTurnEnd))` |
+| `new AddAssemblyConditionClass(); SetUpAddAssemblyConditionClass(GetAssembly)` (Assembly) | 동명 클래스 그대로 미러(카탈로그 "클래스 직접 생성 표면" 참조) — 열거/비용/스택은 엔진 자동 |
 
 > **STOP-목록(강모델 전용)**: `new AddSkillClass()`(효과 동적 부여)·`CardEffectCommons.AddEffectToPlayer(..)`(플레이어 딜레이)·`CardEffectCommons.PlayOptionCards(..)`·`AddSelfLinkConditionStaticEffect`(대체 링크원)·`AddMaxTrashCountDigiXrosClass`(DigiXros 트래시-보정)·중첩 커스텀 coroutine(예: removal-prevent, `ChangeEndTurnMinMemoryClass`). 이들은 STOP 후 강모델로.
 > **특수플레이 DigiXros/Blast/DNA/Jogress는 이제 위 팩토리로 선언 = 로컬모델 가능**(재료 이름/조건만 config).

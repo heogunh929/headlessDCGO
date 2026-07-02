@@ -17,6 +17,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("DigiXrosEffectFromNames -> DigiXros recipe with named materials registered", DigiXros),
     ("BlastDigivolveEffect -> Blast recipe registered", Blast),
     ("BlastDNADigivolveEffect -> DnaDigivolve recipe with material names registered", BlastDNA),
+    ("(AD1-J) GetJogressConditionClass: predicate-form DNA enumerated over battle-area digimon, cost 0", PredicateJogress),
+    ("(AD1-J) material assignment BACKTRACKS (a dual-slot candidate must not starve slot 2)", JogressBacktracking),
 };
 
 var failures = new List<string>();
@@ -60,6 +62,65 @@ async Task BlastDNA()
     CardEffectFactory.BlastDNADigivolveEffect(new CardSource(ctx, id, P1), conds, null);
     AssertTrue(SpecialPlayRecipeRegistry.TryGet("BT17-078b", out SpecialPlayRecipe? r) && r is not null && r.Kind == SpecialPlayKind.DnaDigivolve, "DnaDigivolve recipe registered");
     AssertTrue(r!.Materials.Any(m => m.Label == "Omnimon") && r.Materials.Any(m => m.Label == "WarGreymon"), "DNA material slots stored");
+}
+
+// (AD1-J) AS-IS GetJogressConditionClass (CardEffectFactory.cs:752): arbitrary Permanent predicates per
+// material slot, evaluated against the owner's battle-area Digimon; the cost param is DROPPED (always 0).
+async Task PredicateJogress()
+{
+    SpecialPlayRecipeRegistry.Clear();
+    EngineContext ctx = Ctx();
+    var top = await Place(ctx, P1, "OMNI", "AD1-025j");
+    var mat1 = await PlaceBattle(ctx, P1, "WGREY", "WarGreymon");
+    var mat2 = await PlaceBattle(ctx, P1, "MGARU", "MetalGarurumon");
+    await PlaceBattle(ctx, P2, "ENEMY", "WarGreymon");   // opponent's — must NOT count (owner scope)
+
+    CardEffectFactory.GetJogressConditionClass(
+        p => p.TopCard.EqualsCardName("WarGreymon"), "WarGreymon",
+        p => p.TopCard.EqualsCardName("MetalGarurumon"), "MetalGarurumon",
+        new CardSource(ctx, top, P1), cost: 5);   // cost 5 passed — AS-IS quirk drops it
+
+    AssertTrue(SpecialPlayRecipeRegistry.TryGet("AD1-025j", out SpecialPlayRecipe? recipe) && recipe is not null, "recipe registered");
+    AssertTrue(recipe!.MemoryCost == 0, "predicate-form DNA is always cost 0 (AS-IS drops the cost param)");
+
+    var actions = new SpecialPlayAction().GetLegalActions(ctx, P1);
+    LegalAction dna = actions.Single(a => a.Parameters[HeadlessActionParameterKeys.CardId]?.ToString() == top.Value);
+    string materials = dna.Parameters[SpecialPlayAction.MaterialsKey]?.ToString() ?? "";
+    AssertTrue(materials.Contains(mat1.Value) && materials.Contains(mat2.Value), "both OWN battle-area materials matched by predicate");
+}
+
+async Task JogressBacktracking()
+{
+    SpecialPlayRecipeRegistry.Clear();
+    EngineContext ctx = Ctx();
+    var top = await Place(ctx, P1, "TOP", "AD1-BTK");
+    // X satisfies BOTH slots; Y satisfies only slot 1. Greedy (slot1 -> X) starves slot 2;
+    // the AS-IS permutation semantics require slot1 -> Y, slot2 -> X.
+    var x = await PlaceBattle(ctx, P1, "X", "Both");
+    var y = await PlaceBattle(ctx, P1, "Y", "OnlyFirst");
+
+    CardEffectFactory.GetJogressConditionClass(
+        p => true, "any",
+        p => p.TopCard.EqualsCardName("Both"), "Both-only",
+        new CardSource(ctx, top, P1));
+
+    var actions = new SpecialPlayAction().GetLegalActions(ctx, P1);
+    LegalAction dna = actions.Single(a => a.Parameters[HeadlessActionParameterKeys.CardId]?.ToString() == top.Value);
+    string materials = dna.Parameters[SpecialPlayAction.MaterialsKey]?.ToString() ?? "";
+    AssertTrue(materials == $"{y.Value},{x.Value}", $"backtracking assigns Y to slot1 and X to slot2 (got {materials})");
+}
+
+async Task<HeadlessEntityId> PlaceBattle(EngineContext ctx, HeadlessPlayerId owner, string tag, string name)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
+    cards.Upsert(new CardRecord(defId, tag, name,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    return id;
 }
 
 // --- Helpers -------------------------------------------------------------

@@ -15,6 +15,7 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("SelectCardConditionClass reveal-select: Tamer -> hand, others -> deck bottom", SelectViaFullDescriptor),
+    ("(P4) FULL RevealDeckTopCardsAndSelect factory: 2 passes over the shared pool, Custom pick recorded", FullMultiConditionFactory),
 };
 
 var failures = new List<string>();
@@ -48,6 +49,48 @@ async Task SelectViaFullDescriptor()
     var zones = (IZoneStateReader)context.ZoneMover;
     AssertTrue(zones.GetCards(P1, ChoiceZone.Hand).Contains(tamer), "selected Tamer went to hand");
     AssertEqual(2, zones.GetCards(P1, ChoiceZone.Library).Count, "the 2 others returned to the deck bottom");
+}
+
+// (P4) the FULL multi-condition mirror (BT10-096 shape): pass 0 mandatory Tamer -> hand; pass 1 optional
+// Digimon -> Custom (recorded, NOT moved — the card script's follow-up plays it); rest -> deck bottom.
+async Task FullMultiConditionFactory()
+{
+    EngineContext context = Context();
+    var host = await PlaceFixture(context, P1, "TfxHost");
+    var tamer = await PlaceLibrary(context, P1, "TAMER", "Tamer");
+    var digi1 = await PlaceLibrary(context, P1, "DIGI1", "Digimon");
+    await PlaceLibrary(context, P1, "DIGI2", "Digimon");
+
+    bool IsType(HeadlessEntityId id, string type) =>
+        context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? i) && i is not null &&
+        context.CardRepository.TryGetCard(i.DefinitionId, out CardRecord? d) && d is not null && d.IsCardType(type);
+
+    var effect = (RevealMultiSelectEffect)CardEffectFactory.RevealDeckTopCardsAndSelect(
+        new CardSource(context, host, P1), revealCount: 3,
+        selectCardConditions: new[]
+        {
+            new RevealSelectPass(id => IsType(id, "Tamer"), MaxCount: 1, RevealDestination.Hand, "Select 1 Tamer."),
+            new RevealSelectPass(id => IsType(id, "Digimon"), MaxCount: 1, RevealDestination.Custom, "Select 1 Digimon.", CanNoSelect: true),
+        },
+        remainingCardsPlace: RevealDestination.DeckBottom,
+        description: "Reveal 3: Tamer to hand, Digimon played free.");
+
+    var provider = (ScriptedChoiceProvider)context.ChoiceProvider;
+    provider.Enqueue(ChoiceResult.Select(tamer));   // pass 0
+    provider.Enqueue(ChoiceResult.Select(digi1));   // pass 1 (Custom)
+
+    var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
+        context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
+        context.EffectRegistry, context.GameEventQueue, context: context);
+    await effect.ResolveAsync(sink, CancellationToken.None);
+    await sink.FlushAsync();
+
+    var zones = (IZoneStateReader)context.ZoneMover;
+    AssertTrue(zones.GetCards(P1, ChoiceZone.Hand).Contains(tamer), "pass-0 Tamer went to hand");
+    AssertTrue(zones.GetCards(P1, ChoiceZone.Library).Contains(digi1), "the Custom pick is NOT moved by the flow");
+    AssertEqual(1, effect.CustomSelections.Count, "the Custom pick is recorded for the card script");
+    AssertEqual(digi1.Value, effect.CustomSelections[0].Value, "recorded pick = the pass-1 selection");
+    AssertEqual(2, zones.GetCards(P1, ChoiceZone.Library).Count, "custom pick + the untouched card remain in the library (rest to bottom)");
 }
 
 // --- Helpers -------------------------------------------------------------

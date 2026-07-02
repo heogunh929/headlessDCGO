@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
@@ -19,6 +20,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Non-matching Digimon is NOT battle-immune (permanentCondition enforced, not condition-less)", () => Immune(match: false)),
     ("Self form (permanentCondition=null) grants self battle immunity", SelfForm),
     ("condition gate (e.g. memory>=1) is honoured LIVE — immunity off when false, on when true", ConditionGate),
+    ("(AD1-G) GainCanNotBeDeletedByBattle: timed grant protects the TARGET, expires at opponent turn end", GainTimedGrant),
+    ("(AD1-G) the grant is LIVE-gated on the target staying in play (leave -> off)", GainLiveGate),
+    ("(AD1-G) a CanNotBeAffected target refuses the grant (AS-IS CanUse guard)", GainRefusedByImmunity),
+    ("(AD1-G) the stored 4-arg battle predicate gates the immunity against the current attack", GainBattlePredicate),
 };
 
 var failures = new List<string>();
@@ -70,6 +75,74 @@ async Task ConditionGate()
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, self), "memory 1 -> immune (condition true)");
     ctx.MemoryController.Set(0);
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, self), "memory back to 0 -> immune turns OFF (re-evaluated live)");
+}
+
+// (AD1-G) AS-IS GainCanNotBeDeletedByBattle (GiveEffect/CanNotBeDeletedByBattle.cs:11-54): a timed,
+// target-locked battle immunity built on the same factory family, added to a duration bucket.
+
+async Task GainTimedGrant()
+{
+    EngineContext ctx = Ctx();
+    var src = await Place(ctx, P1, "SRC", level: 4);
+    var target = await Place(ctx, P1, "TGT", level: 5);
+    var bystander = await Place(ctx, P1, "OTHER", level: 5);
+
+    AssertTrue(CardEffectCommons.GainCanNotBeDeletedByBattle(
+        new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
+        new CardSource(ctx, src, P1), "test-grant"), "grant registered");
+
+    AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "the TARGET is battle-immune");
+    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, bystander), "the grant is target-locked (a bystander is not)");
+
+    // The opponent's turn ends -> the duration bucket expires (AS-IS UntilOpponentTurnEnd).
+    HeadlessDCGO.Engine.Headless.Effects.EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "immunity expired at the opponent's turn end");
+}
+
+async Task GainLiveGate()
+{
+    EngineContext ctx = Ctx();
+    var src = await Place(ctx, P1, "SRC", level: 4);
+    var target = await Place(ctx, P1, "TGT", level: 5);
+    CardEffectCommons.GainCanNotBeDeletedByBattle(
+        new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
+        new CardSource(ctx, src, P1), "test-live");
+
+    AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "immune while in play");
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, target, ChoiceZone.BattleArea, ChoiceZone.Trash));
+    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "leaving the battle area turns the grant off (live CanUse mirror)");
+}
+
+async Task GainRefusedByImmunity()
+{
+    EngineContext ctx = Ctx();
+    var src = await Place(ctx, P2, "ENEMYSRC", level: 4);   // OPPONENT grants -> blocked by CanNotBeAffected
+    var target = await Place(ctx, P1, "TGT", level: 5);
+    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(
+        null, null, false, new CardSource(ctx, target, P1), null).ToBinding($"cna:{target.Value}"));
+
+    AssertTrue(!CardEffectCommons.GainCanNotBeDeletedByBattle(
+        new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
+        new CardSource(ctx, src, P2), "test-refused"), "an immune target refuses the grant");
+    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "nothing registered");
+}
+
+async Task GainBattlePredicate()
+{
+    EngineContext ctx = Ctx();
+    var src = await Place(ctx, P1, "SRC", level: 4);
+    var target = await Place(ctx, P1, "TGT", level: 5);
+    var attacker = await Place(ctx, P2, "ATK", level: 5);
+    // AS-IS AD1_011 shape: protected only when THIS permanent is a battle participant vs a named attacker —
+    // here: only when the attacker's top card is "ATK".
+    CardEffectCommons.GainCanNotBeDeletedByBattle(
+        new Permanent(ctx, target, P1),
+        (self, atk, def, defCard) => atk is not null && atk.TopCard.EqualsCardName("ATK"),
+        EffectDuration.UntilOpponentTurnEnd, new CardSource(ctx, src, P1), "test-pred");
+
+    AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "no attack in flight -> predicate false -> not immune");
+    ctx.AttackController.DeclareAttack(P2, attacker, P1, target, isDirectAttack: false);
+    AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "attacked by the named attacker -> predicate true -> immune");
 }
 
 // --- Helpers ---

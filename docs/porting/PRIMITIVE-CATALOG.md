@@ -1,6 +1,6 @@
 # 프리미티브 카탈로그 (카드-facing 팩토리 전수)
 
-> 자동생성 · `CardEffectFactory` 공개 팩토리 **121종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
+> 자동생성 · `CardEffectFactory` 공개 팩토리 **128종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
 
 > 공통 인자: `card`=`CardSource`(호스트), `isInheritedEffect`=진화원 상속 여부(대개 false), `condition`=`Func<bool>?`(발동 게이트, 없으면 null). **모든 술어/값 인자는 실동작한다** — 원본이 넘기는 값을 그대로 넘겨라(null로 뭉개지 말 것): `permanentCondition`(대상 술어), `skillCondition`(원인-효과 술어), `level/minLevel/maxLevel`(진화 레벨 게이트), `trashValue`(Fragment X), `cardSourceConditions`(Partition 색 그룹), `isLinkedEffect`(링크 상태 게이트 — 원본이 `SetIsLinkedEffect(true)` 하면 true), `defenderCondition`/`canAttackPlayer`(공격 대상 술어).
 >
@@ -169,22 +169,30 @@
 - **MindLinkClass** (`CardEffectCommons.KeyWordEffects`) — Mind Link는 키워드가 아니라 프로세스: `new MindLinkClass(tamerPermanent, digimonCondition, activateClass)` → `BuildRequest()`(선택 optional·max1) / `MindLink(선택된디지몬Id)`(테이머를 진화원 bottom에 배치). 역방향은 `PlayMindLinkTamerFromDigivolutionCards`.
 - **ChangeCardLevelClass / ChangePermanentLevelClass / ChangeCardColorClass / ChangeBaseCardColorClass / ChangeTraitsClass** (`CardEffects`) — 레벨/색/특성 변경 연속효과. 원본과 동일 패턴: `SetUpICardEffect(설명, CanUseCondition, card)` + `SetUpChange...Class(변환 Func)` → `cardEffects.Add(인스턴스)`. 변환 Func는 원본 클로저를 그대로(누산기 in→out, 색/특성은 `List<string>`). 뷰(`CardSource.Level/CardColors/CardTraits`, `Permanent.Level`)가 라이브 폴딩한다.
 - **SelectPermanentEffect** (`Script`) — `SetUp(...)` 뒤 추가 세터: `SetDegenerationCount(n)`(Degenerate 모드 디진화 수), `SetAttackOptions(canAttackPlayer, defenderCondition)`(Attack 모드 — 다중 공격자는 자동 순차 큐), `SetCanEndSelectCondition(집합술어)`(조합 제약 — resolve 시 중앙 거부). Attack 모드 실행은 `TryOpenAttack(context, selected)`.
-- **RevealAndSelect** (`Headless.Runtime`) — 리빌-선택 플로우: 단일 조건 `RequestChoice(..., selectCondition, isOpponentDeck)`, **전 매칭 자동 처리(선택 없음)** `RevealAndProcessAllAsync(...)`, **다중 조건 패스** `RequestMultiChoice(context, player, revealCount, RevealSelectPass[], remainingTo, ...)` — 패스별 `RevealSelectPass(조건, maxCount, 목적지, 메시지, canNoSelect, canEndNotMax)`; 목적지 `RevealDestination.Custom`은 이동 없이 기록되며 카드 스크립트가 `RevealFlowState.TakeCustomSelections()`로 회수(예: 무료 플레이 후속). 남은 카드는 순서 지정/top-or-bottom 창이 자동으로 열린다.
+- **RevealAndSelect / RevealDeckTopCardsAndSelect** — 리빌-선택: 다중 조건은 **팩토리** `CardEffectFactory.RevealDeckTopCardsAndSelect(card, revealCount, RevealSelectPass[], remainingCardsPlace, 설명, canNoAction, isOpponentDeck, mutualConditions)`(원본과 같은 이름; 조건별 `RevealSelectPass(조건, maxCount, 목적지, 메시지, canNoSelect, canEndNotMax)`, `Mode.Custom`→`RevealDestination.Custom`은 이동 없이 `RevealMultiSelectEffect.CustomSelections`에 기록). 단순형은 기존 `SimplifiedRevealDeckTopCardsAndSelect`. 엔진-레벨 인터랙티브 플로우(`RequestChoice`/`RequestMultiChoice`/`RevealAndProcessAllAsync`)는 엔진 코드 전용 — 카드는 팩토리만 쓴다.
 - **[Counter] 효과 마커** — 카운터 타이밍 효과가 진짜 [Counter]면 binding values에 `AutoProcessingTriggerCollector.IsCounterEffectKey = true`(원본 `IsCounterEffect` 미러; 비-[Counter] 카운터타이밍 효과가 먼저 해소됨).
 - **dual 카드** — 카드가 두 종류(예: Digimon/Option)면 정의 메타 `CardRecord.AdditionalCardTypesKey`(`"cardTypes"`)에 추가 종류 배열. 모든 타입 판정(`IsDigimon/IsOption/...`)이 양쪽을 본다.
+- **AddAssemblyConditionClass / AssemblyCondition / AssemblyConditionElement** (AD1-A) — Assembly 특수플레이 선언. 원본 AD1_025 형태 그대로: timing None에서 `new AddAssemblyConditionClass()` + `SetUpICardEffect` + `SetUpAddAssemblyConditionClass(GetAssembly)` + `SetNotShowUI(true)`; `GetAssembly`는 `new AssemblyCondition(new List<AssemblyConditionElement>{ new(술어, selectMessage: "...", elementCount: 1), ... }, reduceCost: N)` 반환. 재료는 **자기 트래시**에서, full set일 때만 -reduceCost, 진입 후 진화원 bottom 스택 — 전부 엔진(PlayCardAction)이 자동. 필드-대체(`ICanSelectAssemblyEffect`)는 미모델(STOP).
+- **CanNotSwitchAttackTargetClass / PermanentEffectFactory.CanNotSwitchAttackTargetEffect** (AD1-S) — "공격 대상 변경 불가"(블록+재타게팅 양쪽 차단). 원본 `UntilEachTurnEndEffects.Add(_ => PermanentEffectFactory.CanNotSwitchAttackTargetEffect(perm, activateClass))` → `ctx.EffectRegistry.Register(PermanentEffectFactory.CanNotSwitchAttackTargetEffect(perm, activateClass).ToBinding(id, EffectDuration.UntilEachTurnEnd))`. 직접 생성형은 클래스 그대로(`SetUpCanNotSwitchAttackTargetClass(자체 술어)`).
+- **CardEffectCommons.GainCanNotBeDeletedByBattle(targetPermanent, 4-인자술어, EffectDuration, sourceCard, effectName)** (AD1-G) — 시한부 전투삭제 면역 grant(동기, bool 반환). 원본 코루틴 호출을 동명 커먼즈로 미러. 4-인자 술어는 현재 공격 상태로 라이브 평가됨.
 
 
 ## 알파벳 마스터 (이름 → 시그니처)
 
 | 팩토리 | 반환 | 시그니처 |
 |---|---|---|
+| `AddAppfuseMethodByCondition` | ICardEffect | `ICardEffect AddAppfuseMethodByCondition(IReadOnlyList<Func<CardSource, bool>> cardConditions, CardSource card, int cost = 0, string effectName = "App Fusion")` |
+| `AddAppfuseMethodByName` | ICardEffect | `ICardEffect AddAppfuseMethodByName(IReadOnlyList<string> cardNames, CardSource card, int cost = 0, string effectName = "App Fusion")` |
+| `AddDetailClass` | ICardEffect | `ICardEffect AddDetailClass(Func<bool>? canUseCondition, Func<Permanent, bool>? permanentCondition, string detail, bool triggerEffect, CardSource card)` |
 | `AddDigivolutionRequirementStaticEffect` | ICardEffect | `ICardEffect AddDigivolutionRequirementStaticEffect(string fromColor, int fromLevel, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `AddMemoryTriggerEffect` | ICardEffect | `ICardEffect AddMemoryTriggerEffect(EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description, Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null)` |
 | `AddSelfDigivolutionRequirementStaticEffect` | ICardEffect | `ICardEffect AddSelfDigivolutionRequirementStaticEffect(Func<Permanent, bool> permanentCondition, int digivolutionCost, bool ignoreDigivolutionRequirement, CardSource card, Func<bool>? condition, string? effectName = null, Func<CardSource, bool>? cardCondition = null, Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1)` |
+| `AddSelfLinkConditionStaticEffect` | ICardEffect | `ICardEffect AddSelfLinkConditionStaticEffect(Func<Permanent, bool> permanentCondition, int linkCost, CardSource card, Func<bool>? condition = null, Func<CardSource, bool>? cardCondition = null, string? effectName = null)` |
 | `AddThisCardToHandEffect` | IActivatedCardEffect | `IActivatedCardEffect AddThisCardToHandEffect(CardSource card)` |
 | `AllianceSelfEffect` | ICardEffect | `ICardEffect AllianceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `AllianceStaticEffect` | ICardEffect | `ICardEffect AllianceStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `ArmorPurgeEffect` | ICardEffect | `ICardEffect ArmorPurgeEffect(CardSource card)` |
+| `ArtsDigivolveEffect` | IActivatedCardEffect | `IActivatedCardEffect ArtsDigivolveEffect(CardSource card)` |
 | `AscensionSelfEffect` | ICardEffect | `ICardEffect AscensionSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
 | `BarrierSelfEffect` | ICardEffect | `ICardEffect BarrierSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `BlastDigivolveEffect` | ICardEffect | `ICardEffect BlastDigivolveEffect(CardSource card, Func<bool>? condition)` |
@@ -239,6 +247,7 @@
 | `Gain1MemoryTamerOwnerDigimonConditionalEffect` | ICardEffect | `ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool>? permanentCondition, Func<bool>? condition, CardSource card)` |
 | `Gain2MemoryOptionDelayEffect` | ICardEffect | `ICardEffect Gain2MemoryOptionDelayEffect(CardSource card)` |
 | `GainMemoryActivatedEffect` | ICardEffect | `ICardEffect GainMemoryActivatedEffect(CardSource card, int amount, string description)` |
+| `GetJogressConditionClass` | ICardEffect | `ICardEffect GetJogressConditionClass(Func<Permanent, bool> permanentCondition1, string description1, Func<Permanent, bool> permanentCondition2, string description2, CardSource card, int cost = 0, Func<bool>? canUseCondition = null)` |
 | `GrantedReduceLinkCostClass` | ICardEffect | `ICardEffect GrantedReduceLinkCostClass(CardSource card, int reducedCost, bool isInheritedEffect = false, Func<bool>? condition = null)` |
 | `IcecladSelfStaticEffect` | ICardEffect | `ICardEffect IcecladSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `ImmuneFromDPMinusStaticEffect` | ICardEffect | `ICardEffect ImmuneFromDPMinusStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
@@ -274,6 +283,7 @@
 | `ReplaceTopSecurityWithFaceUpOptionMainEffect` | IActivatedCardEffect | `IActivatedCardEffect ReplaceTopSecurityWithFaceUpOptionMainEffect(CardSource card)` |
 | `RetaliationSelfEffect` | ICardEffect | `ICardEffect RetaliationSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
 | `ReturnToLibraryBottomDigivolutionCardsClass` | IActivatedCardEffect | `IActivatedCardEffect ReturnToLibraryBottomDigivolutionCardsClass(CardSource card, int count)` |
+| `RevealDeckTopCardsAndSelect` | IActivatedCardEffect | `IActivatedCardEffect RevealDeckTopCardsAndSelect(CardSource card, int revealCount, IReadOnlyList<HeadlessDCGO.Engine.Headless.Runtime.RevealSelectPass> selectCardConditions, RevealDestination remainingCardsPlace, string description, bool canNoAction = false, bool isOpponentDeck = false, bool mutualConditions = false)` |
 | `RevealLibraryClass` | IActivatedCardEffect | `IActivatedCardEffect RevealLibraryClass(CardSource card, int revealCount)` |
 | `RushSelfStaticEffect` | ICardEffect | `ICardEffect RushSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `RushStaticEffect` | ICardEffect | `ICardEffect RushStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |

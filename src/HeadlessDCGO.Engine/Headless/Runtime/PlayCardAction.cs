@@ -21,11 +21,67 @@ public sealed class PlayCardAction
 
         return zoneReader
             .GetCards(playerId, ChoiceZone.Hand)
-            .Select(cardId => CreateLegalActionIfPlayable(context, playerId, cardId))
-            .Where(action => action is not null)
-            .Cast<LegalAction>()
+            .SelectMany(cardId => CreateLegalActionsIfPlayable(context, playerId, cardId))
             .OrderBy(action => action.Id.Value, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private IEnumerable<LegalAction> CreateLegalActionsIfPlayable(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId)
+    {
+        LegalAction? normal = CreateLegalActionIfPlayable(context, playerId, cardId);
+        if (normal is not null)
+        {
+            yield return normal;
+        }
+
+        // (AD1-A) the Assembly variant of the SAME play (AS-IS folds it into the ordinary play flow,
+        // CardController.cs:753-761): the card declares an AssemblyCondition and the owner's TRASH can fill
+        // the full material set -> offer the play at (base - reduceCost), materials parameterized. One
+        // action per playable assembly with the first valid material assignment (the same reduction policy
+        // as DigiXros/DNA material matching).
+        if (CreateAssemblyActionIfPlayable(context, playerId, cardId) is LegalAction assembly)
+        {
+            yield return assembly;
+        }
+    }
+
+    private static LegalAction? CreateAssemblyActionIfPlayable(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId)
+    {
+        if (!TryGetPlayCost(context, cardId, out int playCost, out _))
+        {
+            return null;
+        }
+
+        var view = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId);
+        if (view.AssemblyConditionOf() is not Assets.Scripts.Script.CardEffectCommons.AssemblyCondition condition ||
+            condition.reduceCost <= 0 ||
+            !Assets.Scripts.Script.SelectAssemblyClass.TryMatchMaterials(context, view, condition, out List<HeadlessEntityId> materials))
+        {
+            return null;
+        }
+
+        // AS-IS: Cost -= reduceCost only for the FULL set (GetPayingCost, CardSource.cs:705-737).
+        int reducedCost = Math.Max(0, playCost - condition.reduceCost);
+        PlayCardActionPayload payload = new(cardId, reducedCost, ChoiceZone.Hand, ChoiceZone.BattleArea)
+        {
+            AssemblyMaterials = materials,
+        };
+        if (!Validate(context, playerId, payload).IsLegal)
+        {
+            return null;
+        }
+
+        return HeadlessActionFactory.Create(
+            HeadlessActionTypes.PlayCard,
+            playerId,
+            $"{playerId.Value}:{HeadlessActionTypes.PlayCard}:assembly:{cardId.Value}",
+            payload.ToParameters());
     }
 
     public async Task<ActionProcessResult> ProcessAsync(
@@ -125,11 +181,31 @@ public sealed class PlayCardAction
         // G6-001: auto-register the played card's ported effects (no-op for un-ported cards).
         CardEffectRegistrar.RegisterCard(context, payload.CardId, action.PlayerId);
 
+        // (AD1-A) Assembly: move the selected materials from the OWNER'S TRASH to UNDER the new permanent as
+        // digivolution cards (AS-IS AddDigivolutiuonCards -> AddDigivolutionCardsBottom, SelectAssemblyClass
+        // .cs:282-311) — done after entry, before the On-Play windows (CardController.cs:1630-1649 order).
+        // A material an entry effect already consumed is skipped (the AS-IS isTrashCard guard).
+        if (payload.AssemblyMaterials.Count > 0 && context.ZoneMover is IZoneStateReader assemblyZones)
+        {
+            List<HeadlessEntityId> stillInTrash = payload.AssemblyMaterials
+                .Where(id => assemblyZones.GetCards(action.PlayerId, ChoiceZone.Trash).Contains(id))
+                .ToList();
+            await DigivolutionStackHelpers.AddSourcesBottomAsync(
+                context.CardInstanceRepository, context.ZoneMover, payload.CardId, stillInTrash, ChoiceZone.Trash,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         Dictionary<string, object?> metadata = Metadata(action, payload, validation);
         metadata[HeadlessActionParameterKeys.PreviousMemory] = previousMemory.Current;
         metadata[HeadlessActionParameterKeys.Memory] = paidMemory.Current;
         metadata["movementEventSequence"] = movement.Event.Sequence;
         metadata["cardDefinitionId"] = validation.CardDefinitionId?.Value;
+        if (payload.AssemblyMaterials.Count > 0)
+        {
+            // AS-IS plumbs the material count into the OnEnterField hashtable (HashtableSetting.cs:143
+            // "AssemblyCount") — no card effect reads it today, mirrored for parity.
+            metadata["assemblyCount"] = payload.AssemblyMaterials.Count;
+        }
 
         // LA-3: a Digimon entering play triggers eligible "[All Turns] (Once Per Turn) when Digimon are
         // played, activate this Digimon's [When Digivolving] effects" holders (both players). No-op when no
@@ -250,10 +326,30 @@ public sealed class PlayCardAction
                 instance.DefinitionId);
         }
 
-        if (payload.MemoryCost != repositoryCost)
+        // (AD1-A) an Assembly play: re-derive the condition, validate the explicit material set (owner's
+        // trash, per-element predicates, full set), and expect the FLAT discount (AS-IS GetPayingCost,
+        // CardSource.cs:705-737: Cost -= reduceCost only when selected == elementCount).
+        int expectedCost = repositoryCost;
+        if (payload.AssemblyMaterials.Count > 0)
+        {
+            var view = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.CardId, playerId);
+            if (view.AssemblyConditionOf() is not Assets.Scripts.Script.CardEffectCommons.AssemblyCondition condition)
+            {
+                return PlayCardValidation.Illegal($"Card '{payload.CardId}' has no Assembly condition.", instance.DefinitionId);
+            }
+
+            if (!Assets.Scripts.Script.SelectAssemblyClass.ValidateMaterials(context, view, condition, payload.AssemblyMaterials))
+            {
+                return PlayCardValidation.Illegal("Assembly materials do not satisfy the condition.", instance.DefinitionId);
+            }
+
+            expectedCost = Math.Max(0, repositoryCost - condition.reduceCost);
+        }
+
+        if (payload.MemoryCost != expectedCost)
         {
             return PlayCardValidation.Illegal(
-                $"PlayCard memory cost {payload.MemoryCost} does not match card play cost {repositoryCost}.",
+                $"PlayCard memory cost {payload.MemoryCost} does not match card play cost {expectedCost}.",
                 instance.DefinitionId);
         }
 
@@ -262,7 +358,7 @@ public sealed class PlayCardAction
         // as costing that much less, so it can be offered/played when the FULL cost is unaffordable but the
         // reduced cost is not. The payload cost stays full (the actual reduction is applied by the brick-2
         // pre-payment window in ProcessAsync); only the affordability check uses the reduced cost.
-        int availabilityCost = Math.Max(0, repositoryCost - BeforePayCostAvailabilityReduction(context, payload.CardId, playerId));
+        int availabilityCost = Math.Max(0, expectedCost - BeforePayCostAvailabilityReduction(context, payload.CardId, playerId));
         if (!context.MemoryController.CanPay(availabilityCost))
         {
             return PlayCardValidation.Illegal(
@@ -378,15 +474,29 @@ public sealed record PlayCardActionPayload(
     ChoiceZone FromZone,
     ChoiceZone ToZone)
 {
+    /// <summary>(AD1-A) parameter key carrying the Assembly material ids (comma-joined, element order).</summary>
+    public const string AssemblyMaterialsKey = "assemblyMaterials";
+
+    /// <summary>(AD1-A) the Assembly materials this play consumes from the OWNER'S TRASH (empty = a normal
+    /// play). AS-IS folds Assembly into the ordinary play flow (CardController.cs:753) — headless it is the
+    /// same PlayCard action parameterized with the chosen full material set.</summary>
+    public IReadOnlyList<HeadlessEntityId> AssemblyMaterials { get; init; } = Array.Empty<HeadlessEntityId>();
+
     public IReadOnlyDictionary<string, object?> ToParameters()
     {
-        return new Dictionary<string, object?>
+        var parameters = new Dictionary<string, object?>
         {
             [HeadlessActionParameterKeys.CardId] = CardId,
             [HeadlessActionParameterKeys.MemoryCost] = MemoryCost,
             [HeadlessActionParameterKeys.FromZone] = FromZone,
             [HeadlessActionParameterKeys.ToZone] = ToZone
         };
+        if (AssemblyMaterials.Count > 0)
+        {
+            parameters[AssemblyMaterialsKey] = string.Join(",", AssemblyMaterials.Select(m => m.Value));
+        }
+
+        return parameters;
     }
 
     public static bool TryRead(
@@ -420,7 +530,17 @@ public sealed record PlayCardActionPayload(
             HeadlessActionParameterKeys.ToZone,
             ChoiceZone.BattleArea);
 
-        payload = new PlayCardActionPayload(cardId, memoryCost, fromZone, toZone);
+        IReadOnlyList<HeadlessEntityId> assemblyMaterials = Array.Empty<HeadlessEntityId>();
+        if (action.Parameters.TryGetValue(AssemblyMaterialsKey, out object? rawMaterials) &&
+            rawMaterials?.ToString() is { Length: > 0 } materialsValue)
+        {
+            assemblyMaterials = materialsValue
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(id => new HeadlessEntityId(id))
+                .ToArray();
+        }
+
+        payload = new PlayCardActionPayload(cardId, memoryCost, fromZone, toZone) { AssemblyMaterials = assemblyMaterials };
         error = null;
         return true;
     }

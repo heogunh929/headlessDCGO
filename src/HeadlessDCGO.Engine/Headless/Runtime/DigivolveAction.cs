@@ -49,10 +49,72 @@ public sealed class DigivolveAction
             }
         }
 
+        // (W6-F) App Fusion (AS-IS CardController.cs:400 — an EVOLUTION variant): a hand card declaring an
+        // AppFusionCondition may fuse onto an owner Digimon whose top matches one material and one of whose
+        // LINK cards matches a different material; the chosen link card is consumed into the fused sources.
+        foreach (HeadlessEntityId cardId in handCards)
+        {
+            var view = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId, playerId);
+            if (view.AppFusionConditionOf() is not Assets.Scripts.Script.CardEffectCommons.AppFusionCondition condition)
+            {
+                continue;
+            }
+
+            int fusionCost = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, cardId, condition.cost));
+            foreach (HeadlessEntityId hostId in zoneReader.GetCards(playerId, ChoiceZone.BattleArea))
+            {
+                var host = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, hostId, playerId);
+                if (!condition.digimonCondition(host))
+                {
+                    continue;
+                }
+
+                foreach (HeadlessEntityId linkId in LinkedIdsOf(context, hostId))
+                {
+                    var linkView = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, linkId, playerId, playerId);
+                    if (!condition.linkedCondition(host, linkView))
+                    {
+                        continue;
+                    }
+
+                    DigivolveActionPayload payload = new(cardId, hostId, fusionCost) { AppFusionLinkCardId = linkId };
+                    if (Validate(context, playerId, payload).IsLegal)
+                    {
+                        actions.Add(HeadlessActionFactory.Create(
+                            HeadlessActionTypes.Digivolve, playerId,
+                            $"{playerId.Value}:{HeadlessActionTypes.Digivolve}:appfusion:{cardId.Value}:{hostId.Value}:{linkId.Value}",
+                            payload.ToParameters()));
+                    }
+                }
+            }
+        }
+
         return actions
             .OrderBy(action => action.Id.Value, StringComparer.Ordinal)
             .ToArray();
     }
+
+    private static void AppendSourceId(ICardInstanceRepository repository, HeadlessEntityId hostId, HeadlessEntityId sourceId)
+    {
+        if (!repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+        {
+            return;
+        }
+
+        List<string> sources = host.Metadata.TryGetValue(SourceIdsMetadataKey, out object? raw) && raw is IEnumerable<string> existing
+            ? existing.ToList()
+            : new List<string>();
+        sources.Add(sourceId.Value);
+        repository.Upsert(host with
+        {
+            Metadata = new Dictionary<string, object?>(host.Metadata, StringComparer.Ordinal) { [SourceIdsMetadataKey] = sources.ToArray() }
+        });
+    }
+
+    private static IReadOnlyList<HeadlessEntityId> LinkedIdsOf(EngineContext context, HeadlessEntityId hostId) =>
+        context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? host) && host is not null
+            ? LinkHelpers.ReadLinkedCardIds(host.Metadata)
+            : Array.Empty<HeadlessEntityId>();
 
     public async Task<ActionProcessResult> ProcessAsync(
         LegalAction action,
@@ -75,6 +137,19 @@ public sealed class DigivolveAction
         }
 
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
+
+        // (W6-F) App Fusion: convert the chosen LINK card into a digivolution source of the HOST before the
+        // normal stacking (AS-IS selectAppFusionEffect.AddToSources at CardController.cs:786) — the fused
+        // card then stacks the host + its (now link-including) sources as usual.
+        if (!payload.AppFusionLinkCardId.IsEmpty)
+        {
+            await LinkHelpers.RemoveLinkCardAsync(
+                context.CardInstanceRepository, context.ZoneMover,
+                payload.TargetCardId, payload.AppFusionLinkCardId, trash: false,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            AppendSourceId(context.CardInstanceRepository, payload.TargetCardId, payload.AppFusionLinkCardId);
+        }
+
         // GR-004: digivolution is IN PLACE — the new top card lands in the SAME area the target occupied
         // (breeding stays in breeding, battle stays in battle); only hardcoding BattleArea would have
         // teleported an in-breeding digivolution onto the battle area.
@@ -169,11 +244,77 @@ public sealed class DigivolveAction
         return ActionProcessResult.Success("Card digivolved.", metadata);
     }
 
+    /// <summary>(W6-F) App-Fusion legality: the declared condition is the requirement (the normal
+    /// digivolution level/color requirement does NOT apply — AS-IS gates on
+    /// CanAppFusionFromTargetPermanent); cost = the condition's cost through the play-cost pipeline.</summary>
+    private static DigivolveValidation ValidateAppFusion(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        DigivolveActionPayload payload)
+    {
+        if (context.ZoneMover is not IZoneStateReader zones ||
+            !zones.GetCards(playerId, ChoiceZone.Hand).Contains(payload.CardId))
+        {
+            return DigivolveValidation.Illegal("App-Fusion card must be in hand.");
+        }
+
+        if (!zones.GetCards(playerId, ChoiceZone.BattleArea).Contains(payload.TargetCardId))
+        {
+            return DigivolveValidation.Illegal("App-Fusion host must be on the battle area.");
+        }
+
+        var view = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.CardId, playerId, playerId);
+        if (view.AppFusionConditionOf() is not Assets.Scripts.Script.CardEffectCommons.AppFusionCondition condition)
+        {
+            return DigivolveValidation.Illegal("Card declares no App-Fusion condition.");
+        }
+
+        var host = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, payload.TargetCardId, playerId);
+        if (!condition.digimonCondition(host))
+        {
+            return DigivolveValidation.Illegal("App-Fusion host does not match the material condition.");
+        }
+
+        // AS-IS CanAppFusionFromTargetPermanent requires !CanNotEvolve(target) — same restriction gate as
+        // the normal digivolve path (:421).
+        CannotRestrictionResult fusionRestriction = ContinuousRestrictionGate.EvaluateDigivolve(context, payload.TargetCardId);
+        if (fusionRestriction.IsRestricted)
+        {
+            return DigivolveValidation.Illegal($"App-Fusion host cannot digivolve ({fusionRestriction.Reason}).");
+        }
+
+        if (!LinkedIdsOf(context, payload.TargetCardId).Contains(payload.AppFusionLinkCardId) ||
+            !condition.linkedCondition(host, new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.AppFusionLinkCardId, playerId, playerId)))
+        {
+            return DigivolveValidation.Illegal("App-Fusion link material does not match.");
+        }
+
+        int expected = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, payload.CardId, condition.cost));
+        if (payload.MemoryCost != expected)
+        {
+            return DigivolveValidation.Illegal($"App-Fusion cost {payload.MemoryCost} does not match {expected}.");
+        }
+
+        if (!context.MemoryController.CanPay(expected))
+        {
+            return DigivolveValidation.Illegal($"Cannot pay App-Fusion cost {expected}.");
+        }
+
+        context.CardInstanceRepository.TryGetInstance(payload.CardId, out CardInstanceRecord? card);
+        context.CardInstanceRepository.TryGetInstance(payload.TargetCardId, out CardInstanceRecord? target);
+        return DigivolveValidation.Legal(card?.DefinitionId ?? payload.CardId, target?.DefinitionId ?? payload.TargetCardId);
+    }
+
     private static DigivolveValidation Validate(
         EngineContext context,
         HeadlessPlayerId playerId,
         DigivolveActionPayload payload)
     {
+        if (!payload.AppFusionLinkCardId.IsEmpty)
+        {
+            return ValidateAppFusion(context, playerId, payload);
+        }
+
         if (playerId.IsEmpty)
         {
             return DigivolveValidation.Illegal("Player id must not be empty.");
@@ -319,7 +460,7 @@ public sealed class DigivolveAction
         return true;
     }
 
-    private static bool TryGetEvolutionCost(
+    internal static bool TryGetEvolutionCost(
         EngineContext context,
         HeadlessEntityId cardId,
         HeadlessEntityId targetCardId,
@@ -635,7 +776,7 @@ public sealed class DigivolveAction
         };
     }
 
-    private static IReadOnlyList<HeadlessEntityId> AttachTargetAsSource(
+    internal static IReadOnlyList<HeadlessEntityId> AttachTargetAsSource(
         ICardInstanceRepository repository,
         HeadlessEntityId cardId,
         HeadlessEntityId targetCardId)
@@ -743,14 +884,27 @@ public sealed record DigivolveActionPayload(
     HeadlessEntityId TargetCardId,
     int MemoryCost)
 {
+    /// <summary>(W6-F) parameter key carrying the App-Fusion link material (the host's LINK card that is
+    /// consumed into the fused stack's sources — AS-IS selectAppFusionEffect.AddToSources).</summary>
+    public const string AppFusionLinkCardKey = "appFusionLinkCard";
+
+    /// <summary>(W6-F) the App-Fusion link material; empty = a normal digivolution.</summary>
+    public HeadlessEntityId AppFusionLinkCardId { get; init; }
+
     public IReadOnlyDictionary<string, object?> ToParameters()
     {
-        return new Dictionary<string, object?>
+        var parameters = new Dictionary<string, object?>
         {
             [HeadlessActionParameterKeys.CardId] = CardId,
             [HeadlessActionParameterKeys.TargetCardId] = TargetCardId,
             [HeadlessActionParameterKeys.MemoryCost] = MemoryCost
         };
+        if (!AppFusionLinkCardId.IsEmpty)
+        {
+            parameters[AppFusionLinkCardKey] = AppFusionLinkCardId.Value;
+        }
+
+        return parameters;
     }
 
     public static bool TryRead(
@@ -785,7 +939,14 @@ public sealed record DigivolveActionPayload(
             return false;
         }
 
-        payload = new DigivolveActionPayload(cardId, targetCardId, memoryCost);
+        HeadlessEntityId appFusionLink = default;
+        if (action.Parameters.TryGetValue(AppFusionLinkCardKey, out object? rawLink) &&
+            rawLink?.ToString() is { Length: > 0 } linkValue)
+        {
+            appFusionLink = new HeadlessEntityId(linkValue);
+        }
+
+        payload = new DigivolveActionPayload(cardId, targetCardId, memoryCost) { AppFusionLinkCardId = appFusionLink };
         error = null;
         return true;
     }

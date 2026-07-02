@@ -59,6 +59,16 @@ public sealed class GameFlowProcessor
                 continue;
             }
 
+            // (W6-S) fire parked delete-and-process continuations whose targets have all settled
+            // (AS-IS DeletePeremanentAndProcessAccordingToResult resumes after the deletion pipeline).
+            if (context.TryGetService(out DeletionOutcomeWatcher? outcomeWatcher) && outcomeWatcher is not null &&
+                outcomeWatcher.Count > 0 &&
+                await outcomeWatcher.SettleAsync(context, cancellationToken).ConfigureAwait(false))
+            {
+                progressedAny = true;
+                continue;
+            }
+
             // F-6.8: before the state-based sweep finishes any deferred deletion, open the would-be-deleted
             // replacement window for cards that carry an OPTIONAL replacement keyword, so the owner decides
             // (activate / skip) instead of it being auto-applied. Opening a choice pauses the loop.
@@ -479,28 +489,47 @@ public sealed class GameFlowProcessor
     /// <summary>(G11-002/004) Return a copy of <paramref name="request"/> whose resolve context carries the
     /// event's subject (the card the event is about) as the TriggerEntityId, so trigger-gates and effect
     /// bodies can read which card fired the trigger. No-op when already set or the event has no subject.</summary>
+    /// <summary>(W6-T) prefix under which the DRIVING game event's metadata (+ its type) is threaded into
+    /// the trigger's resolve-context values, so the AS-IS <c>CanTriggerX(hashtable, …)</c> gate mirrors can
+    /// read the event exactly like the original hashtable (primitive_w6_design.md W6-T).</summary>
+    public const string EventValuePrefix = "event.";
+    public const string EventTypeKey = "event.type";
+
     private static EffectRequest EnrichWithEventSubject(EffectRequest request, GameEvent gameEvent)
     {
-        if (request.Context.TriggerEntityId is not null)
-        {
-            return request;
-        }
+        HeadlessEntityId? triggerId = request.Context.TriggerEntityId;
 
         // The subject is the card the event is about: self-scoped triggers carry it under SourceEntityId; a
         // CardMoved event (e.g. a deletion driving OnDestroyedAnyone) carries it under CardId.
-        if (!(TryReadSubject(gameEvent, AutoProcessingTriggerCollector.SourceEntityIdKey, out string? subjectValue)
-              || TryReadSubject(gameEvent, AutoProcessingTriggerCollector.CardIdKey, out subjectValue)))
+        if (triggerId is null &&
+            (TryReadSubject(gameEvent, AutoProcessingTriggerCollector.SourceEntityIdKey, out string? subjectValue)
+             || TryReadSubject(gameEvent, AutoProcessingTriggerCollector.CardIdKey, out subjectValue)))
         {
-            return request;
+            triggerId = new HeadlessEntityId(subjectValue!);
+        }
+
+        // (W6-T) thread the event's PRIMITIVE metadata alongside — the AS-IS trigger gates read the
+        // driving hashtable (isEvolution / Root / DPZero / byBattle …); the port mirror reads
+        // "event.<key>" from the resolve-context values. Stored Funcs and complex payloads are skipped.
+        var values = new Dictionary<string, object?>(request.Context.Values, StringComparer.Ordinal)
+        {
+            [EventTypeKey] = gameEvent.Type.ToString(),
+        };
+        foreach (KeyValuePair<string, object?> pair in gameEvent.Metadata)
+        {
+            if (pair.Value is string or int or bool or long)
+            {
+                values[$"{EventValuePrefix}{pair.Key}"] = pair.Value;
+            }
         }
 
         var context = new EffectContext(
             request.Context.SourcePlayerId,
             request.Context.OwnerPlayerId,
             request.Context.SourceEntityId,
-            triggerEntityId: new HeadlessEntityId(subjectValue!),
+            triggerEntityId: triggerId,
             targetEntityIds: request.Context.TargetEntityIds,
-            values: request.Context.Values);
+            values: values);
         return new EffectRequest(request.EffectId, request.ControllerId, request.Timing, context);
     }
 

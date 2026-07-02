@@ -205,6 +205,8 @@
 - **K5 — face-up/flipped 축소(검증된 1:1 축소)**: AS-IS MindLink 조건 `DigivolutionCards.Count(cs => cs.IsTamer && !cs.IsFlipped) == 0`에서 `!IsFlipped`는 축소 — 헤드리스에 under-card flip 모델 없음(전부 face-up = AS-IS 기본 상태). flip 메커니즘 도입 시 재방문.
 - **K5 — leave-field 트리거 미발화**: `MindLinkClass.MindLink`의 테이머 필드 이탈은 직접 zone-move(레지스트리 정리는 수행)라 leave-field 트리거 창을 열지 않음. AS-IS `IPlacePermanentToDigivolutionCards`의 이탈 처리 대조 후 필요 시 sink 경유로 전환.
 - **기존 debt 유지**: Decoy/Save의 first-candidate 결정론(AS-IS "select 1"; Decoy는 F68D per-card condition 창으로 부분 해소), Execute 턴종료 공격창.
+- **AD1-A 축소 — Assembly 필드-대체 라틴트**: AS-IS `CanSubstituteForAssemblyCondition`(Permanent.cs:3843-3886)은 `ICanSelectAssemblyEffect` 보유 시 필드 퍼머넌트가 트래시 재료를 대체(퍼머넌트 통째로 밑에 들어감). 현행 Assembly 사용 15장 중 해당 효과 사용 카드 0 → 미모델(SelectAssemblyClass doc 명기). 해당 카드 포팅 시 확장.
+- **AD1-A 정책 상속 — 재료 조합 단일화**: Assembly/DigiXros/DNA의 파라미터화 액션은 유효한 첫 재료 배정 1개만 열거(백트래킹) — AS-IS는 플레이어가 임의 조합 선택. 대체 조합이 게임적으로 다른 카드(재료의 진화원 수 등이 후속 효과에 영향) 등장 시 조합 열거 확장.
 - **B3 마커 뉘앙스(문서-구현 불일치 기록)**: fix_design은 rule 삭제(DP≤0)에 `DeletedByRuleKey` 신설을 제안했으나 구현은 sink의 기존 `DeletedByEffectKey` 스탬프를 유지하고 `isDpZero`만 추가함. 현 소비자 전부 무영향 검증(Decode/Partition은 `!byBattle`[&&`!ownEffect` — rule source는 인스턴스 미해석이라 ownEffect=false]만 보고, Decoy는 deleter-enemy 게이트로 자연 배제). **미래에 "IsByEffect" 술어 소비자가 생기면** rule 삭제가 효과 삭제로 오독될 수 있음 — 그때 rule 마커 분리.
 
 **부수 수정(일반 버그, 이번 세션 발견):**

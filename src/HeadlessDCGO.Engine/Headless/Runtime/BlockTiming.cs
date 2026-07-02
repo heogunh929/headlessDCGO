@@ -41,6 +41,14 @@ public sealed class BlockTiming
             return Array.Empty<BlockerCandidate>();
         }
 
+        // (AD1-S) a target-locked attacker (CanNotSwitchAttackTarget) can't have its attack redirected —
+        // AS-IS gates block eligibility itself (Permanent.cs:2156), so no candidates at all; this outranks
+        // Collision (a forced block over zero legal blockers is vacuous).
+        if (AttackTargetSwitchGate.IsLocked(context, attack.AttackerId.Value))
+        {
+            return Array.Empty<BlockerCandidate>();
+        }
+
         // (S4) recognise the live Collision KEYWORD (CollisionSelfEffect → SelfKeywordByNameEffect) in addition
         // to the hasCollision metadata flag (only set by the GrantCollision mutation) — else keyword-granted
         // Collision is inert.

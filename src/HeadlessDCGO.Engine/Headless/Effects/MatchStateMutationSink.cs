@@ -51,6 +51,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string IsDpZeroKey = "isDpZero";
     public const string CannotBeDeletedFlagKey = "cannotBeDeleted";
     public const string DeletedByEffectKey = "deletedByEffect";
+
+    /// <summary>(W6-T) the CAUSING effect's source card id, stamped with every effect deletion — the AS-IS
+    /// on-deletion hashtable carries the CardEffect (IsByEffect reads its EffectSourceCard).</summary>
+    public const string DeletedBySourceEntityIdKey = "deletedBySourceEntityId";
     public const string DeletionPreventedKey = "deletionPrevented";
 
     // W2-follow: async / controller-backed kinds (applied on flush or via the memory controller).
@@ -638,6 +642,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     [GameFlowProcessor.PendingDeletionKey] = true,
                     [DeletedByEffectKey] = true,
                     [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(mutation.SourceEntityId, record.OwnerId),
+                    [DeletedBySourceEntityIdKey] = mutation.SourceEntityId.Value,
                 };
                 if (ReadBool(mutation.Values, IsDpZeroKey))
                 {
@@ -673,6 +678,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             [DeletedByEffectKey] = true,
             [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(mutation.SourceEntityId, record.OwnerId),
+            [DeletedBySourceEntityIdKey] = mutation.SourceEntityId.Value,
         };
         if (ReadBool(mutation.Values, IsDpZeroKey))
         {

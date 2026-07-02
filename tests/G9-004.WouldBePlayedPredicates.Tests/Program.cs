@@ -98,9 +98,9 @@ async Task HasIsCountGEOne()
 {
     EngineContext context = Context();
     var card = new CardSource(context, new HeadlessEntityId("1:battle:NONE"), P1);
-    AssertTrue(!CardEffectCommons.HasMatchConditionPermanent(card, _ => true), "no permanents -> Has is false");
+    AssertTrue(!CardEffectCommons.HasMatchConditionPermanent(card, (HeadlessEntityId _) => true), "no permanents -> Has is false");
     await PlaceDigimon(context, P1, "ONE", suspended: false);
-    AssertTrue(CardEffectCommons.HasMatchConditionPermanent(card, _ => true), "one permanent -> Has is true");
+    AssertTrue(CardEffectCommons.HasMatchConditionPermanent(card, (HeadlessEntityId _) => true), "one permanent -> Has is true");
 }
 
 // --- Helpers -------------------------------------------------------------

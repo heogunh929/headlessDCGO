@@ -105,6 +105,11 @@ public static class ContinuousRestrictionGate
     public static CannotRestrictionResult EvaluateUnsuspend(EngineContext context, HeadlessEntityId targetId) =>
         RestrictionHelpers.CannotUnsuspend(targetId, Evaluate(context, targetId));
 
+    // (W6-P) Continuous "cannot suspend" restriction — the AS-IS Permanent.CanSuspend gate half of
+    // CanActivatePermanentSuspendCostEffect.
+    public static CannotRestrictionResult EvaluateSuspend(EngineContext context, HeadlessEntityId targetId) =>
+        RestrictionHelpers.CannotSuspend(targetId, Evaluate(context, targetId));
+
     // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
     public static CannotRestrictionResult EvaluateBeBlocked(EngineContext context, HeadlessEntityId attackerId) =>
         RestrictionHelpers.CannotBeBlocked(attackerId, Evaluate(context, attackerId));

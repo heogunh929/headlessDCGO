@@ -128,6 +128,23 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ArtsDigivolveSelfEffect arts:
+                {
+                    // (W6-A2) Arts Digivolve: cost-free evolution out of the executing area.
+                    await arts.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case RevealMultiSelectEffect revealMulti:
+                {
+                    // (P4) FULL multi-condition reveal (shared pool, per-pass destination incl. Custom,
+                    // opt-out, mutual rule, remaining ordering). ChoiceProvider-driven, sink-staged.
+                    await revealMulti.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case DestroyPermanentsEffect destroy:
                 {
                     // (BT-PRE-A3) direct-delete a pre-computed target list — no choice; the sink's centralised
