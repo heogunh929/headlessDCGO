@@ -65,7 +65,8 @@ public sealed class OptionActivateAction
             cancellationToken).ConfigureAwait(false);
 
         // F-6.6: opening an Option card opens the OnUseOption window (subject = the option card).
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: action.PlayerId, subject: payload.CardId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: action.PlayerId, subject: payload.CardId,
+            extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["cost"] = payload.MemoryCost });
 
         // G6-002: resolve the option's ported [Main] activated effect (select-and-act / buff) via the
         // engine's choice provider. Only fall back to the legacy scheduler enqueue when the card has no

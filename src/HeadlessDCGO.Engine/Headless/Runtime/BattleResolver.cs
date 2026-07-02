@@ -190,7 +190,21 @@ public sealed class BattleResolver
 
         EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndBattle, actor: attacker.OwnerId);
+        // (W6 tail) carry the battle RESULT the AS-IS battle hashtable carried (WinnerPermanents /
+        // LoserPermanents / *_real) so CanTriggerWhenDeleteOpponentDigimonByBattle / WhenWinBattle gates can
+        // read it: winners = surviving participants, losers = DP-comparison losers (the deleted set here —
+        // replacement survivors never reach `deleted`), losersReal = actually destroyed by this battle.
+        var battleValues = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["winnerIds"] = string.Join(",", new[] { attacker.InstanceId, defender.InstanceId }
+                .Where(id => !deleted.Any(p => p.InstanceId == id)).Select(id => id.Value)),
+            ["loserIds"] = string.Join(",", deleted.Select(p => p.InstanceId.Value)),
+            ["loserRealIds"] = string.Join(",", deleted.Select(p => p.InstanceId.Value)),
+            ["attackerId"] = attacker.InstanceId.Value,
+            ["defenderId"] = defender.InstanceId.Value,
+        };
+        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndBattle, actor: attacker.OwnerId,
+            extraMetadata: battleValues);
 
         return BattleResolutionResult.Success(
             resolvedAttack,

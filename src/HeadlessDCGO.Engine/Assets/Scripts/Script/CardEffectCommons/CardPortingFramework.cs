@@ -310,6 +310,13 @@ public sealed class CardSource
     /// <summary>(W6-P) printed-data based like AS-IS <c>HasDP</c> — the card defines a DP at all.</summary>
     public bool HasDP => Definition?.Metadata.TryGetValue("dp", out object? dp) == true && dp is int;
 
+    /// <summary>(W6 tail) AS-IS <c>HasPlayCost</c> — the card defines a play cost.</summary>
+    public bool HasPlayCost => Definition?.PlayCost is not null;
+
+    /// <summary>(W6 tail) AS-IS <c>GetCostItself</c> — the card's own play cost (printed; per-card cost
+    /// modifiers fold in the play pipeline, not here — the Min/MaxCost comparisons use the printed value).</summary>
+    public int GetCostItself => Definition?.PlayCost ?? 0;
+
     /// <summary>(C9) mirror of AS-IS <c>CardSource.IsLinked</c> (CardSource.cs:2947):
     /// <c>PermanentOfThisCard().LinkedCards.Contains(this)</c> — true while this card is a LINK card of a
     /// battle-area permanent (link cards are tracked separately from digivolution sources:
@@ -857,6 +864,47 @@ public sealed class DisplayDetailEffect : ICardEffect
         return new EffectBinding(
             new EffectRequest(new HeadlessEntityId(effectId), _card.Controller, "Continuous", context),
             keywords: null, EffectQueryRole.Continuous, queryScopes: null, effect: null, duration: null);
+    }
+}
+
+/// <summary>(W6 tail) the AS-IS <c>StartOfMainAttack</c> activate body: at the owner's main-phase start,
+/// open a MANDATORY attack offer for the granted Digimon (AS-IS SetCanNotSelectNotAttack — cannot decline;
+/// player or any Digimon).</summary>
+public sealed class StartOfMainAttackEffect : Headless.Effects.IHeadlessCardEffect
+{
+    private readonly EngineContext _context;
+    private readonly HeadlessEntityId _attackerId;
+
+    public StartOfMainAttackEffect(EngineContext context, HeadlessEntityId attackerId)
+    {
+        _context = context ?? throw new ArgumentNullException(nameof(context));
+        _attackerId = attackerId;
+    }
+
+    public Headless.Effects.CardEffectDefinition Definition => new(
+        new HeadlessEntityId($"start-of-main-attack:{_attackerId.Value}"), _attackerId,
+        "[Start of Your Main Phase] Attack with this Digimon.", Headless.Effects.TriggerTimings.OnStartMainPhase,
+        isOptional: false);
+
+    public Headless.Effects.CardEffectCanResolveResult CanResolve(Headless.Effects.CardEffectResolveContext context)
+    {
+        bool onField = _context.ZoneMover is IZoneStateReader zones &&
+            _context.CardInstanceRepository.TryGetInstance(_attackerId, out CardInstanceRecord? rec) && rec is not null &&
+            zones.GetCards(rec.OwnerId, ChoiceZone.BattleArea).Contains(_attackerId);
+        return onField
+            ? Headless.Effects.CardEffectCanResolveResult.Success()
+            : Headless.Effects.CardEffectCanResolveResult.Failure("The granted Digimon is no longer on the battle area.");
+    }
+
+    public ValueTask<Headless.Effects.EffectResult> ResolveAsync(
+        Headless.Effects.CardEffectResolveContext context,
+        Headless.Effects.IEffectMutationSink mutations,
+        CancellationToken cancellationToken = default)
+    {
+        Headless.Runtime.EffectDrivenAttack.RequestChoice(
+            _context, _attackerId,
+            new Headless.Runtime.EffectAttackOptions(WithoutTap: false, AllowPlayerTarget: true, AllowDigimonTarget: true, TargetUnsuspended: true));
+        return ValueTask.FromResult(Headless.Effects.EffectResult.Success("Attack offer opened."));
     }
 }
 
@@ -5676,6 +5724,647 @@ public static class CardEffectCommons
             ? record.OwnerId
             : default;
 
+    /// <summary>AS-IS <c>CanTriggerWhenDeleteOpponentDigimonByBattle</c>
+    /// (CanUseEffects/WhenDeleteOpponentDigimonByBattle.cs:10, verbatim verified): reads the battle result
+    /// (winners / losers / actually-destroyed) — headless the OnEndBattle event carries them
+    /// (winnerIds/loserIds/loserRealIds). Headless winners are the SURVIVORS, so the AS-IS *_real
+    /// distinction collapses (replacement survivors never enter the deleted set) — documented reduction.</summary>
+    public static bool CanTriggerWhenDeleteOpponentDigimonByBattle(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<Permanent, bool>? winnerCondition,
+        Func<Permanent, bool>? loserCondition,
+        bool isOnlyWinnerSurvive,
+        Func<Permanent, bool>? winnerRealCondition = null,
+        Func<Permanent, bool>? loserRealCondition = null)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        EngineContext context = card.Context;
+        IReadOnlyList<Permanent> winners = EventPermanents(ctx, context, "winnerIds");
+        IReadOnlyList<Permanent> losers = EventPermanents(ctx, context, "loserIds");
+        IReadOnlyList<Permanent> losersReal = EventPermanents(ctx, context, "loserRealIds");
+
+        // AS-IS WinnerCondition(): empty winners passes only an absent condition; otherwise some winner matches.
+        bool winnerOk = winners.Count == 0
+            ? winnerCondition is null
+            : winners.Any(p => winnerCondition is null || winnerCondition(p));
+        if (!winnerOk)
+        {
+            return false;
+        }
+
+        // AS-IS isOnlyWinnerSurvive: no LOSER may also satisfy the winner condition.
+        if (isOnlyWinnerSurvive && winnerCondition is not null &&
+            losers.Any(p => winnerCondition(p)))
+        {
+            return false;
+        }
+
+        if (loserCondition is not null && !losers.Any(p => loserCondition(p)))
+        {
+            return false;
+        }
+
+        if (loserRealCondition is not null && !losersReal.Any(p => loserRealCondition(p)))
+        {
+            return false;
+        }
+
+        if (winnerRealCondition is not null && !winners.Any(p => winnerRealCondition(p)))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>AS-IS <c>CanTriggerWhenWinBattle</c>: this card's permanent is among the battle's winners.</summary>
+    public static bool CanTriggerWhenWinBattle(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        EventPermanents(ctx, card.Context, "winnerIds").Any(p =>
+            p.InstanceId == card.InstanceId ||
+            (card.Context.CardInstanceRepository.TryGetInstance(p.InstanceId, out CardInstanceRecord? rec) && rec is not null
+                && rec.Metadata.TryGetValue(Headless.State.DigivolutionStackReader.SourceIdsKey, out object? raw)
+                && raw is IEnumerable<string> ids && ids.Contains(card.InstanceId.Value)));
+
+    private static IReadOnlyList<Permanent> EventPermanents(Headless.Effects.CardEffectResolveContext ctx, EngineContext context, string key)
+    {
+        if (!ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}{key}", out object? raw) ||
+            raw?.ToString() is not { Length: > 0 } value)
+        {
+            return Array.Empty<Permanent>();
+        }
+
+        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => new HeadlessEntityId(id))
+            .Select(id => new Permanent(context, id, OwnerOfId(context, id)))
+            .ToArray();
+    }
+
+    /// <summary>AS-IS <c>CanTriggerWhenLinking</c> (WhenLinked.cs:10): a WOULD-LINK window where the LINK
+    /// card is this card and the HOST passes the predicate.</summary>
+    public static bool CanTriggerWhenLinking(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId host || host.IsEmpty)
+        {
+            return false;
+        }
+
+        if (permanentCondition is not null &&
+            !permanentCondition(new Permanent(card.Context, host, OwnerOfId(card.Context, host))))
+        {
+            return false;
+        }
+
+        return ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}linkCardId", out object? raw)
+            && raw?.ToString() == card.InstanceId.Value;
+    }
+
+    /// <summary>AS-IS <c>CanTriggerWhenWouldLink</c> (WhenWouldLink.cs:11).</summary>
+    public static bool CanTriggerWhenWouldLink(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<CardSource, bool>? cardCondition = null, Func<Permanent, bool>? permanentCondition = null,
+        Func<ChoiceZone, bool>? rootCondition = null, Func<CardSource, bool>? cardEffectSourceCondition = null)
+    {
+        EngineContext context = card.Context;
+        HeadlessEntityId linkId = ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}linkCardId", out object? rawLink)
+            && rawLink?.ToString() is { Length: > 0 } linkValue
+            ? new HeadlessEntityId(linkValue)
+            : ctx.EffectContext.TriggerEntityId ?? default;
+        if (linkId.IsEmpty)
+        {
+            return false;
+        }
+
+        if (cardCondition is not null && !cardCondition(new CardSource(context, linkId, OwnerOfId(context, linkId), OwnerOfId(context, linkId))))
+        {
+            return false;
+        }
+
+        if (permanentCondition is not null &&
+            (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId host ||
+             !permanentCondition(new Permanent(context, host, OwnerOfId(context, host)))))
+        {
+            return false;
+        }
+
+        if (!EventRootPasses(ctx, rootCondition))
+        {
+            return false;
+        }
+
+        return cardEffectSourceCondition is null
+            || cardEffectSourceCondition(new CardSource(context, ctx.EffectContext.SourceEntityId, OwnerOfId(context, ctx.EffectContext.SourceEntityId), OwnerOfId(context, ctx.EffectContext.SourceEntityId)));
+    }
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashHand</c> (OnTrashHand.cs:17): a hand card was discarded — the
+    /// causing effect's source and at least one discarded card pass their predicates.</summary>
+    public static bool CanTriggerOnTrashHand(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)
+    {
+        if (cardEffectSourceCondition is not null &&
+            !cardEffectSourceCondition(new CardSource(card.Context, ctx.EffectContext.SourceEntityId, OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId), OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId))))
+        {
+            return false;
+        }
+
+        return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+    }
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashSelfHand</c> (OnTrashHand.cs:10).</summary>
+    public static bool CanTriggerOnTrashSelfHand(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
+        CanTriggerOnTrashHand(ctx, card, cardEffectSourceCondition, cs => cs.InstanceId == card.InstanceId);
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashSecurity</c> / <c>CanTriggerOnTrashSelfSecurity</c>
+    /// (WhenDiscardSecurity.cs) — delegate to the trash-hand shape (AS-IS does the same).</summary>
+    public static bool CanTriggerOnTrashSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition) =>
+        CanTriggerOnTrashHand(ctx, card, cardEffectSourceCondition, cardCondition);
+
+    public static bool CanTriggerOnTrashSelfSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
+        CanTriggerOnTrashSecurity(ctx, card, cardEffectSourceCondition, cs => cs.InstanceId == card.InstanceId);
+
+    /// <summary>AS-IS <c>CanTriggerWhenDiscardLibrary</c> (WhenDiscardLibrary.cs:17) — the AS-IS
+    /// <c>IsBeingRevealed</c> exclusion has no headless surface (reveals never route through the discard
+    /// window here).</summary>
+    public static bool CanTriggerWhenDiscardLibrary(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null) =>
+        EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+
+    /// <summary>AS-IS <c>CanTriggerWhenSelfDiscardLibrary</c> (WhenDiscardLibrary.cs:10).</summary>
+    public static bool CanTriggerWhenSelfDiscardLibrary(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        CanTriggerWhenDiscardLibrary(ctx, card, cs => cs.InstanceId == card.InstanceId);
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashDigivolutionCard</c> (OnTrashDigivolutionCard.cs:35).</summary>
+    public static bool CanTriggerOnTrashDigivolutionCard(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId host || host.IsEmpty)
+        {
+            return false;
+        }
+
+        if (permanentCondition is not null &&
+            !permanentCondition(new Permanent(card.Context, host, OwnerOfId(card.Context, host))))
+        {
+            return false;
+        }
+
+        if (cardEffectSourceCondition is not null &&
+            !cardEffectSourceCondition(new CardSource(card.Context, ctx.EffectContext.SourceEntityId, OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId), OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId))))
+        {
+            return false;
+        }
+
+        return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+    }
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashSelfDigivolutionCard</c> (OnTrashDigivolutionCard.cs:10).</summary>
+    public static bool CanTriggerOnTrashSelfDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
+        CanTriggerOnTrashDigivolutionCard(ctx, card, permanentCondition: null, cardEffectSourceCondition, cs => cs.InstanceId == card.InstanceId);
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashLinkedCard</c> (OnTrashLinkedCard.cs:35) — same shape over the
+    /// link-discard window.</summary>
+    public static bool CanTriggerOnTrashLinkedCard(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition) =>
+        CanTriggerOnTrashDigivolutionCard(ctx, card, permanentCondition, cardEffectSourceCondition, cardCondition);
+
+    /// <summary>AS-IS <c>CanTriggerOnTrashBySelfDigiBurst</c> (OnTrashBySelfDigiBurst.cs:10) — Digi-Burst
+    /// is not a modeled headless mechanism; the source-description probe has no surface. STOP.</summary>
+    public static bool CanTriggerOnTrashBySelfDigiBurst(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        throw new NotSupportedException("Digi-Burst is not modeled — STOP (strong model).");
+
+    /// <summary>AS-IS <c>CanTriggerWhenPermanentUnsuspends</c> (OnUnsuspend.cs:17 — delegates to the
+    /// suspend shape).</summary>
+    public static bool CanTriggerWhenPermanentUnsuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition) =>
+        CanTriggerWhenPermanentSuspends(ctx, card, permanentCondition);
+
+    /// <summary>AS-IS <c>CanTriggerWhenSelfPermanentUnsuspends</c> (OnUnsuspend.cs:10).</summary>
+    public static bool CanTriggerWhenSelfPermanentUnsuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        SubjectPermanentContains(ctx, card);
+
+    /// <summary>AS-IS <c>CanTriggerWhenSelfPermanentSuspends</c> (OnSuspend.cs:10).</summary>
+    public static bool CanTriggerWhenSelfPermanentSuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        SubjectPermanentContains(ctx, card);
+
+    /// <summary>AS-IS <c>CanTriggerOnPermanentAttackTargetSwitch</c> (OnAttackTargetSwitch.cs:17 —
+    /// delegates to the attack shape).</summary>
+    public static bool CanTriggerOnPermanentAttackTargetSwitch(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition) =>
+        CanTriggerOnPermanentAttack(ctx, card, permanentCondition);
+
+    /// <summary>AS-IS <c>CanTriggerOnAttackTargetSwitch</c> (OnAttackTargetSwitch.cs:10).</summary>
+    public static bool CanTriggerOnAttackTargetSwitch(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        SubjectPermanentContains(ctx, card);
+
+    /// <summary>AS-IS <c>CanTriggerWhenAddHand</c> (WhenAddHand.cs:10): a player added cards to hand.</summary>
+    public static bool CanTriggerWhenAddHand(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<HeadlessPlayerId, bool>? playerCondition = null, Func<CardSource, bool>? cardEffectSourceCondition = null)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
+        {
+            return false;
+        }
+
+        if (playerCondition is not null && !playerCondition(OwnerOfId(card.Context, subject)))
+        {
+            return false;
+        }
+
+        return cardEffectSourceCondition is null
+            || cardEffectSourceCondition(new CardSource(card.Context, ctx.EffectContext.SourceEntityId, OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId), OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId)));
+    }
+
+    /// <summary>AS-IS <c>CanTriggerOnHandAdded</c> (OnCardsAddedToHand.cs:10) — player-specific form.</summary>
+    public static bool CanTriggerOnHandAdded(Headless.Effects.CardEffectResolveContext ctx, CardSource card, HeadlessPlayerId player, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
+        CanTriggerWhenAddHand(ctx, card, p => p == player, cardEffectSourceCondition);
+
+    /// <summary>AS-IS <c>CanTriggerWhenAddSecurity</c> (WhendAddSecurity.cs:10) — delegates to the
+    /// lose-security shape (the gaining player's condition over the moved card's owner).</summary>
+    public static bool CanTriggerWhenAddSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<HeadlessPlayerId, bool>? playerCondition = null) =>
+        CanTriggerWhenLoseSecurity(ctx, card, playerCondition);
+
+    /// <summary>AS-IS <c>CanTriggerWhenUseOption</c> (WhenUseOption.cs:21): an Option was used — the card
+    /// and its paid cost pass their predicates.</summary>
+    public static bool CanTriggerWhenUseOption(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<CardSource, bool>? cardCondition = null, Func<int, bool>? costCondition = null)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId option || option.IsEmpty)
+        {
+            return false;
+        }
+
+        if (cardCondition is not null &&
+            !cardCondition(new CardSource(card.Context, option, OwnerOfId(card.Context, option), OwnerOfId(card.Context, option))))
+        {
+            return false;
+        }
+
+        if (costCondition is null)
+        {
+            return true;
+        }
+
+        return ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}cost", out object? raw)
+            && raw is int cost && costCondition(cost);
+    }
+
+    /// <summary>AS-IS <c>CanTriggerWhenOwnerUseOption</c> (WhenUseOption.cs:11).</summary>
+    public static bool CanTriggerWhenOwnerUseOption(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null, Func<int, bool>? costCondition = null) =>
+        CanTriggerWhenUseOption(ctx, card, cs => cs.Owner == card.Owner && (cardCondition is null || cardCondition(cs)), costCondition);
+
+    /// <summary>AS-IS <c>CanTriggerWhenCardsReturnToHandFromTrash</c> (OnCardsReturnToHandFromTrash.cs:21).</summary>
+    public static bool CanTriggerWhenCardsReturnToHandFromTrash(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null) =>
+        EventCards(ctx, card).Any(cs => !IsDigiEggType(cs) && (cardCondition is null || cardCondition(cs)));
+
+    /// <summary>AS-IS <c>CanTriggerWhenOwnerCardsReturnToLibraryFromTrash</c>
+    /// (OnCardsReturnToLibraryFromTrash.cs:11).</summary>
+    public static bool CanTriggerWhenOwnerCardsReturnToLibraryFromTrash(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null) =>
+        EventCards(ctx, card).Any(cs => !IsDigiEggType(cs) && cs.Owner == card.Owner && (cardCondition is null || cardCondition(cs)));
+
+    /// <summary>AS-IS <c>CanTriggerOnReturnToLibraryBottomDigivolutionCard</c>
+    /// (OnReturnLibraryBottomDigivolutionCards.cs:10): this card's OWN permanent returned digivolution
+    /// cards to the deck bottom.</summary>
+    public static bool CanTriggerOnReturnToLibraryBottomDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)
+    {
+        if (!IsExistOnBattleArea(card) ||
+            ctx.EffectContext.TriggerEntityId is not HeadlessEntityId host ||
+            (card.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default) != host)
+        {
+            return false;
+        }
+
+        return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+    }
+
+    /// <summary>AS-IS <c>CanTriggerWhenUseDigiBurst</c> — Digi-Burst is not modeled. STOP.</summary>
+    public static bool CanTriggerWhenUseDigiBurst(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        throw new NotSupportedException("Digi-Burst is not modeled — STOP (strong model).");
+
+    /// <summary>AS-IS <c>CanTriggerWhenTopCardTrashed</c> (WhenRemoveField.cs:37).</summary>
+    public static bool CanTriggerWhenTopCardTrashed(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool> cardCondition)
+    {
+        ArgumentNullException.ThrowIfNull(cardCondition);
+        return EventCards(ctx, card).Any(cardCondition);
+    }
+
+    /// <summary>AS-IS <c>CanTriggerOnPermanentLeave</c> (OnDeletion.cs:51).</summary>
+    public static bool CanTriggerOnPermanentLeave(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool> permanentCondition) =>
+        SubjectPermanentPasses(ctx, card, permanentCondition);
+
+    /// <summary>AS-IS <c>CanTriggerOnFaceUpSecurityIncreases</c> (OnFaceUpSecurityIncrease.cs:11).</summary>
+    public static bool CanTriggerOnFaceUpSecurityIncreases(Headless.Effects.CardEffectResolveContext ctx, CardSource card, HeadlessPlayerId? player = null, Func<CardSource, bool>? cardCondition = null)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
+        {
+            return false;
+        }
+
+        if (player is HeadlessPlayerId p && OwnerOfId(card.Context, subject) != p)
+        {
+            return false;
+        }
+
+        return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+    }
+
+    /// <summary>AS-IS <c>IsTopCardInTrashOnDeletion</c> (OnDeletion.cs:144): the deletion subject's top
+    /// actually reached the trash (or is a token).</summary>
+    public static bool IsTopCardInTrashOnDeletion(Headless.Effects.CardEffectResolveContext ctx, CardSource card)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
+        {
+            return false;
+        }
+
+        var view = new CardSource(card.Context, subject, OwnerOfId(card.Context, subject), OwnerOfId(card.Context, subject));
+        return view.IsToken || IsExistOnTrash(view);
+    }
+
+    /// <summary>AS-IS <c>IsExistOnBattleAreaTrigger</c>/<c>IsExistOnBattleAreaActivate</c>
+    /// (GameContextDeterminarion.cs:41/89): the AS-IS pair caches "the permanent at trigger time" and
+    /// re-checks it at activation — headless the permanent identity IS the instance id (stacks keep their
+    /// top instance across the window), so both collapse to the live battle-area check.</summary>
+    public static bool IsExistOnBattleAreaTrigger(CardSource card, ICardEffect? cardEffect = null) =>
+        IsExistOnBattleArea(card);
+
+    public static bool IsExistOnBattleAreaActivate(CardSource card, ICardEffect? cardEffect = null) =>
+        IsExistOnBattleArea(card);
+
+    /// <summary>AS-IS <c>CanActivateOnDeletionWithContainingCardName</c> (OnDeletion.cs, verbatim): the
+    /// deleted stack contains a card passing the predicate AND a deleted-card NAME contains
+    /// <paramref name="name"/>. Headless: subject = the deleted top; the stack = subject + its snapshot
+    /// sources.</summary>
+    public static bool CanActivateOnDeletionWithContainingCardName(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, string name, Func<CardSource, bool>? cardCondition = null)
+    {
+        return DeletedStackPasses(ctx, card, cardCondition) &&
+            DeletedStackCards(ctx, card).Any(cs => cs.ContainsCardName(name));
+    }
+
+    /// <summary>AS-IS <c>CanActivateOnDeletionWithContainingTrait</c>.</summary>
+    public static bool CanActivateOnDeletionWithContainingTrait(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, string name, Func<CardSource, bool>? cardCondition = null)
+    {
+        return DeletedStackPasses(ctx, card, cardCondition) &&
+            SubjectCard(ctx, card) is CardSource top && top.ContainsTraits(name);
+    }
+
+    /// <summary>AS-IS <c>CanActivateOnDeletionWithCardColors</c> — the deleted top's colour list passes.</summary>
+    public static bool CanActivateOnDeletionWithCardColors(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card,
+        Func<IReadOnlyList<string>, bool>? cardColorCondition, Func<CardSource, bool>? cardCondition = null)
+    {
+        return DeletedStackPasses(ctx, card, cardCondition) &&
+            SubjectCard(ctx, card) is CardSource top &&
+            (cardColorCondition is null || cardColorCondition(top.CardColors));
+    }
+
+    /// <summary>AS-IS <c>CanActivateOnDeletionWithSaveText</c> — the deleted top HAD [Save] (the P1/A4
+    /// deletion-time keyword snapshot preserves it past the binding drop).</summary>
+    public static bool CanActivateOnDeletionWithSaveText(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)
+    {
+        if (!DeletedStackPasses(ctx, card, cardCondition) ||
+            ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject)
+        {
+            return false;
+        }
+
+        return card.Context.CardInstanceRepository.TryGetInstance(subject, out CardInstanceRecord? dead) && dead is not null
+            && dead.Metadata.TryGetValue(Headless.Runtime.DeletionReplacementGate.HasSaveKey, out object? raw) && raw is true;
+    }
+
+    /// <summary>AS-IS self wrappers (OnDeletion.cs:200/254/305/359 — original "Selef" spelling kept).</summary>
+    public static bool CanActivateSelfOnDeletionWithContainingCardName(Headless.Effects.CardEffectResolveContext ctx, string name, CardSource card) =>
+        CanActivateOnDeletionWithContainingCardName(ctx, card, name, cs => cs.InstanceId == card.InstanceId);
+
+    public static bool CanActivateSelfOnDeletionWithContainingTrait(Headless.Effects.CardEffectResolveContext ctx, string name, CardSource card) =>
+        CanActivateOnDeletionWithContainingTrait(ctx, card, name, cs => cs.InstanceId == card.InstanceId);
+
+    public static bool CanActivateSelfOnDeletionWithCardColors(Headless.Effects.CardEffectResolveContext ctx, Func<IReadOnlyList<string>, bool>? cardColorCondition, CardSource card) =>
+        CanActivateOnDeletionWithCardColors(ctx, card, cardColorCondition, cs => cs.InstanceId == card.InstanceId);
+
+    public static bool CanActivateSelefOnDeletionWithSaveText(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        CanActivateOnDeletionWithSaveText(ctx, card, cs => cs.InstanceId == card.InstanceId);
+
+    /// <summary>AS-IS <c>CanTriggerWhenPermanentWouldDigivolveOfCard</c> (WhenPermanentWouldDigivolve.cs:11):
+    /// the would-digivolve target is THIS card's own permanent.</summary>
+    public static bool CanTriggerWhenPermanentWouldDigivolveOfCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)
+    {
+        HeadlessEntityId ownTop = card.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default;
+        return !ownTop.IsEmpty &&
+            CanTriggerWhenPermanentWouldDigivolve(ctx, card, p => p.InstanceId == ownTop, cardCondition);
+    }
+
+    /// <summary>AS-IS <c>CanJogressWithHandOrTrash</c> (DNADigivolveEffects.cs:231): the DNA card sits in
+    /// the hand/trash and its recipe can be filled. The hand/trash-MATERIAL half rides the unmodeled
+    /// temporary-permanent machinery (STOP) — battle-area materials are the modeled path.</summary>
+    public static bool CanJogressWithHandOrTrash(
+        CardSource source, HeadlessPlayerId owner, bool isWithHandCard, bool isIntoHandCard,
+        Func<CardSource, bool>? targetCardCondition = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        _ = isWithHandCard;
+        if (!(isIntoHandCard ? IsExistOnHand(source) : IsExistOnTrash(source)) ||
+            (targetCardCondition is not null && !targetCardCondition(source)))
+        {
+            return false;
+        }
+
+        return SpecialPlayRecipeRegistry.TryGet(source.CardNumber, out SpecialPlayRecipe? recipe) && recipe is not null
+            && recipe.Kind == SpecialPlayKind.DnaDigivolve;
+    }
+
+    /// <summary>AS-IS <c>ChangeSecurityDigimonCardDPPlayerEffect</c> (GiveEffectToPlayer/ChangeCardDP.cs:10,
+    /// verbatim): security Digimon gain ±DP for security battles (SecurityResolver folds the grant).</summary>
+    public static bool ChangeSecurityDigimonCardDPPlayerEffect(
+        Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
+    {
+        if (changeValue == 0)
+        {
+            return false;
+        }
+
+        var extra = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [Headless.Runtime.SecurityResolver.SecurityCardDpDeltaKey] = changeValue,
+        };
+        if (cardCondition is not null)
+        {
+            extra[Headless.Runtime.SecurityResolver.SecurityCardPredicateKey] = cardCondition;
+        }
+
+        return GainToPlayerScope(effectDuration, sourceCard, "changeSecurityCardDp", permanentCondition: null,
+            extraValues: extra, scopeOverride: ContinuousModifierGate.Scope);
+    }
+
+    /// <summary>AS-IS <c>StartOfMainAttack</c> (GiveEffect/StartOfMainAttack.cs:5, verbatim): until the
+    /// owner's turn end, at the start of the owner's main phase this Digimon MUST attack (the offer cannot
+    /// be declined; player or any Digimon). Registered as a duration-tagged trigger binding whose effect
+    /// opens the attack offer.</summary>
+    public static void StartOfMainAttack(Permanent? targetPermanent, CardSource sourceCard)
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
+        {
+            return;
+        }
+
+        EngineContext context = sourceCard.Context;
+        HeadlessEntityId attackerId = targetPermanent.InstanceId;
+        var effectContext = new EffectContext(
+            sourceCard.Controller, sourceCard.Owner, attackerId,
+            triggerEntityId: null, targetEntityIds: new[] { attackerId },
+            values: new Dictionary<string, object?>(StringComparer.Ordinal));
+        context.EffectRegistry.Register(new EffectBinding(
+            new EffectRequest(
+                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:startOfMainAttack:{attackerId.Value}"),
+                sourceCard.Controller, Headless.Effects.TriggerTimings.OnStartMainPhase, effectContext),
+            keywords: null, EffectQueryRole.None, queryScopes: null,
+            effect: new StartOfMainAttackEffect(context, attackerId),
+            duration: EffectDuration.UntilOwnerTurnEnd));
+    }
+
+    /// <summary>AS-IS <c>GetCardEffectFromHashtable</c> (GetFromHashtable.cs:10) — headless the CAUSING
+    /// effect is represented by its SOURCE CARD.</summary>
+    public static CardSource? GetCardEffectFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        ctx.EffectContext.SourceEntityId.IsEmpty
+            ? null
+            : new CardSource(card.Context, ctx.EffectContext.SourceEntityId, OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId), OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId));
+
+    /// <summary>AS-IS <c>GetAttackerFromHashtable</c> (:250): the attacking permanent = the event subject.</summary>
+    public static Permanent? GetAttackerFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        GetPermanentFromHashtable(ctx, card);
+
+    /// <summary>AS-IS <c>GetMovedPermanentFromHashtable</c> (OnMove.cs:30).</summary>
+    public static Permanent? GetMovedPermanentFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        GetPermanentFromHashtable(ctx, card);
+
+    /// <summary>AS-IS <c>GetTopCardFromOneHashtable</c> (:295) / <c>GetTopCardFromEffectHashtable</c>
+    /// (:178): the deletion subject's top card.</summary>
+    public static CardSource? GetTopCardFromOneHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        SubjectCard(ctx, card);
+
+    public static CardSource? GetTopCardFromEffectHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        SubjectCard(ctx, card);
+
+    /// <summary>AS-IS <c>GetFaceDownFromHashtable</c> (:337) — default true, like the original.</summary>
+    public static bool GetFaceDownFromHashtable(Headless.Effects.CardEffectResolveContext ctx) =>
+        !ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}isFaceDown", out object? raw)
+        || raw is not bool b || b;
+
+    /// <summary>AS-IS <c>GetCardSourcesFromHashtable</c> (:592) / <c>GetDiscardedCardsFromHashtable</c>
+    /// (:569): the event's card list.</summary>
+    public static List<CardSource> GetCardSourcesFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        EventCards(ctx, card).ToList();
+
+    public static List<CardSource> GetDiscardedCardsFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        EventCards(ctx, card).ToList();
+
+    /// <summary>AS-IS <c>GetDigivolutionRootsFromEnterFieldHashtable</c> (:661): the entered permanent's
+    /// digivolution sources (all cards under the subject).</summary>
+    public static List<CardSource> GetDigivolutionRootsFromEnterFieldHashtable(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
+        {
+            return new List<CardSource>();
+        }
+
+        EngineContext context = card.Context;
+        if (permanentCondition is not null &&
+            !permanentCondition(new Permanent(context, subject, OwnerOfId(context, subject))))
+        {
+            return new List<CardSource>();
+        }
+
+        return DeletedStackCards(ctx, card).Skip(1).ToList();   // stack minus the top = the roots
+    }
+
+    /// <summary>AS-IS <c>GetEvoRootTopsFromEnterFieldHashtable</c> (:200): the PRE-digivolve top(s) — the
+    /// digivolve event carries the previous top (targetCardId).</summary>
+    public static List<CardSource> GetEvoRootTopsFromEnterFieldHashtable(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)
+    {
+        EngineContext context = card.Context;
+        if (ctx.EffectContext.TriggerEntityId is HeadlessEntityId subject && !subject.IsEmpty &&
+            permanentCondition is not null &&
+            !permanentCondition(new Permanent(context, subject, OwnerOfId(context, subject))))
+        {
+            return new List<CardSource>();
+        }
+
+        if (ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}targetCardId", out object? raw) &&
+            raw?.ToString() is { Length: > 0 } value)
+        {
+            var id = new HeadlessEntityId(value);
+            return new List<CardSource> { new(context, id, OwnerOfId(context, id), OwnerOfId(context, id)) };
+        }
+
+        return new List<CardSource>();
+    }
+
+    // --- (W6 tail) shared event-card reader -----------------------------------------------------------
+
+    /// <summary>The cards the driving event is about: an id-list value when the emission carries one
+    /// (cardIds / addedCardIds), else the single subject.</summary>
+    private static IReadOnlyList<CardSource> EventCards(Headless.Effects.CardEffectResolveContext ctx, CardSource card)
+    {
+        EngineContext context = card.Context;
+        foreach (string key in new[] { "cardIds", "addedCardIds", "discardedCardIds" })
+        {
+            if (ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}{key}", out object? raw) &&
+                raw?.ToString() is { Length: > 0 } value)
+            {
+                return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(id => new HeadlessEntityId(id))
+                    .Select(id => new CardSource(context, id, OwnerOfId(context, id), OwnerOfId(context, id)))
+                    .ToArray();
+            }
+        }
+
+        return ctx.EffectContext.TriggerEntityId is HeadlessEntityId subject && !subject.IsEmpty
+            ? new[] { new CardSource(context, subject, OwnerOfId(context, subject), OwnerOfId(context, subject)) }
+            : Array.Empty<CardSource>();
+    }
+
+    private static bool DeletedStackPasses(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition) =>
+        cardCondition is null
+            ? ctx.EffectContext.TriggerEntityId is HeadlessEntityId s && !s.IsEmpty
+            : DeletedStackCards(ctx, card).Any(cardCondition);
+
+    private static CardSource? SubjectCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        ctx.EffectContext.TriggerEntityId is HeadlessEntityId subject && !subject.IsEmpty
+            ? new CardSource(card.Context, subject, OwnerOfId(card.Context, subject), OwnerOfId(card.Context, subject))
+            : null;
+
+    /// <summary>The deleted permanent's stack (subject top + its snapshot digivolution sources).</summary>
+    private static IReadOnlyList<CardSource> DeletedStackCards(Headless.Effects.CardEffectResolveContext ctx, CardSource card)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
+        {
+            return Array.Empty<CardSource>();
+        }
+
+        EngineContext context = card.Context;
+        var stack = new List<CardSource> { new(context, subject, OwnerOfId(context, subject), OwnerOfId(context, subject)) };
+        if (context.CardInstanceRepository.TryGetInstance(subject, out CardInstanceRecord? dead) && dead is not null &&
+            dead.Metadata.TryGetValue(Headless.State.DigivolutionStackReader.SourceIdsKey, out object? raw) &&
+            raw is IEnumerable<string> ids)
+        {
+            stack.AddRange(ids.Select(v => new HeadlessEntityId(v))
+                .Select(id => new CardSource(context, id, OwnerOfId(context, id), OwnerOfId(context, id))));
+        }
+
+        return stack;
+    }
+
+    private static bool IsDigiEggType(CardSource cs) =>
+        cs.Context.CardInstanceRepository.TryGetInstance(cs.InstanceId, out CardInstanceRecord? i) && i is not null
+        && cs.Context.CardRepository.TryGetCard(i.DefinitionId, out CardRecord? d) && d is not null
+        && (d.IsCardType("DigiEgg") || d.IsCardType("Digitama"));
+
     // --- (W6-T) shared readers over the enriched resolve context ------------------------------------
 
     private static bool EventIsDigivolve(Headless.Effects.CardEffectResolveContext ctx) =>
@@ -5987,7 +6676,7 @@ public static class CardEffectCommons
     /// <paramref name="reduceCostTuple"/> when <paramref name="payCost"/>), then branch on whether the
     /// digivolution ACTUALLY happened. NOTE: the recipe previously mis-mapped this commons to the
     /// de-digivolve factory — it is the OPPOSITE direction (digivolve INTO from hand/trash).</summary>
-    public static async Task DigivolveIntoHandOrTrashCard(
+    public static Task DigivolveIntoHandOrTrashCard(
         Permanent? targetPermanent,
         Func<CardSource, bool>? cardCondition,
         bool payCost,
@@ -6001,7 +6690,27 @@ public static class CardEffectCommons
         bool ignoreRequirements = false,
         Func<Task>? failedProcess = null,
         bool isOptional = true,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        DigivolveIntoZoneCoreAsync(
+            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
+            ignoreDigivolutionRequirementFixedCost, isHand ? ChoiceZone.Hand : ChoiceZone.Trash, sourceCard,
+            successProcess, failedProcess, ignoreSelection, ignoreRequirements, isOptional, cancellationToken);
+
+    private static async Task DigivolveIntoZoneCoreAsync(
+        Permanent? targetPermanent,
+        Func<CardSource, bool>? cardCondition,
+        bool payCost,
+        (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple,
+        (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple,
+        int ignoreDigivolutionRequirementFixedCost,
+        ChoiceZone rootZone,
+        CardSource sourceCard,
+        Func<Task>? successProcess,
+        Func<Task>? failedProcess,
+        bool ignoreSelection,
+        bool ignoreRequirements,
+        bool isOptional,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
         EngineContext context = sourceCard.Context;
@@ -6014,7 +6723,6 @@ public static class CardEffectCommons
 
         bool waiveRequirement = ignoreRequirements || ignoreDigivolutionRequirementFixedCost >= 0;
         HeadlessEntityId targetId = targetPermanent.InstanceId;
-        ChoiceZone rootZone = isHand ? ChoiceZone.Hand : ChoiceZone.Trash;
 
         bool CanSelect(HeadlessEntityId id)
         {
@@ -6101,6 +6809,18 @@ public static class CardEffectCommons
                 }
 
                 Headless.Runtime.DigivolveAction.AttachTargetAsSource(context.CardInstanceRepository, selected, targetId);
+                // (W6 tail) stamp the causing effect (AS-IS Permanent.DigivolvingEffect — IsDigivolvedByTheEffect reads it).
+                if (context.CardInstanceRepository.TryGetInstance(selected, out CardInstanceRecord? placedRec) && placedRec is not null)
+                {
+                    context.CardInstanceRepository.Upsert(placedRec with
+                    {
+                        Metadata = new Dictionary<string, object?>(placedRec.Metadata, StringComparer.Ordinal)
+                        {
+                            ["digivolvedByEffectSourceId"] = sourceCard.InstanceId.Value,
+                        }
+                    });
+                }
+
                 TriggerEventEmitter.Emit(context.GameEventQueue, Headless.Effects.TriggerTimings.WhenDigivolving,
                     actor: targetPermanent.OwnerId, subject: selected,
                     extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isEvolution"] = true });
@@ -6348,6 +7068,467 @@ public static class CardEffectCommons
         }
     }
 
+    /// <summary>(W6 tail) a token's printed data — 1:1 the inline <c>new CEntity_Base{…}</c> specs in
+    /// AS-IS <c>ContinuousController.CreateTokenData()</c> (ContinuousController.cs:151-506, verbatim
+    /// verified). <see cref="EffectClassName"/> maps to the dispatch <c>effectClass</c> alias so a token
+    /// with a card effect resolves it like any ported card.</summary>
+    public sealed record TokenSpec(
+        string CardNumber, string Name, string Color, int PlayCost, int Level, int Dp,
+        string? EffectClassName = null, string? Type = null, string? Form = null, string? Attribute = null);
+
+    /// <summary>The AS-IS token table (ContinuousController.cs:151-506).</summary>
+    public static readonly IReadOnlyDictionary<string, TokenSpec> TokenSpecs =
+        new Dictionary<string, TokenSpec>(StringComparer.Ordinal)
+        {
+            ["Diaboromon"] = new("BT2-082-token", "Diaboromon", "White", 14, 6, 3000, null, "Unidentified", "Mega", "Unknown"),
+            ["Amon"] = new("BT14-018-token-red", "Amon of Crimson Flame", "Red", -1, 0, 6000, "BT4_038"),
+            ["Umon"] = new("BT14-018-token-yellow", "Umon of Blue Thunder", "Yellow", -1, 0, 6000, "BT1_031"),
+            ["Fujitsumon"] = new("EX5-058-token", "Fujitsumon", "Purple", -1, 0, 3000, "EX5_058_token"),
+            ["Gyuukimon"] = new("LM-018-token", "Gyuukimon", "Purple", 7, 5, 3000, null, "Dark Animal", "Ultimate", "Virus"),
+            ["KoHagurumon"] = new("BT16-052-token", "KoHagurumon", "Black", -1, 0, 1000, "BT16_052_token"),
+            ["Familiar"] = new("EX7-030-token", "Familiar", "Yellow", -1, 0, 3000, "EX7_030_token"),
+            ["SelfDeleteFamiliar"] = new("EX7-030-token-sd", "Familiar", "Yellow", -1, 0, 3000, "P_165_token"),
+            ["VoleeZerdrucken"] = new("EX7-058-token", "Volée & Zerdrücken", "Purple", -1, 4, 5000, "EX7_058_token"),
+            ["UkaNoMitama"] = new("EX8-037-token", "Uka-no-Mitama", "Yellow", -1, 0, 9000, "EX8_037_token"),
+            ["WarGrowlmon"] = new("BT19-091-token-red", "WarGrowlmon", "Red", -1, 0, 6000),
+            ["Taomon"] = new("BT19-091-token-yellow", "Taomon", "Yellow", -1, 0, 6000),
+            ["Rapidmon"] = new("BT19-091-token-green", "Rapidmon", "Green", -1, 0, 6000),
+            ["PipeFox"] = new("BT19-040-token", "Pipe-Fox", "Yellow", -1, 0, 6000, "BT19_040_token"),
+            ["AthoRenePor"] = new("BT20-017-token", "Atho, René & Por", "White", -1, 0, 6000, "BT20_017_token"),
+            ["Hinukamuy"] = new("BT23-057-token", "HinukamuyToken", "White", -1, 0, 6000, "BT23_057_token"),
+            ["Petrification"] = new("BT21-029-token", "Petrification", "White", -1, 0, 3000, "BT21_029_token"),
+        };
+
+    /// <summary>AS-IS <c>PlayToken</c> (CardEffectCommons.cs:140-176, verbatim verified): materialize
+    /// <paramref name="quantity"/> copies of the token as fresh instances and play them COST-FREE onto the
+    /// chosen player's battle area (the AS-IS empty-frame count has no port model — no field-size limit is
+    /// modeled anywhere). Tokens carry <c>isToken</c> and register their effect class via the dispatch
+    /// alias. Returns the played instance ids.</summary>
+    public static async Task<IReadOnlyList<HeadlessEntityId>> PlayToken(
+        TokenSpec tokenData, CardSource sourceCard, bool isOwnerPermanent, bool isTapped, int quantity = 1)
+    {
+        ArgumentNullException.ThrowIfNull(tokenData);
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        EngineContext context = sourceCard.Context;
+        HeadlessPlayerId player = isOwnerPermanent ? sourceCard.Owner : OpponentOf(sourceCard);
+        if (player.IsEmpty || quantity <= 0)
+        {
+            return Array.Empty<HeadlessEntityId>();
+        }
+
+        var definitionId = new HeadlessEntityId($"TOKEN:{tokenData.CardNumber}");
+        var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["dp"] = tokenData.Dp,
+            ["level"] = tokenData.Level,
+            ["colors"] = new[] { tokenData.Color },
+        };
+        if (tokenData.EffectClassName is not null)
+        {
+            defMeta["effectClass"] = tokenData.EffectClassName;
+        }
+
+        if (tokenData.Type is not null)
+        {
+            defMeta["traits"] = new[] { tokenData.Type };
+        }
+
+        if (context.CardRepository is Headless.DataLoading.CardDatabase database)
+        {
+            database.Upsert(new CardRecord(
+                definitionId, tokenData.CardNumber, tokenData.Name, defMeta, CardType: "Digimon",
+                PlayCost: tokenData.PlayCost >= 0 ? tokenData.PlayCost : null));
+        }
+
+        var played = new List<HeadlessEntityId>();
+        var sink = NewSink(context);
+        for (int index = 0; index < quantity; index++)
+        {
+            var tokenId = new HeadlessEntityId($"{player.Value}:token:{tokenData.CardNumber}:{Guid.NewGuid():N}");
+            context.CardInstanceRepository.Upsert(new CardInstanceRecord(
+                tokenId, definitionId, player,
+                Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["dp"] = tokenData.Dp,
+                    ["isToken"] = true,
+                    ["isSuspended"] = isTapped,
+                }));
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.PlayCardKind, sourceCard.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.TargetEntityIdKey] = tokenId.Value,
+                    [MatchStateMutationSink.FromZoneKey] = ChoiceZone.None,
+                }));
+            played.Add(tokenId);
+        }
+
+        await sink.FlushAsync().ConfigureAwait(false);
+        return played;
+    }
+
+    /// <summary>AS-IS <c>PlayDiaboromonToken</c> (CardEffectCommons.cs:182).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayDiaboromonToken(CardSource sourceCard, int quantity = 1) =>
+        PlayToken(TokenSpecs["Diaboromon"], sourceCard, isOwnerPermanent: true, isTapped: false, quantity);
+
+    /// <summary>AS-IS <c>PlayAmonToken</c> (:197).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayAmonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["Amon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayUmonToken</c> (:211).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayUmonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["Umon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayFujitsumonToken</c> (:225) — enters SUSPENDED.</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayFujitsumonToken(CardSource sourceCard, bool isOwnerPermanent) =>
+        PlayToken(TokenSpecs["Fujitsumon"], sourceCard, isOwnerPermanent, isTapped: true);
+
+    /// <summary>AS-IS <c>PlayGyuukimonToken</c> (:239).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayGyuukimonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["Gyuukimon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayKoHagurumonToken</c> (:253).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayKoHagurumonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["KoHagurumon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayFamiliarToken</c> (:267).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayFamiliarToken(CardSource sourceCard, int quantity = 1) =>
+        PlayToken(TokenSpecs["Familiar"], sourceCard, isOwnerPermanent: true, isTapped: false, quantity);
+
+    /// <summary>AS-IS <c>PlaySelfDeleteFamiliarToken</c> (:282).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlaySelfDeleteFamiliarToken(CardSource sourceCard, int quantity = 1) =>
+        PlayToken(TokenSpecs["SelfDeleteFamiliar"], sourceCard, isOwnerPermanent: true, isTapped: false, quantity);
+
+    /// <summary>AS-IS <c>PlayVoleeZerdrucken</c> (:297).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayVoleeZerdrucken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["VoleeZerdrucken"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayUkaNoMitama</c> (:311).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayUkaNoMitama(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["UkaNoMitama"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayWarGrowlmonToken</c> (:325).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayWarGrowlmonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["WarGrowlmon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayTaomonToken</c> (:339).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayTaomonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["Taomon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayRapidmonToken</c> (:353).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayRapidmonToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["Rapidmon"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayPipeFox</c> (:367).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayPipeFox(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["PipeFox"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayAthoRenePorToken</c> (:381).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayAthoRenePorToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["AthoRenePor"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayHinukamuyToken</c> (:395).</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayHinukamuyToken(CardSource sourceCard) =>
+        PlayToken(TokenSpecs["Hinukamuy"], sourceCard, isOwnerPermanent: true, isTapped: false);
+
+    /// <summary>AS-IS <c>PlayPetrificationToken</c> (:409) — always the OPPONENT'S board.</summary>
+    public static Task<IReadOnlyList<HeadlessEntityId>> PlayPetrificationToken(CardSource sourceCard, int quantity = 1) =>
+        PlayToken(TokenSpecs["Petrification"], sourceCard, isOwnerPermanent: false, isTapped: false, quantity);
+
+    /// <summary>AS-IS <c>CanActivateSave</c> (KeyWordEffects/Save.cs:10, verbatim): the deletion subject's
+    /// top reached the trash AND a receiving permanent matching the predicate exists.</summary>
+    public static bool CanActivateSave(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? CanSelectPermanentCondition) =>
+        IsTopCardInTrashOnDeletion(ctx, card) &&
+        HasMatchConditionPermanent(card, p => CanSelectPermanentCondition is null || CanSelectPermanentCondition(p));
+
+    /// <summary>AS-IS <c>SaveProcess</c> (Save.cs:25): choose 1 matching permanent; this card goes from the
+    /// trash to the BOTTOM of its digivolution cards.</summary>
+    public static async Task SaveProcess(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? CanSelectPermanentCondition,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (!CanActivateSave(ctx, card, CanSelectPermanentCondition))
+        {
+            return;
+        }
+
+        EngineContext context = card.Context;
+        List<ChoiceCandidate> candidates = EnumerateFieldPermanentViews(card, isContainBreedingArea: false)
+            .Where(p => CanSelectPermanentCondition is null || CanSelectPermanentCondition(p))
+            .Select(p => new ChoiceCandidate(p.InstanceId, p.InstanceId.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: p.OwnerId))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        var request = new ChoiceRequest(
+            ChoiceType.Card, card.Owner, "Select 1 permanent that will get a digivolution card.",
+            minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.BattleArea, candidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.IsSkipped || result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        await Headless.Runtime.DigivolutionStackHelpers.AddSourcesBottomAsync(
+            context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0],
+            new[] { card.InstanceId }, ChoiceZone.Trash, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>AS-IS <c>CanActivateBlitz</c> (KeyWordEffects/Blitz.cs:10, verbatim): on the battle area,
+    /// able to attack, the MEMORY sits on the opponent's side (>= 1 for them ⇔ turn-axis current <= -1 —
+    /// Blitz fires on its controller's own turn), and no attack is in flight.</summary>
+    public static bool CanActivateBlitz(CardSource cardSource)
+    {
+        ArgumentNullException.ThrowIfNull(cardSource);
+        EngineContext context = cardSource.Context;
+        return IsExistOnBattleArea(cardSource)
+            && !IsSuspended(cardSource, cardSource.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default)
+            && context.MemoryController.Current.Current <= -1
+            && !context.AttackController.Current.IsPending;
+    }
+
+    /// <summary>AS-IS <c>BlitzProcess</c> (Blitz.cs:31): open the attack offer (player + any Digimon,
+    /// AS-IS SelectAttackEffect canAttackPlayer/defender = true).</summary>
+    public static bool BlitzProcess(CardSource cardSource)
+    {
+        ArgumentNullException.ThrowIfNull(cardSource);
+        if (!CanActivateBlitz(cardSource))
+        {
+            return false;
+        }
+
+        HeadlessEntityId attackerId = cardSource.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default;
+        return !attackerId.IsEmpty && Headless.Runtime.EffectDrivenAttack.RequestChoice(
+            cardSource.Context, attackerId,
+            new Headless.Runtime.EffectAttackOptions(WithoutTap: false, AllowPlayerTarget: true, AllowDigimonTarget: true, TargetUnsuspended: true));
+    }
+
+    /// <summary>AS-IS <c>CanActivateFortitude</c> (KeyWordEffects/Fortitude.cs:16): this card is in the
+    /// trash, was part of the deleted stack WITH at least one digivolution source, and can re-enter.</summary>
+    public static bool CanActivateFortitude(Headless.Effects.CardEffectResolveContext ctx, CardSource card, bool isInheritedEffect = false)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (!IsExistOnTrash(card) || (isInheritedEffect && !CanActivateOnDeletion(ctx, card)))
+        {
+            return false;
+        }
+
+        if (!SubjectPermanentContains(ctx, card) ||
+            ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject)
+        {
+            return false;
+        }
+
+        bool hadSources = card.Context.CardInstanceRepository.TryGetInstance(subject, out CardInstanceRecord? dead) && dead is not null
+            && dead.Metadata.TryGetValue(Headless.State.DigivolutionStackReader.SourceIdsKey, out object? raw)
+            && raw is IEnumerable<string> ids && ids.Any();
+        return hadSources && CanPlayAsNewPermanent(card, payCost: false, null);
+    }
+
+    /// <summary>AS-IS <c>FortitudeProcess</c> (Fortitude.cs:54): replay this card from the trash, free.</summary>
+    public static Task FortitudeProcess(CardSource card, CardSource sourceCard) =>
+        PlayPermanentCards(new[] { card }, sourceCard, payCost: false, isTapped: false, root: ChoiceZone.Trash, activateETB: true);
+
+    /// <summary>AS-IS <c>CanUseIgnoreBattle</c> (CanUseEffects/IgnoreBattle.cs:10) — delegates to the
+    /// option-main gate.</summary>
+    public static bool CanUseIgnoreBattle(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
+        CanTriggerOptionMainEffect(ctx, card);
+
+    /// <summary>AS-IS <c>EnforceLocationCheck</c> (GameContextDeterminarion.cs:12): invalidates the AS-IS
+    /// trigger/activate permanence cache — headless the cache collapsed (permanent identity = instance id),
+    /// so this is a no-op mirror.</summary>
+    public static void EnforceLocationCheck()
+    {
+    }
+
+    /// <summary>AS-IS <c>AddSelfDeleteEffect</c> (GiveEffect/DeleteSelf.cs:14): the permanent deletes
+    /// itself at turn end (own / opponent's / each — <paramref name="deleteTiming"/>). Headless: a metadata
+    /// marker the turn-end sweep consumes.</summary>
+    public static void AddSelfDeleteEffect(Permanent? permanent, string deleteTiming, CardSource sourceCard)
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        if (permanent is null || permanent.InstanceId.IsEmpty ||
+            !sourceCard.Context.CardInstanceRepository.TryGetInstance(permanent.InstanceId, out CardInstanceRecord? rec) || rec is null)
+        {
+            return;
+        }
+
+        sourceCard.Context.CardInstanceRepository.Upsert(rec with
+        {
+            Metadata = new Dictionary<string, object?>(rec.Metadata, StringComparer.Ordinal)
+            {
+                [Headless.Runtime.GameFlowProcessor.DeleteAtTurnEndKey] = deleteTiming,
+                [Headless.Runtime.GameFlowProcessor.DeleteAtTurnEndSourceKey] = sourceCard.InstanceId.Value,
+            }
+        });
+    }
+
+    /// <summary>AS-IS <c>BecomeDigimonThatCantDigivolve</c> (GiveEffect/TamerBecomesDigimon….cs:10,
+    /// verbatim): the Tamer becomes a Digimon (TreatAsDigimon) with base DP set to <paramref name="DP"/>
+    /// and cannot digivolve — three timed grants.</summary>
+    public static bool BecomeDigimonThatCantDigivolve(Permanent? targetPermanent, int DP, EffectDuration effectDuration, CardSource sourceCard)
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty || DP < 0 ||
+            !IsPermanentExistsOnBattleArea(targetPermanent))
+        {
+            return false;
+        }
+
+        // treat as Digimon (the keyword the central IsDigimon chokepoint honours — K4).
+        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, Headless.Runtime.ContinuousKeywordGate.TreatAsDigimon, "becomeDigimon");
+        // base DP OVERRIDE (delta to reach the requested value).
+        ChangeBaseDigimonDP(targetPermanent, DP, effectDuration, sourceCard);
+        // cannot digivolve.
+        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
+            RestrictionHelpers.CannotDigivolveKey, "becomeDigimonNoEvolve");
+        return true;
+    }
+
+    /// <summary>AS-IS <c>DrawAndDiscardCards</c> (CardEffectCommons.cs:1408, verbatim): draw N, then the
+    /// trash player discards up to M chosen hand cards.</summary>
+    public static async Task DrawAndDiscardCards(
+        (HeadlessPlayerId drawPlayer, HeadlessPlayerId trashPlayer) player,
+        int drawAmount, int trashAmount, CardSource sourceCard,
+        Func<CardSource, bool>? canTrashTargetCondition = null,
+        bool canNoSelect = false, bool canEndNotMax = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        EngineContext context = sourceCard.Context;
+        var sink = NewSink(context);
+        if (drawAmount > 0)
+        {
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.DrawCardsKind, sourceCard.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.PlayerIdKey] = player.drawPlayer.Value,
+                    [MatchStateMutationSink.CountKey] = drawAmount,
+                }));
+            await sink.FlushAsync().ConfigureAwait(false);
+        }
+
+        var zones = (IZoneStateReader)context.ZoneMover;
+        List<ChoiceCandidate> candidates = zones.GetCards(player.trashPlayer, ChoiceZone.Hand)
+            .Where(id => canTrashTargetCondition is null || canTrashTargetCondition(new CardSource(context, id, player.trashPlayer, player.trashPlayer)))
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true, ownerId: player.trashPlayer))
+            .ToList();
+        int max = Math.Min(trashAmount, candidates.Count);
+        if (max <= 0)
+        {
+            return;
+        }
+
+        var request = new ChoiceRequest(
+            ChoiceType.Card, player.trashPlayer, $"Discard {max} card(s).",
+            minCount: canNoSelect ? 0 : (canEndNotMax ? 1 : max), maxCount: max,
+            canSkip: canNoSelect, ChoiceZone.Hand, candidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        var discardSink = NewSink(context);
+        foreach (HeadlessEntityId id in result.SelectedIds)
+        {
+            discardSink.Apply(new EffectMutation(
+                MatchStateMutationSink.TrashCardKind, sourceCard.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = id.Value }));
+        }
+
+        await discardSink.FlushAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>AS-IS <c>ReturnRevealedCardsToLibraryBottom</c> (RevealLibrary.cs:469, verbatim): one card
+    /// goes straight to the bottom; two-plus open the AS-IS ordering pick (pick order = placement,
+    /// lower numbers on top of the bottom stack).</summary>
+    public static async Task ReturnRevealedCardsToLibraryBottom(
+        IReadOnlyList<CardSource> remainingCards, CardSource sourceCard, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(remainingCards);
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        if (remainingCards.Count == 0)
+        {
+            return;
+        }
+
+        EngineContext context = sourceCard.Context;
+        IReadOnlyList<CardSource> ordered = remainingCards;
+        if (remainingCards.Count >= 2)
+        {
+            var request = new ChoiceRequest(
+                ChoiceType.Card, sourceCard.Owner, "Specify the order to place the cards at the bottom of the deck.",
+                minCount: remainingCards.Count, maxCount: remainingCards.Count, canSkip: false, ChoiceZone.Library,
+                remainingCards.Select(cs => new ChoiceCandidate(cs.InstanceId, cs.InstanceId.Value, ChoiceZone.Library, IsSelectable: true, ownerId: cs.Owner)).ToArray());
+            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+            if (result.SelectedIds.Count == remainingCards.Count)
+            {
+                ordered = result.SelectedIds
+                    .Select(id => remainingCards.First(cs => cs.InstanceId == id))
+                    .ToArray();
+            }
+        }
+
+        var sink = NewSink(context);
+        foreach (CardSource cs in ordered)
+        {
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.ReturnToDeckBottomKind, sourceCard.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cs.InstanceId.Value }));
+        }
+
+        await sink.FlushAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>AS-IS <c>DigivolveIntoExcecutingAreaCard</c> (CardEffectCommons.cs:1106, verbatim —
+    /// original spelling kept): the EXECUTION-zone variant of <see cref="DigivolveIntoHandOrTrashCard"/>;
+    /// with a single candidate the effect's own card digivolves without a pick.</summary>
+    public static async Task DigivolveIntoExcecutingAreaCard(
+        Permanent? targetPermanent,
+        Func<CardSource, bool>? cardCondition,
+        bool payCost,
+        (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple,
+        (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple,
+        int ignoreDigivolutionRequirementFixedCost,
+        CardSource sourceCard,
+        Func<Task>? successProcess,
+        bool ignoreSelection = false,
+        bool ignoreRequirements = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        EngineContext context = sourceCard.Context;
+        bool onlySelf = ignoreSelection ||
+            (context.ZoneMover is IZoneStateReader z &&
+             z.GetCards(sourceCard.Owner, ChoiceZone.Execution).Count(id =>
+                new CardSource(context, id, sourceCard.Owner, sourceCard.Owner).IsDigimon &&
+                (cardCondition is null || cardCondition(new CardSource(context, id, sourceCard.Owner, sourceCard.Owner)))) <= 1);
+        await DigivolveIntoZoneCoreAsync(
+            targetPermanent, cardCondition, payCost, reduceCostTuple, fixedCostTuple,
+            ignoreDigivolutionRequirementFixedCost, ChoiceZone.Execution, sourceCard,
+            successProcess, failedProcess: null, ignoreSelection: onlySelf, ignoreRequirements, isOptional: true,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>AS-IS <c>ActivateMainOfOptionSide</c> (CardEffectCommons.cs:733): re-run the card's [Main]
+    /// (OptionSkill) activated effect — headless the activation resolver drives it.</summary>
+    public static Task<int> ActivateMainOfOptionSide(CardSource card, CardSource sourceCard, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return ActivatedEffectResolver.ResolveAsync(card.Context, card.InstanceId, card.Owner, EffectTiming.OptionSkill, cancellationToken);
+    }
+
+    /// <summary>AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> (DNADigivolveEffects.cs:256)
+    /// — plays a TEMPORARY permanent from hand/trash as one DNA material mid-flow (PlayTempPermanent +
+    /// rollback). That transient-permanent machinery has no headless surface. STOP.</summary>
+    public static Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(CardSource sourceCard) =>
+        throw new NotSupportedException("DNA-with-temporary-material is not modeled — STOP (strong model).");
+
     /// <summary>AS-IS <c>AddEffectToPermanent(targetPermanent, effectDuration, card, cardEffect, timing)</c>
     /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:11, verbatim verified): register ANY ICardEffect on the
     /// target with a duration. The AS-IS owner-relative bucket swap (an "UntilOpponentTurnEnd" grant lands
@@ -6516,6 +7697,265 @@ public static class CardEffectCommons
     /// right after that step.</summary>
     public static bool GainCantUnsuspendNextActivePhase(Permanent? targetPermanent, CardSource sourceCard) =>
         GainCanNotUnsuspend(targetPermanent, EffectDuration.UntilNextUntap, sourceCard);
+
+    /// <summary>(W6 tail) shared PLAYER-SCOPE timed grant core — the AS-IS GiveEffectToPlayer shape
+    /// (verbatim verified): a duration-tagged player-scope binding whose PermanentCondition folds the
+    /// battle-area + live !CanNotBeAffected guards around the caller's predicate.</summary>
+    private static bool GainToPlayerScope(
+        EffectDuration effectDuration, CardSource sourceCard, string gainName,
+        Func<Permanent, bool>? permanentCondition,
+        string? keyword = null, string? valueKey = null, object? value = null,
+        IReadOnlyDictionary<string, object?>? extraValues = null,
+        Func<bool>? extraCondition = null,
+        string? scopeOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        EngineContext context = sourceCard.Context;
+        HeadlessEntityId grantSourceId = sourceCard.InstanceId;
+
+        // AS-IS _PermanentCondition: on the battle area && !CanNotBeAffected && caller predicate — LIVE.
+        Func<CardSource, bool> scopePredicate = cs =>
+            !ContinuousImmunityGate.BlocksOpponentEffect(
+                context.EffectRegistry, context.CardInstanceRepository, cs.InstanceId, grantSourceId, context)
+            && (permanentCondition is null || permanentCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
+
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
+            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = sourceCard.Owner.Value,
+            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePredicateKey] = scopePredicate,
+        };
+        if (valueKey is not null)
+        {
+            values[valueKey] = value;
+        }
+
+        if (extraValues is not null)
+        {
+            foreach (KeyValuePair<string, object?> pair in extraValues)
+            {
+                values[pair.Key] = pair.Value;
+            }
+        }
+
+        if (extraCondition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = extraCondition;
+        }
+
+        var effectContext = new EffectContext(
+            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
+            triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
+        string[]? scopes = keyword is not null ? null : new[] { scopeOverride ?? ContinuousRestrictionGate.Scope };
+        context.EffectRegistry.Register(new EffectBinding(
+            new EffectRequest(
+                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:{gainName}:{Guid.NewGuid():N}"),
+                sourceCard.Controller, "Continuous", effectContext),
+            keywords: keyword is null ? null : new[] { keyword },
+            EffectQueryRole.Continuous, scopes, effect: null, duration: effectDuration));
+        return true;
+    }
+
+    /// <summary>AS-IS <c>GainBlockerPlayerEffect</c> (KeyWordEffects/Blocker.cs:46, verbatim verified).</summary>
+    public static bool GainBlockerPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainBlockerPlayer", permanentCondition, keyword: ContinuousKeywordGate.Blocker);
+
+    /// <summary>AS-IS <c>GainRushPlayerEffect</c> (KeyWordEffects/Rush.cs:46).</summary>
+    public static bool GainRushPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainRushPlayer", permanentCondition, keyword: ContinuousKeywordGate.Rush);
+
+    /// <summary>AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180).</summary>
+    public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainAlliancePlayer", permanentCondition, keyword: ContinuousKeywordGate.Alliance);
+
+    /// <summary>AS-IS <c>GainIcecladPlayerEffect</c> (KeyWordEffects/Iceclad.cs:46).</summary>
+    public static bool GainIcecladPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainIcecladPlayer", permanentCondition, keyword: ContinuousKeywordGate.Iceclad);
+
+    /// <summary>AS-IS <c>GainCanNotUnsuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotUnsuspend.cs:10,
+    /// verbatim): <paramref name="isOnlyActivePhase"/> narrows to the turn player's permanents — headless
+    /// the unsuspend gate is only consulted BY the unsuspend step, so the phase half is equivalent; the
+    /// turn-player half rides the predicate.</summary>
+    public static bool GainCanNotUnsuspendPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard,
+        bool isOnlyActivePhase = false, string effectName = "Can't unsuspend")
+    {
+        EngineContext context = sourceCard.Context;
+        Func<Permanent, bool> composed = p =>
+            (permanentCondition is null || permanentCondition(p))
+            && (!isOnlyActivePhase || context.TurnController.Current.TurnPlayerId == p.OwnerId);
+        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotUnsuspendPlayer", composed,
+            valueKey: RestrictionHelpers.CannotUnsuspendKey, value: true);
+    }
+
+    /// <summary>AS-IS <c>GainCanNotSuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotSuspend.cs:10).</summary>
+    public static bool GainCanNotSuspendPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard,
+        bool isOnlyActivePhase = false, string effectName = "Can't suspend")
+    {
+        EngineContext context = sourceCard.Context;
+        Func<Permanent, bool> composed = p =>
+            (permanentCondition is null || permanentCondition(p))
+            && (!isOnlyActivePhase || context.TurnController.Current.TurnPlayerId == p.OwnerId);
+        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotSuspendPlayer", composed,
+            valueKey: RestrictionHelpers.CannotSuspendKey, value: true);
+    }
+
+    /// <summary>AS-IS <c>GainCanNotAttackPlayerEffect</c> (GiveEffectToPlayer/CanNotAttack.cs:10, verbatim):
+    /// the ATTACKER filter rides the scope predicate; the DEFENDER filter rides the pair-gate key.</summary>
+    public static bool GainCanNotAttackPlayerEffect(
+        Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack")
+    {
+        var extra = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (defenderCondition is not null)
+        {
+            extra[RestrictionHelpers.DefenderPredicateKey] =
+                (Func<CardSource, bool>)(cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
+        }
+
+        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotAttackPlayer", attackerCondition,
+            valueKey: RestrictionHelpers.CannotAttackKey, value: true, extraValues: extra);
+    }
+
+    /// <summary>AS-IS <c>GainCanNotBlockPlayerEffect</c> (GiveEffectToPlayer/CanNotBlock.cs:10).</summary>
+    public static bool GainCanNotBlockPlayerEffect(
+        Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block")
+    {
+        // AS-IS naming quirk: the SUBJECT filter arrives as attackerCondition; the counterpart (the
+        // attacker being blocked) as defenderCondition. The gate reads the counterpart predicate.
+        var extra = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (defenderCondition is not null)
+        {
+            extra[RestrictionHelpers.CounterpartPredicateKey] =
+                (Func<CardSource, bool>)(cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
+        }
+
+        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotBlockPlayer", attackerCondition,
+            valueKey: RestrictionHelpers.CannotBlockKey, value: true, extraValues: extra);
+    }
+
+    /// <summary>AS-IS <c>GainCanNotBeDeletedPlayerEffect</c> (GiveEffectToPlayer/CanNotBeDeletedByBattle.cs:10)
+    /// — the BATTLE-deletion immunity, player-scoped, with the 4-arg battle predicate.</summary>
+    public static bool GainCanNotBeDeletedPlayerEffect(
+        Func<Permanent, bool>? permanentCondition,
+        Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted in battle")
+    {
+        var extra = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (canNotBeDestroyedByBattleCondition is not null)
+        {
+            extra[BattleDeletionGate.BattleConditionKey] = canNotBeDestroyedByBattleCondition;
+        }
+
+        return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotBeDeletedPlayer", permanentCondition,
+            valueKey: BattleDeletionGate.PreventBattleDeletionKey, value: true, extraValues: extra);
+    }
+
+    /// <summary>AS-IS <c>GainCanNotReturnToHand</c> (GiveEffectToPermanent/CanNotReturnToHand.cs:10) — the
+    /// causing-effect predicate maps to the source-card predicate the return gate evaluates.</summary>
+    public static bool GainCanNotReturnToHand(
+        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand") =>
+        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
+            RestrictionHelpers.CannotReturnToHandKey, "gainCanNotReturnToHand");
+
+    /// <summary>AS-IS <c>GainCanNotReturnToDeck</c> (…/CanNoReturnToDeck.cs:10).</summary>
+    public static bool GainCanNotReturnToDeck(
+        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck") =>
+        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
+            RestrictionHelpers.CannotReturnToDeckKey, "gainCanNotReturnToDeck");
+
+    /// <summary>AS-IS <c>GainCanNotReturnToHandPlayerEffect</c> (GiveEffectToPlayer/CanNotReturnToHand.cs:10).</summary>
+    public static bool GainCanNotReturnToHandPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand") =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainCanNotReturnToHandPlayer", permanentCondition,
+            valueKey: RestrictionHelpers.CannotReturnToHandKey, value: true);
+
+    /// <summary>AS-IS <c>GainCanNotReturnToDeckPlayerEffect</c> (GiveEffectToPlayer/CanNoReturnToDeck.cs:10).</summary>
+    public static bool GainCanNotReturnToDeckPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck") =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainCanNotReturnToDeckPlayer", permanentCondition,
+            valueKey: RestrictionHelpers.CannotReturnToDeckKey, value: true);
+
+    /// <summary>AS-IS <c>GainImmuneFromDPMinus</c> (GiveEffectToPermanent/ImmuneFromDPMinus.cs:10):
+    /// this permanent ignores DP-minus effects for the duration.</summary>
+    public static bool GainImmuneFromDPMinus(
+        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus") =>
+        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
+            ReplacementHelpers.ImmuneFromDpMinusKey, "gainImmuneFromDpMinus");
+
+    /// <summary>AS-IS <c>GainImmuneFromDPMinusPlayerEffect</c> (GiveEffectToPlayer/ImmuneFromDPMinus.cs:10).</summary>
+    public static bool GainImmuneFromDPMinusPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus") =>
+        GainToPlayerScope(effectDuration, sourceCard, "gainImmuneFromDpMinusPlayer", permanentCondition,
+            valueKey: ReplacementHelpers.ImmuneFromDpMinusKey, value: true);
+
+    /// <summary>AS-IS <c>GainCanNotBeDeletedByEffect</c> (GiveEffectToPermanent/CanNotBeDeletedByEffect.cs:10)
+    /// — skill/effect-deletion immunity for the duration (the effect-delete gate's key).</summary>
+    public static bool GainCanNotBeDeletedByEffect(
+        Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
+        EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted by effects") =>
+        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
+            RestrictionHelpers.CannotBeDeletedBySkillKey, "gainCanNotBeDeletedByEffect");
+
+    /// <summary>AS-IS <c>ChangeDigimonSAttackPlayerEffect</c> (GiveEffectToPlayer/ChangeSAttack.cs:10).</summary>
+    public static bool ChangeDigimonSAttackPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
+    {
+        if (changeValue == 0)
+        {
+            return false;
+        }
+
+        var extra = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ModifierHelpers.SecurityAttackDeltaKey] = changeValue,
+        };
+        return GainToPlayerScope(effectDuration, sourceCard, "changeSAttackPlayer", permanentCondition,
+            extraValues: extra, scopeOverride: ContinuousModifierGate.Scope);
+    }
+
+    /// <summary>AS-IS <c>ChangePlayCostPlayerEffect</c> (GiveEffectToPlayer/ChangePlayCost.cs:11) —
+    /// duration-tagged play-cost modifier over the matching permanents' cards. The AS-IS
+    /// <c>setFixedCost</c> form pins the cost instead of shifting it.</summary>
+    public static bool ChangePlayCostPlayerEffect(
+        Func<Permanent, bool>? permanentCondition, int changeValue, bool setFixedCost,
+        EffectDuration effectDuration, CardSource sourceCard)
+    {
+        if (changeValue == 0)
+        {
+            return false;
+        }
+
+        var extra = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [setFixedCost ? PlayCostHelpers.FixedPlayCostKey : ModifierHelpers.PlayCostDeltaKey] = changeValue,
+        };
+        return GainToPlayerScope(effectDuration, sourceCard, "changePlayCostPlayer", permanentCondition,
+            extraValues: extra, scopeOverride: ContinuousModifierGate.Scope);
+    }
+
+    /// <summary>AS-IS <c>ChangeBaseDigimonDP</c> (GiveEffectToPermanent/ChangeOriginDP.cs:10, verbatim):
+    /// SET the target's base DP to <paramref name="changeValue"/> for the duration (a base-DP override,
+    /// not a delta).</summary>
+    public static bool ChangeBaseDigimonDP(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
+    {
+        if (changeValue < 0 || targetPermanent is null)
+        {
+            return false;
+        }
+
+        int delta = changeValue - targetPermanent.BaseDP;
+        return ChangeDigimonStat(targetPermanent, delta == 0 ? 0 : delta, effectDuration, sourceCard,
+            ModifierHelpers.BaseDpDeltaKey, "changeBaseDp") || delta == 0;
+    }
 
     /// <summary>AS-IS <c>GainBlocker</c> (KeyWordEffects/Blocker.cs:10).</summary>
     public static bool GainBlocker(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
@@ -6789,6 +8229,315 @@ public static class CardEffectCommons
         return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security)
             .Any(id => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner, card.Owner)));
     }
+
+    /// <summary>AS-IS <c>IsExistOnBreedingAreaDigimon</c> (GameContextDeterminarion.cs:151).</summary>
+    public static bool IsExistOnBreedingAreaDigimon(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (!IsExistOnBreedingArea(card))
+        {
+            return false;
+        }
+
+        foreach (HeadlessEntityId top in ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.BreedingArea))
+        {
+            DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, top);
+            if ((top == card.InstanceId || stack.UnderCards.Any(u => u.InstanceId == card.InstanceId)) &&
+                new Permanent(card.Context, top, card.Owner).IsDigimon)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>AS-IS <c>IsExistDigivolutionCards</c> (:219): this card rides a field permanent as a
+    /// digivolution source (not the top).</summary>
+    public static bool IsExistDigivolutionCards(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        PermanentView host = card.PermanentOfThisCard();
+        return !host.IsEmpty && host.DigivolutionCards.Any(u => u.InstanceId == card.InstanceId);
+    }
+
+    /// <summary>AS-IS <c>IsExistLinked</c> (:231): this card is one of a field permanent's LINK cards.</summary>
+    public static bool IsExistLinked(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        var zones = (IZoneStateReader)card.Context.ZoneMover;
+        foreach (HeadlessEntityId top in zones.GetCards(card.Owner, ChoiceZone.BattleArea))
+        {
+            if (card.Context.CardInstanceRepository.TryGetInstance(top, out CardInstanceRecord? host) && host is not null &&
+                Headless.Runtime.LinkHelpers.ReadLinkedCardIds(host.Metadata).Contains(card.InstanceId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>AS-IS <c>IsExistInAnyTrash</c> (:257).</summary>
+    public static bool IsExistInAnyTrash(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        var zones = (IZoneStateReader)card.Context.ZoneMover;
+        foreach (HeadlessPlayerId player in card.Context.TurnController.Current.PlayerOrder)
+        {
+            if (!player.IsEmpty && zones.GetCards(player, ChoiceZone.Trash).Contains(card.InstanceId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>AS-IS <c>IsPermanentExistsOnField</c> (:323): breeding OR battle area.</summary>
+    public static bool IsPermanentExistsOnField(Permanent? permanent) =>
+        IsPermanentExistsOnBattleArea(permanent) || IsPermanentExistsOnBreedingArea(permanent);
+
+    /// <summary>AS-IS <c>IsPermanentExistsOnBreedingArea</c> (:368) — the unary form.</summary>
+    public static bool IsPermanentExistsOnBreedingArea(Permanent? permanent)
+    {
+        return permanent is not null && !permanent.InstanceId.IsEmpty
+            && ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
+                .GetCards(permanent.OwnerId, ChoiceZone.BreedingArea).Contains(permanent.InstanceId);
+    }
+
+    /// <summary>AS-IS <c>HasMatchConditionOwnersBreedingPermanent</c> (:693).</summary>
+    public static bool HasMatchConditionOwnersBreedingPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
+        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.BreedingArea)
+            .Select(id => new Permanent(card.Context, id, card.Owner))
+            .Any(CanSelectPermanentCondition);
+    }
+
+    /// <summary>AS-IS <c>HasMatchConditionPermanentDigivolutionCards</c> (:705): any of THIS card's
+    /// permanent's digivolution sources passes.</summary>
+    public static bool HasMatchConditionPermanentDigivolutionCards(CardSource card, Func<CardSource, bool> CanSelectPermanentCondition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(CanSelectPermanentCondition);
+        return card.PermanentOfThisCard().DigivolutionCards
+            .Any(u => CanSelectPermanentCondition(new CardSource(card.Context, u.InstanceId, card.Owner, card.Owner)));
+    }
+
+    /// <summary>AS-IS <c>MatchConditionOpponentsCardCountInTrash</c> (:747).</summary>
+    public static int MatchConditionOpponentsCardCountInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(CanSelectCardCondition);
+        HeadlessPlayerId opponent = OpponentOf(card);
+        return opponent.IsEmpty
+            ? 0
+            : ((IZoneStateReader)card.Context.ZoneMover).GetCards(opponent, ChoiceZone.Trash)
+                .Count(id => CanSelectCardCondition(new CardSource(card.Context, id, opponent, opponent)));
+    }
+
+    /// <summary>AS-IS <c>HasMatchConditionOpponentsCardInTrash</c> (:765).</summary>
+    public static bool HasMatchConditionOpponentsCardInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition) =>
+        MatchConditionOpponentsCardCountInTrash(card, CanSelectCardCondition) >= 1;
+
+    /// <summary>AS-IS <c>GetUniqueColourCountOnOwnerBattleArea</c> (:828).</summary>
+    public static int GetUniqueColourCountOnOwnerBattleArea(CardSource card, Func<Permanent, bool> canGetCardColour) =>
+        UniqueColourCount(card, card.Owner, canGetCardColour);
+
+    /// <summary>AS-IS <c>GetUniqueColourCountOnOpponentsBattleArea</c> (:843).</summary>
+    public static int GetUniqueColourCountOnOpponentsBattleArea(CardSource card, Func<Permanent, bool> canGetCardColour) =>
+        UniqueColourCount(card, OpponentOf(card), canGetCardColour);
+
+    private static int UniqueColourCount(CardSource card, HeadlessPlayerId player, Func<Permanent, bool> canGetCardColour)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canGetCardColour);
+        if (player.IsEmpty)
+        {
+            return 0;
+        }
+
+        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(player, ChoiceZone.BattleArea)
+            .Select(id => new Permanent(card.Context, id, player))
+            .Where(canGetCardColour)
+            .SelectMany(p => p.TopCard.CardColors)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+    }
+
+    /// <summary>AS-IS <c>IsMinCost</c> (MinMax_DP_Cost_Level/Cost/IsMinCost.cs, verbatim verified): among
+    /// the owner's battle-area Digimon (or Digimon+Tamer), this permanent's PRINTED play cost is minimal.</summary>
+    public static bool IsMinCost(Permanent? permanent, HeadlessPlayerId owner, bool IsDigimonOnly, Func<Permanent, bool>? condition = null) =>
+        IsCostExtremum(permanent, owner, IsDigimonOnly, condition, min: true);
+
+    /// <summary>AS-IS <c>IsMaxCost</c> (…/IsMaxCost.cs).</summary>
+    public static bool IsMaxCost(Permanent? permanent, HeadlessPlayerId owner, bool IsDigimonOnly) =>
+        IsCostExtremum(permanent, owner, IsDigimonOnly, condition: null, min: false);
+
+    private static bool IsCostExtremum(Permanent? permanent, HeadlessPlayerId owner, bool digimonOnly, Func<Permanent, bool>? condition, bool min)
+    {
+        if (permanent is null || permanent.InstanceId.IsEmpty || permanent.OwnerId != owner ||
+            !IsPermanentExistsOnBattleArea(permanent) ||
+            (!permanent.IsDigimon && !IsTamerPermanent(permanent)) ||
+            (condition is not null && !condition(permanent)) ||
+            !permanent.TopCard.HasPlayCost ||
+            (digimonOnly && !permanent.IsDigimon))
+        {
+            return false;
+        }
+
+        EngineContext context = permanent.TopCard.Context;
+        List<int> costs = ((IZoneStateReader)context.ZoneMover).GetCards(owner, ChoiceZone.BattleArea)
+            .Select(id => new Permanent(context, id, owner))
+            .Where(p => digimonOnly ? p.IsDigimon : (p.IsDigimon || IsTamerPermanent(p)))
+            .Where(p => p.TopCard.HasPlayCost)
+            .Select(p => p.TopCard.GetCostItself)
+            .ToList();
+        return costs.Count >= 1 && permanent.TopCard.GetCostItself == (min ? costs.Min() : costs.Max());
+    }
+
+    /// <summary>AS-IS <c>GetNonMaxCostPermanents</c> (…/IsMaxCost.cs:36): the owner's permanents whose
+    /// printed cost is BELOW the current maximum (cost-undefined ones included, per the original).</summary>
+    public static List<Permanent> GetNonMaxCostPermanents(CardSource card, HeadlessPlayerId owner, bool digimonOnly = true)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        EngineContext context = card.Context;
+        List<Permanent> candidates = ((IZoneStateReader)context.ZoneMover).GetCards(owner, ChoiceZone.BattleArea)
+            .Select(id => new Permanent(context, id, owner))
+            .Where(p => digimonOnly ? p.IsDigimon : (p.IsDigimon || IsTamerPermanent(p)))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return new List<Permanent>();
+        }
+
+        int maxCost = candidates.Max(p => p.TopCard.HasPlayCost ? p.TopCard.GetCostItself : -1);
+        return candidates.Where(p => !p.TopCard.HasPlayCost || p.TopCard.GetCostItself < maxCost).ToList();
+    }
+
+    /// <summary>AS-IS <c>IsMinDigivolutionCards</c> (…/DigivolutionCards/IsMinDigivolutionCards.cs).</summary>
+    public static bool IsMinDigivolutionCards(Permanent? permanent, HeadlessPlayerId owner, Func<Permanent, bool>? condition = null)
+    {
+        if (permanent is null || permanent.InstanceId.IsEmpty || permanent.OwnerId != owner ||
+            !IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, permanent.TopCard) ||
+            (condition is not null && !condition(permanent)))
+        {
+            return false;
+        }
+
+        EngineContext context = permanent.TopCard.Context;
+        List<int> counts = ((IZoneStateReader)context.ZoneMover).GetCards(owner, ChoiceZone.BattleArea)
+            .Select(id => new Permanent(context, id, owner))
+            .Where(p => p.IsDigimon && (condition is null || condition(p)))
+            .Select(p => p.TopCard.PermanentOfThisCard().DigivolutionCards.Count)
+            .ToList();
+        return counts.Count >= 1 &&
+            permanent.TopCard.PermanentOfThisCard().DigivolutionCards.Count == counts.Min();
+    }
+
+    /// <summary>AS-IS <c>IsMinLevelBoard</c> (…/Level/IsMinLevel.cs:24): min level over BOTH players'
+    /// battle-area Digimon.</summary>
+    public static bool IsMinLevelBoard(Permanent? permanent)
+    {
+        if (permanent is null || permanent.InstanceId.IsEmpty ||
+            !IsPermanentExistsOnBattleAreaDigimon(permanent) ||
+            !permanent.TopCard.HasLevel)
+        {
+            return false;
+        }
+
+        EngineContext context = permanent.TopCard.Context;
+        var zones = (IZoneStateReader)context.ZoneMover;
+        var levels = new List<int>();
+        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+        {
+            if (player.IsEmpty)
+            {
+                continue;
+            }
+
+            levels.AddRange(zones.GetCards(player, ChoiceZone.BattleArea)
+                .Select(id => new Permanent(context, id, player))
+                .Where(p => p.IsDigimon && p.TopCard.HasLevel)
+                .Select(p => p.Level));
+        }
+
+        return levels.Count >= 1 && permanent.Level == levels.Min();
+    }
+
+    /// <summary>AS-IS <c>IsBlock</c> (GetFromHashtable.cs:88): the driving event carried the block flag.</summary>
+    public static bool IsBlock(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}isBlock", out object? raw) && raw is true;
+
+    /// <summary>AS-IS <c>IsFromSameDigimon</c> (:124).</summary>
+    public static bool IsFromSameDigimon(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}isFromSameDigimon", out object? raw) && raw is true;
+
+    /// <summary>AS-IS <c>IsFromDigimon</c> (:142).</summary>
+    public static bool IsFromDigimon(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}isFromDigimon", out object? raw) && raw is true;
+
+    /// <summary>AS-IS <c>IsFromDigimonDigivolutionCards</c> (:160).</summary>
+    public static bool IsFromDigimonDigivolutionCards(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}isFromDigimonDigivolutionCards", out object? raw) && raw is true;
+
+    /// <summary>AS-IS <c>IsLeavingForDigiXros</c> (:800).</summary>
+    public static bool IsLeavingForDigiXros(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}digixros", out object? raw) && raw is true;
+
+    /// <summary>AS-IS <c>IsDijiXros</c> (:817): this card's permanent entered via DigiXros and the material
+    /// count passes.</summary>
+    public static bool IsDijiXros(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<int, bool>? digixrosCountCondition)
+    {
+        if (!SubjectPermanentContains(ctx, card))
+        {
+            return false;
+        }
+
+        int count = ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}DigiXrosCount", out object? raw) && raw is int c
+            ? c
+            : 0;
+        return digixrosCountCondition is null || digixrosCountCondition(count);
+    }
+
+    /// <summary>AS-IS <c>IsAlliance</c> (:765): the driving effect is the Alliance keyword's own window.</summary>
+    public static bool IsAlliance(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}isAlliance", out object? raw) && raw is true;
+
+    /// <summary>AS-IS <c>IsDigivolvedFromSameLevelFromEnterFieldHashtable</c> (:720): the permanent
+    /// digivolved without changing level (the event carries the pre-digivolve level).</summary>
+    public static bool IsDigivolvedFromSameLevelFromEnterFieldHashtable(Headless.Effects.CardEffectResolveContext ctx, Permanent? permanent)
+    {
+        if (permanent is null || !IsPermanentExistsOnBattleArea(permanent) || !permanent.TopCard.HasLevel)
+        {
+            return false;
+        }
+
+        return ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}oldLevel", out object? raw)
+            && raw is int oldLevel && oldLevel == permanent.Level;
+    }
+
+    /// <summary>AS-IS <c>IsDigivolvedByTheEffect</c> (IsDigivolvedByTheEffect.cs:9): the permanent's top is
+    /// this card and the digivolution was caused by the given effect source (the digivolve stamps the
+    /// causing source id).</summary>
+    public static bool IsDigivolvedByTheEffect(Permanent? permanent, CardSource cardSource, CardSource effectSourceCard)
+    {
+        ArgumentNullException.ThrowIfNull(cardSource);
+        ArgumentNullException.ThrowIfNull(effectSourceCard);
+        if (permanent is null || !IsPermanentExistsOnBattleArea(permanent) ||
+            permanent.InstanceId != cardSource.InstanceId)
+        {
+            return false;
+        }
+
+        return cardSource.Context.CardInstanceRepository.TryGetInstance(cardSource.InstanceId, out CardInstanceRecord? rec) && rec is not null
+            && rec.Metadata.TryGetValue("digivolvedByEffectSourceId", out object? raw)
+            && raw?.ToString() == effectSourceCard.InstanceId.Value;
+    }
+
+    private static bool IsTamerPermanent(Permanent permanent) => permanent.TopCard.IsTamer;
 
     /// <summary>AS-IS <c>HasMatchConditionPermanent(Func&lt;Permanent,bool&gt;, isContainBreedingArea)</c> (:641)
     /// — the VIEW-predicate overload (both players' battle-area, optionally + breeding).</summary>

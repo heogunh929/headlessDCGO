@@ -202,11 +202,16 @@ public sealed class DigivolveAction
         metadata["stackBaseDp"] = stack.BaseDp;
 
         // W1: open the WhenDigivolving timing window for the card that just digivolved.
+        // (W6 tail) oldLevel = the PRE-digivolve top's level (AS-IS OnEnterField "oldLevels").
         TriggerEventEmitter.Emit(
             context.GameEventQueue,
             TriggerTimings.WhenDigivolving,
             actor: action.PlayerId,
-            subject: payload.CardId);
+            subject: payload.CardId,
+            extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["oldLevel"] = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.TargetCardId, action.PlayerId, action.PlayerId).Level,
+            });
 
         // F-6.4: digivolving places the previous card(s) under the new top as digivolution sources —
         // open the OnAddDigivolutionCards window scoped to the receiving (top) card.

@@ -59,6 +59,14 @@ public sealed class GameFlowProcessor
                 continue;
             }
 
+            // (W6 tail) run due turn-end self-deletions (AddSelfDeleteEffect markers promoted by the
+            // end-turn cleanup) through the REAL deletion pipeline.
+            if (await SweepDueTurnEndDeletionsAsync(context, cancellationToken).ConfigureAwait(false))
+            {
+                progressedAny = true;
+                continue;
+            }
+
             // (W6-S) fire parked delete-and-process continuations whose targets have all settled
             // (AS-IS DeletePeremanentAndProcessAccordingToResult resumes after the deletion pipeline).
             if (context.TryGetService(out DeletionOutcomeWatcher? outcomeWatcher) && outcomeWatcher is not null &&
@@ -259,6 +267,13 @@ public sealed class GameFlowProcessor
     /// <summary>(P7) mirror of AS-IS <c>Permanent.IsPlayedOptionPermanent</c> — an Option "permanent" that a
     /// card effect legitimately keeps on the battle area is exempt.</summary>
     public const string IsPlayedOptionPermanentKey = "isPlayedOptionPermanent";
+
+    /// <summary>(W6 tail) AS-IS <c>AddSelfDeleteEffect</c> marker: delete this permanent at turn end —
+    /// value = "own" | "opponent" | "each" (relative to the CARD's owner). The end-turn cleanup promotes a
+    /// matching marker to <see cref="DeleteAtTurnEndDueKey"/>; the loop then runs the real sink deletion.</summary>
+    public const string DeleteAtTurnEndKey = "deleteAtTurnEnd";
+    public const string DeleteAtTurnEndSourceKey = "deleteAtTurnEndSource";
+    public const string DeleteAtTurnEndDueKey = "deleteAtTurnEndDue";
 
     // (P7) AS-IS IsNotHavingDP (AutoProcessing.cs:165-193): DP < 0 && IsPlaceToTrashDueToNotHavingDP &&
     // (IsDigimon — which includes Digi-Eggs — || un-played Option). Reachable types headless-side: a
@@ -494,6 +509,53 @@ public sealed class GameFlowProcessor
     /// read the event exactly like the original hashtable (primitive_w6_design.md W6-T).</summary>
     public const string EventValuePrefix = "event.";
     public const string EventTypeKey = "event.type";
+
+    private static async Task<bool> SweepDueTurnEndDeletionsAsync(EngineContext context, CancellationToken cancellationToken)
+    {
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return false;
+        }
+
+        bool any = false;
+        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+        {
+            if (player.IsEmpty)
+            {
+                continue;
+            }
+
+            foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea).ToArray())
+            {
+                if (!context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) || record is null ||
+                    !record.Metadata.TryGetValue(DeleteAtTurnEndDueKey, out object? due) || due is not true)
+                {
+                    continue;
+                }
+
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
+                metadata.Remove(DeleteAtTurnEndDueKey);
+                metadata.Remove(DeleteAtTurnEndKey);
+                HeadlessEntityId sourceId = metadata.TryGetValue(DeleteAtTurnEndSourceKey, out object? src) && src?.ToString() is { Length: > 0 } v
+                    ? new HeadlessEntityId(v)
+                    : id;
+                metadata.Remove(DeleteAtTurnEndSourceKey);
+                context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+
+                var sink = new Effects.MatchStateMutationSink(
+                    context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
+                    context.EffectRegistry, context.GameEventQueue, context: context);
+                sink.Apply(new Effects.EffectMutation(
+                    Effects.MatchStateMutationSink.DeleteKind, sourceId,
+                    new Dictionary<string, object?>(StringComparer.Ordinal) { [Effects.MatchStateMutationSink.TargetEntityIdKey] = id.Value }));
+                await sink.FlushAsync().ConfigureAwait(false);
+                any = true;
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+
+        return any;
+    }
 
     private static EffectRequest EnrichWithEventSubject(EffectRequest request, GameEvent gameEvent)
     {

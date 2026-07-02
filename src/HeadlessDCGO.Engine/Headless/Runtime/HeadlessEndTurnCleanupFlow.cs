@@ -56,6 +56,26 @@ public sealed class HeadlessEndTurnCleanupFlow
             Dictionary<string, object?> metadata = new(record.Metadata, StringComparer.Ordinal);
             List<string> removedForCard = new();
 
+            // (W6 tail) AddSelfDeleteEffect: promote a matching turn-end self-delete marker to DUE — the
+            // game loop runs the real sink deletion ("own" = the card owner's turn just ended;
+            // "opponent" = the other player's; "each" = any turn end).
+            if (metadata.TryGetValue(GameFlowProcessor.DeleteAtTurnEndKey, out object? timing) &&
+                timing?.ToString() is { Length: > 0 } deleteTiming && turnPlayerId.HasValue)
+            {
+                bool ownerTurnEnded = record.OwnerId == turnPlayerId.Value;
+                bool isDue = deleteTiming switch
+                {
+                    "own" => ownerTurnEnded,
+                    "opponent" => !ownerTurnEnded,
+                    _ => true,
+                };
+                if (isDue)
+                {
+                    metadata[GameFlowProcessor.DeleteAtTurnEndDueKey] = true;
+                    removedForCard.Add(GameFlowProcessor.DeleteAtTurnEndKey);
+                }
+            }
+
             RemoveKeys(metadata, removedForCard, SharedTurnEndKeys);
 
             if (turnPlayerId.HasValue && record.OwnerId == turnPlayerId.Value)

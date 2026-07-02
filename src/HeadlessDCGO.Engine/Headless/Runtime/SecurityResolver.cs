@@ -374,6 +374,10 @@ public sealed class SecurityResolver
         return true;
     }
 
+    /// <summary>(W6 tail) binding-values keys for security-card DP grants (AS-IS ChangeSecurityDigimonCardDPPlayerEffect).</summary>
+    public const string SecurityCardDpDeltaKey = "securityCardDpDelta";
+    public const string SecurityCardPredicateKey = "securityCardDpDelta.cardCondition";
+
     private static bool TryReadSecurityDigimonDp(
         EngineContext context,
         HeadlessEntityId cardId,
@@ -393,6 +397,33 @@ public sealed class SecurityResolver
         if (!TryReadDp(instance.Metadata, definition.Metadata, out securityDp))
         {
             return false;
+        }
+
+        // (W6 tail) AS-IS ChangeSecurityDigimonCardDPPlayerEffect (ChangeCardDPClass): fold registered
+        // security-card DP grants whose card predicate accepts this revealed card.
+        foreach (Effects.EffectRequest effect in context.EffectRegistry.GetContinuousEffects(
+            new Services.EffectQueryContext(ContinuousModifierGate.Scope)))
+        {
+            if (!effect.Context.Values.TryGetValue(SecurityCardDpDeltaKey, out object? raw) || raw is not int delta || delta == 0)
+            {
+                continue;
+            }
+
+            if (effect.Context.Values.TryGetValue(
+                    Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? rawCond)
+                && rawCond is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            if (effect.Context.Values.TryGetValue(SecurityCardPredicateKey, out object? rawPred)
+                && rawPred is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate
+                && !predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId, instance.OwnerId)))
+            {
+                continue;
+            }
+
+            securityDp += delta;
         }
 
         // N-2 / D-A2: the security Digimon's DP also reflects continuous DP effects from other cards.

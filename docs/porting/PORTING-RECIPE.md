@@ -116,6 +116,7 @@ bash scripts/run-tests.sh          # SUMMARY: PASS=N FAIL=0 여야 함
 | `AddDetailClass(...)` | **동명(표시 전용 no-op)** — 동작 없음, 그대로 미러 |
 | `WhenMovingClass/WhenDigivolvingClass/StartOfYourTurnClass/StartOfYourMainPhaseClass/OnDeletionClass(card, …, coroutine, …)` (타이밍-래퍼, 각 1장) | 해당 타이밍 분기 + 코루틴 의도-번역(래퍼는 프리셋 CanTriggerX 보일러플레이트일 뿐) |
 | `ActivateClassesForSharedEffects(…, 플래그들)` (타이밍 멀티플렉서, ~85장) | 켜진 플래그의 **각 타이밍 분기에 동일 의도 팩토리를 반복 등록** — STOP 아님 |
+| **W6 꼬리 전량 동명화** — 카드가 부르는 `CardEffectCommons.X(...)`는 이제 **거의 전부 동명 그대로**(Hashtable→ctx, ICardEffect→소스 CardSource 치환만). 예외(번역-소멸): `Get*Hashtable` 원시 배관·체크-해시 생성기·`OptionMain/SecurityEffect`(→`ActivateMainOfOptionSide`)·UI 배열. 예외(STOP): `AddSkillClass`·`PlayOptionCards`·`AddMaxTrashCountDigiXrosClass`·Digi-Burst 게이트 2종·`DNADigivolveWithHandOrTrashCardIntoHandOrTrash` | `scripts/audit-commons-parity.py`가 상시 진실원천 (조치 대상 0 유지) |
 | `CardEffectFactory.GetJogressConditionClass(perm술어1, 설명1, perm술어2, 설명2, card, cost, canUse)` (술어형 DNA) | **동명 팩토리 그대로** — cost는 원본 quirk대로 무시(항상 0) |
 | `CardEffectCommons.GainCanNotBeDeletedByBattle(target, 4-인자술어, duration, activateClass, name)` | **동명 커먼즈**: `CardEffectCommons.GainCanNotBeDeletedByBattle(targetPermanent, 술어, duration, card, name)` (동기) |
 | `UntilEachTurnEndEffects.Add(_ => PermanentEffectFactory.CanNotSwitchAttackTargetEffect(perm, ac))` | `ctx.EffectRegistry.Register(PermanentEffectFactory.CanNotSwitchAttackTargetEffect(perm, ac).ToBinding(id, EffectDuration.UntilEachTurnEnd))` |

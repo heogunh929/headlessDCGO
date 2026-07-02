@@ -28,7 +28,21 @@ PORT_FILES = [
 KNOWN_TRANSLATED = {
     "ShowReducedCost", "CardEffectHashtable", "RevealDeckTopCardsAndProcessForAll",
     "SimplifiedRevealDeckTopCardsAndSelect", "RevealDeckTopCardsAndSelect",
-    "ActivateClassesForSharedEffects", "customPermanentMessageArray_ChangeDP",
+    "ActivateClassesForSharedEffects",
+    # check-hashtable BUILDERS + raw hashtable plumbing: cards use these to probe their own gates; the
+    # headless translation calls the gate mirror directly (recipe §4-b), so the builder dissolves.
+    "GetHashtablesFromHashtable", "GetPlayCardClassFromHashtable",
+    "WhenDigivolvingCheckHashtableOfCard", "OnPlayCheckHashtableOfCard",
+    "OptionMainCheckHashtable", "OnDeletionHashtable",
+    # UI-only message arrays.
+    "customPermanentMessageArray_ChangeDP", "customPermanentMessageArray_ChangeOriginDP",
+    "customPermanentMessageArray_ChangeSAttack",
+    # effect-object getters: the port drives the [Main]/[Security] body via ActivateMainOfOptionSide /
+    # the activation resolver (recipe rows) — the getter dissolves.
+    "OptionMainEffect", "OptionSecurityEffect",
+    # 1-card timing-wrapper sugar (recipe rows: the timing branch + intent translation).
+    "WhenMovingClass", "WhenDigivolvingClass", "StartOfYourTurnClass", "StartOfYourMainPhaseClass",
+    "OnDeletionClass",
 }
 
 # Explicit STOP surface (strong-model only until a wave lands them).
