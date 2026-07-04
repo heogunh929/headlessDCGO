@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DCGO RL 대시보드</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --surface-2: #f1f1ee; --border: #e0dfda;
+    --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a897f;
+    --accent: #2a78d6; --accent-2: #1baf7a; --warn: #eda100; --bad: #e34948;
+    --seq-100:#cde2fb; --seq-200:#9ec5f4; --seq-300:#6da7ec; --seq-400:#3987e5;
+    --seq-500:#256abf; --seq-600:#184f95; --seq-700:#0d366b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --surface-2: #242422; --border: #3a3936;
+      --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8a897f;
+      --accent: #3987e5; --accent-2: #199e70; --warn: #c98500; --bad: #e66767;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--ink);
+         font: 14px/1.5 system-ui, "Noto Sans KR", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+           border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  nav { display: flex; gap: 4px; }
+  nav button { border: 0; background: none; color: var(--ink-2); padding: 8px 14px;
+               cursor: pointer; border-radius: 6px; font-size: 14px; }
+  nav button.active { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+  main { padding: 18px 20px 60px; max-width: 1180px; margin: 0 auto; }
+  section.tab { display: none; }
+  section.tab.active { display: block; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+  .card { background: var(--surface-2); border: 1px solid var(--border);
+          border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+          padding: 10px 16px; min-width: 130px; }
+  .tile .v { font-size: 22px; font-weight: 700; }
+  .tile .l { font-size: 12px; color: var(--ink-3); }
+  select, input[type=text], input[type=number] {
+    background: var(--surface); color: var(--ink); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+  button.act { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+               padding: 7px 14px; cursor: pointer; font-size: 13px; }
+  button.act:disabled { opacity: .5; cursor: default; }
+  button.stop { background: var(--bad); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--ink-3); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .heat td.cell { text-align: center; border-radius: 4px; border: 2px solid var(--surface-2);
+                  min-width: 56px; font-variant-numeric: tabular-nums; }
+  svg text { fill: var(--ink-3); font-size: 11px; }
+  .tooltip { position: fixed; pointer-events: none; background: var(--ink); color: var(--surface);
+             padding: 4px 8px; border-radius: 6px; font-size: 12px; display: none; z-index: 10;
+             font-variant-numeric: tabular-nums; }
+  pre.log { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; }
+  .replay-turn { margin: 10px 0 2px; font-weight: 700; color: var(--ink-2); }
+  .step { display: flex; gap: 8px; padding: 2px 0; font-variant-numeric: tabular-nums; }
+  .step .phase { color: var(--ink-3); width: 92px; flex: none; }
+  .step .seat1 { color: var(--accent); font-weight: 600; width: 70px; flex: none; }
+  .step .seat2 { color: var(--accent-2); font-weight: 600; width: 70px; flex: none; }
+  .banner { padding: 10px 14px; border-radius: 8px; background: var(--surface-2);
+            border: 1px solid var(--border); font-weight: 600; margin: 10px 0; }
+  .muted { color: var(--ink-3); font-size: 12px; }
+  label.f { display: inline-flex; flex-direction: column; gap: 3px; font-size: 12px;
+            color: var(--ink-3); margin: 0 10px 10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DCGO RL 대시보드</h1>
+  <nav>
+    <button data-tab="league" class="active">리그 현황</button>
+    <button data-tab="replay">리플레이</button>
+    <button data-tab="launcher">런처</button>
+  </nav>
+  <span class="muted" id="clock"></span>
+</header>
+<main>
+
+<section class="tab active" id="tab-league">
+  <div class="row" style="margin-bottom:12px">
+    <label class="f">리그 런
+      <select id="league-run"></select>
+    </label>
+    <button class="act" onclick="loadLeague()">새로고침</button>
+  </div>
+  <div class="tiles" id="league-tiles"></div>
+  <div class="card">
+    <h2>학습기 레이팅 곡선 (매치 순서 기준)</h2>
+    <svg id="curve" width="1100" height="260"></svg>
+  </div>
+  <div class="row">
+    <div class="card" style="flex:1 1 460px">
+      <h2>매치업 매트릭스 (행 기준 승률)</h2>
+      <div id="matchup"></div>
+      <div class="muted" style="margin-top:6px">진한 파랑 = 높은 승률. 셀 괄호 = 표본 수.</div>
+    </div>
+    <div class="card" style="flex:1 1 420px">
+      <h2>스냅샷</h2>
+      <div id="snapshots"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>최근 리그 매치</h2>
+    <div id="recent"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-replay">
+  <div class="card">
+    <div class="row">
+      <label class="f">P1 (좌석1 · ST1)
+        <select id="rp-p1"></select></label>
+      <label class="f">P2 (좌석2 · ST2)
+        <select id="rp-p2"></select></label>
+      <label class="f">시드
+        <input type="number" id="rp-seed" value="1" style="width:90px"></label>
+      <label class="f">&nbsp;
+        <button class="act" id="rp-go" onclick="runReplay()">한 판 재생</button></label>
+    </div>
+    <div class="muted">정책은 결정적으로 둡니다(같은 시드 = 같은 판). 재생에 수 초~수십 초 걸립니다.</div>
+  </div>
+  <div id="rp-out"></div>
+</section>
+
+<section class="tab" id="tab-launcher">
+  <div class="card">
+    <h2>새 학습 시작</h2>
+    <div class="row">
+      <label class="f">스크립트
+        <select id="ln-script" onchange="launcherFields()">
+          <option value="train_league">리그 학습 (train_league)</option>
+          <option value="train">기본 학습 vs 랜덤 (train)</option>
+        </select></label>
+      <label class="f">런 이름 <input type="text" id="ln-name" value="league-02" style="width:140px"></label>
+      <label class="f">스텝 <input type="number" id="ln-steps" value="60000" style="width:100px"></label>
+      <label class="f">env 수 <input type="number" id="ln-nenvs" value="4" style="width:70px"></label>
+      <label class="f">시드 <input type="number" id="ln-seed" value="42" style="width:80px"></label>
+      <label class="f" data-for="train_league">freeze 주기
+        <input type="number" id="ln-freeze" value="10000" style="width:100px"></label>
+      <label class="f" data-for="train_league">약점 최소표본
+        <input type="number" id="ln-weak" value="30" style="width:80px"></label>
+      <label class="f" data-for="train_league">시작 정책
+        <select id="ln-init"></select></label>
+      <label class="f" data-for="train">벡터화
+        <select id="ln-vec"><option>dummy</option><option>subproc</option></select></label>
+      <label class="f">&nbsp;<button class="act" onclick="startTrain()">시작</button></label>
+    </div>
+    <div class="muted" id="ln-msg"></div>
+  </div>
+  <div class="card">
+    <h2>실행 중 / 최근 작업 <span class="muted">(3초마다 갱신)</span></h2>
+    <div id="jobs"></div>
+  </div>
+</section>
+
+</main>
+<div class="tooltip" id="tt"></div>
+<script>
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api = async (path, body) => {
+  const res = await fetch(path, body ? {method:'POST', body: JSON.stringify(body)} : undefined);
+  const data = await res.json();
+  if (data && data.error) throw new Error(data.error);
+  return data;
+};
+
+// --- 탭 ---
+document.querySelectorAll('nav button').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('section.tab').forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  $('#tab-' + btn.dataset.tab).classList.add('active');
+});
+
+// --- 리그 현황 ---
+async function initLeague() {
+  const runs = await api('/api/runs');
+  const leagues = runs.filter(r => r.kind === 'league');
+  $('#league-run').innerHTML = leagues.map(r => `<option>${esc(r.name)}</option>`).join('');
+  if (leagues.length) loadLeague();
+}
+
+async function loadLeague() {
+  const run = $('#league-run').value;
+  if (!run) return;
+  const s = await api('/api/league?run=' + encodeURIComponent(run));
+  const learner = s.ratings.learner ?? 1200;
+  const modes = Object.entries(s.modes).map(([k,v]) => `${k} ${v}`).join(' · ');
+  $('#league-tiles').innerHTML = [
+    tile(Math.round(learner), '학습기 Elo'),
+    tile(s.matches, '리그 매치'),
+    tile(s.snapshots.length, '스냅샷'),
+    tile(modes || '—', '샘플러 모드', true),
+  ].join('');
+  drawCurve(s.curve);
+  drawMatchup(s.matchup, s.ratings);
+  drawSnapshots(s.snapshots, s.ratings);
+  drawRecent(s.curve.slice(-15).reverse());
+}
+const tile = (v, l, small) =>
+  `<div class="tile"><div class="v" style="${small?'font-size:14px':''}">${esc(v)}</div><div class="l">${esc(l)}</div></div>`;
+
+function drawCurve(curve) {
+  const svg = $('#curve');
+  svg.innerHTML = '';
+  if (!curve.length) return;
+  const W = svg.clientWidth || 1100, H = 260, padL = 46, padR = 12, padT = 12, padB = 24;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const ys = curve.map(e => e.learner_rating);
+  const yMin = Math.min(...ys) - 15, yMax = Math.max(...ys) + 15;
+  const x = i => padL + (W - padL - padR) * (i / Math.max(1, curve.length - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - yMin) / (yMax - yMin));
+  let g = '';
+  const gridN = 4;
+  for (let i = 0; i <= gridN; i++) {
+    const v = yMin + (yMax - yMin) * i / gridN, yy = y(v);
+    g += `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--border)" stroke-width="1"/>`;
+    g += `<text x="${padL-6}" y="${yy+4}" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  const pts = curve.map((e, i) => `${x(i)},${y(e.learner_rating)}`).join(' ');
+  g += `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  g += `<rect id="curve-hit" x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}" fill="transparent"/>`;
+  g += `<line id="curve-x" y1="${padT}" y2="${H-padB}" stroke="var(--ink-3)" stroke-width="1" style="display:none"/>`;
+  g += `<circle id="curve-dot" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" style="display:none"/>`;
+  svg.innerHTML = g;
+  const tt = $('#tt');
+  const hit = $('#curve-hit');
+  hit.onmousemove = (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (ev.clientX - rect.left) * (W / rect.width);
+    const i = Math.max(0, Math.min(curve.length - 1,
+      Math.round((px - padL) / (W - padL - padR) * (curve.length - 1))));
+    const e = curve[i];
+    $('#curve-x').style.display = ''; $('#curve-dot').style.display = '';
+    $('#curve-x').setAttribute('x1', x(i)); $('#curve-x').setAttribute('x2', x(i));
+    $('#curve-dot').setAttribute('cx', x(i)); $('#curve-dot').setAttribute('cy', y(e.learner_rating));
+    tt.style.display = 'block'; tt.style.left = (ev.clientX + 14) + 'px'; tt.style.top = (ev.clientY + 10) + 'px';
+    tt.textContent = `step ${e.step} · Elo ${e.learner_rating} · vs ${e.opponent} (${e.mode}) ${e.score === 1 ? '승' : e.score === 0 ? '패' : '무'}`;
+  };
+  hit.onmouseleave = () => { tt.style.display = 'none';
+    $('#curve-x').style.display = 'none'; $('#curve-dot').style.display = 'none'; };
+}
+
+const SEQ = ['#cde2fb','#9ec5f4','#6da7ec','#3987e5','#256abf','#184f95','#0d366b'];
+function heatColor(rate) {
+  const idx = Math.max(0, Math.min(SEQ.length - 1, Math.floor(rate * SEQ.length)));
+  return { bg: SEQ[idx], ink: idx >= 3 ? '#ffffff' : '#0b0b0b' };
+}
+
+function drawMatchup(rows, ratings) {
+  if (!rows.length) { $('#matchup').innerHTML = '<div class="muted">데이터 없음</div>'; return; }
+  const ids = [...new Set(rows.flatMap(r => [r.a, r.b]))]
+    .sort((a, b) => (a === 'learner' ? -1 : b === 'learner' ? 1 : (ratings[b]??0) - (ratings[a]??0)));
+  const cell = {};
+  rows.forEach(r => cell[r.a + '|' + r.b] = r);
+  let html = '<table class="heat"><tr><th></th>' +
+    ids.map(c => `<th class="num">${esc(short(c))}</th>`).join('') + '</tr>';
+  for (const a of ids) {
+    html += `<tr><th>${esc(short(a))}</th>`;
+    for (const b of ids) {
+      if (a === b) { html += '<td class="cell" style="color:var(--ink-3)">—</td>'; continue; }
+      const r = cell[a + '|' + b];
+      if (!r || (r.wins + r.losses + r.draws) === 0) { html += '<td class="cell" style="color:var(--ink-3)">·</td>'; continue; }
+      const n = r.wins + r.losses + r.draws;
+      const rate = (r.wins + 0.5 * r.draws) / n;
+      const c = heatColor(rate);
+      html += `<td class="cell" style="background:${c.bg};color:${c.ink}">${Math.round(rate*100)}% <span style="opacity:.75">(${n})</span></td>`;
+    }
+    html += '</tr>';
+  }
+  $('#matchup').innerHTML = html + '</table>';
+}
+const short = (id) => id.replace('st-league-', '');
+
+function drawSnapshots(snapshots, ratings) {
+  if (!snapshots.length) { $('#snapshots').innerHTML = '<div class="muted">없음</div>'; return; }
+  $('#snapshots').innerHTML = '<table><tr><th>id</th><th class="num">스텝</th><th class="num">동결 Elo</th><th class="num">현재 Elo</th></tr>' +
+    snapshots.map(m => `<tr><td>${esc(m.snapshot_id)}</td><td class="num">${m.global_step.toLocaleString()}</td>` +
+      `<td class="num">${m.rating}</td><td class="num">${Math.round(ratings[m.snapshot_id] ?? m.rating)}</td></tr>`).join('') + '</table>';
+}
+
+function drawRecent(entries) {
+  $('#recent').innerHTML = '<table><tr><th class="num">step</th><th>상대</th><th>모드</th><th>결과</th><th class="num">턴</th><th class="num">Elo</th></tr>' +
+    entries.map(e => `<tr><td class="num">${e.step.toLocaleString()}</td><td>${esc(e.opponent)}</td><td>${esc(e.mode)}</td>` +
+      `<td>${e.score === 1 ? '승' : e.score === 0 ? '패' : '무'}</td><td class="num">${e.turns}</td><td class="num">${e.learner_rating}</td></tr>`).join('') + '</table>';
+}
+
+// --- 리플레이 ---
+async function initReplay() {
+  const policies = await api('/api/policies');
+  const options = ['<option value="random">랜덤(합법 무작위)</option>']
+    .concat(policies.map(p => `<option value="${esc(p.path)}">${esc(p.label)}</option>`)).join('');
+  $('#rp-p1').innerHTML = options;
+  $('#rp-p2').innerHTML = options;
+  const init = $('#ln-init');
+  init.innerHTML = '<option value="fresh">밑바닥부터</option>' +
+    policies.map(p => `<option value="${esc(p.path)}">${esc(p.label)}</option>`).join('');
+}
+
+async function runReplay() {
+  const btn = $('#rp-go');
+  btn.disabled = true; btn.textContent = '재생 중…';
+  $('#rp-out').innerHTML = '';
+  try {
+    const rec = await api('/api/replay', {
+      p1: $('#rp-p1').value, p2: $('#rp-p2').value, seed: Number($('#rp-seed').value),
+    });
+    const r = rec.result;
+    let html = `<div class="banner">승자 P${r.winnerSeat ?? '—'} · ${esc(r.reason)} · ${r.steps}스텝 ${r.turns}턴 · 시드 ${rec.seed}</div><div class="card">`;
+    let lastTurn = 0;
+    for (const s of rec.steps) {
+      if (s.turn !== lastTurn) { html += `<div class="replay-turn">턴 ${s.turn}</div>`; lastTurn = s.turn; }
+      html += `<div class="step"><span class="phase">${esc(s.phase)}</span>` +
+        `<span class="seat${s.seat}">P${s.seat} ${esc(s.who)}</span>` +
+        `<span>${esc(s.action)}</span><span class="muted">(합법 ${s.legalCount})</span></div>`;
+    }
+    $('#rp-out').innerHTML = html + '</div>';
+  } catch (ex) {
+    $('#rp-out').innerHTML = `<div class="banner" style="color:var(--bad)">실패: ${esc(ex.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '한 판 재생';
+  }
+}
+
+// --- 런처 ---
+function launcherFields() {
+  const script = $('#ln-script').value;
+  document.querySelectorAll('[data-for]').forEach(el =>
+    el.style.display = el.dataset.for === script ? '' : 'none');
+}
+async function startTrain() {
+  const script = $('#ln-script').value;
+  const payload = {
+    script, name: $('#ln-name').value,
+    steps: Number($('#ln-steps').value), n_envs: Number($('#ln-nenvs').value),
+    seed: Number($('#ln-seed').value),
+  };
+  if (script === 'train_league') {
+    payload.freeze_every = Number($('#ln-freeze').value);
+    payload.weakness_min_games = Number($('#ln-weak').value);
+    payload.init = $('#ln-init').value;
+  } else {
+    payload.vec = $('#ln-vec').value;
+  }
+  try {
+    const job = await api('/api/train/start', payload);
+    $('#ln-msg').textContent = `시작됨: job ${job.id} → ${job.log}`;
+  } catch (ex) {
+    $('#ln-msg').textContent = '실패: ' + ex.message;
+  }
+  refreshJobs();
+}
+async function stopTrain(id) {
+  await api('/api/train/stop', { id });
+  refreshJobs();
+}
+async function refreshJobs() {
+  try {
+    const jobs = await api('/api/train/status');
+    if (!jobs.length) { $('#jobs').innerHTML = '<div class="muted">이 서버 세션에서 시작한 작업 없음</div>'; return; }
+    $('#jobs').innerHTML = jobs.map(j => `
+      <div style="margin-bottom:12px">
+        <b>${esc(j.name)}</b> <span class="muted">(${esc(j.script)} · job ${j.id})</span>
+        ${j.running
+          ? `<span style="color:var(--accent-2)"> ● 실행 중</span> <button class="act stop" onclick="stopTrain(${j.id})">중지</button>`
+          : `<span class="muted"> ■ 종료 (exit ${j.returncode})</span>`}
+        <pre class="log">${esc(j.tail || '(로그 없음)')}</pre>
+      </div>`).join('');
+  } catch { /* 서버 재시작 등 — 다음 주기에 재시도 */ }
+}
+setInterval(() => { if ($('#tab-launcher').classList.contains('active')) refreshJobs(); }, 3000);
+setInterval(() => { $('#clock').textContent = new Date().toLocaleTimeString(); }, 1000);
+
+launcherFields();
+initLeague();
+initReplay();
+refreshJobs();
+</script>
+</body>
+</html>

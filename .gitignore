@@ -28,3 +28,10 @@
 
 # Test results.
 [Tt]est[Rr]esults/
+
+# RL 학습환경 (rl/ — dev design §0.1): 실험 산출물·Python 로컬 환경은 추적하지 않는다.
+/runs/
+rl/.venv/
+__pycache__/
+*.pyc
+*.egg-info/
