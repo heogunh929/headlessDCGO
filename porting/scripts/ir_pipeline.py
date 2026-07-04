@@ -154,7 +154,17 @@ def lower_predicate(node: dict) -> dict:
             raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE",
                        f"unknown commons predicate: {short}")
         args = node.get("args", [])
-        # Phase A: only card-only predicates pass through unchanged.
+        # id-lambda predicates: HasMatchConditionOpponentsPermanent(card, id => <pred over id>)
+        # The 2nd arg is Func<HeadlessEntityId,bool>; lower the lambda, rewriting `id.X` member
+        # accesses to CardEffectCommons.X(card, id) for exact-match permanent-subject helpers.
+        if short in ID_LAMBDA_CALLS and len(args) == 2 and args[0].get("ref") == "card" \
+                and "lambda" in args[1]:
+            lam = args[1]["lambda"]
+            param = lam["params"][0]
+            body = lower_perm_lambda(lam["body"], param)
+            return {"call": name, "args": [{"ref": "card"},
+                                           {"lambda": {"param": "id", "body": body, "orig": param}}]}
+        # card-only predicates pass through unchanged.
         if not all(a.get("ref") == "card" for a in args):
             raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
                        f"{short} takes non-card args (needs lowering rule): {args}")
@@ -192,6 +202,31 @@ def roots_at_card(node: dict) -> bool:
     if "memberOf" in node:
         return roots_at_card(node["memberOf"])
     return False
+
+
+def lower_perm_lambda(node: dict, param: str) -> dict:
+    """id-람다 본문 로워링: `param.X` 멤버 → CardEffectCommons.X(card, id) (X 가 정확히
+    permanent-subject commons 헬퍼일 때만; 아니면 STOP — 뭉갬 금지)."""
+    if node is None:
+        return {"const": True}
+    if "const" in node:
+        return node
+    if "not" in node:
+        return {"not": lower_perm_lambda(node["not"], param)}
+    if node.get("binop") in ("&&", "||"):
+        return {"binop": node["binop"],
+                "lhs": lower_perm_lambda(node["lhs"], param),
+                "rhs": lower_perm_lambda(node["rhs"], param)}
+    if "member" in node and node["member"].split(".")[0] == param:
+        x = node["member"].split(".")[-1]
+        if x in PERM_ATOMS:
+            return {"call": f"CardEffectCommons.{x}", "args": [{"ref": "card"}, {"ref": "id"}]}
+        raise Stop("lowering:missing-rule", "STOP_RULE_AMBIGUOUS",
+                   f"lambda member '{x}' has no exact CardEffectCommons(card,id) helper (→ LLM 후보)")
+    if "call" in node and node["call"].startswith("CardEffectCommons."):
+        # already a commons call inside the lambda (e.g. HasNoDigivolutionCards(card, id))
+        return node
+    raise Stop("lowering:missing-rule", "STOP_RULE_AMBIGUOUS", f"unrecognized lambda node: {node}")
 
 
 def lower_self_atom(name: str, is_self: bool, raw) -> dict:
@@ -451,8 +486,11 @@ def emit_predicate(n: dict) -> str:
         return f"({emit_predicate(n['lhs'])} {n['binop']} {emit_predicate(n['rhs'])})"
     if "cmp" in n:
         return f"({emit_predicate(n['lhs'])} {n['cmp']} {emit_predicate(n['rhs'])})"
+    if "lambda" in n:
+        lam = n["lambda"]
+        return f"{lam['param']} => {emit_predicate(lam['body'])}"
     if "call" in n:
-        args = ", ".join(emit_value(a) for a in n.get("args", []))
+        args = ", ".join(emit_predicate(a) if "lambda" in a else emit_value(a) for a in n.get("args", []))
         return f"{n['call']}({args})"
     raise ValueError(f"cannot emit predicate {n}")
 
@@ -488,6 +526,22 @@ SYMBOLS: dict[str, dict] = {}
 ATOMS: dict[str, dict] = {}
 INTENTS: dict[str, dict] = {}
 PLUMBING: set[str] = set()
+PERM_ATOMS: set[str] = set()        # commons bool(CardSource, HeadlessEntityId) — permanent-subject
+ID_LAMBDA_CALLS: set[str] = set()   # commons taking a Func<HeadlessEntityId,bool> lambda
+
+
+def derive_predicate_tables() -> None:
+    """심볼표에서 permanent-subject 술어(PERM_ATOMS)와 id-람다 호출(ID_LAMBDA_CALLS)을 도출."""
+    global PERM_ATOMS, ID_LAMBDA_CALLS
+    for name, sym in SYMBOLS.items():
+        if sym["kind"] != "commons":
+            continue
+        ps = sym["params"]
+        if sym["ret"] == "bool" and len(ps) == 2 \
+                and ps[0][0] == "CardSource" and ps[1][0] == "HeadlessEntityId":
+            PERM_ATOMS.add(name)
+        if any("Func<HeadlessEntityId" in p[0].replace(" ", "") for p in ps):
+            ID_LAMBDA_CALLS.add(name)
 
 
 def load_atoms() -> dict[str, dict]:
@@ -521,6 +575,7 @@ def main() -> int:
     only = set(args[2:])
 
     SYMBOLS = load_symbols()
+    derive_predicate_tables()
     src_dir = IR_SRC / f"{card_set}.{color}"
     if not src_dir.is_dir():
         print(f"Source IR 없음: {src_dir} — 먼저 CardIr.Extract 실행", file=sys.stderr)

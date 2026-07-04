@@ -24,14 +24,12 @@
 | BT1_101 | SecuritySkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
 | BT1_115 | OnAllyAttack | lowering:tier-3 | activate mixed with other effects (multi-step) — 강모델 |
 
-### STOP_MULTI_STEP_OPTIONAL (11)
+### STOP_MULTI_STEP_OPTIONAL (9)
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
-| BT1_033 | None | lowering:missing-rule | HasMatchConditionOpponentsPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'member': 'permanent.IsDigimon'}, 'rhs': {'member': 'permanent.HasNoDigivolutionCards'}}}}] |
 | BT1_034 | None | lowering:missing-rule | predicate DefenderCondition takes params (Permanent/id) — needs id-rewrite rule |
 | BT1_040 | OnAllyAttack | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
-| BT1_041 | OnAllyAttack | lowering:missing-rule | HasMatchConditionOpponentsPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'member': 'permanent.IsDigimon'}, 'rhs': {'member': 'permanent.HasNoDigivolutionCards'}}}}] |
 | BT1_043 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_044 | OnAllyAttack | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
 | BT1_086 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
@@ -39,6 +37,13 @@
 | BT1_098 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_099 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_115 | None | lowering:missing-rule | HasMatchConditionOwnersPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'call': 'permanent.TopCard.CardColors.Contains', 'args': [{'member': 'CardColor.Blue'}]}, 'rhs': {'member': 'permanent.IsTamer'}}}}] |
+
+### STOP_RULE_AMBIGUOUS (2)
+
+| 카드 | 타이밍 | stage | detail |
+|---|---|---|---|
+| BT1_033 | None | lowering:missing-rule | lambda member 'IsDigimon' has no exact CardEffectCommons(card,id) helper (→ LLM 후보) |
+| BT1_041 | OnAllyAttack | lowering:missing-rule | lambda member 'IsDigimon' has no exact CardEffectCommons(card,id) helper (→ LLM 후보) |
 
 ### STOP_MISSING_PRIMITIVE (1)
 

@@ -8,8 +8,8 @@
       "timing": "None",
       "stop": {
         "stage": "lowering:missing-rule",
-        "code": "STOP_MULTI_STEP_OPTIONAL",
-        "detail": "HasMatchConditionOpponentsPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'member': 'permanent.IsDigimon'}, 'rhs': {'member': 'permanent.HasNoDigivolutionCards'}}}}]"
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "lambda member 'IsDigimon' has no exact CardEffectCommons(card,id) helper (→ LLM 후보)"
       }
     }
   ]
