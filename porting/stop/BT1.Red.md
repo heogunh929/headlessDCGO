@@ -30,13 +30,6 @@
 | BT1_095 | SecuritySkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
 | BT1_114 | OnAllyAttack | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
 
-### STOP_RULE_AMBIGUOUS (2)
-
-| 카드 | 타이밍 | stage | detail |
-|---|---|---|---|
-| BT1_002 | None | lowering:tier-3 | unrecognized predicate node: {'memberOf': {'call': 'card.PermanentOfThisCard', 'args': []}, 'name': 'HasPierce'} |
-| BT1_018 | None | lowering:tier-3 | unrecognized predicate node: {'binop': '>=', 'lhs': {'member': 'card.Owner.MemoryForPlayer'}, 'rhs': {'lit': 3}} |
-
 ### STOP_MULTI_STEP_OPTIONAL (1)
 
 | 카드 | 타이밍 | stage | detail |

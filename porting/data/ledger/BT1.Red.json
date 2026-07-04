@@ -30,23 +30,20 @@
       "card": "BT1_002",
       "set": "BT1",
       "color": "Red",
-      "tier": 3,
-      "irHash": "dcba75c9b76b",
+      "tier": 1,
+      "irHash": "785f5493afda",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
+      "provenance": "ir-generated",
       "mirrorState": "live",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_RULE_AMBIGUOUS",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
       "branches": [
         {
           "branch": 0,
           "timing": "None",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_RULE_AMBIGUOUS",
-          "detail": "unrecognized predicate node: {'memberOf': {'call': 'card.PermanentOfThisCard', 'args': []}, 'name': 'HasPierce'}"
+          "status": "lowered"
         }
       ]
     },
@@ -192,23 +189,20 @@
       "card": "BT1_018",
       "set": "BT1",
       "color": "Red",
-      "tier": 3,
-      "irHash": "eef5dd6ee466",
+      "tier": 1,
+      "irHash": "f10eee128185",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
+      "provenance": "ir-generated",
       "mirrorState": "live",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_RULE_AMBIGUOUS",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
       "branches": [
         {
           "branch": 0,
           "timing": "None",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_RULE_AMBIGUOUS",
-          "detail": "unrecognized predicate node: {'binop': '>=', 'lhs': {'member': 'card.Owner.MemoryForPlayer'}, 'rhs': {'lit': 3}}"
+          "status": "lowered"
         }
       ]
     },

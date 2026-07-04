@@ -233,12 +233,12 @@
     "BT1_002": {
       "set": "BT1",
       "color": "Red",
-      "tier": 3,
-      "irHash": "dcba75c9b76b",
-      "provenance": "handwritten",
+      "tier": 1,
+      "irHash": "785f5493afda",
+      "provenance": "ir-generated",
       "mirrorState": "live",
-      "included": false,
-      "reason": "STOP_RULE_AMBIGUOUS"
+      "included": true,
+      "reason": "ir-generated"
     },
     "BT1_010": {
       "set": "BT1",
@@ -303,12 +303,12 @@
     "BT1_018": {
       "set": "BT1",
       "color": "Red",
-      "tier": 3,
-      "irHash": "eef5dd6ee466",
-      "provenance": "handwritten",
+      "tier": 1,
+      "irHash": "f10eee128185",
+      "provenance": "ir-generated",
       "mirrorState": "live",
-      "included": false,
-      "reason": "STOP_RULE_AMBIGUOUS"
+      "included": true,
+      "reason": "ir-generated"
     },
     "BT1_021": {
       "set": "BT1",

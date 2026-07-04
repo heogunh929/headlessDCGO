@@ -1,0 +1,33 @@
+{
+  "card": "BT1_004",
+  "set": "BT1",
+  "color": "Blue",
+  "path": "branch0/Condition/rhs/rhs/lhs/args[0]",
+  "fragment": {
+    "lambda": {
+      "params": [
+        "permanent"
+      ],
+      "body": {
+        "member": "permanent.HasNoDigivolutionCards"
+      }
+    }
+  },
+  "candidate": {
+    "emit": "MatchConditionPermanentCount",
+    "args": [
+      "card",
+      "permanent => permanent.HasNoDigivolutionCards"
+    ],
+    "evidence": [
+      "MatchConditionPermanentCount"
+    ],
+    "confidence": "high",
+    "note": "The predicate checks if a permanent has no digivolution cards, which aligns with MatchConditionPermanentCount's ability to evaluate conditions on permanents."
+  },
+  "validator": {
+    "verdict": "queued",
+    "issues": []
+  },
+  "model": "qwen3-coder:30b"
+}

@@ -135,6 +135,13 @@ def lower_predicate(node: dict) -> dict:
         return {"binop": node["binop"],
                 "lhs": lower_predicate(node["lhs"]),
                 "rhs": lower_predicate(node["rhs"])}
+    # comparison (Phase C): <member/atom> <op> <literal>
+    if node.get("binop") in (">=", "<=", ">", "<", "==", "!="):
+        return {"cmp": node["binop"],
+                "lhs": lower_predicate(node["lhs"]),
+                "rhs": lower_operand(node["rhs"])}
+    if "lit" in node:
+        return {"lit": node["lit"]}
     if "call" in node:
         name = node["call"]
         if not name.startswith("CardEffectCommons."):
@@ -151,14 +158,55 @@ def lower_predicate(node: dict) -> dict:
             raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
                        f"{short} takes non-card args (needs lowering rule): {args}")
         return {"call": name, "args": [{"ref": "card"} for _ in args]}
-    # lambda / member / id-form predicate — beyond deterministic Phase A.
+    # base atom rewrite (Phase C): self-scoped member access → CardEffectCommons.<emit>(card).
+    #   member  "card.Owner.MemoryForPlayer"                 -> trailing name = atom
+    #   memberOf .HasPierce on call card.PermanentOfThisCard() -> node["name"] = atom
+    if "member" in node:
+        return lower_self_atom(node["member"].split(".")[-1], node["member"].split(".")[0] == "card",
+                               node["member"])
+    if "memberOf" in node:
+        return lower_self_atom(node["name"], roots_at_card(node["memberOf"]), node)
     if "lambda" in node:
         raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
-                   "predicate lambda needs member→commons id-rewrite rule")
-    if "member" in node:
-        raise Stop("lowering:missing-rule", "STOP_MISSING_PRIMITIVE",
-                   f"predicate member access needs rewrite rule: {node['member']}")
+                   "predicate lambda needs member→commons id-rewrite rule (Permanent/id subject)")
     raise Stop("lowering:tier-3", "STOP_RULE_AMBIGUOUS", f"unrecognized predicate node: {node}")
+
+
+def lower_operand(node: dict) -> dict:
+    """RHS of a comparison — literal or a lowered atom."""
+    if "lit" in node:
+        return {"lit": node["lit"]}
+    if "const" in node or "null" in node:
+        return node
+    return lower_predicate(node)
+
+
+def roots_at_card(node: dict) -> bool:
+    if "call" in node:
+        return node["call"].split(".")[0] == "card"
+    if "member" in node:
+        return node["member"].split(".")[0] == "card"
+    if "ref" in node:
+        return node["ref"] == "card"
+    if "memberOf" in node:
+        return roots_at_card(node["memberOf"])
+    return False
+
+
+def lower_self_atom(name: str, is_self: bool, raw) -> dict:
+    atom = ATOMS.get(name)
+    if atom is None:
+        raise Stop("lowering:missing-rule", "STOP_MISSING_PRIMITIVE",
+                   f"member access has no base atom rule: {raw}")
+    if atom["subject"] != "self" or not is_self:
+        raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
+                   f"atom {name} needs non-self subject rewrite (Permanent/id): {raw}")
+    emit = atom["emit"]
+    sym = SYMBOLS.get(emit)
+    if sym is None or sym["kind"] != "commons":
+        raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE",
+                   f"base atom {name} emit target not in commons symbols: {emit}")
+    return {"call": f"CardEffectCommons.{emit}", "args": [{"ref": "card"}]}
 
 
 def lower_value(node: dict, local_fns: dict) -> dict:
@@ -273,10 +321,16 @@ def emit_value(v: dict) -> str:
 def emit_predicate(n: dict) -> str:
     if "const" in n:
         return "true" if n["const"] else "false"
+    if "lit" in n:
+        return str(n["lit"]) if isinstance(n["lit"], int) else f"\"{n['lit']}\""
+    if "null" in n:
+        return "null"
     if "not" in n:
         return f"!({emit_predicate(n['not'])})"
     if n.get("binop") in ("&&", "||"):
         return f"({emit_predicate(n['lhs'])} {n['binop']} {emit_predicate(n['rhs'])})"
+    if "cmp" in n:
+        return f"({emit_predicate(n['lhs'])} {n['cmp']} {emit_predicate(n['rhs'])})"
     if "call" in n:
         args = ", ".join(emit_value(a) for a in n.get("args", []))
         return f"{n['call']}({args})"
@@ -311,10 +365,19 @@ def codegen(canon: dict) -> str:
 # ---------- driver ----------
 
 SYMBOLS: dict[str, dict] = {}
+ATOMS: dict[str, dict] = {}
+
+
+def load_atoms() -> dict[str, dict]:
+    path = PORTING / "data/atoms.json"
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8")).get("base", {})
 
 
 def main() -> int:
-    global SYMBOLS
+    global SYMBOLS, ATOMS
+    ATOMS = load_atoms()
     args = sys.argv[1:]
     write = False
     if args and args[0] == "--write":

@@ -6,40 +6,25 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+// GENERATED FROM porting/data/ir/BT1.Red/BT1_002.json — DO NOT EDIT (pipeline-v3 codegen).
 public sealed class BT1_002 : CEntity_Effect
 {
     public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        #region Your Turn
-
         if (timing == EffectTiming.None)
         {
             bool Condition()
             {
-                if (CardEffectCommons.IsExistOnBattleArea(card))
-                {
-                    if (CardEffectCommons.IsOwnerTurn(card))
-                    {
-                        // AS-IS `card.PermanentOfThisCard().HasPierce` — headless keyword reads route
-                    // through the gate (EXPRESSION-MAP).
-                    if (CardEffectCommons.HasPierce(card))
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
+                return (CardEffectCommons.IsExistOnBattleArea(card) && (CardEffectCommons.IsOwnerTurn(card) && CardEffectCommons.HasPierce(card)));
             }
 
-            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(changeValue: 2000, isInheritedEffect: true, card: card, condition: Condition));
+            cardEffects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(
+                changeValue: 2000,
+                isInheritedEffect: true,
+                card: card,
+                condition: Condition));
         }
-
-
-        #endregion
-
         return cardEffects;
     }
 }

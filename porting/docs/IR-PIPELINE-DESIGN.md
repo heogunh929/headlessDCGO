@@ -269,7 +269,17 @@ code의 가치는 부분 포함 허용이 아니라 해소 작업의 데이터 �
   STOP 히스토그램(정직): 44 COMPLEX_TIMING(코루틴=Phase C 의도매핑), 4 MULTI_STEP_OPTIONAL
   +3 RULE_AMBIGUOUS(술어 atom 재작성=Phase C atom 테이블). 포함 규칙 = 전분기 lowered +
   미러 live(확정 r2). irHash=정규화 branches sha256[:12], tableVer 스탬프로 재현성 추적.
-- **Phase C (LLM 조각 제안)**: 4 — Tier 2 개방. gemma4 캘리브레이션 프로토콜 재사용.
+- **Phase C (atom 테이블 + LLM 조각 제안) — 착수(2026-07-04)**: base atom 테이블
+  (`porting/data/atoms.json`) + stage 4 하네스(`porting/scripts/ir_suggest.py`).
+  - **base atom(결정론)**: self-scope 멤버 접근 → `CardEffectCommons.<emit>(card)` 재작성
+    (HasPierce/MemoryForPlayer 등) + 비교 binop(`>=` 등) 로워링. BT1_002·018 이 IR 로
+    생성되어 기존 수기 수정과 의미 동일, 게이트 green(총 6장 IR-backed).
+  - **stage 4 LLM 제안**: 미해결 조각만 로컬 모델에 넘겨 스키마 구속 후보 JSON + evidence
+    인용 → validator(emit∈commons, 인용 실재) → `porting/data/suggestions/` 큐(**비적용**).
+    BT1_004 실증: qwen3-coder 가 `MatchConditionPermanentCount` 후보 생성(evidence 통과, queued).
+    단 원본은 상대 한정(`MatchConditionOpponentsPermanentCount`)이라 후보가 미묘히 어긋남 →
+    **advisory·승격 전 검수 필수** 계약이 정확히 작동(자동 적용 안 함). candidate→base/macro
+    승격은 강모델/사람 승인으로만.
 - **Phase D (행동 검증)**: 8, 10 — 시나리오 템플릿 상위 op부터.
 
 각 Phase 종료 = 게이트 green + 이전 Phase 산출물 회귀 없음.

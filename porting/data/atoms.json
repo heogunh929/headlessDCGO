@@ -1,0 +1,11 @@
+{
+  "schema": "atoms/1",
+  "tableVer": "atoms@2026-07-04",
+  "_doc": "predicate base atoms (pipeline-v3). base 층: 각 atom 은 엔진에 실증된 CardEffectCommons 헬퍼와 1:1. subject=self 는 원본 멤버 접근이 card 루트일 때 CardEffectCommons.<emit>(card) 로 로워링. emit 대상은 카탈로그 commons 심볼표에 존재해야 함(validator 검증). macro/candidate 층은 후속.",
+  "base": {
+    "HasPierce":       {"subject": "self", "emit": "HasPierce",       "note": "키워드 읽기 — 게이트 경유"},
+    "HasBlocker":      {"subject": "self", "emit": "HasBlocker",      "note": "키워드 읽기"},
+    "HasJamming":      {"subject": "self", "emit": "HasJamming",      "note": "키워드 읽기"},
+    "MemoryForPlayer": {"subject": "self", "emit": "MemoryForPlayer", "note": "소유자 관점 게이지(턴플레이어 부호 반전)"}
+  }
+}

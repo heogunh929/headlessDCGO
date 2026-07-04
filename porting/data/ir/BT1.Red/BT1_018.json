@@ -6,11 +6,78 @@
   "branches": [
     {
       "timing": "None",
-      "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'binop': '>=', 'lhs': {'member': 'card.Owner.MemoryForPlayer'}, 'rhs': {'lit': 3}}"
-      }
+      "localFns": [
+        {
+          "name": "Condition",
+          "body": {
+            "binop": "&&",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "&&",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "cmp": ">=",
+                "lhs": {
+                  "call": "CardEffectCommons.MemoryForPlayer",
+                  "args": [
+                    {
+                      "ref": "card"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "lit": 3
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "factory": "ChangeSelfSAttackStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "localfn": "Condition"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
