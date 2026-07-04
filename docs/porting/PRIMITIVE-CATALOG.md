@@ -309,3 +309,285 @@
 | `UseRequirements` | ICardEffect | `ICardEffect UseRequirements(CardSource card, Func<CardSource, bool>? cardCondition = null, bool isInheritedEffect = false, Func<bool>? condition = null)` |
 | `VortexCanAttackPlayersStaticEffect` | ICardEffect | `ICardEffect VortexCanAttackPlayersStaticEffect(Func<Permanent, bool>? attackerCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `VortexSelfEffect` | ICardEffect | `ICardEffect VortexSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, ICardEffect? rootCardEffect = null)` |
+
+## CardEffectCommons 헬퍼 마스터 (이름 → 시그니처)
+
+> 카드 코드가 직접 부르는 `CardEffectCommons.<이름>(...)` 헬퍼 전수(자동생성). 술어(`HasMatchCondition*`, `CanTrigger*`, `Is*`)는 condition/코루틴 안에서 그대로 호출 가능. 명령형 헬퍼(`ChangeDigimonDP`, `AddThisCardToHand` 등)는 코루틴 번역 시 레시피 의도→팩토리 표를 먼저 본다.
+
+| 헬퍼 | 반환 | 시그니처 |
+|---|---|---|
+| `ActivateMainOfOptionSide` | `Task<int>` | `Task<int> ActivateMainOfOptionSide(CardSource card, CardSource sourceCard, CancellationToken cancellationToken = default)` |
+| `AddActivateMainOptionSecurityEffect` | `void` | `void AddActivateMainOptionSecurityEffect(CardSource card, ref List<ICardEffect> cardEffects, string effectName)` |
+| `AddEffectToPermanent` | `void` | `void AddEffectToPermanent(Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)` |
+| `AddEffectToPlayer` | `void` | `void AddEffectToPlayer(EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)` |
+| `AddSelfDeleteEffect` | `void` | `void AddSelfDeleteEffect(Permanent? permanent, string deleteTiming, CardSource sourceCard)` |
+| `AddThisCardToHand` | `async Task` | `async Task AddThisCardToHand(CardSource card1, CardSource sourceCard)` |
+| `BecomeDigimonThatCantDigivolve` | `bool` | `bool BecomeDigimonThatCantDigivolve(Permanent? targetPermanent, int DP, EffectDuration effectDuration, CardSource sourceCard)` |
+| `BlitzProcess` | `bool` | `bool BlitzProcess(CardSource cardSource)` |
+| `BouncePeremanentAndProcessAccordingToResult` | `async Task` | `async Task BouncePeremanentAndProcessAccordingToResult(IReadOnlyList<Permanent> targetPermanents, CardSource sourceCard, Func<Task>? successProcess, Func<Task>? failureProcess)` |
+| `CanActivateBlitz` | `bool` | `bool CanActivateBlitz(CardSource cardSource)` |
+| `CanActivateFortitude` | `bool` | `bool CanActivateFortitude(Headless.Effects.CardEffectResolveContext ctx, CardSource card, bool isInheritedEffect = false)` |
+| `CanActivateOnDeletion` | `bool` | `bool CanActivateOnDeletion(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanActivateOnDeletionWithCardColors` | `bool` | `bool CanActivateOnDeletionWithCardColors(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<IReadOnlyList<string>, bool>? cardColorCondition, Func<CardSource, bool>? cardCondition = null)` |
+| `CanActivateOnDeletionWithContainingCardName` | `bool` | `bool CanActivateOnDeletionWithContainingCardName(Headless.Effects.CardEffectResolveContext ctx, CardSource card, string name, Func<CardSource, bool>? cardCondition = null)` |
+| `CanActivateOnDeletionWithContainingTrait` | `bool` | `bool CanActivateOnDeletionWithContainingTrait(Headless.Effects.CardEffectResolveContext ctx, CardSource card, string name, Func<CardSource, bool>? cardCondition = null)` |
+| `CanActivateOnDeletionWithSaveText` | `bool` | `bool CanActivateOnDeletionWithSaveText(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanActivateSave` | `bool` | `bool CanActivateSave(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? CanSelectPermanentCondition)` |
+| `CanActivateSelefOnDeletionWithSaveText` | `bool` | `bool CanActivateSelefOnDeletionWithSaveText(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanActivateSelfOnDeletionWithCardColors` | `bool` | `bool CanActivateSelfOnDeletionWithCardColors(Headless.Effects.CardEffectResolveContext ctx, Func<IReadOnlyList<string>, bool>? cardColorCondition, CardSource card)` |
+| `CanActivateSelfOnDeletionWithContainingCardName` | `bool` | `bool CanActivateSelfOnDeletionWithContainingCardName(Headless.Effects.CardEffectResolveContext ctx, string name, CardSource card)` |
+| `CanActivateSelfOnDeletionWithContainingTrait` | `bool` | `bool CanActivateSelfOnDeletionWithContainingTrait(Headless.Effects.CardEffectResolveContext ctx, string name, CardSource card)` |
+| `CanActivateSuspendCostEffect` | `bool` | `bool CanActivateSuspendCostEffect(CardSource card, bool includeBreeding = false)` |
+| `CanDeclareOptionDelayEffect` | `bool` | `bool CanDeclareOptionDelayEffect(CardSource card)` |
+| `CanJogressWithHandOrTrash` | `bool` | `bool CanJogressWithHandOrTrash(CardSource source, HeadlessPlayerId owner, bool isWithHandCard, bool isIntoHandCard, Func<CardSource, bool>? targetCardCondition = null)` |
+| `CanPlayAsNewPermanent` | `bool` | `bool CanPlayAsNewPermanent(CardSource cardSource, bool payCost, ICardEffect? cardEffect, bool isPlayOption = false, int fixedCost = -1)` |
+| `CanTriggerOnAddDigivolutionCard` | `bool` | `bool CanTriggerOnAddDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? cardEffectSourceCondition = null, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerOnAttack` | `bool` | `bool CanTriggerOnAttack(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerOnAttackTargetSwitch` | `bool` | `bool CanTriggerOnAttackTargetSwitch(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerOnDeletion` | `bool` | `bool CanTriggerOnDeletion(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerOnEndAttack` | `bool` | `bool CanTriggerOnEndAttack(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerOnFaceUpSecurityIncreases` | `bool` | `bool CanTriggerOnFaceUpSecurityIncreases(Headless.Effects.CardEffectResolveContext ctx, CardSource card, HeadlessPlayerId? player = null, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerOnHandAdded` | `bool` | `bool CanTriggerOnHandAdded(Headless.Effects.CardEffectResolveContext ctx, CardSource card, HeadlessPlayerId player, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `CanTriggerOnMove` | `bool` | `bool CanTriggerOnMove(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)` |
+| `CanTriggerOnPermanentAttack` | `bool` | `bool CanTriggerOnPermanentAttack(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition)` |
+| `CanTriggerOnPermanentAttackTargetSwitch` | `bool` | `bool CanTriggerOnPermanentAttackTargetSwitch(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition)` |
+| `CanTriggerOnPermanentDeleted` | `bool` | `bool CanTriggerOnPermanentDeleted(CardSource card, CardEffectResolveContext context, Func<HeadlessEntityId, bool> permanentCondition)` |
+| `CanTriggerOnPermanentLeave` | `bool` | `bool CanTriggerOnPermanentLeave(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool> permanentCondition)` |
+| `CanTriggerOnPermanentPlay` | `bool` | `bool CanTriggerOnPermanentPlay(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition, Func<ChoiceZone, bool>? rootCondition = null)` |
+| `CanTriggerOnPlay` | `bool` | `bool CanTriggerOnPlay(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<ChoiceZone, bool>? rootCondition = null)` |
+| `CanTriggerOnReturnToLibraryBottomDigivolutionCard` | `bool` | `bool CanTriggerOnReturnToLibraryBottomDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerOnTrashBySelfDigiBurst` | `bool` | `bool CanTriggerOnTrashBySelfDigiBurst(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerOnTrashDigivolutionCard` | `bool` | `bool CanTriggerOnTrashDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)` |
+| `CanTriggerOnTrashHand` | `bool` | `bool CanTriggerOnTrashHand(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)` |
+| `CanTriggerOnTrashLinkedCard` | `bool` | `bool CanTriggerOnTrashLinkedCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)` |
+| `CanTriggerOnTrashSecurity` | `bool` | `bool CanTriggerOnTrashSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)` |
+| `CanTriggerOnTrashSelfDigivolutionCard` | `bool` | `bool CanTriggerOnTrashSelfDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `CanTriggerOnTrashSelfHand` | `bool` | `bool CanTriggerOnTrashSelfHand(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `CanTriggerOnTrashSelfSecurity` | `bool` | `bool CanTriggerOnTrashSelfSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `CanTriggerOptionMainEffect` | `bool` | `bool CanTriggerOptionMainEffect(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerSecurityEffect` | `bool` | `bool CanTriggerSecurityEffect(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenAddHand` | `bool` | `bool CanTriggerWhenAddHand(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<HeadlessPlayerId, bool>? playerCondition = null, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `CanTriggerWhenAddSecurity` | `bool` | `bool CanTriggerWhenAddSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<HeadlessPlayerId, bool>? playerCondition = null)` |
+| `CanTriggerWhenCardsReturnToHandFromTrash` | `bool` | `bool CanTriggerWhenCardsReturnToHandFromTrash(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerWhenDeleteOpponentDigimonByBattle` | `bool` | `bool CanTriggerWhenDeleteOpponentDigimonByBattle(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? winnerCondition, Func<Permanent, bool>? loserCondition, bool isOnlyWinnerSurvive, Func<Permanent, bool>? winnerRealCondition = null, Func<Permanent, bool>? loserRealCondition = null)` |
+| `CanTriggerWhenDigivolving` | `bool` | `bool CanTriggerWhenDigivolving(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<ChoiceZone, bool>? rootCondition = null)` |
+| `CanTriggerWhenDiscardLibrary` | `bool` | `bool CanTriggerWhenDiscardLibrary(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerWhenLinked` | `bool` | `bool CanTriggerWhenLinked(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? sourceCondition = null)` |
+| `CanTriggerWhenLinking` | `bool` | `bool CanTriggerWhenLinking(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)` |
+| `CanTriggerWhenLoseSecurity` | `bool` | `bool CanTriggerWhenLoseSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<HeadlessPlayerId, bool>? playerCondition = null)` |
+| `CanTriggerWhenOwnerCardsReturnToLibraryFromTrash` | `bool` | `bool CanTriggerWhenOwnerCardsReturnToLibraryFromTrash(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerWhenOwnerUseOption` | `bool` | `bool CanTriggerWhenOwnerUseOption(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null, Func<int, bool>? costCondition = null)` |
+| `CanTriggerWhenPermanentDigivolving` | `bool` | `bool CanTriggerWhenPermanentDigivolving(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition, Func<ChoiceZone, bool>? rootCondition = null)` |
+| `CanTriggerWhenPermanentRemoveField` | `bool` | `bool CanTriggerWhenPermanentRemoveField(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition)` |
+| `CanTriggerWhenPermanentSuspends` | `bool` | `bool CanTriggerWhenPermanentSuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition)` |
+| `CanTriggerWhenPermanentUnsuspends` | `bool` | `bool CanTriggerWhenPermanentUnsuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition)` |
+| `CanTriggerWhenPermanentWouldDigivolve` | `bool` | `bool CanTriggerWhenPermanentWouldDigivolve(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerWhenPermanentWouldDigivolveOfCard` | `bool` | `bool CanTriggerWhenPermanentWouldDigivolveOfCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerWhenPermanentWouldPlay` | `bool` | `bool CanTriggerWhenPermanentWouldPlay(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null)` |
+| `CanTriggerWhenRemoveField` | `bool` | `bool CanTriggerWhenRemoveField(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenSelfDiscardLibrary` | `bool` | `bool CanTriggerWhenSelfDiscardLibrary(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenSelfPermanentSuspends` | `bool` | `bool CanTriggerWhenSelfPermanentSuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenSelfPermanentUnsuspends` | `bool` | `bool CanTriggerWhenSelfPermanentUnsuspends(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenTopCardTrashed` | `bool` | `bool CanTriggerWhenTopCardTrashed(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool> cardCondition)` |
+| `CanTriggerWhenUseDigiBurst` | `bool` | `bool CanTriggerWhenUseDigiBurst(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenUseOption` | `bool` | `bool CanTriggerWhenUseOption(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null, Func<int, bool>? costCondition = null)` |
+| `CanTriggerWhenWinBattle` | `bool` | `bool CanTriggerWhenWinBattle(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `CanTriggerWhenWouldLink` | `bool` | `bool CanTriggerWhenWouldLink(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null, Func<Permanent, bool>? permanentCondition = null, Func<ChoiceZone, bool>? rootCondition = null, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `CanUnsuspend` | `bool` | `bool CanUnsuspend(Permanent? permanent)` |
+| `CanUseIgnoreBattle` | `bool` | `bool CanUseIgnoreBattle(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `ChangeBaseDigimonDP` | `bool` | `bool ChangeBaseDigimonDP(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard)` |
+| `ChangeDigimonDP` | `bool` | `bool ChangeDigimonDP(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard)` |
+| `ChangeDigimonDPPlayerEffect` | `bool` | `bool ChangeDigimonDPPlayerEffect(Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)` |
+| `ChangeDigimonSAttack` | `bool` | `bool ChangeDigimonSAttack(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard, bool activateAnimation = true, string? hashstring = null)` |
+| `ChangeDigimonSAttackPlayerEffect` | `bool` | `bool ChangeDigimonSAttackPlayerEffect(Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)` |
+| `ChangePlayCostPlayerEffect` | `bool` | `bool ChangePlayCostPlayerEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool setFixedCost, EffectDuration effectDuration, CardSource sourceCard)` |
+| `ChangeSecurityDigimonCardDPPlayerEffect` | `bool` | `bool ChangeSecurityDigimonCardDPPlayerEffect(Func<CardSource, bool>? cardCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)` |
+| `CurrentBattleOpponent` | `HeadlessEntityId` | `HeadlessEntityId CurrentBattleOpponent(CardSource card)` |
+| `CurrentDp` | `int` | `int CurrentDp(CardSource card, HeadlessEntityId id)` |
+| `DeckBouncePeremanentAndProcessAccordingToResult` | `async Task` | `async Task DeckBouncePeremanentAndProcessAccordingToResult(IReadOnlyList<Permanent> targetPermanents, CardSource sourceCard, Func<Task>? successProcess, Func<Task>? failureProcess)` |
+| `DeletePeremanentAndProcessAccordingToResult` | `async Task` | `async Task DeletePeremanentAndProcessAccordingToResult(IReadOnlyList<Permanent> targetPermanents, CardSource sourceCard, Func<IReadOnlyList<Permanent>, Task>? successProcess, Func<Task>? failureProcess, CancellationToken cancellationToken = default)` |
+| `DigivolveIntoExcecutingAreaCard` | `async Task` | `async Task DigivolveIntoExcecutingAreaCard(Permanent? targetPermanent, Func<CardSource, bool>? cardCondition, bool payCost, (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple, (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple, int ignoreDigivolutionRequirementFixedCost, CardSource sourceCard, Func<Task>? successProcess, bool ignoreSelection = false, bool ignoreRequirements = false, CancellationToken cancellationToken = default)` |
+| `DigivolveIntoHandOrTrashCard` | `Task` | `Task DigivolveIntoHandOrTrashCard(Permanent? targetPermanent, Func<CardSource, bool>? cardCondition, bool payCost, (int reduceCost, Func<CardSource, bool>? reduceCostCardCondition)? reduceCostTuple, (int fixedCost, Func<CardSource, bool>? fixedCostCardCondition)? fixedCostTuple, int ignoreDigivolutionRequirementFixedCost, bool isHand, CardSource sourceCard, Func<Task>? successProcess, bool ignoreSelection = false, bool ignoreRequirements = false, Func<Task>? failedProcess = null, bool isOptional = true, CancellationToken cancellationToken = default)` |
+| `DNADigivolvePermanentsIntoHandOrTrashCard` | `async Task` | `async Task DNADigivolvePermanentsIntoHandOrTrashCard(Func<CardSource, bool>? canSelectDNACardCondition, bool payCost, bool isHand, CardSource sourceCard, Func<Permanent, bool>[]? permanentConditions = null, Func<CardSource, Task>? successProcess = null, bool ignoreSelection = false, Func<Task>? failedProcess = null, bool isOptional = true, CancellationToken cancellationToken = default)` |
+| `DNADigivolveWithHandOrTrashCardIntoHandOrTrash` | `Task` | `Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(CardSource sourceCard)` |
+| `DrawAndDiscardCards` | `async Task` | `async Task DrawAndDiscardCards((HeadlessPlayerId drawPlayer, HeadlessPlayerId trashPlayer) player, int drawAmount, int trashAmount, CardSource sourceCard, Func<CardSource, bool>? canTrashTargetCondition = null, bool canNoSelect = false, bool canEndNotMax = false, CancellationToken cancellationToken = default)` |
+| `EnforceLocationCheck` | `void` | `void EnforceLocationCheck()` |
+| `FortitudeProcess` | `Task` | `Task FortitudeProcess(CardSource card, CardSource sourceCard)` |
+| `GainAlliance` | `bool` | `bool GainAlliance(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainAlliancePlayerEffect` | `bool` | `bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainBarrier` | `bool` | `bool GainBarrier(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainBlitz` | `bool` | `bool GainBlitz(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard, bool isWhenDigivolving = false)` |
+| `GainBlocker` | `bool` | `bool GainBlocker(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainBlockerPlayerEffect` | `bool` | `bool GainBlockerPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainCanNotAttack` | `bool` | `bool GainCanNotAttack(Permanent? targetPermanent, Func<Permanent, bool>? defenderCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack")` |
+| `GainCanNotAttackPlayerEffect` | `bool` | `bool GainCanNotAttackPlayerEffect(Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack")` |
+| `GainCanNotBeAttacked` | `bool` | `bool GainCanNotBeAttacked(Permanent? targetPermanent, Func<Permanent, bool>? attackerCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be attacked")` |
+| `GainCanNotBeBlocked` | `bool` | `bool GainCanNotBeBlocked(Permanent? targetPermanent, Func<Permanent, bool>? defenderCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be blocked")` |
+| `GainCanNotBeDeletedByBattle` | `bool` | `bool GainCanNotBeDeletedByBattle(Permanent targetPermanent, Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName)` |
+| `GainCanNotBeDeletedByEffect` | `bool` | `bool GainCanNotBeDeletedByEffect(Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted by effects")` |
+| `GainCanNotBeDeletedPlayerEffect` | `bool` | `bool GainCanNotBeDeletedPlayerEffect(Func<Permanent, bool>? permanentCondition, Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted in battle")` |
+| `GainCanNotBlock` | `bool` | `bool GainCanNotBlock(Permanent? targetPermanent, Func<Permanent, bool>? attackerCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block")` |
+| `GainCanNotBlockPlayerEffect` | `bool` | `bool GainCanNotBlockPlayerEffect(Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block")` |
+| `GainCanNotReturnToDeck` | `bool` | `bool GainCanNotReturnToDeck(Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck")` |
+| `GainCanNotReturnToDeckPlayerEffect` | `bool` | `bool GainCanNotReturnToDeckPlayerEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck")` |
+| `GainCanNotReturnToHand` | `bool` | `bool GainCanNotReturnToHand(Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand")` |
+| `GainCanNotReturnToHandPlayerEffect` | `bool` | `bool GainCanNotReturnToHandPlayerEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand")` |
+| `GainCanNotSuspend` | `bool` | `bool GainCanNotSuspend(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard, Func<bool>? condition = null, string effectName = "Can't suspend")` |
+| `GainCanNotSuspendPlayerEffect` | `bool` | `bool GainCanNotSuspendPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard, bool isOnlyActivePhase = false, string effectName = "Can't suspend")` |
+| `GainCanNotUnsuspend` | `bool` | `bool GainCanNotUnsuspend(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard, Func<bool>? condition = null, string effectName = "Can't unsuspend")` |
+| `GainCanNotUnsuspendPlayerEffect` | `bool` | `bool GainCanNotUnsuspendPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard, bool isOnlyActivePhase = false, string effectName = "Can't unsuspend")` |
+| `GainCantSuspendUntilOpponentTurnEnd` | `bool` | `bool GainCantSuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard)` |
+| `GainCantUnsuspendNextActivePhase` | `bool` | `bool GainCantUnsuspendNextActivePhase(Permanent? targetPermanent, CardSource sourceCard)` |
+| `GainCantUnsuspendUntilOpponentTurnEnd` | `bool` | `bool GainCantUnsuspendUntilOpponentTurnEnd(Permanent? targetPermanent, CardSource sourceCard)` |
+| `GainCollision` | `bool` | `bool GainCollision(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainEvade` | `bool` | `bool GainEvade(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainExecute` | `bool` | `bool GainExecute(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainFortitude` | `bool` | `bool GainFortitude(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainIceclad` | `bool` | `bool GainIceclad(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainIcecladPlayerEffect` | `bool` | `bool GainIcecladPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainImmuneFromDPMinus` | `bool` | `bool GainImmuneFromDPMinus(Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus")` |
+| `GainImmuneFromDPMinusPlayerEffect` | `bool` | `bool GainImmuneFromDPMinusPlayerEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition, EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus")` |
+| `GainJamming` | `bool` | `bool GainJamming(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainPierce` | `bool` | `bool GainPierce(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainRaid` | `bool` | `bool GainRaid(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainReboot` | `bool` | `bool GainReboot(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainRetaliation` | `bool` | `bool GainRetaliation(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainRush` | `bool` | `bool GainRush(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainRushPlayerEffect` | `bool` | `bool GainRushPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GainVortex` | `bool` | `bool GainVortex(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard)` |
+| `GetAttackerFromHashtable` | `Permanent?` | `Permanent? GetAttackerFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetCardEffectFromHashtable` | `CardSource?` | `CardSource? GetCardEffectFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetCardFromHashtable` | `CardSource?` | `CardSource? GetCardFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetCardSourcesFromHashtable` | `List<CardSource>` | `List<CardSource> GetCardSourcesFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetDigivolutionRootsFromEnterFieldHashtable` | `List<CardSource>` | `List<CardSource> GetDigivolutionRootsFromEnterFieldHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)` |
+| `GetDiscardedCardsFromHashtable` | `List<CardSource>` | `List<CardSource> GetDiscardedCardsFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetEvoRootTopsFromEnterFieldHashtable` | `List<CardSource>` | `List<CardSource> GetEvoRootTopsFromEnterFieldHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null)` |
+| `GetFaceDownFromHashtable` | `bool` | `bool GetFaceDownFromHashtable(Headless.Effects.CardEffectResolveContext ctx)` |
+| `GetMovedPermanentFromHashtable` | `Permanent?` | `Permanent? GetMovedPermanentFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetNonMaxCostPermanents` | `List<Permanent>` | `List<Permanent> GetNonMaxCostPermanents(CardSource card, HeadlessPlayerId owner, bool digimonOnly = true)` |
+| `GetPermanentFromHashtable` | `Permanent?` | `Permanent? GetPermanentFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetPermanentsFromHashtable` | `List<Permanent>` | `List<Permanent> GetPermanentsFromHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetPlayedPermanentsFromEnterFieldHashtable` | `List<Permanent>` | `List<Permanent> GetPlayedPermanentsFromEnterFieldHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<ChoiceZone, bool>? rootCondition = null)` |
+| `GetTopCardFromEffectHashtable` | `CardSource?` | `CardSource? GetTopCardFromEffectHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetTopCardFromOneHashtable` | `CardSource?` | `CardSource? GetTopCardFromOneHashtable(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `GetUniqueColourCountOnOpponentsBattleArea` | `int` | `int GetUniqueColourCountOnOpponentsBattleArea(CardSource card, Func<Permanent, bool> canGetCardColour)` |
+| `GetUniqueColourCountOnOwnerBattleArea` | `int` | `int GetUniqueColourCountOnOwnerBattleArea(CardSource card, Func<Permanent, bool> canGetCardColour)` |
+| `HasBlocker` | `bool` | `bool HasBlocker(CardSource card)` |
+| `HasJamming` | `bool` | `bool HasJamming(CardSource card)` |
+| `HasKeyword` | `bool` | `bool HasKeyword(CardSource card, string keyword)` |
+| `HasMatchConditionOpponentsCardInTrash` | `bool` | `bool HasMatchConditionOpponentsCardInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `HasMatchConditionOpponentsPermanent` | `bool` | `bool HasMatchConditionOpponentsPermanent(CardSource card, Func<HeadlessEntityId, bool> condition)` |
+| `HasMatchConditionOwnersBreedingPermanent` | `bool` | `bool HasMatchConditionOwnersBreedingPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)` |
+| `HasMatchConditionOwnersCardInTrash` | `bool` | `bool HasMatchConditionOwnersCardInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `HasMatchConditionOwnersHand` | `bool` | `bool HasMatchConditionOwnersHand(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `HasMatchConditionOwnersPermanent` | `bool` | `bool HasMatchConditionOwnersPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)` |
+| `HasMatchConditionOwnersSecurity` | `bool` | `bool HasMatchConditionOwnersSecurity(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `HasMatchConditionPermanent` | `bool` | `bool HasMatchConditionPermanent(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false)` |
+| `HasMatchConditionPermanent` | `bool` | `bool HasMatchConditionPermanent(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition, bool isContainBreedingArea = false)` |
+| `HasMatchConditionPermanentDigivolutionCards` | `bool` | `bool HasMatchConditionPermanentDigivolutionCards(CardSource card, Func<CardSource, bool> CanSelectPermanentCondition)` |
+| `HasNoDigivolutionCards` | `bool` | `bool HasNoDigivolutionCards(CardSource card, HeadlessEntityId id)` |
+| `HasPierce` | `bool` | `bool HasPierce(CardSource card)` |
+| `HasTrashableDigivolutionCards` | `bool` | `bool HasTrashableDigivolutionCards(CardSource card, HeadlessEntityId hostId)` |
+| `IsAlliance` | `bool` | `bool IsAlliance(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsBattleAreaDigimon` | `bool` | `bool IsBattleAreaDigimon(CardSource card, HeadlessEntityId id)` |
+| `IsBlock` | `bool` | `bool IsBlock(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsByBattle` | `bool` | `bool IsByBattle(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `IsByEffect` | `bool` | `bool IsByEffect(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null)` |
+| `IsDigivolvedByTheEffect` | `bool` | `bool IsDigivolvedByTheEffect(Permanent? permanent, CardSource cardSource, CardSource effectSourceCard)` |
+| `IsDigivolvedFromSameLevelFromEnterFieldHashtable` | `bool` | `bool IsDigivolvedFromSameLevelFromEnterFieldHashtable(Headless.Effects.CardEffectResolveContext ctx, Permanent? permanent)` |
+| `IsDijiXros` | `bool` | `bool IsDijiXros(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<int, bool>? digixrosCountCondition)` |
+| `IsDPZeroDelete` | `bool` | `bool IsDPZeroDelete(CardSource card, CardEffectResolveContext context)` |
+| `IsExistDigivolutionCards` | `bool` | `bool IsExistDigivolutionCards(CardSource card)` |
+| `IsExistInAnyTrash` | `bool` | `bool IsExistInAnyTrash(CardSource card)` |
+| `IsExistInSecurity` | `bool` | `bool IsExistInSecurity(CardSource card, bool isFlipped = false)` |
+| `IsExistLinked` | `bool` | `bool IsExistLinked(CardSource card)` |
+| `IsExistOnBattleArea` | `bool` | `bool IsExistOnBattleArea(CardSource card)` |
+| `IsExistOnBattleAreaActivate` | `bool` | `bool IsExistOnBattleAreaActivate(CardSource card, ICardEffect? cardEffect = null)` |
+| `IsExistOnBattleAreaDigimon` | `bool` | `bool IsExistOnBattleAreaDigimon(CardSource card)` |
+| `IsExistOnBattleAreaTrigger` | `bool` | `bool IsExistOnBattleAreaTrigger(CardSource card, ICardEffect? cardEffect = null)` |
+| `IsExistOnBreedingArea` | `bool` | `bool IsExistOnBreedingArea(CardSource card)` |
+| `IsExistOnBreedingAreaDigimon` | `bool` | `bool IsExistOnBreedingAreaDigimon(CardSource card)` |
+| `IsExistOnExecutingArea` | `bool` | `bool IsExistOnExecutingArea(CardSource card)` |
+| `IsExistOnField` | `bool` | `bool IsExistOnField(CardSource card)` |
+| `IsExistOnHand` | `bool` | `bool IsExistOnHand(CardSource card)` |
+| `IsExistOnTrash` | `bool` | `bool IsExistOnTrash(CardSource card)` |
+| `IsFromDigimon` | `bool` | `bool IsFromDigimon(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsFromDigimonDigivolutionCards` | `bool` | `bool IsFromDigimonDigivolutionCards(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsFromSameDigimon` | `bool` | `bool IsFromSameDigimon(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsJogress` | `bool` | `bool IsJogress(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsLeavingForDigiXros` | `bool` | `bool IsLeavingForDigiXros(Headless.Effects.CardEffectResolveContext ctx)` |
+| `IsMaxCost` | `bool` | `bool IsMaxCost(Permanent? permanent, HeadlessPlayerId owner, bool IsDigimonOnly)` |
+| `IsMaxDP` | `bool` | `bool IsMaxDP(Permanent? permanent, HeadlessPlayerId owner, Func<Permanent, bool>? permanentCondition = null)` |
+| `IsMaxLevel` | `bool` | `bool IsMaxLevel(Permanent? permanent, HeadlessPlayerId owner)` |
+| `IsMinCost` | `bool` | `bool IsMinCost(Permanent? permanent, HeadlessPlayerId owner, bool IsDigimonOnly, Func<Permanent, bool>? condition = null)` |
+| `IsMinDigivolutionCards` | `bool` | `bool IsMinDigivolutionCards(Permanent? permanent, HeadlessPlayerId owner, Func<Permanent, bool>? condition = null)` |
+| `IsMinDP` | `bool` | `bool IsMinDP(Permanent? permanent, HeadlessPlayerId owner, Func<Permanent, bool>? condition = null)` |
+| `IsMinLevel` | `bool` | `bool IsMinLevel(Permanent? permanent, HeadlessPlayerId owner)` |
+| `IsMinLevelBoard` | `bool` | `bool IsMinLevelBoard(Permanent? permanent)` |
+| `IsOpponentBattleAreaDigimon` | `bool` | `bool IsOpponentBattleAreaDigimon(CardSource card, HeadlessEntityId id)` |
+| `IsOpponentEffect` | `bool` | `bool IsOpponentEffect(CardSource? effectSourceCard, CardSource card)` |
+| `IsOpponentOwnedDigimon` | `bool` | `bool IsOpponentOwnedDigimon(CardSource card, HeadlessEntityId id)` |
+| `IsOpponentPermanent` | `bool` | `bool IsOpponentPermanent(Permanent? permanent, CardSource card)` |
+| `IsOpponentTurn` | `bool` | `bool IsOpponentTurn(CardSource card)` |
+| `IsOwnerBattleAreaDigimon` | `bool` | `bool IsOwnerBattleAreaDigimon(CardSource card, HeadlessEntityId id)` |
+| `IsOwnerEffect` | `bool` | `bool IsOwnerEffect(CardSource? effectSourceCard, CardSource card)` |
+| `IsOwnerPermanent` | `bool` | `bool IsOwnerPermanent(Permanent? permanent, CardSource card)` |
+| `IsOwnerTurn` | `bool` | `bool IsOwnerTurn(CardSource card)` |
+| `IsPermanentExistsOnBattleArea` | `bool` | `bool IsPermanentExistsOnBattleArea(Permanent? permanent)` |
+| `IsPermanentExistsOnBattleAreaDigimon` | `bool` | `bool IsPermanentExistsOnBattleAreaDigimon(Permanent? permanent)` |
+| `IsPermanentExistsOnBattleAreaTamer` | `bool` | `bool IsPermanentExistsOnBattleAreaTamer(Permanent? permanent)` |
+| `IsPermanentExistsOnBreedingArea` | `bool` | `bool IsPermanentExistsOnBreedingArea(Permanent? permanent)` |
+| `IsPermanentExistsOnField` | `bool` | `bool IsPermanentExistsOnField(Permanent? permanent)` |
+| `IsPermanentExistsOnOpponentBattleArea` | `bool` | `bool IsPermanentExistsOnOpponentBattleArea(Permanent? permanent, CardSource card)` |
+| `IsPermanentExistsOnOpponentBattleAreaDigimon` | `bool` | `bool IsPermanentExistsOnOpponentBattleAreaDigimon(Permanent? permanent, CardSource card)` |
+| `IsPermanentExistsOnOpponentBattleAreaTamer` | `bool` | `bool IsPermanentExistsOnOpponentBattleAreaTamer(Permanent? permanent, CardSource card)` |
+| `IsPermanentExistsOnOwnerBattleArea` | `bool` | `bool IsPermanentExistsOnOwnerBattleArea(Permanent? permanent, CardSource card)` |
+| `IsPermanentExistsOnOwnerBattleAreaDigimon` | `bool` | `bool IsPermanentExistsOnOwnerBattleAreaDigimon(Permanent? permanent, CardSource card)` |
+| `IsPermanentExistsOnOwnerBattleAreaTamer` | `bool` | `bool IsPermanentExistsOnOwnerBattleAreaTamer(Permanent? permanent, CardSource card)` |
+| `IsPermanentExistsOnOwnerBreedingArea` | `bool` | `bool IsPermanentExistsOnOwnerBreedingArea(Permanent? permanent, CardSource card)` |
+| `IsSuspended` | `bool` | `bool IsSuspended(CardSource card, HeadlessEntityId id)` |
+| `IsTopCardInTrashOnDeletion` | `bool` | `bool IsTopCardInTrashOnDeletion(Headless.Effects.CardEffectResolveContext ctx, CardSource card)` |
+| `LevelOf` | `int` | `int LevelOf(CardSource card, HeadlessEntityId id)` |
+| `MatchConditionOpponentsCardCountInTrash` | `int` | `int MatchConditionOpponentsCardCountInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `MatchConditionOpponentsPermanentCount` | `int` | `int MatchConditionOpponentsPermanentCount(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)` |
+| `MatchConditionOwnersCardCountInHand` | `int` | `int MatchConditionOwnersCardCountInHand(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `MatchConditionOwnersCardCountInTrash` | `int` | `int MatchConditionOwnersCardCountInTrash(CardSource card, Func<CardSource, bool> CanSelectCardCondition)` |
+| `MatchConditionOwnersPermanentCount` | `int` | `int MatchConditionOwnersPermanentCount(CardSource card, Func<Permanent, bool> CanSelectPermanentCondition)` |
+| `MatchConditionPermanentCount` | `int` | `int MatchConditionPermanentCount(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false)` |
+| `MaxDpDeleteThreshold` | `int` | `int MaxDpDeleteThreshold(CardSource card, int baseThreshold)` |
+| `MemoryForPlayer` | `int` | `int MemoryForPlayer(CardSource card)` |
+| `OpponentOf` | `HeadlessPlayerId` | `HeadlessPlayerId OpponentOf(CardSource card)` |
+| `PlaceDelayOptionCards` | `async Task<bool>` | `async Task<bool> PlaceDelayOptionCards(CardSource card, ICardEffect? cardEffect = null, ChoiceZone root = ChoiceZone.Execution)` |
+| `PlacePermanentInSecurityAndProcessAccordingToResult` | `async Task` | `async Task PlacePermanentInSecurityAndProcessAccordingToResult(Permanent? targetPermanent, bool toTop, CardSource sourceCard, Func<CardSource, Task>? successProcess, Func<Task>? failureProcess)` |
+| `PlayAmonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayAmonToken(CardSource sourceCard)` |
+| `PlayAthoRenePorToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayAthoRenePorToken(CardSource sourceCard)` |
+| `PlayDiaboromonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayDiaboromonToken(CardSource sourceCard, int quantity = 1)` |
+| `PlayFamiliarToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayFamiliarToken(CardSource sourceCard, int quantity = 1)` |
+| `PlayFujitsumonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayFujitsumonToken(CardSource sourceCard, bool isOwnerPermanent)` |
+| `PlayGyuukimonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayGyuukimonToken(CardSource sourceCard)` |
+| `PlayHinukamuyToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayHinukamuyToken(CardSource sourceCard)` |
+| `PlayKoHagurumonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayKoHagurumonToken(CardSource sourceCard)` |
+| `PlayPermanentCards` | `async Task` | `async Task PlayPermanentCards(IReadOnlyList<CardSource> cardSources, CardSource sourceCard, bool payCost, bool isTapped, ChoiceZone root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)` |
+| `PlayPetrificationToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayPetrificationToken(CardSource sourceCard, int quantity = 1)` |
+| `PlayPipeFox` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayPipeFox(CardSource sourceCard)` |
+| `PlayRapidmonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayRapidmonToken(CardSource sourceCard)` |
+| `PlaySelfDeleteFamiliarToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlaySelfDeleteFamiliarToken(CardSource sourceCard, int quantity = 1)` |
+| `PlayTaomonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayTaomonToken(CardSource sourceCard)` |
+| `PlayToken` | `async Task<IReadOnlyList<HeadlessEntityId>>` | `async Task<IReadOnlyList<HeadlessEntityId>> PlayToken(TokenSpec tokenData, CardSource sourceCard, bool isOwnerPermanent, bool isTapped, int quantity = 1)` |
+| `PlayUkaNoMitama` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayUkaNoMitama(CardSource sourceCard)` |
+| `PlayUmonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayUmonToken(CardSource sourceCard)` |
+| `PlayVoleeZerdrucken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayVoleeZerdrucken(CardSource sourceCard)` |
+| `PlayWarGrowlmonToken` | `Task<IReadOnlyList<HeadlessEntityId>>` | `Task<IReadOnlyList<HeadlessEntityId>> PlayWarGrowlmonToken(CardSource sourceCard)` |
+| `ReturnRevealedCardsToLibraryBottom` | `async Task` | `async Task ReturnRevealedCardsToLibraryBottom(IReadOnlyList<CardSource> remainingCards, CardSource sourceCard, CancellationToken cancellationToken = default)` |
+| `SaveProcess` | `async Task` | `async Task SaveProcess(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? CanSelectPermanentCondition, CancellationToken cancellationToken = default)` |
+| `SecurityCount` | `int` | `int SecurityCount(CardSource card)` |
+| `SelectTrashDigivolutionCards` | `async Task` | `async Task SelectTrashDigivolutionCards(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardCondition, int maxCount, bool canNoTrash, bool isFromOnly1Permanent, CardSource sourceCard, string selectString = "Digimon", Func<Permanent, IReadOnlyList<CardSource>, Task>? afterSelectionCoroutine = null, bool canEndNotMax = false, CancellationToken cancellationToken = default)` |
+| `StartOfMainAttack` | `void` | `void StartOfMainAttack(Permanent? targetPermanent, CardSource sourceCard)` |
+| `SuspendPeremanentAndProcessAccordingToResult` | `async Task` | `async Task SuspendPeremanentAndProcessAccordingToResult(IReadOnlyList<Permanent> targetPermanents, CardSource sourceCard, Func<IReadOnlyList<Permanent>, Task>? successProcess, Func<Task>? failureProcess)` |
+| `TopCardHasLevel` | `bool` | `bool TopCardHasLevel(CardSource card, HeadlessEntityId id)` |
+| `TrashableDigivolutionCount` | `int` | `int TrashableDigivolutionCount(CardSource card, HeadlessEntityId hostId)` |
+| `TrashDigivolutionCardsAndProcessAccordingToResult` | `async Task` | `async Task TrashDigivolutionCardsAndProcessAccordingToResult(Permanent? targetPermanent, int trashCount, bool isFromTop, CardSource sourceCard, Func<int, Task>? successProcess, Func<Task>? failureProcess)` |
+| `TrashDigivolutionCardsFromTopOrBottom` | `Task<int>` | `Task<int> TrashDigivolutionCardsFromTopOrBottom(Permanent? targetPermanent, int trashCount, bool isFromTop, CardSource sourceCard)` |
+| `TrashHandAndProcessAccordingToResult` | `async Task` | `async Task TrashHandAndProcessAccordingToResult(CardSource? handCard, CardSource sourceCard, Func<Task>? successProcess, Func<Task>? failureProcess)` |
+| `TrashLinkCardsAndProcessAccordingToResult` | `async Task` | `async Task TrashLinkCardsAndProcessAccordingToResult(Permanent? hostPermanent, IReadOnlyList<HeadlessEntityId> linkCardIds, CardSource sourceCard, Func<int, Task>? successProcess, Func<Task>? failureProcess)` |
+| `TrashSecurityAndProcessAccordingToResult` | `async Task` | `async Task TrashSecurityAndProcessAccordingToResult(HeadlessPlayerId player, int trashAmount, bool fromTop, CardSource sourceCard, Func<int, Task>? successProcess, Func<Task>? failureProcess)` |

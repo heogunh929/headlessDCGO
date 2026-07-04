@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["./plugin/porter-guard.js"],
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (DGX Spark)",
+      "options": {
+        "baseURL": "http://192.168.0.42:11434/v1"
+      },
+      "models": {
+        "qwen3-coder:30b": {
+          "name": "Qwen3 Coder 30B (porter, 구)",
+          "options": { "num_ctx": 32768 }
+        },
+        "gemma4:31b": {
+          "name": "Gemma 4 31B (porter)",
+          "options": { "num_ctx": 32768 }
+        }
+      }
+    }
+  }
+}
