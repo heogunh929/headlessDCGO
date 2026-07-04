@@ -1,0 +1,426 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT18_086",
+  "set": "BT18",
+  "color": "White",
+  "className": "BT18_086",
+  "branches": [
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] You may play 1 [Lucemon] from your trash without paying the cost."
+          }
+        },
+        {
+          "name": "LucemonCard",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "cardSource.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Lucemon"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerSecurityEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "card.Owner.ExecutingCards.Contains",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "LucemonCard"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsSecurityEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play [Lucemon] card"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "WhenRemoveField",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Breeding] [All Turns] When any of your [Lucemon: Satan Mode] would leave the battle area, by moving this Digimon to battle area, they don\u0027t leave."
+          }
+        },
+        {
+          "name": "IsLucemonRemoved",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "permanent.TopCard.Owner"
+              },
+              "rhs": {
+                "member": "card.Owner"
+              }
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Lucemon: Satan Mode"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBreedingArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenPermanentRemoveField",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "IsLucemonRemoved"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBreedingArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardObjectController.MovePermanent",
+                "args": [
+                  {
+                    "memberOf": {
+                      "opaque": "card.Owner.GetBreedingAreaPermanents()[0]"
+                    },
+                    "name": "PermanentFrame"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Prevent Removal"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "NonWhiteDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "permanent.IsDigimon"
+              },
+              "rhs": {
+                "not": {
+                  "call": "permanent.TopCard.CardColors.Contains",
+                  "args": [
+                    {
+                      "member": "CardColor.White"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "call": "permanent.TopCard.ContainsCardName",
+              "args": [
+                {
+                  "lit": "Lucemon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "NonWhiteDigimon"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "string effectName = \u0022[All Turns] While you have a non-white Digimon with [Lucemon] in its name, none of your 0 DP Digimon can be deleted.\u0022;"
+        },
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CanNotBeDestroyedStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "CanUseCondition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "ref": "effectName"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

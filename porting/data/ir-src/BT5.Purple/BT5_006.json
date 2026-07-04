@@ -1,0 +1,159 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT5_006",
+  "set": "BT5",
+  "color": "Purple",
+  "className": "BT5_006",
+  "branches": [
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn][Once Per Turn] When one of your other Digimon is deleted, this Digimon gets \u002B2000 DP for the turn."
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "permanent"
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard",
+                "args": []
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.CanTriggerOnPermanentDeleted",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "ref": "PermanentCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "lit": 2000
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022DP\u002B2000_BT5_006\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "DP \u002B2000"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

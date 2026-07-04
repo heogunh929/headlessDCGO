@@ -1,0 +1,258 @@
+{
+  "schema": "source-ir/1",
+  "card": "LM_048",
+  "set": "LM",
+  "color": "Green",
+  "className": "LM_048",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.HasMatchConditionPermanent",
+            "args": [
+              {
+                "lambda": {
+                  "params": [
+                    "permanent"
+                  ],
+                  "body": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "binop": "==",
+                        "lhs": {
+                          "member": "permanent.TopCard.Owner"
+                        },
+                        "rhs": {
+                          "member": "card.Owner"
+                        }
+                      },
+                      "rhs": {
+                        "call": "permanent.TopCard.CardColors.Contains",
+                        "args": [
+                          {
+                            "member": "CardColor.Black"
+                          }
+                        ]
+                      }
+                    },
+                    "rhs": {
+                      "binop": "||",
+                      "lhs": {
+                        "member": "permanent.IsDigimon"
+                      },
+                      "rhs": {
+                        "member": "permanent.IsTamer"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "const": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpICardEffect(\u0022Black also meets this card\u0027s color requirements\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "ignoreColorConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Reveal the top 3 cards of your deck. Add 1 green or black Digimon card among them to the hand. Return the rest to the bottom of deck. Then, place this card in the battle area."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "cardSource.HasCardColor",
+                "args": [
+                  {
+                    "member": "CardColor.Green"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "cardSource.HasCardColor",
+                "args": [
+                  {
+                    "member": "CardColor.Black"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.RevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SelectCardConditionClass[]\r\n                    {\r\n                        new SelectCardConditionClass(\r\n                            canTargetCondition:CanSelectCardCondition,\r\n                            canTargetCondition_ByPreSelecetedList:null,\r\n                            canEndSelectCondition:null,\r\n                            canNoSelect:false,\r\n                            selectCardCoroutine: null,\r\n                            message: \u0022Select 1 green or black Digimon card.\u0022,\r\n                            maxCount: 1,\r\n                            canEndNotMax:false,\r\n                            mode: SelectCardEffect.Mode.AddHand\r\n                            )\r\n                    }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.PlaceDelayOptionCards",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "Gain2MemoryOptionDelayEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaceSelfDelayOptionSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

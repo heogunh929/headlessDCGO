@@ -1,0 +1,40 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT4_070",
+  "set": "BT4",
+  "color": "Black",
+  "className": "BT4_070",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RebootSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

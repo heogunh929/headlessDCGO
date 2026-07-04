@@ -1,0 +1,439 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX4_037",
+  "set": "EX4",
+  "color": "Green",
+  "className": "EX4_037",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "targetPermanent.TopCard.ContainsCardName",
+                  "args": [
+                    {
+                      "lit": "Rapidmon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "targetPermanent.TopCard.HasLevel"
+                }
+              },
+              "rhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "targetPermanent.Level"
+                },
+                "rhs": {
+                  "lit": 5
+                }
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "targetPermanent.TopCard.CardColors.Contains",
+                    "args": [
+                      {
+                        "member": "CardColor.Green"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "binop": "==",
+                    "lhs": {
+                      "member": "targetPermanent.TopCard.CardColors.Count"
+                    },
+                    "rhs": {
+                      "lit": 2
+                    }
+                  }
+                },
+                "rhs": {
+                  "member": "targetPermanent.TopCard.HasLevel"
+                }
+              },
+              "rhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "targetPermanent.Level"
+                },
+                "rhs": {
+                  "lit": 5
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 4
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn][Once Per Turn] Until the end of your opponent\u0027s turn, 2 of your green and black Digimon gain \u003CBlocker\u003E and \u003CReboot\u003E."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.CanSelectBySkill",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "permanent.TopCard.CardColors.Contains",
+                  "args": [
+                    {
+                      "member": "CardColor.Green"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "permanent.TopCard.CardColors.Contains",
+                  "args": [
+                    {
+                      "member": "CardColor.Black"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.GainBlocker",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainReboot",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Your Digimon gain Blocker and Reboot"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnTappedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns][Once Per Turn] When another Digimon becomes suspended, you may unsuspend this Digimon."
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "permanent.IsDigimon"
+              },
+              "rhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "permanent"
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanTriggerWhenPermanentSuspends",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "ref": "PermanentCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanUnsuspend",
+              "args": [
+                {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new IUnsuspendPermanents(new List\u003CPermanent\u003E() { selectedPermanent }, activateClass).Unsuspend",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Unsuspend_EX4_037\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Unsuspend this Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

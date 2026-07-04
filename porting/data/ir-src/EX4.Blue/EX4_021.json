@@ -1,0 +1,189 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX4_021",
+  "set": "EX4",
+  "color": "Blue",
+  "className": "EX4_021",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon. Then, all of your opponent\u0027s level 4 or lower Digimon can\u0027t attack until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(selectedPermanent, 1, activateClass).Degeneration",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.GainCanNotAttackPlayerEffect",
+                "args": [
+                  {
+                    "ref": "AttackerCondition"
+                  },
+                  {
+                    "ref": "DefenderCondition"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lit": "Can\u0027t Attack"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "De-Digivolve 1 on 1 Digimon and opponent\u0027s Digimon can\u0027t attack"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetDigiXros",
+          "returns": "DigiXrosCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "DigiXrosConditionElement element = new DigiXrosConditionElement(CanSelectCardCondition, \u0022Blue MetalGreymon\u0022); bool CanSelectCardCondition(CardSource cardSource)\r\n                        {\r\n                            if (cardSource != null)\r\n                            {\r\n                                if (cardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (cardSource.IsDigimon)\r\n                                    {\r\n                                        if (cardSource.CardNames_DigiXros.Contains(\u0022MetalGreymon\u0022))\r\n                                        {\r\n                                            if (cardSource.HasCardColor(CardColor.Blue))\r\n                                            {\r\n                                                return true;\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } DigiXrosConditionElement element1 = new DigiXrosConditionElement(CanSelectCardCondition1, \u0022DarkKnightmon\u0022); bool CanSelectCardCondition1(CardSource cardSource)\r\n                        {\r\n                            if (cardSource != null)\r\n                            {\r\n                                if (cardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (cardSource.IsDigimon)\r\n                                    {\r\n                                        if (cardSource.CardNames_DigiXros.Contains(\u0022DarkKnightmon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } List\u003CDigiXrosConditionElement\u003E elements = new List\u003CDigiXrosConditionElement\u003E() { element, element1 }; DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2); return digiXrosCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpICardEffect($\u0022DigiXros\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addDigiXrosConditionClass"
+        }
+      ]
+    }
+  ]
+}

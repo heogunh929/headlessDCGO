@@ -1,0 +1,196 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX2_036",
+  "set": "EX2",
+  "color": "Black",
+  "className": "EX2_036",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "DefenderCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleArea",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.IsOwnerTurn",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CanNotAttackSelfStaticEffect",
+          "args": [
+            {
+              "name": "defenderCondition",
+              "value": {
+                "ref": "DefenderCondition"
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Can\u0027t Attack to Digimon"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "count",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "call": "card.Owner.TrashCards.Count",
+            "args": [
+              {
+                "lambda": {
+                  "params": [
+                    "cardSource"
+                  ],
+                  "body": {
+                    "binop": "||",
+                    "lhs": {
+                      "call": "cardSource.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Cyborg"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "cardSource.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Machine"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "count",
+                "args": []
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lambda": {
+                  "params": [],
+                  "body": {
+                    "binop": "*",
+                    "lhs": {
+                      "lit": 1000
+                    },
+                    "rhs": {
+                      "call": "count",
+                      "args": []
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

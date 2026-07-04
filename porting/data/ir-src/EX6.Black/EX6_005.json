@@ -1,0 +1,143 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX6_005",
+  "set": "EX6",
+  "color": "Black",
+  "className": "EX6_005",
+  "branches": [
+    {
+      "timing": "OnStartMainPhase",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Start of Your Main Phase] By returning 1 card with the [Legend-Arms] trait from this Digimon\uFFFDs digivolution cards to the hand, gain 1 memory."
+          }
+        },
+        {
+          "name": "HasLegendArms",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.ContainsTraits",
+            "args": [
+              {
+                "lit": "Legend-Arms"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u003E",
+                "lhs": {
+                  "call": "card.PermanentOfThisCard().DigivolutionCards.Count",
+                  "args": [
+                    {
+                      "ref": "HasLegendArms"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "lit": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "null": true
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return 1 card, to gain 1 memory"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

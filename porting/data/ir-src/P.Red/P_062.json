@@ -1,0 +1,202 @@
+{
+  "schema": "source-ir/1",
+  "card": "P_062",
+  "set": "P",
+  "color": "Red",
+  "className": "P_062",
+  "branches": [
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn] When you attack with a Digimon that has [Gammamon] in its digivolution cards, you may suspend this Tamer to have that Digimon gain \u003CSecurity Attack \u002B1\u003E for the turn. (This Digimon checks 1 additional security card.)"
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "permanent.DigivolutionCards.Count",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardSource"
+                      ],
+                      "body": {
+                        "call": "cardSource.CardNames.Contains",
+                        "args": [
+                          {
+                            "lit": "Gammamon"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanTriggerOnPermanentAttack",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "ref": "PermanentCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanActivateSuspendCostEffect",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new SuspendPermanentsClass(\r\n                    new List\u003CPermanent\u003E() { card.PermanentOfThisCard() },\r\n                    CardEffectCommons.CardEffectHashtable(activateClass)).Tap",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttack",
+                "args": [
+                  {
+                    "member": "GManager.instance.attackProcess.AttackingPermanent"
+                  },
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Security Attack \u002B1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

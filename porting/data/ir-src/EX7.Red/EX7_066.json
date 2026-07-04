@@ -1,0 +1,519 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX7_066",
+  "set": "EX7",
+  "color": "Red",
+  "className": "EX7_066",
+  "branches": [
+    {
+      "timing": "OnDigivolutionCardDiscarded",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "When an effect trashes this digivolution card, 1 of your Digimon gets \u002B3000 DP until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnTrashSelfDigivolutionCard",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "lambda": {
+                  "params": [
+                    "cardEffect"
+                  ],
+                  "body": {
+                    "binop": "!=",
+                    "lhs": {
+                      "ref": "cardEffect"
+                    },
+                    "rhs": {
+                      "null": true
+                    }
+                  }
+                }
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnTrash",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "CanSelectPermanentCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "lit": 3000
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsOptionEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "\u002B3000DP"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u003E=",
+            "lhs": {
+              "call": "card.Owner.GetBattleAreaDigimons().Count",
+              "args": [
+                {
+                  "lambda": {
+                    "params": [
+                      "permanent"
+                    ],
+                    "body": {
+                      "call": "permanent.TopCard.EqualsTraits",
+                      "args": [
+                        {
+                          "lit": "Three Musketeers"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "rhs": {
+              "lit": 1
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpICardEffect(\u0022Ignore color requirements\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "ignoreColorConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "count",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "List\u003CPermanent\u003E cards = new List\u003CPermanent\u003E(); List\u003CPermanent\u003E choices = card.Owner.GetBattleAreaDigimons(); choices = choices.Filter(permanent =\u003E permanent.TopCard.EqualsTraits(\u0022Three Musketeers\u0022)); foreach (Permanent selection in choices)\r\n                    {\r\n                        if (!cards.Some(permanent =\u003E permanent.TopCard.HasSameCardName(selection.TopCard)))\r\n                            cards.Add(selection);\r\n                    } return cards.Count;"
+          }
+        },
+        {
+          "name": "maxDP",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "binop": "\u002B",
+            "lhs": {
+              "lit": 9000
+            },
+            "rhs": {
+              "binop": "*",
+              "lhs": {
+                "lit": 3000
+              },
+              "rhs": {
+                "call": "count",
+                "args": []
+              }
+            }
+          }
+        },
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Delete 1 of your opponent\u0027s Digimon with 9000 DP or less. For each your Digimon with the [Three Musketeers] trait with different names, add 3000 to this DP-Based deletion effects maximum. Then, place this card as the bottom digivolution card of 1 of your Digimon with the [Three Musketeers] trait."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "call": "card.Owner.MaxDP_DeleteEffect",
+                "args": [
+                  {
+                    "call": "maxDP",
+                    "args": []
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition1",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "permanent.TopCard.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "Three Musketeers"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "permanent.TopCard.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "ThreeMusketeers"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "card.Owner.brainStormObject.CloseBrainstrorm",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              {
+                "call": "permanent.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { card }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] Delete 1 of your opponent\u0027s Digimon with 12000 DP or less."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "call": "card.Owner.MaxDP_DeleteEffect",
+                "args": [
+                  {
+                    "lit": 12000
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerSecurityEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsSecurityEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "opaque": "$\u0022Delete 1 Digimon with 12000 DP or less\u0022"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

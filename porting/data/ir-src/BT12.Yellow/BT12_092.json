@@ -1,0 +1,391 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT12_092",
+  "set": "BT12",
+  "color": "Yellow",
+  "className": "BT12_092",
+  "branches": [
+    {
+      "timing": "OnStartMainPhase",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Start of Your Main Phase] If you have a Digimon with [Agumon] or [Greymon] in its name in play, by paying 1 memory, for the turn, treat this Tamer as a 3000 DP Digimon that can\u0027t digivolve."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "||",
+                        "lhs": {
+                          "binop": "\u0026\u0026",
+                          "lhs": {
+                            "member": "permanent.IsDigimon"
+                          },
+                          "rhs": {
+                            "call": "permanent.TopCard.ContainsCardName",
+                            "args": [
+                              {
+                                "lit": "Agumon"
+                              }
+                            ]
+                          }
+                        },
+                        "rhs": {
+                          "member": "permanent.TopCard.HasGreymonName"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "card.Owner.MaxMemoryCost"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.BecomeDigimonThatCantDigivolve",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "lit": 3000
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "This Tamer becomes Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnTappedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn] If this Tamer becomes suspended, you may digivolve 1 of your Digimon into a yellow card with [Greymon] in its name in your hand without paying its cost."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "opaque": "foreach (CardSource cardSource in card.Owner.HandCards)\r\n                        {\r\n                            if (CanSelectCardCondition(cardSource))\r\n                            {\r\n                                if (cardSource.CanPlayCardTargetFrame(permanent.PermanentFrame, false, activateClass))\r\n                                {\r\n                                    return true;\r\n                                }\r\n                            }\r\n                        }"
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.HasGreymonName"
+            },
+            "rhs": {
+              "call": "cardSource.HasCardColor",
+              "args": [
+                {
+                  "member": "CardColor.Yellow"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanTriggerWhenPermanentSuspends",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "==",
+                        "lhs": {
+                          "ref": "permanent"
+                        },
+                        "rhs": {
+                          "call": "card.PermanentOfThisCard",
+                          "args": []
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "CanSelectPermanentCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "CanSelectCardCondition"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Digivolve your 1 Digimon into 1 yellow card with [Greymon] in its name"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,349 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT18_088",
+  "set": "BT18",
+  "color": "Red",
+  "className": "BT18_088",
+  "branches": [
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnStartTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "SetMemoryTo3TamerEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnStartMainPhase",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Start of Your Main Phase] You may place up to 1 [Hybrid] trait card with different names from your trash under this Tamer. For each of your other Tamers, add 2 to the maximum number this effect may place."
+          }
+        },
+        {
+          "name": "CanTargetCondition_ByPreSelecetedList",
+          "returns": "bool",
+          "params": [
+            "cardSources",
+            "cardSource"
+          ],
+          "body": {
+            "opaque": "List\u003Cstring\u003E cardNames = GetNamesList(cardSources); foreach (string name in cardNames)\r\n                    {\r\n                        if (cardSource.CardNames.Contains(name))\r\n                            return false;\r\n                    } return true;"
+          }
+        },
+        {
+          "name": "GetNamesList",
+          "returns": "List\u003Cstring\u003E",
+          "params": [
+            "cardSources"
+          ],
+          "body": {
+            "opaque": "List\u003Cstring\u003E cardNames = new List\u003Cstring\u003E(); foreach (CardSource cardName in cardSources)\r\n                    {\r\n                        foreach (string name in cardName.CardNames)\r\n                        {\r\n                            if (!cardNames.Contains(name))\r\n                            {\r\n                                cardNames.Add(name);\r\n                            }\r\n                        }\r\n                    } return cardNames;"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "HasHybridInTrait",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.EqualsTraits",
+            "args": [
+              {
+                "lit": "Hybrid"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "HasHybridInTrait"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "card.PermanentOfThisCard().AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place [Hybrid] trait cards from your trash under this Tamer"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "ChangeCardNames",
+          "returns": "List\u003Cstring\u003E",
+          "params": [
+            "cardSource",
+            "cardNames"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "cardNames.Add(\u0022Takuya Kanbara\u0022); cardNames.Add(\u0022Koji Minamoto\u0022);"
+              }
+            },
+            "rhs": {
+              "ref": "cardNames"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCardNamesClass changeCardNamesClass = new ChangeCardNamesClass();"
+        },
+        {
+          "opaque": "changeCardNamesClass.SetUpICardEffect(\u0022Also treated as [Takuya Kanbara]/[Koji Minamoto]\u0022, _ =\u003E true, card);"
+        },
+        {
+          "opaque": "changeCardNamesClass.SetUpChangeCardNamesClass(changeCardNames: ChangeCardNames);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCardNamesClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn] (Once Per Turn) This Digimon with the [Hybrid]/[Ten Warriors] trait may attack a player."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "memberOf": {
+                "memberOf": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                },
+                "name": "TopCard"
+              },
+              "name": "HasHybridTenWarriorsTraits"
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectAttackEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Attack_BT18_088\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "This Digimon can attack a player"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,315 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX7_067",
+  "set": "EX7",
+  "color": "Blue",
+  "className": "EX7_067",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] trash the top 2 digivolution cards of all of your opponent\u0027s Digimon. If this effect didn\u0027t trash, you may play 1 level 4 or lower Digimon card with the [Ice-Snow] trait from your hand without paying the cost. Then, none of their Digimon with no digivolution cards can attack until the end of their turn."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "call": "permanent.DigivolutionCards.Count",
+                  "args": [
+                    {
+                      "lambda": {
+                        "params": [
+                          "cardSource"
+                        ],
+                        "body": {
+                          "not": {
+                            "call": "cardSource.CanNotTrashFromDigivolutionCards",
+                            "args": [
+                              {
+                                "ref": "activateClass"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "not": {
+                  "call": "permanent.TopCard.CanNotBeAffected",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition1",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "permanent.HasNoDigivolutionCards"
+              },
+              "rhs": {
+                "call": "permanent.CanSelectBySkill",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "cardSource.IsDigimon"
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "Ice-Snow"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "cardSource.Level"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.TrashDigivolutionCardsFromTopOrBottom",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "lit": 2
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Hand"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainCanNotAttackPlayerEffect",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition1"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lit": "Can\u0027t Attack"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainCanNotBlockPlayerEffect",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition1"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lit": "Can\u0027t Block"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022Trash top two digivolution cards or play a digimon, and opponent\u0027s digimon can\u0027t attack or block\u0022);"
+        }
+      ]
+    }
+  ]
+}

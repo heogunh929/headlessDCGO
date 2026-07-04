@@ -1,0 +1,557 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX5_064",
+  "set": "EX5",
+  "color": "Red",
+  "className": "EX5_064",
+  "branches": [
+    {
+      "timing": "OnStartTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "SetMemoryTo3TamerEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] By suspending this Tamer and placing the top card of one of your [Light Fang]/[Night Claw] trait Digimon as that Digimon\u0027s bottom digivolution card, 1 of your Digimon may digivolve into a Digimon card in your hand without paying the cost."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "permanent.DigivolutionCards.Count"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "permanent.TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Light Fang"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "permanent.TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "LightFung"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "permanent.TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Night Claw"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "permanent.TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "NightClaw"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition1",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "opaque": "foreach (CardSource cardSource in card.Owner.HandCards)\r\n                    {\r\n                        if (CanSelectCardCondition(cardSource))\r\n                        {\r\n                            if (cardSource.CanPlayCardTargetFrame(permanent.PermanentFrame, false, activateClass))\r\n                            {\r\n                                return true;\r\n                            }\r\n                        }\r\n                    }"
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "member": "cardSource.IsDigimon"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.CanActivateSuspendCostEffect",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new SuspendPermanentsClass(\r\n                            new List\u003CPermanent\u003E() { card.PermanentOfThisCard() },\r\n                            CardEffectCommons.CardEffectHashtable(activateClass)).Tap",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectedPermanent.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { topCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "CanSelectCardCondition"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Your Digimon digivolves"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] By suspending this Tamer and placing the top card of one of your [Light Fang]/[Night Claw] trait Digimon as that Digimon\u0027s bottom digivolution card, 1 of your Digimon may digivolve into a Digimon card in your hand without paying the cost."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "permanent.DigivolutionCards.Count"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "permanent.TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Light Fang"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "permanent.TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "LightFung"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "permanent.TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Night Claw"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "permanent.TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "NightClaw"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition1",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "opaque": "foreach (CardSource cardSource in card.Owner.HandCards)\r\n                    {\r\n                        if (CanSelectCardCondition(cardSource))\r\n                        {\r\n                            if (cardSource.CanPlayCardTargetFrame(permanent.PermanentFrame, false, activateClass))\r\n                            {\r\n                                return true;\r\n                            }\r\n                        }\r\n                    }"
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "member": "cardSource.IsDigimon"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.CanActivateSuspendCostEffect",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new SuspendPermanentsClass(\r\n                            new List\u003CPermanent\u003E() { card.PermanentOfThisCard() },\r\n                            CardEffectCommons.CardEffectHashtable(activateClass)).Tap",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectedPermanent.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { topCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "CanSelectCardCondition"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Your Digimon digivolves"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

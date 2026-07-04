@@ -1,0 +1,614 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT21_075",
+  "set": "BT21",
+  "color": "Purple",
+  "className": "BT21_075",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "permanent.TopCard.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "ADVENTURE"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "permanent.TopCard.ContainsCardName",
+                "args": [
+                  {
+                    "lit": "Greymon"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "permanent.Level"
+              },
+              "rhs": {
+                "lit": 4
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] 1 of your Digimon gains \u003CRaid\u003E and \u003CRetaliation\u003E until your opponent\u0027s turn ends."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.GainRaid",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainRetaliation",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Give Raid and Retaliation"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] 1 of your Digimon gains \u003CRaid\u003E and \u003CRetaliation\u003E until your opponent\u0027s turn ends."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.GainRaid",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainRetaliation",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Give Raid and Retaliation"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanPlay",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "ADVENTURE"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "cardSource.HasPlayCost"
+                }
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "cardSource.GetCostItself"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanActivateOnDeletion",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "CanPlay"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play ADVENTURE cost 4 or less"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescriptionShared",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanPlay",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "ADVENTURE"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "cardSource.HasPlayCost"
+                }
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "cardSource.GetCostItself"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanActivateOnDeletion",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "CanPlay"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play ADVENTURE cost 4 or less"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescriptionShared",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

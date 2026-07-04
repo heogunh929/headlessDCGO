@@ -1,0 +1,367 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT18_082",
+  "set": "BT18",
+  "color": "Purple",
+  "className": "BT18_082",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.EqualsCardName",
+            "args": [
+              {
+                "lit": "Lucemon"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 6
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Your opponent may delete 1 of their Digimon or Tamers. If this effect didn\u0027t delete, trash the top card of your opponents security stack and \u003CRecovery \u002B1\u003E."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "ref": "deleteTargetPermanents"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "ref": "FailureProcess"
+                  }
+                ]
+              },
+              {
+                "call": "new IDestroySecurity(\r\n                                player: card.Owner.Enemy,\r\n                                destroySecurityCount: 1,\r\n                                cardEffect: activateClass,\r\n                                fromTop: true).DestroySecurity",
+                "args": []
+              },
+              {
+                "call": "new IRecovery(card.Owner, 1, activateClass).Recovery",
+                "args": []
+              },
+              {
+                "call": "new IDestroySecurity(\r\n                            player: card.Owner.Enemy,\r\n                            destroySecurityCount: 1,\r\n                            cardEffect: activateClass,\r\n                            fromTop: true).DestroySecurity",
+                "args": []
+              },
+              {
+                "call": "new IRecovery(card.Owner, 1, activateClass).Recovery",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Opponent deletes 1 Digimon or Tamer/Trash and Recover"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Your opponent may delete 1 of their Digimon or Tamers. If this effect didn\u0027t delete, trash the top card of your opponents security stack and \u003CRecovery \u002B1\u003E."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "ref": "deleteTargetPermanents"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "ref": "FailureProcess"
+                  }
+                ]
+              },
+              {
+                "call": "new IDestroySecurity(\r\n                                player: card.Owner.Enemy,\r\n                                destroySecurityCount: 1,\r\n                                cardEffect: activateClass,\r\n                                fromTop: true).DestroySecurity",
+                "args": []
+              },
+              {
+                "call": "new IRecovery(card.Owner, 1, activateClass).Recovery",
+                "args": []
+              },
+              {
+                "call": "new IDestroySecurity(\r\n                            player: card.Owner.Enemy,\r\n                            destroySecurityCount: 1,\r\n                            cardEffect: activateClass,\r\n                            fromTop: true).DestroySecurity",
+                "args": []
+              },
+              {
+                "call": "new IRecovery(card.Owner, 1, activateClass).Recovery",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Opponent deletes 1 Digimon or Tamer/Trash and Recover"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "WhenRemoveField",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns] (Once Per Turn) When this Digimon would leave the battle area, by trashing the bottom card of your security stack, it doesn\u0027t leave."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenRemoveField",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.SecurityCards.Count"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new IDestroySecurity(\r\n                        card.Owner,\r\n                        1,\r\n                        activateClass,\r\n                        false).DestroySecurity",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Protection_BT18-082\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Trash the bottom card of your security stack to not leave"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

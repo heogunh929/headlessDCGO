@@ -1,0 +1,546 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT19_064",
+  "set": "BT19",
+  "color": "Black",
+  "className": "BT19_064",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "targetPermanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Justimon: Accel Arm"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "targetPermanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Justimon: Critical Arm"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnCounterTiming",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlastDigivolveEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] This Digimon gains \u003CBlocker\u003E and isn\u0027t affected by your opponent\u0027s Digimon\u0027s effects until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.GainBlocker",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "This Digimon gains Blocker and isn\u0027t affected by digimon effects"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] This Digimon gains \u003CBlocker\u003E and isn\u0027t affected by your opponent\u0027s Digimon\u0027s effects until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.GainBlocker",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "This Digimon gains Blocker and isn\u0027t affected by digimon effects"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] (Once Per Turn) By trashing 1 Option card in the battle area, unsuspend this Digimon."
+          }
+        },
+        {
+          "name": "IsOption",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "member": "permanent.IsOption"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "IsOption"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { selectedPermanent }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanents"
+                      ],
+                      "body": {
+                        "call": "SuccessProcess",
+                        "args": []
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "call": "new IUnsuspendPermanents(\r\n                                new List\u003CPermanent\u003E { card.PermanentOfThisCard() },\r\n                                activateClass).Unsuspend",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022TrashUnsuspend_BT19_062\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "By trashing 1 option card, unsuspend"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] (Once Per Turn) By trashing 1 Option card in the battle area, unsuspend this Digimon."
+          }
+        },
+        {
+          "name": "IsOption",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "member": "permanent.IsOption"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "IsOption"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { selectedPermanent }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanents"
+                      ],
+                      "body": {
+                        "call": "SuccessProcess",
+                        "args": []
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "call": "new IUnsuspendPermanents(\r\n                                new List\u003CPermanent\u003E { card.PermanentOfThisCard() },\r\n                                activateClass).Unsuspend",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022TrashUnsuspend_BT19_062\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "By trashing 1 option card, unsuspend"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,412 @@
+{
+  "schema": "source-ir/1",
+  "card": "ST17_11",
+  "set": "ST17",
+  "color": "Green",
+  "className": "ST17_11",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Reveal the top 3 cards of your deck. Add 1 green Digimon card and 1 green Tamer card from among them to your hand. Place the remaining cards at the bottom of your deck in any order. Then, place this card in your battle area."
+          }
+        },
+        {
+          "name": "CanSelectDigimonCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "call": "cardSource.HasCardColor",
+              "args": [
+                {
+                  "member": "CardColor.Green"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectTamerCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsTamer"
+            },
+            "rhs": {
+              "call": "cardSource.HasCardColor",
+              "args": [
+                {
+                  "member": "CardColor.Green"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.RevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SelectCardConditionClass[]\r\n                    {\r\n                        new SelectCardConditionClass(\r\n                            canTargetCondition:CanSelectDigimonCondition,\r\n                            canTargetCondition_ByPreSelecetedList:null,\r\n                            canEndSelectCondition:null,\r\n                            canNoSelect:false,\r\n                            selectCardCoroutine: null,\r\n                            message: \u0022Select 1 Green Digimon card.\u0022,\r\n                            maxCount: 1,\r\n                            canEndNotMax:false,\r\n                            mode: SelectCardEffect.Mode.AddHand\r\n                            ),\r\n                            new SelectCardConditionClass(\r\n                            canTargetCondition:CanSelectTamerCondition,\r\n                            canTargetCondition_ByPreSelecetedList:null,\r\n                            canEndSelectCondition:null,\r\n                            canNoSelect:false,\r\n                            selectCardCoroutine: null,\r\n                            message: \u0022Select 1 Green Tamer card.\u0022,\r\n                            maxCount: 1,\r\n                            canEndNotMax:false,\r\n                            mode: SelectCardEffect.Mode.AddHand\r\n                            ),\r\n                    }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.PlaceDelayOptionCards",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] \u003CDelay\u003E You may play 1 [Terriermon] or [Lopmon] from you hand without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanDeclareOptionDelayEffect",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "cardSource.CardNames.Contains",
+                  "args": [
+                    {
+                      "lit": "Terriermon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "cardSource.CardNames.Contains",
+                  "args": [
+                    {
+                      "lit": "Lopmon"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { card.PermanentOfThisCard() }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanents"
+                      ],
+                      "body": {
+                        "call": "SuccessProcess",
+                        "args": []
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Hand"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 [Terriermon] or [Lopmon]"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] Suspend 2 of your opponent\u0027s Digimon. Then, place this card in the battle area."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.CanSelectBySkill",
+              "args": [
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerSecurityEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.PlaceDelayOptionCards",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsSecurityEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "opaque": "$\u0022Suspend 2 Digimon\u0022"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

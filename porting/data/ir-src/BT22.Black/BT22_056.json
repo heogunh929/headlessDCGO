@@ -1,0 +1,317 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT22_056",
+  "set": "BT22",
+  "color": "Black",
+  "className": "BT22_056",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.TopCard.IsLevel3"
+            },
+            "rhs": {
+              "member": "targetPermanent.TopCard.HasCSTraits"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] 1 of your opponent\u0027s Digimon gets -3000 DP for the turn. Then, if this Digimon\u0027s stack has 2 or more same-level cards, \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon. (Trash the top card. You can\u0027t trash past level 3 cards.)"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "selectedPermament"
+                  },
+                  {
+                    "opaque": "-3000"
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(selectedPermament, 1, activateClass).Degeneration",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Give 1 digimon -3k DP. if 2 or more same level in sources, De-Digivolve 1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "SharedCanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] 1 of your opponent\u0027s Digimon gets -3000 DP for the turn. Then, if this Digimon\u0027s stack has 2 or more same-level cards, \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon. (Trash the top card. You can\u0027t trash past level 3 cards.)"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "selectedPermament"
+                  },
+                  {
+                    "opaque": "-3000"
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(selectedPermament, 1, activateClass).Degeneration",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Give 1 digimon -3k DP. if 2 or more same level in sources, De-Digivolve 1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "SharedCanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 2000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

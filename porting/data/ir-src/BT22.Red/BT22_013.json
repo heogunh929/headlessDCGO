@@ -1,0 +1,659 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT22_013",
+  "set": "BT22",
+  "color": "Red",
+  "className": "BT22_013",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.TopCard.IsLevel5"
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "member": "targetPermanent.TopCard.HasCSTraits"
+              },
+              "rhs": {
+                "member": "targetPermanent.TopCard.HasGreymonName"
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Hand][Main] If you have [Nokia Shiramine], 1 of your [Agumon] digivolves into this card for a digivolution cost of 6, ignoring digivolution requirements."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnHand",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "HasNokia"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "PermanentCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "HasNokia",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "targetPermanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "targetPermanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Nokia Shiramine"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "targetPermanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "targetPermanent.TopCard.EqualsCardName",
+                "args": [
+                  {
+                    "lit": "Agumon"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "card.CanPlayCardTargetFrame",
+              "args": [
+                {
+                  "member": "targetPermanent.PermanentFrame"
+                },
+                {
+                  "const": true
+                },
+                {
+                  "ref": "activateClass"
+                },
+                {
+                  "lit": 6
+                },
+                {
+                  "member": "CardEffectCommons.IgnoreRequirement.All"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectHandCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "CanSelectHandCardCondition"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "lit": 6
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "call": "OnFail",
+                    "args": []
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "CardEffectCommons.IgnoreRequirement.All"
+                  }
+                ]
+              },
+              {
+                "call": "CardObjectController.AddTrashCard",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Digivolve for a cost of 6"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Activate 1 of the effects below:\r\n\u30FB1 of your [Gabumon] may digivolve into [MetalGarurumon] in the hand, ignoring digivolution requirements and without paying the cost.\r\n\u30FBDelete 1 of your opponent\u0027s Digimon with the lowest DP."
+          }
+        },
+        {
+          "name": "CanSelectOwnPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.TopCard.EqualsCardName",
+                "args": [
+                  {
+                    "lit": "Gabumon"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.Owner.HandCards.Any",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "x"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "call": "CanSelectHandCardCondition",
+                          "args": [
+                            {
+                              "ref": "x"
+                            }
+                          ]
+                        },
+                        "rhs": {
+                          "call": "x.CanPlayCardTargetFrame",
+                          "args": [
+                            {
+                              "member": "permanent.PermanentFrame"
+                            },
+                            {
+                              "const": false
+                            },
+                            {
+                              "ref": "activateClass"
+                            },
+                            {
+                              "member": "CardEffectCommons.IgnoreRequirement.All"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectHandCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "call": "cardSource.EqualsCardName",
+              "args": [
+                {
+                  "lit": "MetalGarurumon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectOpponentPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsMinDP",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "member": "card.Owner.Enemy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "CanSelectHandCardCondition"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "lit": 0
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "member": "CardEffectCommons.IgnoreRequirement.All"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Choose 1 effect"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] [Once Per Turn] If this Digimon has [Omnimon] in its name, trash your opponent\u0027s top security card."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard().TopCard.ContainsCardName",
+              "args": [
+                {
+                  "lit": "Omnimon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new IDestroySecurity(\r\n                        player: card.Owner.Enemy,\r\n                        destroySecurityCount: 1,\r\n                        cardEffect: activateClass,\r\n                        fromTop: true).DestroySecurity",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022TrashSecurity_BT22_013\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Trash the top card of opponent\u0027s security"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

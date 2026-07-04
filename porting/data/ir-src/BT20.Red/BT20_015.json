@@ -1,0 +1,739 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT20_015",
+  "set": "BT20",
+  "color": "Red",
+  "className": "BT20_015",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "targetPermanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Ginryumon"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "targetPermanent.TopCard.IsLevel4"
+              },
+              "rhs": {
+                "call": "targetPermanent.TopCard.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Chronicle"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] You may play 1 [Dorumon]/[Ryudamon] from your hand to your empty breeding area without paying the cost. Then if during an attack, until the end of your opponent\u0027s turn, 1 of your Digimon gains \u003CSecurity Attack \u002B1\u003E and gets \u002B5000 DP."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsCorrectRookieCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "cardSource.EqualsCardName",
+                  "args": [
+                    {
+                      "lit": "Dorumon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsCardName",
+                  "args": [
+                    {
+                      "lit": "Ryudamon"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                },
+                {
+                  "const": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "PlayBreedingAreaCondition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "IsCorrectRookieCardCondition"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "memberOf": {
+                  "call": "card.Owner.GetBreedingAreaPermanents",
+                  "args": []
+                },
+                "name": "Count"
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "IsAttackingCondition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "member": "GManager.instance.attackProcess.IsAttacking"
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "PlayBreedingAreaCondition",
+                "args": []
+              },
+              "rhs": {
+                "call": "IsAttackingCondition",
+                "args": []
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Hand"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttack",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "lit": 5000
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 Digimon from your hand to your empty breeding area"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] You may play 1 [Dorumon]/[Ryudamon] from your hand to your empty breeding area without paying the cost. Then if during an attack, until the end of your opponent\u0027s turn, 1 of your Digimon gains \u003CSecurity Attack \u002B1\u003E and gets \u002B5000 DP."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsCorrectRookieCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "cardSource.EqualsCardName",
+                  "args": [
+                    {
+                      "lit": "Dorumon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsCardName",
+                  "args": [
+                    {
+                      "lit": "Ryudamon"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                },
+                {
+                  "const": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "PlayBreedingAreaCondition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "IsCorrectRookieCardCondition"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "memberOf": {
+                  "call": "card.Owner.GetBreedingAreaPermanents",
+                  "args": []
+                },
+                "name": "Count"
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "IsAttackingCondition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "member": "GManager.instance.attackProcess.IsAttacking"
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "PlayBreedingAreaCondition",
+                "args": []
+              },
+              "rhs": {
+                "call": "IsAttackingCondition",
+                "args": []
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Hand"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttack",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "lit": 5000
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 Digimon from your hand to your empty breeding area"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "InvalidateCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+                        "args": [
+                          {
+                            "ref": "card"
+                          }
+                        ]
+                      },
+                      "rhs": {
+                        "call": "CardEffectCommons.IsOwnerTurn",
+                        "args": [
+                          {
+                            "ref": "card"
+                          }
+                        ]
+                      }
+                    },
+                    "rhs": {
+                      "binop": "!=",
+                      "lhs": {
+                        "ref": "cardEffect"
+                      },
+                      "rhs": {
+                        "null": true
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "member": "cardEffect.EffectSourceCard"
+                  }
+                },
+                "rhs": {
+                  "member": "cardEffect.EffectSourceCard.IsOption"
+                }
+              },
+              "rhs": {
+                "member": "cardEffect.IsSecurityEffect"
+              }
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "GManager.instance.attackProcess.AttackingPermanent"
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard",
+                "args": []
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "DisableEffectClass invalidationClass = new DisableEffectClass();"
+        },
+        {
+          "opaque": "invalidationClass.SetUpICardEffect(\u0022Ignore Security Effect\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "invalidationClass.SetUpDisableEffectClass(DisableCondition: InvalidateCondition);"
+        },
+        {
+          "opaque": "invalidationClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "invalidationClass"
+        }
+      ]
+    }
+  ]
+}

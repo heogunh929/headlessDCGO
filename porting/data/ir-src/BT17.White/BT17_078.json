@@ -1,0 +1,414 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT17_078",
+  "set": "BT17",
+  "color": "White",
+  "className": "BT17_078",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent)\r\n                        {\r\n                            if (permanent != null)\r\n                            {\r\n                                if (permanent.TopCard != null)\r\n                                {\r\n                                    if (permanent.TopCard.Owner == card.Owner)\r\n                                    {\r\n                                        if (permanent.IsDigimon)\r\n                                        {\r\n                                            if (permanent.TopCard.Owner.GetBattleAreaPermanents().Contains(permanent))\r\n                                            {\r\n                                                if (permanent.TopCard.ContainsCardName(\u0022Greymon\u0022))\r\n                                                {\r\n                                                    if (permanent.Levels_ForJogress(card).Contains(6))\r\n                                                    {\r\n                                                        return true;\r\n                                                    }\r\n                                                }\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } bool PermanentCondition2(Permanent permanent)\r\n                        {\r\n                            if (permanent != null)\r\n                            {\r\n                                if (permanent.TopCard != null)\r\n                                {\r\n                                    if (permanent.TopCard.Owner == card.Owner)\r\n                                    {\r\n                                        if (permanent.IsDigimon)\r\n                                        {\r\n                                            if (permanent.TopCard.Owner.GetBattleAreaPermanents().Contains(permanent))\r\n                                            {\r\n                                                if (permanent.TopCard.ContainsCardName(\u0022Garurumon\u0022))\r\n                                                {\r\n                                                    if (permanent.Levels_ForJogress(card).Contains(6))\r\n                                                    {\r\n                                                        return true;\r\n                                                    }\r\n                                                }\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } JogressConditionElement[] elements = new JogressConditionElement[]\r\n                        {\r\n                        new JogressConditionElement(PermanentCondition1, \u0022Lv.6 w/[Greymon] in name\u0022),\r\n\r\n                        new JogressConditionElement(PermanentCondition2, \u0022Lv.6 w/[Garurumon] in name\u0022),\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnCounterTiming",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "List\u003CBlastDNACondition\u003E blastDNAConditions = new List\u003CBlastDNACondition\u003E\r\n                {\r\n                    new(\u0022WarGreymon\u0022),\r\n                    new(\u0022MetalGarurumon\u0022)\r\n                };"
+        },
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlastDNADigivolveEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "blastDNAConditions",
+              "value": {
+                "ref": "blastDNAConditions"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RaidSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] If DNA Digivolving, choose 1 opponent\u0027s Digimon and return that Digimon and all of their Digimon with the same level to the bottom of the deck. Then, delete 1 of their Digimon."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPlay",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "new DeckBottomBounceClass(returnedPermanents, _hashtable).DeckBounce",
+                "args": []
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "GManager.instance.GetComponent\u003CEffects\u003E().ShowCardEffect",
+                "args": [
+                  {
+                    "ref": "cardSources"
+                  },
+                  {
+                    "lit": "Deck Bottom Cards"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "putLibraryBottomPermanent.DeckBounce",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return all digimon of a selected level, Then delete 1 Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] If DNA Digivolving, choose 1 opponent\u0027s Digimon and return that Digimon and all of their Digimon with the same level to the bottom of the deck. Then, delete 1 of their Digimon."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "new DeckBottomBounceClass(returnedPermanents, _hashtable).DeckBounce",
+                "args": []
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "GManager.instance.GetComponent\u003CEffects\u003E().ShowCardEffect",
+                "args": [
+                  {
+                    "ref": "cardSources"
+                  },
+                  {
+                    "lit": "Deck Bottom Cards"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "putLibraryBottomPermanent.DeckBounce",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return all digimon of a selected level, Then delete 1 Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

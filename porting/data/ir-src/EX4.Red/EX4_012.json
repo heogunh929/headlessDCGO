@@ -1,0 +1,301 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX4_012",
+  "set": "EX4",
+  "color": "Red",
+  "className": "EX4_012",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Delete 1 of your opponent\u0027s Digimon with 6000 DP or less. For every Digimon your opponent has in play, add 2000 to the maximum this DP-based deletion effect can delete."
+          }
+        },
+        {
+          "name": "maxDP",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "int maxDP = 6000; maxDP \u002B= 2000 * card.Owner.Enemy.GetBattleAreaDigimons().Count; return maxDP;"
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "call": "card.Owner.MaxDP_DeleteEffect",
+                "args": [
+                  {
+                    "call": "maxDP",
+                    "args": []
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "opaque": "activateClass.SetEffectName($\u0022Delete 1 Digimon with {maxDP()} DP or less\u0022); return true;"
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "opaque": "$\u0022Delete 1 Digimon\u0022"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns][Once Per Turn] When an opponent\u0027s Digimon is deleted, if you have a Tamer in play, delete 1 of your opponent\u0027s Digimon with the highest DP."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsMaxDP",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "member": "card.Owner.Enemy"
+              },
+              {
+                "null": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPermanentDeleted",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "PermanentCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "permanent"
+                    ],
+                    "body": {
+                      "member": "permanent.IsTamer"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Delete_EX4_012\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete opponent\u0027s 1 Digimon with the highest DP"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

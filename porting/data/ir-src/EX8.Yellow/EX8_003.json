@@ -1,0 +1,170 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX8_003",
+  "set": "EX8",
+  "color": "Yellow",
+  "className": "EX8_003",
+  "branches": [
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] [Once Per Turn] If you have another Digimon, 1 of your opponent\u0027s Digimon gets -2000 DP for the turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "AnotherDigimonOnField",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+            "args": [
+              {
+                "ref": "card"
+              },
+              {
+                "lambda": {
+                  "params": [
+                    "permanent"
+                  ],
+                  "body": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "member": "permanent.IsDigimon"
+                    },
+                    "rhs": {
+                      "binop": "!=",
+                      "lhs": {
+                        "ref": "permanent"
+                      },
+                      "rhs": {
+                        "call": "card.PermanentOfThisCard",
+                        "args": []
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "AnotherDigimonOnField",
+              "args": []
+            }
+          }
+        },
+        {
+          "name": "SelectOpponentsDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "opaque": "-2000"
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022ChangeDP_EX8_003\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Opponent\u0027s Digimon gets -2000 DP for the turn"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

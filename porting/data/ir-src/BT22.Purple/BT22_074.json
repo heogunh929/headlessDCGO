@@ -1,0 +1,529 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT22_074",
+  "set": "BT22",
+  "color": "Purple",
+  "className": "BT22_074",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.TopCard.IsLevel4"
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "member": "targetPermanent.TopCard.HasFlameTraits"
+              },
+              "rhs": {
+                "member": "targetPermanent.TopCard.HasCSTraits"
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] [Once Per Turn] By paying 3 cost, delete 1 of your opponent\u0027s level 5 or lower Digimon. If this effect didn\u0027t delete, this Digimon gains \u003CSecurity A. \u002B1\u003E (This Digimon checks 1 additional security card) for the turn. Then, this Digimon may attack."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermamentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasLevel"
+              }
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.TopCard.Level"
+              },
+              "rhs": {
+                "lit": 5
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "opaque": "-3"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { selectedPermanent }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "ref": "FailureProcess"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttack",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttack",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "selectAttackEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT22_074_Main\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Pay 3, Delete 1 level 5 or lower digimon, if it didn\u0027t Sec \u002B1. then it may attack"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] \u003CDraw 2\u003E (Draw 2 cards from your deck) and trash 1 card in your hand."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanActivateOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DrawClass(card.Owner, 2, activateClass).Draw",
+                "args": []
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Draw 2 and trash 1 card from hand"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] You may play 1 level 4 or lower Digimon card with the [Flame] or [CS] trait from your trash without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanActivateOnDeletion",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "CanSelectCardCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "member": "cardSource.IsDigimon"
+                  },
+                  "rhs": {
+                    "binop": "||",
+                    "lhs": {
+                      "member": "cardSource.HasFlameTraits"
+                    },
+                    "rhs": {
+                      "member": "cardSource.HasCSTraits"
+                    }
+                  }
+                },
+                "rhs": {
+                  "member": "cardSource.HasLevel"
+                }
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "cardSource.Level"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { selectedCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 4 or lower [Flame]/[CS] Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

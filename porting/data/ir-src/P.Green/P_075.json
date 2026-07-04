@@ -1,0 +1,222 @@
+{
+  "schema": "source-ir/1",
+  "card": "P_075",
+  "set": "P",
+  "color": "Green",
+  "className": "P_075",
+  "branches": [
+    {
+      "timing": "BeforePayCost",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn] When this Digimon digivolves into a card with [Insectoid] in its traits, all of your opponent\u0027s Digimon gain \u0022[All Turns] When this Digimon is suspended, lose 1 memory.\u0022 until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanTriggerWhenPermanentWouldDigivolve",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "==",
+                        "lhs": {
+                          "ref": "permanent"
+                        },
+                        "rhs": {
+                          "call": "card.PermanentOfThisCard",
+                          "args": []
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardSource"
+                      ],
+                      "body": {
+                        "call": "cardSource.CardTraits.Contains",
+                        "args": [
+                          {
+                            "lit": "Insectoid"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.GetComponent\u003CEffects\u003E().CreateDebuffEffect",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  }
+                ]
+              },
+              {
+                "call": "cardSource.Owner.AddMemory",
+                "args": [
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "ref": "activateClass1"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Debuff_P_075\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Opponent\u0027s Digimon gain effect"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDetermineDoSecurityCheck",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "Insectoid"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PierceSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

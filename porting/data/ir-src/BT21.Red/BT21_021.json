@@ -1,0 +1,678 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT21_021",
+  "set": "BT21",
+  "color": "Red",
+  "className": "BT21_021",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.IsDigimon"
+            },
+            "rhs": {
+              "call": "targetPermanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Shoutmon"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 4
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.IsDigimon"
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "targetPermanent.Level"
+              },
+              "rhs": {
+                "lit": 4
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "ChangeCardNames",
+          "returns": "List\u003Cstring\u003E",
+          "params": [
+            "cardSource",
+            "cardNames"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "cardNames.Add(\u0022Shoutmon\u0022);"
+              }
+            },
+            "rhs": {
+              "ref": "cardNames"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCardNamesForDigiXrosClass changeCardNamesForDigiXrosClass = new ChangeCardNamesForDigiXrosClass();"
+        },
+        {
+          "opaque": "changeCardNamesForDigiXrosClass.SetUpICardEffect(\u0022Also treated as [Shoutmon] for a DigiXros\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "changeCardNamesForDigiXrosClass.SetUpChangeCardNamesForDigiXrosClass(changeCardNames: ChangeCardNames);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCardNamesForDigiXrosClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetDigiXros",
+          "returns": "DigiXrosCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "DigiXrosConditionElement element = new DigiXrosConditionElement(CanSelectCardCondition, \u0022[Xros Heart] Digimon\u0022); bool CanSelectCardCondition(CardSource cardSource)\r\n                        {\r\n                            if (cardSource != null)\r\n                            {\r\n                                if (cardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (cardSource.IsDigimon)\r\n                                    {\r\n                                        if (cardSource.EqualsCardNameDigiXros(\u0022Shoutmon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } List\u003CDigiXrosConditionElement\u003E elements = new List\u003CDigiXrosConditionElement\u003E() { element }; DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2); return digiXrosCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpICardEffect($\u0022DigiXros\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addDigiXrosConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] You may place 1 Digimon card with the [Xros Heart]/[Blue Flare] trait from your hand or trash under any of your Tamers. Then,\u003CSave\u003E"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanActivateOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectTamerCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "member": "permanent.IsTamer"
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "cardSource.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Xros Heart"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "cardSource.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Blue Flare"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectedPermanent.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { selectedCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.SaveProcess",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "CanSelectTamerCondition"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place 1 [Xros]/[Blue Flare] digimon under tamer, then \u003CSave\u003E"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEndAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Attack] You may play 1 card with the [Xros Heart]/[Blue Flare]/[Hero] trait from your hand with the play cost reduced by 5. If you did, delete this Digimon."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnEndAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "CanSelectCardCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "||",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "member": "cardSource.IsTamer"
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "Xros Heart"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "Blue Flare"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "cardSource.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Hero"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { selectedCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Hand"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 [Xros Heart]/[Blue Flare]/[Hero] Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "card.PermanentOfThisCard().TopCard.EqualsTraits",
+            "args": [
+              {
+                "lit": "Xros Heart"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RushSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,785 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT20_036",
+  "set": "BT20",
+  "color": "Yellow",
+  "className": "BT20_036",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "targetPermanent.TopCard.HasLevel"
+              },
+              "rhs": {
+                "member": "targetPermanent.TopCard.IsLevel5"
+              }
+            },
+            "rhs": {
+              "call": "targetPermanent.TopCard.EqualsTraits",
+              "args": [
+                {
+                  "lit": "ACCEL"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.HasMatchConditionPermanent",
+            "args": [
+              {
+                "ref": "HasAccelTraitInPlay"
+              }
+            ]
+          }
+        },
+        {
+          "name": "HasAccelTraitInPlay",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsTraits",
+              "args": [
+                {
+                  "lit": "ACCEL"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "MandatorySelfPlayCostReduction",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "lit": 5
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] \u003CDe-Digivolve 2\u003E 1 of your opponent\u0027s Digimon. Then, 1 of their Digimon gets -5000 DP until the end of their turn."
+          }
+        },
+        {
+          "name": "IsOpponentsDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "IsOpponentsDigimon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(target, 2, activateClass).Degeneration",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "target"
+                  },
+                  {
+                    "opaque": "-5000"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "\u003CDe-Digivolve 2\u003E 1 of your opponent\u0027s Digimon, then 1 gets -5000 DP"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] \u003CDe-Digivolve 2\u003E 1 of your opponent\u0027s Digimon. Then, 1 of their Digimon gets -5000 DP until the end of their turn."
+          }
+        },
+        {
+          "name": "IsOpponentsDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "IsOpponentsDigimon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(target, 2, activateClass).Degeneration",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "target"
+                  },
+                  {
+                    "opaque": "-5000"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "\u003CDe-Digivolve 2\u003E 1 of your opponent\u0027s Digimon, then 1 gets -5000 DP"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn] This Digimon and any of your other Digimon may DNA digivolve into a Digimon card with [Chaosmon] in its name in the hand. Then, the DNA digivolved Digimon may attack."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "cardSource.ContainsCardName",
+                  "args": [
+                    {
+                      "lit": "Chaosmon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "cardSource.CanPlayJogress",
+                    "args": [
+                      {
+                        "const": true
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "cardSource.CanJogressFromTargetPermanent",
+                    "args": [
+                      {
+                        "call": "card.PermanentOfThisCard",
+                        "args": []
+                      },
+                      {
+                        "const": true
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+                  "args": [
+                    {
+                      "ref": "card"
+                    },
+                    {
+                      "ref": "CanSelectCardCondition"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                  "args": [
+                    {
+                      "ref": "card"
+                    },
+                    {
+                      "lambda": {
+                        "params": [
+                          "permanent"
+                        ],
+                        "body": {
+                          "binop": "\u0026\u0026",
+                          "lhs": {
+                            "member": "permanent.IsDigimon"
+                          },
+                          "rhs": {
+                            "binop": "!=",
+                            "lhs": {
+                              "ref": "permanent"
+                            },
+                            "rhs": {
+                              "call": "card.PermanentOfThisCard",
+                              "args": []
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.DNADigivolvePermanentsIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "CanSelectCardCondition"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "opaque": "new Func\u003CPermanent, bool\u003E[] { (permanent) =\u003E permanent == card.PermanentOfThisCard() }"
+                  },
+                  {
+                    "ref": "OnDNASuccess"
+                  }
+                ]
+              },
+              {
+                "call": "selectAttackEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "DNA digivolve this Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Opponent\u0027s Turn] [Once Per Turn] When any of your opponent\u0027s Digimon attack, you may change the attack target to this Digimon."
+          }
+        },
+        {
+          "name": "IsOpponentDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsThisDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "permanent"
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard",
+              "args": []
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPermanentAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "IsOpponentDigimon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "GManager.instance.attackProcess.SwitchDefender",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "permanent"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Redirect_BT20-036\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "You may change the attack target to this Digimon."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

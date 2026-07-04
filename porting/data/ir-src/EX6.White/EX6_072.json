@@ -1,0 +1,327 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX6_072",
+  "set": "EX6",
+  "color": "White",
+  "className": "EX6_072",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u003E=",
+            "lhs": {
+              "call": "card.Owner.Enemy.GetBattleAreaDigimons().Count",
+              "args": [
+                {
+                  "lambda": {
+                    "params": [
+                      "permanent"
+                    ],
+                    "body": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "member": "permanent.TopCard.HasLevel"
+                      },
+                      "rhs": {
+                        "binop": "\u003E=",
+                        "lhs": {
+                          "member": "permanent.TopCard.Level"
+                        },
+                        "rhs": {
+                          "lit": 6
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "rhs": {
+              "lit": 1
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpICardEffect(\u0022Ignore color requirements\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "ignoreColorConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] 1 of your level 6 Digimon and 1 card in the hand may DNA digivolve into a level 7 Digimon card in the hand."
+          }
+        },
+        {
+          "name": "IsLevel7Card",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "member": "cardSource.HasLevel"
+              }
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "cardSource.Level"
+              },
+              "rhs": {
+                "lit": 7
+              }
+            }
+          }
+        },
+        {
+          "name": "IsCardInHand",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "IsLevel6Permanent",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "permanent.IsDigimon"
+            },
+            "rhs": {
+              "member": "permanent.TopCard.IsLevel6"
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.DNADigivolveWithHandOrTrashCardIntoHandOrTrash",
+                "args": [
+                  {
+                    "ref": "IsLevel7Card"
+                  },
+                  {
+                    "ref": "IsLevel6Permanent"
+                  },
+                  {
+                    "ref": "IsCardInHand"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "DNA Digivolve"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] Return 1 level 6 or higher Digimon card from your trash to the hand. Then, add this card to the hand."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.HasLevel"
+              },
+              "rhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "cardSource.Level"
+                },
+                "rhs": {
+                  "lit": 6
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerSecurityEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.AddThisCardToHand",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return 1 Digimon from trash to hand then add this card to hand"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

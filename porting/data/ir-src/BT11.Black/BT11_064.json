@@ -1,0 +1,244 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT11_064",
+  "set": "BT11",
+  "color": "Black",
+  "className": "BT11_064",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Greymon"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 0
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ChangeCost",
+          "returns": "int",
+          "params": [
+            "cardSource",
+            "Cost",
+            "root",
+            "targetPermanents"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardSourceCondition",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "RootCondition",
+                  "args": [
+                    {
+                      "ref": "root"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "PermanentsCondition",
+                    "args": [
+                      {
+                        "ref": "targetPermanents"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "opaque": "Cost -= cardSource.CardColors.Count;"
+                  }
+                }
+              }
+            },
+            "rhs": {
+              "ref": "Cost"
+            }
+          }
+        },
+        {
+          "name": "PermanentsCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanents"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "targetPermanents"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "targetPermanents.Count",
+                "args": [
+                  {
+                    "ref": "PermanentCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "targetPermanent"
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard",
+              "args": []
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "member": "cardSource.HasGreymonName"
+          }
+        },
+        {
+          "name": "RootCondition",
+          "returns": "bool",
+          "params": [
+            "root"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "isUpDown",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "const": true
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCostClass changeCostClass = new ChangeCostClass();"
+        },
+        {
+          "opaque": "changeCostClass.SetUpICardEffect($\u0022Reduce Digivolution Cost\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "changeCostClass.SetUpChangeCostClass(\r\n                    changeCostFunc: ChangeCost,\r\n                    cardSourceCondition: CardSourceCondition,\r\n                    rootCondition: RootCondition,\r\n                    isUpDown: isUpDown,\r\n                    isCheckAvailability: () =\u003E false,\r\n                    isChangePayingCost: () =\u003E true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCostClass"
+        }
+      ]
+    }
+  ]
+}

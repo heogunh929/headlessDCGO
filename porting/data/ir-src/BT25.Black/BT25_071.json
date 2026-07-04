@@ -1,0 +1,125 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_071",
+  "set": "BT25",
+  "color": "Black",
+  "className": "BT25_071",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.EqualsTraits",
+            "args": [
+              {
+                "lit": "TS"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "level",
+              "value": {
+                "lit": 4
+              }
+            },
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnTappedAnyone",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT25_073_AT\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "call": "SharedEffectName1",
+            "args": []
+          },
+          "useCondition": "SharedCanUseCondition",
+          "activateCondition": "SharedCanActivateCondition",
+          "coroutine": "hash =\u003E SharedActivateCoroutine1(hash, activateClass)",
+          "description": {
+            "call": "SharedEffectDescription1",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnTappedAnyone",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT25_073_AT_ESS\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "call": "SharedEffectName1",
+            "args": []
+          },
+          "useCondition": "SharedCanUseCondition",
+          "activateCondition": "SharedCanActivateCondition",
+          "coroutine": "hash =\u003E SharedActivateCoroutine1(hash, activateClass)",
+          "description": {
+            "call": "SharedEffectDescription1",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

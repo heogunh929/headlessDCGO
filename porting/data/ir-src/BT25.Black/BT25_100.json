@@ -1,0 +1,343 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_100",
+  "set": "BT25",
+  "color": "Black",
+  "className": "BT25_100",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.IsDigimon"
+            },
+            "rhs": {
+              "member": "targetPermanent.TopCard.HasTSTraits"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfLinkConditionStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "linkCost",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "LinkEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "member": "cardSource.HasTSTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "UseRequirements",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "CardCondition"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnCounterTiming",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CollisionSelfStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "const": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDetermineDoSecurityCheck",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PierceSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "isLinkedEffect",
+              "value": {
+                "const": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] \u003CDe-Digivolve 2\u003E 1 of your opponent\u0027s Digimon. Then, you may link this card to 1 of your Digimon on the field without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectOwnerPermamentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerPermanent",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.IsDigimon"
+              }
+            },
+            "rhs": {
+              "call": "card.CanLinkToTargetPermanent",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "const": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectEnemyPermamentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectedPermament.AddLinkCard",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "De-Digi(2) 1 opponent digimon, then may link to 1 of your digimon on the field"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] Activate this card\u0027s [Main] effect."
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022De-Digi(2) 1 opponent digimon, then may link to 1 digimon on the field\u0022, effectDiscription: EffectDiscription());"
+        }
+      ]
+    }
+  ]
+}

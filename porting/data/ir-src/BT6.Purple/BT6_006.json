@@ -1,0 +1,106 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT6_006",
+  "set": "BT6",
+  "color": "Purple",
+  "className": "BT6_006",
+  "branches": [
+    {
+      "timing": "OnDiscardHand",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn][Once Per Turn] When you trash a card in your hand using one of your effects, trigger \u003CDraw 1\u003E. (Draw 1 card from your deck.)"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "opaque": "bool SkillCondition(ICardEffect cardEffect)\r\n                        {\r\n                            if (cardEffect != null)\r\n                            {\r\n                                if (cardEffect.EffectSourceCard != null)\r\n                                {\r\n                                    if (cardEffect.EffectSourceCard.Owner == card.Owner)\r\n                                    {\r\n                                        return true;\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } if (CardEffectCommons.CanTriggerOnTrashHand(hashtable, SkillCondition, cardSource =\u003E cardSource.Owner == card.Owner))\r\n                        {\r\n                            return true;\r\n                        }"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DrawClass(card.Owner, 1, activateClass).Draw",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Draw1_BT6_006\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Draw 1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

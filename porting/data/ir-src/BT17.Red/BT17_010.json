@@ -1,0 +1,291 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT17_010",
+  "set": "BT17",
+  "color": "Red",
+  "className": "BT17_010",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Delete 1 of your opponent\u0027s Digimon with 4000 DP or less. If this effect didn\u0027t delete, this Digimon gets \u002B3000 DP for the turn."
+          }
+        },
+        {
+          "name": "CanSelectOpponentPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "call": "card.Owner.MaxDP_DeleteEffect",
+                "args": [
+                  {
+                    "lit": 4000
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "ref": "deleteTargetPermanents"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "ref": "FailureProcess"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "lit": 3000
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 Digimon with 4000 DP or less, or get \u002B3000 DP for the turn"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "isExistOnField",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "card.Owner.MemoryForPlayer"
+                },
+                "rhs": {
+                  "lit": 0
+                }
+              },
+              "rhs": {
+                "call": "card.Owner.GetBattleAreaDigimons().Contains",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ChangeMaxDP",
+          "returns": "int",
+          "params": [
+            "maxDP",
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "cardEffect"
+                },
+                "rhs": {
+                  "null": true
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "!=",
+                  "lhs": {
+                    "member": "cardEffect.EffectSourceCard"
+                  },
+                  "rhs": {
+                    "null": true
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "==",
+                    "lhs": {
+                      "member": "cardEffect.EffectSourceCard.Owner"
+                    },
+                    "rhs": {
+                      "member": "card.Owner"
+                    }
+                  },
+                  "rhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "binop": "==",
+                      "lhs": {
+                        "call": "cardEffect.EffectSourceCard.PermanentOfThisCard",
+                        "args": []
+                      },
+                      "rhs": {
+                        "call": "card.PermanentOfThisCard",
+                        "args": []
+                      }
+                    },
+                    "rhs": {
+                      "opaque": "maxDP \u002B= 2000;"
+                    }
+                  }
+                }
+              }
+            },
+            "rhs": {
+              "ref": "maxDP"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeDPDeleteEffectMaxDPClass changeDPDeleteEffectMaxDPClass = new ChangeDPDeleteEffectMaxDPClass();"
+        },
+        {
+          "opaque": "changeDPDeleteEffectMaxDPClass.SetUpICardEffect(\r\n                    \u0022Maximum DP of DP-based deletion effects gets \u002B2000 DP if 0 or less memory\u0022,\r\n                    CanUseCondition, card);"
+        },
+        {
+          "opaque": "changeDPDeleteEffectMaxDPClass.SetUpChangeDPDeleteEffectMaxDPClass(changeMaxDP: ChangeMaxDP);"
+        },
+        {
+          "opaque": "changeDPDeleteEffectMaxDPClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeDPDeleteEffectMaxDPClass"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,172 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT15_070",
+  "set": "BT15",
+  "color": "Purple",
+  "className": "BT15_070",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Reveal the top 4 cards of your deck. Add 1 card with [Myotismon] in its text among them to the hand. Return the rest to the bottom of the deck. If you added cards, trash 1 card in your hand."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.HasText",
+            "args": [
+              {
+                "lit": "Myotismon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.LibraryCards.Count"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 4
+                  },
+                  {
+                    "opaque": "new SimplifiedSelectCardConditionClass[]\r\n                        {\r\n                        new SimplifiedSelectCardConditionClass(\r\n                            canTargetCondition:CanSelectCardCondition,\r\n                            message: \u0022Select 1 card with [Myotismon] in its text.\u0022,\r\n                            mode: SelectCardEffect.Mode.AddHand,\r\n                            maxCount: 1,\r\n                            selectCardCoroutine: null),\r\n                        }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "ref": "RevealedCardsCoroutine"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal the top 4 cards of deck"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RetaliationSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,620 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_070",
+  "set": "BT25",
+  "color": "Black",
+  "className": "BT25_070",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "member": "targetPermanent.TopCard.HasStandardAppTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "member": "targetPermanent.TopCard.HasAppmonTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfLinkConditionStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "linkCost",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddAppfuseMethodByName",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "opaque": "new List\u003Cstring\u003E() { \u0022Offmon\u0022, \u0022Hackmon\u0022 }"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] [Once Per Turn] You may link 1 [Social], [Tool] or [Game] trait Digimon card from your trash or this Digimon\u0027s digivolution cards to this Digimon with the cost reduced by 1."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "CanLinkCardActivateCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard().DigivolutionCards.Any",
+                "args": [
+                  {
+                    "ref": "CanLinkCardActivateCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanLinkCardActivateCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "CanLinkCardCondition",
+            "args": [
+              {
+                "ref": "cardSource"
+              },
+              {
+                "const": false
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanLinkCardEffectCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "CanLinkCardCondition",
+            "args": [
+              {
+                "ref": "cardSource"
+              },
+              {
+                "const": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanLinkCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource",
+            "payCost"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "||",
+                "lhs": {
+                  "binop": "||",
+                  "lhs": {
+                    "call": "cardSource.EqualsTraits",
+                    "args": [
+                      {
+                        "lit": "Social"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "cardSource.EqualsTraits",
+                    "args": [
+                      {
+                        "lit": "Tool"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "Game"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "call": "cardSource.CanLinkToTargetPermanent",
+              "args": [
+                {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                },
+                {
+                  "ref": "payCost"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new ILinkCard(true, cardSource, card.PermanentOfThisCard(), activateClass).LinkCard",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Link for -1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "WhenLinked",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn] [Once Per Turn] When this Digimon gets linked, delete 1 of your opponent\u0027s Digimon with a play cost of 4 or less."
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "permanent"
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard",
+              "args": []
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenLinked",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "PermanentCondition"
+                },
+                {
+                  "null": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasPlayCost"
+              }
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.TopCard.GetCostItself"
+              },
+              "rhs": {
+                "lit": 4
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT25_070_YT\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 enemy 4 cost or less Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "LinkEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "WhenLinked",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Linking] 1 of your opponent\u0027s Digimon or Tamers can\u0027t unsuspend until their turn ends."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "member": "permanent.IsDigimon"
+              },
+              "rhs": {
+                "member": "permanent.IsTamer"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenLinking",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "null": true
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.GainCanNotUnsuspend",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "lit": "Can\u0027t unsuspend"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsLinkedEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "1 enemy Digimon or Tamers can\u0027t unsuspend until their turn ends"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

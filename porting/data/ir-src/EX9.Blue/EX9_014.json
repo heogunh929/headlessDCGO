@@ -1,0 +1,309 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX9_014",
+  "set": "EX9",
+  "color": "Blue",
+  "className": "EX9_014",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "targetPermanent.TopCard.IsLevel2"
+            },
+            "rhs": {
+              "call": "targetPermanent.TopCard.EqualsTraits",
+              "args": [
+                {
+                  "lit": "DM"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 0
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Reveal the top 3 cards of your deck. Among them, add 1 card with the [DM] trait to the hand and place 1 card with the [Ver.2] trait face down as the bottom digivolution card of any of your Digimon with the [DM] trait . Return the rest to the bottom of the deck."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPlay",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E",
+              "lhs": {
+                "member": "card.Owner.LibraryCards.Count"
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "HadDMTrait",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "call": "source.EqualsTraits",
+            "args": [
+              {
+                "lit": "DM"
+              }
+            ]
+          }
+        },
+        {
+          "name": "HasVer2Trait",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "call": "source.EqualsTraits",
+            "args": [
+              {
+                "lit": "Ver.2"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsTraits",
+              "args": [
+                {
+                  "lit": "DM"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SimplifiedSelectCardConditionClass[]\r\n                        {\r\n                            new SimplifiedSelectCardConditionClass(\r\n                                canTargetCondition:HadDMTrait,\r\n                                message: \u0022Select 1 [DM] card.\u0022,\r\n                                mode: SelectCardEffect.Mode.AddHand,\r\n                                maxCount: 1,\r\n                                selectCardCoroutine: null),\r\n                            new SimplifiedSelectCardConditionClass(\r\n                                canTargetCondition:HasVer2Trait,\r\n                                message: \u0022Select 1 [Ver.2] card.\u0022,\r\n                                mode: SelectCardEffect.Mode.Custom,\r\n                                maxCount: 1,\r\n                                selectCardCoroutine: SelectCardCoroutine),\r\n                        }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardObjectController.AddExecutingCard",
+                "args": [
+                  {
+                    "ref": "selectedCard"
+                  }
+                ]
+              },
+              {
+                "call": "selectedPermanent.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { selectedCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal 3, Add 1 [DM] trait, and place 1 [Ver.2] trait under a [DM] digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "JammingSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

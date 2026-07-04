@@ -1,0 +1,306 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX6_017",
+  "set": "EX6",
+  "color": "Yellow",
+  "className": "EX6_017",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Reveal the top 3 cards of your deck. Add 1 Digimon card with the [Angel]/[Archangel] trait and 1 card with the [Three Great Angels] trait among them to your hand. Return the rest to the bottom of the deck."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "cardSource.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "Angel"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "cardSource.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "Archangel"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition1",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "cardSource.CardTraits.Contains",
+              "args": [
+                {
+                  "lit": "Three Great Angels"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "cardSource.CardTraits.Contains",
+              "args": [
+                {
+                  "lit": "ThreeGreatAngels"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPlay",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SimplifiedSelectCardConditionClass[]\r\n                        {\r\n                        new SimplifiedSelectCardConditionClass(\r\n                            canTargetCondition:CanSelectCardCondition,\r\n                            message: \u0022Select 1 Digimon card with the [Angel]/[Archangel] trait.\u0022,\r\n                            mode: SelectCardEffect.Mode.AddHand,\r\n                            maxCount: 1,\r\n                            selectCardCoroutine: null),\r\n                        new SimplifiedSelectCardConditionClass(\r\n                            canTargetCondition:CanSelectCardCondition1,\r\n                            message: \u0022Select 1 card with [Three Great Angels] trait.\u0022,\r\n                            mode: SelectCardEffect.Mode.AddHand,\r\n                            maxCount: 1,\r\n                            selectCardCoroutine: null),\r\n                        }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal the top 3 cards of deck"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking][Once Per Turn] If this Digimon has the [Angel]/[Archangel]/[Three Great Angels] trait, Draw 1"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "binop": "||",
+                  "lhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Angel"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Archangel"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "Three Great Angels"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "ThreeGreatAngels"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DrawClass(card.Owner, 1, activateClass).Draw",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Draw1_EX6_017\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Draw 1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

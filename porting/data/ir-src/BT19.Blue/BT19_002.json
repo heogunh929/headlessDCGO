@@ -1,0 +1,198 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT19_002",
+  "set": "BT19",
+  "color": "Blue",
+  "className": "BT19_002",
+  "branches": [
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Opponent\u0027s Turn] When any of your opponent\u0027s Digimon attack, by returning this Digimon with [Aqua]/[Sea Animal] in one of its traits to the bottom of the deck, return 1 of your opponent\u0027s Digimon with as high or lower a level as the returned Digimon to the hand."
+          }
+        },
+        {
+          "name": "AttackingPermanent",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.IsOpponentTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPermanentAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "AttackingPermanent"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasLevel"
+              }
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.Level"
+              },
+              "rhs": {
+                "ref": "bouncedLevel"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "memberOf": {
+                  "memberOf": {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  "name": "TopCard"
+                },
+                "name": "HasLevel"
+              }
+            },
+            "rhs": {
+              "memberOf": {
+                "memberOf": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                },
+                "name": "TopCard"
+              },
+              "name": "HasAquaTraits"
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DeckBottomBounceClass(new List\u003CPermanent\u003E { card.PermanentOfThisCard() }, hashtable).DeckBounce",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "int bouncedLevel = 0;"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Bottom deck this Digimon to return to hand an opponent\u0027s Digimon with the same level"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

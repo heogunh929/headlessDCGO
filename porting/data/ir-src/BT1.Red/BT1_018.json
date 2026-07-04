@@ -1,0 +1,83 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT1_018",
+  "set": "BT1",
+  "color": "Red",
+  "className": "BT1_018",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "card.Owner.MemoryForPlayer"
+                },
+                "rhs": {
+                  "lit": 3
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfSAttackStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

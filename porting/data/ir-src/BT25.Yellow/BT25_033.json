@@ -1,0 +1,131 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_033",
+  "set": "BT25",
+  "color": "Yellow",
+  "className": "BT25_033",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "member": "targetPermanent.TopCard.HasTSTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "level",
+              "value": {
+                "lit": 3
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BarrierSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BarrierSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

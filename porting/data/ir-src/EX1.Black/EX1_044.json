@@ -1,0 +1,155 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX1_044",
+  "set": "EX1",
+  "color": "Black",
+  "className": "EX1_044",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "count",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleArea",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.Owner.GetBattleAreaDigimons().Count",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "binop": "!=",
+                          "lhs": {
+                            "ref": "permanent"
+                          },
+                          "rhs": {
+                            "call": "card.PermanentOfThisCard",
+                            "args": []
+                          }
+                        },
+                        "rhs": {
+                          "call": "permanent.TopCard.HasSameCardName",
+                          "args": [
+                            {
+                              "memberOf": {
+                                "call": "card.PermanentOfThisCard",
+                                "args": []
+                              },
+                              "name": "TopCard"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "lit": 0
+            }
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "call": "count",
+                  "args": []
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lambda": {
+                  "params": [],
+                  "body": {
+                    "binop": "*",
+                    "lhs": {
+                      "lit": 1000
+                    },
+                    "rhs": {
+                      "call": "count",
+                      "args": []
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "schema": "source-ir/1",
+  "card": "ST3_12",
+  "set": "ST3",
+  "color": "Yellow",
+  "className": "ST3_12",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "member": "cardSource.Owner"
+            },
+            "rhs": {
+              "member": "card.Owner"
+            }
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSecurityDigimonCardDPStaticEffect",
+          "args": [
+            {
+              "name": "cardCondition",
+              "value": {
+                "ref": "CardCondition"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 2000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Your Security Digimon gains DP \u002B2000"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

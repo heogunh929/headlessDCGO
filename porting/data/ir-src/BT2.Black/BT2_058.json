@@ -1,0 +1,97 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT2_058",
+  "set": "BT2",
+  "color": "Black",
+  "className": "BT2_058",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.IsOwnerTurn",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CanNotAttackSelfStaticEffect",
+          "args": [
+            {
+              "name": "defenderCondition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Can\u0027t Attack"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

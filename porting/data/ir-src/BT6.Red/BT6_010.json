@@ -1,0 +1,98 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT6_010",
+  "set": "BT6",
+  "color": "Red",
+  "className": "BT6_010",
+  "branches": [
+    {
+      "timing": "OnDetermineDoSecurityCheck",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Hybrid"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Ten Warriors"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "TenWarriors"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PierceSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

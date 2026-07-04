@@ -1,0 +1,264 @@
+{
+  "schema": "source-ir/1",
+  "card": "LM_015",
+  "set": "LM",
+  "color": "Black",
+  "className": "LM_015",
+  "branches": [
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] If you have a Tamer, this Digimon may digivolve into [Ginryumon] in your hand without paying the cost."
+          }
+        },
+        {
+          "name": "HaveTamerCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "member": "permanent.IsTamer"
+            }
+          }
+        },
+        {
+          "name": "CanSelectDigimonCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Ginryumon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "HaveTamerCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "card.Owner.HandCards.Count"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "ref": "CanSelectDigimonCondition"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "This Digimon digivolves"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "card.ContainsTraits",
+                  "args": [
+                    {
+                      "lit": "X Antibody"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "card.ContainsTraits",
+                  "args": [
+                    {
+                      "lit": "XAntibody"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

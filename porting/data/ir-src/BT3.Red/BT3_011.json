@@ -1,0 +1,28 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT3_011",
+  "set": "BT3",
+  "color": "Red",
+  "className": "BT3_011",
+  "branches": [
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfDigimonAfterBattleSecurityEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

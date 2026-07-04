@@ -1,0 +1,639 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT19_025",
+  "set": "BT19",
+  "color": "Blue",
+  "className": "BT19_025",
+  "branches": [
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "MaterialSaveEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "materialSaveCount",
+              "value": {
+                "lit": 2
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] This Digimon gains \u003CRush\u003E for the turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.GainRush",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "This Digimon gains \u003CRush\u003E"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon. Then, this Digimon may digivolve into a Digimon card with the [Blue Flare] trait from under your Tamers without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "HasBlueFlareTraitCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "call": "cardSource.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Blue Flare"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "cardSource.CanPlayCardTargetFrame",
+              "args": [
+                {
+                  "memberOf": {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  "name": "PermanentFrame"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "TamerHasDigimonCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.IsTamer"
+              }
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "permanent.DigivolutionCards.Count",
+                "args": [
+                  {
+                    "ref": "HasBlueFlareTraitCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "TamerHasDigimonCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(permanent, 1, activateClass).Degeneration",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "new PlayCardClass(\r\n                                cardSources: selectedCards,\r\n                                hashtable: CardEffectCommons.CardEffectHashtable(activateClass),\r\n                                payCost: false,\r\n                                targetPermanent: card.PermanentOfThisCard(),\r\n                                isTapped: false,\r\n                                root: SelectCardEffect.Root.DigivolutionCards,\r\n                                activateETB: true).PlayCard",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "\u003CDe-Digivolve 1\u003E and digivolve into a [Blue Flare] card"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetDigiXros",
+          "returns": "DigiXrosCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "DigiXrosConditionElement elementA = new DigiXrosConditionElement(CanSelectCardConditionA, \u0022Blue Greymon\u0022); bool CanSelectCardConditionA(CardSource conditionCardSource)\r\n                        {\r\n                            if (conditionCardSource != null)\r\n                            {\r\n                                if (conditionCardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (conditionCardSource.IsDigimon)\r\n                                    {\r\n                                        if (conditionCardSource.CardNames_DigiXros.Contains(\u0022Greymon\u0022))\r\n                                        {\r\n                                            if (conditionCardSource.HasCardColor(CardColor.Blue))\r\n                                            {\r\n                                                return true;\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } DigiXrosConditionElement elementB = new DigiXrosConditionElement(CanSelectCardConditionB, \u0022MailBirdramon\u0022); bool CanSelectCardConditionB(CardSource conditionCardSource)\r\n                        {\r\n                            if (conditionCardSource != null)\r\n                            {\r\n                                if (conditionCardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (conditionCardSource.IsDigimon)\r\n                                    {\r\n                                        if (conditionCardSource.CardNames_DigiXros.Contains(\u0022MailBirdramon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } List\u003CDigiXrosConditionElement\u003E elements = new List\u003CDigiXrosConditionElement\u003E() { elementA, elementB }; DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2); return digiXrosCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpICardEffect($\u0022DigiXros -2\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addDigiXrosConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEndAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Attack] (Once Per Turn) You may play 1 level 4 or lower Digimon card with the [Blue Flare] trait from under any of your Tamers without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnEndAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "HasBlueFlareTraitCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "member": "cardSource.IsDigimon"
+                  },
+                  "rhs": {
+                    "call": "cardSource.EqualsTraits",
+                    "args": [
+                      {
+                        "lit": "Blue Flare"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "member": "cardSource.HasLevel"
+                }
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "cardSource.Level"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "TamerHasDigimonCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.IsTamer"
+              }
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "permanent.DigivolutionCards.Count",
+                "args": [
+                  {
+                    "ref": "HasBlueFlareTraitCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "TamerHasDigimonCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.DigivolutionCards"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022PlayDigimon_BT19_025\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 4 or lower [Blue Flare] Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

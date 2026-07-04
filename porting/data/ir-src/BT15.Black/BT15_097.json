@@ -1,0 +1,156 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT15_097",
+  "set": "BT15",
+  "color": "Black",
+  "className": "BT15_097",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] By trashing 1 Digimon card with the [Machine], [Cyborg] or [SoC] trait in your hand, delete 1 of your opponent\u0027s Digimon or Tamers with the lowest play cost."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "cardSource.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "Machine"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "cardSource.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "Cyborg"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "cardSource.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "SoC"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsMinCost",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "member": "card.Owner.Enemy"
+              },
+              {
+                "const": false
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 Digimon or Tamer"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022Trash 1 card from hand to delete 1 Digimon or Tamer with the lowest play cost\u0022);"
+        }
+      ]
+    }
+  ]
+}

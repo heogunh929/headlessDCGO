@@ -1,0 +1,553 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT9_067",
+  "set": "BT9",
+  "color": "Black",
+  "className": "BT9_067",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Place 1 [Raijinmon], 1 [Fujinmon], and 1 [Suijinmon] from your trash under this Digimon in any order as its bottom digivolution cards. Gain 1 memory for each card placed."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Raijinmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition1",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Fujinmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition2",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Suijinmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "cardSource"
+                    ],
+                    "body": {
+                      "binop": "||",
+                      "lhs": {
+                        "binop": "||",
+                        "lhs": {
+                          "call": "CanSelectCardCondition",
+                          "args": [
+                            {
+                              "ref": "cardSource"
+                            }
+                          ]
+                        },
+                        "rhs": {
+                          "call": "CanSelectCardCondition1",
+                          "args": [
+                            {
+                              "ref": "cardSource"
+                            }
+                          ]
+                        }
+                      },
+                      "rhs": {
+                        "call": "CanSelectCardCondition2",
+                        "args": [
+                          {
+                            "ref": "cardSource"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardObjectController.RemoveFromAllArea",
+                "args": [
+                  {
+                    "ref": "selectedCard"
+                  }
+                ]
+              },
+              {
+                "call": "card.PermanentOfThisCard().AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "ref": "digivolutionCards_fixed"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "ref": "plusMemory"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place cards in digivolution cards from trash to gain Memory"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Place 1 [Raijinmon], 1 [Fujinmon], and 1 [Suijinmon] from your trash under this Digimon in any order as its bottom digivolution cards. Gain 1 memory for each card placed."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Raijinmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition1",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Fujinmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition2",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Suijinmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "cardSource"
+                    ],
+                    "body": {
+                      "binop": "||",
+                      "lhs": {
+                        "binop": "||",
+                        "lhs": {
+                          "call": "CanSelectCardCondition",
+                          "args": [
+                            {
+                              "ref": "cardSource"
+                            }
+                          ]
+                        },
+                        "rhs": {
+                          "call": "CanSelectCardCondition1",
+                          "args": [
+                            {
+                              "ref": "cardSource"
+                            }
+                          ]
+                        }
+                      },
+                      "rhs": {
+                        "call": "CanSelectCardCondition2",
+                        "args": [
+                          {
+                            "ref": "cardSource"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardObjectController.RemoveFromAllArea",
+                "args": [
+                  {
+                    "ref": "selectedCard"
+                  }
+                ]
+              },
+              {
+                "call": "card.PermanentOfThisCard().AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "ref": "digivolutionCards_fixed"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "ref": "plusMemory"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place cards in digivolution cards from trash to gain Memory"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "colorCount",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "if (!CardEffectCommons.IsExistOnBattleArea(card)) return 0; List\u003CCardColor\u003E cardColors = card.PermanentOfThisCard().DigivolutionCards\r\n                    .Filter(digivolutionCard =\u003E digivolutionCard.HasLevel \u0026\u0026 digivolutionCard.Level == 6)\r\n                    .Map(digivolutionCard =\u003E digivolutionCard.CardColors.Concat(digivolutionCard.DualCardColors).ToList())\r\n                    .Flat()\r\n                    .Distinct()\r\n                    .ToList(); return cardColors.Count;"
+          }
+        },
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] If the level 6 cards in this Digimon\u0027s digivolution cards have 3 or more colors among them, this Digimon gets \u002B3000 DP until the end of your opponent\u0027s turn. If they have 4 or more colors, \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "colorCount",
+                "args": []
+              },
+              "rhs": {
+                "lit": 3
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "lit": 3000
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(selectedPermanent, 1, activateClass).Degeneration",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "DP \u002B3000 and De-Digivolve 1 to 1 Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,358 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_038",
+  "set": "BT25",
+  "color": "Yellow",
+  "className": "BT25_038",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "member": "permanent.TopCard.HasTSTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "level",
+              "value": {
+                "lit": 4
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent)\r\n                        {\r\n                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))\r\n                            {\r\n                                if (permanent.TopCard.CardColors.Contains(CardColor.Yellow))\r\n                                {\r\n                                    if (permanent.Levels_ForJogress(card).Contains(4))\r\n                                    {\r\n                                        return true;\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } bool PermanentCondition2(Permanent permanent)\r\n                        {\r\n                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))\r\n                            {\r\n                                if (permanent.TopCard.CardColors.Contains(CardColor.Black) || permanent.TopCard.CardColors.Contains(CardColor.Blue))\r\n                                {\r\n                                    if (permanent.Levels_ForJogress(card).Contains(4))\r\n                                    {\r\n                                        return true;\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } JogressConditionElement[] elements = new JogressConditionElement[]\r\n                        {\r\n                        new JogressConditionElement(PermanentCondition1, \u0022a level 4 Yellow Digimon\u0022),\r\n\r\n                        new JogressConditionElement(PermanentCondition2, \u0022a level 4 Black or Blue Digimon\u0022),\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnAddSecurity",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns] [Once Per Turn] When your security stack is added to, \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenAddSecurity",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "player"
+                    ],
+                    "body": {
+                      "binop": "==",
+                      "lhs": {
+                        "ref": "player"
+                      },
+                      "rhs": {
+                        "member": "card.Owner"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT25_038_AT\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "\u003CDedigivolve 1\u003E 1 enemy digimon\u003E"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnLoseSecurity",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns] (Once Per Turn) When security stacks are removed from, 1 of your opponent\u0027s Digimon gets -4000 DP for the turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenLoseSecurity",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "player"
+                    ],
+                    "body": {
+                      "binop": "==",
+                      "lhs": {
+                        "ref": "player"
+                      },
+                      "rhs": {
+                        "member": "card.Owner"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangeDigimonDP",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "opaque": "-4000"
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT25_040_WST_AT\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "1 of your opponent\u0027s Digimon gets -4000 DP"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

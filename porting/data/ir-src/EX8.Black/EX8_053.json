@@ -1,0 +1,226 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX8_053",
+  "set": "EX8",
+  "color": "Black",
+  "className": "EX8_053",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] Reveal the top 3 cards of your deck. You may play 1 [Mineral] or [Rock] trait Digimon card with a play cost of 8 or less among them without paying the cost. Trash the rest."
+          }
+        },
+        {
+          "name": "PlayableMineralorRock",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                      "args": [
+                        {
+                          "ref": "source"
+                        },
+                        {
+                          "const": false
+                        },
+                        {
+                          "ref": "activateClass"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "member": "source.IsDigimon"
+                    }
+                  },
+                  "rhs": {
+                    "member": "source.HasPlayCost"
+                  }
+                },
+                "rhs": {
+                  "binop": "\u003C=",
+                  "lhs": {
+                    "member": "source.GetCostItself"
+                  },
+                  "rhs": {
+                    "lit": 8
+                  }
+                }
+              },
+              "rhs": {
+                "call": "source.ContainsTraits",
+                "args": [
+                  {
+                    "lit": "Mineral"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "source.ContainsTraits",
+              "args": [
+                {
+                  "lit": "Rock"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanActivateOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.RevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SelectCardConditionClass[]\r\n                        {\r\n                            new SelectCardConditionClass(\r\n                                canTargetCondition: PlayableMineralorRock,\r\n                                canTargetCondition_ByPreSelecetedList: null,\r\n                                canEndSelectCondition: null,\r\n                                canNoSelect: true,\r\n                                selectCardCoroutine: CardToPlay,\r\n                                message: \u0022Select 1 [Mineral] or [Rock] trait digimon with 8 cost or less to play\u0022,\r\n                                maxCount: 1,\r\n                                canEndNotMax: false,\r\n                                mode: SelectCardEffect.Mode.Custom\r\n                                )\r\n                        }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.Trash"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Library"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal top 3 from deck, Play 1 8 cost or less, [Mineral] or [Rock] trait Digimon."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

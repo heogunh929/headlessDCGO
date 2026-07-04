@@ -1,0 +1,40 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT5_080",
+  "set": "BT5",
+  "color": "Purple",
+  "className": "BT5_080",
+  "branches": [
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RetaliationSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

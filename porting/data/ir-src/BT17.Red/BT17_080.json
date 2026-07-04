@@ -1,0 +1,524 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT17_080",
+  "set": "BT17",
+  "color": "Red",
+  "className": "BT17_080",
+  "branches": [
+    {
+      "timing": "OnStartMainPhase",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Start of Your Main Phase] If you have a Digimon with [Guilmon]/[Growlmon]/[Gallantmon] in its name, gain 1 memory."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "card.Owner.CanAddMemory",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "member": "permanent.IsDigimon"
+                        },
+                        "rhs": {
+                          "binop": "||",
+                          "lhs": {
+                            "binop": "||",
+                            "lhs": {
+                              "call": "permanent.TopCard.ContainsCardName",
+                              "args": [
+                                {
+                                  "lit": "Guilmon"
+                                }
+                              ]
+                            },
+                            "rhs": {
+                              "call": "permanent.TopCard.ContainsCardName",
+                              "args": [
+                                {
+                                  "lit": "Growlmon"
+                                }
+                              ]
+                            }
+                          },
+                          "rhs": {
+                            "call": "permanent.TopCard.ContainsCardName",
+                            "args": [
+                              {
+                                "lit": "Gallantmon"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Memory \u002B1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn] By placing this Tamer and 1 [Growlmon] and 1 [WarGrowlmon] from your trash as the bottom digivolution cards of 1 of your [Guilmon], that Digimon may digivolve into [Gallantmon] in the hand, ignoring its digivolution requirements and without paying the cost."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.TopCard.EqualsCardName",
+                "args": [
+                  {
+                    "lit": "Guilmon"
+                  }
+                ]
+              },
+              "rhs": {
+                "not": {
+                  "member": "permanent.IsToken"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectGrowlmonCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.EqualsCardName",
+            "args": [
+              {
+                "lit": "Growlmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectWarGrowlmonCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.EqualsCardName",
+            "args": [
+              {
+                "lit": "WarGrowlmon"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectGallantmonCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "cardSource.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Gallantmon"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "cardSource.Level"
+                },
+                "rhs": {
+                  "lit": 6
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "cardSource.HasLevel"
+                },
+                "rhs": {
+                  "member": "cardSource.IsDigimon"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "not": {
+                  "memberOf": {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  "name": "IsToken"
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "CardEffectCommons.HasMatchConditionPermanent",
+                  "args": [
+                    {
+                      "ref": "CanSelectPermanentCondition"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+                      "args": [
+                        {
+                          "ref": "card"
+                        },
+                        {
+                          "ref": "CanSelectGrowlmonCardCondition"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+                      "args": [
+                        {
+                          "ref": "card"
+                        },
+                        {
+                          "ref": "CanSelectWarGrowlmonCardCondition"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+                    "args": [
+                      {
+                        "ref": "card"
+                      },
+                      {
+                        "ref": "CanSelectGallantmonCardCondition"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectedPermanent.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "ref": "digivolutionCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "CanSelectGallantmonCardCondition"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "lit": 0
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "member": "CardEffectCommons.IgnoreRequirement.All"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Digivolution_BT17_080\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Digivolve your [Guilmon] into [Gallantmon]"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

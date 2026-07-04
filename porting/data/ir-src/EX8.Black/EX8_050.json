@@ -1,0 +1,372 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX8_050",
+  "set": "EX8",
+  "color": "Black",
+  "className": "EX8_050",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] Reveal the top 3 cards of your deck. You may play 1 [Mineral] or [Rock] trait Digimon card with a play cost of 5 or less from among them without paying the cost. Trash the rest."
+          }
+        },
+        {
+          "name": "PlayableMineralorRock",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                    "args": [
+                      {
+                        "ref": "source"
+                      },
+                      {
+                        "const": false
+                      },
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "member": "source.IsDigimon"
+                  }
+                },
+                "rhs": {
+                  "member": "source.HasPlayCost"
+                }
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "source.GetCostItself"
+                },
+                "rhs": {
+                  "lit": 5
+                }
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "source.ContainsTraits",
+                "args": [
+                  {
+                    "lit": "Mineral"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "source.ContainsTraits",
+                "args": [
+                  {
+                    "lit": "Rock"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanActivateOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.RevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SelectCardConditionClass[]\r\n                    {\r\n                        new SelectCardConditionClass(\r\n                            canTargetCondition:PlayableMineralorRock,\r\n                            canTargetCondition_ByPreSelecetedList:null,\r\n                            canEndSelectCondition:null,\r\n                            canNoSelect:true,\r\n                            selectCardCoroutine: CardToPlay,\r\n                            message: \u0022Select 1 [Mineral] or [Rock] trait digimon with 5 cost or less to play\u0022,\r\n                            maxCount: 1,\r\n                            canEndNotMax:false,\r\n                            mode: SelectCardEffect.Mode.Custom\r\n                            )\r\n                    }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.Trash"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Library"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal top 3 from deck, Play 1 5 cost or less, [Mineral] or [Rock] trait Digimon."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Opponent\u0027s Turn] [Once Per Turn] When any of your opponent\u0027s Digimon attack, you may change the attack target to this Digimon."
+          }
+        },
+        {
+          "name": "IsOpponentDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsThisDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "permanent"
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard",
+              "args": []
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPermanentAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "IsOpponentDigimon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "GManager.instance.attackProcess.SwitchDefender",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "permanent"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Redirect_BT19-072\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "You may change the attack target to this Digimon."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

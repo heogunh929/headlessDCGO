@@ -1,0 +1,90 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT2_029",
+  "set": "BT2",
+  "color": "Blue",
+  "className": "BT2_029",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.IsOwnerTurn",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "DefenderCondition",
+          "returns": "bool",
+          "params": [
+            "defender"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleArea",
+              "args": [
+                {
+                  "ref": "defender"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "member": "defender.HasNoDigivolutionCards"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CanNotBeBlockedStaticSelfEffect",
+          "args": [
+            {
+              "name": "defenderCondition",
+              "value": {
+                "ref": "DefenderCondition"
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Can\u0027t be Blocked by a Digimon with no digivolution cards"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

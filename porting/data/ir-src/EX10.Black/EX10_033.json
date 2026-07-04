@@ -1,0 +1,853 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX10_033",
+  "set": "EX10",
+  "color": "Black",
+  "className": "EX10_033",
+  "branches": [
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "\u003CFragment \u003C3\u003E\u003E (When this Digimon would be deleted, by trashing any 3 of its digivolution cards, it isn\uFFFDt deleted.)"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "FragmentSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "trashValue",
+              "value": {
+                "lit": 3
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Fragment \u003C3\u003E"
+              }
+            },
+            {
+              "name": "effectDiscription",
+              "value": {
+                "call": "EffectDiscription",
+                "args": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] [Once Per Turn] You may place up to 3 [Mineral] or [Rock] cards from your trash as this Digimon\u0027s bottom digivolution cards."
+          }
+        },
+        {
+          "name": "HasProperTrait",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "source.EqualsTraits",
+              "args": [
+                {
+                  "lit": "Mineral"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "source.EqualsTraits",
+              "args": [
+                {
+                  "lit": "Rock"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "HasProperTrait"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "card.PermanentOfThisCard().AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022WDWA_EX10_033\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place up to 3 cards from trash as bottom sources"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] [Once Per Turn] You may place up to 3 [Mineral] or [Rock] cards from your trash as this Digimon\u0027s bottom digivolution cards."
+          }
+        },
+        {
+          "name": "HasProperTrait",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "source.EqualsTraits",
+              "args": [
+                {
+                  "lit": "Mineral"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "source.EqualsTraits",
+              "args": [
+                {
+                  "lit": "Rock"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "HasProperTrait"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "card.PermanentOfThisCard().AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022WDWA_EX10_033\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place up to 3 cards from trash as bottom sources"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] By trashing up to 3 [Mineral] or [Rock] trait cards from any of your Digimon\u0027s digivolution cards, to 1 of your opponent\u0027s Digimon, reduce the play cost by 2 until their turn ends for each card trashed."
+          }
+        },
+        {
+          "name": "HasProperTrait",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "not": {
+                "call": "source.CanNotTrashFromDigivolutionCards",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "source.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Mineral"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "source.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Rock"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "HasProperAmountOfSources",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "int totalSourceCount = 0; foreach (Permanent permanent in card.Owner.GetBattleAreaDigimons())\r\n                    {\r\n                        totalSourceCount \u002B= permanent.DigivolutionCards.Count(HasProperTrait);\r\n                    } return totalSourceCount;"
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "permanent.DigivolutionCards.Count",
+                "args": [
+                  {
+                    "ref": "HasProperTrait"
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E",
+              "lhs": {
+                "call": "HasProperAmountOfSources",
+                "args": []
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SelectTrashDigivolutionCards",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  },
+                  {
+                    "ref": "HasProperTrait"
+                  },
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "ref": "AfterTrashedCards"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangePlayCostPlayerEffect",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "perm"
+                      ],
+                      "body": {
+                        "call": "permanents.Contains",
+                        "args": [
+                          {
+                            "ref": "perm"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "binop": "*",
+                    "lhs": {
+                      "opaque": "-trashedCount"
+                    },
+                    "rhs": {
+                      "lit": 2
+                    }
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "By trashing up to 3 sources, reduce 1 digimon play cost by 2 for each card"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] By trashing up to 3 [Mineral] or [Rock] trait cards from any of your Digimon\u0027s digivolution cards, to 1 of your opponent\u0027s Digimon, reduce the play cost by 2 until their turn ends for each card trashed."
+          }
+        },
+        {
+          "name": "HasProperTrait",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "not": {
+                "call": "source.CanNotTrashFromDigivolutionCards",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "source.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Mineral"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "source.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "Rock"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "HasProperAmountOfSources",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "int totalSourceCount = 0; foreach (Permanent permanent in card.Owner.GetBattleAreaDigimons())\r\n                    {\r\n                        totalSourceCount \u002B= permanent.DigivolutionCards.Count(HasProperTrait);\r\n                    } return totalSourceCount;"
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "permanent.DigivolutionCards.Count",
+                "args": [
+                  {
+                    "ref": "HasProperTrait"
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E",
+              "lhs": {
+                "call": "HasProperAmountOfSources",
+                "args": []
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SelectTrashDigivolutionCards",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  },
+                  {
+                    "ref": "HasProperTrait"
+                  },
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "ref": "AfterTrashedCards"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ChangePlayCostPlayerEffect",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "perm"
+                      ],
+                      "body": {
+                        "call": "permanents.Contains",
+                        "args": [
+                          {
+                            "ref": "perm"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "binop": "*",
+                    "lhs": {
+                      "opaque": "-trashedCount"
+                    },
+                    "rhs": {
+                      "lit": 2
+                    }
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "By trashing up to 3 sources, reduce 1 digimon play cost by 2 for each card"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

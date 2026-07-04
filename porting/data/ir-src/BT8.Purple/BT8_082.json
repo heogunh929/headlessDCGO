@@ -1,0 +1,469 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT8_082",
+  "set": "BT8",
+  "color": "Purple",
+  "className": "BT8_082",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Ophanimon"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] If this Digimon has a purple card in its digivolution cards, delete 1 of your opponent\u0027s level 4 or lower Digimon. If this Digimon has a yellow card in its digivolution cards, \u003CRecovery \u002B1 (Deck)\u003E. (Place the top card of your deck on top of your security stack.)"
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "permanent.Level"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasLevel"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "card.PermanentOfThisCard().DigivolutionCards.Some",
+                  "args": [
+                    {
+                      "lambda": {
+                        "params": [
+                          "cardSource"
+                        ],
+                        "body": {
+                          "call": "cardSource.HasCardColor",
+                          "args": [
+                            {
+                              "member": "CardColor.Purple"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.HasMatchConditionPermanent",
+                  "args": [
+                    {
+                      "ref": "CanSelectPermanentCondition"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "card.PermanentOfThisCard().DigivolutionCards.Some",
+                  "args": [
+                    {
+                      "lambda": {
+                        "params": [
+                          "cardSource"
+                        ],
+                        "body": {
+                          "call": "cardSource.HasCardColor",
+                          "args": [
+                            {
+                              "member": "CardColor.Yellow"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u003E=",
+                    "lhs": {
+                      "member": "card.Owner.LibraryCards.Count"
+                    },
+                    "rhs": {
+                      "lit": 1
+                    }
+                  },
+                  "rhs": {
+                    "call": "card.Owner.CanAddSecurity",
+                    "args": [
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IRecovery(card.Owner, 1, activateClass).Recovery",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 level 4 or lower Digimon and Recovery \u002B1 (Deck)"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] You may play 1 purple or yellow level 4 or lower Digimon card from your trash without paying its memory cost."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "cardSource.HasCardColor",
+                  "args": [
+                    {
+                      "member": "CardColor.Purple"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "cardSource.HasCardColor",
+                  "args": [
+                    {
+                      "member": "CardColor.Yellow"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u003C=",
+                  "lhs": {
+                    "member": "cardSource.Level"
+                  },
+                  "rhs": {
+                    "lit": 4
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                    "args": [
+                      {
+                        "ref": "cardSource"
+                      },
+                      {
+                        "const": false
+                      },
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "member": "cardSource.HasLevel"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanActivateOnDeletion",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "cardSource"
+                    ],
+                    "body": {
+                      "call": "CanSelectCardCondition",
+                      "args": [
+                        {
+                          "ref": "cardSource"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 4 or lower Digimon from trash"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

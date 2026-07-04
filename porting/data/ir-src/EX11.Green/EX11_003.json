@@ -1,0 +1,119 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX11_003",
+  "set": "EX11",
+  "color": "Green",
+  "className": "EX11_003",
+  "branches": [
+    {
+      "timing": "OnAddSecurity",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn] [Once Per Turn] When face-up [Royal Base] trait cards are placed in your security stack, \u003CDraw 1\u003E."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "opaque": "List\u003CCardSource\u003E securityCards = CardEffectCommons.GetCardSourcesFromHashtable(hashtable).Filter(SecurityCondition); return CardEffectCommons.IsExistOnBattleArea(card)\r\n                        \u0026\u0026 CardEffectCommons.IsOwnerTurn(card)\r\n                        \u0026\u0026 CardEffectCommons.CanTriggerWhenAddSecurity(hashtable, player =\u003E player == card.Owner)\r\n                        \u0026\u0026 securityCards.Count \u003E 0;"
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.LibraryCards.Count"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "SecurityCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "not": {
+                "member": "cardSource.IsFlipped"
+              }
+            },
+            "rhs": {
+              "call": "cardSource.EqualsTraits",
+              "args": [
+                {
+                  "lit": "Royal Base"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DrawClass(\r\n                        player: card.Owner,\r\n                        drawCount: 1,\r\n                        cardEffect: activateClass).Draw",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022EX11_003_ESS\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Draw 1."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

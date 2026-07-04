@@ -1,0 +1,316 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX9_072",
+  "set": "EX9",
+  "color": "White",
+  "className": "EX9_072",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "call": "card.Owner.SecurityCards.Count",
+              "args": [
+                {
+                  "lambda": {
+                    "params": [
+                      "cardSource"
+                    ],
+                    "body": {
+                      "not": {
+                        "member": "cardSource.IsFlipped"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "rhs": {
+              "lit": 0
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpICardEffect(\u0022Ignore color requirements\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "ignoreColorConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.IsExistInSecurity",
+            "args": [
+              {
+                "ref": "card"
+              },
+              {
+                "const": false
+              }
+            ]
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsTraits",
+              "args": [
+                {
+                  "lit": "DM"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "foreach (Permanent permanent in card.Owner.GetBattleAreaPermanents())\r\n                {\r\n                    if (Condition() \u0026\u0026 PermanentCondition(permanent))\r\n                    {\r\n                        int dpValue = permanent.DigivolutionCards.Filter(x =\u003E x.IsFlipped).Count * 1000;\r\n                        permanent.AddBoost(new Permanent.DPBoost(\u0022EX9_072\u0022, dpValue, Condition));\r\n                    }\r\n                        \r\n                    else\r\n                        permanent.RemoveBoost(\u0022EX9_072\u0022);\r\n                }"
+        }
+      ]
+    },
+    {
+      "timing": "OptionSkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ReplaceBottomSecurityWithFaceUpOptionMainEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] You may play 1 play cost 5 or lower card with the [DM] trait from your hand or trash without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerSecurityEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "member": "cardSource.HasPlayCost"
+                  },
+                  "rhs": {
+                    "binop": "\u003C=",
+                    "lhs": {
+                      "member": "cardSource.GetCostItself"
+                    },
+                    "rhs": {
+                      "lit": 5
+                    }
+                  }
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsTraits",
+                  "args": [
+                    {
+                      "lit": "DM"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "not": {
+                  "member": "cardSource.IsDigiEgg"
+                }
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "root"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsSecurityEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 5 cost or lower card"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

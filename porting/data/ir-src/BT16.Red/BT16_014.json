@@ -1,0 +1,212 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT16_014",
+  "set": "BT16",
+  "color": "Red",
+  "className": "BT16_014",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.CardNames.Contains",
+            "args": [
+              {
+                "lit": "Goldramon"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RaidSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "permanent"
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard",
+              "args": []
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "PermanentCondition",
+              "args": [
+                {
+                  "call": "cardSource.PermanentOfThisCard",
+                  "args": []
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "memberOf": {
+                  "call": "cardSource.PermanentOfThisCard",
+                  "args": []
+                },
+                "name": "TopCard"
+              }
+            }
+          }
+        },
+        {
+          "name": "GetEffects",
+          "returns": "List\u003CICardEffect\u003E",
+          "params": [
+            "cardSource",
+            "cardEffects",
+            "_timing"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardSourceCondition",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  }
+                ]
+              },
+              "rhs": {
+                "opaque": "foreach (CardSource cardSource1 in cardSource.PermanentOfThisCard().DigivolutionCards)\r\n                        {\r\n                            if (cardSource1.CardNames.Contains(\u0022Goldramon\u0022))\r\n                            {\r\n                                foreach (ICardEffect cardEffect in cardSource1.cEntity_EffectController.GetCardEffects_ExceptAddedEffects(_timing, card))\r\n                                {\r\n                                    if (!cardEffect.IsSecurityEffect \u0026\u0026 !cardEffect.IsInheritedEffect)\r\n                                    {\r\n                                        cardEffects.Add(cardEffect);\r\n                                    }\r\n                                }\r\n                            }\r\n                        }"
+              }
+            },
+            "rhs": {
+              "ref": "cardEffects"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddSkillClass addSkillClass = new AddSkillClass();"
+        },
+        {
+          "opaque": "addSkillClass.SetUpICardEffect(\u0022This Digimon gains all effects of [Goldramon] in digivolution cards\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addSkillClass.SetUpAddSkillClass(cardSourceCondition: CardSourceCondition, getEffects: GetEffects);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addSkillClass"
+        }
+      ]
+    }
+  ]
+}

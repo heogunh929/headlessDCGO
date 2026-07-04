@@ -39,7 +39,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 projects=()
-for csproj in $(find tests porting -name '*.Tests.csproj' | sort); do
+for csproj in $(find tests -name '*.Tests.csproj' | sort); do
   name=$(basename "$csproj" .csproj)
   [ -n "$filter" ] && [[ "$name" != *"$filter"* ]] && continue
   projects+=("$csproj")

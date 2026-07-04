@@ -1,0 +1,363 @@
+{
+  "schema": "source-ir/1",
+  "card": "P_221",
+  "set": "P",
+  "color": "Yellow",
+  "className": "P_221",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent) =\u003E permanent.TopCard.CardColors.Contains(CardColor.Yellow) \u0026\u0026 permanent.Levels_ForJogress(card).Contains(6); bool PermanentCondition2(Permanent permanent) =\u003E (permanent.TopCard.CardColors.Contains(CardColor.Purple) || permanent.TopCard.CardColors.Contains(CardColor.Black)) \u0026\u0026 permanent.Levels_ForJogress(card).Contains(6); JogressConditionElement[] elements = new JogressConditionElement[]\r\n                        {\r\n                        new JogressConditionElement(PermanentCondition1, \u0022a level 6 yellow Digimon\u0022),\r\n\r\n                        new JogressConditionElement(PermanentCondition2, \u0022a level 6 purple/black Digimon\u0022),\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "WhenRemoveField",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "List\u003CPartitionCondition\u003E partitionConditions = new List\u003CPartitionCondition\u003E();"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "new PartitionCondition(6, CardColor.Yellow)"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "new PartitionCondition(6, CardColor.Purple, CardColor.Black)"
+        },
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PartitionSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "cardSourceConditions",
+              "value": {
+                "ref": "partitionConditions"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfSAttackStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] If DNA digivolving, until your opponent\u0027s turn ends, their effects don\u0027t affect this Digimon"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleArea",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.IsJogress",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Become immune."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "call": "EffectNameShared",
+            "args": []
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "hash =\u003E ActivateCoroutineShared(hash, activateClass)",
+          "description": {
+            "call": "EffectDescriptionShared",
+            "args": [
+              {
+                "lit": "When Digivolving"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnAttack",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "call": "EffectNameShared",
+            "args": []
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "hash =\u003E ActivateCoroutineShared(hash, activateClass)",
+          "description": {
+            "call": "EffectDescriptionShared",
+            "args": [
+              {
+                "lit": "When Attacking"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,413 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT23_076",
+  "set": "BT23",
+  "color": "White",
+  "className": "BT23_076",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Add your top security card to the hand. Then, \u003CRecovery \u002B1 (Deck)\u003E"
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardObjectController.AddHandCards",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { topCard }"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "new IReduceSecurity(\r\n                            player: card.Owner,\r\n                            refSkillInfos: ref ContinuousController.instance.nullSkillInfos,\r\n                            activateClass).ReduceSecurity",
+                "args": []
+              },
+              {
+                "call": "new IRecovery(card.Owner, 1, activateClass).Recovery",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Add your top security, \u003CRecovery \u002B1 (Deck)\u003E"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnTappedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn] When this Digimon suspends, 1 of your other Digimon may digivolve into a Digimon card with [Huckmon] in its name or the [Royal Knight] or [CS] trait in the hand or trash with the digivolution cost reduced by 1."
+          }
+        },
+        {
+          "name": "DigivolveFromPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+                  "args": [
+                    {
+                      "ref": "permanent"
+                    },
+                    {
+                      "ref": "card"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "permanent.IsDigimon"
+                }
+              },
+              "rhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "permanent"
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                }
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "card.Owner.HandCards.Where(DigivolveToCardCondition).Any",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardSource"
+                      ],
+                      "body": {
+                        "call": "cardSource.CanPlayCardTargetFrame",
+                        "args": [
+                          {
+                            "member": "permanent.PermanentFrame"
+                          },
+                          {
+                            "const": false
+                          },
+                          {
+                            "ref": "activateClass"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.Owner.TrashCards.Where(DigivolveToCardCondition).Any",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardSource"
+                      ],
+                      "body": {
+                        "call": "cardSource.CanPlayCardTargetFrame",
+                        "args": [
+                          {
+                            "member": "permanent.PermanentFrame"
+                          },
+                          {
+                            "const": false
+                          },
+                          {
+                            "ref": "activateClass"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "DigivolveToCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "member": "cardSource.HasRoyalKnightTraits"
+                },
+                "rhs": {
+                  "member": "cardSource.HasCSTraits"
+                }
+              },
+              "rhs": {
+                "call": "cardSource.ContainsCardName",
+                "args": [
+                  {
+                    "lit": "Huckmon"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenSelfPermanentSuspends",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "DigivolveFromPermanentCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "DigivolveToCardCondition"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "opaque": "(reduceCost: 1, reduceCostCardCondition: null)"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  },
+                  {
+                    "ref": "DigivolveToCardCondition"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "opaque": "(reduceCost: 1, reduceCostCardCondition: null)"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "1 of your other Digimon digivolves without paying the cost"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

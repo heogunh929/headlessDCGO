@@ -1,0 +1,192 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT20_003",
+  "set": "BT20",
+  "color": "Yellow",
+  "className": "BT20_003",
+  "branches": [
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn] [Once Per Turn] You may place 1 of your Tamers with [Pulsemon] in its text or the [SoC] or [SEEKERS] trait as the bottom digivolution card of this Digimon with no Tamer cards in its digivolution cards."
+          }
+        },
+        {
+          "name": "CanSelectTamer",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.IsTamer"
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "permanent.TopCard.HasText",
+                  "args": [
+                    {
+                      "lit": "Pulsemon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "permanent.TopCard.HasSocTraits"
+                }
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasSeekersTraits"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "CanSelectTamer"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "==",
+                "lhs": {
+                  "call": "card.PermanentOfThisCard().DigivolutionCards.Count",
+                  "args": [
+                    {
+                      "lambda": {
+                        "params": [
+                          "source"
+                        ],
+                        "body": {
+                          "member": "source.IsTamer"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "rhs": {
+                  "lit": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IPlacePermanentToDigivolutionCards(new List\u003CPermanent[]\u003E() { new Permanent[] { selectedPermanent, card.PermanentOfThisCard() } }, false, activateClass).PlacePermanentToDigivolutionCards",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022EndOfTurn_BT20-003\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "If this has no tamers in source, you may place 1 tamer with Pulsemon in text, or Soc or SEEKERS trait as a source"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

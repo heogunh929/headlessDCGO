@@ -1,0 +1,844 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT13_086",
+  "set": "BT13",
+  "color": "Purple",
+  "className": "BT13_086",
+  "branches": [
+    {
+      "timing": "BeforePayCost",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "When you would play this card, by deleting 1 of your level 4 Digimon, reduce the play cost by 6."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "permanent.Level"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "permanent.TopCard.HasLevel"
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "not": {
+                      "call": "permanent.TopCard.CanNotBeAffected",
+                      "args": [
+                        {
+                          "ref": "activateClass"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "permanent.CanBeDestroyedBySkill",
+                    "args": [
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenPermanentWouldPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "lambda": {
+                  "params": [
+                    "cardSource"
+                  ],
+                  "body": {
+                    "binop": "==",
+                    "lhs": {
+                      "ref": "cardSource"
+                    },
+                    "rhs": {
+                      "ref": "card"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.HasMatchConditionPermanent",
+            "args": [
+              {
+                "ref": "CanSelectPermanentCondition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { permanent }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanents"
+                      ],
+                      "body": {
+                        "call": "SuccessProcess",
+                        "args": []
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ShowReducedCost",
+                "args": [
+                  {
+                    "ref": "_hashtable"
+                  }
+                ]
+              },
+              {
+                "null": true
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022PlayCost-6_BT13_086\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete your 1 level 4 Digimon to get Play Cost -6"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent",
+            "activateClass"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "permanent.Level"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "permanent.TopCard.HasLevel"
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "not": {
+                      "call": "permanent.TopCard.CanNotBeAffected",
+                      "args": [
+                        {
+                          "ref": "activateClass"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "permanent.CanBeDestroyedBySkill",
+                    "args": [
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "==",
+              "lhs": {
+                "call": "card.PermanentOfThisCard",
+                "args": []
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "opaque": "ICardEffect activateClass = card.EffectList(EffectTiming.BeforePayCost).Find(cardEffect =\u003E cardEffect.EffectName == \u0022Delete your 1 level 4 Digimon to get Play Cost -6\u0022); if (activateClass != null)\r\n                        {\r\n                            if (CardEffectCommons.HasMatchConditionPermanent(\r\n                                (permanent) =\u003E CanSelectPermanentCondition(permanent, activateClass)))\r\n                            {\r\n                                return true;\r\n                            }\r\n                        }"
+            }
+          }
+        },
+        {
+          "name": "ChangeCost",
+          "returns": "int",
+          "params": [
+            "cardSource",
+            "Cost",
+            "root",
+            "targetPermanents"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardSourceCondition",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "RootCondition",
+                  "args": [
+                    {
+                      "ref": "root"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "PermanentsCondition",
+                    "args": [
+                      {
+                        "ref": "targetPermanents"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "opaque": "Cost -= 6;"
+                  }
+                }
+              }
+            },
+            "rhs": {
+              "ref": "Cost"
+            }
+          }
+        },
+        {
+          "name": "PermanentsCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanents"
+          ],
+          "body": {
+            "opaque": "if (targetPermanents == null)\r\n                    {\r\n                        return true;\r\n                    }\r\n                    else\r\n                    {\r\n                        if (targetPermanents.Count((targetPermanent) =\u003E targetPermanent != null) == 0)\r\n                        {\r\n                            return true;\r\n                        }\r\n                    } return false;"
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "ref": "card"
+              }
+            }
+          }
+        },
+        {
+          "name": "RootCondition",
+          "returns": "bool",
+          "params": [
+            "root"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "isUpDown",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "const": true
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCostClass changeCostClass = new ChangeCostClass();"
+        },
+        {
+          "opaque": "changeCostClass.SetUpICardEffect(\u0022Play Cost -6\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () =\u003E true, isChangePayingCost: () =\u003E true);"
+        },
+        {
+          "opaque": "changeCostClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCostClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Play 1 [Akihiro Kurata] from your trash without paying the cost."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "cardSource.CardNames.Contains",
+                "args": [
+                  {
+                    "lit": "Akihiro Kurata"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "cardSource.CardNames.Contains",
+                "args": [
+                  {
+                    "lit": "AkihiroKurata"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "cardSource"
+                    ],
+                    "body": {
+                      "call": "CanSelectCardCondition",
+                      "args": [
+                        {
+                          "ref": "cardSource"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 [Akihiro Kurata] from trash"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CanNotDigivolveStaticSelfEffect",
+          "args": [
+            {
+              "name": "cardCondition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Can\u0027t digivolve"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] You may play 1 [ProtoGizmon] from your trash without paying the cost."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "cardSource.CardNames.Contains",
+              "args": [
+                {
+                  "lit": "ProtoGizmon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnTrash",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "cardSource"
+                    ],
+                    "body": {
+                      "call": "CanSelectCardCondition",
+                      "args": [
+                        {
+                          "ref": "cardSource"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 [ProtoGizmon] from trash"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,539 @@
+{
+  "schema": "source-ir/1",
+  "card": "ST13_14",
+  "set": "ST13",
+  "color": "Black",
+  "className": "ST13_14",
+  "branches": [
+    {
+      "timing": "OnAddDigivolutionCards",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Your Turn][Once Per Turn] When one of your effects places a digivolution card under this Digimon, your opponent\u0027s effects can\u0027t delete this Digimon or return it to its owner\u0027s hand or deck until the end of their turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanTriggerOnAddDigivolutionCard",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "==",
+                        "lhs": {
+                          "ref": "permanent"
+                        },
+                        "rhs": {
+                          "call": "card.PermanentOfThisCard",
+                          "args": []
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardEffect"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "binop": "!=",
+                          "lhs": {
+                            "member": "cardEffect.EffectSourceCard"
+                          },
+                          "rhs": {
+                            "null": true
+                          }
+                        },
+                        "rhs": {
+                          "binop": "==",
+                          "lhs": {
+                            "member": "cardEffect.EffectSourceCard.Owner"
+                          },
+                          "rhs": {
+                            "member": "card.Owner"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.GainCanNotBeDeletedByEffect",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "ref": "CardEffectCondition"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lit": "Can\u0027t be deleted by opponent\u0027s effects"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainCanNotReturnToHand",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "ref": "CardEffectCondition"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lit": "Can\u0027t return to hand by opponent\u0027s effects"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainCanNotReturnToDeck",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  {
+                    "ref": "CardEffectCondition"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lit": "Can\u0027t return to deck by opponent\u0027s effects"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022GainEffect_ST13_14\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Can\u0027t be deleted and can\u0027t return to hand or deck by opponent\u0027s effect"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Reveal the top 3 cards of your deck. You may play 1 Digimon card with [Legend-Arms] in its traits and a play cost of 7 or less among them without paying its memory cost. Place the rest at the bottom of your deck in any order."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u003C=",
+                    "lhs": {
+                      "member": "cardSource.GetCostItself"
+                    },
+                    "rhs": {
+                      "lit": 7
+                    }
+                  },
+                  "rhs": {
+                    "member": "cardSource.HasPlayCost"
+                  }
+                },
+                "rhs": {
+                  "call": "cardSource.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "Legend-Arms"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.LibraryCards.Count"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SimplifiedSelectCardConditionClass[]\r\n                    {\r\n                        new SimplifiedSelectCardConditionClass(\r\n                            canTargetCondition:CanSelectCardCondition,\r\n                            message: \u0022Select 1 Digimon card with [Legend-Arms] in its traits and a play cost of 7 or less.\u0022,\r\n                            mode: SelectCardEffect.Mode.Custom,\r\n                            maxCount: 1,\r\n                            selectCardCoroutine: SelectCardCoroutine),\r\n                    }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Library"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal the top 3 cards of deck"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "memberOf": {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  },
+                  "name": "TopCard"
+                }
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard().TopCard.CardNames.Contains",
+                "args": [
+                  {
+                    "lit": "RagnaLoardmon"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "SkillCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardEffect"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "member": "cardEffect.EffectSourceCard"
+                },
+                "rhs": {
+                  "null": true
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "==",
+                  "lhs": {
+                    "member": "cardEffect.EffectSourceCard.Owner"
+                  },
+                  "rhs": {
+                    "member": "card.Owner.Enemy"
+                  }
+                },
+                "rhs": {
+                  "member": "cardEffect.IsDigimonEffect"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "CanNotAffectedClass canNotAffectedClass = new CanNotAffectedClass();"
+        },
+        {
+          "opaque": "canNotAffectedClass.SetUpICardEffect(\u0022Isn\u0027t affected by opponent\u0027s Digimon\u0027s effect\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "canNotAffectedClass.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);"
+        },
+        {
+          "opaque": "canNotAffectedClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "canNotAffectedClass"
+        }
+      ]
+    }
+  ]
+}

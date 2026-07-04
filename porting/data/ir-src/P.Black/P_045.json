@@ -1,0 +1,178 @@
+{
+  "schema": "source-ir/1",
+  "card": "P_045",
+  "set": "P",
+  "color": "Black",
+  "className": "P_045",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "permanent"
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                }
+              },
+              "rhs": {
+                "call": "permanent.TopCard.HasSameCardName",
+                "args": [
+                  {
+                    "memberOf": {
+                      "call": "card.PermanentOfThisCard",
+                      "args": []
+                    },
+                    "name": "TopCard"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "cardSource.Owner"
+                },
+                "rhs": {
+                  "member": "card.Owner"
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "==",
+                  "lhs": {
+                    "ref": "cardSource"
+                  },
+                  "rhs": {
+                    "memberOf": {
+                      "call": "cardSource.PermanentOfThisCard",
+                      "args": []
+                    },
+                    "name": "TopCard"
+                  }
+                },
+                "rhs": {
+                  "call": "PermanentCondition",
+                  "args": [
+                    {
+                      "call": "cardSource.PermanentOfThisCard",
+                      "args": []
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GetEffects",
+          "returns": "List\u003CICardEffect\u003E",
+          "params": [
+            "cardSource",
+            "cardEffects",
+            "_timing"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "_timing"
+                },
+                "rhs": {
+                  "member": "EffectTiming.WhenPermanentWouldBeDeleted"
+                }
+              },
+              "rhs": {
+                "opaque": "bool Condition()\r\n                    {\r\n                        return CardSourceCondition(cardSource);\r\n                    } bool CanSelectPermanentCondition(Permanent permanent)\r\n                    {\r\n                        if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, cardSource))\r\n                        {\r\n                            if (permanent != cardSource.PermanentOfThisCard())\r\n                            {\r\n                                if (permanent.TopCard.CardColors.Contains(CardColor.Black) || permanent.TopCard.CardColors.Contains(CardColor.White))\r\n                                {\r\n                                    if (permanent.willBeRemoveField)\r\n                                    {\r\n                                        return true;\r\n                                    }\r\n                                }\r\n                            }\r\n                        }\r\n\r\n                        return false;\r\n                    } string EffectDiscription()\r\n                    {\r\n                        return \u0022\u003CDecoy (Black/White)\u003E (When one of your other black or white Digimon would be deleted by an opponent\u0027s effect, you may delete this Digimon to prevent that deletion.)\u0022;\r\n                    } cardEffects.Add(CardEffectFactory.DecoySelfEffect(isInheritedEffect: false, card: cardSource, condition: Condition, permanentCondition: CanSelectPermanentCondition, effectName: \u0022Decoy (Black/White)\u0022, effectDiscription: EffectDiscription(), rootCardEffect: addSkillClass));"
+              }
+            },
+            "rhs": {
+              "ref": "cardEffects"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddSkillClass addSkillClass = new AddSkillClass();"
+        },
+        {
+          "opaque": "addSkillClass.SetUpICardEffect(\u0022Your Digimon gain Decoy\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addSkillClass.SetUpAddSkillClass(cardSourceCondition: CardSourceCondition, getEffects: GetEffects);"
+        },
+        {
+          "opaque": "addSkillClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addSkillClass"
+        }
+      ]
+    }
+  ]
+}

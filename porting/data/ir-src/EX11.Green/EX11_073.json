@@ -1,0 +1,489 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX11_073",
+  "set": "EX11",
+  "color": "Green",
+  "className": "EX11_073",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent)\r\n                        {\r\n                            return permanent != null\r\n                                \u0026\u0026 permanent.TopCard != null\r\n                                \u0026\u0026 CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)\r\n                                \u0026\u0026 permanent.TopCard.CardColors.Contains(CardColor.Green)\r\n                                \u0026\u0026 permanent.Levels_ForJogress(card).Contains(6);\r\n                        } bool PermanentCondition2(Permanent permanent)\r\n                        {\r\n                            return permanent != null\r\n                                \u0026\u0026 permanent.TopCard != null\r\n                                \u0026\u0026 CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)\r\n                                \u0026\u0026 permanent.TopCard.CardColors.Contains(CardColor.Black)\r\n                                \u0026\u0026 permanent.Levels_ForJogress(card).Contains(6);\r\n                        } JogressConditionElement[] elements =\r\n                        {\r\n                            new JogressConditionElement(PermanentCondition1, \u0022a level 6 green Digimon\u0022),\r\n\r\n                            new JogressConditionElement(PermanentCondition2, \u0022a level 6 black Digimon\u0022),\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfSAttackStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfLinkMaxStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] If DNA Digivolving, you may link up to 3 [Maquinamon] from your hand, trash or this Digimon\u0027s digivolution cards to this Digimon without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.IsJogress",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+                  "args": [
+                    {
+                      "ref": "card"
+                    },
+                    {
+                      "ref": "CanSelectCardCondition"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+                  "args": [
+                    {
+                      "ref": "card"
+                    },
+                    {
+                      "ref": "CanSelectCardCondition"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "card.PermanentOfThisCard().DigivolutionCards.Some",
+                "args": [
+                  {
+                    "ref": "CanSelectCardCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "cardSource.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Maquinamon"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "cardSource.CanLinkToTargetPermanent",
+              "args": [
+                {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                },
+                {
+                  "const": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              },
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "thisPermanent.AddLinkCard",
+                "args": [
+                  {
+                    "ref": "linkCard"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "You may link up to 3 [Maquinamon] from hand, trash or digivolution cards"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Opponent\u0027s Turn] [Once Per Turn] For each of this Digimon\u0027s link cards, trash your opponent\u0027s top security card and return 1 of their digimon to the bottom of the deck."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "OpponentsDigimonCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new IDestroySecurity(\r\n                        player: card.Owner.Enemy,\r\n                        destroySecurityCount: effectCount,\r\n                        cardEffect: activateClass,\r\n                        fromTop: true).DestroySecurity",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022EX11_073_EOOT_TRASH_BOUNCE\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Trash a security and bottom deck a digimon per link card"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

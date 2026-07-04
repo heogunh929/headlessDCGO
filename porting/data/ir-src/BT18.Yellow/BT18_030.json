@@ -1,0 +1,323 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT18_030",
+  "set": "BT18",
+  "color": "Yellow",
+  "className": "BT18_030",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] Reveal the top 3 cards of your deck. Add 1 yellow card with the [Data] trait and 1 card with the [Witchelny] trait among them to the hand. Return the rest to the bottom of the deck."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "cardSource.CardTraits.Contains",
+              "args": [
+                {
+                  "lit": "Data"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "cardSource.HasCardColor",
+              "args": [
+                {
+                  "member": "CardColor.Yellow"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition1",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "call": "cardSource.CardTraits.Contains",
+            "args": [
+              {
+                "lit": "Witchelny"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.LibraryCards.Count"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect",
+                "args": [
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "opaque": "new SimplifiedSelectCardConditionClass[]\r\n                        {\r\n                            new SimplifiedSelectCardConditionClass(\r\n                                canTargetCondition:CanSelectCardCondition,\r\n                                message: \u0022Select 1 yellow card with [Data] in its traits.\u0022,\r\n                                mode: SelectCardEffect.Mode.AddHand,\r\n                                maxCount: 1,\r\n                                selectCardCoroutine: null),\r\n                            new SimplifiedSelectCardConditionClass(\r\n                                canTargetCondition:CanSelectCardCondition1,\r\n                                message: \u0022Select 1 card with [Witchelny] in its traits.\u0022,\r\n                                mode: SelectCardEffect.Mode.AddHand,\r\n                                maxCount: 1,\r\n                                selectCardCoroutine: null),\r\n                        }"
+                  },
+                  {
+                    "member": "RemainingCardsPlace.DeckBottom"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Reveal top 3, add 1 yellow Data and 1 Witchelny"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "WhenRemoveField",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns][Once Per Turn] When this yellow Digimon with the [Data] or [Witchelny] trait would leave the battle area by an opponent\u0027s effect, by trashing your top security card, it doesn\u0027t leave."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.CanTriggerWhenRemoveField",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.IsByEffect",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardEffect"
+                      ],
+                      "body": {
+                        "call": "CardEffectCommons.IsOpponentEffect",
+                        "args": [
+                          {
+                            "ref": "cardEffect"
+                          },
+                          {
+                            "ref": "card"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "card.PermanentOfThisCard().TopCard.CardColors.Contains",
+                  "args": [
+                    {
+                      "member": "CardColor.Yellow"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "||",
+                  "lhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Data"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Witchelny"
+                      }
+                    ]
+                  }
+                }
+              },
+              "rhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "card.Owner.SecurityCards.Count"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new IDestroySecurity(\r\n                            player: card.Owner,\r\n                            destroySecurityCount: 1,\r\n                            cardEffect: activateClass,\r\n                            fromTop: true).DestroySecurity",
+                "args": []
+              },
+              {
+                "null": true
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022TrashSecurityToStay_Candlemon_BT18_030\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Trash 1 security to prevent this Digimon from leaving Battle Area"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT10_071",
+  "set": "BT10",
+  "color": "Purple",
+  "className": "BT10_071",
+  "branches": [
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u003E=",
+            "lhs": {
+              "member": "card.Owner.TrashCards.Count"
+            },
+            "rhs": {
+              "lit": 10
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RetaliationSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT18_042",
+  "set": "BT18",
+  "color": "Yellow",
+  "className": "BT18_042",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "targetPermanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Koji Minamoto"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "targetPermanent.DigivolutionCards.Count",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "cardSource"
+                      ],
+                      "body": {
+                        "call": "cardSource.ContainsTraits",
+                        "args": [
+                          {
+                            "lit": "Hybrid"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 5
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 5
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] (Once Per Turn) By placing 1 Digimon card from this Digimon\u0027s digivolution cards as your bottom security card, delete all of your opponent\u0027s Digimon with the same level as the placed card."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "new AceOverflowClass(new List\u003CCardSource\u003E { cardSource }).Overflow",
+                "args": []
+              },
+              {
+                "call": "CardObjectController.AddSecurityCard",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              {
+                "call": "new DestroyPermanentsClass(\r\n                            destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022WDUnsuspend_BT18_042\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place Digivolution card as your bottom security card to delete all opponent\u0027s same level Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Opponent\u0027s Turn] (Once Per Turn) By placing 1 Digimon card from this Digimon\u0027s digivolution cards as your bottom security card, delete all of your opponent\u0027s Digimon with the same level as the placed card."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "new AceOverflowClass(new List\u003CCardSource\u003E { cardSource }).Overflow",
+                "args": []
+              },
+              {
+                "call": "CardObjectController.AddSecurityCard",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              {
+                "call": "new DestroyPermanentsClass(\r\n                            destroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022EOTUnsuspend_BT18_042\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place Digivolution card as your bottom security card to delete all opponent\u0027s same level Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateConditionShared",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

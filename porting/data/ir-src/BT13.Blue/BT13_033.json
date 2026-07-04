@@ -1,0 +1,361 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT13_033",
+  "set": "BT13",
+  "color": "Blue",
+  "className": "BT13_033",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetBurstDigivolution",
+          "returns": "BurstDigivolutionCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool TamerCondition(Permanent permanent)\r\n                        {\r\n                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card))\r\n                            {\r\n                                if (!permanent.CannotReturnToHand(null))\r\n                                {\r\n                                    if (permanent.TopCard.CardNames.Contains(\u0022Thomas H. Norstein\u0022))\r\n                                    {\r\n                                        return true;\r\n                                    }\r\n\r\n                                    if (permanent.TopCard.CardNames.Contains(\u0022ThomasH.Norstein\u0022))\r\n                                    {\r\n                                        return true;\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } bool DigimonCondition(Permanent permanent)\r\n                        {\r\n                            if(permanent != null)\r\n                            {\r\n                                if (permanent.TopCard != null)\r\n                                {\r\n                                    if (permanent.TopCard.Owner == card.Owner)\r\n                                    {\r\n                                        if (permanent.TopCard.Owner.GetFieldPermanents().Contains(permanent))\r\n                                        {\r\n                                            if (!card.CanNotEvolve(permanent))\r\n                                            {\r\n                                                if (permanent.TopCard.CardNames.Contains(\u0022MirageGaogamon\u0022))\r\n                                                {\r\n                                                    return true;\r\n                                                }\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n\r\n                            return false;\r\n                        } BurstDigivolutionCondition burstDigivolutionCondition = new BurstDigivolutionCondition(\r\n                            tamerCondition: TamerCondition,\r\n                            selectTamerMessage: \u00221 [Thomas H. Norstein]\u0022,\r\n                            digimonCondition: DigimonCondition,\r\n                            selectDigimonMessage: \u00221 [MirageGaogamon]\u0022,\r\n                            cost: 0); return burstDigivolutionCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddBurstDigivolutionConditionClass addBurstDigivolutionConditionClass = new AddBurstDigivolutionConditionClass();"
+        },
+        {
+          "opaque": "addBurstDigivolutionConditionClass.SetUpICardEffect($\u0022Burst Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addBurstDigivolutionConditionClass.SetUpAddBurstDigivolutionConditionClass(getBurstDigivolutionCondition: GetBurstDigivolution);"
+        },
+        {
+          "opaque": "addBurstDigivolutionConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addBurstDigivolutionConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Return 1 of your opponent\u0027s Digimon to the hand. Then, gain 1 memory for every 4 cards in your opponent\u0027s hand."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "count",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "binop": "/",
+            "lhs": {
+              "member": "card.Owner.Enemy.HandCards.Count"
+            },
+            "rhs": {
+              "lit": 4
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "call": "card.Owner.Enemy.GetBattleAreaPermanents().Count",
+                  "args": [
+                    {
+                      "ref": "CanSelectPermanentCondition"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "card.Owner.CanAddMemory",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u003E=",
+                  "lhs": {
+                    "call": "count",
+                    "args": []
+                  },
+                  "rhs": {
+                    "lit": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "call": "count",
+                    "args": []
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return 1 Digimon to hand and gain Memory"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Attacking] If your opponent has 9 or more cards in their hand, by choosing cards in your opponent\u0027s hand without looking and returning them to the bottom of the deck so that 8 remain, unsuspend this Digimon."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.Enemy.HandCards.Count"
+              },
+              "rhs": {
+                "lit": 9
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "CardObjectController.AddLibraryBottomCards",
+                "args": [
+                  {
+                    "ref": "cardSources"
+                  },
+                  {
+                    "member": "card.Owner.isYou"
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "GManager.instance.GetComponent\u003CEffects\u003E().ShowCardEffect",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "lit": "Deck Bottom Cards"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "new IUnsuspendPermanents(new List\u003CPermanent\u003E() { selectedPermanent }, activateClass).Unsuspend",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return opponent\u0027s hand cards to the bottom of deck to unsuspend this Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

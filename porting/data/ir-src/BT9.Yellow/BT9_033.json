@@ -1,0 +1,76 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT9_033",
+  "set": "BT9",
+  "color": "Yellow",
+  "className": "BT9_033",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "member": "cardSource.IsDigiEgg"
+            }
+          }
+        },
+        {
+          "name": "CardEffectCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "!=",
+            "lhs": {
+              "ref": "cardEffect"
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "CanNotPutFieldClass canNotPutFieldClass = new CanNotPutFieldClass();"
+        },
+        {
+          "opaque": "canNotPutFieldClass.SetUpICardEffect(\u0022Players can\u0027t play Digimon by effect\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "canNotPutFieldClass.SetUpCanNotPutFieldClass(cardCondition: CardCondition, cardEffectCondition: CardEffectCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "canNotPutFieldClass"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,528 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX6_031",
+  "set": "EX6",
+  "color": "Yellow",
+  "className": "EX6_031",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "binop": "||",
+              "lhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "targetPermanent.TopCard.ContainsCardName",
+                  "args": [
+                    {
+                      "lit": "Sanzomon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "targetPermanent.TopCard.ContainsCardName",
+                  "args": [
+                    {
+                      "lit": "Gokuumon"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "targetPermanent.TopCard.ContainsCardName",
+                "args": [
+                  {
+                    "lit": "Sagomon"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "targetPermanent.TopCard.ContainsCardName",
+              "args": [
+                {
+                  "lit": "Cho-Hakkaimon"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 6
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetDigiXros",
+          "returns": "DigiXrosCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "DigiXrosConditionElement elementSanzomon =\r\n                            new DigiXrosConditionElement(CanSelectCardConditionSanzomon, \u0022Sanzomon\u0022); bool CanSelectCardConditionSanzomon(CardSource conditionCardSource)\r\n                        {\r\n                            if (conditionCardSource != null)\r\n                            {\r\n                                if (conditionCardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (conditionCardSource.IsDigimon)\r\n                                    {\r\n                                        if (conditionCardSource.CardNames_DigiXros.Contains(\u0022Sanzomon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n                            \r\n                            return false;\r\n                        } DigiXrosConditionElement elementGokuumon =\r\n                            new DigiXrosConditionElement(CanSelectCardConditionGokuumon, \u0022Gokuumon\u0022); bool CanSelectCardConditionGokuumon(CardSource conditionCardSource)\r\n                        {\r\n                            if (conditionCardSource != null)\r\n                            {\r\n                                if (conditionCardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (conditionCardSource.IsDigimon)\r\n                                    {\r\n                                        if (conditionCardSource.CardNames_DigiXros.Contains(\u0022Gokuumon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n                            \r\n                            return false;\r\n                        } DigiXrosConditionElement elementSagomon =\r\n                            new DigiXrosConditionElement(CanSelectCardConditionSagomon, \u0022Sagomon\u0022); bool CanSelectCardConditionSagomon(CardSource conditionCardSource)\r\n                        {\r\n                            if (conditionCardSource != null)\r\n                            {\r\n                                if (conditionCardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (conditionCardSource.IsDigimon)\r\n                                    {\r\n                                        if (conditionCardSource.CardNames_DigiXros.Contains(\u0022Sagomon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n                            \r\n                            return false;\r\n                        } DigiXrosConditionElement elementChoHakkaimon =\r\n                            new DigiXrosConditionElement(CanSelectCardConditionChoHakkaimon, \u0022Cho-Hakkaimon\u0022); bool CanSelectCardConditionChoHakkaimon(CardSource conditionCardSource)\r\n                        {\r\n                            if (conditionCardSource != null)\r\n                            {\r\n                                if (conditionCardSource.Owner == card.Owner)\r\n                                {\r\n                                    if (conditionCardSource.IsDigimon)\r\n                                    {\r\n                                        if (conditionCardSource.CardNames_DigiXros.Contains(\u0022Cho-Hakkaimon\u0022))\r\n                                        {\r\n                                            return true;\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n                            \r\n                            return false;\r\n                        } List\u003CDigiXrosConditionElement\u003E elements = new List\u003CDigiXrosConditionElement\u003E()\r\n                            { elementSanzomon, elementGokuumon, elementSagomon, elementChoHakkaimon }; DigiXrosCondition digiXrosCondition = new DigiXrosCondition(elements, null, 2); return digiXrosCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddDigiXrosConditionClass addDigiXrosConditionClass = new AddDigiXrosConditionClass();"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpICardEffect($\u0022DigiXros -2\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetUpAddDigiXrosConditionClass(getDigiXrosCondition: GetDigiXros);"
+        },
+        {
+          "opaque": "addDigiXrosConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addDigiXrosConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] All Digimon gain \u003CSecurity Attack -1\u003E until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttackPlayerEffect",
+                "args": [
+                  {
+                    "ref": "PermanentCondition"
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Security Attack -1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateSharedCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] All Digimon gain \u003CSecurity Attack -1\u003E until the end of your opponent\u0027s turn."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.ChangeDigimonSAttackPlayerEffect",
+                "args": [
+                  {
+                    "ref": "PermanentCondition"
+                  },
+                  {
+                    "opaque": "-1"
+                  },
+                  {
+                    "member": "EffectDuration.UntilOpponentTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Security Attack -1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateSharedCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "member": "permanent.HasSecurityAttackChanges"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "InvertSAttackStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "opaque": "-1"
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn] [Once Per Turn] You may place 1 Digimon with [Security Attack] on top of its owner\u0027s security stack."
+          }
+        },
+        {
+          "name": "IsPermanentWithSecurityAttackCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                }
+              ]
+            },
+            "rhs": {
+              "member": "permanent.HasSecurityAttackChanges"
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionPermanent",
+              "args": [
+                {
+                  "ref": "IsPermanentWithSecurityAttackCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IPutSecurityPermanent(permanent,\r\n                                            CardEffectCommons.CardEffectHashtable(activateClass),\r\n                                            toTop: true).PutSecurity",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022EOT_EX6-031\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place 1 Digimon with [Security Attack] on top of its owner\u0027s security stack"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

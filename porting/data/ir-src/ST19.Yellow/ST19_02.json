@@ -1,0 +1,147 @@
+{
+  "schema": "source-ir/1",
+  "card": "ST19_02",
+  "set": "ST19",
+  "color": "Yellow",
+  "className": "ST19_02",
+  "branches": [
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [
+        {
+          "name": "DecoyDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "\u003CDecoy ([Puppet] trait)\u003E (When one of your other [Puppet] trait Digimon would be deleted by an opponent\u0027s effect, you may delete this Digimon to prevent that deletion.)"
+          }
+        },
+        {
+          "name": "CanSelectDecoyPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+                  "args": [
+                    {
+                      "ref": "permanent"
+                    },
+                    {
+                      "ref": "card"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "!=",
+                  "lhs": {
+                    "ref": "permanent"
+                  },
+                  "rhs": {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  }
+                }
+              },
+              "rhs": {
+                "call": "permanent.TopCard.ContainsTraits",
+                "args": [
+                  {
+                    "lit": "Puppet"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "member": "permanent.willBeRemoveField"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "DecoySelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "CanSelectDecoyPermanentCondition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Decoy ([Puppet] trait)"
+              }
+            },
+            {
+              "name": "effectDiscription",
+              "value": {
+                "call": "DecoyDescription",
+                "args": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BarrierSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

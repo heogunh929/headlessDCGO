@@ -1,0 +1,575 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT5_085",
+  "set": "BT5",
+  "color": "White",
+  "className": "BT5_085",
+  "branches": [
+    {
+      "timing": "BeforePayCost",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "When playing this card from your hand, you may delete 1 of your [Diaboromon] to reduce this card\u0027s play cost by 12."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.TopCard.CardNames.Contains",
+                "args": [
+                  {
+                    "lit": "Diaboromon"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "not": {
+                    "call": "permanent.TopCard.CanNotBeAffected",
+                    "args": [
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "permanent.CanBeDestroyedBySkill",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "ref": "card"
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsExistOnHand",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenPermanentWouldPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "CardCondition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+            "args": [
+              {
+                "ref": "card"
+              },
+              {
+                "ref": "CanSelectPermanentCondition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { permanent }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanents"
+                      ],
+                      "body": {
+                        "call": "SuccessProcess",
+                        "args": []
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ShowReducedCost",
+                "args": [
+                  {
+                    "ref": "_hashtable"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022PlayCost-12_BT5_085\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 [Diaboromon] to get Play Cost -12"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent",
+            "activateClass"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.TopCard.CardNames.Contains",
+                "args": [
+                  {
+                    "lit": "Diaboromon"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "not": {
+                    "call": "permanent.TopCard.CanNotBeAffected",
+                    "args": [
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "permanent.CanBeDestroyedBySkill",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "card.Owner.HandCards.Contains",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "opaque": "ICardEffect activateClass = card.EffectList(EffectTiming.BeforePayCost).Find(cardEffect =\u003E cardEffect.EffectName == \u0022Delete 1 [Diaboromon] to get Play Cost -12\u0022); if (activateClass != null)\r\n                    {\r\n                        if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, (permanent) =\u003E permanent.IsDigimon \u0026\u0026 CanSelectPermanentCondition(permanent, activateClass)))\r\n                        {\r\n                            return true;\r\n                        }\r\n                    }"
+            }
+          }
+        },
+        {
+          "name": "ChangeCost",
+          "returns": "int",
+          "params": [
+            "cardSource",
+            "Cost",
+            "root",
+            "targetPermanents"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardSourceCondition",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "RootCondition",
+                  "args": [
+                    {
+                      "ref": "root"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "PermanentsCondition",
+                    "args": [
+                      {
+                        "ref": "targetPermanents"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "opaque": "Cost -= 12;"
+                  }
+                }
+              }
+            },
+            "rhs": {
+              "ref": "Cost"
+            }
+          }
+        },
+        {
+          "name": "PermanentsCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanents"
+          ],
+          "body": {
+            "opaque": "if (targetPermanents == null)\r\n                {\r\n                    return true;\r\n                }\r\n\r\n                else\r\n                {\r\n                    if (targetPermanents.Count((targetPermanent) =\u003E targetPermanent != null) == 0)\r\n                    {\r\n                        return true;\r\n                    }\r\n                } return false;"
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "ref": "card"
+              }
+            }
+          }
+        },
+        {
+          "name": "RootCondition",
+          "returns": "bool",
+          "params": [
+            "root"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "isUpDown",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "const": true
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCostClass changeCostClass = new ChangeCostClass();"
+        },
+        {
+          "opaque": "changeCostClass.SetUpICardEffect(\u0022Play Cost -12\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () =\u003E true, isChangePayingCost: () =\u003E true);"
+        },
+        {
+          "opaque": "changeCostClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCostClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RushSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "InvalidateCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "cardEffect"
+                },
+                "rhs": {
+                  "null": true
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "is",
+                  "lhs": {
+                    "ref": "cardEffect"
+                  },
+                  "rhs": {
+                    "ref": "ActivateICardEffect"
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "!=",
+                    "lhs": {
+                      "member": "cardEffect.EffectSourceCard"
+                    },
+                    "rhs": {
+                      "null": true
+                    }
+                  },
+                  "rhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "CardEffectCommons.IsExistOnBattleArea",
+                      "args": [
+                        {
+                          "member": "cardEffect.EffectSourceCard"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "binop": "==",
+                          "lhs": {
+                            "memberOf": {
+                              "call": "cardEffect.EffectSourceCard.PermanentOfThisCard",
+                              "args": []
+                            },
+                            "name": "Level"
+                          },
+                          "rhs": {
+                            "lit": 7
+                          }
+                        },
+                        "rhs": {
+                          "member": "cardEffect.EffectSourceCard.HasLevel"
+                        }
+                      },
+                      "rhs": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "not": {
+                            "call": "cardEffect.EffectSourceCard.PermanentOfThisCard().TopCard.CanNotBeAffected",
+                            "args": [
+                              {
+                                "ref": "invalidationClass"
+                              }
+                            ]
+                          }
+                        },
+                        "rhs": {
+                          "member": "cardEffect.IsWhenDigivolving"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "DisableEffectClass invalidationClass = new DisableEffectClass();"
+        },
+        {
+          "opaque": "invalidationClass.SetUpICardEffect(\u0022Ignore [When Digivolving] Effect\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "invalidationClass.SetUpDisableEffectClass(DisableCondition: InvalidateCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "invalidationClass"
+        }
+      ]
+    }
+  ]
+}

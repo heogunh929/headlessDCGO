@@ -1,0 +1,144 @@
+{
+  "schema": "source-ir/1",
+  "card": "P_028",
+  "set": "P",
+  "color": "Yellow",
+  "className": "P_028",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] If you have 3 or more security cards, trigger \u003CDraw 1\u003E. (Draw 1 card from your deck.) If you have 3 or fewer security cards, gain 1 memory."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u003E=",
+                  "lhs": {
+                    "member": "card.Owner.SecurityCards.Count"
+                  },
+                  "rhs": {
+                    "lit": 3
+                  }
+                },
+                "rhs": {
+                  "binop": "\u003E=",
+                  "lhs": {
+                    "member": "card.Owner.LibraryCards.Count"
+                  },
+                  "rhs": {
+                    "lit": 1
+                  }
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u003C=",
+                  "lhs": {
+                    "member": "card.Owner.SecurityCards.Count"
+                  },
+                  "rhs": {
+                    "lit": 3
+                  }
+                },
+                "rhs": {
+                  "call": "card.Owner.CanAddMemory",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DrawClass(card.Owner, 1, activateClass).Draw",
+                "args": []
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Draw 1 and Memory \u002B1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

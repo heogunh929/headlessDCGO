@@ -1,0 +1,718 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT20_019",
+  "set": "BT20",
+  "color": "Red",
+  "className": "BT20_019",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.EqualsCardName",
+            "args": [
+              {
+                "lit": "Jesmon"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AllianceSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] If [Jesmon] or [X Antibody] is in this Digimon\u0027s digivolution cards, for the turn, 1 of your Digimon isn\u0027t affected by your opponent\u0027s effects. Then, 1 of your Digimon may attack."
+          }
+        },
+        {
+          "name": "SourceCondition",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "source.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Jesmon"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "source.EqualsCardName",
+              "args": [
+                {
+                  "lit": "X Antibody"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "GManager.instance.GetComponent\u003CEffects\u003E().CreateBuffEffect",
+                "args": [
+                  {
+                    "ref": "immunityPermanent"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectAttackEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Become unaffected by opponents effects, then can attack"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "permanent.TopCard.ContainsCardName",
+                "args": [
+                  {
+                    "lit": "Sistermon"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasRoyalKnightTraits"
+              }
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "PermanentCondition",
+              "args": [
+                {
+                  "call": "cardSource.PermanentOfThisCard",
+                  "args": []
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "memberOf": {
+                  "call": "cardSource.PermanentOfThisCard",
+                  "args": []
+                },
+                "name": "TopCard"
+              }
+            }
+          }
+        },
+        {
+          "name": "GetEffects",
+          "returns": "List\u003CICardEffect\u003E",
+          "params": [
+            "cardSource",
+            "cardEffects",
+            "_timing"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "_timing"
+                },
+                "rhs": {
+                  "member": "EffectTiming.OnDetermineDoSecurityCheck"
+                }
+              },
+              "rhs": {
+                "opaque": "bool Condition()\r\n                        {\r\n                            return CardSourceCondition(cardSource);\r\n                        } cardEffects.Add(CardEffectFactory.PierceSelfEffect(\r\n                            isInheritedEffect: false,\r\n                            card: cardSource,\r\n                            condition: Condition));"
+              }
+            },
+            "rhs": {
+              "ref": "cardEffects"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddSkillClass addSkillClass = new AddSkillClass();"
+        },
+        {
+          "opaque": "addSkillClass.SetUpICardEffect(\u0022Your Digimon with [Sistermon] in their names or the [Royal Knight] trait gain Pierce\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addSkillClass.SetUpAddSkillClass(cardSourceCondition: CardSourceCondition, getEffects: GetEffects);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addSkillClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "||",
+              "lhs": {
+                "call": "permanent.TopCard.ContainsCardName",
+                "args": [
+                  {
+                    "lit": "Sistermon"
+                  }
+                ]
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasRoyalKnightTraits"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "DefenderCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "not": {
+                "member": "permanent.IsSuspended"
+              }
+            }
+          }
+        },
+        {
+          "name": "CardEffectCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "const": true
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "CanAttackTargetDefendingPermanentClass canAttackTargetDefendingPermanentClass = new CanAttackTargetDefendingPermanentClass();"
+        },
+        {
+          "opaque": "canAttackTargetDefendingPermanentClass.SetUpICardEffect($\u0022Can attack to unsuspended Digimon\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "canAttackTargetDefendingPermanentClass.SetUpCanAttackTargetDefendingPermanentClass(attackerCondition: PermanentCondition, defenderCondition: DefenderCondition, cardEffectCondition: CardEffectCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "canAttackTargetDefendingPermanentClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "card.PermanentOfThisCard().TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Jesmon GX"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerPermanent",
+              "args": [
+                {
+                  "call": "cardSource.PermanentOfThisCard",
+                  "args": []
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GetEffects",
+          "returns": "List\u003CICardEffect\u003E",
+          "params": [
+            "cardSource",
+            "cardEffects",
+            "_timing"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "_timing"
+                },
+                "rhs": {
+                  "member": "EffectTiming.OnDetermineDoSecurityCheck"
+                }
+              },
+              "rhs": {
+                "opaque": "bool Condition()\r\n                        {\r\n                            return card.PermanentOfThisCard().TopCard.EqualsCardName(\u0022Jesmon GX\u0022) \u0026\u0026\r\n                                   CardSourceCondition(cardSource);\r\n                        } cardEffects.Add(CardEffectFactory.PierceSelfEffect(isInheritedEffect: false, card: card, condition: Condition));"
+              }
+            },
+            "rhs": {
+              "ref": "cardEffects"
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition1",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "DefenderCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "not": {
+                "member": "permanent.IsSuspended"
+              }
+            }
+          }
+        },
+        {
+          "name": "CardEffectCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "const": true
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddSkillClass addSkillClass = new AddSkillClass();"
+        },
+        {
+          "opaque": "addSkillClass.SetUpICardEffect(\u0022[Your Turn] While this Digimon is [Jesmon GX], all of your Digimon gain \u003CPiercing\u003E and can also attack your opponent\u0027s unsuspended Digimon.\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addSkillClass.SetUpAddSkillClass(cardSourceCondition: CardSourceCondition, getEffects: GetEffects);"
+        },
+        {
+          "opaque": "addSkillClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addSkillClass"
+        },
+        {
+          "opaque": "CanAttackTargetDefendingPermanentClass canAttackTargetDefendingPermanentClass = new CanAttackTargetDefendingPermanentClass();"
+        },
+        {
+          "opaque": "canAttackTargetDefendingPermanentClass.SetUpICardEffect($\u0022Can attack to unsuspended Digimon\u0022, CanUseCondition1, card);"
+        },
+        {
+          "opaque": "canAttackTargetDefendingPermanentClass.SetUpCanAttackTargetDefendingPermanentClass(attackerCondition: PermanentCondition, defenderCondition: DefenderCondition, cardEffectCondition: CardEffectCondition);"
+        },
+        {
+          "opaque": "canAttackTargetDefendingPermanentClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "canAttackTargetDefendingPermanentClass"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,453 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT21_079",
+  "set": "BT21",
+  "color": "Purple",
+  "className": "BT21_079",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "DigivolutionCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "==",
+              "lhs": {
+                "member": "permanent.Level"
+              },
+              "rhs": {
+                "lit": 5
+              }
+            },
+            "rhs": {
+              "call": "permanent.TopCard.ContainsCardName",
+              "args": [
+                {
+                  "lit": "Growlmon"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "DigivolutionCondition"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": 4
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfSAttackStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "ChangeCardNames",
+          "returns": "List\u003Cstring\u003E",
+          "params": [
+            "cardSource",
+            "cardNames"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "cardNames.Add(\u0022ChaosGallantmon\u0022);"
+              }
+            },
+            "rhs": {
+              "ref": "cardNames"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCardNamesClass changeCardNamesClass = new ChangeCardNamesClass();"
+        },
+        {
+          "opaque": "changeCardNamesClass.SetUpICardEffect(\u0022Also treated as [ChaosGallantmon]\u0022, _ =\u003E true, card);"
+        },
+        {
+          "opaque": "changeCardNamesClass.SetUpChangeCardNamesClass(changeCardNames: ChangeCardNames);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCardNamesClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEndAttack",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Attack][Once Per Turn] Delete all Digimon."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnEndAttack",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new DestroyPermanentsClass(DestroyTargetPermanents, CardEffectCommons.CardEffectHashtable(activateClass)).Destroy",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022BT21_079 EOA\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete all digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Deletion] You may play 1 play cost 3 or lower Digimon card with [Guilmon] or [Growlmon] in its name from your trash without paying the cost. For every 10 cards in both players\u0027 trashes, add 2 to this effect\u0027s play cost maximum."
+          }
+        },
+        {
+          "name": "Count",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "call": "Mathf.FloorToInt",
+            "args": [
+              {
+                "binop": "/",
+                "lhs": {
+                  "binop": "\u002B",
+                  "lhs": {
+                    "member": "card.Owner.TrashCards.Count"
+                  },
+                  "rhs": {
+                    "member": "card.Owner.Enemy.TrashCards.Count"
+                  }
+                },
+                "rhs": {
+                  "lit": 10
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "card"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "card.IsDigimon"
+              },
+              "rhs": {
+                "binop": "||",
+                "lhs": {
+                  "call": "card.ContainsCardName",
+                  "args": [
+                    {
+                      "lit": "Guilmon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "card.ContainsCardName",
+                  "args": [
+                    {
+                      "lit": "Growlmon"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "card.GetCostItself"
+              },
+              "rhs": {
+                "binop": "\u002B",
+                "lhs": {
+                  "lit": 3
+                },
+                "rhs": {
+                  "binop": "*",
+                  "lhs": {
+                    "call": "Count",
+                    "args": []
+                  },
+                  "rhs": {
+                    "lit": 2
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanActivateOnDeletion",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "CanSelectCardCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play guilmon or growlmon in name"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

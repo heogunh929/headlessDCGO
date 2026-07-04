@@ -1,0 +1,105 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT1_073",
+  "set": "BT1",
+  "color": "Green",
+  "className": "BT1_073",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "count",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "call": "card.Owner.Enemy.GetBattleAreaDigimons().Count",
+            "args": [
+              {
+                "lambda": {
+                  "params": [
+                    "permanent"
+                  ],
+                  "body": {
+                    "member": "permanent.IsSuspended"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "count",
+                "args": []
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lambda": {
+                  "params": [],
+                  "body": {
+                    "binop": "*",
+                    "lhs": {
+                      "lit": 1000
+                    },
+                    "rhs": {
+                      "call": "count",
+                      "args": []
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

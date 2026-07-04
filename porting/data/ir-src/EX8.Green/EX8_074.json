@@ -1,0 +1,811 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX8_074",
+  "set": "EX8",
+  "color": "Green",
+  "className": "EX8_074",
+  "branches": [
+    {
+      "timing": "BeforePayCost",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "When this card would be played, by suspending 2 Digimon, reduce the play cost by 4."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenPermanentWouldPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "CardCondition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "ref": "card"
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsExistOnHand",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon",
+                      "args": [
+                        {
+                          "ref": "permanent"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "binop": "!=",
+                      "lhs": {
+                        "ref": "permanent"
+                      },
+                      "rhs": {
+                        "null": true
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "member": "permanent.TopCard"
+                  }
+                },
+                "rhs": {
+                  "not": {
+                    "call": "permanent.TopCard.CanNotBeAffected",
+                    "args": [
+                      {
+                        "ref": "activateClass"
+                      }
+                    ]
+                  }
+                }
+              },
+              "rhs": {
+                "not": {
+                  "member": "permanent.IsSuspended"
+                }
+              }
+            },
+            "rhs": {
+              "member": "permanent.CanSuspend"
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u003E=",
+            "lhs": {
+              "call": "CardEffectCommons.MatchConditionPermanentCount",
+              "args": [
+                {
+                  "ref": "CanSelectPermanentCondition"
+                }
+              ]
+            },
+            "rhs": {
+              "lit": 2
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new SuspendPermanentsClass(new List\u003CPermanent\u003E() { selectedPermanent },\r\n                                        CardEffectCommons.CardEffectHashtable(activateClass)).Tap",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.ShowReducedCost",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022PlayCost-4_EX8_074\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Suspend 2 Digimon to get Play Cost -4"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        },
+        {
+          "opaque": "activateClass.SetIsDigimonEffect(true);"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition1",
+          "returns": "bool",
+          "params": [
+            "hashtable1"
+          ],
+          "body": {
+            "binop": "\u003E=",
+            "lhs": {
+              "call": "CardEffectCommons.MatchConditionPermanentCount",
+              "args": [
+                {
+                  "ref": "PermanentCondition"
+                }
+              ]
+            },
+            "rhs": {
+              "lit": 2
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  }
+                ]
+              },
+              "rhs": {
+                "not": {
+                  "member": "permanent.IsSuspended"
+                }
+              }
+            },
+            "rhs": {
+              "member": "permanent.CanSuspend"
+            }
+          }
+        },
+        {
+          "name": "ChangeCost",
+          "returns": "int",
+          "params": [
+            "cardSource",
+            "cost",
+            "root",
+            "targetPermanents"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "CardSourceCondition",
+                    "args": [
+                      {
+                        "ref": "cardSource"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "RootCondition",
+                    "args": [
+                      {
+                        "ref": "root"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "PermanentsCondition",
+                  "args": [
+                    {
+                      "ref": "targetPermanents"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "opaque": "cost -= 4;"
+              }
+            },
+            "rhs": {
+              "ref": "cost"
+            }
+          }
+        },
+        {
+          "name": "PermanentsCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanents"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "targetPermanents"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u003C",
+              "lhs": {
+                "call": "targetPermanents.Count",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "targetPermanent"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "binop": "\u0026\u0026",
+                          "lhs": {
+                            "binop": "\u0026\u0026",
+                            "lhs": {
+                              "binop": "\u0026\u0026",
+                              "lhs": {
+                                "binop": "\u0026\u0026",
+                                "lhs": {
+                                  "call": "CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon",
+                                  "args": [
+                                    {
+                                      "ref": "targetPermanent"
+                                    }
+                                  ]
+                                },
+                                "rhs": {
+                                  "binop": "!=",
+                                  "lhs": {
+                                    "ref": "targetPermanent"
+                                  },
+                                  "rhs": {
+                                    "null": true
+                                  }
+                                }
+                              },
+                              "rhs": {
+                                "member": "targetPermanent.TopCard"
+                              }
+                            },
+                            "rhs": {
+                              "not": {
+                                "call": "targetPermanent.TopCard.CanNotBeAffected",
+                                "args": [
+                                  {
+                                    "ref": "changeCostClass"
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "rhs": {
+                            "not": {
+                              "member": "targetPermanent.IsSuspended"
+                            }
+                          }
+                        },
+                        "rhs": {
+                          "member": "targetPermanent.CanSuspend"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 2
+              }
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        },
+        {
+          "name": "RootCondition",
+          "returns": "bool",
+          "params": [
+            "root"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "IsUpDown",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "const": true
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeCostClass changeCostClass = new ChangeCostClass();"
+        },
+        {
+          "opaque": "changeCostClass.SetUpICardEffect(\u0022Play Cost -4\u0022, CanUseCondition1, card);"
+        },
+        {
+          "opaque": "changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition,\r\n                    rootCondition: RootCondition, isUpDown: IsUpDown, isCheckAvailability: () =\u003E true,\r\n                    isChangePayingCost: () =\u003E true);"
+        },
+        {
+          "opaque": "changeCostClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeCostClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AllianceSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "VortexSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] You may suspend 1 Digimon. Then, you may delete 1 of your opponent\u0027s 8000 DP or lower Digimon. For each other suspended Digimon, add 3000 to this DP deletion effect\u0027s maximum."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectSuspendPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "DeletionMaxDP",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "binop": "\u002B",
+            "lhs": {
+              "lit": 8000
+            },
+            "rhs": {
+              "binop": "*",
+              "lhs": {
+                "lit": 3000
+              },
+              "rhs": {
+                "call": "CardEffectCommons.MatchConditionPermanentCount",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanent"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "binop": "\u0026\u0026",
+                          "lhs": {
+                            "member": "permanent.IsDigimon"
+                          },
+                          "rhs": {
+                            "member": "permanent.IsSuspended"
+                          }
+                        },
+                        "rhs": {
+                          "binop": "!=",
+                          "lhs": {
+                            "ref": "permanent"
+                          },
+                          "rhs": {
+                            "call": "card.PermanentOfThisCard",
+                            "args": []
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectDeletePermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "call": "card.Owner.MaxDP_DeleteEffect",
+                "args": [
+                  {
+                    "call": "DeletionMaxDP",
+                    "args": []
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Suspend 1 Digimon then Delete 1 Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[All Turns] (Once Per Turn) When Digimon are played, you may activate 1 of this Digimon\u0027s [When Digivolving] effects."
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.CanTriggerOnPermanentPlay",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "PermanentCondition"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "((ActivateICardEffect)selectedEffect).Activate_Optional_Effect_Execute",
+                "args": [
+                  {
+                    "ref": "effectHashtable"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022PlayActivate_EX8_074\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Activate 1 of this Digimon\u0027s [When Digivolving] effects"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

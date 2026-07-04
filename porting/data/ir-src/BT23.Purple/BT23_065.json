@@ -1,0 +1,372 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT23_065",
+  "set": "BT23",
+  "color": "Purple",
+  "className": "BT23_065",
+  "branches": [
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Hand] [Main] If you have [Violet Inboots], by placing 1 [Bakemon] from your trash as any of your [Ghostmon]\u0027s bottom digivolution card, it digivolves into this card for a digivolution cost of 3, ignoring digivolution requirements."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "CardEffectCommons.IsExistOnHand",
+                    "args": [
+                      {
+                        "ref": "card"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "CardEffectCommons.IsOwnerTurn",
+                    "args": [
+                      {
+                        "ref": "card"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                  "args": [
+                    {
+                      "ref": "card"
+                    },
+                    {
+                      "ref": "IsVioletInboots"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "IsGhostmon"
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "IsBakemon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "IsVioletInboots",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "permanent.IsTamer"
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Violet Inboots"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "IsGhostmon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Ghostmon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "IsBakemon",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "source.IsDigimon"
+            },
+            "rhs": {
+              "call": "source.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Bakemon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "IsProganomon",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnHand",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "==",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "ref": "card"
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "sunarizamon.AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { landramon }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.DigivolveIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "sunarizamon"
+                  },
+                  {
+                    "ref": "IsProganomon"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "lit": 3
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "null": true
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "call": "FailureProcess",
+                    "args": []
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              {
+                "call": "new IDiscardHands(discardHands, null).DiscardHands",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place 1 [Bakemon] from trash under 1 [Ghostmon], to digivolve for 3"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 4 [Ghost] trait from trash"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "SharedCanActivateCondition",
+          "coroutine": "hash =\u003E SharedActivateCoroutine(hash, activateClass)",
+          "description": {
+            "call": "SharedEffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDestroyedAnyone",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnDeletion",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 4 [Ghost] trait from trash"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "SharedCanActivateCondition",
+          "coroutine": "hash =\u003E SharedActivateCoroutine(hash, activateClass)",
+          "description": {
+            "call": "SharedEffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

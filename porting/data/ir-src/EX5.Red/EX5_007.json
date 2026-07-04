@@ -1,0 +1,450 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX5_007",
+  "set": "EX5",
+  "color": "Red",
+  "className": "EX5_007",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "targetPermanent.TopCard.HasLevel"
+              },
+              "rhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "targetPermanent.TopCard.Level"
+                },
+                "rhs": {
+                  "lit": 2
+                }
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "targetPermanent.TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Light Fang"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "targetPermanent.TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "LightFung"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "targetPermanent.TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "Night Claw"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "targetPermanent.TopCard.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "NightClaw"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 0
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnStartMainPhase",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Start of Your Main Phase] If you have a Tamer with the [Light Fang]/[Night Claw] trait, gain 1 memory."
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleArea",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "permanent.IsTamer"
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "permanent.TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Light Fang"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "permanent.TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "LightFung"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "permanent.TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Night Claw"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "permanent.TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "NightClaw"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "PermanentCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.Owner.CanAddMemory",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "lit": 1
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Memory \u002B1"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnDeclaration",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] [Once Per Turn] By placing the top card of this Digimon with the [Light Fang]/[Night Claw] trait as this Digimon\u0027s bottom digivolution card, gain 2 memory."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "memberOf": {
+                    "memberOf": {
+                      "call": "card.PermanentOfThisCard",
+                      "args": []
+                    },
+                    "name": "DigivolutionCards"
+                  },
+                  "name": "Count"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Light Fang"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "LightFung"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Night Claw"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard().TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "NightClaw"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "card.PermanentOfThisCard().AddDigivolutionCardsBottom",
+                "args": [
+                  {
+                    "opaque": "new List\u003CCardSource\u003E() { topCard }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "lit": 2
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022ReturnDigivolutionCards_EX50_007\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place the top card of this Digimon at the bottom of digivolution cards to gain Memory \u002B2 (Coronamon)"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          },
+          "inherited": {
+            "const": true
+          }
+        }
+      ]
+    }
+  ]
+}

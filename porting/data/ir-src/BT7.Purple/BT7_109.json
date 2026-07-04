@@ -1,0 +1,220 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT7_109",
+  "set": "BT7",
+  "color": "Purple",
+  "className": "BT7_109",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Play 1 purple level 5 Digimon card from your trash without paying its memory cost. If there are 10 or more cards in your trash, you may play 1 Digimon card with [Lucemon] in its name without paying its memory cost instead."
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardSource"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "==",
+                  "lhs": {
+                    "member": "cardSource.Owner"
+                  },
+                  "rhs": {
+                    "member": "card.Owner"
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "member": "cardSource.IsDigimon"
+                  },
+                  "rhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                      "args": [
+                        {
+                          "ref": "cardSource"
+                        },
+                        {
+                          "const": false
+                        },
+                        {
+                          "ref": "activateClass"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "call": "cardSource.HasCardColor",
+                          "args": [
+                            {
+                              "member": "CardColor.Purple"
+                            }
+                          ]
+                        },
+                        "rhs": {
+                          "binop": "\u0026\u0026",
+                          "lhs": {
+                            "binop": "==",
+                            "lhs": {
+                              "member": "cardSource.Level"
+                            },
+                            "rhs": {
+                              "lit": 5
+                            }
+                          },
+                          "rhs": {
+                            "member": "cardSource.HasLevel"
+                          }
+                        }
+                      },
+                      "rhs": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "binop": "\u003E=",
+                          "lhs": {
+                            "member": "card.Owner.TrashCards.Count"
+                          },
+                          "rhs": {
+                            "lit": 10
+                          }
+                        },
+                        "rhs": {
+                          "call": "cardSource.ContainsCardName",
+                          "args": [
+                            {
+                              "lit": "Lucemon"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Trash"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022Play 1 Digimon from trash\u0022);"
+        }
+      ]
+    }
+  ]
+}

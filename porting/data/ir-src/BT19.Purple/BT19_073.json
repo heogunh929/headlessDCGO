@@ -1,0 +1,404 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT19_073",
+  "set": "BT19",
+  "color": "Purple",
+  "className": "BT19_073",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "call": "targetPermanent.TopCard.EqualsCardName",
+            "args": [
+              {
+                "lit": "LordKnightmon"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnCounterTiming",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "CollisionSelfStaticEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnDetermineDoSecurityCheck",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PierceSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] \u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon for each of your Digimon. Then, 1 of your opponent\u0027s Digimon can\u0027t digivolve until the end of their turn."
+          }
+        },
+        {
+          "name": "IsOpponenetsDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E",
+              "lhs": {
+                "memberOf": {
+                  "call": "card.Owner.GetBattleAreaDigimons",
+                  "args": []
+                },
+                "name": "Count"
+              },
+              "rhs": {
+                "lit": 0
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectDeDigivolvePermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IDegeneration(permanent, 1, activateClass).Degeneration",
+                "args": []
+              },
+              {
+                "call": "selectCannotEvoEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "GManager.instance.GetComponent\u003CEffects\u003E().CreateDebuffEffect",
+                "args": [
+                  {
+                    "ref": "selectedPermanent"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "\u003CDe-Digivolve 1\u003E 1 of your opponent\u0027s Digimon for each of your Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CanUseAllTurnsCondition",
+            "args": []
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "memberOf": {
+                    "call": "cardSource.PermanentOfThisCard",
+                    "args": []
+                  },
+                  "name": "TopCard"
+                }
+              },
+              "rhs": {
+                "call": "AllTurnPermanentCondition",
+                "args": [
+                  {
+                    "call": "cardSource.PermanentOfThisCard",
+                    "args": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "GetEffects",
+          "returns": "List\u003CICardEffect\u003E",
+          "params": [
+            "cardSource",
+            "cardEffects",
+            "_timing"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "_timing"
+                },
+                "rhs": {
+                  "member": "EffectTiming.OnAllyAttack"
+                }
+              },
+              "rhs": {
+                "opaque": "bool Condition()\r\n                        {\r\n                            return CardSourceCondition(cardSource);\r\n                        } cardEffects.Add(CardEffectFactory.AllianceSelfEffect(false, cardSource, Condition));"
+              }
+            },
+            "rhs": {
+              "ref": "cardEffects"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeDPStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "AllTurnPermanentCondition"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 3000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "CanUseAllTurnsCondition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "ref": "EffectName"
+              }
+            }
+          ]
+        },
+        {
+          "opaque": "AddSkillClass addSkillClass = new AddSkillClass();"
+        },
+        {
+          "opaque": "addSkillClass.SetUpICardEffect(\u0022Your Digimon gain Alliance\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addSkillClass.SetUpAddSkillClass(cardSourceCondition: CardSourceCondition, getEffects: GetEffects);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addSkillClass"
+        }
+      ]
+    }
+  ]
+}

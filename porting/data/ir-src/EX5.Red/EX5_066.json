@@ -1,0 +1,181 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX5_066",
+  "set": "EX5",
+  "color": "Red",
+  "className": "EX5_066",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Delete 1 of your opponent\u0027s Digimon with the lowest DP. Then, if you have a Tamer, return 1 Digimon card with the [Light Fang]/[Night Claw]/[Galaxy] trait from your trash to the hand."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsMinDP",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "member": "card.Owner.Enemy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "cardSource.IsDigimon"
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "call": "cardSource.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "Light Fang"
+                        }
+                      ]
+                    },
+                    "rhs": {
+                      "call": "cardSource.CardTraits.Contains",
+                      "args": [
+                        {
+                          "lit": "LightFung"
+                        }
+                      ]
+                    }
+                  },
+                  "rhs": {
+                    "call": "cardSource.CardTraits.Contains",
+                    "args": [
+                      {
+                        "lit": "Night Claw"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "cardSource.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "NightClaw"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "cardSource.CardTraits.Contains",
+                "args": [
+                  {
+                    "lit": "Galaxy"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022Delete 1 Digimon with the lowest DP and return 1 card from trash to hand\u0022);"
+        }
+      ]
+    }
+  ]
+}

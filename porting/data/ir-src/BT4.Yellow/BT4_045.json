@@ -1,0 +1,111 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT4_045",
+  "set": "BT4",
+  "color": "Yellow",
+  "className": "BT4_045",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "member": "cardSource.Owner"
+            },
+            "rhs": {
+              "member": "card.Owner"
+            }
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOpponentTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "card.Owner.SecurityCards.Count"
+                },
+                "rhs": {
+                  "lit": 3
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSecurityDigimonCardDPStaticEffect",
+          "args": [
+            {
+              "name": "cardCondition",
+              "value": {
+                "ref": "CardCondition"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 4000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Your Security Digimon gains DP \u002B4000"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

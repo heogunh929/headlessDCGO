@@ -1,0 +1,123 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT12_001",
+  "set": "BT12",
+  "color": "Red",
+  "className": "BT12_001",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "isExistOnField",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOwnerTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "card.Owner.GetBattleAreaDigimons().Contains",
+                "args": [
+                  {
+                    "call": "card.PermanentOfThisCard",
+                    "args": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ChangeMaxDP",
+          "returns": "int",
+          "params": [
+            "maxDP",
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "cardEffect"
+                },
+                "rhs": {
+                  "null": true
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "!=",
+                  "lhs": {
+                    "member": "cardEffect.EffectSourceCard"
+                  },
+                  "rhs": {
+                    "null": true
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "==",
+                    "lhs": {
+                      "member": "cardEffect.EffectSourceCard.Owner"
+                    },
+                    "rhs": {
+                      "member": "card.Owner"
+                    }
+                  },
+                  "rhs": {
+                    "opaque": "maxDP \u002B= 1000;"
+                  }
+                }
+              }
+            },
+            "rhs": {
+              "ref": "maxDP"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "ChangeDPDeleteEffectMaxDPClass changeDPDeleteEffectMaxDPClass = new ChangeDPDeleteEffectMaxDPClass();"
+        },
+        {
+          "opaque": "changeDPDeleteEffectMaxDPClass.SetUpICardEffect(\u0022Maximum DP of DP-based deletion effects gets \u002B1000 DP\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "changeDPDeleteEffectMaxDPClass.SetUpChangeDPDeleteEffectMaxDPClass(changeMaxDP: ChangeMaxDP);"
+        },
+        {
+          "opaque": "changeDPDeleteEffectMaxDPClass.SetIsInheritedEffect(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "changeDPDeleteEffectMaxDPClass"
+        }
+      ]
+    }
+  ]
+}

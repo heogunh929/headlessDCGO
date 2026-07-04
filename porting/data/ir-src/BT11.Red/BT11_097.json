@@ -1,0 +1,186 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT11_097",
+  "set": "BT11",
+  "color": "Red",
+  "className": "BT11_097",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Delete 1 of your opponent\u0027s Digimon with 8000 DP or less. Then, if you have a red Tamer in play, activate 1 of the [On Deletion] effects of 1 of your red Digimon with [Vaccine] in its traits."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "permanent.DP"
+              },
+              "rhs": {
+                "call": "card.Owner.MaxDP_DeleteEffect",
+                "args": [
+                  {
+                    "lit": 8000
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition1",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.TopCard.CardColors.Contains",
+                "args": [
+                  {
+                    "member": "CardColor.Red"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "permanent.TopCard.CardTraits.Contains",
+                  "args": [
+                    {
+                      "lit": "Vaccine"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "opaque": "List\u003CICardEffect\u003E candidateEffects = permanent.EffectList(EffectTiming.OnDestroyedAnyone)\r\n                                    .Clone()\r\n                                    .Filter(cardEffect =\u003E cardEffect != null \u0026\u0026 cardEffect is ActivateICardEffect \u0026\u0026 !cardEffect.IsSecurityEffect \u0026\u0026 cardEffect.IsOnDeletion); if (candidateEffects.Count \u003E= 1)\r\n                                {\r\n                                    return true;\r\n                                }"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "((ActivateICardEffect)selectedEffect).Activate_Optional_Effect_Execute",
+                "args": [
+                  {
+                    "ref": "effectHashtable"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(\r\n                    card: card,\r\n                    cardEffects: ref cardEffects,\r\n                    effectName: $\u0022Delete 1 Digimon with 8000 DP or less and activate 1 [On Deletion] effect\u0022);"
+        }
+      ]
+    }
+  ]
+}

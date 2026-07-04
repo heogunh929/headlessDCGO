@@ -1,0 +1,341 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_076",
+  "set": "BT25",
+  "color": "Black",
+  "className": "BT25_076",
+  "branches": [
+    {
+      "timing": "BeforePayCost",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "When this card would be played, by deleting 1 of your play cost 11 or lower Digimon with [Negamon] in its digivolution cards and [Negamon] in its text, reduce the cost by the deleted Digimon\u0027s play cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenPermanentWouldPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "CardCondition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+                        "args": [
+                          {
+                            "ref": "permanent"
+                          },
+                          {
+                            "ref": "card"
+                          }
+                        ]
+                      },
+                      "rhs": {
+                        "member": "permanent.TopCard.HasPlayCost"
+                      }
+                    },
+                    "rhs": {
+                      "binop": "\u003C=",
+                      "lhs": {
+                        "member": "permanent.TopCard.GetCostItself"
+                      },
+                      "rhs": {
+                        "lit": 11
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "call": "permanent.TopCard.HasText",
+                    "args": [
+                      {
+                        "lit": "Negamon"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "binop": "\u003E",
+                  "lhs": {
+                    "call": "permanent.DigivolutionCards.Count",
+                    "args": [
+                      {
+                        "lambda": {
+                          "params": [
+                            "digiCard"
+                          ],
+                          "body": {
+                            "call": "digiCard.EqualsCardName",
+                            "args": [
+                              {
+                                "lit": "Negamon"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "lit": 0
+                  }
+                }
+              },
+              "rhs": {
+                "not": {
+                  "call": "permanent.TopCard.CanNotBeAffected",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "binop": "-",
+                "lhs": {
+                  "call": "card.PayingCost",
+                  "args": [
+                    {
+                      "member": "SelectCardEffect.Root.Hand"
+                    },
+                    {
+                      "null": true
+                    },
+                    {
+                      "const": false
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "permanent.TopCard.GetCostItself"
+                }
+              },
+              "rhs": {
+                "member": "card.Owner.MaxMemoryCost"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.HasMatchConditionPermanent",
+            "args": [
+              {
+                "ref": "CanSelectPermanentCondition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "ref": "permanents"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "ref": "SuccessProcess"
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.ShowReducedCost",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Delete 1 of your play cost 11 or lower [Negamon] in text with [Negamon] in sources to reduce by it\u0027s play cost"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        },
+        {
+          "opaque": "activateClass.SetIsDigimonEffect(true);"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RushSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RebootSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

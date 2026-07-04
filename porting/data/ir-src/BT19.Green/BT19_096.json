@@ -1,0 +1,172 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT19_096",
+  "set": "BT19",
+  "color": "Green",
+  "className": "BT19_096",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] You may place 1 [Royal Base] trait Digimon card from your trash face up as your bottom security card. Then, delete up to 8 play cost\u0027s total worth of your opponent\u0027s Digimon. For each of your face up security cards, add 2 to the maximum play cost you may choose with this effect."
+          }
+        },
+        {
+          "name": "MaxCost",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "int maxCost = 8; maxCost \u002B= card.Owner.SecurityCards.Count(source =\u003E !source.IsFlipped) * 2; return maxCost;"
+          }
+        },
+        {
+          "name": "IsRoyalBaseDigimon",
+          "returns": "bool",
+          "params": [
+            "card"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "card.IsDigimon"
+            },
+            "rhs": {
+              "call": "card.EqualsTraits",
+              "args": [
+                {
+                  "lit": "Royal Base"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "IsOpponenetsDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "permanent.TopCard.GetCostItself"
+                },
+                "rhs": {
+                  "call": "MaxCost",
+                  "args": []
+                }
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasPlayCost"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardObjectController.AddSecurityCard",
+                "args": [
+                  {
+                    "ref": "selectedCard"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Place 1 [Royal Base] face up as bottom security, delete up to 8 play cost total"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022Delete opponent\u0027s all Digimon with the highest play cost\u0022);"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,493 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX6_029",
+  "set": "EX6",
+  "color": "Yellow",
+  "className": "EX6_029",
+  "branches": [
+    {
+      "timing": "OnCounterTiming",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "List\u003CBlastDNACondition\u003E blastDNAConditions = new List\u003CBlastDNACondition\u003E\r\n                {\r\n                    new(\u0022Angewomon\u0022),\r\n                    new(\u0022LadyDevimon\u0022)\r\n                };"
+        },
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlastDNADigivolveEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "blastDNAConditions",
+              "value": {
+                "ref": "blastDNAConditions"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent)\r\n                        {\r\n                            if (permanent != null)\r\n                            {\r\n                                if (permanent.TopCard != null)\r\n                                {\r\n                                    if (permanent.TopCard.Owner == card.Owner)\r\n                                    {\r\n                                        if (permanent.IsDigimon)\r\n                                        {\r\n                                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent,\r\n                                                    card))\r\n                                            {\r\n                                                if (permanent.TopCard.CardColors.Contains(CardColor.Yellow))\r\n                                                {\r\n                                                    if (permanent.Levels_ForJogress(card).Contains(5))\r\n                                                    {\r\n                                                        return true;\r\n                                                    }\r\n                                                }\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n                            \r\n                            return false;\r\n                        } bool PermanentCondition2(Permanent permanent)\r\n                        {\r\n                            if (permanent != null)\r\n                            {\r\n                                if (permanent.TopCard != null)\r\n                                {\r\n                                    if (permanent.TopCard.Owner == card.Owner)\r\n                                    {\r\n                                        if (permanent.IsDigimon)\r\n                                        {\r\n                                            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent,\r\n                                                    card))\r\n                                            {\r\n                                                if (permanent.TopCard.CardColors.Contains(CardColor.Purple))\r\n                                                {\r\n                                                    if (permanent.Levels_ForJogress(card).Contains(5))\r\n                                                    {\r\n                                                        return true;\r\n                                                    }\r\n                                                }\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }\r\n                            }\r\n                            \r\n                            return false;\r\n                        } JogressConditionElement[] elements =\r\n                        {\r\n                            new(PermanentCondition1, \u0022a level 5 Yellow Digimon\u0022),\r\n                            new(PermanentCondition2, \u0022a level 5 Purple Digimon\u0022)\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] You may play 1 level 5 or lower Digimon card with the [Angel]/[Archangel]/[Fallen Angel] trait from your hand or trash without paying the cost. Then, if DNA digivolving, place 1 other Digimon at the bottom of its owner\u0027s security stack, and trash cards from the top of your opponent\u0027s security stack until it has 4 left."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsCardAngelCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "member": "cardSource.HasLevel"
+                  },
+                  "rhs": {
+                    "binop": "\u003C=",
+                    "lhs": {
+                      "member": "cardSource.Level"
+                    },
+                    "rhs": {
+                      "lit": 5
+                    }
+                  }
+                },
+                "rhs": {
+                  "member": "cardSource.HasAngelTraits"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "call": "card.Owner.HandCards.Count",
+                  "args": [
+                    {
+                      "ref": "IsCardAngelCondition"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "call": "CardEffectCommons.HasMatchConditionOwnersCardInTrash",
+                "args": [
+                  {
+                    "ref": "card"
+                  },
+                  {
+                    "ref": "IsCardAngelCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "root"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IPutSecurityPermanent(\r\n                                                permanent,\r\n                                                CardEffectCommons.CardEffectHashtable(activateClass),\r\n                                                toTop: false).PutSecurity",
+                "args": []
+              },
+              {
+                "call": "new IDestroySecurity(\r\n                                player: card.Owner.Enemy,\r\n                                destroySecurityCount: card.Owner.Enemy.SecurityCards.Count - 4,\r\n                                cardEffect: activateClass,\r\n                                fromTop: true).DestroySecurity",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 5 or lower Digimon card with the [Angel]/[Archangel]/[Fallen Angel] trait from your hand or trash, then, if DNA digivolving, place 1 other Digimon at the bottom of its owner\u0027s security stack, and trash cards from the top of your opponent\u0027s security stack until it has 4 left."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] You may play 1 level 5 or lower Digimon card with the [Angel]/[Archangel]/[Fallen Angel] trait from your hand or trash without paying the cost. Then, if DNA digivolving, place 1 other Digimon at the bottom of its owner\u0027s security stack, and trash cards from the top of your opponent\u0027s security stack until it has 4 left."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsCardAngelCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "cardSource"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "member": "cardSource.HasLevel"
+                  },
+                  "rhs": {
+                    "binop": "\u003C=",
+                    "lhs": {
+                      "member": "cardSource.Level"
+                    },
+                    "rhs": {
+                      "lit": 5
+                    }
+                  }
+                },
+                "rhs": {
+                  "member": "cardSource.HasAngelTraits"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.userSelectionManager.WaitForEndSelect",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "selectCardEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "root"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "new IPutSecurityPermanent(\r\n                                                    permanent,\r\n                                                    CardEffectCommons.CardEffectHashtable(activateClass),\r\n                                                    toTop: false).PutSecurity",
+                "args": []
+              },
+              {
+                "call": "new IDestroySecurity(\r\n                                player: card.Owner.Enemy,\r\n                                destroySecurityCount: card.Owner.Enemy.SecurityCards.Count - 4,\r\n                                cardEffect: activateClass,\r\n                                fromTop: true).DestroySecurity",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play 1 level 5 or lower Digimon card with the [Angel]/[Archangel]/[Fallen Angel] trait from your hand or trash, then, if DNA digivolving, place 1 other Digimon at the bottom of its owner\u0027s security stack, and trash cards from the top of your opponent\u0027s security stack until it has 4 left."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

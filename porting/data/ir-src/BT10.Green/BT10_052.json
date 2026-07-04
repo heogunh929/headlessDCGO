@@ -1,0 +1,430 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT10_052",
+  "set": "BT10",
+  "color": "Green",
+  "className": "BT10_052",
+  "branches": [
+    {
+      "timing": "BeforePayCost",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "\u003CDigisorption -2\u003E (When one of your Digimon digivolves into this card from your hand, you may suspend 1 of your Digimon to reduce the memory cost of the digivolution by 2.)"
+          }
+        },
+        {
+          "name": "CanSelectCondition_CheckAvailability",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "card.Owner.CanTapWhenAbsorbEvolution_CheckAvailability",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.CanSelectBySkill",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              "rhs": {
+                "not": {
+                  "call": "permanent.TopCard.CanNotBeAffected",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "card.Owner.CanTapWhenAbsorbEvolution",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "activateClass"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "permanent.CanSelectBySkill",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              "rhs": {
+                "not": {
+                  "call": "permanent.TopCard.CanNotBeAffected",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "hashtable"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "hashtable.ContainsKey",
+                "args": [
+                  {
+                    "lit": "Card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "is",
+                  "lhs": {
+                    "opaque": "hashtable[\u0022Card\u0022]"
+                  },
+                  "rhs": {
+                    "ref": "CardSource"
+                  }
+                },
+                "rhs": {
+                  "opaque": "CardSource Card = (CardSource)hashtable[\u0022Card\u0022]; if (Card == card)\r\n                                {\r\n                                    if (hashtable.ContainsKey(\u0022isEvolution\u0022))\r\n                                    {\r\n                                        if (hashtable[\u0022isEvolution\u0022] is bool)\r\n                                        {\r\n                                            bool isEvolution = (bool)hashtable[\u0022isEvolution\u0022];\r\n\r\n                                            if (isEvolution)\r\n                                            {\r\n                                                if (hashtable.ContainsKey(\u0022Permanents\u0022))\r\n                                                {\r\n                                                    if (hashtable[\u0022Permanents\u0022] is List\u003CPermanent\u003E)\r\n                                                    {\r\n                                                        List\u003CPermanent\u003E Permanents = (List\u003CPermanent\u003E)hashtable[\u0022Permanents\u0022];\r\n\r\n                                                        if (Permanents != null)\r\n                                                        {\r\n                                                            if (Permanents.Count((permanent) =\u003E permanent.TopCard.Owner == card.Owner \u0026\u0026 permanent.TopCard.Owner.GetBattleAreaPermanents().Contains(permanent)) \u003E= 1)\r\n                                                            {\r\n                                                                if (GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer.Count((player) =\u003E player.GetBattleAreaDigimons().Count(CanSelectCondition_CheckAvailability) \u003E= 1) \u003E= 1)\r\n                                                                {\r\n                                                                    return true;\r\n                                                                }\r\n                                                            }\r\n                                                        }\r\n                                                    }\r\n                                                }\r\n                                            }\r\n                                        }\r\n                                    }\r\n                                }"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u003E=",
+            "lhs": {
+              "call": "GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer.Count",
+              "args": [
+                {
+                  "lambda": {
+                    "params": [
+                      "player"
+                    ],
+                    "body": {
+                      "binop": "\u003E=",
+                      "lhs": {
+                        "call": "player.GetBattleAreaDigimons().Count",
+                        "args": [
+                          {
+                            "ref": "CanSelectCondition_CheckAvailability"
+                          }
+                        ]
+                      },
+                      "rhs": {
+                        "lit": 1
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "rhs": {
+              "lit": 1
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess",
+                "args": [
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "AutoProcessing.HasExecutedSameEffect"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.ShowReducedCost",
+                "args": [
+                  {
+                    "ref": "_hashtable"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetHashString(\u0022Digisorption-3_BT2_045\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Digisorption -2"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "OnAllyAttack",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Opponent\u0027s Turn][Once Per Turn] When an opponent\u0027s Digimon attacks, you may switch the target of attack to 1 of your suspended Digimon."
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsOpponentPermanent",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "member": "permanent.IsSuspended"
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsOpponentTurn",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanTriggerOnPermanentAttack",
+                "args": [
+                  {
+                    "ref": "hashtable"
+                  },
+                  {
+                    "ref": "PermanentCondition"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "member": "GManager.instance.attackProcess.AttackingPermanent"
+                },
+                "rhs": {
+                  "null": true
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "GManager.instance.attackProcess.AttackingPermanent.CanSwitchAttackTarget"
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.HasMatchConditionPermanent",
+                  "args": [
+                    {
+                      "ref": "CanSelectPermanentCondition"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "GManager.instance.attackProcess.SwitchDefender",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "permanent"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Switch Attack Target"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

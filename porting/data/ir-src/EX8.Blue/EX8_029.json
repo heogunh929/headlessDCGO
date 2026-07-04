@@ -1,0 +1,595 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX8_029",
+  "set": "EX8",
+  "color": "Blue",
+  "className": "EX8_029",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent) =\u003E permanent.TopCard.EqualsCardName(\u0022Plesiomon\u0022); bool PermanentCondition2(Permanent permanent) =\u003E permanent.TopCard.ContainsCardName(\u0022Seadramon\u0022) \u0026\u0026\r\n                                                                         permanent.Levels_ForJogress(card).Any(value =\u003E value == 5); JogressConditionElement[] elements = new JogressConditionElement[]\r\n                        {\r\n                        new JogressConditionElement(PermanentCondition1, \u0022Plesiomon\u0022),\r\n\r\n                        new JogressConditionElement(PermanentCondition2, \u0022a level 5 w/[Seadramon] in name\u0022),\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "const": true
+          }
+        },
+        {
+          "name": "GetJogress",
+          "returns": "JogressCondition",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "ref": "card"
+                }
+              },
+              "rhs": {
+                "opaque": "bool PermanentCondition1(Permanent permanent) =\u003E (permanent.TopCard.CardColors.Contains(CardColor.Blue) || permanent.TopCard.CardColors.Contains(CardColor.Purple)) \u0026\u0026\r\n                                                                         permanent.Levels_ForJogress(card).Contains(6); bool PermanentCondition2(Permanent permanent) =\u003E (permanent.TopCard.CardColors.Contains(CardColor.Black) || permanent.TopCard.CardColors.Contains(CardColor.Yellow)) \u0026\u0026\r\n                                                                         permanent.Levels_ForJogress(card).Contains(6); JogressConditionElement[] elements = new JogressConditionElement[]\r\n                        {\r\n                        new JogressConditionElement(PermanentCondition1, \u0022a level 6 blue/purple Digimon\u0022),\r\n\r\n                        new JogressConditionElement(PermanentCondition2, \u0022a level 6 black/yellow Digimon\u0022),\r\n                        }; JogressCondition jogressCondition = new JogressCondition(elements, 0); return jogressCondition;"
+              }
+            },
+            "rhs": {
+              "null": true
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddJogressConditionClass addJogressConditionClass = new AddJogressConditionClass();"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpICardEffect($\u0022DNA Digivolution\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetUpAddJogressConditionClass(getJogressCondition: GetJogress);"
+        },
+        {
+          "opaque": "addJogressConditionClass.SetNotShowUI(true);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addJogressConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Return 14 play cost\u0027s total worth of your opponent\u0027s Digimon to the bottom of the deck. If DNA digivolving, you may play 12 play cost\u0027s total worth of [DS] trait Digimon from this Digimon\u0027s digivolution cards without paying the cost."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "permanent.TopCard.GetCostItself"
+                },
+                "rhs": {
+                  "ref": "maxCost"
+                }
+              },
+              "rhs": {
+                "member": "permanent.TopCard.HasPlayCost"
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanPlayAsNewPermanent",
+              "args": [
+                {
+                  "ref": "source"
+                },
+                {
+                  "const": false
+                },
+                {
+                  "ref": "activateClass"
+                },
+                {
+                  "member": "SelectCardEffect.Root.DigivolutionCards"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "source.EqualsTraits",
+                "args": [
+                  {
+                    "lit": "DS"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u003C=",
+                  "lhs": {
+                    "member": "source.GetCostItself"
+                  },
+                  "rhs": {
+                    "ref": "maxCost"
+                  }
+                },
+                "rhs": {
+                  "member": "source.HasPlayCost"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectCardEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.DigivolutionCards"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "int maxCost = 14;"
+        },
+        {
+          "opaque": "int maxPlay = 12;"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Return 14 play cost of Digimon"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "member": "card.Owner.MemoryForPlayer"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "call": "cardSource.PermanentOfThisCard",
+                  "args": []
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "cardSource.EqualsTraits",
+              "args": [
+                {
+                  "lit": "DS"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "SkillCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsOpponentEffect",
+              "args": [
+                {
+                  "ref": "cardEffect"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardEffect.IsDigimonEffect"
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "cardEffect.IsDigimonEffect"
+                },
+                "rhs": {
+                  "member": "cardEffect.IsSecurityEffect"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "CanNotAffectedClass canNotAffectedClass = new CanNotAffectedClass();"
+        },
+        {
+          "opaque": "canNotAffectedClass.SetUpICardEffect(\u0022Isn\u0027t affected by opponent\u0027s Digimon\u0027s effects\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "canNotAffectedClass.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "canNotAffectedClass"
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003C=",
+              "lhs": {
+                "member": "card.Owner.MemoryForPlayer"
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "InvalidateCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardEffect"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "is",
+                "lhs": {
+                  "ref": "cardEffect"
+                },
+                "rhs": {
+                  "ref": "ActivateICardEffect"
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "!=",
+                  "lhs": {
+                    "member": "cardEffect.EffectSourceCard"
+                  },
+                  "rhs": {
+                    "null": true
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+                    "args": [
+                      {
+                        "call": "cardEffect.EffectSourceCard.PermanentOfThisCard",
+                        "args": []
+                      },
+                      {
+                        "ref": "card"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "not": {
+                        "call": "cardEffect.EffectSourceCard.PermanentOfThisCard().TopCard.CanNotBeAffected",
+                        "args": [
+                          {
+                            "ref": "invalidationClass"
+                          }
+                        ]
+                      }
+                    },
+                    "rhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "member": "cardEffect.IsOnPlay"
+                      },
+                      "rhs": {
+                        "binop": "\u003C=",
+                        "lhs": {
+                          "member": "card.Owner.MemoryForPlayer"
+                        },
+                        "rhs": {
+                          "lit": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "DisableEffectClass invalidationClass = new DisableEffectClass();"
+        },
+        {
+          "opaque": "invalidationClass.SetUpICardEffect(\u0022[On Plays] can\u0027t activate\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "invalidationClass.SetUpDisableEffectClass(DisableCondition: InvalidateCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "invalidationClass"
+        }
+      ]
+    }
+  ]
+}

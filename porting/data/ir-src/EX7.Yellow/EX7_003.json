@@ -1,0 +1,99 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX7_003",
+  "set": "EX7",
+  "color": "Yellow",
+  "className": "EX7_003",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "member": "cardSource.Owner"
+            },
+            "rhs": {
+              "member": "card.Owner.Enemy"
+            }
+          }
+        },
+        {
+          "name": "Condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSecurityDigimonCardDPStaticEffect",
+          "args": [
+            {
+              "name": "cardCondition",
+              "value": {
+                "ref": "CardCondition"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "opaque": "-2000"
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "Condition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Opponent\u0027s Security Digimon gains DP -2000"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

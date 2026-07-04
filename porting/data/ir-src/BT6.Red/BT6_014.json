@@ -1,0 +1,46 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT6_014",
+  "set": "BT6",
+  "color": "Red",
+  "className": "BT6_014",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlitzSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "isWhenDigivolving",
+              "value": {
+                "const": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

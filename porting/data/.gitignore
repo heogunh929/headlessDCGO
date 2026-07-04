@@ -1,8 +1,0 @@
-# Source IR is a regenerable intermediate (stage 2 output). Not committed.
-ir-src/
-# Canonical IR (data/ir/) IS the source of truth once v3 stage 5 lands — committed then.
-# Staging codegen output (diff target). Not committed.
-gen/
-# planner/analyzer per-card outputs (LLM, regenerable). Not committed.
-plans/
-reviews/

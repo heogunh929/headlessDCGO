@@ -1,0 +1,543 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT17_092",
+  "set": "BT17",
+  "color": "White",
+  "className": "BT17_092",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] By trashing 1 [Morphomon] or [Eosmon] in your hand, \u003CDraw 2\u003E."
+          }
+        },
+        {
+          "name": "HasSpecifiedTrashTarget",
+          "returns": "bool",
+          "params": [
+            "source"
+          ],
+          "body": {
+            "binop": "||",
+            "lhs": {
+              "call": "source.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Morphomon"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "source.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Eosmon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "isExistOnField",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersHand",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "HasSpecifiedTrashTarget"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "call": "new DrawClass(card.Owner, 2, activateClass).Draw",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Trash 1, Draw 2"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "ref": "HasEosmon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "HasEosmon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "permanent.IsDigimon"
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Eosmon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "InvalidateCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardEffect"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "is",
+                "lhs": {
+                  "ref": "cardEffect"
+                },
+                "rhs": {
+                  "ref": "ActivateICardEffect"
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "!=",
+                  "lhs": {
+                    "member": "cardEffect.EffectSourceCard"
+                  },
+                  "rhs": {
+                    "null": true
+                  }
+                },
+                "rhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleArea",
+                    "args": [
+                      {
+                        "call": "cardEffect.EffectSourceCard.PermanentOfThisCard",
+                        "args": []
+                      },
+                      {
+                        "ref": "card"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "memberOf": {
+                        "call": "cardEffect.EffectSourceCard.PermanentOfThisCard",
+                        "args": []
+                      },
+                      "name": "IsTamer"
+                    },
+                    "rhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "not": {
+                          "call": "cardEffect.EffectSourceCard.PermanentOfThisCard().TopCard.CanNotBeAffected",
+                          "args": [
+                            {
+                              "ref": "invalidationClass"
+                            }
+                          ]
+                        }
+                      },
+                      "rhs": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "member": "cardEffect.IsOnPlay"
+                        },
+                        "rhs": {
+                          "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+                          "args": [
+                            {
+                              "ref": "card"
+                            },
+                            {
+                              "ref": "HasEosmon"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "DisableEffectClass invalidationClass = new DisableEffectClass();"
+        },
+        {
+          "opaque": "invalidationClass.SetUpICardEffect(\u0022Ignore [On Play] Effect of opponent\u0027s Tamers\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "invalidationClass.SetUpDisableEffectClass(DisableCondition: InvalidateCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "invalidationClass"
+        }
+      ]
+    },
+    {
+      "timing": "WhenRemoveField",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Opponent\u0027s Turn] [Once Per Turn] When one of your [Eosmon] would leave the battle area by an opponent\u0027s effect, by deleting 1 of your other [Eosmon], prevent it from leaving."
+          }
+        },
+        {
+          "name": "isEosmon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.TopCard.EqualsCardName",
+              "args": [
+                {
+                  "lit": "Eosmon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "HasOtherEosmon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "opaque": "foreach (Permanent removed in removedPermanents)\r\n                        {\r\n                            if (removed != permanent)\r\n                                return permanent.TopCard.EqualsCardName(\u0022Eosmon\u0022);\r\n                        }"
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.IsExistOnBattleArea",
+                "args": [
+                  {
+                    "ref": "card"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "CardEffectCommons.CanTriggerWhenPermanentRemoveField",
+                  "args": [
+                    {
+                      "ref": "hashtable"
+                    },
+                    {
+                      "ref": "isEosmon"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.IsByEffect",
+                  "args": [
+                    {
+                      "ref": "hashtable"
+                    },
+                    {
+                      "lambda": {
+                        "params": [
+                          "cardEffect"
+                        ],
+                        "body": {
+                          "call": "CardEffectCommons.IsOpponentEffect",
+                          "args": [
+                            {
+                              "ref": "cardEffect"
+                            },
+                            {
+                              "ref": "card"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "opaque": "removedPermanents = CardEffectCommons.GetPermanentsFromHashtable(hashtable).Filter(isEosmon); return CardEffectCommons.HasMatchConditionOwnersPermanent(card, HasOtherEosmon);"
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.DeletePeremanentAndProcessAccordingToResult",
+                "args": [
+                  {
+                    "opaque": "new List\u003CPermanent\u003E() { permanent }"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "lambda": {
+                      "params": [
+                        "permanents"
+                      ],
+                      "body": {
+                        "call": "SuccessProcess",
+                        "args": []
+                      }
+                    }
+                  },
+                  {
+                    "null": true
+                  }
+                ]
+              },
+              {
+                "null": true
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "List\u003CPermanent\u003E removedPermanents = new List\u003CPermanent\u003E();"
+        },
+        {
+          "opaque": "activateClass.SetHashString(\u0022Prevent_BT17_092\u0022);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Prevent from leaving battle area, by opponents effect"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

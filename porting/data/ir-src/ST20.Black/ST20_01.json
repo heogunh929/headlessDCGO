@@ -1,0 +1,62 @@
+{
+  "schema": "source-ir/1",
+  "card": "ST20_01",
+  "set": "ST20",
+  "color": "Black",
+  "className": "ST20_01",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "condition",
+          "returns": "bool",
+          "params": [],
+          "body": {
+            "memberOf": {
+              "memberOf": {
+                "call": "card.PermanentOfThisCard",
+                "args": []
+              },
+              "name": "TopCard"
+            },
+            "name": "HasAdventureTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "ref": "condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

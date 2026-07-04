@@ -1,0 +1,273 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT25_103",
+  "set": "BT25",
+  "color": "Red",
+  "className": "BT25_103",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "targetPermanent"
+          ],
+          "body": {
+            "member": "targetPermanent.TopCard.HasTSTraits"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "AddSelfDigivolutionRequirementStaticEffect",
+          "args": [
+            {
+              "name": "level",
+              "value": {
+                "lit": 6
+              }
+            },
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "PermanentCondition"
+              }
+            },
+            {
+              "name": "digivolutionCost",
+              "value": {
+                "lit": 5
+              }
+            },
+            {
+              "name": "ignoreDigivolutionRequirement",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "PermanentCondition1",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "permanent.TopCard.CardColors.Contains",
+              "args": [
+                {
+                  "member": "CardColor.Red"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.Levels_ForJogress(card).Contains",
+              "args": [
+                {
+                  "lit": 6
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition2",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "permanent.TopCard.CardColors.Contains",
+              "args": [
+                {
+                  "member": "CardColor.Blue"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "permanent.Levels_ForJogress(card).Contains",
+              "args": [
+                {
+                  "lit": 6
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "GetJogressConditionClass",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "PermanentCondition1"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": "a level 6 Red Digimon"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "PermanentCondition2"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": "a level 6 Blue Digimon"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "ChangeSelfSAttackStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "IcecladSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "WhenRemoveField",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "List\u003CPartitionCondition\u003E partitionConditions = new List\u003CPartitionCondition\u003E\r\n                {\r\n                    new PartitionCondition(\u0022Apollomon\u0022),\r\n                    new PartitionCondition(\u0022Dianamon\u0022)\r\n                };"
+        },
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PartitionSelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "cardSourceConditions",
+              "value": {
+                "ref": "partitionConditions"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

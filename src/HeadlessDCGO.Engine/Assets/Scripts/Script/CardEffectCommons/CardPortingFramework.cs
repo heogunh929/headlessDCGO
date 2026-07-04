@@ -1499,17 +1499,6 @@ public sealed class Permanent
 
     /// <summary>(W6-P) mirror of AS-IS <c>Permanent.BaseDP</c> — the unmodified DP (IsMinDP/IsMaxDP read it).</summary>
     public int BaseDP => BaseDp();
-
-    /// <summary>(EXPR-MAP) mirror of AS-IS <c>Permanent.Has&lt;Keyword&gt;</c> reads. The original stores
-    /// keyword flags on the permanent; headless keywords live in the effect registry, so these route
-    /// through <see cref="ContinuousKeywordGate"/> (self/target grants + player-scope grants).</summary>
-    public bool HasKeyword(string keyword) => ContinuousKeywordGate.HasKeyword(_context, InstanceId, keyword);
-
-    public bool HasPierce => HasKeyword(ContinuousKeywordGate.Piercing);
-    public bool HasBlocker => HasKeyword(ContinuousKeywordGate.Blocker);
-    public bool HasJamming => HasKeyword(ContinuousKeywordGate.Jamming);
-    public bool HasRush => HasKeyword(ContinuousKeywordGate.Rush);
-    public bool HasReboot => HasKeyword(ContinuousKeywordGate.Reboot);
 }
 
 /// <summary>
@@ -9182,34 +9171,6 @@ public static class CardEffectCommons
                 }
             }
         }
-    }
-
-    // ---- (EXPR-MAP) mirrors of original member accesses the headless surface routes elsewhere ----
-    // See docs/porting/EXPRESSION-MAP.md. The original navigates rich object graphs
-    // (Permanent.HasPierce, player.MemoryForPlayer); headless keeps those on gates/services.
-
-    /// <summary>Mirror of <c>card.PermanentOfThisCard().Has&lt;Keyword&gt;</c>: does THIS card's permanent
-    /// currently have <paramref name="keyword"/> (self/target grant or player-scope grant)?</summary>
-    public static bool HasKeyword(CardSource card, string keyword)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        return ContinuousKeywordGate.HasKeyword(card.Context, card.InstanceId, keyword);
-    }
-
-    public static bool HasPierce(CardSource card) => HasKeyword(card, ContinuousKeywordGate.Piercing);
-    public static bool HasBlocker(CardSource card) => HasKeyword(card, ContinuousKeywordGate.Blocker);
-    public static bool HasJamming(CardSource card) => HasKeyword(card, ContinuousKeywordGate.Jamming);
-
-    /// <summary>Mirror of the original <c>player.MemoryForPlayer</c> (Player.cs:973) for the card's OWNER:
-    /// the shared memory gauge seen from that player's side. Headless keeps the gauge from the TURN
-    /// player's perspective (HeadlessMainPhaseFlow flips the sign across the turn change), so the
-    /// non-turn player reads it negated.</summary>
-    public static int MemoryForPlayer(CardSource card)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        int gauge = card.Context.MemoryController.Current.Current;
-        HeadlessPlayerId? turnPlayer = card.Context.TurnController.Current.TurnPlayerId;
-        return turnPlayer is not null && turnPlayer.Value == card.Owner ? gauge : -gauge;
     }
 }
 

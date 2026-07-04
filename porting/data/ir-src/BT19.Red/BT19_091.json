@@ -1,0 +1,613 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT19_091",
+  "set": "BT19",
+  "color": "Red",
+  "className": "BT19_091",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "permanent"
+                    ],
+                    "body": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "member": "permanent.IsDigimon"
+                        },
+                        "rhs": {
+                          "member": "permanent.TopCard.HasLevel"
+                        }
+                      },
+                      "rhs": {
+                        "binop": "==",
+                        "lhs": {
+                          "member": "permanent.Level"
+                        },
+                        "rhs": {
+                          "lit": 5
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.HasMatchConditionOwnersPermanent",
+              "args": [
+                {
+                  "ref": "card"
+                },
+                {
+                  "lambda": {
+                    "params": [
+                      "permanent"
+                    ],
+                    "body": {
+                      "binop": "||",
+                      "lhs": {
+                        "binop": "||",
+                        "lhs": {
+                          "call": "permanent.TopCard.EqualsCardName",
+                          "args": [
+                            {
+                              "lit": "WarGrowlmon"
+                            }
+                          ]
+                        },
+                        "rhs": {
+                          "call": "permanent.TopCard.EqualsCardName",
+                          "args": [
+                            {
+                              "lit": "Taomon"
+                            }
+                          ]
+                        }
+                      },
+                      "rhs": {
+                        "call": "permanent.TopCard.EqualsCardName",
+                        "args": [
+                          {
+                            "lit": "Rapidmon"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "cardSource"
+            },
+            "rhs": {
+              "ref": "card"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "IgnoreColorConditionClass ignoreColorConditionClass = new IgnoreColorConditionClass();"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpICardEffect(\u0022Ignore color requirements\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "ignoreColorConditionClass.SetUpIgnoreColorConditionClass(cardCondition: CardCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "ignoreColorConditionClass"
+        }
+      ]
+    },
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Play 1 [WarGrowlmon] Token (Digimon/Red/6000 DP), [Taomon] Token (Digimon/Yellow/6000 DP), and 1 [Rapidmon] Token (Digimon/Green/6000 DP). This effect can\u0027t play tokens with the same names as your Digimon. Then, 1 of your level 5 Digimon gains \u003CAlliance\u003E twice for the turn and attacks."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+              "args": [
+                {
+                  "ref": "hashtable"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u003E=",
+              "lhs": {
+                "call": "card.Owner.fieldCardFrames.Count",
+                "args": [
+                  {
+                    "lambda": {
+                      "params": [
+                        "frame"
+                      ],
+                      "body": {
+                        "binop": "\u0026\u0026",
+                        "lhs": {
+                          "call": "frame.IsEmptyFrame",
+                          "args": []
+                        },
+                        "rhs": {
+                          "call": "frame.IsBattleAreaFrame",
+                          "args": []
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "rhs": {
+                "lit": 1
+              }
+            }
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "member": "permanent.IsDigimon"
+                },
+                "rhs": {
+                  "member": "permanent.TopCard.HasLevel"
+                }
+              },
+              "rhs": {
+                "binop": "==",
+                "lhs": {
+                  "member": "permanent.Level"
+                },
+                "rhs": {
+                  "lit": 5
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanPlayTokens",
+          "returns": "bool",
+          "params": [
+            "cardName"
+          ],
+          "body": {
+            "not": {
+              "call": "card.Owner.GetBattleAreaPermanents().Some",
+              "args": [
+                {
+                  "lambda": {
+                    "params": [
+                      "permanent"
+                    ],
+                    "body": {
+                      "call": "permanent.TopCard.EqualsCardName",
+                      "args": [
+                        {
+                          "ref": "cardName"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.PlayWarGrowlmonToken",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.PlayTaomonToken",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.PlayRapidmonToken",
+                "args": [
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "CardEffectCommons.GainAlliance",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "CardEffectCommons.GainAlliance",
+                "args": [
+                  {
+                    "ref": "permanent"
+                  },
+                  {
+                    "member": "EffectDuration.UntilEachTurnEnd"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "selectAttackEffect.Activate",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Play tokens, give alliance and attack"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Security] You may play 1 level 5 [WarGrowlmon]/[Taomon]/[Rapidmon] from your hand without paying the cost."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerSecurityEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanSelectCardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "member": "cardSource.IsDigimon"
+                      },
+                      "rhs": {
+                        "member": "cardSource.HasLevel"
+                      }
+                    },
+                    "rhs": {
+                      "binop": "==",
+                      "lhs": {
+                        "member": "cardSource.Level"
+                      },
+                      "rhs": {
+                        "lit": 5
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "call": "cardSource.EqualsCardName",
+                    "args": [
+                      {
+                        "lit": "WarGrowlmon"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                  "args": [
+                    {
+                      "ref": "cardSource"
+                    },
+                    {
+                      "const": false
+                    },
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "binop": "\u0026\u0026",
+                      "lhs": {
+                        "member": "cardSource.IsDigimon"
+                      },
+                      "rhs": {
+                        "member": "cardSource.HasLevel"
+                      }
+                    },
+                    "rhs": {
+                      "binop": "==",
+                      "lhs": {
+                        "member": "cardSource.Level"
+                      },
+                      "rhs": {
+                        "lit": 5
+                      }
+                    }
+                  },
+                  "rhs": {
+                    "call": "cardSource.EqualsCardName",
+                    "args": [
+                      {
+                        "lit": "Taomon"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                  "args": [
+                    {
+                      "ref": "cardSource"
+                    },
+                    {
+                      "const": false
+                    },
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "\u0026\u0026",
+                  "lhs": {
+                    "binop": "\u0026\u0026",
+                    "lhs": {
+                      "member": "cardSource.IsDigimon"
+                    },
+                    "rhs": {
+                      "member": "cardSource.HasLevel"
+                    }
+                  },
+                  "rhs": {
+                    "binop": "==",
+                    "lhs": {
+                      "member": "cardSource.Level"
+                    },
+                    "rhs": {
+                      "lit": 5
+                    }
+                  }
+                },
+                "rhs": {
+                  "call": "cardSource.EqualsCardName",
+                  "args": [
+                    {
+                      "lit": "Rapidmon"
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "call": "CardEffectCommons.CanPlayAsNewPermanent",
+                "args": [
+                  {
+                    "ref": "cardSource"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "StartCoroutine",
+                "args": [
+                  {
+                    "call": "selectHandEffect.Activate",
+                    "args": []
+                  }
+                ]
+              },
+              {
+                "null": true
+              },
+              {
+                "call": "CardEffectCommons.PlayPermanentCards",
+                "args": [
+                  {
+                    "ref": "selectedCards"
+                  },
+                  {
+                    "ref": "activateClass"
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "const": false
+                  },
+                  {
+                    "member": "SelectCardEffect.Root.Hand"
+                  },
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "activateClass.SetIsSecurityEffect(true);"
+        },
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "opaque": "$\u0022Play 1 [WarGrowlmon]/[Taomon]/[Rapidmon] Digimon card from hand\u0022"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

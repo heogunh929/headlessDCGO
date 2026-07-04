@@ -1,0 +1,116 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT6_059",
+  "set": "BT6",
+  "color": "Black",
+  "className": "BT6_059",
+  "branches": [
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "permanent"
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "permanent.TopCard.CardColors.Contains",
+                  "args": [
+                    {
+                      "member": "CardColor.Black"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "member": "permanent.willBeRemoveField"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "\u003CDecoy (Black)\u003E (When one of your other black Digimon would be deleted by an opponent\u0027s effect, you may delete this Digimon to prevent that deletion.)"
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "DecoySelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "CanSelectPermanentCondition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Decoy (Black)"
+              }
+            },
+            {
+              "name": "effectDiscription",
+              "value": {
+                "call": "EffectDiscription",
+                "args": []
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

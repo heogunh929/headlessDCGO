@@ -1,0 +1,189 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT20_017_token",
+  "set": "BT20",
+  "color": "Red",
+  "className": "BT20_017_token",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "RebootSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "BlockerSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "WhenPermanentWouldBeDeleted",
+      "localFns": [
+        {
+          "name": "DecoyDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "\u003CDecoy (Red)/(Black)\u003E (When one of your other Red or Black Digimon would be deleted by an opponent\u0027s effect, you may delete this Digimon to prevent that deletion.)"
+          }
+        },
+        {
+          "name": "CanSelectDecoyPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "ref": "permanent"
+                },
+                "rhs": {
+                  "call": "card.PermanentOfThisCard",
+                  "args": []
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "binop": "||",
+                  "lhs": {
+                    "call": "permanent.TopCard.CardColors.Contains",
+                    "args": [
+                      {
+                        "member": "CardColor.Red"
+                      }
+                    ]
+                  },
+                  "rhs": {
+                    "call": "permanent.TopCard.CardColors.Contains",
+                    "args": [
+                      {
+                        "member": "CardColor.Black"
+                      }
+                    ]
+                  }
+                },
+                "rhs": {
+                  "member": "permanent.willBeRemoveField"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "DecoySelfEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "permanentCondition",
+              "value": {
+                "ref": "CanSelectDecoyPermanentCondition"
+              }
+            },
+            {
+              "name": "effectName",
+              "value": {
+                "lit": "Decoy (Red/Black)"
+              }
+            },
+            {
+              "name": "effectDiscription",
+              "value": {
+                "call": "DecoyDiscription",
+                "args": []
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

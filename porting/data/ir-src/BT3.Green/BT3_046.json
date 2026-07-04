@@ -1,0 +1,96 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT3_046",
+  "set": "BT3",
+  "color": "Green",
+  "className": "BT3_046",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "PlayerCondition",
+          "returns": "bool",
+          "params": [
+            "player"
+          ],
+          "body": {
+            "binop": "==",
+            "lhs": {
+              "ref": "player"
+            },
+            "rhs": {
+              "member": "card.Owner.Enemy"
+            }
+          }
+        },
+        {
+          "name": "CardEffectCondition",
+          "returns": "bool",
+          "params": [
+            "cardEffect"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "!=",
+              "lhs": {
+                "ref": "cardEffect"
+              },
+              "rhs": {
+                "null": true
+              }
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "!=",
+                "lhs": {
+                  "member": "cardEffect.EffectSourceCard"
+                },
+                "rhs": {
+                  "null": true
+                }
+              },
+              "rhs": {
+                "not": {
+                  "member": "cardEffect.IsTamerEffect"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "CannotAddMemoryClass cannotAddMemoryClass = new CannotAddMemoryClass();"
+        },
+        {
+          "opaque": "cannotAddMemoryClass.SetUpICardEffect(\u0022Opponent can\u0027t gain Memory\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "cannotAddMemoryClass.SetUpCannotAddMemoryClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "cannotAddMemoryClass"
+        }
+      ]
+    }
+  ]
+}

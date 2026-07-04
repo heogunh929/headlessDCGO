@@ -1,0 +1,132 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT5_096",
+  "set": "BT5",
+  "color": "Blue",
+  "className": "BT5_096",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "localFns": [
+        {
+          "name": "maxDP",
+          "returns": "int",
+          "params": [],
+          "body": {
+            "opaque": "int maxDP = 3000; if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, (permanent) =\u003E permanent.IsDigimon \u0026\u0026 permanent.TopCard.ContainsCardName(\u0022Omnimon\u0022) || permanent.TopCard.HasGarurumonName))\r\n                {\r\n                    maxDP = 5000;\r\n                } return maxDP;"
+          }
+        },
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[Main] Return all of your opponent\u0027s Digimon with 3000 DP or less to their owners\u0027 hands. If you have a Digimon in play with [Garurumon] or [Omnimon] in its name, return all of your opponent\u0027s Digimon with 5000 DP or less to their owners\u0027 hands instead. Trash all of the digivolution cards of those Digimon."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003C=",
+                "lhs": {
+                  "member": "permanent.DP"
+                },
+                "rhs": {
+                  "call": "maxDP",
+                  "args": []
+                }
+              },
+              "rhs": {
+                "not": {
+                  "call": "permanent.TopCard.CanNotBeAffected",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOptionMainEffect",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new HandBounceClaass(bouncePermanents, hashtable).Bounce",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "member": "card.BaseENGCardNameFromEntity"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "null",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "opaque": "CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $\u0022Return opponent\u0027s Digimon to hand\u0022);"
+        }
+      ]
+    }
+  ]
+}

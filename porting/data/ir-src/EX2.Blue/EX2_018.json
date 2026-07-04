@@ -1,0 +1,115 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX2_018",
+  "set": "EX2",
+  "color": "Blue",
+  "className": "EX2_018",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[On Play] For each of your opponent\u0027s Digimon with no digivolution cards, \u003CRecovery \u002B1 (Deck)\u003E. (Place the top card of your deck on top of your security stack.) This effect can\u0027t increase the number of cards in your security stack to 6 or more."
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerOnPlay",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "\u003E=",
+                "lhs": {
+                  "member": "card.Owner.LibraryCards.Count"
+                },
+                "rhs": {
+                  "lit": 1
+                }
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "card.Owner.CanAddSecurity",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "opaque": "int addSecurityCount = card.Owner.Enemy.GetBattleAreaDigimons().Count((permanent) =\u003E permanent.HasNoDigivolutionCards); if (card.Owner.SecurityCards.Count \u002B addSecurityCount \u003E= 5)\r\n                                {\r\n                                    addSecurityCount = 5 - card.Owner.SecurityCards.Count;\r\n                                } if (addSecurityCount \u003E= 1)\r\n                                {\r\n                                    activateClass.SetEffectName($\u0022Recovery \u002B{addSecurityCount} (Deck)\u0022);\r\n\r\n                                    return true;\r\n                                }"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "new IRecovery(card.Owner, addSecurityCount, activateClass).Recovery",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Recovery (Deck)"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

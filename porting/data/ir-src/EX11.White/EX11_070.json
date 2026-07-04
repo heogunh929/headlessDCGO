@@ -1,0 +1,272 @@
+{
+  "schema": "source-ir/1",
+  "card": "EX11_070",
+  "set": "EX11",
+  "color": "White",
+  "className": "EX11_070",
+  "branches": [
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnStartTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "SetMemoryTo3TamerEffect",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [
+        {
+          "name": "EffectDescription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[End of Your Turn] 2 of your Digimon may DNA digivolve into [ExMaquinamon] in the hand. Then, this Tamer may \u003CMind Link\u003E with 1 of your Digimon with [Maquinamon] in its text."
+          }
+        },
+        {
+          "name": "CanSelectDNACardCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "member": "cardSource.IsDigimon"
+              },
+              "rhs": {
+                "call": "cardSource.CanPlayJogress",
+                "args": [
+                  {
+                    "const": true
+                  }
+                ]
+              }
+            },
+            "rhs": {
+              "call": "cardSource.EqualsCardName",
+              "args": [
+                {
+                  "lit": "ExMaquinamon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IsMyProperDigimon",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "member": "permanent.IsDigimon"
+            },
+            "rhs": {
+              "call": "permanent.TopCard.HasText",
+              "args": [
+                {
+                  "lit": "Maquinamon"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "CardEffectCommons.DNADigivolvePermanentsIntoHandOrTrashCard",
+                "args": [
+                  {
+                    "ref": "CanSelectDNACardCondition"
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "const": true
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              },
+              {
+                "call": "new MindLinkClass(\r\n                            tamer: card.PermanentOfThisCard(),\r\n                            digimonCondition: IsMyProperDigimon,\r\n                            activateClass: activateClass\r\n                        ).MindLink",
+                "args": []
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "DNA digivolve into [ExMaquinamon]. Mind Link to [Maquinamon] in text."
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDescription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "card.PermanentOfThisCard().TopCard.HasText",
+              "args": [
+                {
+                  "lit": "Maquinamon"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "{\r\n                    ChangeDPClass changeDPClass = new ChangeDPClass();\r\n                    changeDPClass.SetUpICardEffect(\u0022Can\u0027t have less than 1000 DP\u0022, CanUseCondition, card);\r\n                    changeDPClass.SetUpChangeDPClass(ChangeDP: ChangeDP, permanentCondition: PermanentCondition, isUpDown: () =\u003E false, isMinusDP: () =\u003E false);\r\n                    changeDPClass.SetIsInheritedEffect(true);\r\n                    cardEffects.Add(changeDPClass);\r\n\r\n                    \r\n\r\n                    int ChangeDP(Permanent permanent, int DP)\r\n                    {\r\n                        if (PermanentCondition(permanent) \u0026\u0026 DP \u003C 1000)\r\n                        {\r\n                            DP = 1000;\r\n                        }\r\n\r\n                        return DP;\r\n                    }\r\n\r\n                    bool PermanentCondition(Permanent permanent)\r\n                    {\r\n                        return CardEffectCommons.IsPermanentExistsOnBattleAreaDigimon(permanent)\r\n                            \u0026\u0026 !permanent.TopCard.CanNotBeAffected(changeDPClass)\r\n                            \u0026\u0026 permanent.DigivolutionCards.Contains(card)\r\n                            \u0026\u0026 permanent.TopCard.HasText(\u0022Maquinamon\u0022);\r\n                    }\r\n                }"
+        },
+        {
+          "opaque": "{\r\n                    ImmuneStackTrashingClass immuneFromStackTrashingClass = new ImmuneStackTrashingClass();\r\n                    immuneFromStackTrashingClass.SetUpICardEffect(\u0022Isn\u0027t affected by trashing any stacked card\u0022, CanUseCondition, card);\r\n                    immuneFromStackTrashingClass.SetUpImmuneFromStackTrashingClass(PermanentCondition: PermanentCondition, EffectCondition: EffectCondition);\r\n                    immuneFromStackTrashingClass.SetIsInheritedEffect(true);\r\n                    cardEffects.Add(immuneFromStackTrashingClass);\r\n\r\n                    bool EffectCondition(ICardEffect effect)\r\n                    {\r\n                        return CardEffectCommons.IsOpponentEffect(effect, card);\r\n                    }\r\n\r\n                    bool PermanentCondition(Permanent permanent)\r\n                    {\r\n                        return permanent.cardSources.Contains(card);\r\n                    }\r\n                }"
+        }
+      ]
+    },
+    {
+      "timing": "OnEndTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "kind": "factoryAdd",
+          "receiver": "CardEffectFactory",
+          "factory": "PlayMindLinkTamerFromDigivolutionCards",
+          "args": [
+            {
+              "name": null,
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": "Unchained"
+              }
+            },
+            {
+              "name": null,
+              "value": {
+                "lit": "[End of All Turns] You may play 1 [Unchained] from this Digimon\u0027s digivolution cards without paying the cost."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

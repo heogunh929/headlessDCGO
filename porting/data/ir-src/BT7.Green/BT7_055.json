@@ -1,0 +1,293 @@
+{
+  "schema": "source-ir/1",
+  "card": "BT7_055",
+  "set": "BT7",
+  "color": "Green",
+  "className": "BT7_055",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "localFns": [
+        {
+          "name": "EffectDiscription",
+          "returns": "string",
+          "params": [],
+          "body": {
+            "lit": "[When Digivolving] Suspend 1 of your opponent\u0027s Digimon. Then, gain 1 memory for each of your opponent\u0027s suspended Digimon."
+          }
+        },
+        {
+          "name": "CanSelectPermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+            "args": [
+              {
+                "ref": "permanent"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "call": "CardEffectCommons.CanTriggerWhenDigivolving",
+            "args": [
+              {
+                "ref": "hashtable"
+              },
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CanActivateCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "call": "CardEffectCommons.HasMatchConditionPermanent",
+                "args": [
+                  {
+                    "ref": "CanSelectPermanentCondition"
+                  }
+                ]
+              },
+              "rhs": {
+                "binop": "\u0026\u0026",
+                "lhs": {
+                  "call": "card.Owner.CanAddMemory",
+                  "args": [
+                    {
+                      "ref": "activateClass"
+                    }
+                  ]
+                },
+                "rhs": {
+                  "opaque": "int count = card.Owner.Enemy.GetBattleAreaDigimons().Count((permanent) =\u003E permanent.IsSuspended); if (count \u003E= 1)\r\n                        {\r\n                            return true;\r\n                        }"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ActivateCoroutine",
+          "returns": "IEnumerator",
+          "params": [
+            "_hashtable"
+          ],
+          "body": {
+            "yields": [
+              {
+                "call": "selectPermanentEffect.Activate",
+                "args": []
+              },
+              {
+                "call": "card.Owner.AddMemory",
+                "args": [
+                  {
+                    "ref": "count"
+                  },
+                  {
+                    "ref": "activateClass"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "kind": "activate",
+          "var": "activateClass",
+          "label": {
+            "lit": "Suspend 1 Digimon and gain Memory"
+          },
+          "useCondition": "CanUseCondition",
+          "activateCondition": "CanActivateCondition",
+          "coroutine": "ActivateCoroutine",
+          "description": {
+            "call": "EffectDiscription",
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "CanUseCondition",
+          "returns": "bool",
+          "params": [
+            "hashtable"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOpponentTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "returns": "bool",
+          "params": [
+            "permanent"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon",
+              "args": [
+                {
+                  "ref": "permanent"
+                },
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "not": {
+                "call": "permanent.TopCard.CanNotBeAffected",
+                "args": [
+                  {
+                    "ref": "addSkillClass"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "CardSourceCondition",
+          "returns": "bool",
+          "params": [
+            "cardSource"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "cardSource"
+                }
+              ]
+            },
+            "rhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "cardSource"
+                },
+                "rhs": {
+                  "memberOf": {
+                    "call": "cardSource.PermanentOfThisCard",
+                    "args": []
+                  },
+                  "name": "TopCard"
+                }
+              },
+              "rhs": {
+                "call": "PermanentCondition",
+                "args": [
+                  {
+                    "call": "cardSource.PermanentOfThisCard",
+                    "args": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "name": "GetEffects",
+          "returns": "List\u003CICardEffect\u003E",
+          "params": [
+            "cardSource",
+            "cardEffects",
+            "_timing"
+          ],
+          "body": {
+            "binop": "\u0026\u0026",
+            "lhs": {
+              "binop": "\u0026\u0026",
+              "lhs": {
+                "binop": "==",
+                "lhs": {
+                  "ref": "_timing"
+                },
+                "rhs": {
+                  "member": "EffectTiming.WhenUntapAnyone"
+                }
+              },
+              "rhs": {
+                "opaque": "ActivateClass activateClass1 = new ActivateClass(); activateClass1.SetUpICardEffect(\u0022Trash 1 card from hand or this Digimon can\u0027t unsuspend\u0022, CanUseCondition1, cardSource); activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription()); activateClass1.SetRootCardEffect(addSkillClass); cardEffects.Add(activateClass1); string EffectDiscription()\r\n                    {\r\n                        return \u0022[Your Turn] You must trash 1 card in your hand to unsuspend this Digimon.\u0022;\r\n                    } bool CanUseCondition1(Hashtable hashtable)\r\n                    {\r\n                        if (CardEffectCommons.IsOwnerTurn(cardSource))\r\n                        {\r\n                            if (CardSourceCondition(cardSource))\r\n                            {\r\n                                return true;\r\n                            }\r\n                        }\r\n\r\n                        return false;\r\n                    } bool CanActivateCondition1(Hashtable hashtable)\r\n                    {\r\n                        if (CardSourceCondition(cardSource))\r\n                        {\r\n                            if (cardSource.PermanentOfThisCard().IsSuspended)\r\n                            {\r\n                                return true;\r\n                            }\r\n                        }\r\n\r\n                        return false;\r\n                    } IEnumerator ActivateCoroutine1(Hashtable _hashtable)\r\n                    {\r\n                        if (CardSourceCondition(cardSource))\r\n                        {\r\n                            if (cardSource.Owner.GetBattleAreaDigimons().Contains(cardSource.PermanentOfThisCard()))\r\n                            {\r\n                                bool discarded = false;\r\n\r\n                                if (cardSource.Owner.HandCards.Count \u003E= 1)\r\n                                {\r\n                                    int discardCount = 1;\r\n\r\n                                    SelectHandEffect selectHandEffect = GManager.instance.GetComponent\u003CSelectHandEffect\u003E();\r\n\r\n                                    selectHandEffect.SetUp(\r\n                                        selectPlayer: cardSource.Owner,\r\n                                        canTargetCondition: (cardSource) =\u003E true,\r\n                                        canTargetCondition_ByPreSelecetedList: null,\r\n                                        canEndSelectCondition: null,\r\n                                        maxCount: discardCount,\r\n                                        canNoSelect: true,\r\n                                        canEndNotMax: false,\r\n                                        isShowOpponent: true,\r\n                                        selectCardCoroutine: null,\r\n                                        afterSelectCardCoroutine: AfterSelectCardCoroutine,\r\n                                        mode: SelectHandEffect.Mode.Discard,\r\n                                        cardEffect: activateClass1);\r\n\r\n                                    yield return StartCoroutine(selectHandEffect.Activate());\r\n\r\n                                    IEnumerator AfterSelectCardCoroutine(List\u003CCardSource\u003E cardSources)\r\n                                    {\r\n                                        if (cardSources.Count \u003E= 1)\r\n                                        {\r\n                                            discarded = true;\r\n\r\n                                            yield return null;\r\n                                        }\r\n                                    }\r\n                                }\r\n\r\n                                if (!discarded)\r\n                                {\r\n                                    Permanent selectedPermanent = cardSource.PermanentOfThisCard();\r\n\r\n                                    if (selectedPermanent != null)\r\n                                    {\r\n                                        string effectName = \u0022This Digimon can\u0027t unsuspend.\u0022;\r\n\r\n                                        bool CanUseCondition2()\r\n                                        {\r\n                                            return CardEffectCommons.IsPermanentExistsOnBattleArea(selectedPermanent);\r\n                                        }\r\n\r\n                                        yield return ContinuousController.instance.StartCoroutine(CardEffectCommons.GainCanNotUnsuspend(\r\n                                                    targetPermanent: selectedPermanent,\r\n                                                    effectDuration: EffectDuration.UntilNextUntap,\r\n                                                    activateClass: activateClass1,\r\n                                                    condition: CanUseCondition2,\r\n                                                    effectName: effectName\r\n                                                ));\r\n                                    }\r\n                                }\r\n                            }\r\n                        }\r\n                    }"
+              }
+            },
+            "rhs": {
+              "ref": "cardEffects"
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "opaque": "AddSkillClass addSkillClass = new AddSkillClass();"
+        },
+        {
+          "opaque": "addSkillClass.SetUpICardEffect(\u0022Opponent\u0027s Digimon can\u0027t unsuspend unless opponent trash a card from hand\u0022, CanUseCondition, card);"
+        },
+        {
+          "opaque": "addSkillClass.SetUpAddSkillClass(cardSourceCondition: CardSourceCondition, getEffects: GetEffects);"
+        },
+        {
+          "kind": "opaque",
+          "syntax": "addSkillClass"
+        }
+      ]
+    }
+  ]
+}
