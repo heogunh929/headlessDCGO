@@ -182,19 +182,26 @@ def lower_card(src: dict) -> tuple[dict, list[dict]]:
         timing = br["timing"]
         local_fns = {fn["name"]: fn for fn in br.get("localFns", [])}
         try:
-            # lower local functions (predicates) first
+            # 1. Effects first — a coroutine (ActivateClass) branch has opaque effects and its
+            #    string-returning EffectDiscription() must NOT be mis-read as a predicate. Detect
+            #    the coroutine shape here so it classifies cleanly (STOP_COMPLEX_TIMING) instead of
+            #    dumping card-text into the ledger via failed predicate lowering.
+            if any(eff.get("kind") != "factoryAdd" for eff in br.get("effects", [])):
+                raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
+                           "coroutine/ActivateClass or non-factory effect (declarative translation needed)")
+            # 2. Local functions (predicates) — bool-returning only.
             lowered_fns = {}
             for fn in br.get("localFns", []):
+                if fn.get("returns") not in (None, "bool"):
+                    raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
+                               f"non-bool local fn {fn['name']} ({fn.get('returns')}) — coroutine shape")
                 if fn.get("params"):
                     raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
-                               f"predicate {fn['name']} takes params (Permanent/id) — Phase A skips")
+                               f"predicate {fn['name']} takes params (Permanent/id) — needs id-rewrite rule")
                 lowered_fns[fn["name"]] = {"name": fn["name"], "body": lower_predicate(fn["body"])}
-            # lower effects
+            # 3. Effects (now known all-factory).
             lowered_effects = []
             for eff in br.get("effects", []):
-                if eff.get("kind") != "factoryAdd":
-                    raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
-                               f"non-factory effect (coroutine/opaque): {eff.get('kind')}")
                 fname = eff["factory"]
                 sym = SYMBOLS.get(fname)
                 if sym is None or sym["kind"] != "factory":

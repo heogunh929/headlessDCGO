@@ -9,7 +9,7 @@
       "stop": {
         "stage": "lowering:missing-rule",
         "code": "STOP_MULTI_STEP_OPTIONAL",
-        "detail": "predicate DefenderCondition takes params (Permanent/id) — Phase A skips"
+        "detail": "predicate DefenderCondition takes params (Permanent/id) — needs id-rewrite rule"
       }
     }
   ]

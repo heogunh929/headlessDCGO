@@ -8,8 +8,8 @@
       "timing": "OnAllyAttack",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': \"[When Attacking] If you attack an opponent's Digimon, this Digimon gets +1000 DP for the turn.\"}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     }
   ]

@@ -8,16 +8,16 @@
       "timing": "OptionSkill",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': \"[Main] Until the end of your opponent's next turn, their Digimon with no digivolution cards can't attack.\"}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     },
     {
       "timing": "SecuritySkill",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': \"[Security] Your opponent's Digimon with no digivolution cards can't attack for the turn.\"}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     }
   ]

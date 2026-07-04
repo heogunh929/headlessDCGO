@@ -8,8 +8,8 @@
       "timing": "OnAllyAttack",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': '[When Attacking][Once Per Turn] If your opponent has a Digimon with no digivolution cards in play, trigger <Draw 1> (Draw 1 card from your deck).'}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     }
   ]

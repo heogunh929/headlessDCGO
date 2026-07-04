@@ -37,8 +37,8 @@
       "timing": "OnBlockAnyone",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': '[Your Turn] When this Digimon is blocked, trigger <Draw 1>. (Draw 1 card from your deck.)'}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     }
   ]

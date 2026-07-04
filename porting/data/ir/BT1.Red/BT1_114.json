@@ -43,8 +43,8 @@
       "timing": "OnAllyAttack",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': '[When Attacking] Lose 5 memory.'}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     },
     {

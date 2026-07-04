@@ -262,7 +262,13 @@ code의 가치는 부분 포함 허용이 아니라 해소 작업의 데이터 �
 - **Phase A (골격 증명)**: 2, 3, 5, 7, 9 최소판 — Tier 1 카드만, LLM 없음.
   검증: BT1 Blue의 정적 카드들이 IR 경유로 재생성되어 현행 게이트 green +
   기존 수기 미러와 의미 동일 diff.
-- **Phase B (원장·풀)**: 6, 11 — ledger/registry 생성, stop md를 뷰로 전환.
+- **Phase B (원장·풀) — 완료(2026-07-04)**: 6, 11 — `porting/scripts/ir_registry.py`.
+  Canonical IR + 미러 상태를 읽어 `porting/data/ledger/<SET>.<COLOR>.json`(카드×분기,
+  tier·irHash·tableVer), `porting/data/cardpool.json`(포함 결정), `porting/stop/<SET>.<COLOR>.md`
+  (렌더 뷰, 수기 로그 대체)를 생성. BT1 Blue+Red: 4 included / 40 excluded.
+  STOP 히스토그램(정직): 44 COMPLEX_TIMING(코루틴=Phase C 의도매핑), 4 MULTI_STEP_OPTIONAL
+  +3 RULE_AMBIGUOUS(술어 atom 재작성=Phase C atom 테이블). 포함 규칙 = 전분기 lowered +
+  미러 live(확정 r2). irHash=정규화 branches sha256[:12], tableVer 스탬프로 재현성 추적.
 - **Phase C (LLM 조각 제안)**: 4 — Tier 2 개방. gemma4 캘리브레이션 프로토콜 재사용.
 - **Phase D (행동 검증)**: 8, 10 — 시나리오 템플릿 상위 op부터.
 

@@ -1,8 +1,597 @@
-[
-  {
-    "card": "BT1_031",
-    "branch": 0,
-    "timing": "None",
-    "status": "lowered"
-  }
-]
+{
+  "set": "BT1",
+  "color": "Blue",
+  "cards": [
+    {
+      "card": "BT1_003",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnAllyAttack",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_004",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "1f6c7c0389cb",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_RULE_AMBIGUOUS",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "None",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_RULE_AMBIGUOUS",
+          "detail": "unrecognized predicate node: {'binop': '>=', 'lhs': {'call': 'card.Owner.Enemy.GetBattleAreaDigimons().Count', 'args': [{'lambda': {'params': ['permanent'], 'body': {'member': 'permanent.HasNoDigivolutionCards'}}}]}, 'rhs': {'lit': 2}}"
+        }
+      ]
+    },
+    {
+      "card": "BT1_029",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnEnterFieldAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_030",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "f5f17883fb27",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnDestroyedAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_031",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 1,
+      "irHash": "de2555e10e16",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "None",
+          "status": "lowered"
+        }
+      ]
+    },
+    {
+      "card": "BT1_033",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 2,
+      "irHash": "312e1e07c1fe",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_MULTI_STEP_OPTIONAL",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "None",
+          "status": "stop",
+          "stage": "lowering:missing-rule",
+          "code": "STOP_MULTI_STEP_OPTIONAL",
+          "detail": "HasMatchConditionOpponentsPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'member': 'permanent.IsDigimon'}, 'rhs': {'member': 'permanent.HasNoDigivolutionCards'}}}}]"
+        }
+      ]
+    },
+    {
+      "card": "BT1_034",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 2,
+      "irHash": "91b3bc6f7fad",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_MULTI_STEP_OPTIONAL",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "None",
+          "status": "stop",
+          "stage": "lowering:missing-rule",
+          "code": "STOP_MULTI_STEP_OPTIONAL",
+          "detail": "predicate DefenderCondition takes params (Permanent/id) — needs id-rewrite rule"
+        }
+      ]
+    },
+    {
+      "card": "BT1_035",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "f5f17883fb27",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnDestroyedAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_036",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnEnterFieldAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_039",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnAllyAttack",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_040",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnAllyAttack",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_041",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "7ec947dda056",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnEnterFieldAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "OnAllyAttack",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_043",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnEnterFieldAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_044",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnAllyAttack",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_086",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a712060d500e",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnStartTurn",
+          "status": "lowered"
+        },
+        {
+          "branch": 1,
+          "timing": "OnEnterFieldAnyone",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 2,
+          "timing": "SecuritySkill",
+          "status": "lowered"
+        }
+      ]
+    },
+    {
+      "card": "BT1_096",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OptionSkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "SecuritySkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_097",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OptionSkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "SecuritySkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_098",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OptionSkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "SecuritySkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_099",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "5f5bc4d9d0ad",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OptionSkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_100",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OptionSkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "SecuritySkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_101",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "inert",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OptionSkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "SecuritySkill",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        }
+      ]
+    },
+    {
+      "card": "BT1_115",
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "5676d9b3f91e",
+      "irSchemaVer": "canonical-ir/1",
+      "tableVer": "catalog@2026-07-04",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING",
+      "branches": [
+        {
+          "branch": 0,
+          "timing": "OnAllyAttack",
+          "status": "stop",
+          "stage": "lowering:tier-3",
+          "code": "STOP_COMPLEX_TIMING",
+          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        },
+        {
+          "branch": 1,
+          "timing": "None",
+          "status": "stop",
+          "stage": "lowering:missing-rule",
+          "code": "STOP_MULTI_STEP_OPTIONAL",
+          "detail": "HasMatchConditionOwnersPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'call': 'permanent.TopCard.CardColors.Contains', 'args': [{'member': 'CardColor.Blue'}]}, 'rhs': {'member': 'permanent.IsTamer'}}}}]"
+        }
+      ]
+    }
+  ]
+}

@@ -8,8 +8,8 @@
       "timing": "OnEnterFieldAnyone",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': '[On Play] Return 1 Digimon card with [Agumon] in its name from your trash to your hand.'}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     }
   ]

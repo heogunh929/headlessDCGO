@@ -1,0 +1,445 @@
+{
+  "cards": {
+    "BT1_003": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_004": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "1f6c7c0389cb",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_RULE_AMBIGUOUS"
+    },
+    "BT1_029": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_030": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "f5f17883fb27",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_031": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 1,
+      "irHash": "de2555e10e16",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "included": true,
+      "reason": "ir-generated"
+    },
+    "BT1_033": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 2,
+      "irHash": "312e1e07c1fe",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_MULTI_STEP_OPTIONAL"
+    },
+    "BT1_034": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 2,
+      "irHash": "91b3bc6f7fad",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_MULTI_STEP_OPTIONAL"
+    },
+    "BT1_035": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "f5f17883fb27",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_036": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_039": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_040": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_041": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "7ec947dda056",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_043": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_044": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_086": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "a712060d500e",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_096": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_097": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_098": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_099": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "5f5bc4d9d0ad",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_100": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_101": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "inert",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_115": {
+      "set": "BT1",
+      "color": "Blue",
+      "tier": 3,
+      "irHash": "5676d9b3f91e",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_001": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_002": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "dcba75c9b76b",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_RULE_AMBIGUOUS"
+    },
+    "BT1_010": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_011": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_012": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "ceaaa19eca0e",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_015": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 1,
+      "irHash": "8bf3aba39edc",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "included": true,
+      "reason": "ir-generated"
+    },
+    "BT1_016": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 1,
+      "irHash": "2cd16ec46b7a",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "included": true,
+      "reason": "ir-generated"
+    },
+    "BT1_017": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_018": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "eef5dd6ee466",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_RULE_AMBIGUOUS"
+    },
+    "BT1_021": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "85f2d668d391",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_022": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "f9d0ace88da4",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_023": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "a95d2da2e19c",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_025": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "8b715947ddd9",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_026": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 1,
+      "irHash": "4dd051b46f55",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "included": true,
+      "reason": "ir-generated"
+    },
+    "BT1_085": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 2,
+      "irHash": "bab22916440c",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_MULTI_STEP_OPTIONAL"
+    },
+    "BT1_090": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "5f5bc4d9d0ad",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_091": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "5f5bc4d9d0ad",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_092": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "5f5bc4d9d0ad",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_093": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_094": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_095": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "74260b4fa0f0",
+      "provenance": "handwritten",
+      "mirrorState": "stop-pending",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    },
+    "BT1_114": {
+      "set": "BT1",
+      "color": "Red",
+      "tier": 3,
+      "irHash": "755f50ed4c51",
+      "provenance": "handwritten",
+      "mirrorState": "live",
+      "included": false,
+      "reason": "STOP_COMPLEX_TIMING"
+    }
+  },
+  "schema": "cardpool/1"
+}

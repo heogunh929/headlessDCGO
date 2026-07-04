@@ -8,8 +8,8 @@
       "timing": "OptionSkill",
       "stop": {
         "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'lit': \"[Main] Trash all digivolution cards under all of your opponent's Digimon.\"}"
+        "code": "STOP_COMPLEX_TIMING",
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     },
     {
@@ -17,7 +17,7 @@
       "stop": {
         "stage": "lowering:tier-3",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "non-factory effect (coroutine/opaque): None"
+        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
       }
     }
   ]
