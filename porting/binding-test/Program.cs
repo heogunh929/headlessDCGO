@@ -37,12 +37,18 @@ var cardTypes = SafeTypes(baseType.Assembly)
 
 EffectTiming[] timings = Enum.GetValues<EffectTiming>();
 
-// Timings where ActivatedEffectResolver.ResolveAsync is wired (activation effects actually fire).
-// Kept in sync with the ResolveAsync call sites in Headless/Runtime/*.
+// Timings where a card's OWN activation effect is resolved by ActivatedEffectResolver, verified
+// against the actual call sites in Headless/Runtime/*:
+//   BeforePayCost  — PlayCardAction (played card)
+//   OptionSkill    — OptionActivateAction (proven by G9-015)
+//   SecuritySkill  — SecurityResolver
+//   WhenDigivolving— DigivolveAction (ST1_08 is live)
+// NOTE: OnEnterFieldAnyone is intentionally EXCLUDED. Its only ResolveAsync is OnPlayReactivation,
+// which skips the played card itself (`id == playedCardId → continue`) — i.e. a card's own
+// [On Play] activation effect is NOT fired on play. That is a genuine (narrow) engine gap.
 var ActivationWiredTimings = new HashSet<EffectTiming>
 {
     EffectTiming.BeforePayCost,
-    EffectTiming.OnEnterFieldAnyone,
     EffectTiming.OptionSkill,
     EffectTiming.SecuritySkill,
     EffectTiming.WhenDigivolving,
