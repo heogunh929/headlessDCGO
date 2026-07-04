@@ -1,0 +1,16 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_002",
+  "set": "BT1",
+  "color": "Red",
+  "branches": [
+    {
+      "timing": "None",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'memberOf': {'call': 'card.PermanentOfThisCard', 'args': []}, 'name': 'HasPierce'}"
+      }
+    }
+  ]
+}

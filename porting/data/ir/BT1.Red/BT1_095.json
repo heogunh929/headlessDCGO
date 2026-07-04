@@ -1,0 +1,24 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_095",
+  "set": "BT1",
+  "color": "Red",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Main] Unsuspend 1 of your Digimon. Until the end of your opponent's next turn, that Digimon gains <Blocker>. (When an opponent's Digimon attacks, you may suspend this Digimon to force the opponent to attack it instead.)\"}"
+      }
+    },
+    {
+      "timing": "SecuritySkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Security] Unsuspend 1 of your Digimon. That Digimon gains <Blocker> (When an opponent's Digimon attacks, you may suspend this Digimon to force the opponent to attack it instead) for the turn.\"}"
+      }
+    }
+  ]
+}

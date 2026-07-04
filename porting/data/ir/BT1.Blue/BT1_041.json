@@ -1,0 +1,24 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_041",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': '[On Play] Trigger <Draw 2>. (Draw 2 card from your deck.)'}"
+      }
+    },
+    {
+      "timing": "OnAllyAttack",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': '[When Attacking] If your opponent has a Digimon with no digivolution cards in play, gain 1 memory.'}"
+      }
+    }
+  ]
+}

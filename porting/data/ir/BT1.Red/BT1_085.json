@@ -1,0 +1,50 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_085",
+  "set": "BT1",
+  "color": "Red",
+  "branches": [
+    {
+      "timing": "OnStartTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "SetMemoryTo3TamerEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "None",
+      "stop": {
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MULTI_STEP_OPTIONAL",
+        "detail": "predicate PermanentCondition takes params (Permanent/id) — Phase A skips"
+      }
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

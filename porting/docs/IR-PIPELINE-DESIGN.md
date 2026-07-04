@@ -268,6 +268,23 @@ code의 가치는 부분 포함 허용이 아니라 해소 작업의 데이터 �
 
 각 Phase 종료 = 게이트 green + 이전 Phase 산출물 회귀 없음.
 
+### Phase A 진행 결과 (2026-07-04)
+
+구현: `porting/tools/CardIr.Extract`(stage 2) + `porting/scripts/ir_pipeline.py`(stage 3·5·7·9).
+BT1 Blue+Red 44장 Source IR 추출 → 파이프라인 실행. **4장 완전 로워링**
+(BT1_031·015·016·026), 코드젠 산출물이 기존 수기 미러와 **의미 동일**(BT1_015만
+`return X;` vs `if(X) return true;` 스타일 차이, 동치), 게이트 green.
+
+**결정론 경계 확정 (핵심 발견)**: 술어 람다는 passthrough가 아니다. 감싸는 호출
+시그니처에 따라 `Func<HeadlessEntityId,bool>`(예 `HasMatchConditionOpponentsPermanent`)
+와 `Func<Permanent,bool>`(예 `HasMatchConditionOwnersPermanent`)로 shape이 갈리고,
+원본의 `permanent.IsDigimon`·`.HasNoDigivolutionCards` 같은 멤버 접근이 헤드리스에선
+`CardEffectCommons.X(card, id)` 호출로 바뀐다(수기 BT1_033 미러가 원본과 다른 이유).
+→ Phase A 결정론 범위 = 술어가 `null` 또는 `CardEffectCommons.X(card)` bool 호출의
+`&&/||/!` 조합인 카드만. 그 외(람다·멤버 재작성·id-형 술어)는 typed STOP.
+이 boundary가 곧 **Phase C(LLM 조각 제안) + base/macro atom 테이블이 채워야 할 작업 목록**이다.
+나머지 40장 STOP 사유는 `porting/data/ledger/BT1.<COLOR>.json`에 stage×code로 적재됨.
+
 ## 버저닝·재현성 (확정)
 
 - **IR 스키마 = semver**: major = IR 형태 파괴(**마이그레이터 필수**), minor = 가산적

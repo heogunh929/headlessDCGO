@@ -1,0 +1,50 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_086",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OnStartTurn",
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "SetMemoryTo3TamerEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timing": "OnEnterFieldAnyone",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Your Turn] When you play a blue Digimon, you can suspend this Tamer to trash the bottom digivolution card of 1 of your opponent's Digimon.\"}"
+      }
+    },
+    {
+      "timing": "SecuritySkill",
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "PlaySelfTamerSecurityEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

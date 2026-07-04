@@ -1,0 +1,24 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_025",
+  "set": "BT1",
+  "color": "Red",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': '[When Digivolving] This Digimon gains <Security Attack +1> (This Digimon checks 1 additional security card) for the turn.'}"
+      }
+    },
+    {
+      "timing": "None",
+      "stop": {
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MULTI_STEP_OPTIONAL",
+        "detail": "predicate CanUseCondition takes params (Permanent/id) — Phase A skips"
+      }
+    }
+  ]
+}

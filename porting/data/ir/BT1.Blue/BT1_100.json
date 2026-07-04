@@ -1,0 +1,24 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_100",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Main] Until the end of your opponent's next turn, their Digimon with no digivolution cards can't attack.\"}"
+      }
+    },
+    {
+      "timing": "SecuritySkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Security] Your opponent's Digimon with no digivolution cards can't attack for the turn.\"}"
+      }
+    }
+  ]
+}

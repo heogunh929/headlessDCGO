@@ -1,0 +1,24 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_098",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Main] 1 of your Digimon gains <Jamming> (This Digimon can't be deleted in battles against Security Digimon) for the turn.\"}"
+      }
+    },
+    {
+      "timing": "SecuritySkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Security] Add this card to its owner's hand.\"}"
+      }
+    }
+  ]
+}

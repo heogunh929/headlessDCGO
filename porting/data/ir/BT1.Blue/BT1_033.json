@@ -1,0 +1,16 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_033",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "None",
+      "stop": {
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MULTI_STEP_OPTIONAL",
+        "detail": "HasMatchConditionOpponentsPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'member': 'permanent.IsDigimon'}, 'rhs': {'member': 'permanent.HasNoDigivolutionCards'}}}}]"
+      }
+    }
+  ]
+}

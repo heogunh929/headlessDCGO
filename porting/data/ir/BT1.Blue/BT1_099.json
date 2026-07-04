@@ -1,0 +1,16 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_099",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OptionSkill",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': \"[Main] Trash all digivolution cards under 1 of your opponent's Digimon.\"}"
+      }
+    }
+  ]
+}

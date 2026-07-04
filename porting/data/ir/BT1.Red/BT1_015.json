@@ -1,0 +1,55 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_015",
+  "set": "BT1",
+  "color": "Red",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [
+        {
+          "name": "Condition",
+          "body": {
+            "call": "CardEffectCommons.IsOwnerTurn",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "factory": "ChangeSelfDPStaticEffect",
+          "args": [
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 2000
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": true
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "localfn": "Condition"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_003",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OnAllyAttack",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': '[When Attacking][Once Per Turn] If your opponent has a Digimon with no digivolution cards in play, trigger <Draw 1> (Draw 1 card from your deck).'}"
+      }
+    }
+  ]
+}

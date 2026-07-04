@@ -1,0 +1,37 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_016",
+  "set": "BT1",
+  "color": "Red",
+  "branches": [
+    {
+      "timing": "None",
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "JammingSelfStaticEffect",
+          "args": [
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

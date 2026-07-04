@@ -6,12 +6,12 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+// GENERATED FROM porting/data/ir/BT1.Red/BT1_016.json — DO NOT EDIT (pipeline-v3 codegen).
 public sealed class BT1_016 : CEntity_Effect
 {
     public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
         if (timing == EffectTiming.None)
         {
             cardEffects.Add(CardEffectFactory.JammingSelfStaticEffect(
@@ -19,7 +19,6 @@ public sealed class BT1_016 : CEntity_Effect
                 card: card,
                 condition: null));
         }
-
         return cardEffects;
     }
 }

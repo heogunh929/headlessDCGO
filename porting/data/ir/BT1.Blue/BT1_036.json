@@ -1,0 +1,16 @@
+{
+  "schema": "canonical-ir/1",
+  "card": "BT1_036",
+  "set": "BT1",
+  "color": "Blue",
+  "branches": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "stop": {
+        "stage": "lowering:tier-3",
+        "code": "STOP_RULE_AMBIGUOUS",
+        "detail": "unrecognized predicate node: {'lit': '[On Play] Unsuspend 1 of your Digimon.'}"
+      }
+    }
+  ]
+}
