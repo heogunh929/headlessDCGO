@@ -7,9 +7,9 @@
     {
       "timing": "OnAllyAttack",
       "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MULTI_STEP_OPTIONAL",
+        "detail": "coroutine has 2 effects (multi-step) — 강모델"
       }
     }
   ]

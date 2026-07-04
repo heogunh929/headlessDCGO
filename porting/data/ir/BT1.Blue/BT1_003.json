@@ -7,9 +7,9 @@
     {
       "timing": "OnAllyAttack",
       "stop": {
-        "stage": "lowering:tier-3",
+        "stage": "lowering:missing-rule",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
       }
     }
   ]

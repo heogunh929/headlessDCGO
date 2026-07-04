@@ -5,34 +5,34 @@
 
 ## 코드별 STOP 분기
 
-### STOP_COMPLEX_TIMING (20)
+### STOP_COMPLEX_TIMING (13)
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
-| BT1_001 | OnAllyAttack | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_010 | OnEnterFieldAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_011 | OnEnterFieldAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_012 | OnBlockAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_017 | OnEnterFieldAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_021 | OnAllyAttack | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_022 | OnBlockAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_023 | OnEnterFieldAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
+| BT1_001 | OnAllyAttack | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP |
+| BT1_010 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect |
+| BT1_011 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectCardEffect.Activate |
+| BT1_012 | OnBlockAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP |
+| BT1_022 | OnBlockAnyone | lowering:missing-rule | no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw |
+| BT1_023 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectPermanentEffect.Activate |
 | BT1_025 | None | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_025 | OnEnterFieldAnyone | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_090 | OptionSkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_091 | OptionSkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_092 | OptionSkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_093 | OptionSkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_093 | SecuritySkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_094 | OptionSkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
+| BT1_025 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.ChangeDigimonSAttack |
+| BT1_093 | SecuritySkill | lowering:tier-3 | activate mixed with other effects (multi-step) — 강모델 |
+| BT1_094 | OptionSkill | lowering:missing-rule | no coroutine intent mapping: selectPermanentEffect.Activate |
 | BT1_094 | SecuritySkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_095 | OptionSkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_095 | SecuritySkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
-| BT1_114 | OnAllyAttack | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
+| BT1_095 | SecuritySkill | lowering:tier-3 | activate mixed with other effects (multi-step) — 강모델 |
+| BT1_114 | OnAllyAttack | lowering:missing-rule | coroutine value arg not a literal: {'opaque': '-5'} |
 
-### STOP_MULTI_STEP_OPTIONAL (1)
+### STOP_MULTI_STEP_OPTIONAL (8)
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
+| BT1_017 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
+| BT1_021 | OnAllyAttack | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_085 | None | lowering:missing-rule | predicate PermanentCondition takes params (Permanent/id) — needs id-rewrite rule |
+| BT1_090 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
+| BT1_091 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
+| BT1_092 | OptionSkill | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
+| BT1_093 | OptionSkill | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
+| BT1_095 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 

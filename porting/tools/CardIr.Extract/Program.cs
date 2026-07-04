@@ -103,41 +103,113 @@ static void CollectBranches(StatementSyntax stmt, JsonArray branches)
         var localFns = new JsonArray();
         var effects = new JsonArray();
         var body = ifs.Statement is BlockSyntax b ? b.Statements : new SyntaxList<StatementSyntax>().Add(ifs.Statement);
+        // ActivateClass builder accumulates across statements → one "activate" effect.
+        var activateVars = new HashSet<string>();
+        var activate = new Dictionary<string, JsonObject>();  // var -> activate node
         foreach (var s in body)
-            CollectBranchStatement(s, localFns, effects);
+            CollectBranchStatement(s, localFns, effects, activateVars, activate);
         branch["localFns"] = localFns;
         branch["effects"] = effects;
         branches.Add(branch);
     }
 }
 
-static void CollectBranchStatement(StatementSyntax s, JsonArray localFns, JsonArray effects)
+static void CollectBranchStatement(StatementSyntax s, JsonArray localFns, JsonArray effects,
+                                   HashSet<string> activateVars, Dictionary<string, JsonObject> activate)
 {
     switch (s)
     {
         case LocalFunctionStatementSyntax fn:
+            bool isEnum = fn.ReturnType.ToString().Contains("IEnumerator");
             localFns.Add(new JsonObject
             {
                 ["name"] = fn.Identifier.Text,
                 ["returns"] = fn.ReturnType.ToString(),
                 ["params"] = new JsonArray(fn.ParameterList.Parameters
                     .Select(p => (JsonNode)p.Identifier.Text!).ToArray()),
-                ["body"] = fn.Body is not null ? BoolFromStatements(fn.Body.Statements)
+                ["body"] = isEnum ? YieldsFromBody(fn.Body)
+                          : fn.Body is not null ? BoolFromStatements(fn.Body.Statements)
                           : fn.ExpressionBody is not null ? Expr(fn.ExpressionBody.Expression)
                           : new JsonObject { ["opaque"] = "<empty>" },
             });
             break;
 
-        // cardEffects.Add( <expr> );
-        case ExpressionStatementSyntax es when es.Expression is InvocationExpressionSyntax inv
-            && inv.Expression is MemberAccessExpressionSyntax ma && ma.Name.Identifier.Text == "Add":
-            effects.Add(EffectFromAdd(inv.ArgumentList.Arguments.FirstOrDefault()?.Expression));
+        // ActivateClass activateClass = new ActivateClass();
+        case LocalDeclarationStatementSyntax decl when decl.Declaration.Type.ToString() == "ActivateClass":
+            foreach (var v in decl.Declaration.Variables)
+            {
+                activateVars.Add(v.Identifier.Text);
+                activate[v.Identifier.Text] = new JsonObject { ["kind"] = "activate", ["var"] = v.Identifier.Text };
+            }
             break;
+
+        case ExpressionStatementSyntax es when es.Expression is InvocationExpressionSyntax inv
+            && inv.Expression is MemberAccessExpressionSyntax ma:
+        {
+            string recv = ma.Expression.ToString();
+            string method = ma.Name.Identifier.Text;
+            var callArgs = inv.ArgumentList.Arguments;
+            // builder calls on the activate var
+            if (activate.TryGetValue(recv, out var node))
+            {
+                switch (method)
+                {
+                    case "SetUpICardEffect":  // (label, useCondition, card)
+                        if (callArgs.Count >= 2)
+                        {
+                            node["label"] = Expr(callArgs[0].Expression);
+                            node["useCondition"] = callArgs[1].Expression.ToString();
+                        }
+                        return;
+                    case "SetUpActivateClass":  // (activateCondition, coroutine, dur, optional, description)
+                        if (callArgs.Count >= 2)
+                        {
+                            node["activateCondition"] = callArgs[0].Expression.ToString();
+                            node["coroutine"] = callArgs[1].Expression.ToString();
+                        }
+                        if (callArgs.Count >= 5) node["description"] = Expr(callArgs[4].Expression);
+                        return;
+                    case "SetIsInheritedEffect":
+                        node["inherited"] = callArgs.Count >= 1 ? Expr(callArgs[0].Expression) : new JsonObject { ["const"] = true };
+                        return;
+                }
+            }
+            // cardEffects.Add(...)
+            if (method == "Add")
+            {
+                var added = callArgs.FirstOrDefault()?.Expression;
+                if (added is IdentifierNameSyntax idn && activate.TryGetValue(idn.Identifier.Text, out var an))
+                    effects.Add(an);
+                else
+                    effects.Add(EffectFromAdd(added));
+                return;
+            }
+            effects.Add(new JsonObject { ["opaque"] = s.ToString().Trim() });
+            break;
+        }
 
         default:
             effects.Add(new JsonObject { ["opaque"] = s.ToString().Trim() });
             break;
     }
+}
+
+// Capture the yield-returned expressions of an IEnumerator coroutine as intent nodes.
+static JsonNode YieldsFromBody(BlockSyntax? body)
+{
+    var yields = new JsonArray();
+    if (body is not null)
+        foreach (var y in body.DescendantNodes().OfType<YieldStatementSyntax>())
+            if (y.Expression is not null)
+            {
+                // unwrap ContinuousController.instance.StartCoroutine(<intent>) -> <intent>
+                ExpressionSyntax e = y.Expression;
+                if (e is InvocationExpressionSyntax si && si.Expression is MemberAccessExpressionSyntax sm
+                    && sm.Name.Identifier.Text == "StartCoroutine" && si.ArgumentList.Arguments.Count > 0)
+                    e = si.ArgumentList.Arguments[0].Expression;
+                yields.Add(Expr(e));
+            }
+    return new JsonObject { ["yields"] = yields };
 }
 
 // The argument to cardEffects.Add(...) — for Tier 1/2 this is a CardEffectFactory.X(...) call.

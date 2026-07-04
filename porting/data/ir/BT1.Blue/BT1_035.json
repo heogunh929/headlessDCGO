@@ -6,11 +6,50 @@
   "branches": [
     {
       "timing": "OnDestroyedAnyone",
-      "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
-      }
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "AddMemoryTriggerEffect",
+          "args": [
+            {
+              "name": "timing",
+              "value": {
+                "timing": "OnDestroyedAnyone"
+              }
+            },
+            {
+              "name": "amount",
+              "value": {
+                "lit": 2
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "null": true
+              }
+            },
+            {
+              "name": "description",
+              "value": {
+                "lit": "[On Deletion] Gain 2 memory."
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

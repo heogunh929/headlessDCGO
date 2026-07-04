@@ -1,0 +1,21 @@
+{
+  "schema": "intents/1",
+  "tableVer": "intents@2026-07-04",
+  "_doc": "코루틴 의도 → 트리거 팩토리 매핑(pipeline-v3 stage 3 활성효과 로워링). ActivateClass 빌더는 헤드리스에서 단일 TriggerEffect 팩토리로 접힌다. yield 된 코루틴 본문 호출(예 card.Owner.AddMemory(N))을 factory + 인자 배치로 변환. 단일 yield + 매핑 존재 + activateCondition 이 배관만일 때 결정론. 그 외는 STOP.",
+  "intents": {
+    "card.Owner.AddMemory": {
+      "factory": "AddMemoryTriggerEffect",
+      "value_arg": 0,
+      "value_param": "amount",
+      "note": "[On X] Gain N memory — 트리거형 메모리 증가"
+    }
+  },
+  "plumbing_predicates": [
+    "CanActivateOnDeletion", "CanActivateOnPlay", "CanActivateOnAttack",
+    "CanActivateOnDigivolve", "CanActivateOnStartTurn", "CanActivateOnEndTurn",
+    "CanTriggerOnDeletion", "CanTriggerOnPlay", "CanTriggerOnAttack",
+    "CanTriggerOnDigivolve", "CanTriggerOnBlock",
+    "CanAddMemory"
+  ],
+  "_plumbing_doc": "activateCondition 안의 배관 술어 — 헤드리스 TriggerEffect 팩토리가 timing/triggerGate 로 내부 처리하므로 condition 에서 제거. 전부 배관이면 condition=null. 의미 술어가 남으면 그것만 lower."
+}

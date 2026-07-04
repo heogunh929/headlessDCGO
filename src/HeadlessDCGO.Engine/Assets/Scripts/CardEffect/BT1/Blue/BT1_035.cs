@@ -1,31 +1,27 @@
-// Source: Assets/Scripts/CardEffect/BT1/Blue/BT1_035.cs
-// Decision: STOP
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue
-// STOP: ActivateClass — 강모델
-// STOP: AddMemory — 강모델
-// STOP: CanActivateOnDeletion — 강모델
-// STOP: CanTriggerOnDeletion — 강모델
-// STOP: MemoryForPlayer — 강모델
-
 using System.Collections.Generic;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+// GENERATED FROM porting/data/ir/BT1.Blue/BT1_035.json — DO NOT EDIT (pipeline-v3 codegen).
 public sealed class BT1_035 : CEntity_Effect
 {
     public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
-        // STOP: OnDestroyedAnyone — 강모델
-        // This card uses ActivateClass and coroutines which are not supported in headless
-        // The original card has complex logic that cannot be ported as-is
-
+        if (timing == EffectTiming.OnDestroyedAnyone)
+        {
+            cardEffects.Add(CardEffectFactory.AddMemoryTriggerEffect(
+                timing: EffectTiming.OnDestroyedAnyone,
+                amount: 2,
+                isInheritedEffect: false,
+                card: card,
+                condition: null,
+                description: "[On Deletion] Gain 2 memory."));
+        }
         return cardEffects;
     }
 }

@@ -7,9 +7,9 @@
     {
       "timing": "None",
       "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_RULE_AMBIGUOUS",
-        "detail": "unrecognized predicate node: {'binop': '>=', 'lhs': {'call': 'card.Owner.Enemy.GetBattleAreaDigimons().Count', 'args': [{'lambda': {'params': ['permanent'], 'body': {'member': 'permanent.HasNoDigivolutionCards'}}}]}, 'rhs': {'lit': 2}}"
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MISSING_PRIMITIVE",
+        "detail": "predicate call not a CardEffectCommons helper: card.Owner.Enemy.GetBattleAreaDigimons().Count"
       }
     }
   ]

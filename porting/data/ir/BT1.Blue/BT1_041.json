@@ -7,17 +7,17 @@
     {
       "timing": "OnEnterFieldAnyone",
       "stop": {
-        "stage": "lowering:tier-3",
+        "stage": "lowering:missing-rule",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 2, activateClass).Draw"
       }
     },
     {
       "timing": "OnAllyAttack",
       "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MULTI_STEP_OPTIONAL",
+        "detail": "HasMatchConditionOpponentsPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'member': 'permanent.IsDigimon'}, 'rhs': {'member': 'permanent.HasNoDigivolutionCards'}}}}]"
       }
     }
   ]

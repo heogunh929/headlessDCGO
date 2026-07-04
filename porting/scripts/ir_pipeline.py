@@ -79,12 +79,12 @@ def split_params(param_str: str) -> list[tuple[str, str]]:
         p = p.strip()
         if not p:
             continue
-        # strip default value
+        optional = "=" in p or p.split()[0] == "params"   # has default value → optional
         p = p.split("=", 1)[0].strip()
         # last token = name, rest = type
         m = re.match(r"^(.*\S)\s+(\w+)$", p)
         if m:
-            out.append((m.group(1).strip(), m.group(2)))
+            out.append((m.group(1).strip(), m.group(2), optional))
     return out
 
 
@@ -209,6 +209,88 @@ def lower_self_atom(name: str, is_self: bool, raw) -> dict:
     return {"call": f"CardEffectCommons.{emit}", "args": [{"ref": "card"}]}
 
 
+def short_call(name: str) -> str:
+    return name.split(".")[-1]
+
+
+def strip_plumbing(node: dict):
+    """activateCondition 에서 배관 술어(CanActivateOnX/CanAddMemory 등)를 제거하고
+    의미 술어 나머지를 반환(없으면 None)."""
+    if node is None:
+        return None
+    if "call" in node and short_call(node["call"]) in PLUMBING:
+        return None
+    if node.get("binop") == "&&":
+        lhs = strip_plumbing(node["lhs"])
+        rhs = strip_plumbing(node["rhs"])
+        if lhs is None:
+            return rhs
+        if rhs is None:
+            return lhs
+        return {"binop": "&&", "lhs": lhs, "rhs": rhs}
+    if "const" in node:
+        return None if node["const"] else node
+    return node  # semantic remainder — lowered downstream
+
+
+def resolve_description(desc, local_fns: dict) -> str:
+    if desc is None:
+        return ""
+    if "lit" in desc:
+        return desc["lit"]
+    if "call" in desc:
+        fn = local_fns.get(short_call(desc["call"]))
+        if fn and "lit" in fn.get("body", {}):
+            return fn["body"]["lit"]
+    return ""
+
+
+def lower_activate(act: dict, timing: str, local_fns: dict):
+    """ActivateClass 활성효과 → 단일 TriggerEffect 팩토리 (canonical factoryAdd) + 파생 Condition."""
+    coro = local_fns.get(act.get("coroutine", ""))
+    if not coro or "yields" not in coro.get("body", {}):
+        raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING", "coroutine body not captured")
+    yields = coro["body"]["yields"]
+    if len(yields) != 1:
+        raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
+                   f"coroutine has {len(yields)} effects (multi-step) — 강모델")
+    intent = yields[0]
+    if "call" not in intent:
+        raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING", f"non-call coroutine intent: {intent}")
+    spec = INTENTS.get(intent["call"])
+    if spec is None:
+        raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
+                   f"no coroutine intent mapping: {intent['call']}")
+    factory = spec["factory"]
+    sym = SYMBOLS.get(factory)
+    if sym is None or sym["kind"] != "factory":
+        raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE",
+                   f"intent factory not in symbols: {factory}")
+    value = intent.get("args", [])[spec["value_arg"]]
+    if not ("lit" in value or "const" in value):
+        raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
+                   f"coroutine value arg not a literal: {value}")
+    # condition: strip plumbing; semantic remainder (if any) → Condition local fn
+    cond_localfn = None
+    cond_value = {"null": True}
+    acf = local_fns.get(act.get("activateCondition", ""))
+    if acf is not None:
+        remainder = strip_plumbing(acf.get("body"))
+        if remainder is not None:
+            cond_localfn = {"name": "Condition", "body": lower_predicate(remainder)}
+            cond_value = {"localfn": "Condition"}
+    slots = {
+        "timing": {"timing": timing},
+        spec["value_param"]: value,
+        "isInheritedEffect": act.get("inherited", {"const": False}),
+        "card": {"ref": "card"},
+        "condition": cond_value,
+        "description": {"lit": resolve_description(act.get("description"), local_fns)},
+    }
+    out_args = [{"name": p[1], "value": slots[p[1]]} for p in sym["params"] if p[1] in slots]
+    return {"factory": factory, "args": out_args}, cond_localfn
+
+
 def lower_value(node: dict, local_fns: dict) -> dict:
     if "const" in node or "lit" in node or "null" in node:
         return node
@@ -230,11 +312,22 @@ def lower_card(src: dict) -> tuple[dict, list[dict]]:
         timing = br["timing"]
         local_fns = {fn["name"]: fn for fn in br.get("localFns", [])}
         try:
-            # 1. Effects first — a coroutine (ActivateClass) branch has opaque effects and its
-            #    string-returning EffectDiscription() must NOT be mis-read as a predicate. Detect
-            #    the coroutine shape here so it classifies cleanly (STOP_COMPLEX_TIMING) instead of
-            #    dumping card-text into the ledger via failed predicate lowering.
-            if any(eff.get("kind") != "factoryAdd" for eff in br.get("effects", [])):
+            effs = br.get("effects", [])
+            # 0. Activate (coroutine) effect — fold ActivateClass builder into a TriggerEffect.
+            #    Handle the clean single-activate branch deterministically via the intent table.
+            if any(e.get("kind") == "activate" for e in effs):
+                if len(effs) != 1 or effs[0].get("kind") != "activate":
+                    raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
+                               "activate mixed with other effects (multi-step) — 강모델")
+                fa, cond_fn = lower_activate(effs[0], timing, local_fns)
+                canon["branches"].append({"timing": timing,
+                                          "localFns": [cond_fn] if cond_fn else [],
+                                          "effects": [fa]})
+                ledger.append({"card": src["card"], "branch": bi, "timing": timing, "status": "lowered"})
+                continue
+            # 1. Effects first — non-factory (opaque) effect → coroutine/complex, STOP cleanly
+            #    (its string-returning EffectDiscription must not be mis-read as a predicate).
+            if any(eff.get("kind") != "factoryAdd" for eff in effs):
                 raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
                            "coroutine/ActivateClass or non-factory effect (declarative translation needed)")
             # 2. Local functions (predicates) — bool-returning only.
@@ -290,7 +383,7 @@ def validate(canon: dict) -> list[str]:
             if sym is None or sym["kind"] != "factory":
                 issues.append(f"{br['timing']}: factory {eff['factory']} not in symbol table")
                 continue
-            need = {p[1] for p in sym["params"]}
+            need = {p[1] for p in sym["params"] if not p[2]}  # non-optional (no default) only
             got = {a["name"] for a in eff["args"]}
             missing = need - got
             if missing:
@@ -315,6 +408,8 @@ def emit_value(v: dict) -> str:
         return v["ref"]
     if "localfn" in v:
         return v["localfn"]
+    if "timing" in v:
+        return f"EffectTiming.{v['timing']}"
     raise ValueError(f"cannot emit value {v}")
 
 
@@ -366,6 +461,8 @@ def codegen(canon: dict) -> str:
 
 SYMBOLS: dict[str, dict] = {}
 ATOMS: dict[str, dict] = {}
+INTENTS: dict[str, dict] = {}
+PLUMBING: set[str] = set()
 
 
 def load_atoms() -> dict[str, dict]:
@@ -375,9 +472,18 @@ def load_atoms() -> dict[str, dict]:
     return json.loads(path.read_text(encoding="utf-8")).get("base", {})
 
 
+def load_intents() -> tuple[dict, set]:
+    path = PORTING / "data/intents.json"
+    if not path.exists():
+        return {}, set()
+    d = json.loads(path.read_text(encoding="utf-8"))
+    return d.get("intents", {}), set(d.get("plumbing_predicates", []))
+
+
 def main() -> int:
-    global SYMBOLS, ATOMS
+    global SYMBOLS, ATOMS, INTENTS, PLUMBING
     ATOMS = load_atoms()
+    INTENTS, PLUMBING = load_intents()
     args = sys.argv[1:]
     write = False
     if args and args[0] == "--write":

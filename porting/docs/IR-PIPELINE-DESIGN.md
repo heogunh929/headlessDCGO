@@ -280,6 +280,20 @@ code의 가치는 부분 포함 허용이 아니라 해소 작업의 데이터 �
     단 원본은 상대 한정(`MatchConditionOpponentsPermanentCount`)이라 후보가 미묘히 어긋남 →
     **advisory·승격 전 검수 필수** 계약이 정확히 작동(자동 적용 안 함). candidate→base/macro
     승격은 강모델/사람 승인으로만.
+- **코루틴 로워링 확장 — 착수(2026-07-04)**: ActivateClass 트리거를 결정론으로 개방.
+  - 추출기(stage 2): ActivateClass 빌더 패턴을 구조화 — `activate` 효과 노드(label·
+    useCondition·activateCondition·coroutine·description·inherited) + IEnumerator 코루틴의
+    `yield` 를 intent 노드로 캡처(StartCoroutine 래퍼 자동 벗김).
+  - intent 테이블(`porting/data/intents.json`): 코루틴 의도 → 트리거 팩토리 매핑
+    (`card.Owner.AddMemory(N)` → `AddMemoryTriggerEffect(timing, amount:N, …)`) +
+    **배관 술어 목록**(CanActivateOnX/CanAddMemory) — activateCondition 에서 제거해
+    의미 술어만 condition 으로 남김(전부 배관이면 null). 헤드리스 트리거 관용구는
+    ActivateClass 가 아니라 TriggerEffect 팩토리임을 반영(ST2_12 등 라이브 미러 확인).
+  - 결정론 범위: 단일 yield + intent 매핑 존재 + activateCondition 이 배관+lowerable.
+    BT1_030·035([On Deletion] Gain N)가 IR 생성물로 전환, 게이트 green. STOP 히스토그램
+    44 COMPLEX_TIMING → 27 COMPLEX_TIMING + 19 MULTI_STEP(다중 yield/미매핑 intent) +
+    1 MISSING_PRIM 로 정밀화. validator: 팩토리 필수 인자만 요구(optional=default 제외).
+
 - **Phase D (행동 검증)**: 8, 10 — 시나리오 템플릿 상위 op부터.
 
 각 Phase 종료 = 게이트 green + 이전 Phase 산출물 회귀 없음.

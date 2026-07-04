@@ -42,9 +42,9 @@
     {
       "timing": "OnAllyAttack",
       "stop": {
-        "stage": "lowering:tier-3",
+        "stage": "lowering:missing-rule",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+        "detail": "coroutine value arg not a literal: {'opaque': '-5'}"
       }
     },
     {
