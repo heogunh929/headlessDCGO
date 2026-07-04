@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeadlessDCGO.Engine\HeadlessDCGO.Engine.csproj" />
+    <ProjectReference Include="..\..\src\HeadlessDCGO.Rl\HeadlessDCGO.Rl.csproj" />
   </ItemGroup>
 </Project>

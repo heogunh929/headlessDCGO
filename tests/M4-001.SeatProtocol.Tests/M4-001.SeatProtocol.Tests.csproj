@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HeadlessDCGO.Engine\HeadlessDCGO.Engine.csproj" />
     <ProjectReference Include="..\..\src\HeadlessDCGO.Rl\HeadlessDCGO.Rl.csproj" />
+    <ProjectReference Include="..\..\tools\RlBridgeHost\RlBridgeHost.csproj" />
   </ItemGroup>
 </Project>

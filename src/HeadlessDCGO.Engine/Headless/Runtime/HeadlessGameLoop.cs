@@ -199,7 +199,7 @@ public sealed class HeadlessGameLoop(
             _lastActionResult?.IsSuccess,
             _lastActionResult?.Message,
             Context.TurnController.Current,
-            Context.ChoiceController.Current,
+            FilterChoiceForPerspective(Context.ChoiceController.Current, perspectivePlayerId),
             Context.AttackController.Current,
             new HeadlessEffectState(
                 Context.EffectScheduler.PendingCount,
@@ -250,6 +250,24 @@ public sealed class HeadlessGameLoop(
         }
 
         return merged;
+    }
+
+    // (M2) Candidate identity belongs to the chooser's information set only: a reveal-style choice
+    // (e.g. deck-top RevealAndSelect) legitimately shows the chooser cards the opponent must not see,
+    // so any non-chooser perspective gets the candidate ids withheld (CandidateCount stays).
+    private static HeadlessChoiceState FilterChoiceForPerspective(
+        HeadlessChoiceState choice,
+        HeadlessPlayerId? perspectivePlayerId)
+    {
+        if (choice.CandidateIds.Count == 0 ||
+            perspectivePlayerId is not { } viewer ||
+            choice.PlayerId is not { } chooser ||
+            chooser == viewer)
+        {
+            return choice;
+        }
+
+        return choice with { CandidateIds = Array.Empty<HeadlessEntityId>() };
     }
 
     private IReadOnlyList<PlayerObservation> BuildPlayerObservations(
@@ -318,7 +336,11 @@ public sealed class HeadlessGameLoop(
         }
 
         Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition);
-        return CardObservationView.Build(instance, definition);
+        return CardObservationView.Build(
+            instance,
+            definition,
+            Context.CardInstanceRepository,
+            Context.CardRepository);
     }
 }
 

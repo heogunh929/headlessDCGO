@@ -27,6 +27,9 @@ jobs:
       - name: Build engine
         run: dotnet build src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj -c Release --nologo
 
+      - name: Build RL adapter
+        run: dotnet build src/HeadlessDCGO.Rl/HeadlessDCGO.Rl.csproj -c Release --nologo
+
       - name: Build all test projects
         shell: bash
         run: |

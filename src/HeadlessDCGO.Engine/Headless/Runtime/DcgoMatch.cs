@@ -10,6 +10,7 @@ public sealed class DcgoMatch
     private readonly ITraceSink _traceSink;
     private readonly HeadlessGameLoop _gameLoop;
     private readonly IActionLegality? _actionLegality;
+    private readonly MatchEventLog? _eventLog;
     private long _eventSequence;
     private MatchConfig _config = new();
     private MatchResult _result = new();
@@ -34,7 +35,8 @@ public sealed class DcgoMatch
         ITraceSink? traceSink = null,
         IActionProcessor? actionProcessor = null,
         IActionLegality? actionLegality = null,
-        GameFlowProcessor? gameFlowProcessor = null)
+        GameFlowProcessor? gameFlowProcessor = null,
+        MatchEventLog? eventLog = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         Context = context;
@@ -42,6 +44,8 @@ public sealed class DcgoMatch
         _traceSink = traceSink ?? new NullTraceSink();
         _gameLoop = new HeadlessGameLoop(context, _traceSink, actionProcessor, gameFlowProcessor);
         _actionLegality = actionLegality;
+        _eventLog = eventLog; // (L4) 매치 사건 JSONL 소비자 — 초기 배치 존 이동부터 커서로 수집.
+        _eventLog?.Attach(context);
     }
 
     /// <summary>True when an agent-action legality boundary is enforced at apply time (GPT-#4); false
@@ -346,31 +350,10 @@ public sealed class DcgoMatch
         return _gameLoop.GetObservation(_isTerminal, _config.PlayerIds, perspectivePlayerId);
     }
 
-    public EncodedObservation EncodeObservation(ObservationEncodingOptions? options = null)
-    {
-        return new ObservationEncoder(options).Encode(GetObservation());
-    }
-
     public ActionMask GetActionMask()
     {
         EnsureInitialized();
         return _gameLoop.GetActionMask(_config.PlayerIds);
-    }
-
-    public EncodedActionMask EncodeActionMask(ActionEncodingOptions? options = null)
-    {
-        return new ActionEncoder(options).Encode(GetActionMask());
-    }
-
-    // G3.5-RL-A3: fixed factored action mask where each concrete legal action (per card / target /
-    // choice candidate) occupies a distinct index.
-    public FactoredActionMask EncodeFactoredActionMask(FactoredActionSchema? schema = null)
-    {
-        EnsureInitialized();
-        return FactoredActionEncoder.Encode(
-            GetActionMask().LegalActions,
-            FactoredPositionContext.FromContext(Context),
-            schema);
     }
 
     public bool IsTerminal()
@@ -407,6 +390,7 @@ public sealed class DcgoMatch
     {
         GameEvent[] events = _pendingEvents.ToArray();
         _pendingEvents.Clear();
+        _eventLog?.LogStep(events); // (L4) 스텝 경계 훅 — OFF/RESULT는 내부 분기 1회로 즉시 반환.
         ObservationSnapshot observation = GetObservation();
         Context.UpdateCurrentState(observation);
         return new StepResult(

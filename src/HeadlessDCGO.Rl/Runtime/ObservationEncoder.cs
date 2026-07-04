@@ -1,6 +1,8 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
 
 // TODO: Replace this simple feature encoder with the final RL tensor schema.
 public sealed class ObservationEncoder(ObservationEncodingOptions? options = null)
@@ -53,9 +55,22 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
             AddChoiceFeatures(features, snapshot.Choice);
         }
 
+        // (M2, 설계 §5-2) Candidate identity for the pending choice — candidate order matches the
+        // ResolveChoice factored lane (both come from the choice request's candidate list).
+        if (_options.IncludeChoiceCandidates)
+        {
+            AddChoiceCandidateFeatures(features, snapshot);
+        }
+
         if (_options.IncludeAttackState)
         {
             AddAttackFeatures(features, snapshot.Attack);
+        }
+
+        // (M2, 설계 §5-4) Attack participants matched to board slots via CardObservation.InstanceId.
+        if (_options.IncludeAttackSlots)
+        {
+            AddAttackSlotFeatures(features, snapshot);
         }
 
         if (_options.IncludeEffectState)
@@ -192,8 +207,18 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
         }
     }
 
+    // 룰상 카드 주인 본인도 정체·순서를 모르는 존(정보집합 밖 — 설계 §5 정정). 스냅샷은 자기
+    // 히든존을 노출하므로, per-card 정체 인코딩 요청이 들어오면 조용히 새는 대신 즉시 실패한다.
+    private static readonly ChoiceZone[] HiddenToOwnerZones =
+    {
+        ChoiceZone.Library,
+        ChoiceZone.Security,
+        ChoiceZone.DigitamaLibrary
+    };
+
     // G3.5-RL-A4b: fixed per-card feature slots for visible cards in the configured zones.
     // Empty slots are zero-filled so the vector stays a fixed size.
+    // (M2) Per-zone capacity overrides + card-identity (vocab id) + digivolution-source identity.
     private void AddCardFeatures(
         List<ObservationFeature> features,
         string playerPrefix,
@@ -201,10 +226,18 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
     {
         foreach (ChoiceZone zone in _options.CardFeatureZones)
         {
+            if (HiddenToOwnerZones.Contains(zone))
+            {
+                throw new InvalidOperationException(
+                    $"Zone {zone} is hidden to its owner by the game rules; per-card identity encoding " +
+                    "would leak information outside the agent's information set (design §5).");
+            }
+
             ZoneObservation? zoneSnapshot = player.FindZone(zone);
             IReadOnlyList<CardObservation> cards = zoneSnapshot?.Cards ?? Array.Empty<CardObservation>();
+            int capacity = ZoneCapacity(zone);
 
-            for (int slot = 0; slot < _options.MaxCardsPerZone; slot++)
+            for (int slot = 0; slot < capacity; slot++)
             {
                 CardObservation? card = slot < cards.Count ? cards[slot] : null;
                 string prefix = $"{playerPrefix}.zone.{zone}.card.{slot}";
@@ -219,8 +252,158 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
                 features.Add(new ObservationFeature($"{prefix}.isDigimon", Bool(IsType(card, "Digimon"))));
                 features.Add(new ObservationFeature($"{prefix}.isTamer", Bool(IsType(card, "Tamer"))));
                 features.Add(new ObservationFeature($"{prefix}.isOption", Bool(IsType(card, "Option"))));
+
+                if (_options.Vocabulary is not null)
+                {
+                    features.Add(new ObservationFeature($"{prefix}.cardId", CardIdOf(card)));
+                }
+
+                if (_options.IncludeStackIdentity)
+                {
+                    AddUnderCardFeatures(features, prefix, card);
+                }
+            }
+
+            // No silent caps: identities beyond the slot capacity are not encoded — surface how many.
+            features.Add(new ObservationFeature(
+                $"{playerPrefix}.zone.{zone}.identityOverflow",
+                Math.Max(0, cards.Count - capacity)));
+        }
+    }
+
+    private void AddUnderCardFeatures(
+        List<ObservationFeature> features,
+        string cardPrefix,
+        CardObservation? card)
+    {
+        IReadOnlyList<StackedCard> underCards = card?.UnderCards ?? Array.Empty<StackedCard>();
+        for (int index = 0; index < _options.MaxStackPerCard; index++)
+        {
+            StackedCard? under = index < underCards.Count ? underCards[index] : null;
+            string prefix = $"{cardPrefix}.under.{index}";
+
+            features.Add(new ObservationFeature($"{prefix}.present", Bool(under is not null)));
+            features.Add(new ObservationFeature($"{prefix}.level", under?.Level ?? 0));
+            if (_options.Vocabulary is not null)
+            {
+                features.Add(new ObservationFeature(
+                    $"{prefix}.cardId",
+                    under is null || under.CardNumber.Length == 0 ? 0 : _options.Vocabulary.GetId(under.CardNumber)));
             }
         }
+    }
+
+    private void AddChoiceCandidateFeatures(
+        List<ObservationFeature> features,
+        ObservationSnapshot snapshot)
+    {
+        IReadOnlyList<HeadlessEntityId> candidates = snapshot.Choice.CandidateIds;
+        Dictionary<HeadlessEntityId, CardObservation> lookup = BuildCardLookup(snapshot);
+
+        for (int index = 0; index < _options.MaxChoiceCandidates; index++)
+        {
+            HeadlessEntityId? id = index < candidates.Count ? candidates[index] : null;
+            CardObservation? card = null;
+            if (id is { } candidateId && lookup.TryGetValue(candidateId, out CardObservation? found))
+            {
+                card = found;
+            }
+
+            string prefix = $"choice.candidate.{index}";
+            features.Add(new ObservationFeature($"{prefix}.present", Bool(id is not null)));
+            features.Add(new ObservationFeature($"{prefix}.known", Bool(card is not null)));
+            features.Add(new ObservationFeature($"{prefix}.level", card?.Level ?? 0));
+            features.Add(new ObservationFeature($"{prefix}.dp", card?.Dp ?? 0));
+            if (_options.Vocabulary is not null)
+            {
+                features.Add(new ObservationFeature($"{prefix}.cardId", CardIdOf(card)));
+            }
+        }
+
+        features.Add(new ObservationFeature(
+            "choice.candidates.overflow",
+            Math.Max(0, candidates.Count - _options.MaxChoiceCandidates)));
+    }
+
+    private static void AddAttackSlotFeatures(
+        List<ObservationFeature> features,
+        ObservationSnapshot snapshot)
+    {
+        AddAttackParticipantSlot(features, "attack.attacker", snapshot, snapshot.Attack.AttackerId);
+        AddAttackParticipantSlot(features, "attack.target", snapshot, snapshot.Attack.TargetId);
+        AddAttackParticipantSlot(features, "attack.blocker", snapshot, snapshot.Attack.BlockerId);
+    }
+
+    private static void AddAttackParticipantSlot(
+        List<ObservationFeature> features,
+        string name,
+        ObservationSnapshot snapshot,
+        HeadlessEntityId? participantId)
+    {
+        int playerValue = -1;
+        int slot = -1;
+
+        if (participantId is { } id)
+        {
+            foreach (PlayerObservation player in snapshot.Players)
+            {
+                IReadOnlyList<CardObservation> cards =
+                    player.FindZone(ChoiceZone.BattleArea)?.Cards ?? Array.Empty<CardObservation>();
+                for (int index = 0; index < cards.Count; index++)
+                {
+                    if (cards[index].InstanceId == id)
+                    {
+                        playerValue = player.PlayerId.Value;
+                        slot = index;
+                        break;
+                    }
+                }
+
+                if (slot >= 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        features.Add(new ObservationFeature($"{name}.slot.known", Bool(slot >= 0)));
+        features.Add(new ObservationFeature($"{name}.slot.playerId", playerValue));
+        features.Add(new ObservationFeature($"{name}.slot.index", slot));
+    }
+
+    private static Dictionary<HeadlessEntityId, CardObservation> BuildCardLookup(ObservationSnapshot snapshot)
+    {
+        Dictionary<HeadlessEntityId, CardObservation> lookup = new();
+        foreach (PlayerObservation player in snapshot.Players)
+        {
+            foreach (ZoneObservation zone in player.Zones)
+            {
+                foreach (CardObservation card in zone.Cards)
+                {
+                    lookup[card.InstanceId] = card;
+                }
+            }
+        }
+
+        return lookup;
+    }
+
+    private double CardIdOf(CardObservation? card)
+    {
+        if (_options.Vocabulary is null || card is null || card.CardNumber.Length == 0)
+        {
+            return CardVocabulary.PadId;
+        }
+
+        return _options.Vocabulary.GetId(card.CardNumber);
+    }
+
+    private int ZoneCapacity(ChoiceZone zone)
+    {
+        return _options.CardCapacityOverrides is not null &&
+               _options.CardCapacityOverrides.TryGetValue(zone, out int capacity)
+            ? capacity
+            : _options.MaxCardsPerZone;
     }
 
     private static bool IsType(CardObservation? card, string cardType)
@@ -287,6 +470,45 @@ public sealed record ObservationEncodingOptions
 
     public static ObservationEncodingOptions Default { get; } = new();
 
+    /// <summary>
+    /// (M2, 설계 §5) 정보집합(information-set) 인코딩 프리셋: 본인 손패·양쪽 공개존(BattleArea/
+    /// Breeding/Trash) per-card 정체 + 카드-ID(vocab) + choice 후보 정체 + attack 슬롯 매칭 +
+    /// 진화 스택 소재. 본인 시큐리티/덱은 count-only 유지(룰상 모르는 정보).
+    /// 손패/필드 슬롯 용량은 factored 스키마와 정렬된다(관측 슬롯 ↔ 액션 레인 불변식).
+    /// 상대 손패 정체는 시점 필터가 스냅샷 단계에서 비우므로 슬롯은 zero-fill로 남는다 —
+    /// 반드시 좌석 시점(perspective) 스냅샷과 함께 쓸 것.
+    /// </summary>
+    public static ObservationEncodingOptions InformationSet(
+        CardVocabulary vocabulary,
+        FactoredActionSchema? schema = null)
+    {
+        ArgumentNullException.ThrowIfNull(vocabulary);
+        FactoredActionSchema effective = schema ?? FactoredActionSchema.Default;
+
+        return new ObservationEncodingOptions
+        {
+            Vocabulary = vocabulary,
+            CardFeatureZones = new[]
+            {
+                ChoiceZone.Hand,
+                ChoiceZone.BattleArea,
+                ChoiceZone.BreedingArea,
+                ChoiceZone.Trash
+            },
+            CardCapacityOverrides = new Dictionary<ChoiceZone, int>
+            {
+                [ChoiceZone.Hand] = effective.MaxHand,        // 관측 손패 슬롯 i == PlayCard 레인 i
+                [ChoiceZone.BattleArea] = effective.MaxField, // 관측 필드 슬롯 i == Digivolve/Attack 레인 i
+                [ChoiceZone.BreedingArea] = 2,
+                [ChoiceZone.Trash] = 16
+            },
+            IncludeChoiceCandidates = true,
+            MaxChoiceCandidates = effective.MaxChoice,
+            IncludeAttackSlots = true,
+            IncludeStackIdentity = true
+        };
+    }
+
     public bool IncludeStepIndex { get; init; } = true;
 
     public bool IncludeRuntimeFlags { get; init; } = true;
@@ -325,6 +547,28 @@ public sealed record ObservationEncodingOptions
     public IReadOnlyList<ChoiceZone> CardFeatureZones { get; init; } = DefaultCardFeatureZones;
 
     public int MaxCardsPerZone { get; init; } = 8;
+
+    // ---- (M2) 정보집합 인코딩 옵션 — 기본값은 전부 기존 동작 유지(무회귀) ----
+
+    /// <summary>카드-ID 임베딩용 vocab. null이면 cardId 피처를 내지 않는다(기존 스탯-only 벡터).</summary>
+    public CardVocabulary? Vocabulary { get; init; }
+
+    /// <summary>존별 per-card 슬롯 용량 오버라이드(미지정 존은 MaxCardsPerZone). 손패/필드는
+    /// factored 스키마 용량과 일치시켜야 관측 슬롯 ↔ 액션 레인 정렬이 성립한다.</summary>
+    public IReadOnlyDictionary<ChoiceZone, int>? CardCapacityOverrides { get; init; }
+
+    /// <summary>(설계 §5-2) pending choice 후보 정체 인코딩.</summary>
+    public bool IncludeChoiceCandidates { get; init; }
+
+    public int MaxChoiceCandidates { get; init; } = 16;
+
+    /// <summary>(설계 §5-4) attack 참여 카드(공격자/타깃/블록커)의 보드 슬롯 매칭 인코딩.</summary>
+    public bool IncludeAttackSlots { get; init; }
+
+    /// <summary>(설계 §5-3) 진화 스택 소재 정체 인코딩.</summary>
+    public bool IncludeStackIdentity { get; init; }
+
+    public int MaxStackPerCard { get; init; } = 6;
 }
 
 public sealed record ObservationFeature(string Name, double Value);

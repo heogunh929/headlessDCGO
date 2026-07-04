@@ -1,4 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- (M4) seat 매치 프로토콜 v1 stdio 호스트 — docs/audit/rl_seat_protocol_v1.md.
+       프로토콜 상태기계(SeatMatchHost)는 전송 무관: stdio는 이 Program이, TCP/WebSocket은 M5가 감싼다. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>

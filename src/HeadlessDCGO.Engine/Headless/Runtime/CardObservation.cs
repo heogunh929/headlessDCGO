@@ -19,7 +19,13 @@ public sealed record CardObservation(
     int EvolutionCost,
     bool IsSuspended,
     bool IsFaceUp,
-    int StackDepth);
+    int StackDepth)
+{
+    // (M2, 설계 §5-3) Digivolution-stack composition wired from DigivolutionStackReader: the cards
+    // stacked under this one, bottom (DigiEgg) first. Empty when the card has no sources or the
+    // observation was built without repository access (legacy Build overload).
+    public IReadOnlyList<StackedCard> UnderCards { get; init; } = Array.Empty<StackedCard>();
+}
 
 /// <summary>Builds a <see cref="CardObservation"/> from a card instance and its definition,
 /// computing DP through <see cref="DpCalculator"/> so the observed DP matches battle resolution.</summary>
@@ -31,6 +37,28 @@ public static class CardObservationView
     public const string SuspendedKey = "isSuspended";
     public const string FaceUpKey = "isFaceUp";
     public const string SourceIdsKey = "sourceIds";
+
+    // (M2) Repository-aware overload: additionally resolves the digivolution-stack composition
+    // (under-card identities) through DigivolutionStackReader. Only cards that actually carry
+    // sourceIds pay the reader cost.
+    public static CardObservation Build(
+        CardInstanceRecord instance,
+        CardRecord? definition,
+        ICardInstanceRepository instances,
+        ICardRepository cards)
+    {
+        ArgumentNullException.ThrowIfNull(instances);
+        ArgumentNullException.ThrowIfNull(cards);
+
+        CardObservation observation = Build(instance, definition);
+        if (observation.StackDepth <= 0)
+        {
+            return observation;
+        }
+
+        DigivolutionStack stack = DigivolutionStackReader.Read(instances, cards, instance.InstanceId);
+        return stack.IsEmpty ? observation : observation with { UnderCards = stack.UnderCards };
+    }
 
     public static CardObservation Build(CardInstanceRecord instance, CardRecord? definition)
     {

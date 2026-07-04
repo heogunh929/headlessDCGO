@@ -19,6 +19,11 @@ public sealed record HeadlessChoiceState(
     int? SelectedCount,
     IReadOnlyList<HeadlessEntityId> SelectedIds)
 {
+    // (M2, 설계 §5-2) Choice candidate instance ids, in the same order the choice request presented
+    // them (= the ResolveChoice factored-lane candidate order). Exposed so the chooser's observation
+    // can carry candidate identity; the game loop strips this for non-chooser perspectives.
+    public IReadOnlyList<HeadlessEntityId> CandidateIds { get; init; } = Array.Empty<HeadlessEntityId>();
+
     public static HeadlessChoiceState Empty { get; } = new(
         RequestId: null,
         Type: ChoiceType.Unknown,

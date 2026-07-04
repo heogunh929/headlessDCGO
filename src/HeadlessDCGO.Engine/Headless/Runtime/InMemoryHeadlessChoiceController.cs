@@ -35,7 +35,10 @@ public sealed class InMemoryHeadlessChoiceController : IHeadlessChoiceController
             IsResolved: false,
             IsSkipped: false,
             SelectedCount: null,
-            SelectedIds: Array.Empty<HeadlessEntityId>());
+            SelectedIds: Array.Empty<HeadlessEntityId>())
+        {
+            CandidateIds = request.Candidates.Select(candidate => candidate.Id).ToArray()
+        };
 
         return Current;
     }
