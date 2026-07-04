@@ -6,62 +6,11 @@
   "branches": [
     {
       "timing": "OnAllyAttack",
-      "localFns": [
-        {
-          "name": "Condition",
-          "body": {
-            "call": "CardEffectCommons.IsExistOnBattleArea",
-            "args": [
-              {
-                "ref": "card"
-              }
-            ]
-          }
-        }
-      ],
-      "effects": [
-        {
-          "factory": "SelfDpBuffTriggerEffect",
-          "args": [
-            {
-              "name": "timing",
-              "value": {
-                "timing": "OnAllyAttack"
-              }
-            },
-            {
-              "name": "changeValue",
-              "value": {
-                "lit": 1000
-              }
-            },
-            {
-              "name": "duration",
-              "value": {
-                "enum": "EffectDuration.UntilEachTurnEnd"
-              }
-            },
-            {
-              "name": "card",
-              "value": {
-                "ref": "card"
-              }
-            },
-            {
-              "name": "condition",
-              "value": {
-                "localfn": "Condition"
-              }
-            },
-            {
-              "name": "description",
-              "value": {
-                "lit": "[When Attacking] If you attack an opponent's Digimon, this Digimon gets +1000 DP for the turn."
-              }
-            }
-          ]
-        }
-      ]
+      "stop": {
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MISSING_PRIMITIVE",
+        "detail": "member access has no base atom rule: GManager.instance.attackProcess.DefendingPermanent"
+      }
     }
   ]
 }

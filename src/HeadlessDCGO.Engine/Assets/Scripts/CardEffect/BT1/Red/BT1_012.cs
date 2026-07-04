@@ -17,7 +17,7 @@ public sealed class BT1_012 : CEntity_Effect
         {
             bool Condition()
             {
-                return CardEffectCommons.IsExistOnBattleArea(card);
+                return (CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.IsOwnerTurn(card));
             }
 
             cardEffects.Add(CardEffectFactory.SelfDpBuffTriggerEffect(

@@ -33,3 +33,9 @@
 | BT1_093 | OptionSkill | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
 | BT1_095 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 
+### STOP_MISSING_PRIMITIVE (1)
+
+| 카드 | 타이밍 | stage | detail |
+|---|---|---|---|
+| BT1_001 | OnAllyAttack | lowering:missing-rule | member access has no base atom rule: GManager.instance.attackProcess.DefendingPermanent |
+

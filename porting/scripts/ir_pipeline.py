@@ -383,13 +383,25 @@ def lower_activate(act: dict, timing: str, local_fns: dict):
         mapped[pname] = lower_intent_value(iargs[idx])
     # condition: strip plumbing; semantic remainder (if any) → Condition local fn
     cond_localfn = None
+    # condition: BOTH CanUseCondition and CanActivateCondition carry semantic restrictions
+    # beyond the trigger plumbing (e.g. IsOwnerTurn = "[Your Turn]", DefendingPermanent != null =
+    # "attacking a Digimon"). Strip plumbing from each, AND-merge the semantic remainders, and
+    # lower them into `condition`. Dropping a non-plumbing remainder would be a fidelity bug —
+    # if it cannot be lowered, STOP the card (never silently drop).
     cond_value = {"null": True}
-    acf = local_fns.get(act.get("activateCondition", ""))
-    if acf is not None:
-        remainder = strip_plumbing(acf.get("body"))
-        if remainder is not None:
-            cond_localfn = {"name": "Condition", "body": lower_predicate(remainder)}
-            cond_value = {"localfn": "Condition"}
+    remainders = []
+    for fn_key in ("activateCondition", "useCondition"):
+        f = local_fns.get(act.get(fn_key, ""))
+        if f is not None:
+            r = strip_plumbing(f.get("body"))
+            if r is not None:
+                remainders.append(r)
+    if remainders:
+        merged = remainders[0]
+        for r in remainders[1:]:
+            merged = {"binop": "&&", "lhs": merged, "rhs": r}
+        cond_localfn = {"name": "Condition", "body": lower_predicate(merged)}
+        cond_value = {"localfn": "Condition"}
     slots = {
         "timing": {"timing": timing},
         "isInheritedEffect": act.get("inherited", {"const": False}),

@@ -6,20 +6,23 @@
       "card": "BT1_001",
       "set": "BT1",
       "color": "Red",
-      "tier": 1,
-      "irHash": "e0fe4267fedb",
+      "tier": 2,
+      "irHash": "6551f8777076",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
+      "provenance": "handwritten",
+      "mirrorState": "stub",
+      "fullyLowered": false,
+      "included": false,
+      "reason": "STOP_MISSING_PRIMITIVE",
       "branches": [
         {
           "branch": 0,
           "timing": "OnAllyAttack",
-          "status": "lowered"
+          "status": "stop",
+          "stage": "lowering:missing-rule",
+          "code": "STOP_MISSING_PRIMITIVE",
+          "detail": "member access has no base atom rule: GManager.instance.attackProcess.DefendingPermanent"
         }
       ]
     },
@@ -97,7 +100,7 @@
       "set": "BT1",
       "color": "Red",
       "tier": 1,
-      "irHash": "ba46a405176f",
+      "irHash": "860ff3abda99",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "ir-generated",

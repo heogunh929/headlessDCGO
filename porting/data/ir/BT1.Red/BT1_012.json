@@ -10,12 +10,23 @@
         {
           "name": "Condition",
           "body": {
-            "call": "CardEffectCommons.IsExistOnBattleArea",
-            "args": [
-              {
-                "ref": "card"
-              }
-            ]
+            "binop": "&&",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
           }
         }
       ],
