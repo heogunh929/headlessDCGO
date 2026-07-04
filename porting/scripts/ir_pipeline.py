@@ -358,26 +358,34 @@ def lower_activate(act: dict, timing: str, local_fns: dict):
     # the activation flow (option/security/on-play) fires + gates it, so no condition/description slot.
     # Only WIRED timings actually fire (else STOP activation-pending). CanActivate must be pure plumbing
     # (the activation factory has no condition slot; a real semantic condition can't be expressed).
-    if "ctorCall" in intent and intent["ctorCall"] in ACTIVATION_INTENTS:
-        aspec = ACTIVATION_INTENTS[intent["ctorCall"]]
+    akey = intent.get("ctorCall")
+    if akey is None and "call" in intent and intent["call"].startswith("CardEffectCommons."):
+        akey = intent["call"].split(".")[-1]
+    if akey in ACTIVATION_INTENTS:
+        aspec = ACTIVATION_INTENTS[akey]
         if timing not in ACTIVATION_WIRED:
             raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
-                       f"activation intent {intent['ctorCall']} at unwired timing {timing} (won't fire) — 강모델")
+                       f"activation intent {akey} at unwired timing {timing} (won't fire) — 강모델")
         afactory = aspec["factory"]
         asym = SYMBOLS.get(afactory)
         if asym is None or asym["kind"] != "factory":
             raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE", f"activation factory absent: {afactory}")
-        ctor_args = intent.get("ctorArgs", [])
-        cnt = ctor_args[aspec["count_arg"]] if aspec["count_arg"] < len(ctor_args) else {}
-        if "lit" not in cnt:
-            raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
-                       f"activation count not a literal: {cnt}")
+        # activation factories have no condition slot — a semantic (non-plumbing) activate-condition
+        # cannot be expressed, so STOP rather than silently drop it.
         acf = local_fns.get(act.get("activateCondition", ""))
         if acf is not None and strip_plumbing(acf.get("body")) is not None:
             raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
-                       f"{intent['ctorCall']} has a semantic activate-condition (no condition slot on activation factory) — 강모델")
-        return {"factory": afactory, "args": [{"name": "card", "value": {"ref": "card"}},
-                                              {"name": "count", "value": {"lit": cnt["lit"]}}]}, None
+                       f"{akey} has a semantic activate-condition (activation factory has no condition slot) — 강모델")
+        card_param = next((p[1] for p in asym["params"] if p[0] == "CardSource"), "card")
+        out = [{"name": card_param, "value": {"ref": "card"}}]
+        if aspec["kind"] == "ctor-count":
+            ctor_args = intent.get("ctorArgs", [])
+            cnt = ctor_args[aspec["count_arg"]] if aspec["count_arg"] < len(ctor_args) else {}
+            if "lit" not in cnt:
+                raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING", f"activation count not a literal: {cnt}")
+            int_param = next((p[1] for p in asym["params"] if p[0] == "int"), "count")
+            out.append({"name": int_param, "value": {"lit": cnt["lit"]}})
+        return {"factory": afactory, "args": out}, None
     if "call" not in intent:
         raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING", f"non-call coroutine intent: {intent}")
     spec = INTENTS.get(intent["call"])

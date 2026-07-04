@@ -9,7 +9,7 @@
       "stop": {
         "stage": "lowering:missing-rule",
         "code": "STOP_MULTI_STEP_OPTIONAL",
-        "detail": "DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델"
+        "detail": "DrawClass has a semantic activate-condition (activation factory has no condition slot) — 강모델"
       }
     }
   ]

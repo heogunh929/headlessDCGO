@@ -14,11 +14,20 @@
     },
     {
       "timing": "SecuritySkill",
-      "stop": {
-        "stage": "lowering:missing-rule",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "no coroutine intent mapping: CardEffectCommons.AddThisCardToHand"
-      }
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "AddThisCardToHandEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

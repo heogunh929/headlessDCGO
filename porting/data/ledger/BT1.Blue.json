@@ -55,7 +55,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 2,
-      "irHash": "077d6dd49a42",
+      "irHash": "0e0818122560",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -70,7 +70,7 @@
           "status": "stop",
           "stage": "lowering:missing-rule",
           "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델"
+          "detail": "DrawClass has a semantic activate-condition (activation factory has no condition slot) — 강모델"
         }
       ]
     },
@@ -262,7 +262,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 2,
-      "irHash": "f737f5482962",
+      "irHash": "780a84f4b60b",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -277,7 +277,7 @@
           "status": "stop",
           "stage": "lowering:missing-rule",
           "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델"
+          "detail": "DrawClass has a semantic activate-condition (activation factory has no condition slot) — 강모델"
         },
         {
           "branch": 1,
@@ -433,8 +433,8 @@
       "card": "BT1_098",
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "f619aa11025b",
+      "tier": 2,
+      "irHash": "fe6a7f381826",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -454,10 +454,7 @@
         {
           "branch": 1,
           "timing": "SecuritySkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: CardEffectCommons.AddThisCardToHand"
+          "status": "lowered"
         }
       ]
     },

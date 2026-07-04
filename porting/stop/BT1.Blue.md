@@ -9,10 +9,10 @@
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
-| BT1_029 | OnEnterFieldAnyone | lowering:missing-rule | DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델 |
+| BT1_029 | OnEnterFieldAnyone | lowering:missing-rule | DrawClass has a semantic activate-condition (activation factory has no condition slot) — 강모델 |
 | BT1_034 | None | lowering:missing-rule | predicate DefenderCondition param subject unresolved (not Func<Permanent>) |
 | BT1_040 | OnAllyAttack | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
-| BT1_041 | OnEnterFieldAnyone | lowering:missing-rule | DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델 |
+| BT1_041 | OnEnterFieldAnyone | lowering:missing-rule | DrawClass has a semantic activate-condition (activation factory has no condition slot) — 강모델 |
 | BT1_043 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_044 | OnAllyAttack | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
 | BT1_086 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
@@ -22,14 +22,13 @@
 | BT1_099 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_115 | None | lowering:missing-rule | HasMatchConditionOwnersPermanent takes non-card args (needs lowering rule): [{'ref': 'card'}, {'lambda': {'params': ['permanent'], 'body': {'binop': '&&', 'lhs': {'call': 'permanent.TopCard.CardColors.Contains', 'args': [{'member': 'CardColor.Blue'}]}, 'rhs': {'member': 'permanent.IsTamer'}}}}] |
 
-### STOP_COMPLEX_TIMING (9)
+### STOP_COMPLEX_TIMING (8)
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
 | BT1_003 | OnAllyAttack | lowering:tier-3 | activation intent DrawClass at unwired timing OnAllyAttack (won't fire) — 강모델 |
 | BT1_036 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectPermanentEffect.Activate |
 | BT1_039 | OnAllyAttack | lowering:tier-3 | activate mixed with other effects (multi-step) — 강모델 |
-| BT1_098 | SecuritySkill | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.AddThisCardToHand |
 | BT1_100 | OptionSkill | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.GainCanNotAttackPlayerEffect |
 | BT1_100 | SecuritySkill | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.GainCanNotAttackPlayerEffect |
 | BT1_101 | OptionSkill | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.TrashDigivolutionCardsFromTopOrBottom |

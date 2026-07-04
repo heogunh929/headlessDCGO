@@ -11,7 +11,7 @@
 |---|---|---|---|
 | BT1_010 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect |
 | BT1_011 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectCardEffect.Activate |
-| BT1_022 | OnBlockAnyone | lowering:missing-rule | no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw |
+| BT1_022 | OnBlockAnyone | lowering:tier-3 | activation intent DrawClass at unwired timing OnBlockAnyone (won't fire) — 강모델 |
 | BT1_023 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectPermanentEffect.Activate |
 | BT1_025 | None | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
 | BT1_025 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.ChangeDigimonSAttack |
