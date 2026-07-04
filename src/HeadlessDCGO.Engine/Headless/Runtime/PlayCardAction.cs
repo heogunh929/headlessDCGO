@@ -155,7 +155,8 @@ public sealed class PlayCardAction
         PlayCardActionPayload payload,
         PlayCardValidation validation,
         int memoryCost,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool resolveOwnOnPlay = true)
     {
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
@@ -208,6 +209,34 @@ public sealed class PlayCardAction
             metadata["assemblyCount"] = payload.AssemblyMaterials.Count;
         }
 
+        // The played card's OWN [On Play] activated effect. AS-IS: on-play fires through
+        // StackSkillInfos(timing: OnEnterFieldAnyone) — a "when ANY permanent enters field" broadcast that
+        // INCLUDES the entering card itself (CardController.cs:1693). The headless split dropped the played
+        // card from that broadcast (OnPlayReactivation skips `id == playedCardId`), so its own [On Play]
+        // ACTIVATED effects never fired. Resolve them here (continuous/trigger ICardEffect on-play effects
+        // are unaffected — auto-registered via bindings, not here).
+        //   resolveOwnOnPlay is false ONLY on the deferred-BeforePayCost RESUME path: firing an on-play
+        //   effect that itself needs a choice mid-resume would nest a second deferral into the first
+        //   resume (EX8_074 is the only card with both BeforePayCost AND an on-play choice). That nested
+        //   case is a documented limitation until the resume machinery handles chained choices.
+        if (resolveOwnOnPlay)
+        {
+            try
+            {
+                await ActivatedEffectResolver
+                    .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OnEnterFieldAnyone, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (DeferredChoicePendingException ex)
+            {
+                context.DeferredActivations.Suspend(payload.CardId, EffectTiming.OnEnterFieldAnyone, action.PlayerId);
+                Dictionary<string, object?> onPlayPending = Metadata(action, payload, validation);
+                onPlayPending["pendingChoice"] = true;
+                onPlayPending["pendingChoiceMessage"] = ex.Message;
+                return ActionProcessResult.Success("Card played; [On Play] awaiting choice.", onPlayPending);
+            }
+        }
+
         // LA-3: a Digimon entering play triggers eligible "[All Turns] (Once Per Turn) when Digimon are
         // played, activate this Digimon's [When Digivolving] effects" holders (both players). No-op when no
         // such holder is on the board. A deferred agent choice suspends that holder and reports pending.
@@ -243,7 +272,10 @@ public sealed class PlayCardAction
         PlayCardActionPayload payload = new(cardId, reducedCost, ChoiceZone.Hand, ChoiceZone.BattleArea);
         LegalAction action = HeadlessActionFactory.PlayCard(playerId, cardId, reducedCost);
         PlayCardValidation validation = PlayCardValidation.Legal(instance?.DefinitionId ?? cardId);
-        return await CompletePlayAsync(context, action, payload, validation, reducedCost, cancellationToken).ConfigureAwait(false);
+        // resolveOwnOnPlay: false — see CompletePlayAsync. Firing this card's own on-play choice mid-resume
+        // would nest a second deferral into the BeforePayCost resume (rare: only cards with both).
+        return await CompletePlayAsync(context, action, payload, validation, reducedCost, cancellationToken,
+            resolveOwnOnPlay: false).ConfigureAwait(false);
     }
 
     private LegalAction? CreateLegalActionIfPlayable(

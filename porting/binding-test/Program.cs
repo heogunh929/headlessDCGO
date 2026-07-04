@@ -39,16 +39,16 @@ EffectTiming[] timings = Enum.GetValues<EffectTiming>();
 
 // Timings where a card's OWN activation effect is resolved by ActivatedEffectResolver, verified
 // against the actual call sites in Headless/Runtime/*:
-//   BeforePayCost  — PlayCardAction (played card)
-//   OptionSkill    — OptionActivateAction (proven by G9-015)
-//   SecuritySkill  — SecurityResolver
-//   WhenDigivolving— DigivolveAction (ST1_08 is live)
-// NOTE: OnEnterFieldAnyone is intentionally EXCLUDED. Its only ResolveAsync is OnPlayReactivation,
-// which skips the played card itself (`id == playedCardId → continue`) — i.e. a card's own
-// [On Play] activation effect is NOT fired on play. That is a genuine (narrow) engine gap.
+//   BeforePayCost   — PlayCardAction (played card)
+//   OnEnterFieldAnyone — PlayCardAction on normal play (G9-016); own [On Play] activated effects now
+//                     fire (does NOT fire on the rare deferred-BeforePayCost resume — documented).
+//   OptionSkill     — OptionActivateAction (proven by G9-015)
+//   SecuritySkill   — SecurityResolver
+//   WhenDigivolving — DigivolveAction (ST1_08 is live)
 var ActivationWiredTimings = new HashSet<EffectTiming>
 {
     EffectTiming.BeforePayCost,
+    EffectTiming.OnEnterFieldAnyone,
     EffectTiming.OptionSkill,
     EffectTiming.SecuritySkill,
     EffectTiming.WhenDigivolving,
