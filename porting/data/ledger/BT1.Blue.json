@@ -145,7 +145,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 2,
-      "irHash": "91b3bc6f7fad",
+      "irHash": "003b7f368643",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -160,7 +160,7 @@
           "status": "stop",
           "stage": "lowering:missing-rule",
           "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "predicate DefenderCondition takes params (Permanent/id) — needs id-rewrite rule"
+          "detail": "predicate DefenderCondition param subject unresolved (not Func<Permanent>)"
         }
       ]
     },

@@ -64,7 +64,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 2,
-      "irHash": "91b3bc6f7fad",
+      "irHash": "003b7f368643",
       "provenance": "handwritten",
       "mirrorState": "stop-pending",
       "included": false,
@@ -363,12 +363,12 @@
     "BT1_085": {
       "set": "BT1",
       "color": "Red",
-      "tier": 2,
-      "irHash": "bab22916440c",
-      "provenance": "handwritten",
+      "tier": 1,
+      "irHash": "81ee201f536d",
+      "provenance": "ir-generated",
       "mirrorState": "live",
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL"
+      "included": true,
+      "reason": "ir-generated"
     },
     "BT1_090": {
       "set": "BT1",

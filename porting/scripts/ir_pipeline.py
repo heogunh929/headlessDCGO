@@ -204,6 +204,59 @@ def roots_at_card(node: dict) -> bool:
     return False
 
 
+PERMANENT_MEMBERS = {
+    "BaseDP", "DP", "DigivolutionCards", "HasBlocker", "HasJamming", "HasKeyword",
+    "HasNoDigivolutionCards", "HasPierce", "HasReboot", "HasRush", "InstanceId",
+    "IsDigimon", "IsEmpty", "IsSuspended", "IsTamer", "IsToken", "OwnerId",
+    "Stack", "TopCard", "TopInstanceId",
+}
+_COLOR_RE = re.compile(r"^(.*)\.CardColors\.Contains$")
+
+
+def lower_perm_predicate(node: dict, param: str) -> dict:
+    """Func<Permanent,bool> 술어(permanentCondition/DefenderCondition) 로워링.
+    Permanent 멤버는 passthrough(allowlist), CardColors.Contains(CardColor.X)→HasCardColor("X"),
+    commons 호출은 존재 검증 후 passthrough. 검증 안 되는 구성은 STOP(뭉갬 금지)."""
+    if node is None:
+        return {"const": True}
+    if "const" in node or "lit" in node:
+        return node
+    if "not" in node:
+        return {"not": lower_perm_predicate(node["not"], param)}
+    if node.get("binop") in ("&&", "||"):
+        return {"binop": node["binop"], "lhs": lower_perm_predicate(node["lhs"], param),
+                "rhs": lower_perm_predicate(node["rhs"], param)}
+    if node.get("binop") in (">=", "<=", ">", "<", "==", "!="):
+        return {"cmp": node["binop"], "lhs": lower_perm_predicate(node["lhs"], param),
+                "rhs": lower_perm_predicate(node["rhs"], param)}
+    if "member" in node:
+        segs = node["member"].split(".")
+        if segs[0] == param and (len(segs) == 1 or segs[1] in PERMANENT_MEMBERS):
+            return {"raw": node["member"]}
+        raise Stop("lowering:missing-rule", "STOP_RULE_AMBIGUOUS",
+                   f"permanent member not in allowlist: {node['member']}")
+    if "call" in node:
+        name = node["call"]
+        m = _COLOR_RE.match(name)
+        if m:  # <recv>.CardColors.Contains(CardColor.X) -> <recv>.HasCardColor("X")
+            recv = m.group(1)
+            arg = node.get("args", [{}])[0]
+            col = arg.get("member", "").split(".")[-1] if "member" in arg else None
+            if recv.split(".")[0] == param and col:
+                return {"raw": f'{recv}.HasCardColor("{col}")'}
+            raise Stop("lowering:missing-rule", "STOP_RULE_AMBIGUOUS", f"unhandled color contains: {node}")
+        if name.startswith("CardEffectCommons."):
+            short = name.split(".", 1)[1]
+            sym = SYMBOLS.get(short)
+            if sym is None or sym["kind"] != "commons":
+                raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE", f"unknown commons: {short}")
+            a = ", ".join(x.get("ref", "?") for x in node.get("args", []))
+            if "?" in a.split(", "):
+                raise Stop("lowering:missing-rule", "STOP_RULE_AMBIGUOUS", f"commons arg not a simple ref: {node}")
+            return {"raw": f"CardEffectCommons.{short}({a})"}
+    raise Stop("lowering:missing-rule", "STOP_RULE_AMBIGUOUS", f"unhandled permanent-predicate node: {node}")
+
+
 def lower_perm_lambda(node: dict, param: str) -> dict:
     """id-람다 본문 로워링: `param.X` 멤버 → CardEffectCommons.X(card, id) (X 가 정확히
     permanent-subject commons 헬퍼일 때만; 아니면 STOP — 뭉갬 금지)."""
@@ -388,15 +441,33 @@ def lower_card(src: dict) -> tuple[dict, list[dict]]:
             if any(eff.get("kind") != "factoryAdd" for eff in effs):
                 raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
                            "coroutine/ActivateClass or non-factory effect (declarative translation needed)")
-            # 2. Local functions (predicates) — bool-returning only.
+            # subject type of each param-taking predicate, from the factory slot that references it
+            fn_ptype = {}  # localfn name -> "Permanent" | "HeadlessEntityId"
+            for eff in effs:
+                fsym = SYMBOLS.get(eff.get("factory", ""))
+                if not fsym:
+                    continue
+                slot = {p[1]: p[0] for p in fsym["params"]}
+                for a in eff.get("args", []):
+                    ref = a["value"].get("ref") if isinstance(a.get("value"), dict) else None
+                    pname = a.get("name")
+                    t = slot.get(pname, "")
+                    if ref and "Func<Permanent" in t.replace(" ", ""):
+                        fn_ptype[ref] = "Permanent"
+            # 2. Local functions (predicates).
             lowered_fns = {}
             for fn in br.get("localFns", []):
                 if fn.get("returns") not in (None, "bool"):
                     raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
                                f"non-bool local fn {fn['name']} ({fn.get('returns')}) — coroutine shape")
                 if fn.get("params"):
+                    if fn_ptype.get(fn["name"]) == "Permanent":
+                        p = fn["params"][0]
+                        lowered_fns[fn["name"]] = {"name": fn["name"], "ptype": "Permanent", "param": p,
+                                                   "body": lower_perm_predicate(fn["body"], p)}
+                        continue
                     raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
-                               f"predicate {fn['name']} takes params (Permanent/id) — needs id-rewrite rule")
+                               f"predicate {fn['name']} param subject unresolved (not Func<Permanent>)")
                 lowered_fns[fn["name"]] = {"name": fn["name"], "body": lower_predicate(fn["body"])}
             # 3. Effects (now known all-factory).
             lowered_effects = []
@@ -474,6 +545,8 @@ def emit_value(v: dict) -> str:
 
 
 def emit_predicate(n: dict) -> str:
+    if "raw" in n:
+        return n["raw"]
     if "const" in n:
         return "true" if n["const"] else "false"
     if "lit" in n:
@@ -505,7 +578,8 @@ def codegen(canon: dict) -> str:
             continue
         lines = [f"        if (timing == EffectTiming.{br['timing']})", "        {"]
         for fn in br.get("localFns", []):
-            lines.append(f"            bool {fn['name']}()")
+            sig = f"{fn['ptype']} {fn['param']}" if fn.get("ptype") else ""
+            lines.append(f"            bool {fn['name']}({sig})")
             lines.append("            {")
             lines.append(f"                return {emit_predicate(fn['body'])};")
             lines.append("            }")

@@ -334,15 +334,15 @@
       "card": "BT1_085",
       "set": "BT1",
       "color": "Red",
-      "tier": 2,
-      "irHash": "bab22916440c",
+      "tier": 1,
+      "irHash": "81ee201f536d",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
+      "provenance": "ir-generated",
       "mirrorState": "live",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
       "branches": [
         {
           "branch": 0,
@@ -352,10 +352,7 @@
         {
           "branch": 1,
           "timing": "None",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "predicate PermanentCondition takes params (Permanent/id) — needs id-rewrite rule"
+          "status": "lowered"
         },
         {
           "branch": 2,

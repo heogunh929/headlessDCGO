@@ -23,11 +23,93 @@
     },
     {
       "timing": "None",
-      "stop": {
-        "stage": "lowering:missing-rule",
-        "code": "STOP_MULTI_STEP_OPTIONAL",
-        "detail": "predicate PermanentCondition takes params (Permanent/id) — needs id-rewrite rule"
-      }
+      "localFns": [
+        {
+          "name": "Condition",
+          "body": {
+            "binop": "&&",
+            "lhs": {
+              "call": "CardEffectCommons.IsExistOnBattleArea",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            },
+            "rhs": {
+              "call": "CardEffectCommons.IsOwnerTurn",
+              "args": [
+                {
+                  "ref": "card"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "PermanentCondition",
+          "ptype": "Permanent",
+          "param": "permanent",
+          "body": {
+            "binop": "&&",
+            "lhs": {
+              "raw": "CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)"
+            },
+            "rhs": {
+              "binop": "&&",
+              "lhs": {
+                "raw": "permanent.TopCard.HasCardColor(\"Red\")"
+              },
+              "rhs": {
+                "cmp": ">=",
+                "lhs": {
+                  "raw": "permanent.DigivolutionCards.Count"
+                },
+                "rhs": {
+                  "lit": 4
+                }
+              }
+            }
+          }
+        }
+      ],
+      "effects": [
+        {
+          "factory": "ChangeSAttackStaticEffect",
+          "args": [
+            {
+              "name": "permanentCondition",
+              "value": {
+                "localfn": "PermanentCondition"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 1
+              }
+            },
+            {
+              "name": "isInheritedEffect",
+              "value": {
+                "const": false
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "localfn": "Condition"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "timing": "SecuritySkill",

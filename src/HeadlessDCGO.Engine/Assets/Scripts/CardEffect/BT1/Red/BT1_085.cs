@@ -1,53 +1,34 @@
 using System.Collections.Generic;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Headless.Effects;
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+// GENERATED FROM porting/data/ir/BT1.Red/BT1_085.json — DO NOT EDIT (pipeline-v3 codegen).
 public sealed class BT1_085 : CEntity_Effect
 {
     public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
-
         if (timing == EffectTiming.OnStartTurn)
         {
-            cardEffects.Add(CardEffectFactory.SetMemoryTo3TamerEffect(card));
+            cardEffects.Add(CardEffectFactory.SetMemoryTo3TamerEffect(
+                card: card));
         }
 
         if (timing == EffectTiming.None)
         {
             bool Condition()
             {
-                if (CardEffectCommons.IsExistOnBattleArea(card))
-                {
-                    if (CardEffectCommons.IsOwnerTurn(card))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
+                return (CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.IsOwnerTurn(card));
             }
 
             bool PermanentCondition(Permanent permanent)
             {
-                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
-                {
-                    // AS-IS `CardColors.Contains(CardColor.Red)` — headless colors are strings
-                    // (EXPRESSION-MAP: CardColor.X -> "X").
-                    if (permanent.TopCard.HasCardColor("Red"))
-                    {
-                        if (permanent.DigivolutionCards.Count >= 4)
-                        {
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
+                return (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) && (permanent.TopCard.HasCardColor("Red") && (permanent.DigivolutionCards.Count >= 4)));
             }
 
             cardEffects.Add(CardEffectFactory.ChangeSAttackStaticEffect(
@@ -60,9 +41,9 @@ public sealed class BT1_085 : CEntity_Effect
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            cardEffects.Add(CardEffectFactory.PlaySelfTamerSecurityEffect(card));
+            cardEffects.Add(CardEffectFactory.PlaySelfTamerSecurityEffect(
+                card: card));
         }
-
         return cardEffects;
     }
 }

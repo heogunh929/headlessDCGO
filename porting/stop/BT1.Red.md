@@ -21,13 +21,12 @@
 | BT1_095 | SecuritySkill | lowering:tier-3 | activate mixed with other effects (multi-step) — 강모델 |
 | BT1_114 | OnAllyAttack | lowering:missing-rule | intent arg not a literal/known enum: {'opaque': '-5'} |
 
-### STOP_MULTI_STEP_OPTIONAL (8)
+### STOP_MULTI_STEP_OPTIONAL (7)
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
 | BT1_017 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_021 | OnAllyAttack | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
-| BT1_085 | None | lowering:missing-rule | predicate PermanentCondition takes params (Permanent/id) — needs id-rewrite rule |
 | BT1_090 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_091 | OptionSkill | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_092 | OptionSkill | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |

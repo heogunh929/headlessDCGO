@@ -28,7 +28,7 @@
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
-| BT1_034 | None | lowering:missing-rule | predicate DefenderCondition takes params (Permanent/id) — needs id-rewrite rule |
+| BT1_034 | None | lowering:missing-rule | predicate DefenderCondition param subject unresolved (not Func<Permanent>) |
 | BT1_040 | OnAllyAttack | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_043 | OnEnterFieldAnyone | lowering:missing-rule | coroutine has 2 effects (multi-step) — 강모델 |
 | BT1_044 | OnAllyAttack | lowering:missing-rule | coroutine has 3 effects (multi-step) — 강모델 |
