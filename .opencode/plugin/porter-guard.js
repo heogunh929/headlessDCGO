@@ -1,6 +1,6 @@
 // porter-guard: enforce the porting pipeline's blast-radius + context guarantees.
 //
-// Two jobs (see docs/porting design):
+// Two jobs (see porting/ design):
 //   1. chat.params  — for the local `porter` agent on the ollama provider, force
 //      num_ctx >= 32768 (ollama defaults to 4096, which silently truncates the
 //      primitive catalog and breaks the STOP rule) and pin a low temperature.
@@ -21,7 +21,7 @@ const MIN_NUM_CTX = 32768;
 // the strong-model-owned CardEffect.Binding.Auto test.
 const WRITE_ALLOW = [
   /^src\/HeadlessDCGO\.Engine\/Assets\/Scripts\/CardEffect\/[^/]+\/[^/]+\//, // card mirrors <SET>/<COLOR>/
-  /^docs\/porting\/stop\//,                                                   // STOP aggregation
+  /^porting\/stop\//,                                                         // STOP aggregation
   /(^|\/)bin\//,                                                              // build artefacts
   /(^|\/)obj\//,
 ];
@@ -89,7 +89,7 @@ export const PorterGuard = async ({ directory }) => {
       if (!WRITE_ALLOW.some((re) => re.test(rel))) {
         throw new Error(
           `porter-guard: write to '${rel}' is outside the porting whitelist ` +
-            `(card mirror <SET>/<COLOR>/, docs/porting/stop/). porter writes NO tests. ` +
+            `(card mirror <SET>/<COLOR>/, porting/stop/). porter writes NO tests. ` +
             `If a needed change falls outside, STOP and record it for 강모델.`
         );
       }

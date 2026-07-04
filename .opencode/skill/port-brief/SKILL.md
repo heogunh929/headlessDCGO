@@ -1,12 +1,12 @@
 ---
 name: port-brief
-description: Port one Digimon card 1:1 from the read-only DCGO/ original into the headless C# engine, driven by the card's pre-extracted brief (docs/porting/briefs/<SET>.<COLOR>/<ID>.md) instead of the 90KB catalog. Use for brief-wired local-model porting. Same AS-IS 1:1 fidelity and STOP contract as port-card, but the lookup is already done in the brief.
+description: Port one Digimon card 1:1 from the read-only DCGO/ original into the headless C# engine, driven by the card's pre-extracted brief (porting/briefs/<SET>.<COLOR>/<ID>.md) instead of the 90KB catalog. Use for brief-wired local-model porting. Same AS-IS 1:1 fidelity and STOP contract as port-card, but the lookup is already done in the brief.
 ---
 
 # Card Porting from a Brief (AS-IS 1:1, pipeline-v2)
 
 You port **one** card from the original `DCGO/` source into the headless engine.
-Your input is the card's **brief** — `docs/porting/briefs/<SET>.<COLOR>/<ID>.md` — which
+Your input is the card's **brief** — `porting/briefs/<SET>.<COLOR>/<ID>.md` — which
 already extracted every symbol this card touches and looked it up for you. You do **not**
 read the 90KB `PRIMITIVE-CATALOG.md`; the brief is the catalog slice for this card.
 Your job is **translation, not design, not lookup**.
@@ -37,8 +37,8 @@ If a symbol is not in any brief section and you cannot confirm it compiles → t
 
 ## Procedure (one card = one cycle)
 
-1. **Read the brief** `docs/porting/briefs/<SET>.<COLOR>/<ID>.md`. If it is missing, stop and
-   report — the `port-card-brief` command / `scripts/port-batch.sh` generates it first. Read
+1. **Read the brief** `porting/briefs/<SET>.<COLOR>/<ID>.md`. If it is missing, stop and
+   report — the `port-card-brief` command / `porting/scripts/port-batch.sh` generates it first. Read
    the original `DCGO/Assets/Scripts/CardEffect/<SET>/<COLOR>/<ID>.cs` for the exact timing branches.
 2. **Map each `EffectTiming` branch** using the brief's resolved-symbol / intent / expression
    tables. Fill arguments 1:1 from the original.
@@ -51,7 +51,7 @@ If a symbol is not in any brief section and you cannot confirm it compiles → t
 4. **Partial porting per branch.** If one branch uses a 미해결 symbol, port the resolvable
    branches and leave `// STOP: <symbol> — 강모델` on the others (omit their `cardEffects.Add`).
    Do not STOP the whole card.
-5. **Record every STOP** by appending to `docs/porting/stop/<SET>.<COLOR>.md` as
+5. **Record every STOP** by appending to `porting/stop/<SET>.<COLOR>.md` as
    `<ID> | reason | original symbol`. **If no branch was STOPped, write NOTHING to the stop
    log** — a fully ported card must leave no stop entry.
 6. **Structural self-check.** Every original `EffectTiming` branch is either mapped (from a

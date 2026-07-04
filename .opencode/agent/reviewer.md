@@ -32,9 +32,9 @@ Record defects and fix them (or hand precise fix instructions), keeping AS-IS 1:
 
 ## (B) STOP queue — primitive pre-development
 
-Consume `docs/porting/stop/<SET>.*.md`. For each STOP:
+Consume `porting/stop/<SET>.*.md`. For each STOP:
 - Develop the missing primitive/timing in the engine.
-- Add it to `docs/porting/PRIMITIVE-CATALOG.md` with its exact signature.
+- Add it to `porting/docs/PRIMITIVE-CATALOG.md` with its exact signature.
 - Mark which cards can now be recovered, so a re-run of `port-set` picks them up.
 
 You own primitive development — the porter never does (see project memory: 강모델이 프리미티브 선행개발).

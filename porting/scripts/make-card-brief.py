@@ -11,9 +11,9 @@ PRIMITIVE-CATALOG / PORTING-RECIPE(의도표) / EXPRESSION-MAP 에서
 있는 심볼을 STOP 하는 것은 위반).
 
 사용:
-  python3 scripts/make-card-brief.py BT1 Red            # SET+COLOR 전체
-  python3 scripts/make-card-brief.py BT1 Red BT1_011    # 특정 카드만
-출력: docs/porting/briefs/<SET>.<COLOR>/<ID>.md
+  python3 porting/scripts/make-card-brief.py BT1 Red            # SET+COLOR 전체
+  python3 porting/scripts/make-card-brief.py BT1 Red BT1_011    # 특정 카드만
+출력: porting/briefs/<SET>.<COLOR>/<ID>.md
 """
 from __future__ import annotations
 
@@ -21,12 +21,13 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-CATALOG = ROOT / "docs/porting/PRIMITIVE-CATALOG.md"
-RECIPE = ROOT / "docs/porting/PORTING-RECIPE.md"
-EXPR_MAP = ROOT / "docs/porting/EXPRESSION-MAP.md"
-DCGO_CARDS = ROOT / "DCGO/Assets/Scripts/CardEffect"
-BRIEF_OUT = ROOT / "docs/porting/briefs"
+REPO = Path(__file__).resolve().parents[2]    # repo root (porting/scripts/ -> ..)
+PORTING = Path(__file__).resolve().parents[1]  # porting/
+CATALOG = PORTING / "docs/PRIMITIVE-CATALOG.md"
+RECIPE = PORTING / "docs/PORTING-RECIPE.md"
+EXPR_MAP = PORTING / "docs/EXPRESSION-MAP.md"
+DCGO_CARDS = REPO / "DCGO/Assets/Scripts/CardEffect"
+BRIEF_OUT = PORTING / "briefs"
 
 # 레시피가 명시한 진성 STOP 표면 (강모델 전용 큐)
 KNOWN_STOP = {
@@ -219,7 +220,7 @@ def build_brief(
     p.append("")
     p.append("> `namespace` 선언이 빠지면 게이트가 카드를 발견하지 못해 **FAIL** 처리된다.")
     p.append("> 시그니처는 `override IReadOnlyList<ICardEffect>` 그대로, 클래스는 `public sealed`.")
-    p.append("> STOP 분기가 실제로 하나도 없으면 `docs/porting/stop/` 에는 **아무것도 기록하지 않는다**.")
+    p.append("> STOP 분기가 실제로 하나도 없으면 `porting/stop/` 에는 **아무것도 기록하지 않는다**.")
     p.append("")
     if found:
         p.append("## 심볼 조회 결과 (헤드리스에 존재 — 그대로 사용)")
@@ -249,7 +250,7 @@ def build_brief(
         p.append("")
         p.append("> 아래 심볼은 카탈로그 양쪽 표에서 자동조회에 실패했다. 브리핑 생성기의")
         p.append("> 한계일 수 있으므로, 사용 분기만 `// STOP: <심볼> — 강모델` 처리하고")
-        p.append("> `docs/porting/stop/`에 기록한다.")
+        p.append("> `porting/stop/`에 기록한다.")
         p.append("")
         p.extend(unresolved)
         p.append("")
@@ -289,15 +290,15 @@ def main() -> int:
         src = f.read_text(encoding="utf-8", errors="replace")
         brief = build_brief(
             card_id, src, factory_master, commons_master, descs,
-            intent_rows, expr_rows, str(f.relative_to(ROOT)),
+            intent_rows, expr_rows, str(f.relative_to(REPO)),
             card_set, color,
         )
         out = out_dir / f"{card_id}.md"
         out.write_text(brief, encoding="utf-8")
         size = out.stat().st_size
-        print(f"{card_id}: {size:5d}B -> {out.relative_to(ROOT)}")
+        print(f"{card_id}: {size:5d}B -> {out.relative_to(REPO)}")
         count += 1
-    print(f"\n{count}개 브리핑 생성 완료: {out_dir.relative_to(ROOT)}/")
+    print(f"\n{count}개 브리핑 생성 완료: {out_dir.relative_to(REPO)}/")
     return 0
 
 

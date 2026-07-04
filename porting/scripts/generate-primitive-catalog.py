@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the alphabetical master table of docs/porting/PRIMITIVE-CATALOG.md.
+"""Regenerate the alphabetical master table of porting/docs/PRIMITIVE-CATALOG.md.
 
 Extracts every `public static ICardEffect|IActivatedCardEffect <Name>(...)` factory from
 CardPortingFramework.cs and rewrites the `## 알파벳 마스터` section in place. The curated
@@ -11,19 +11,20 @@ call this helper layer directly (predicates like HasMatchConditionPermanent, imp
 helpers like ChangeDigimonDP) — leaving it out of the catalog caused the porter to STOP
 on helpers that already exist (BT1 Red wave 1).
 
-Usage: python3 scripts/generate-primitive-catalog.py
+Usage: python3 porting/scripts/generate-primitive-catalog.py
 """
 
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]   # repo root (porting/scripts/ -> ..)
+PORTING = Path(__file__).resolve().parents[1]  # porting/
 SOURCES = [
-    ROOT / "src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CardPortingFramework.cs",
-    *sorted((ROOT / "src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory").rglob("*.cs")),
+    REPO / "src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons/CardPortingFramework.cs",
+    *sorted((REPO / "src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectFactory").rglob("*.cs")),
 ]
-CATALOG = ROOT / "docs/porting/PRIMITIVE-CATALOG.md"
+CATALOG = PORTING / "docs/PRIMITIVE-CATALOG.md"
 MASTER_HEADING = "## 알파벳 마스터 (이름 → 시그니처)"
 
 SIGNATURE_RE = re.compile(

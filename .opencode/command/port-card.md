@@ -10,10 +10,10 @@ agent: porter
 
 ```bash
 # 1) 브리프가 없으면 먼저 생성 (id에서 SET/COLOR 판별해 대입)
-python3 scripts/make-card-brief.py <SET> <COLOR>
+python3 porting/scripts/make-card-brief.py <SET> <COLOR>
 
 # 2) 브리프 기반 포팅 (독립 세션, 카탈로그 주입 없음)
 opencode run --command port-card-brief "$ARGUMENTS"
 ```
 
-또는 외부 드라이버로 한 장만: `scripts/port-batch.sh <SET> <COLOR> 600 $ARGUMENTS` (브리프 생성·게이트까지 자동).
+또는 외부 드라이버로 한 장만: `porting/scripts/port-batch.sh <SET> <COLOR> 600 $ARGUMENTS` (브리프 생성·게이트까지 자동).

@@ -5,7 +5,7 @@ agent: reviewer
 SET **$ARGUMENTS** (예: `ST1`) 를 검수하세요. 이 SET의 포팅이 끝난 뒤 발동합니다.
 
 ## 발동 전 완료 확인 ("완료" = 라이브 100%가 아님)
-1. 이 SET의 각 색상 폴더에서, 원본 `DCGO/.../<SET>/<COLOR>/*.cs` 의 모든 카드가 **(미러 존재) 이거나 (`docs/porting/stop/<SET>.<COLOR>.md`에 기록)** 인지 확인. 둘 다 아닌 카드가 있으면 아직 미완 → 그 색상은 `port-set <SET> <COLOR>` 로 먼저 돌리라고 보고하고 중단.
+1. 이 SET의 각 색상 폴더에서, 원본 `DCGO/.../<SET>/<COLOR>/*.cs` 의 모든 카드가 **(미러 존재) 이거나 (`porting/stop/<SET>.<COLOR>.md`에 기록)** 인지 확인. 둘 다 아닌 카드가 있으면 아직 미완 → 그 색상은 `port-set <SET> <COLOR>` 로 먼저 돌리라고 보고하고 중단.
 2. `bash scripts/run-tests.sh CardEffect.Binding.Auto` → `FAIL=0` 확인(이 SET의 라이브 미러가 바인딩 등록·빌드 green). FAIL이면 검수 전에 그 실패부터 보고.
 
 ## (A) 충실도 감사 — 원본 대비 1:1 (장당)
@@ -18,9 +18,9 @@ SET **$ARGUMENTS** (예: `ST1`) 를 검수하세요. 이 SET의 포팅이 끝난
 결함은 AS-IS 1:1을 지키며 수정(또는 정확한 수정 지시).
 
 ## (B) STOP 큐 소비 — 프리미티브 선행개발
-`docs/porting/stop/<SET>.*.md` 를 읽어 각 STOP에 대해:
+`porting/stop/<SET>.*.md` 를 읽어 각 STOP에 대해:
 - 부족한 프리미티브/타이밍을 엔진에 개발.
-- `docs/porting/PRIMITIVE-CATALOG.md` 에 정확한 시그니처로 추가.
+- `porting/docs/PRIMITIVE-CATALOG.md` 에 정확한 시그니처로 추가.
 - 이제 회수 가능한 카드를 표시 → `port-set` 재실행 대상.
 
 ## 보고

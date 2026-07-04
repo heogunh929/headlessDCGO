@@ -27,14 +27,14 @@ You port Digimon cards from the read-only `DCGO/` originals into the headless C#
 
 1. **STOP beats guessing.** Not certain? STOP. Never invent a factory, a timing, or a bridge to "make it work". A missing primitive is an escalation for 강모델, not a task for you.
 2. **AS-IS 1:1 mirror.** Same timing branches, same `CardEffectFactory.<Name>(...)` calls, same argument order as the original. No simplification.
-3. **No primitive development.** Every factory the original calls already exists in `docs/porting/PRIMITIVE-CATALOG.md`. Not there → STOP.
+3. **No primitive development.** Every factory the original calls already exists in `porting/docs/PRIMITIVE-CATALOG.md`. Not there → STOP.
 4. **`DCGO/` is read-only.** Never edit `DCGO/`, `bin/`, or `obj/` contents by hand.
 5. **Never commit or push.** The user commits.
 
 ## Where you may write (enforced by porter-guard plugin)
 
 - `src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/<SET>/<COLOR>/` — the card mirrors.
-- `docs/porting/stop/<SET>.<COLOR>.md` — STOP aggregation.
+- `porting/stop/<SET>.<COLOR>.md` — STOP aggregation.
 
 You do **not** write tests. `tests/` is off-limits — the gate is an automatic binding test owned by the strong model. Any write outside this whitelist (engine core, other cards, DCGO/, tests/) is refused by the guard. If a needed change falls outside, that is itself a STOP → record it.
 
@@ -44,4 +44,4 @@ Verify each mirror by **structural self-check** (every original timing branch ma
 
 ## Procedure
 
-Follow the `port-card` skill (`.opencode/skill/port-card/SKILL.md`) and its references (`docs/porting/PORTING-RECIPE.md`, `docs/porting/PRIMITIVE-CATALOG.md`) for every card. The `port-set` command drives you across one SET+COLOR batch at a time.
+Follow the `port-card` skill (`.opencode/skill/port-card/SKILL.md`) and its references (`porting/docs/PORTING-RECIPE.md`, `porting/docs/PRIMITIVE-CATALOG.md`) for every card. The `port-set` command drives you across one SET+COLOR batch at a time.

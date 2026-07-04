@@ -36,7 +36,7 @@ validator가 기계적으로 수용/반려한다. 나머지 9단계는 전부 �
 ### 2. Source IR 생성 (Roslyn)
 
 - **입력**: 카드 원본 1파일.
-- **도구**: `tools/CardIr.Extract/` (C# 콘솔). `CSharpSyntaxTree.ParseText`만 사용 —
+- **도구**: `porting/tools/CardIr.Extract/` (C# 콘솔). `CSharpSyntaxTree.ParseText`만 사용 —
   DCGO는 Unity/Photon 참조가 없어 컴파일 불가하지만 **semantic model 불필요**
   (심볼 해석은 3의 테이블이 담당). syntax 수준에서 코루틴·local function·
   named argument·중첩 람다 전부 파싱 가능.
@@ -64,7 +64,7 @@ validator가 기계적으로 수용/반려한다. 나머지 9단계는 전부 �
 - **입력**: Source IR + 3종 테이블.
 - **테이블** (전부 기계가독형으로 재정비, 강모델이 유지보수):
   - **심볼표**: 카탈로그(128 팩토리 + 275 커먼즈)에서 자동 생성 — 이름→시그니처.
-    `generate-primitive-catalog.py`가 md와 함께 `symbols.json`도 방출하게 확장.
+    `porting/scripts/generate-primitive-catalog.py`가 md와 함께 `porting/data/symbols.json`도 방출하게 확장.
   - **의도표**: 코루틴 ctor/호출 패턴 → Canonical op (PORTING-RECIPE §4-b의 기계화).
   - **expression_map**: Source 술어 표현 → **predicate AST atom** 매핑.
     ⚠ EXPRESSION-MAP.md는 실행 문법이 아니라 **Source IR → Canonical IR 매핑 테이블**이다.
@@ -90,7 +90,7 @@ validator가 기계적으로 수용/반려한다. 나머지 9단계는 전부 �
 ### 5. Canonical IR 확정
 
 - **입력**: 3의 로워링 결과 + 4의 **승인된** 제안.
-- **출력**: `data/ir/<SET>.<COLOR>/<ID>.json` — **닫힌 어휘**:
+- **출력**: `porting/data/ir/<SET>.<COLOR>/<ID>.json` — **닫힌 어휘**:
   - `op`: 카탈로그 심볼표에 존재하는 것만.
   - `predicate`: 화이트리스트 atom의 AST 조합 (`and`/`or`/`not` + atom).
     atom은 **subject 타입**(`self`|`permanent`|`card`)을 갖고, op의 술어 슬롯과
@@ -112,9 +112,9 @@ validator가 기계적으로 수용/반려한다. 나머지 9단계는 전부 �
 
 ### 6. Coverage ledger
 
-- **출력**: `data/ledger/<SET>.<COLOR>.json` — 카드×분기×조각 단위 원장:
+- **출력**: `porting/data/ledger/<SET>.<COLOR>.json` — 카드×분기×조각 단위 원장:
   `lowered | suggested-accepted | stop:missing-op | stop:missing-rule | stop:tier-3 | pending-suggestion`
-- **의미**: 손으로 쓰는 `docs/porting/stop/*.md`를 **기계 생성 진단**으로 대체.
+- **의미**: 손으로 쓰는 `porting/stop/*.md`를 **기계 생성 진단**으로 대체.
   `stop:missing-op` 집계 = 강모델 프리미티브 선행개발 큐가 자동으로 나온다.
   `stop:missing-rule` 집계 = 테이블 보강 백로그.
 - 사람이 읽는 요약 md는 ledger에서 렌더링(원장이 진실).
@@ -144,7 +144,7 @@ validator가 기계적으로 수용/반려한다. 나머지 9단계는 전부 �
     `AddMemoryTriggerEffect(+3)` → `expect: memory +3`. 공통 op 상위 ~20개면 커버리지 대부분.
   - **LLM 제안** (비구속): 템플릿 없는 복합 카드만. 스키마 구속 시나리오 JSON +
     룰텍스트 인용. 승인은 validator(스키마·상태식 유효성) + 필요시 강모델 검토.
-- **출력**: `data/scenarios/<SET>.<COLOR>/<ID>.json` (카드당 0..n개; 0개 = 구조검증만으로 포함 판단).
+- **출력**: `porting/data/scenarios/<SET>.<COLOR>/<ID>.json` (카드당 0..n개; 0개 = 구조검증만으로 포함 판단).
 - **⑤ 확장(리뷰어)**: 같은 단계에서 LLM이 Canonical IR ↔ 공식 룰텍스트 대조 리뷰
   리포트(비구속)를 생성 — DCGO 구현 자체의 버그 탐지 보너스.
 
@@ -163,20 +163,20 @@ validator가 기계적으로 수용/반려한다. 나머지 9단계는 전부 �
   namespace/sealed/IReadOnlyList/접두/시그니처 오류가 **원리적으로 불가능**.
   STOP 노드 → `// STOP: <type> <symbol> — 강모델` 주석 방출(현행 게이트 규약 유지).
 - **규율(신규)**: **미러 수기 편집 금지** — 미러는 빌드 산출물. 수정은 IR 또는
-  테이블에서 하고 재생성한다. 파일 헤더에 `// GENERATED FROM data/ir/... — DO NOT EDIT` 명시.
+  테이블에서 하고 재생성한다. 파일 헤더에 `// GENERATED FROM porting/data/ir/... — DO NOT EDIT` 명시.
 - **이행기**: 기존 라이브 44장은 당분간 수기 원본 유지(레지스트리에 `provenance: handwritten`).
   추후 2단계 도구를 헤드리스 미러에도 돌려 역파싱 → IR화 → 재생성 일치 확인으로 흡수.
 
 ### 10. Scenario simulation + 게이트
 
 - 빌드 green + `CardEffect.Binding.Auto`(현행: 발견/inert/namespace 대조) — 유지.
-- **신규**: `tests/CardEffect.Scenario.Tests/` — 시나리오 JSON을 읽어
+- **신규**: `porting/binding-test/` 옆 `CardEffect.Scenario.Tests/` — 시나리오 JSON을 읽어
   `EngineContext.CreateDefault` 위에서 setup→trigger→expect 단언. 데이터 주도 하네스 1개.
 - 실패는 ledger로 환류(`sim-failed` 상태) — 포함 불가 + 원인 조각 좌표.
 
 ### 11. Registry — RL 학습 카드풀
 
-- **출력**: `data/cardpool.json` (결정론 재생성, 버전 스탬프):
+- **출력**: `porting/data/cardpool.json` (결정론 재생성, 버전 스탬프):
   ```json
   { "BT1_029": { "tier": 2, "provenance": "ir", "irHash": "…",
                  "validator": "pass", "scenarios": "3/3", "gate": "green",
@@ -249,13 +249,13 @@ code의 가치는 부분 포함 허용이 아니라 해소 작업의 데이터 �
 
 | 기존 | v3에서 |
 |---|---|
-| `make-card-brief.py` | 2+3+4-문맥생성으로 흡수 (폐기 예정) |
-| `PRIMITIVE-CATALOG.md` | 심볼표의 렌더링 뷰 (`symbols.json`이 원본이 됨) |
+| `porting/scripts/make-card-brief.py` | 2+3+4-문맥생성으로 흡수 (폐기 예정) |
+| `PRIMITIVE-CATALOG.md` | 심볼표의 렌더링 뷰 (`porting/data/symbols.json`이 원본이 됨) |
 | `EXPRESSION-MAP.md` | 로워링 테이블 (기계가독 재포맷) |
 | `PORTING-RECIPE.md` §4-b | 의도표 (기계가독 재포맷) |
 | `CardEffect.Binding.Auto` | 10의 구조 게이트로 존속 |
-| `port-batch.sh` / opencode porter | 4의 제안 드라이버로 개조 (파일 쓰기 권한 회수) |
-| `docs/porting/stop/*.md` | ledger 렌더링 뷰로 대체 |
+| `porting/scripts/port-batch.sh` / opencode porter | 4의 제안 드라이버로 개조 (파일 쓰기 권한 회수) |
+| `porting/stop/*.md` | ledger 렌더링 뷰로 대체 |
 
 ## 구축 순서 (MVP 우선 — 전 단계 동시 구축 금지)
 

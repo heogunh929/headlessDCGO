@@ -46,7 +46,7 @@ foreach (var file in files)
         }
         else
         {
-            string outDir = Path.Combine(repoRoot, "data", "ir-src", $"{set}.{color}");
+            string outDir = Path.Combine(repoRoot, "porting", "data", "ir-src", $"{set}.{color}");
             Directory.CreateDirectory(outDir);
             string outPath = Path.Combine(outDir, id + ".json");
             File.WriteAllText(outPath, ir.ToJsonString(jsonOpts));

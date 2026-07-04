@@ -16,23 +16,23 @@
 #   4. Run the binding gate once at the end and print a summary.
 #
 # Usage:
-#   scripts/port-batch.sh <SET> <COLOR> [PER_CARD_TIMEOUT_SECS] [ID ...]
-#   scripts/port-batch.sh BT1 Red                 # whole not-yet-ported BT1/Red
-#   scripts/port-batch.sh BT1 Red 600             # with a 10-min per-card cap
-#   scripts/port-batch.sh BT1 Red 600 BT1_011 BT1_012   # only these ids
+#   porting/scripts/port-batch.sh <SET> <COLOR> [PER_CARD_TIMEOUT_SECS] [ID ...]
+#   porting/scripts/port-batch.sh BT1 Red                 # whole not-yet-ported BT1/Red
+#   porting/scripts/port-batch.sh BT1 Red 600             # with a 10-min per-card cap
+#   porting/scripts/port-batch.sh BT1 Red 600 BT1_011 BT1_012   # only these ids
 #
 # NOTE: this only DRIVES the porter; it never commits. The user commits.
 
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"   # repo root (porting/scripts/ -> ../..)
 cd "$ROOT"
 
 SET="${1:-}"
 COLOR="${2:-}"
 TIMEOUT="${3:-900}"
 if [[ -z "$SET" || -z "$COLOR" ]]; then
-  echo "usage: scripts/port-batch.sh <SET> <COLOR> [PER_CARD_TIMEOUT_SECS] [ID ...]" >&2
+  echo "usage: porting/scripts/port-batch.sh <SET> <COLOR> [PER_CARD_TIMEOUT_SECS] [ID ...]" >&2
   exit 2
 fi
 shift $(( $# < 3 ? $# : 3 ))   # drop SET COLOR [TIMEOUT]; remaining args = explicit ids
@@ -40,7 +40,7 @@ EXPLICIT_IDS=("$@")
 
 MIRROR_DIR="src/HeadlessDCGO.Engine/Assets/Scripts/CardEffect/${SET}/${COLOR}"
 ORIG_DIR="DCGO/Assets/Scripts/CardEffect/${SET}/${COLOR}"
-BRIEF_DIR="docs/porting/briefs/${SET}.${COLOR}"
+BRIEF_DIR="porting/briefs/${SET}.${COLOR}"
 
 if [[ ! -d "$ORIG_DIR" ]]; then
   echo "port-batch: no originals at $ORIG_DIR" >&2
@@ -55,7 +55,7 @@ echo "== port-batch: $SET $COLOR (per-card timeout ${TIMEOUT}s) =="
 
 # 1. Briefs — pre-resolve every card's symbols so the porter only translates.
 echo "-- generating briefs --"
-python3 scripts/make-card-brief.py "$SET" "$COLOR"
+python3 porting/scripts/make-card-brief.py "$SET" "$COLOR"
 
 # 2. Target selection — not-yet-ported = skeleton stub. Live cards are never touched.
 targets=()
@@ -103,4 +103,4 @@ echo "  ported   : ${#ported[@]}  ${ported[*]:-}"
 echo "  timedout : ${#timedout[@]}  ${timedout[*]:-}"
 echo "  failed   : ${#failed[@]}  ${failed[*]:-}"
 echo "  skipped  : ${#skipped[@]}  ${skipped[*]:-}"
-echo "  STOP log : docs/porting/stop/${SET}.${COLOR}.md"
+echo "  STOP log : porting/stop/${SET}.${COLOR}.md"
