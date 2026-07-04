@@ -3,7 +3,9 @@
 - 작성일: 2026-07-03
 - 상태: **draft v0.1** — 개발은 후속(RL 로드맵 M1~M5와 병행). 확정 아님, 계속 다듬는 living document.
 - 관련: [rl_training_environment_design.md](rl_training_environment_design.md)(엔진/어댑터·관측·seat 프로토콜),
-  [rl_development_roadmap.md](rl_development_roadmap.md), [digimon_ai_arena_requirements.md](digimon_ai_arena_requirements.md)(아레나와 조각 공유).
+  [rl_development_roadmap.md](rl_development_roadmap.md), [digimon_ai_arena_requirements.md](digimon_ai_arena_requirements.md)(아레나와 조각 공유),
+  [internal_rl_training_environment_dev_design.md](internal_rl_training_environment_dev_design.md)(이 요구사항의 개발 설계안),
+  [internal_rl_training_environment_roadmap.md](internal_rl_training_environment_roadmap.md)(L 트랙 로드맵).
 - 성격: **요구사항정의서**(무엇을 만족해야 하는가). 상세 설계는 개발 착수 시 별도.
 
 ## 1. 개요 / 목적

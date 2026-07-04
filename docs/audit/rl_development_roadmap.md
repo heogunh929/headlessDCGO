@@ -12,19 +12,30 @@
 
 ---
 
-## M1 — RL 어댑터 어셈블리 분리 (설계 §4) 🔴 다음
+## M1 — RL 어댑터 어셈블리 분리 (설계 §4) ✅ 완료 (2026-07-04)
 **목표**: 엔진/어댑터 경계를 물리적으로 고정 — 이후 모든 RL 확장이 "엔진 코어 변경"이 아니게 됨.
 - 신규 `src/HeadlessDCGO.Rl/HeadlessDCGO.Rl.csproj`(엔진 ProjectReference). 설계 §4 이동 목록대로 RL 파일 이동(`HeadlessRlEnvironment`, `Rl*`, `ObservationEncoder`, `ActionEncoder`, `FactoredActionEncoder`, `HeadlessActionPolicy`, `*EpisodeRunner` 등). **네임스페이스 유지**(using 편집 없이 참조만 추가).
 - 경계 누수 정리: `DcgoMatch.Encode*` 3메서드를 Rl 어셈블리로 이동(src 사용처 1곳뿐 — 실측).
 - RL 타입 참조 테스트 21개 프로젝트에 ProjectReference 추가.
 - **종료조건**: `bash scripts/run-tests.sh` 전체 green(회귀 0) + `RuleAudit` 위반 0.
+- **실행 기록**: RL 16파일 + **검증 하네스 8파일**(Scenario/Smoke/Determinism — RL 환경을 구동하는
+  스캐폴딩이라 함께 이동, 역참조 폐쇄 확인) = 24파일 `git mv`. `DcgoMatch.Encode*` →
+  `DcgoMatchEncodingExtensions`(확장 메서드, 호출 문법 무변경). 참조 추가 = 테스트 **22개**(+하네스
+  사용분) + `RuleAudit`. CI에 Rl 빌드 스텝 추가. 게이트: run-tests **312/312 PASS** + RuleAudit 위반 0.
 
-## M2 — 관측 확장: 정보집합 + 카드-ID (설계 §5) 🔴
+## M2 — 관측 확장: 정보집합 + 카드-ID (설계 §5) ✅ 완료 (2026-07-04)
 **목표**: 현재 벡터(BattleArea 스탯만)로는 학습 불가 → **정보집합의 충분통계**로 확장. 룰상 모르는 정보(본인 시큐리티/덱)는 count-only 유지(아레나 안티치트 겸용).
 - (엔진 스냅샷, 가산적 3건) ① `HeadlessChoiceState`에 choice 후보 카드 id + GameLoop 배선 ② `DigivolutionStackReader`를 `CardObservationView`에 배선(진화 소재 정체) ③ `CardObservation`에 InstanceId(attack 슬롯 매칭).
 - (어댑터) 정보집합 인코딩: 본인 손패/공개존 per-card 정체 + `CardVocabulary`(CardDatabase 기반 카드번호→정수), 본인 시큐리티/덱은 인코딩 단에서 명시 제외. factored 스키마 용량 튜너블 주입 + `Unmapped` 카운트 노출.
 - **계약(리뷰 🔴2)**: **관측 슬롯 ↔ 액션 레인 정렬 불변식** 명문화 + 검증 테스트(관측 hand slot i의 cardId == factored PlayCard lane slot i의 대상).
 - **종료조건**: 정렬 불변식 등 신규 계약 테스트 green + 기존 무회귀.
+- **실행 기록**: InstanceId는 기존재(③ 무작업). 엔진 가산 = `HeadlessChoiceState.CandidateIds`(+컨트롤러
+  배선 + GameLoop **비선택자 시점 후보 strip**, count 유지) + `CardObservation.UnderCards`(DigivolutionStackReader
+  배선, sourceIds 보유 카드만). 어댑터 = `CardVocabulary`(C#, Python `dcgo_rl.cards`와 canonical 규칙 동일·
+  append-only) + `ObservationEncodingOptions.InformationSet` 프리셋(손패/필드 용량=factored 스키마 정렬,
+  본인 시큐리티/덱 per-card 인코딩 즉시 실패 가드, choice 후보·attack 슬롯·진화 소재, identityOverflow).
+  기본 옵션은 무변경(기존 벡터 무회귀). 게이트: `M2-001.InfoSetObservation.Tests` 11/11(정렬 불변식
+  라이브 매치 hand 166·attack 151회 검증) + run-tests **313/313** + RuleAudit 0.
 
 ## M3 — 지식 추적 인프라 (설계 §5.1) 🟠 M2 후 착수, 카드 포팅과 병행 배선
 **목표**: "효과로 정당하게 알게 된 히든존 카드"(reveal로 본 덱 top, 덱 위에 놓기, 정렬)를 관측에 노출하는 per-player 지식 스토어.
@@ -32,13 +43,21 @@
 - 어댑터 인코딩: `deck.top.knownCardId`, `security.slot.knownCardId` 류 — 아는 것만 정체, 모르는 건 count-only.
 - **종료조건**: 무효화 규칙 유닛 테스트 green. 실전 배선은 reveal/arrange 계열 카드 포팅 시점에 카드별 테스트와 함께.
 
-## M4 — seat 매치 프로토콜 + stdio 호스트 + 로컬 학습 슬라이스 (설계 §6, §9-B) 🟠
+## M4 — seat 매치 프로토콜 + stdio 호스트 + 로컬 학습 슬라이스 (설계 §6, §9-B) ✅ 완료 (2026-07-04)
 **목표**: "루프가 실제로 학습된다"를 증명하는 완결 수직 슬라이스. 프로토콜은 처음부터 아레나 공용 계약으로.
 - **프로토콜 스펙 v1 문서**(선행): 메시지 스키마(JSON-lines), seat claim 핸드셰이크(연결이 좌석 1..N claim), **좌석별 보상 귀속 규칙**(승자 좌석 +1/패자 −1/무 0 — 리뷰 🔴1), **좌석별 이벤트 가시성 필터**, protocol/obs/action schema **version** 명시, 에피소드/seat 순차계약(Mlp↔LSTM 겸용).
 - `tools/RlBridgeHost`(stdio 전송) + `tests/` 프로토콜 스모크(합법 0-위반·수렴·결정론·차원 일치·보상 귀속).
 - Python `rl/`: `DcgoStdioEnv`(gymnasium, `action_masks()`), 카드-ID 임베딩 features extractor, `train.py`(MaskablePPO, 체크포인트/텐서보드/eval).
 - **처리량 벤치마크 게이트(steps/sec) 포함**(리뷰 🟡5) — 직렬화 병목 조기 측정.
 - **종료조건**: 스모크 학습 무크래시 + eval 승률이 랜덤(≈50%) 대비 유의미 상승(희박 terminal 보상 감안한 기대치 — 리뷰 🟡6) + steps/sec 측정치 기록 + run-tests green.
+- **실행 기록**: 스펙 v1 = [rl_seat_protocol_v1.md](rl_seat_protocol_v1.md)(보상 귀속 🔴1·좌석별 정보집합
+  관측·합법성 경계·결정론·describe 포함). 호스트 = `tools/RlBridgeHost`(`SeatMatchHost` 전송 무관 상태기계
+  \+ stdio 래퍼). 계약 테스트 = `M4-001.SeatProtocol.Tests` 9/9(결정론 리플레이·보상 귀속·불법 액션
+  무변경 거부·레시피 공급 통로·미지원 카드 명시 실패). Python = `rl/dcgo_rl/`(bridge·DcgoSeatEnv·카드-ID
+  임베딩 extractor) + train/evaluate. **vocab 해시 C#↔Python 완전 일치 실증**(4206 canonical, sha256).
+  게이트 실측: 30k 스텝 무크래시, **eval vs 랜덤 97.5%**(40매치, ST1vST2·좌석 교대),
+  **94.6 steps/sec**(4 env DummyVec, JSON+stdio; 단일 env 랜덤 143), run-tests **314/314** + RuleAudit 0.
+  벤치마크 판단: L1~L2 규모까지 stdio+JSON으로 충분 — 직렬화 승급은 요구사항 §9 보류 유지.
 
 ## M5 — TCP 전송 + 내부망 상호학습 (설계 §9-C) 🟡 목표 ①
 **목표**: 같은 메시지 스키마를 TCP/WebSocket로 — 다중 머신 학습기가 각각 접속(1연결=1좌석)해 대전 학습.
