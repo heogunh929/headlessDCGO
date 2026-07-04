@@ -36,6 +36,17 @@ var cardTypes = SafeTypes(baseType.Assembly)
     .ToList();
 
 EffectTiming[] timings = Enum.GetValues<EffectTiming>();
+
+// Timings where ActivatedEffectResolver.ResolveAsync is wired (activation effects actually fire).
+// Kept in sync with the ResolveAsync call sites in Headless/Runtime/*.
+var ActivationWiredTimings = new HashSet<EffectTiming>
+{
+    EffectTiming.BeforePayCost,
+    EffectTiming.OnEnterFieldAnyone,
+    EffectTiming.OptionSkill,
+    EffectTiming.SecuritySkill,
+    EffectTiming.WhenDigivolving,
+};
 var failures = new List<string>();
 int live = 0;
 int stopPending = 0;
@@ -57,18 +68,23 @@ foreach (var type in cardTypes)
     // Select / Digivolve / …) is skipped by CardEffectRegistrar (`is IActivatedCardEffect → continue`)
     // until the interactive activation path is wired, so a card returning ONLY activated effects
     // binds-but-does-not-fire. Counting those as live would be a false pass (Phase D firing model).
-    int fireableCount = 0, activatedOnlyCount = 0;
+    // Correction (firing model): IActivatedCardEffect is NOT dormant — ActivatedEffectResolver
+    // fires it, but only for the timings it is wired into (ActivationWiredTimings). At those
+    // timings the effect fires (live); at any other timing it binds-but-does-not-fire (pending).
+    int fireableCount = 0, activatedPendingCount = 0;
     var errors = new List<string>();
     foreach (EffectTiming timing in timings)
     {
+        bool wired = ActivationWiredTimings.Contains(timing);
         try
         {
             IReadOnlyList<ICardEffect>? effects = instance.CardEffects(timing, card);
             if (effects == null) continue;
             foreach (ICardEffect e in effects)
             {
-                if (e is IActivatedCardEffect) activatedOnlyCount++;
-                else fireableCount++;
+                if (e is not IActivatedCardEffect) fireableCount++;
+                else if (wired) fireableCount++;
+                else activatedPendingCount++;
             }
         }
         catch (Exception ex) { errors.Add($"{timing}: {Root(ex)}"); }
@@ -82,7 +98,7 @@ foreach (var type in cardTypes)
     {
         stopPending++; // recorded escalation (// STOP) — legitimate zero-effect state
     }
-    else if (activatedOnlyCount > 0 && errors.Count == 0)
+    else if (activatedPendingCount > 0 && errors.Count == 0)
     {
         // Faithfully ported but not yet fireable: returns only activation-flow effects, which the
         // registrar skips until the interactive activation path is wired (engine work, not a port
