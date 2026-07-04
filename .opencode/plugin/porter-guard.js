@@ -16,11 +16,16 @@
 
 const MIN_NUM_CTX = 32768;
 
+// Local porting agents sandboxed to the write whitelist (single-role porter + 3-role pipeline).
+const SANDBOXED = new Set(["porter", "planner", "coder", "analyzer"]);
+
 // Write whitelist, matched against the project-root-relative POSIX path.
-// NOTE: porter writes NO tests — tests/ is intentionally excluded. The gate is
-// the strong-model-owned CardEffect.Binding.Auto test.
+// NOTE: none of these agents write tests — tests/ is intentionally excluded. The gate is the
+// strong-model-owned CardEffect.Binding.Auto test.
 const WRITE_ALLOW = [
-  /^src\/HeadlessDCGO\.Engine\/Assets\/Scripts\/CardEffect\/[^/]+\/[^/]+\//, // card mirrors <SET>/<COLOR>/
+  /^src\/HeadlessDCGO\.Engine\/Assets\/Scripts\/CardEffect\/[^/]+\/[^/]+\//, // card mirrors <SET>/<COLOR>/ (coder)
+  /^porting\/data\/plans\//,                                                  // planner output
+  /^porting\/data\/reviews\//,                                                // analyzer output
   /^porting\/stop\//,                                                         // STOP aggregation
   /(^|\/)bin\//,                                                              // build artefacts
   /(^|\/)obj\//,
@@ -48,7 +53,7 @@ export const PorterGuard = async ({ directory }) => {
     "chat.params": async (input, output) => {
       if (input.agent) agentBySession.set(input.sessionID, input.agent);
       const providerID = input.provider?.info?.id || input.model?.providerID || "";
-      if (input.agent === "porter" && /ollama/i.test(String(providerID))) {
+      if (SANDBOXED.has(input.agent) && /ollama/i.test(String(providerID))) {
         output.options = output.options || {};
         if (!(output.options.num_ctx >= MIN_NUM_CTX)) output.options.num_ctx = MIN_NUM_CTX;
         output.temperature = 0.1;
@@ -71,14 +76,14 @@ export const PorterGuard = async ({ directory }) => {
         if (COMMIT_RE.test(cmd)) {
           throw new Error("porter-guard: git commit/push is forbidden — the user commits.");
         }
-        if (agent === "porter" && DCGO_RE.test(cmd) && /(>|>>|\bsed\s+-i\b|\btee\b|\bcp\b|\bmv\b|\brm\b)/.test(cmd)) {
+        if (SANDBOXED.has(agent) && DCGO_RE.test(cmd) && /(>|>>|\bsed\s+-i\b|\btee\b|\bcp\b|\bmv\b|\brm\b)/.test(cmd)) {
           throw new Error("porter-guard: DCGO/ is read-only.");
         }
         return; // other bash commands (build, run-tests, discovery) pass
       }
 
       if (input.tool !== "write" && input.tool !== "edit" && input.tool !== "patch") return;
-      if (agent !== "porter") return; // only the porter is sandboxed to the whitelist
+      if (!SANDBOXED.has(agent)) return; // only the local porting agents are sandboxed to the whitelist
 
       const rel = toRel(directory, args.filePath || args.path);
       if (rel === null || rel === "") return;
