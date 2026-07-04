@@ -6,19 +6,49 @@
   "branches": [
     {
       "timing": "OptionSkill",
-      "stop": {
-        "stage": "lowering:missing-rule",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
-      }
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "DrawCardsEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "count",
+              "value": {
+                "lit": 1
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "timing": "SecuritySkill",
-      "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "activate mixed with other effects (multi-step) — 강모델"
-      }
+      "localFns": [],
+      "effects": [
+        {
+          "factory": "DrawCardsEffect",
+          "args": [
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "count",
+              "value": {
+                "lit": 2
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -15,9 +15,9 @@
     {
       "timing": "SecuritySkill",
       "stop": {
-        "stage": "lowering:tier-3",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "activate mixed with other effects (multi-step) — 강모델"
+        "stage": "lowering:missing-rule",
+        "code": "STOP_MULTI_STEP_OPTIONAL",
+        "detail": "coroutine has 2 effects (multi-step) — 강모델"
       }
     }
   ]

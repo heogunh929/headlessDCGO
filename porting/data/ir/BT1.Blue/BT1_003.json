@@ -7,9 +7,9 @@
     {
       "timing": "OnAllyAttack",
       "stop": {
-        "stage": "lowering:missing-rule",
+        "stage": "lowering:tier-3",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
+        "detail": "activation intent DrawClass at unwired timing OnAllyAttack (won't fire) — 강모델"
       }
     }
   ]

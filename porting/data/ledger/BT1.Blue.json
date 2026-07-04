@@ -7,7 +7,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 3,
-      "irHash": "75754174c729",
+      "irHash": "7c381381968e",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -20,9 +20,9 @@
           "branch": 0,
           "timing": "OnAllyAttack",
           "status": "stop",
-          "stage": "lowering:missing-rule",
+          "stage": "lowering:tier-3",
           "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
+          "detail": "activation intent DrawClass at unwired timing OnAllyAttack (won't fire) — 강모델"
         }
       ]
     },
@@ -54,23 +54,23 @@
       "card": "BT1_029",
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "4cd311d6aee0",
+      "tier": 2,
+      "irHash": "077d6dd49a42",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "fullyLowered": false,
       "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
+      "reason": "STOP_MULTI_STEP_OPTIONAL",
       "branches": [
         {
           "branch": 0,
           "timing": "OnEnterFieldAnyone",
           "status": "stop",
           "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
+          "code": "STOP_MULTI_STEP_OPTIONAL",
+          "detail": "DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델"
         }
       ]
     },
@@ -261,23 +261,23 @@
       "card": "BT1_041",
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "08139cc7b8b4",
+      "tier": 2,
+      "irHash": "f737f5482962",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "fullyLowered": false,
       "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
+      "reason": "STOP_MULTI_STEP_OPTIONAL",
       "branches": [
         {
           "branch": 0,
           "timing": "OnEnterFieldAnyone",
           "status": "stop",
           "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 2, activateClass).Draw"
+          "code": "STOP_MULTI_STEP_OPTIONAL",
+          "detail": "DrawClass has a semantic activate-condition (no condition slot on activation factory) — 강모델"
         },
         {
           "branch": 1,
@@ -375,8 +375,8 @@
       "card": "BT1_096",
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "ddba99ffec64",
+      "tier": 2,
+      "irHash": "d56c4767408f",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -397,9 +397,9 @@
           "branch": 1,
           "timing": "SecuritySkill",
           "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "activate mixed with other effects (multi-step) — 강모델"
+          "stage": "lowering:missing-rule",
+          "code": "STOP_MULTI_STEP_OPTIONAL",
+          "detail": "coroutine has 2 effects (multi-step) — 강모델"
         }
       ]
     },
@@ -407,31 +407,25 @@
       "card": "BT1_097",
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "2cfa6c099028",
+      "tier": 1,
+      "irHash": "c0225d0a6a66",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stub",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
       "branches": [
         {
           "branch": 0,
           "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
+          "status": "lowered"
         },
         {
           "branch": 1,
           "timing": "SecuritySkill",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "activate mixed with other effects (multi-step) — 강모델"
+          "status": "lowered"
         }
       ]
     },
@@ -440,7 +434,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 3,
-      "irHash": "ddba99ffec64",
+      "irHash": "f619aa11025b",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -461,9 +455,9 @@
           "branch": 1,
           "timing": "SecuritySkill",
           "status": "stop",
-          "stage": "lowering:tier-3",
+          "stage": "lowering:missing-rule",
           "code": "STOP_COMPLEX_TIMING",
-          "detail": "activate mixed with other effects (multi-step) — 강모델"
+          "detail": "no coroutine intent mapping: CardEffectCommons.AddThisCardToHand"
         }
       ]
     },
@@ -496,7 +490,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 3,
-      "irHash": "1e6012fbf120",
+      "irHash": "6f7dac0acbf0",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -517,9 +511,9 @@
           "branch": 1,
           "timing": "SecuritySkill",
           "status": "stop",
-          "stage": "lowering:tier-3",
+          "stage": "lowering:missing-rule",
           "code": "STOP_COMPLEX_TIMING",
-          "detail": "activate mixed with other effects (multi-step) — 강모델"
+          "detail": "no coroutine intent mapping: CardEffectCommons.GainCanNotAttackPlayerEffect"
         }
       ]
     },

@@ -15,6 +15,11 @@
       "note": "[On X] this Digimon gets ±N DP — self DP 버프(트리거). 대상이 self 일 때만."
     }
   },
+  "_activation_doc": "활성효과(IActivatedCardEffect) 코루틴 의도 → 활성 팩토리. TriggerEffect 와 달리 timing/condition/description 슬롯 없이 팩토리를 해당 타이밍 분기에 직접 add(옵션/시큐리티/on-play 등 activation flow 가 발화·게이팅). count_arg = ctorArgs 인덱스. WIRED 타이밍에서만 로워링, 그 외는 STOP(activation-pending). CanActivate 는 배관만일 때 드롭.",
+  "activation_intents": {
+    "DrawClass": { "factory": "DrawCardsEffect", "count_arg": 1, "note": "new DrawClass(owner, N, ac).Draw → DrawCardsEffect(card, N)" }
+  },
+  "activation_wired_timings": ["BeforePayCost", "OnEnterFieldAnyone", "OptionSkill", "SecuritySkill", "WhenDigivolving"],
   "plumbing_predicates": [
     "CanActivateOnDeletion", "CanActivateOnPlay", "CanActivateOnAttack",
     "CanActivateOnDigivolve", "CanActivateOnStartTurn", "CanActivateOnEndTurn",

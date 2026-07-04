@@ -4,7 +4,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 3,
-      "irHash": "75754174c729",
+      "irHash": "7c381381968e",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "included": false,
@@ -23,12 +23,12 @@
     "BT1_029": {
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "4cd311d6aee0",
+      "tier": 2,
+      "irHash": "077d6dd49a42",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "included": false,
-      "reason": "STOP_COMPLEX_TIMING"
+      "reason": "STOP_MULTI_STEP_OPTIONAL"
     },
     "BT1_030": {
       "set": "BT1",
@@ -113,12 +113,12 @@
     "BT1_041": {
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "08139cc7b8b4",
+      "tier": 2,
+      "irHash": "f737f5482962",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "included": false,
-      "reason": "STOP_COMPLEX_TIMING"
+      "reason": "STOP_MULTI_STEP_OPTIONAL"
     },
     "BT1_043": {
       "set": "BT1",
@@ -153,8 +153,8 @@
     "BT1_096": {
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "ddba99ffec64",
+      "tier": 2,
+      "irHash": "d56c4767408f",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "included": false,
@@ -163,18 +163,18 @@
     "BT1_097": {
       "set": "BT1",
       "color": "Blue",
-      "tier": 3,
-      "irHash": "2cfa6c099028",
-      "provenance": "handwritten",
-      "mirrorState": "stub",
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING"
+      "tier": 1,
+      "irHash": "c0225d0a6a66",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "included": true,
+      "reason": "ir-generated"
     },
     "BT1_098": {
       "set": "BT1",
       "color": "Blue",
       "tier": 3,
-      "irHash": "ddba99ffec64",
+      "irHash": "f619aa11025b",
       "provenance": "handwritten",
       "mirrorState": "stop-pending",
       "included": false,
@@ -194,7 +194,7 @@
       "set": "BT1",
       "color": "Blue",
       "tier": 3,
-      "irHash": "1e6012fbf120",
+      "irHash": "6f7dac0acbf0",
       "provenance": "handwritten",
       "mirrorState": "stub",
       "included": false,

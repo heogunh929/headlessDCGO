@@ -1,570 +1,245 @@
-{
-  "set": "BT1",
-  "color": "Red",
-  "cards": [
-    {
-      "card": "BT1_001",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 2,
-      "irHash": "6551f8777076",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stub",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MISSING_PRIMITIVE",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnAllyAttack",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MISSING_PRIMITIVE",
-          "detail": "member access has no base atom rule: GManager.instance.attackProcess.DefendingPermanent"
-        }
-      ]
-    },
-    {
-      "card": "BT1_002",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "785f5493afda",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "None",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_010",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "49fc6154430d",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnEnterFieldAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect"
-        }
-      ]
-    },
-    {
-      "card": "BT1_011",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "f404c4e50659",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnEnterFieldAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: selectCardEffect.Activate"
-        }
-      ]
-    },
-    {
-      "card": "BT1_012",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "860ff3abda99",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnBlockAnyone",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_015",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "8bf3aba39edc",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "None",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_016",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "2cd16ec46b7a",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "None",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_017",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 2,
-      "irHash": "a40d0d6cb1bf",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnEnterFieldAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 2 effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_018",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "f10eee128185",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "None",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_021",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 2,
-      "irHash": "24d69e801062",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnAllyAttack",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 2 effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_022",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "d1852d94a966",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "live",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnDetermineDoSecurityCheck",
-          "status": "lowered"
-        },
-        {
-          "branch": 1,
-          "timing": "OnBlockAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw"
-        }
-      ]
-    },
-    {
-      "card": "BT1_023",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "3034a8c05de9",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnEnterFieldAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: selectPermanentEffect.Activate"
-        }
-      ]
-    },
-    {
-      "card": "BT1_025",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "25c9d74cead6",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnEnterFieldAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: CardEffectCommons.ChangeDigimonSAttack"
-        },
-        {
-          "branch": 1,
-          "timing": "None",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
-        }
-      ]
-    },
-    {
-      "card": "BT1_026",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "4dd051b46f55",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnDetermineDoSecurityCheck",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_085",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 1,
-      "irHash": "81ee201f536d",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "ir-generated",
-      "mirrorState": "live",
-      "fullyLowered": true,
-      "included": true,
-      "reason": "ir-generated",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OnStartTurn",
-          "status": "lowered"
-        },
-        {
-          "branch": 1,
-          "timing": "None",
-          "status": "lowered"
-        },
-        {
-          "branch": 2,
-          "timing": "SecuritySkill",
-          "status": "lowered"
-        }
-      ]
-    },
-    {
-      "card": "BT1_090",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 2,
-      "irHash": "d01aca1e928b",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 2 effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_091",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 2,
-      "irHash": "d01aca1e928b",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 2 effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_092",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 2,
-      "irHash": "d98779f018bb",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 3 effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_093",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "2f9e32f40be9",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 3 effects (multi-step) — 강모델"
-        },
-        {
-          "branch": 1,
-          "timing": "SecuritySkill",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "activate mixed with other effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_094",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "abf297c5e481",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: selectPermanentEffect.Activate"
-        },
-        {
-          "branch": 1,
-          "timing": "SecuritySkill",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
-        }
-      ]
-    },
-    {
-      "card": "BT1_095",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "ddba99ffec64",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_MULTI_STEP_OPTIONAL",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "OptionSkill",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_MULTI_STEP_OPTIONAL",
-          "detail": "coroutine has 2 effects (multi-step) — 강모델"
-        },
-        {
-          "branch": 1,
-          "timing": "SecuritySkill",
-          "status": "stop",
-          "stage": "lowering:tier-3",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "activate mixed with other effects (multi-step) — 강모델"
-        }
-      ]
-    },
-    {
-      "card": "BT1_114",
-      "set": "BT1",
-      "color": "Red",
-      "tier": 3,
-      "irHash": "6801c1b3145d",
-      "irSchemaVer": "canonical-ir/1",
-      "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "live",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
-      "branches": [
-        {
-          "branch": 0,
-          "timing": "None",
-          "status": "lowered"
-        },
-        {
-          "branch": 1,
-          "timing": "OnAllyAttack",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "intent arg not a literal/known enum: {'opaque': '-5'}"
-        },
-        {
-          "branch": 2,
-          "timing": "None",
-          "status": "lowered"
-        }
-      ]
-    }
-  ]
-}
+[
+  {
+    "card": "BT1_001",
+    "branch": 0,
+    "timing": "OnAllyAttack",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MISSING_PRIMITIVE",
+    "detail": "member access has no base atom rule: GManager.instance.attackProcess.DefendingPermanent"
+  },
+  {
+    "card": "BT1_002",
+    "branch": 0,
+    "timing": "None",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_010",
+    "branch": 0,
+    "timing": "OnEnterFieldAnyone",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "no coroutine intent mapping: CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect"
+  },
+  {
+    "card": "BT1_011",
+    "branch": 0,
+    "timing": "OnEnterFieldAnyone",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "no coroutine intent mapping: selectCardEffect.Activate"
+  },
+  {
+    "card": "BT1_012",
+    "branch": 0,
+    "timing": "OnBlockAnyone",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_015",
+    "branch": 0,
+    "timing": "None",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_016",
+    "branch": 0,
+    "timing": "None",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_017",
+    "branch": 0,
+    "timing": "OnEnterFieldAnyone",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 2 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_018",
+    "branch": 0,
+    "timing": "None",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_021",
+    "branch": 0,
+    "timing": "OnAllyAttack",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 2 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_022",
+    "branch": 0,
+    "timing": "OnDetermineDoSecurityCheck",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_022",
+    "branch": 1,
+    "timing": "OnBlockAnyone",
+    "status": "stop",
+    "stage": "lowering:tier-3",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "activation intent DrawClass at unwired timing OnBlockAnyone (won't fire) — 강모델"
+  },
+  {
+    "card": "BT1_023",
+    "branch": 0,
+    "timing": "OnEnterFieldAnyone",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "no coroutine intent mapping: selectPermanentEffect.Activate"
+  },
+  {
+    "card": "BT1_025",
+    "branch": 0,
+    "timing": "OnEnterFieldAnyone",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "no coroutine intent mapping: CardEffectCommons.ChangeDigimonSAttack"
+  },
+  {
+    "card": "BT1_025",
+    "branch": 1,
+    "timing": "None",
+    "status": "stop",
+    "stage": "lowering:tier-3",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+  },
+  {
+    "card": "BT1_026",
+    "branch": 0,
+    "timing": "OnDetermineDoSecurityCheck",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_085",
+    "branch": 0,
+    "timing": "OnStartTurn",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_085",
+    "branch": 1,
+    "timing": "None",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_085",
+    "branch": 2,
+    "timing": "SecuritySkill",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_090",
+    "branch": 0,
+    "timing": "OptionSkill",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 2 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_091",
+    "branch": 0,
+    "timing": "OptionSkill",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 2 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_092",
+    "branch": 0,
+    "timing": "OptionSkill",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 3 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_093",
+    "branch": 0,
+    "timing": "OptionSkill",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 3 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_093",
+    "branch": 1,
+    "timing": "SecuritySkill",
+    "status": "stop",
+    "stage": "lowering:tier-3",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "activate mixed with other effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_094",
+    "branch": 0,
+    "timing": "OptionSkill",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "no coroutine intent mapping: selectPermanentEffect.Activate"
+  },
+  {
+    "card": "BT1_094",
+    "branch": 1,
+    "timing": "SecuritySkill",
+    "status": "stop",
+    "stage": "lowering:tier-3",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "coroutine/ActivateClass or non-factory effect (declarative translation needed)"
+  },
+  {
+    "card": "BT1_095",
+    "branch": 0,
+    "timing": "OptionSkill",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_MULTI_STEP_OPTIONAL",
+    "detail": "coroutine has 2 effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_095",
+    "branch": 1,
+    "timing": "SecuritySkill",
+    "status": "stop",
+    "stage": "lowering:tier-3",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "activate mixed with other effects (multi-step) — 강모델"
+  },
+  {
+    "card": "BT1_114",
+    "branch": 0,
+    "timing": "None",
+    "status": "lowered"
+  },
+  {
+    "card": "BT1_114",
+    "branch": 1,
+    "timing": "OnAllyAttack",
+    "status": "stop",
+    "stage": "lowering:missing-rule",
+    "code": "STOP_COMPLEX_TIMING",
+    "detail": "intent arg not a literal/known enum: {'opaque': '-5'}"
+  },
+  {
+    "card": "BT1_114",
+    "branch": 2,
+    "timing": "None",
+    "status": "lowered"
+  }
+]

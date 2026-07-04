@@ -15,9 +15,9 @@
     {
       "timing": "SecuritySkill",
       "stop": {
-        "stage": "lowering:tier-3",
+        "stage": "lowering:missing-rule",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "activate mixed with other effects (multi-step) — 강모델"
+        "detail": "no coroutine intent mapping: CardEffectCommons.AddThisCardToHand"
       }
     }
   ]

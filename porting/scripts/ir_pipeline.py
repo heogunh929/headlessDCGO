@@ -354,6 +354,30 @@ def lower_activate(act: dict, timing: str, local_fns: dict):
         raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
                    f"coroutine has {len(yields)} effects (multi-step) — 강모델")
     intent = yields[0]
+    # Activation-effect coroutine (IActivatedCardEffect: Draw/…). Emitted plainly at the timing —
+    # the activation flow (option/security/on-play) fires + gates it, so no condition/description slot.
+    # Only WIRED timings actually fire (else STOP activation-pending). CanActivate must be pure plumbing
+    # (the activation factory has no condition slot; a real semantic condition can't be expressed).
+    if "ctorCall" in intent and intent["ctorCall"] in ACTIVATION_INTENTS:
+        aspec = ACTIVATION_INTENTS[intent["ctorCall"]]
+        if timing not in ACTIVATION_WIRED:
+            raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING",
+                       f"activation intent {intent['ctorCall']} at unwired timing {timing} (won't fire) — 강모델")
+        afactory = aspec["factory"]
+        asym = SYMBOLS.get(afactory)
+        if asym is None or asym["kind"] != "factory":
+            raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE", f"activation factory absent: {afactory}")
+        ctor_args = intent.get("ctorArgs", [])
+        cnt = ctor_args[aspec["count_arg"]] if aspec["count_arg"] < len(ctor_args) else {}
+        if "lit" not in cnt:
+            raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
+                       f"activation count not a literal: {cnt}")
+        acf = local_fns.get(act.get("activateCondition", ""))
+        if acf is not None and strip_plumbing(acf.get("body")) is not None:
+            raise Stop("lowering:missing-rule", "STOP_MULTI_STEP_OPTIONAL",
+                       f"{intent['ctorCall']} has a semantic activate-condition (no condition slot on activation factory) — 강모델")
+        return {"factory": afactory, "args": [{"name": "card", "value": {"ref": "card"}},
+                                              {"name": "count", "value": {"lit": cnt["lit"]}}]}, None
     if "call" not in intent:
         raise Stop("lowering:tier-3", "STOP_COMPLEX_TIMING", f"non-call coroutine intent: {intent}")
     spec = INTENTS.get(intent["call"])
@@ -612,6 +636,8 @@ SYMBOLS: dict[str, dict] = {}
 ATOMS: dict[str, dict] = {}
 INTENTS: dict[str, dict] = {}
 PLUMBING: set[str] = set()
+ACTIVATION_INTENTS: dict[str, dict] = {}
+ACTIVATION_WIRED: set[str] = set()
 PERM_ATOMS: set[str] = set()        # commons bool(CardSource, HeadlessEntityId) — permanent-subject
 ID_LAMBDA_CALLS: set[str] = set()   # commons taking a Func<HeadlessEntityId,bool> lambda
 
@@ -645,10 +671,19 @@ def load_intents() -> tuple[dict, set]:
     return d.get("intents", {}), set(d.get("plumbing_predicates", []))
 
 
+def load_activation() -> tuple[dict, set]:
+    path = PORTING / "data/intents.json"
+    if not path.exists():
+        return {}, set()
+    d = json.loads(path.read_text(encoding="utf-8"))
+    return d.get("activation_intents", {}), set(d.get("activation_wired_timings", []))
+
+
 def main() -> int:
-    global SYMBOLS, ATOMS, INTENTS, PLUMBING
+    global SYMBOLS, ATOMS, INTENTS, PLUMBING, ACTIVATION_INTENTS, ACTIVATION_WIRED
     ATOMS = load_atoms()
     INTENTS, PLUMBING = load_intents()
+    ACTIVATION_INTENTS, ACTIVATION_WIRED = load_activation()
     args = sys.argv[1:]
     write = False
     if args and args[0] == "--write":

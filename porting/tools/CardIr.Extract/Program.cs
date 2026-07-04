@@ -172,6 +172,12 @@ static void CollectBranchStatement(StatementSyntax s, JsonArray localFns, JsonAr
                     case "SetIsInheritedEffect":
                         node["inherited"] = callArgs.Count >= 1 ? Expr(callArgs[0].Expression) : new JsonObject { ["const"] = true };
                         return;
+                    case "SetIsSecurityEffect":
+                        // Marks the ActivateClass as a security effect. Headless has no equivalent — the
+                        // SecuritySkill timing conveys the security context (SecurityResolver). Consume it so
+                        // it is not left as a separate opaque effect on the branch.
+                        node["isSecurity"] = callArgs.Count >= 1 ? Expr(callArgs[0].Expression) : new JsonObject { ["const"] = true };
+                        return;
                 }
             }
             // cardEffects.Add(...)
@@ -305,12 +311,29 @@ static JsonNode Expr(ExpressionSyntax e)
 
         case InvocationExpressionSyntax inv:
         {
-            string callName = inv.Expression is MemberAccessExpressionSyntax m
-                ? m.Expression + "." + m.Name.Identifier.Text
-                : inv.Expression.ToString();
             var argsArr = new JsonArray();
             foreach (var a in inv.ArgumentList.Arguments)
                 argsArr.Add(Expr(a.Expression));
+            // `new Class(ctorArgs).Method(args)` — coroutine builder pattern (DrawClass, IRecovery, …).
+            // Structure the ctor so the pipeline can read builder args (e.g. draw count) instead of a string.
+            if (inv.Expression is MemberAccessExpressionSyntax mm
+                && mm.Expression is ObjectCreationExpressionSyntax oce)
+            {
+                var ctorArgs = new JsonArray();
+                if (oce.ArgumentList is not null)
+                    foreach (var a in oce.ArgumentList.Arguments)
+                        ctorArgs.Add(Expr(a.Expression));
+                return new JsonObject
+                {
+                    ["ctorCall"] = oce.Type.ToString(),
+                    ["ctorArgs"] = ctorArgs,
+                    ["method"] = mm.Name.Identifier.Text,
+                    ["args"] = argsArr,
+                };
+            }
+            string callName = inv.Expression is MemberAccessExpressionSyntax m
+                ? m.Expression + "." + m.Name.Identifier.Text
+                : inv.Expression.ToString();
             return new JsonObject { ["call"] = callName, ["args"] = argsArr };
         }
 
