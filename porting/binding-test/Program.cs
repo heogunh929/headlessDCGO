@@ -39,6 +39,7 @@ EffectTiming[] timings = Enum.GetValues<EffectTiming>();
 var failures = new List<string>();
 int live = 0;
 int stopPending = 0;
+int activationPending = 0;
 
 string repoRoot = FindRepositoryRoot();
 
@@ -52,25 +53,41 @@ foreach (var type in cardTypes)
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     var card = new CardSource(ctx, new HeadlessEntityId($"p1:auto:{type.Name}"), P1, P1);
 
-    int effectCount = 0;
+    // A card is LIVE only if it returns a FIREABLE effect. IActivatedCardEffect (Draw / Reveal /
+    // Select / Digivolve / …) is skipped by CardEffectRegistrar (`is IActivatedCardEffect → continue`)
+    // until the interactive activation path is wired, so a card returning ONLY activated effects
+    // binds-but-does-not-fire. Counting those as live would be a false pass (Phase D firing model).
+    int fireableCount = 0, activatedOnlyCount = 0;
     var errors = new List<string>();
     foreach (EffectTiming timing in timings)
     {
         try
         {
             IReadOnlyList<ICardEffect>? effects = instance.CardEffects(timing, card);
-            if (effects != null) effectCount += effects.Count;
+            if (effects == null) continue;
+            foreach (ICardEffect e in effects)
+            {
+                if (e is IActivatedCardEffect) activatedOnlyCount++;
+                else fireableCount++;
+            }
         }
         catch (Exception ex) { errors.Add($"{timing}: {Root(ex)}"); }
     }
 
-    if (effectCount > 0)
+    if (fireableCount > 0)
     {
         live++;
     }
     else if (errors.Count == 0 && MirrorHasStopMarker(repoRoot, type))
     {
         stopPending++; // recorded escalation (// STOP) — legitimate zero-effect state
+    }
+    else if (activatedOnlyCount > 0 && errors.Count == 0)
+    {
+        // Faithfully ported but not yet fireable: returns only activation-flow effects, which the
+        // registrar skips until the interactive activation path is wired (engine work, not a port
+        // defect). Tracked separately so it does not read as either live or a failure.
+        activationPending++;
     }
     else
     {
@@ -103,7 +120,7 @@ foreach (string file in Directory.EnumerateFiles(mirrorRoot, "*.cs", SearchOptio
 Console.WriteLine(
     $"CardEffect.Binding.Auto: {cardTypes.Count} card(s) discovered ({undiscovered} live mirror(s) undiscovered)" +
     (filter is null ? "" : $" (filter '{filter}')") +
-    $", {live} live, {stopPending} stop-pending, {failures.Count} failing.");
+    $", {live} live, {stopPending} stop-pending, {activationPending} activation-pending, {failures.Count} failing.");
 
 if (failures.Count > 0)
 {
