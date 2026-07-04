@@ -5,14 +5,12 @@
 
 ## 코드별 STOP 분기
 
-### STOP_COMPLEX_TIMING (13)
+### STOP_COMPLEX_TIMING (11)
 
 | 카드 | 타이밍 | stage | detail |
 |---|---|---|---|
-| BT1_001 | OnAllyAttack | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP |
 | BT1_010 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect |
 | BT1_011 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectCardEffect.Activate |
-| BT1_012 | OnBlockAnyone | lowering:missing-rule | no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP |
 | BT1_022 | OnBlockAnyone | lowering:missing-rule | no coroutine intent mapping: new DrawClass(card.Owner, 1, activateClass).Draw |
 | BT1_023 | OnEnterFieldAnyone | lowering:missing-rule | no coroutine intent mapping: selectPermanentEffect.Activate |
 | BT1_025 | None | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
@@ -21,7 +19,7 @@
 | BT1_094 | OptionSkill | lowering:missing-rule | no coroutine intent mapping: selectPermanentEffect.Activate |
 | BT1_094 | SecuritySkill | lowering:tier-3 | coroutine/ActivateClass or non-factory effect (declarative translation needed) |
 | BT1_095 | SecuritySkill | lowering:tier-3 | activate mixed with other effects (multi-step) — 강모델 |
-| BT1_114 | OnAllyAttack | lowering:missing-rule | coroutine value arg not a literal: {'opaque': '-5'} |
+| BT1_114 | OnAllyAttack | lowering:missing-rule | intent arg not a literal/known enum: {'opaque': '-5'} |
 
 ### STOP_MULTI_STEP_OPTIONAL (8)
 

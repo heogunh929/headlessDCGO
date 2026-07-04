@@ -38,6 +38,7 @@ MIRROR_TEMPLATE = """\
 using System.Collections.Generic;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Headless.Effects;
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.{set}.{color};
 
@@ -245,6 +246,16 @@ def resolve_description(desc, local_fns: dict) -> str:
     return ""
 
 
+def lower_intent_value(node: dict) -> dict:
+    """코루틴 intent 인자 값 — 리터럴 또는 열거형 멤버(EffectDuration.X)."""
+    if "lit" in node or "const" in node:
+        return node
+    if "member" in node and node["member"].startswith("EffectDuration."):
+        return {"enum": node["member"]}
+    raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
+               f"intent arg not a literal/known enum: {node}")
+
+
 def lower_activate(act: dict, timing: str, local_fns: dict):
     """ActivateClass 활성효과 → 단일 TriggerEffect 팩토리 (canonical factoryAdd) + 파생 Condition."""
     coro = local_fns.get(act.get("coroutine", ""))
@@ -266,10 +277,22 @@ def lower_activate(act: dict, timing: str, local_fns: dict):
     if sym is None or sym["kind"] != "factory":
         raise Stop("lowering:missing-op", "STOP_MISSING_PRIMITIVE",
                    f"intent factory not in symbols: {factory}")
-    value = intent.get("args", [])[spec["value_arg"]]
-    if not ("lit" in value or "const" in value):
-        raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
-                   f"coroutine value arg not a literal: {value}")
+    iargs = intent.get("args", [])
+    # self-target guard: some intents (DP/SAttack buffs) only map to a *self* trigger factory
+    # when their target arg is this card's own permanent.
+    st = spec.get("self_target_arg")
+    if st is not None:
+        tgt = iargs[st] if st < len(iargs) else {}
+        if not (tgt.get("call", "").endswith("PermanentOfThisCard")):
+            raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
+                       f"{intent['call']} target not self (needs targeted factory): {tgt}")
+    # map factory params <- intent arg indices
+    mapped = {}
+    for pname, idx in spec.get("arg_map", {}).items():
+        if idx >= len(iargs):
+            raise Stop("lowering:missing-rule", "STOP_COMPLEX_TIMING",
+                       f"{intent['call']} missing arg {idx} for {pname}")
+        mapped[pname] = lower_intent_value(iargs[idx])
     # condition: strip plumbing; semantic remainder (if any) → Condition local fn
     cond_localfn = None
     cond_value = {"null": True}
@@ -281,11 +304,11 @@ def lower_activate(act: dict, timing: str, local_fns: dict):
             cond_value = {"localfn": "Condition"}
     slots = {
         "timing": {"timing": timing},
-        spec["value_param"]: value,
         "isInheritedEffect": act.get("inherited", {"const": False}),
         "card": {"ref": "card"},
         "condition": cond_value,
         "description": {"lit": resolve_description(act.get("description"), local_fns)},
+        **mapped,
     }
     out_args = [{"name": p[1], "value": slots[p[1]]} for p in sym["params"] if p[1] in slots]
     return {"factory": factory, "args": out_args}, cond_localfn
@@ -410,6 +433,8 @@ def emit_value(v: dict) -> str:
         return v["localfn"]
     if "timing" in v:
         return f"EffectTiming.{v['timing']}"
+    if "enum" in v:
+        return v["enum"]
     raise ValueError(f"cannot emit value {v}")
 
 

@@ -44,7 +44,7 @@
       "stop": {
         "stage": "lowering:missing-rule",
         "code": "STOP_COMPLEX_TIMING",
-        "detail": "coroutine value arg not a literal: {'opaque': '-5'}"
+        "detail": "intent arg not a literal/known enum: {'opaque': '-5'}"
       }
     },
     {

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Headless.Effects;
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 

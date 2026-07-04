@@ -6,23 +6,20 @@
       "card": "BT1_001",
       "set": "BT1",
       "color": "Red",
-      "tier": 3,
-      "irHash": "8831a0f10201",
+      "tier": 1,
+      "irHash": "e0fe4267fedb",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
       "branches": [
         {
           "branch": 0,
           "timing": "OnAllyAttack",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP"
+          "status": "lowered"
         }
       ]
     },
@@ -99,23 +96,20 @@
       "card": "BT1_012",
       "set": "BT1",
       "color": "Red",
-      "tier": 3,
-      "irHash": "cae72eda2d55",
+      "tier": 1,
+      "irHash": "ba46a405176f",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
-      "provenance": "handwritten",
-      "mirrorState": "stop-pending",
-      "fullyLowered": false,
-      "included": false,
-      "reason": "STOP_COMPLEX_TIMING",
+      "provenance": "ir-generated",
+      "mirrorState": "live",
+      "fullyLowered": true,
+      "included": true,
+      "reason": "ir-generated",
       "branches": [
         {
           "branch": 0,
           "timing": "OnBlockAnyone",
-          "status": "stop",
-          "stage": "lowering:missing-rule",
-          "code": "STOP_COMPLEX_TIMING",
-          "detail": "no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP"
+          "status": "lowered"
         }
       ]
     },
@@ -543,7 +537,7 @@
       "set": "BT1",
       "color": "Red",
       "tier": 3,
-      "irHash": "a090ea2d4464",
+      "irHash": "6801c1b3145d",
       "irSchemaVer": "canonical-ir/1",
       "tableVer": "catalog@2026-07-04",
       "provenance": "handwritten",
@@ -563,7 +557,7 @@
           "status": "stop",
           "stage": "lowering:missing-rule",
           "code": "STOP_COMPLEX_TIMING",
-          "detail": "coroutine value arg not a literal: {'opaque': '-5'}"
+          "detail": "intent arg not a literal/known enum: {'opaque': '-5'}"
         },
         {
           "branch": 2,

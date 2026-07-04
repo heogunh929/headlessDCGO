@@ -5,9 +5,14 @@
   "intents": {
     "card.Owner.AddMemory": {
       "factory": "AddMemoryTriggerEffect",
-      "value_arg": 0,
-      "value_param": "amount",
+      "arg_map": {"amount": 0},
       "note": "[On X] Gain N memory — 트리거형 메모리 증가"
+    },
+    "CardEffectCommons.ChangeDigimonDP": {
+      "factory": "SelfDpBuffTriggerEffect",
+      "self_target_arg": 0,
+      "arg_map": {"changeValue": 1, "duration": 2},
+      "note": "[On X] this Digimon gets ±N DP — self DP 버프(트리거). 대상이 self 일 때만."
     }
   },
   "plumbing_predicates": [

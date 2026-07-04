@@ -6,11 +6,62 @@
   "branches": [
     {
       "timing": "OnBlockAnyone",
-      "stop": {
-        "stage": "lowering:missing-rule",
-        "code": "STOP_COMPLEX_TIMING",
-        "detail": "no coroutine intent mapping: CardEffectCommons.ChangeDigimonDP"
-      }
+      "localFns": [
+        {
+          "name": "Condition",
+          "body": {
+            "call": "CardEffectCommons.IsExistOnBattleArea",
+            "args": [
+              {
+                "ref": "card"
+              }
+            ]
+          }
+        }
+      ],
+      "effects": [
+        {
+          "factory": "SelfDpBuffTriggerEffect",
+          "args": [
+            {
+              "name": "timing",
+              "value": {
+                "timing": "OnBlockAnyone"
+              }
+            },
+            {
+              "name": "changeValue",
+              "value": {
+                "lit": 2000
+              }
+            },
+            {
+              "name": "duration",
+              "value": {
+                "enum": "EffectDuration.UntilEachTurnEnd"
+              }
+            },
+            {
+              "name": "card",
+              "value": {
+                "ref": "card"
+              }
+            },
+            {
+              "name": "condition",
+              "value": {
+                "localfn": "Condition"
+              }
+            },
+            {
+              "name": "description",
+              "value": {
+                "lit": "[Your Turn] When this Digimon is blocked, it gets +2000 DP."
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
