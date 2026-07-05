@@ -126,8 +126,12 @@ These are the largest practical blockers for broad per-card porting.
 > 슬롯을 트래시 존/테이머 진화원 소스로 최대 N장 충족(SpecialPlayRecipe.MaxTrash/UnderTamerCount +
 > `DigiXrosWithExtraMaterialsEffect`, FuseAsync 다중존/소스-detach). AS-IS 1:1(getMaxTrashCount Func).
 >
-> **진짜 남은 STOP(~50장):** Digi-Burst (39)·Burst Digivolution (5)·Jogress by levels (4)·DNA temp materials (2)·
-> Assembly 필드-대체. 이들은
+> **✅ 추가 해결(2026-07-05):** Digi-Burst 코어 — `CardEffectFactory.DigiBurstEffect(card, count, innerEffect, desc)`
+> = AS-IS IDigiBurst(자기 진화원 소스 N장 trash 비용 + inner 효과, ≥N 게이트). activated inner(draw/delete/trash 등)
+> 커버. 잔여: 연속-grant inner(gain-unblockable류), optional 프롬프트, per-source 면역 — 후속 정제.
+>
+> **진짜 남은 STOP(~11장):** Burst Digivolution (5)·Jogress by levels (4)·DNA temp materials (2)·Assembly 필드-대체.
+> 이들은
 > `SpecialPlayRecipe` 확장(가변-count/변형 재료) 또는 Digi-Burst 서브시스템이 필요 — 이름-커버리지가 아닌 실제
 > 미구현. 아래 표의 위 항목들은 stale이므로 무시.
 

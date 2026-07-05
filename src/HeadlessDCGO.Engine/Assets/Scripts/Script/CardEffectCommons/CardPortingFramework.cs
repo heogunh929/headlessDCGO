@@ -2634,6 +2634,34 @@ public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffec
         throw new NotSupportedException($"Activated trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c>: a <c>[Digi-Burst N]</c> effect — trash N of THIS card's
+/// OWN digivolution sources as a cost, then resolve <see cref="InnerEffect"/>. Gated on the permanent holding at
+/// least <see cref="Count"/> digivolution cards (AS-IS <c>CanDigiBurst</c>). Resolved via the activation flow.</summary>
+public sealed class DigiBurstActivatedEffect : IActivatedCardEffect
+{
+    public DigiBurstActivatedEffect(CardSource card, int count, ICardEffect innerEffect, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(innerEffect);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Count = count < 1 ? 1 : count;
+        InnerEffect = innerEffect;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public int Count { get; }
+
+    public ICardEffect InnerEffect { get; }
+
+    public string Description { get; }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Digi-Burst effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// An activated "gain/lose N memory" effect for player-activated skills (Option [Main] / [Security], e.g.
 /// ST2_13). Resolved imperatively; <see cref="Apply"/> emits an AddMemory mutation.
@@ -5481,6 +5509,12 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectAndTrashDigivolutionEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description) =>
         new ActivatedSelectTrashDigivolutionEffect(card, canTarget, maxCount, trashCount, fromBottom, description);
+
+    /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c> — <c>[Digi-Burst N] &lt;effect&gt;</c>: trash N of this
+    /// card's own digivolution sources as a cost, then resolve <paramref name="innerEffect"/>. Offered only when
+    /// the permanent holds &gt;= N sources. Wrap the card's Digi-Burst body as the inner effect.</summary>
+    public static ICardEffect DigiBurstEffect(CardSource card, int count, ICardEffect innerEffect, string description) =>
+        new DigiBurstActivatedEffect(card, count, innerEffect, description);
 
     /// <summary>A triggered "[When ...] unsuspend this Digimon" effect (e.g. ST2_11). Pass
     /// <paramref name="maxCountPerTurn"/> = 1 (+ <paramref name="hash"/> for the original SetHashString) to

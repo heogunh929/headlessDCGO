@@ -125,6 +125,30 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case DigiBurstActivatedEffect burst:
+                {
+                    // (PRIM special-play) AS-IS IDigiBurst: gate on the card's own permanent holding >= Count
+                    // digivolution sources; pay by trashing Count of them (from the bottom, face-down); then
+                    // resolve the inner effect through the SAME sink / choice cycle.
+                    Headless.State.DigivolutionStack stack = Headless.State.DigivolutionStackReader.Read(
+                        context.CardInstanceRepository, context.CardRepository, burst.Card.InstanceId);
+                    if (stack.UnderCards.Count >= burst.Count)
+                    {
+                        sink.Apply(new EffectMutation(
+                            MatchStateMutationSink.TrashDigivolutionCardsKind, burst.Card.InstanceId,
+                            new Dictionary<string, object?>(StringComparer.Ordinal)
+                            {
+                                [MatchStateMutationSink.CountKey] = burst.Count,
+                                [MatchStateMutationSink.FromBottomKey] = true,
+                            }));
+                        resolved += await ResolveListAsync(
+                            context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case PlayOptionCardEffect playOption:
                 {
                     // (PRIM-P0 B.O.5) select Option card(s) from a zone and play each as a nested effect: trash it
