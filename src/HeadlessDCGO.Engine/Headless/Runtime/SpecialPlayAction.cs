@@ -22,6 +22,12 @@ public enum SpecialPlayKind
     /// same "materials -> sources" fusion as DigiXros (routed through FusionKind.DigiXros in ProcessAsync).
     /// The recipe (material names + cost) is data-driven via SpecialPlayRecipeRegistry, like DigiXros.</summary>
     AppFusion,
+
+    /// <summary>(PRIM special-play) Burst Digivolution: this hand card digivolves onto a target battle-area
+    /// Digimon (recipe material[0]) — like <see cref="Blast"/> — but AS-IS also returns a matching Tamer to the
+    /// hand (recipe <c>TamerCondition</c>) and pays the burst cost. AS-IS
+    /// <c>CardSource.CanBurstDigivolutionFromTargetPermanent</c> / <c>BurstDigivolutionCondition</c>.</summary>
+    Burst,
 }
 
 // (G6-004) Special plays that put a card onto the battle area by consuming materials, rather than the
@@ -37,6 +43,7 @@ public sealed class SpecialPlayAction
 {
     public const string MaterialsKey = "materials";
     public const string FusionKindKey = "specialPlayKind";
+    public const string BurstTamerKey = "burstTamer";
 
     /// <summary>(G8-006) Enumerate the special plays legal right now: for each hand card with a registered
     /// <see cref="SpecialPlayRecipe"/>, find a distinct battle-area material per required material name and,
@@ -94,7 +101,20 @@ public sealed class SpecialPlayAction
                 && TryMatchMaterials(context, battle, cappedPools, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
                 && context.MemoryController.CanPay(recipe.MemoryCost))
             {
-                actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
+                // (Burst Digivolution) additionally require a matching Tamer (returned to hand on execute); the
+                // play is only legal when such a Tamer exists on the battle area (distinct from the target).
+                if (recipe.Kind == SpecialPlayKind.Burst)
+                {
+                    HeadlessEntityId? tamer = FindBurstTamer(context, battle, materials, recipe.TamerCondition, playerId);
+                    if (tamer is HeadlessEntityId burstTamer)
+                    {
+                        actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind, burstTamer));
+                    }
+                }
+                else
+                {
+                    actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
+                }
             }
         }
 
@@ -221,12 +241,40 @@ public sealed class SpecialPlayAction
         return sources;
     }
 
+    /// <summary>(Burst Digivolution) The first battle-area Tamer (other than the digivolve target) that satisfies
+    /// the recipe's <c>TamerCondition</c> — the Tamer AS-IS returns to the hand as part of the burst.</summary>
+    private static HeadlessEntityId? FindBurstTamer(
+        EngineContext context, IReadOnlyList<HeadlessEntityId> battle, IReadOnlyList<HeadlessEntityId> target,
+        Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool>? tamerCondition, HeadlessPlayerId owner)
+    {
+        if (tamerCondition is null)
+        {
+            return null;
+        }
+
+        foreach (HeadlessEntityId id in battle)
+        {
+            if (target.Contains(id))
+            {
+                continue;
+            }
+
+            if (tamerCondition(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, id, owner, owner)))
+            {
+                return id;
+            }
+        }
+
+        return null;
+    }
+
     public static LegalAction Create(
         HeadlessPlayerId playerId,
         HeadlessEntityId topCardId,
         IReadOnlyList<HeadlessEntityId> materials,
         int memoryCost,
-        SpecialPlayKind kind)
+        SpecialPlayKind kind,
+        HeadlessEntityId? burstTamer = null)
     {
         var parameters = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -235,6 +283,11 @@ public sealed class SpecialPlayAction
             [MaterialsKey] = string.Join(",", materials.Select(m => m.Value)),
             [FusionKindKey] = kind.ToString(),
         };
+        if (burstTamer is HeadlessEntityId tamer)
+        {
+            parameters[BurstTamerKey] = tamer.Value;
+        }
+
         return HeadlessActionFactory.Create(HeadlessActionTypes.SpecialPlay, playerId, actionId: null, parameters);
     }
 
@@ -291,7 +344,22 @@ public sealed class SpecialPlayAction
         EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
 
         bool performed;
-        if (kind == SpecialPlayKind.Blast)
+        if (kind == SpecialPlayKind.Burst)
+        {
+            // (Burst Digivolution) return the matched Tamer to the hand, then digivolve this card onto the target
+            // (materials[0]) — the burst cost was already paid above.
+            if (action.Parameters.TryGetValue(BurstTamerKey, out object? rawTamer) && rawTamer is string tamerId
+                && !string.IsNullOrEmpty(tamerId))
+            {
+                await context.ZoneMover.MoveAsync(
+                    new ZoneMoveRequest(action.PlayerId, new HeadlessEntityId(tamerId), ChoiceZone.BattleArea, ChoiceZone.Hand, FaceUp: true),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            performed = await FreeDigivolveHelpers.DigivolveFreeAsync(
+                context.CardInstanceRepository, context.ZoneMover, topCardId, materials[0], ChoiceZone.Hand, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+        }
+        else if (kind == SpecialPlayKind.Blast)
         {
             performed = await FreeDigivolveHelpers.DigivolveFreeAsync(
                 context.CardInstanceRepository, context.ZoneMover, topCardId, materials[0], ChoiceZone.Hand, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
@@ -388,7 +456,8 @@ public sealed record SpecialPlayRecipe(
     int MemoryCost,
     Func<bool>? Condition = null,
     Func<Assets.Scripts.Script.CardEffectCommons.CardSource, int>? MaxTrashCount = null,
-    Func<Assets.Scripts.Script.CardEffectCommons.CardSource, int>? MaxUnderTamerCount = null);
+    Func<Assets.Scripts.Script.CardEffectCommons.CardSource, int>? MaxUnderTamerCount = null,
+    Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool>? TamerCondition = null);
 
 /// <summary>(G8-006) Maps a card number to its special-play recipe. Populated by ported DigiXros / DNA /
 /// Blast cards (the recipe registry, analogous to the effect dispatch).</summary>

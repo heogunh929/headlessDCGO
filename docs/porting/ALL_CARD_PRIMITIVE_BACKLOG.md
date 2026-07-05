@@ -134,7 +134,11 @@ These are the largest practical blockers for broad per-card porting.
 > SelectAssemblyClass, 트래시→새 permanent 아래, G9-065 테스트). ②Jogress by levels(4) — AddJogressLevelsEffect
 > (CardSource.JogressLevelsAgainst: printed + self AddJogressLevels, AS-IS self-gated 스캔 미러).
 >
-> **진짜 남은 STOP(~7장):** Burst Digivolution (5)·DNA temp materials (2). 이들은
+> **✅ 추가 해결(2026-07-05):** Burst Digivolution(5) — SpecialPlayKind.Burst + CardEffectFactory.BurstDigivolveEffect
+> (타겟 Digimon 위로 무료진화 + 매칭 테이머 hand 바운스 + cost). Blast/DigivolveFree 재사용.
+>
+> **진짜 남은 STOP(~2장):** DNA temp materials — 효과-구동 멀티셀렉트 DNA 진화(hand/trash 임시재료, 코루틴형).
+> 이들은
 > `SpecialPlayRecipe` 확장(가변-count/변형 재료) 또는 Digi-Burst 서브시스템이 필요 — 이름-커버리지가 아닌 실제
 > 미구현. 아래 표의 위 항목들은 stale이므로 무시.
 

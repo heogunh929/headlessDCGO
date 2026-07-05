@@ -5453,6 +5453,22 @@ public static partial class CardEffectFactory
         return new SpecialPlayRecipeMarkerEffect(card);
     }
 
+    /// <summary>(PRIM special-play) AS-IS Burst Digivolution (<c>BurstDigivolutionCondition</c>): this hand card
+    /// digivolves onto a target battle-area Digimon (<paramref name="digimonCondition"/>) while a matching Tamer
+    /// (<paramref name="tamerCondition"/>) is returned to the hand, paying <paramref name="cost"/>. The target is
+    /// the recipe material; the Tamer is matched + bounced by the action.</summary>
+    public static ICardEffect BurstDigivolveEffect(
+        CardSource card, Func<CardSource, bool> digimonCondition, Func<CardSource, bool> tamerCondition,
+        int cost = 0, Func<bool>? condition = null)
+    {
+        ArgumentNullException.ThrowIfNull(digimonCondition);
+        ArgumentNullException.ThrowIfNull(tamerCondition);
+        var target = new SpecialPlayMaterial(digimonCondition, "Burst target Digimon");
+        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(
+            SpecialPlayKind.Burst, new[] { target }, MemoryCost: cost, Condition: condition, TamerCondition: tamerCondition));
+        return new SpecialPlayRecipeMarkerEffect(card);
+    }
+
     /// <summary>(PRIM-W5) <c>BlastDNADigivolveEffect</c> — declares this card's Blast-DNA recipe: the material
     /// names (from <paramref name="blastDNAConditions"/>) fuse as sources, played for free (DnaDigivolve).</summary>
     public static ICardEffect BlastDNADigivolveEffect(CardSource card, IReadOnlyList<BlastDNACondition> blastDNAConditions, Func<bool>? condition)
