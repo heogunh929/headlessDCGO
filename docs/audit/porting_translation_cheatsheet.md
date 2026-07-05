@@ -101,9 +101,17 @@ if (timing == EffectTiming.OnDestroyedAnyone)
     effects.Add(CardEffectFactory.SelectAndDestroyEffect(card, canTarget, 1, false, "..."));
 ```
 
-주의: v1은 위 2개 타이밍만(이벤트당 1회). `[End of Turn]`·`[on unsuspend]` 등 **once-per-turn** 타이밍의 activated는
-아직 브릿지 미적용(OnceFlags 통합 후 확장 예정). memory/DP/recovery/unsuspend는 기존 triggered 팩토리
-(`AddMemoryTriggerEffect`/`SelfDpBuffTriggerEffect`/`RecoveryTriggerEffect`/`UnsuspendSelfTriggerEffect`) 사용.
+**v2 추가**: 경계 타이밍 `[End of Turn]`(OnEndTurn)·`[Start of Turn]`(OnStartTurn)·`[Start of Main Phase]`
+(OnStartMainPhase)도 브릿지됨 — subject 없는 턴 경계라 전체 배틀존 스캔, 턴당 1회. `[End of YOUR Turn]`은 카드가
+`CardEffectCommons.IsOwnerTurn(card)`로 게이트.
+
+```
+if (timing == EffectTiming.OnEndTurn && CardEffectCommons.IsOwnerTurn(card))
+    effects.Add(CardEffectFactory.SelectAndDestroyEffect(card, ...));  // [End of Your Turn] delete 등
+```
+
+아직 미적용: `[on unsuspend]`(OnUnTappedAnyone) 등 **턴 내 다중발화 + once-per-turn 캡** 타이밍(OnceFlags 통합
+후 확장). memory/DP/recovery/unsuspend는 기존 triggered 팩토리 사용.
 
 ## 5. 파일럿 실측 (BT1 exact 15장, Sonnet 4.6)
 

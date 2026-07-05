@@ -6,6 +6,7 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Rules;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
 
 /// <summary>
 /// Encapsulates the AS-IS common processing loop (Unity <c>TurnStateMachine</c>'s repeated
@@ -520,15 +521,24 @@ public sealed class GameFlowProcessor
         return (results.Count(result => result.Resolved) + activatedProgress, collected + (openedPrompt ? 1 : 0));
     }
 
-    /// <summary>(PRIM triggered-activated bridge) Timings whose ACTIVATED effects the auto-processing resolves via
-    /// <see cref="ActivatedEffectResolver"/>. Deliberately an ALLOW-LIST of general trigger timings that are NOT
-    /// already wired through an action handler (OnEnterFieldAnyone → PlayCardAction, WhenDigivolving →
-    /// DigivolveAction, OptionSkill/SecuritySkill → their actions) so nothing double-fires. These fire once per
-    /// event (per attack / per deletion), so no per-turn cap is needed here.</summary>
-    private static readonly IReadOnlySet<Assets.Scripts.Script.CardEffectCommons.EffectTiming> ActivatedTriggerTimings = new HashSet<Assets.Scripts.Script.CardEffectCommons.EffectTiming>
+    /// <summary>(PRIM triggered-activated bridge) SUBJECT-scoped timings — the ACTIVATED effects of the card the
+    /// event is about (the attacker / the deleted card) resolve. These fire once per event (per attack / per
+    /// deletion), so no per-turn cap is needed. ALLOW-LIST excludes action-wired timings (OnEnterFieldAnyone →
+    /// PlayCardAction, WhenDigivolving → DigivolveAction, OptionSkill/SecuritySkill) so nothing double-fires.</summary>
+    private static readonly IReadOnlySet<EffectTiming> SubjectScopedActivatedTimings = new HashSet<EffectTiming>
     {
-        Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnAllyAttack,
-        Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone,
+        EffectTiming.OnAllyAttack,
+        EffectTiming.OnDestroyedAnyone,
+    };
+
+    /// <summary>(v2) BOUNDARY timings — carry no card subject (a turn boundary emitted with only an actor). The
+    /// ACTIVATED effects of EVERY battle-area card resolve (each card gates "[End of YOUR turn]" itself). These
+    /// fire exactly ONCE per turn (one such event per turn), so the per-turn cap is natural — no OnceFlags needed.</summary>
+    private static readonly IReadOnlySet<EffectTiming> BoundaryActivatedTimings = new HashSet<EffectTiming>
+    {
+        EffectTiming.OnEndTurn,
+        EffectTiming.OnStartTurn,
+        EffectTiming.OnStartMainPhase,
     };
 
     private static async Task<int> BridgeActivatedTriggersAsync(
@@ -539,42 +549,63 @@ public sealed class GameFlowProcessor
             return 0;
         }
 
-        int progressed = 0;
-        var seen = new HashSet<(HeadlessEntityId, Assets.Scripts.Script.CardEffectCommons.EffectTiming)>();
+        // Collect the (card, timing) resolutions this pass, de-duplicated, then resolve. Subject-scoped timings
+        // resolve the event subject; boundary timings scan every battle-area card (their events carry no subject).
+        var toResolve = new List<(HeadlessEntityId Card, EffectTiming Timing)>();
+        var seen = new HashSet<(HeadlessEntityId, EffectTiming)>();
+        IZoneStateReader? zones = context.ZoneMover as IZoneStateReader;
         foreach (GameEvent gameEvent in pendingEvents)
         {
-            if (gameEvent.Subject is not { IsEmpty: false } subject)
+            foreach (string timingName in TriggerTimingMap.Derive(gameEvent))
+            {
+                if (!Enum.TryParse(timingName, ignoreCase: false, out EffectTiming timing))
+                {
+                    continue;
+                }
+
+                if (SubjectScopedActivatedTimings.Contains(timing))
+                {
+                    if (gameEvent.Subject is { IsEmpty: false } subject && seen.Add((subject, timing)))
+                    {
+                        toResolve.Add((subject, timing));
+                    }
+                }
+                else if (BoundaryActivatedTimings.Contains(timing) && zones is not null)
+                {
+                    foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+                    {
+                        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+                        {
+                            if (seen.Add((cardId, timing)))
+                            {
+                                toResolve.Add((cardId, timing));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        int progressed = 0;
+        foreach ((HeadlessEntityId card, EffectTiming timing) in toResolve)
+        {
+            if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
+                || instance is null || instance.OwnerId.IsEmpty)
             {
                 continue;
             }
 
-            foreach (string timingName in TriggerTimingMap.Derive(gameEvent))
+            try
             {
-                if (!Enum.TryParse(timingName, ignoreCase: false, out Assets.Scripts.Script.CardEffectCommons.EffectTiming timing)
-                    || !ActivatedTriggerTimings.Contains(timing)
-                    || !seen.Add((subject, timing)))
-                {
-                    continue;
-                }
-
-                if (!context.CardInstanceRepository.TryGetInstance(subject, out CardInstanceRecord? instance)
-                    || instance is null || instance.OwnerId.IsEmpty)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    progressed += await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver
-                        .ResolveAsync(context, subject, instance.OwnerId, timing, cancellationToken).ConfigureAwait(false);
-                }
-                catch (DeferredChoicePendingException)
-                {
-                    // An interactive activated trigger suspended — record it and stop; RunToStableAsync's
-                    // IsPending check pauses on the next iteration (same pattern as OnPlayReactivation).
-                    context.DeferredActivations.Suspend(subject, timing, instance.OwnerId);
-                    return progressed;
-                }
+                progressed += await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver
+                    .ResolveAsync(context, card, instance.OwnerId, timing, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DeferredChoicePendingException)
+            {
+                // An interactive activated trigger suspended — record it and stop; RunToStableAsync's IsPending
+                // check pauses on the next iteration (same pattern as OnPlayReactivation).
+                context.DeferredActivations.Suspend(card, timing, instance.OwnerId);
+                return progressed;
             }
         }
 

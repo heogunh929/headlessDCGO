@@ -17,6 +17,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("[When Attacking] draw 1 (activated) fires via the auto-processing bridge on OnAllyAttack", DrawsOnAttack),
     ("a NON-subject card's OnAllyAttack does not fire another card's activated trigger", ScopedToSubject),
+    ("[End of Your Turn] draw 1 (boundary, no subject) fires via the scan bridge — owner's turn only, once", EndTurnDraw),
 };
 
 var failures = new List<string>();
@@ -47,6 +48,27 @@ async Task ScopedToSubject()
     TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnAllyAttack, actor: P1, subject: other);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before, HandCount(ctx, P1), "another card's attack did not fire the fixture's draw");
+}
+
+async Task EndTurnDraw()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 3);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);   // P1's turn
+    var cards = (CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxEndTurnDraw"), "TfxEndTurnDraw", "ET", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var mine = new HeadlessEntityId("1:battle:MINE");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(mine, new HeadlessEntityId("TfxEndTurnDraw"), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, mine, ChoiceZone.None, ChoiceZone.BattleArea));
+    // an opponent card with the same effect — must NOT fire on P1's turn end.
+    var foe = new HeadlessEntityId("2:battle:FOE");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(foe, new HeadlessEntityId("TfxEndTurnDraw"), P2, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, foe, ChoiceZone.None, ChoiceZone.BattleArea));
+    for (int i = 1; i <= 4; i++) { var lib=new HeadlessEntityId($"1:lib:{i}"); cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:E{i}"),$"E{i}",$"E{i}",new Dictionary<string,object?>(StringComparer.Ordinal),CardType:"Digimon")); ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib,new HeadlessEntityId($"DEF:E{i}"),P1,Metadata:new Dictionary<string,object?>())); await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1,lib,ChoiceZone.None,ChoiceZone.Library)); }
+
+    int before = HandCount(ctx, P1);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndTurn, actor: P1, subject: default);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before + 1, HandCount(ctx, P1), "[End of Your Turn] draw fired once for the owner (boundary scan)");
 }
 
 // --- Harness ---
