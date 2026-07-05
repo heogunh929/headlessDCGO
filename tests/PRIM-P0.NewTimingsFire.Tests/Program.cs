@@ -24,6 +24,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("OnDeclaration fires: declaring an attack resolves the attacker's OnDeclaration effect", OnDeclaration_Fires),
     ("OnEndBattle fires: resolving a battle resolves the attacker's OnEndBattle effect", OnEndBattle_Fires),
     ("batch-2 enum members register a binding under their emitted timing string", Batch2_RegistersUnderEmittedString),
+    ("WhenRemoveField (derived) fires: a field card leaving the battle area resolves its effect", WhenRemoveField_Fires),
 };
 
 var failures = new List<string>();
@@ -115,6 +116,21 @@ async Task Batch2_RegistersUnderEmittedString()
         (EffectTiming.AfterPayCost, "AfterPayCost"),
         (EffectTiming.WhenTopCardTrashed, "WhenTopCardTrashed"),
         (EffectTiming.OnFaceUpSecurityIncreased, "OnFaceUpSecurityIncreased"),
+        // batch 3a (derived from CardMoved / SecurityCheck) — keyed by the same enum ToString value.
+        (EffectTiming.WhenRemoveField, "WhenRemoveField"),
+        (EffectTiming.OnLoseSecurity, "OnLoseSecurity"),
+        (EffectTiming.OnDiscardHand, "OnDiscardHand"),
+        (EffectTiming.OnAddHand, "OnAddHand"),
+        (EffectTiming.OnDiscardLibrary, "OnDiscardLibrary"),
+        (EffectTiming.OnAddSecurity, "OnAddSecurity"),
+        (EffectTiming.WhenReturntoHandAnyone, "WhenReturntoHandAnyone"),
+        (EffectTiming.WhenReturntoLibraryAnyone, "WhenReturntoLibraryAnyone"),
+        (EffectTiming.OnSecurityCheck, "OnSecurityCheck"),
+        (EffectTiming.OnReturnCardsToHandFromTrash, "OnReturnCardsToHandFromTrash"),
+        (EffectTiming.OnPermamemtReturnedToHand, "OnPermamemtReturnedToHand"),
+        (EffectTiming.OnRemovedField, "OnRemovedField"),
+        (EffectTiming.OnLeaveFieldAnyone, "OnLeaveFieldAnyone"),
+        (EffectTiming.OnReturnCardsToLibraryFromTrash, "OnReturnCardsToLibraryFromTrash"),
     };
 
     foreach ((EffectTiming timing, string emitted) in batch2)
@@ -129,6 +145,28 @@ async Task Batch2_RegistersUnderEmittedString()
         int hits = ((EffectRegistry)context.EffectRegistry).GetEffectsForTiming(emitted).Count();
         AssertEqual(1, hits, $"{timing} registers exactly one binding findable under emitted string \"{emitted}\"");
     }
+}
+
+// A derived timing (WhenRemoveField is produced by TriggerTimingMap from a field->non-field CardMoved, not an
+// explicit emit). This proves the derived-timing -> new enum member -> fire path end-to-end via a real zone move.
+async Task WhenRemoveField_Fires()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 11);
+    context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+    var def = new HeadlessEntityId("DEF:RF");
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(def, def.Value, "RF", new Dictionary<string, object?> { ["dp"] = 3000 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId("1:battle:RF");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, Player, Metadata: new Dictionary<string, object?> { ["dp"] = 3000 }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, id, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    Register(context, new TimingProbe(EffectTiming.WhenRemoveField), "PROBE", id);
+    context.MemoryController.Set(0);
+
+    // Field -> Hand leaves the battle area, so TriggerTimingMap derives WhenRemoveField for this CardMoved.
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, id, ChoiceZone.BattleArea, ChoiceZone.Hand));
+    await new GameFlowProcessor().RunToStableAsync(context);
+
+    AssertEqual(1, context.MemoryController.Current.Current, "WhenRemoveField effect gained 1 memory when the card left the field");
 }
 
 // --- Harness -------------------------------------------------------------

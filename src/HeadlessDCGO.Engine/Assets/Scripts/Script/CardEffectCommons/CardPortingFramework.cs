@@ -89,6 +89,28 @@ public enum EffectTiming
     AfterPayCost,
     WhenTopCardTrashed,
     OnFaceUpSecurityIncreased,
+
+    // (PRIM-P0-timing batch 3a) Timings already DERIVED from CardMoved zone transitions (or the SecurityCheck
+    // event) by TriggerTimingMap.Derive — already available, no emit needed, only a card-facing enum member.
+    // Same low-risk shape as batch 2; the derivation is existing engine behavior exercised by the suite.
+    //   WhenRemoveField 164 · OnLoseSecurity 73 · OnDiscardHand 34 · OnAddHand 21 · OnDiscardLibrary 20
+    //   OnAddSecurity 14 · WhenReturntoHandAnyone 9 · WhenReturntoLibraryAnyone 9 · OnSecurityCheck 9
+    //   OnReturnCardsToHandFromTrash 2 · OnPermamemtReturnedToHand 2 (sic) · OnRemovedField 2 ·
+    //   OnLeaveFieldAnyone 1 · OnReturnCardsToLibraryFromTrash 1
+    WhenRemoveField,
+    OnLoseSecurity,
+    OnDiscardHand,
+    OnAddHand,
+    OnDiscardLibrary,
+    OnAddSecurity,
+    WhenReturntoHandAnyone,
+    WhenReturntoLibraryAnyone,
+    OnSecurityCheck,
+    OnReturnCardsToHandFromTrash,
+    OnPermamemtReturnedToHand,
+    OnRemovedField,
+    OnLeaveFieldAnyone,
+    OnReturnCardsToLibraryFromTrash,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -9314,6 +9336,21 @@ public static class CardEffectRegistrar
         EffectTiming.AfterPayCost,
         EffectTiming.WhenTopCardTrashed,
         EffectTiming.OnFaceUpSecurityIncreased,
+        // (PRIM-P0-timing batch 3a) derived-from-CardMoved timings, enum-only additions.
+        EffectTiming.WhenRemoveField,
+        EffectTiming.OnLoseSecurity,
+        EffectTiming.OnDiscardHand,
+        EffectTiming.OnAddHand,
+        EffectTiming.OnDiscardLibrary,
+        EffectTiming.OnAddSecurity,
+        EffectTiming.WhenReturntoHandAnyone,
+        EffectTiming.WhenReturntoLibraryAnyone,
+        EffectTiming.OnSecurityCheck,
+        EffectTiming.OnReturnCardsToHandFromTrash,
+        EffectTiming.OnPermamemtReturnedToHand,
+        EffectTiming.OnRemovedField,
+        EffectTiming.OnLeaveFieldAnyone,
+        EffectTiming.OnReturnCardsToLibraryFromTrash,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the
