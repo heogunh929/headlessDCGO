@@ -50,6 +50,9 @@ public static class TriggerTimings
     // original "[When Attacking]" attack-declaration effects use. Emitted alongside OnAttack/OnAllyAttack in
     // AttackPermanentAction. Distinct from OnAttack: the original enum separates OnUseAttack from OnDeclaration.
     public const string OnDeclaration = "OnDeclaration";
+    // (PRIM-P0-timing batch 3b) The attack's defending target changed after declaration — raid retarget or
+    // block redirect (AS-IS AttackProcess.SwitchDefender fires this for both). subject = the attacker.
+    public const string OnAttackTargetChanged = "OnAttackTargetChanged";
     public const string OnCounter = "OnCounterTiming";
     public const string OnBlock = "OnBlockAnyone";
     public const string OnSecurityCheck = "OnSecurityCheck";
@@ -86,6 +89,12 @@ public static class TriggerTimings
     // Stack trashing (D-4 / F-6.5). Opens when a permanent's top card(s) are trashed off the stack
     // (de-digivolve, top-card removal). Mirrors the original EffectTiming.WhenTopCardTrashed.
     public const string WhenTopCardTrashed = "WhenTopCardTrashed";
+
+    // (PRIM-P0-timing batch 3b) A Digimon's digivolution SOURCE (under) card is trashed by an effect
+    // (AS-IS ITrashDigivolutionCards.TrashDigivolutionCards). DISTINCT from WhenTopCardTrashed (which is the
+    // de-digivolve top-card path). subject = the Digimon losing sources; discardedCardIds metadata carries
+    // the trashed source ids.
+    public const string OnDigivolutionCardDiscarded = "OnDigivolutionCardDiscarded";
 
     // Link (D-1 / F-6.9). WhenWouldLink opens before the link cost is paid (prevent-link window);
     // WhenLinked opens after a link card is attached; OnLinkCardDiscarded opens when a linked card is
@@ -133,6 +142,12 @@ public static class TriggerTimings
     private static readonly HashSet<string> BroadcastTimings = new(StringComparer.Ordinal)
     {
         OnDeletion, // "OnDestroyedAnyone" — ST3_01/04 react to an opponent's 0-DP deletion (G12-003).
+        // (PRIM-P0-timing batch 3b) AS-IS fires these via global StackSkillInfos, and some reactors live on a
+        // DIFFERENT card than the subject (e.g. an effect on the discarded source card itself; BT21_025 reacts
+        // to another Digimon's attack-target change). Broadcast so cross-card listeners are collected; each
+        // self-gates on the subject / discardedCardIds metadata.
+        OnDigivolutionCardDiscarded,
+        OnAttackTargetChanged,
     };
 
     /// <summary>True if <paramref name="timing"/> is a board-wide timing whose listeners fire

@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
@@ -137,6 +138,17 @@ public static class RaidAttackSwitch
         if (!result.IsSkipped && result.SelectedIds.Count > 0)
         {
             context.AttackController.SwitchDefender(result.SelectedIds[0], "Raid switched the attack.");
+            // (PRIM-P0-timing) AS-IS AttackProcess.SwitchDefender fires OnAttackTargetChanged when the defender
+            // changes. RaidAttackSwitch excludes the current TargetId from candidates, so this is always a real
+            // change (satisfies the AS-IS newDefender != oldDefender guard). subject = the attacker.
+            if (context.AttackController.Current.AttackerId is HeadlessEntityId switchedAttacker)
+            {
+                TriggerEventEmitter.Emit(
+                    context.GameEventQueue,
+                    TriggerTimings.OnAttackTargetChanged,
+                    actor: context.AttackController.Current.AttackingPlayerId,
+                    subject: switchedAttacker);
+            }
         }
 
         return true;

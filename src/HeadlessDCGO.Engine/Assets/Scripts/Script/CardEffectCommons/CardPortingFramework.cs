@@ -115,6 +115,13 @@ public enum EffectTiming
     // (PRIM-P0-timing batch 3b) OnEndAttack (80 cards): end of a single attack. Already collected by
     // EndAttackTriggerHook (keys on "OnEndAttack") at AttackPipeline.AdvanceEndAttackAsync — enum-only add.
     OnEndAttack,
+
+    // (PRIM-P0-timing batch 3b) new emit sites added:
+    //   OnDigivolutionCardDiscarded 53 — source (under) card trashed by an effect (DigivolutionStackHelpers).
+    //   OnAttackTargetChanged 31 — attack defender switched by raid/block (RaidAttackSwitch/BlockTiming).
+    // Both are broadcast (see TriggerTimings.BroadcastTimings) to mirror the AS-IS global StackSkillInfos.
+    OnDigivolutionCardDiscarded,
+    OnAttackTargetChanged,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -5239,7 +5246,8 @@ public static class CardEffectCommons
             ? 0
             : await Headless.Runtime.DigivolutionStackHelpers.TrashSourcesAsync(
                 sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
-                targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop).ConfigureAwait(false);
+                targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
+                gameEventQueue: sourceCard.Context.GameEventQueue).ConfigureAwait(false);
         if (trashed > 0)
         {
             if (successProcess is not null)
@@ -5261,7 +5269,8 @@ public static class CardEffectCommons
             ? Task.FromResult(0)
             : Headless.Runtime.DigivolutionStackHelpers.TrashSourcesAsync(
                 sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
-                targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop);
+                targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
+                gameEventQueue: sourceCard.Context.GameEventQueue);
 
     /// <summary>AS-IS <c>TrashLinkCardsAndProcessAccordingToResult</c> (CardEffectCommons.cs:567): trash the
     /// given link cards off their host; success = any actually trashed.</summary>
@@ -6992,7 +7001,7 @@ public static class CardEffectCommons
             ChoiceResult sourceResult = await context.ChoiceProvider.ChooseAsync(sourceRequest, cancellationToken).ConfigureAwait(false);
             IReadOnlyList<HeadlessEntityId> picks = sourceResult.SelectedIds;
             int trashed = await Headless.Runtime.DigivolutionStackHelpers.TrashSpecificSourcesAsync(
-                context.CardInstanceRepository, context.ZoneMover, hostId, picks, cancellationToken).ConfigureAwait(false);
+                context.CardInstanceRepository, context.ZoneMover, hostId, picks, cancellationToken, context.GameEventQueue).ConfigureAwait(false);
             trashedTotal += trashed;
 
             if (afterSelectionCoroutine is not null)
@@ -9357,6 +9366,9 @@ public static class CardEffectRegistrar
         EffectTiming.OnReturnCardsToLibraryFromTrash,
         // (PRIM-P0-timing batch 3b) end-of-single-attack, collected by EndAttackTriggerHook.
         EffectTiming.OnEndAttack,
+        // (PRIM-P0-timing batch 3b) new emit sites (source-discard / attack-target-change).
+        EffectTiming.OnDigivolutionCardDiscarded,
+        EffectTiming.OnAttackTargetChanged,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the

@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
@@ -136,8 +137,9 @@ public static class DigivolutionStackHelpers
         HeadlessEntityId hostId,
         int count,
         bool fromBottom = true,
-        CancellationToken cancellationToken = default) =>
-        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken);
+        CancellationToken cancellationToken = default,
+        GameEventQueue? gameEventQueue = null) =>
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken, gameEventQueue);
 
     /// <summary>(W6 process) Trash SPECIFIC digivolution sources of <paramref name="hostId"/> (AS-IS
     /// <c>ITrashDigivolutionCards(permanent, selectedCards, …)</c>). Returns the count trashed.</summary>
@@ -146,7 +148,8 @@ public static class DigivolutionStackHelpers
         IZoneMover zoneMover,
         HeadlessEntityId hostId,
         IReadOnlyList<HeadlessEntityId> cardIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        GameEventQueue? gameEventQueue = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -159,6 +162,7 @@ public static class DigivolutionStackHelpers
 
         List<string> sources = existing.ToList();
         int trashed = 0;
+        var discarded = new List<string>();
         foreach (HeadlessEntityId cardId in cardIds)
         {
             if (!sources.Remove(cardId.Value))
@@ -171,6 +175,7 @@ public static class DigivolutionStackHelpers
                 : host.OwnerId;
             await zoneMover.MoveAsync(
                 new ZoneMoveRequest(owner, cardId, ChoiceZone.None, ChoiceZone.Trash), cancellationToken).ConfigureAwait(false);
+            discarded.Add(cardId.Value);
             trashed++;
         }
 
@@ -181,6 +186,17 @@ public static class DigivolutionStackHelpers
             {
                 Metadata = new Dictionary<string, object?>(refreshed!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = sources.ToArray() }
             });
+
+            // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards fires OnDigivolutionCardDiscarded.
+            if (gameEventQueue is not null)
+            {
+                TriggerEventEmitter.Emit(
+                    gameEventQueue,
+                    TriggerTimings.OnDigivolutionCardDiscarded,
+                    actor: host.OwnerId,
+                    subject: hostId,
+                    extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", discarded) });
+            }
         }
 
         return trashed;
@@ -237,7 +253,8 @@ public static class DigivolutionStackHelpers
         int count,
         bool fromBottom,
         ChoiceZone destination,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        GameEventQueue? gameEventQueue = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -270,6 +287,18 @@ public static class DigivolutionStackHelpers
                 ? src.OwnerId
                 : host.OwnerId;
             await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        }
+
+        // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards fires OnDigivolutionCardDiscarded when SOURCE cards are
+        // trashed. Only for the Trash destination (ReturnSourcesAsync -> Hand/Library is not a discard).
+        if (gameEventQueue is not null && destination == ChoiceZone.Trash && removed.Count > 0)
+        {
+            TriggerEventEmitter.Emit(
+                gameEventQueue,
+                TriggerTimings.OnDigivolutionCardDiscarded,
+                actor: host.OwnerId,
+                subject: hostId,
+                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", removed) });
         }
 
         return removed.Count;

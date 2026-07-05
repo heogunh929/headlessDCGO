@@ -1012,7 +1012,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 return;
             }
 
-            _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(_repository, zoneMover, hostId, count, fromBottom, ct));
+            _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(_repository, zoneMover, hostId, count, fromBottom, ct, _gameEventQueue));
         }
 
         _applied.Add(new AppliedMutation(mutation.Kind, hostId, "sourceRemoval"));

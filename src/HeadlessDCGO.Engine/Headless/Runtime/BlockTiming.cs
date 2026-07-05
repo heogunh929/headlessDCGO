@@ -183,6 +183,18 @@ public sealed class BlockTiming
                 actor: blocked.DefendingPlayerId,
                 subject: blockerId);
 
+            // (PRIM-P0-timing) AS-IS AttackProcess.SwitchDefender also fires OnAttackTargetChanged on a block
+            // (the target changes from the prior target to the blocker). GetBlockerCandidates excludes the
+            // current TargetId, so before.TargetId != blockerId always holds — the faithful "changed" guard.
+            if (blocked.AttackerId is HeadlessEntityId blockedAttacker && before.TargetId != blockerId)
+            {
+                TriggerEventEmitter.Emit(
+                    context.GameEventQueue,
+                    TriggerTimings.OnAttackTargetChanged,
+                    actor: blocked.AttackingPlayerId,
+                    subject: blockedAttacker);
+            }
+
             return BlockTimingResult.Success(
                 blocked,
                 choice,

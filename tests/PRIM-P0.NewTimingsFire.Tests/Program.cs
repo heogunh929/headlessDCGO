@@ -26,6 +26,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("batch-2 enum members register a binding under their emitted timing string", Batch2_RegistersUnderEmittedString),
     ("WhenRemoveField (derived) fires: a field card leaving the battle area resolves its effect", WhenRemoveField_Fires),
     ("OnEndAttack fires: an attack ending resolves the attacker's OnEndAttack effect", OnEndAttack_Fires),
+    ("OnDigivolutionCardDiscarded fires: trashing a source card resolves the host's effect", OnDigivolutionCardDiscarded_Fires),
+    ("OnAttackTargetChanged fires: a raid switching the target resolves the attacker's effect", OnAttackTargetChanged_Fires),
 };
 
 var failures = new List<string>();
@@ -146,6 +148,62 @@ async Task Batch2_RegistersUnderEmittedString()
         int hits = ((EffectRegistry)context.EffectRegistry).GetEffectsForTiming(emitted).Count();
         AssertEqual(1, hits, $"{timing} registers exactly one binding findable under emitted string \"{emitted}\"");
     }
+}
+
+// OnDigivolutionCardDiscarded is emitted by DigivolutionStackHelpers when an effect trashes a Digimon's
+// digivolution SOURCE (under) cards (AS-IS ITrashDigivolutionCards). Broadcast, so the host's effect fires.
+async Task OnDigivolutionCardDiscarded_Fires()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 21);
+    context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+    var hostDef = new HeadlessEntityId("DEF:HOST");
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(hostDef, hostDef.Value, "HOST", new Dictionary<string, object?>(), CardType: "Digimon"));
+    var host = new HeadlessEntityId("1:battle:HOST");
+    var src = new HeadlessEntityId("1:src:SRC1");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(host, hostDef, Player, Metadata: new Dictionary<string, object?> { ["sourceIds"] = new[] { src.Value } }));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(src, hostDef, Player, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, host, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    Register(context, new TimingProbe(EffectTiming.OnDigivolutionCardDiscarded), "PROBE", host);
+    context.MemoryController.Set(0);
+
+    await DigivolutionStackHelpers.TrashSpecificSourcesAsync(
+        context.CardInstanceRepository, context.ZoneMover, host, new[] { src }, default, context.GameEventQueue);
+    await new GameFlowProcessor().RunToStableAsync(context);
+
+    AssertEqual(1, context.MemoryController.Current.Current, "host's OnDigivolutionCardDiscarded effect gained 1 memory when a source was trashed");
+}
+
+// OnAttackTargetChanged is emitted when the attack's defender switches (RaidAttackSwitch.ResolveChoice ->
+// AttackController.SwitchDefender). Broadcast; the attacker's effect self-gates on the subject.
+async Task OnAttackTargetChanged_Fires()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 31);
+    context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+    HeadlessEntityId attacker = await PlaceBattler(context, Player, "ATK", dp: 4000, new Dictionary<string, object?> { [RaidAttackSwitch.HasRaidKey] = true, [RaidAttackSwitch.IsSuspendedKey] = false });
+    await PlaceBattler(context, Opponent, "LOW", dp: 3000, new Dictionary<string, object?> { [RaidAttackSwitch.IsSuspendedKey] = false });
+    HeadlessEntityId high = await PlaceBattler(context, Opponent, "HIGH", dp: 8000, new Dictionary<string, object?> { [RaidAttackSwitch.IsSuspendedKey] = false });
+
+    Register(context, new TimingProbe(EffectTiming.OnAttackTargetChanged), "PROBE", attacker);
+    context.AttackController.DeclareAttack(Player, attacker, Opponent, targetId: null, isDirectAttack: true);
+    context.MemoryController.Set(0);
+
+    AssertEqual(true, RaidAttackSwitch.RequestChoice(context), "raid opens the target-switch choice");
+    RaidAttackSwitch.ResolveChoice(context, ChoiceResult.Select(high));   // switches defender -> emits OnAttackTargetChanged
+    await new GameFlowProcessor().RunToStableAsync(context);
+
+    AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnAttackTargetChanged effect gained 1 memory when the raid switched the target");
+}
+
+async Task<HeadlessEntityId> PlaceBattler(EngineContext context, HeadlessPlayerId owner, string tag, int dp, Dictionary<string, object?> extra)
+{
+    var def = new HeadlessEntityId($"DEF:{tag}");
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(def, def.Value, tag, new Dictionary<string, object?> { ["dp"] = dp }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
+    var meta = new Dictionary<string, object?>(extra, StringComparer.Ordinal) { [BattleResolver.DpKey] = dp };
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, owner, Metadata: meta));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    return id;
 }
 
 // OnEndAttack is collected by EndAttackTriggerHook at AttackPipeline.AdvanceEndAttackAsync (end of a single
