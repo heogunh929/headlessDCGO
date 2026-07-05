@@ -205,6 +205,11 @@ public static class RestrictionHelpers
     public const string CannotBeBlockedKey = "cannotBeBlocked";
     public const string CannotBeDeletedBySkillKey = "cannotBeDeletedBySkill";
     public const string CannotBeAttackedKey = "cannotBeAttacked";
+    // (PRIM-P0 B.O.6) player-scope restrictions: the owner cannot add cards to security / gain memory
+    // (AS-IS Player.CanAddSecurity / CanAddMemory). Granted player-scope; consulted at the AddToSecurity /
+    // AddMemory mutation chokes in MatchStateMutationSink.
+    public const string CannotAddSecurityKey = "cannotAddSecurity";
+    public const string CannotAddMemoryKey = "cannotAddMemory";
     // (FR-P3) attached to a CannotAttack restriction: only defenders matching this predicate are off-limits
     // (AS-IS CanNotAttackTargetDefendingPermanent's defenderCondition). Value: Func<CardSource,bool>.
     public const string DefenderPredicateKey = "defenderPredicate";

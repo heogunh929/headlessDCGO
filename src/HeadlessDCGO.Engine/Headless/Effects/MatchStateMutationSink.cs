@@ -354,6 +354,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.MoveToDeckBottomAsync(owner, id, ct));
                 break;
             case AddToSecurityKind:
+                // (PRIM-P0 B.O.6) a player-scope "cannot add security" restriction blocks the add (AS-IS
+                // Player.CanAddSecurity gate consulted before every AddSecurityCard).
+                if (IsPlayerRestricted(record.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey))
+                {
+                    _skipped.Add(mutation);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
+                    break;
+                }
+
                 bool faceUp = ReadBool(mutation.Values, FaceUpKey);
                 // N-3: default to the security TOP (original AddSecurityCard toTop:true). An effect that
                 // needs a bottom insert sets the "toBottom" flag on the mutation.
@@ -457,6 +466,18 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         }
 
         int amount = ReadInt(mutation.Values, AmountKey) ?? 0;
+
+        // (PRIM-P0 B.O.6) a "cannot add memory" restriction blocks a GAIN (positive add) for the source's owner
+        // (AS-IS Player.CanAddMemory gate). A memory loss / SetMemory is not a gain and is unaffected.
+        if (!isSet && amount > 0 && !mutation.SourceEntityId.IsEmpty &&
+            _repository.TryGetInstance(mutation.SourceEntityId, out CardInstanceRecord? src) && src is not null &&
+            IsPlayerRestricted(src.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddMemoryKey))
+        {
+            _skipped.Add(mutation);
+            _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "restricted"));
+            return;
+        }
+
         if (isSet)
         {
             _memory.Set(amount);
@@ -507,6 +528,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             _unsupported.Add(mutation);
             _log?.Warn($"Mutation '{mutation.Kind}' is missing a '{PlayerIdKey}' value.");
+            return;
+        }
+
+        // (PRIM-P0 B.O.6) recovery adds to security — blocked by a "cannot add security" restriction.
+        if (IsPlayerRestricted(player, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey))
+        {
+            _skipped.Add(mutation);
+            _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "restricted"));
             return;
         }
 
@@ -753,6 +782,39 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // causing-effect predicate (AS-IS cardEffectCondition, e.g. IsOpponentEffect) blocks only when the causing
     // effect's SOURCE card matches — so "cannot be returned/trashed by the OPPONENT's effects" still allows your
     // own. When the causing source is unknown, a narrowed restriction does not block (it cannot be confirmed).
+    /// <summary>(PRIM-P0 B.O.6) Whether <paramref name="player"/> has an active player-scope restriction under
+    /// <paramref name="restrictionKey"/> (AS-IS Player.Can... gate). Unlike <see cref="IsRestrictedFromCause"/>
+    /// this is not tied to a card — it consults every player-scope continuous restriction binding.</summary>
+    private bool IsPlayerRestricted(HeadlessPlayerId player, string restrictionKey)
+    {
+        if (_effectRegistry is null || player.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (EffectRequest effect in _effectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!(values.TryGetValue(restrictionKey, out object? raw) && raw is bool flag && flag) ||
+                !ReadBool(values, PlayerScopeContinuousHelpers.PlayerScopeKey))
+            {
+                continue;
+            }
+
+            if (ReadBool(values, PlayerScopeContinuousHelpers.ScopeAnyPlayerKey))
+            {
+                return true;
+            }
+
+            if (values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid) && pid is int id && id == player.Value)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool IsRestrictedFromCause(HeadlessEntityId cardId, string restrictionKey, HeadlessEntityId causingSourceId)
     {
         foreach (EffectRequest effect in ScopedEffects(cardId))
