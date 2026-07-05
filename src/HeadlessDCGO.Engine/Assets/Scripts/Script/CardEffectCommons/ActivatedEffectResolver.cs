@@ -125,6 +125,42 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case PlayOptionCardEffect playOption:
+                {
+                    // (PRIM-P0 B.O.5) select Option card(s) from a zone and play each as a nested effect: trash it
+                    // (matching the headless OptionActivate order: trash-before-resolve), open OnUseOption, then
+                    // resolve its [Main] (OptionSkill) through the SAME sink / deferred-choice cycle (recursive
+                    // ResolveListAsync, NOT a nested ResolveAsync — same reason as ReuseMainOptionEffect).
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(playOption.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        foreach (HeadlessEntityId optionId in result.SelectedIds)
+                        {
+                            if (optionId.IsEmpty ||
+                                !context.CardInstanceRepository.TryGetInstance(optionId, out CardInstanceRecord? optInstance) || optInstance is null ||
+                                !context.CardRepository.TryGetCard(optInstance.DefinitionId, out CardRecord? optDef) || optDef is null ||
+                                !CardEffectDispatch.TryCreateForCard(optDef, out CEntity_Effect? optEffect) || optEffect is null)
+                            {
+                                continue;
+                            }
+
+                            await context.ZoneMover.MoveAsync(
+                                new ZoneMoveRequest(optInstance.OwnerId, optionId, playOption.SourceZone, ChoiceZone.Trash),
+                                cancellationToken).ConfigureAwait(false);
+                            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: card.Controller, subject: optionId);
+
+                            var optCard = new CardSource(context, optionId, card.Controller, optInstance.OwnerId);
+                            resolved += await ResolveListAsync(
+                                context, optEffect, optCard, players, sink,
+                                optEffect.CardEffects(EffectTiming.OptionSkill, optCard), cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case ActivatedSelectAndPlayEffect selectPlay:
                 {
                     // (B.O.3) wire the zone-select play into the activation flow (was previously only driven by

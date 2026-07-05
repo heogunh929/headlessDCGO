@@ -3853,6 +3853,54 @@ public sealed class ActivatedSelectAndPlayEffect : IActivatedCardEffect
         throw new NotSupportedException($"Select-and-play effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(PRIM-P0 B.O.5) The headless mirror of AS-IS <c>CardEffectCommons.PlayOptionCards</c>: select up to
+/// <paramref name="maxCount"/> of the owner's Option cards in <c>sourceZone</c> (matching
+/// <paramref name="optionPredicate"/>) and PLAY each as a nested effect — trash it, open OnUseOption, and resolve
+/// its [Main] (OptionSkill) effects through the SAME activation sink/choice cycle. v1 plays cost-free (the 34-card
+/// bulk). See docs/porting/play_option_and_delayed_player_effect_design.md.</summary>
+public sealed class PlayOptionCardEffect : IActivatedCardEffect
+{
+    public PlayOptionCardEffect(CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> optionPredicate,
+        int maxCount, bool canEndNotMax, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(optionPredicate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        SourceZone = sourceZone;
+        OptionPredicate = optionPredicate;
+        MaxCount = maxCount;
+        CanEndNotMax = canEndNotMax;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public ChoiceZone SourceZone { get; }
+
+    public Func<HeadlessEntityId, bool> OptionPredicate { get; }
+
+    public int MaxCount { get; }
+
+    public bool CanEndNotMax { get; }
+
+    public string Description { get; }
+
+    /// <summary>The zone-card select for the Option(s) to play (from <see cref="SourceZone"/>).</summary>
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
+    {
+        var candidates = ((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, SourceZone)
+            .Where(OptionPredicate)
+            .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, SourceZone, isSelectable: true, Card.Owner))
+            .ToList();
+        int max = Math.Min(MaxCount, candidates.Count);
+        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: CanEndNotMax ? 0 : max, maxCount: max, canSkip: CanEndNotMax, candidates);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Play-option effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>(PRIM-P0-flow B.O.3) An activated "select up to <paramref name="maxCount"/> of the owner's cards in
 /// <paramref name="fromZone"/> (Trash / Library / Security …) matching a predicate, then apply a single-target
 /// mutation to each" — the zone-card select-follow-up wrapper (AS-IS SelectCardEffect Mode AddHand / Discard).
@@ -5122,6 +5170,13 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectAndPlayFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
         new ActivatedSelectAndPlayEffect(card, fromZone, canTarget, maxCount, canEndNotMax, description);
+
+    /// <summary>(PRIM-P0 B.O.5) AS-IS <c>CardEffectCommons.PlayOptionCards</c>: select up to
+    /// <paramref name="maxCount"/> of the owner's Option cards in <paramref name="sourceZone"/> and play each as a
+    /// nested effect (trash → OnUseOption → resolve its [Main]). Cost-free (v1).</summary>
+    public static ICardEffect PlayOptionCardEffect(
+        CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> optionPredicate, int maxCount, bool canEndNotMax, string description) =>
+        new PlayOptionCardEffect(card, sourceZone, optionPredicate, maxCount, canEndNotMax, description);
 
     /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
     /// <paramref name="fromZone"/> (Trash / Library / Security …) matching <paramref name="canTarget"/> and add
