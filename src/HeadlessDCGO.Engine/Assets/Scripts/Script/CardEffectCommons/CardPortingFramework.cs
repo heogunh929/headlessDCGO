@@ -59,6 +59,16 @@ public enum EffectTiming
     // out of the breeding area (CV-A4). ToTriggerName -> "OnMove" matches the engine's TriggerTimings.OnMove
     // emit. Appended at the end to keep existing enum ordinals stable.
     OnMove,
+
+    // (PRIM-P0-timing) High-volume card-facing timings from ALL_CARD_PRIMITIVE_BACKLOG P0. Each enum name
+    // is string-equal to an emitted TriggerTimings value (ToTriggerName -> ToString()); appended at the end
+    // to keep existing ordinals stable.
+    //   OnStartMainPhase — main-phase entry (emit exists: MetadataActionProcessor OnStartMainPhase). 222 cards.
+    //   OnEndBattle      — after battle resolved/deletions applied (emit exists: BattleResolver). 84 cards.
+    //   OnDeclaration    — attack declared; new emit added alongside OnAttack/OnAllyAttack. 298 cards.
+    OnStartMainPhase,
+    OnEndBattle,
+    OnDeclaration,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -9267,6 +9277,11 @@ public static class CardEffectRegistrar
         // turn end. The original keys <Vortex> under EffectTiming.OnEndTurn (EX8_074 region "Vortex").
         EffectTiming.OnEndTurn,
         EffectTiming.OnStartTurn,
+        // (PRIM-P0-timing) auto-register passive triggers on the new high-volume timings. Cards that don't
+        // return effects on these timings are unaffected (CardEffects returns empty for the unmatched branch).
+        EffectTiming.OnStartMainPhase,
+        EffectTiming.OnEndBattle,
+        EffectTiming.OnDeclaration,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the

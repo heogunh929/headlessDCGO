@@ -46,6 +46,10 @@ public static class TriggerTimings
     // OnAttackTargetChanged, OnEndBlockDesignation, OnDeclaration, OnUseDigiburst — follow this same
     // one-line emit pattern when a card group requires them.)
     public const string OnStartBattle = "OnStartBattle";
+    // (PRIM-P0-timing) Fired when a Digimon declares an attack (subject = the attacker), the window the
+    // original "[When Attacking]" attack-declaration effects use. Emitted alongside OnAttack/OnAllyAttack in
+    // AttackPermanentAction. Distinct from OnAttack: the original enum separates OnUseAttack from OnDeclaration.
+    public const string OnDeclaration = "OnDeclaration";
     public const string OnCounter = "OnCounterTiming";
     public const string OnBlock = "OnBlockAnyone";
     public const string OnSecurityCheck = "OnSecurityCheck";
