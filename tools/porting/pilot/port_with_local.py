@@ -36,6 +36,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from model_router import LocalModelRouter  # noqa: E402
 from porting_task import build_task  # noqa: E402  DB 스키마 공유
+from validate_port import validate as _validate_symbols, load_allowlist as _load_allowlist  # noqa: E402
+
+try:
+    _ALLOWLIST = _load_allowlist()
+except Exception:  # noqa: BLE001  allowlist 없으면 검사 skip(빌드 게이트가 여전히 잡음)
+    _ALLOWLIST = {}
+
+
+def _validate_symbols_text(cs: str) -> str:
+    """(#3 pre-build validator) 생성 .cs가 존재하지 않는 헤드리스 심볼을 참조하면 §9 힌트 포함 지시문을 반환.
+    무효 심볼 없으면 빈 문자열."""
+    if not _ALLOWLIST:
+        return ""
+    findings = _validate_symbols(cs, _ALLOWLIST)
+    if not findings:
+        return ""
+    lines = ["정적 검사(빌드 전): 아래 심볼은 헤드리스에 존재하지 않는다 — 반드시 아래 대안으로 고쳐라."]
+    for f in findings:
+        lines.append(f"  - {f['symbol']}: {f['suggestion']}")
+    return "\n".join(lines)
 
 _FRAMEWORK = (REPO / "src" / "HeadlessDCGO.Engine" / "Assets" / "Scripts" / "Script"
               / "CardEffectCommons" / "CardPortingFramework.cs")
@@ -329,6 +349,14 @@ def port_card(
         except Exception as ex:  # noqa: BLE001
             record["error"] = str(ex)[:500]
             return record
+
+        # (#3 pre-build validator) 무효 심볼이면 비싼 엔진 빌드를 건너뛰고 정밀 힌트로 즉시 재시도.
+        vdetail = _validate_symbols_text(cs)
+        if vdetail:
+            record["validator_hits"] = record.get("validator_hits", 0) + 1
+            last_detail = vdetail
+            record["last_detail"] = vdetail
+            continue
 
         if no_compile:
             record.update({"ok": True, "generated_chars": len(cs), "compile_skipped": True, "code": cs})
