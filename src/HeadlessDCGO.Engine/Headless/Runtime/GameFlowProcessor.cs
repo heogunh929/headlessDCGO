@@ -529,6 +529,17 @@ public sealed class GameFlowProcessor
     {
         EffectTiming.OnAllyAttack,
         EffectTiming.OnDestroyedAnyone,
+        EffectTiming.OnUnTappedAnyone,
+    };
+
+    /// <summary>(v3) Subject-scoped timings that can fire MULTIPLE times per turn (a card can be re-suspended and
+    /// unsuspended). Their activated triggers are capped ONCE PER TURN via <see cref="OnceFlagController"/> — the
+    /// AS-IS default for on-unsuspend triggers is "[Once Per Turn]", and under-firing a re-unsuspend is safer than
+    /// over-firing (illegal repeat advantage). memory/DP on-unsuspend triggers keep using their IHeadlessCardEffect
+    /// forms (scheduler-capped) and are not bridged here.</summary>
+    private static readonly IReadOnlySet<EffectTiming> OncePerTurnBridgeTimings = new HashSet<EffectTiming>
+    {
+        EffectTiming.OnUnTappedAnyone,
     };
 
     /// <summary>(v2) BOUNDARY timings — carry no card subject (a turn boundary emitted with only an actor). The
@@ -593,6 +604,19 @@ public sealed class GameFlowProcessor
                 || instance is null || instance.OwnerId.IsEmpty)
             {
                 continue;
+            }
+
+            // (v3) once-per-turn cap for multi-fire timings (on-unsuspend): the turn-scoped OnceFlagController
+            // (reset at turn end) gates one activation per (card, timing) per turn.
+            if (OncePerTurnBridgeTimings.Contains(timing))
+            {
+                var onceRequest = new EffectRequest(
+                    new HeadlessEntityId($"{card.Value}:bridgeOnce:{timing}"),
+                    instance.OwnerId, timing.ToString(), new EffectContext(instance.OwnerId, card));
+                if (!context.OnceFlags.TryActivate(onceRequest, maxCountPerTurn: 1))
+                {
+                    continue;
+                }
             }
 
             try

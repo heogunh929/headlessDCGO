@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("[When Attacking] draw 1 (activated) fires via the auto-processing bridge on OnAllyAttack", DrawsOnAttack),
     ("a NON-subject card's OnAllyAttack does not fire another card's activated trigger", ScopedToSubject),
     ("[End of Your Turn] draw 1 (boundary, no subject) fires via the scan bridge — owner's turn only, once", EndTurnDraw),
+    ("[on unsuspend] draw 1: fires once, and a SECOND unsuspend same turn does NOT re-fire (v3 cap)", UnsuspendOncePerTurn),
 };
 
 var failures = new List<string>();
@@ -69,6 +70,28 @@ async Task EndTurnDraw()
     TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndTurn, actor: P1, subject: default);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before + 1, HandCount(ctx, P1), "[End of Your Turn] draw fired once for the owner (boundary scan)");
+}
+
+async Task UnsuspendOncePerTurn()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 4);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxUnsuspendDraw"), "TfxUnsuspendDraw", "U", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var sub = new HeadlessEntityId("1:battle:SUB");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(sub, new HeadlessEntityId("TfxUnsuspendDraw"), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, sub, ChoiceZone.None, ChoiceZone.BattleArea));
+    for (int i = 1; i <= 6; i++) { var lib=new HeadlessEntityId($"1:lib:{i}"); cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:U{i}"),$"U{i}",$"U{i}",new Dictionary<string,object?>(StringComparer.Ordinal),CardType:"Digimon")); ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib,new HeadlessEntityId($"DEF:U{i}"),P1,Metadata:new Dictionary<string,object?>())); await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1,lib,ChoiceZone.None,ChoiceZone.Library)); }
+
+    int before = HandCount(ctx, P1);
+    // first unsuspend
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnUnTappedAnyone", actor: P1, subject: sub);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before + 1, HandCount(ctx, P1), "first unsuspend drew 1");
+    // second unsuspend SAME turn -> capped, no re-draw
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnUnTappedAnyone", actor: P1, subject: sub);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before + 1, HandCount(ctx, P1), "second unsuspend same turn did NOT re-fire (once-per-turn cap)");
 }
 
 // --- Harness ---

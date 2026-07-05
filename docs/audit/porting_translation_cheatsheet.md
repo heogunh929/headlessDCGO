@@ -110,8 +110,12 @@ if (timing == EffectTiming.OnEndTurn && CardEffectCommons.IsOwnerTurn(card))
     effects.Add(CardEffectFactory.SelectAndDestroyEffect(card, ...));  // [End of Your Turn] delete 등
 ```
 
-아직 미적용: `[on unsuspend]`(OnUnTappedAnyone) 등 **턴 내 다중발화 + once-per-turn 캡** 타이밍(OnceFlags 통합
-후 확장). memory/DP/recovery/unsuspend는 기존 triggered 팩토리 사용.
+**v3 추가**: `[on unsuspend]`(OnUnTappedAnyone) — subject-스코프, 턴 내 다중발화. 브릿지가 **once-per-turn 캡**을
+자동 적용(OnceFlags, 턴엔드 리셋). 즉 카드는 `[Once Per Turn]` 명시 없이 activated 팩토리만 반환하면 됨(재-언서스펜드
+시 재발화 안 됨). memory/DP/recovery/unsuspend는 여전히 기존 triggered 팩토리(scheduler-캡) 사용 — 브릿지 대상 아님.
+
+브릿지 커버: **[When Attacking]·[On Deletion]·[End/Start of Turn]·[Start of Main Phase]·[on unsuspend]**에서
+draw/trash/delete/select 등 activated 팩토리를 그 타이밍에 반환하면 해소됨.
 
 ## 5. 파일럿 실측 (BT1 exact 15장, Sonnet 4.6)
 
