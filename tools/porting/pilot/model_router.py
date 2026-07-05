@@ -105,5 +105,9 @@ class LocalModelRouter:
 
 
 def extract_csharp_code(text: str) -> str:
-    m = re.search(r"```(?:csharp|cs)?\n(.*?)```", text, re.S)
-    return m.group(1).strip() if m else text.strip()
+    # 펜스 블록 우선(언어표기·공백·개행 변형 허용). 없으면 전체를 대상으로.
+    m = re.search(r"```[ \t]*(?:csharp|cs|c#)?[ \t]*\r?\n?(.*?)```", text, re.S | re.I)
+    code = m.group(1) if m else text
+    # 남은 코드펜스 라인(``` — CS1056 예기치 않은 '`' 원인) 제거: 매칭 실패/중첩/미종료 모두 방어.
+    code = re.sub(r"(?m)^[ \t]*```.*$", "", code)
+    return code.strip()
