@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- (P-DB1) 카드 포팅 IR 추출기 — docs/audit/card_porting_database_design.md.
+       AS-IS 카드(.cs)를 Roslyn 구문트리로 파싱해 포팅 IR(JSONL)을 산출한다. 컴파일 불필요(구문 파스만).
+       엔진 솔루션 밖 독립 도구. SQLite/뷰 구축은 Python(stdlib)이 담당(의존성 최소화). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,482 @@
+"""카드 포팅 로컬 하네스 — Gemma/Qwen 역할 분리 + 컴파일 게이트.
+
+기존 port_with_sonnet.py의 구조를 유지하되 Sonnet 호출부를 로컬 OpenAI-compatible 모델 호출로 교체한 버전.
+
+전제:
+  pip install openai
+
+환경변수 예시:
+  export LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1
+  export LOCAL_LLM_API_KEY=ollama
+  export PLANNER_MODEL=gemma4:31b
+  export CODER_MODEL=qwen3-coder-next:latest
+  export REVIEWER_MODEL=gemma4:31b
+
+사용:
+  python tools/porting/pilot/port_with_local.py --tier exact --set BT1 --n 10 --out ../runs/local-pilot
+  python tools/porting/pilot/port_with_local.py --tier family --set BT1 --n 10 --retries 4 --out ../runs/local-pilot
+  python tools/porting/pilot/port_with_local.py --all-pending --set BT1 --retries 4 --keep --skip-cold
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+from typing import Callable
+
+REPO = Path(__file__).resolve().parents[3]
+DB = REPO / "docs" / "porting" / "card_ir.sqlite"
+sys.path.insert(0, str(REPO / "tools" / "porting"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from model_router import LocalModelRouter  # noqa: E402
+from porting_task import build_task  # noqa: E402  DB 스키마 공유
+
+_FRAMEWORK = (REPO / "src" / "HeadlessDCGO.Engine" / "Assets" / "Scripts" / "Script"
+              / "CardEffectCommons" / "CardPortingFramework.cs")
+_PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
+
+
+def read_prompt(name: str, fallback: str) -> str:
+    path = _PROMPT_DIR / name
+    return path.read_text(encoding="utf-8") if path.exists() else fallback
+
+
+SYSTEM_PROMPT = read_prompt(
+    "system_porting.md",
+    """너는 Digimon TCG 헤드리스 엔진의 카드 효과를 원본(Unity C#)에서 헤드리스(.NET C#)로 포팅한다.\n"
+    "출력은 완성된 .cs 파일 내용만, csharp 코드 블록 하나로 출력한다. 설명·주석 추가 금지.""",
+)
+PLANNER_PROMPT = read_prompt("planner.md", "너는 카드 포팅 기획자다. 구현 지시만 작성한다.")
+REVIEWER_PROMPT = read_prompt("reviewer.md", "너는 카드 포팅 검수자다. PASS 또는 FAIL: 수정 지시만 출력한다.")
+
+
+def symbol_surface() -> str:
+    """헤드리스가 실제로 정의한 유효 심볼을 프롬프트에 붙여 심볼 환각을 줄인다."""
+    if not _FRAMEWORK.exists():
+        return "## 사용 가능한 심볼\nCardPortingFramework.cs를 찾지 못했다. 없는 심볼을 발명하지 마라."
+
+    fw = _FRAMEWORK.read_text(encoding="utf-8", errors="ignore")
+    timing = re.search(r"enum EffectTiming\s*\{(.*?)\}", fw, re.S)
+    timings = list(dict.fromkeys(re.findall(r"\b([A-Z][A-Za-z]+)\b\s*(?:=|,|\n)", timing.group(1)))) if timing else []
+
+    by_class: dict[str, list[str]] = {}
+    class_spans = [(m.start(), m.group(1)) for m in re.finditer(r"\bclass ([A-Za-z0-9_]+)", fw)]
+    for m in re.finditer(r"public static [A-Za-z0-9_<>,?\[\]. ]+ ([A-Za-z0-9_]+)\(([^;{]*?)\)", fw):
+        cls = next((name for pos, name in reversed(class_spans) if pos < m.start()), "?")
+        by_class.setdefault(cls, []).append(f"{m.group(1)}({' '.join(m.group(2).split())})")
+
+    out = [
+        "## 사용 가능한 심볼(이 목록 밖의 이름·인자를 지어내지 마라. 도메인 타입에 없는 속성/메서드도 금지)",
+        f"### 유효 EffectTiming (이 중에서만): {', '.join(timings)}",
+    ]
+    for cls in ("CardEffectFactory", "CardEffectCommons"):
+        if cls in by_class:
+            out.append(f"### {cls} 시그니처(정확히 이 이름·인자·클래스만):")
+            out.extend(f"{cls}.{sig}" for sig in by_class[cls])
+
+    out.append(
+        "### 주의: AS-IS의 Unity 도메인 탐색(card.Owner.Enemy.SecurityCards 등)은 헤드리스에 1:1 속성이 없다. "
+        "그런 조건은 위 CardEffectCommons 술어로 재표현하라. HeadlessPlayerId/HeadlessEntityId는 Value·IsEmpty만 있다."
+    )
+
+    cheat = REPO / "docs" / "audit" / "porting_translation_cheatsheet.md"
+    if cheat.exists():
+        out.append("\n## 번역 규칙 (AS-IS 도메인 패턴 → 헤드리스)\n" + cheat.read_text(encoding="utf-8"))
+    return "\n".join(out)
+
+
+def _all_signatures() -> tuple[list[str], dict[str, list[str]]]:
+    """(유효 타이밍, 클래스→시그니처) — 트림의 소스. 모듈 로드 시 1회 파싱."""
+    if not _FRAMEWORK.exists():
+        return [], {}
+    fw = _FRAMEWORK.read_text(encoding="utf-8", errors="ignore")
+    timing = re.search(r"enum EffectTiming\s*\{(.*?)\}", fw, re.S)
+    timings = list(dict.fromkeys(re.findall(r"\b([A-Z][A-Za-z]+)\b\s*(?:=|,|\n)", timing.group(1)))) if timing else []
+    class_spans = [(m.start(), m.group(1)) for m in re.finditer(r"\bclass ([A-Za-z0-9_]+)", fw)]
+    by_cls: dict[str, list[str]] = {}
+    for m in re.finditer(r"public static [A-Za-z0-9_<>,?\[\]. ]+ ([A-Za-z0-9_]+)\(([^;{]*?)\)", fw):
+        cls = next((name for pos, name in reversed(class_spans) if pos < m.start()), "?")
+        by_cls.setdefault(cls, []).append(f"{m.group(1)}({' '.join(m.group(2).split())})")
+    return timings, by_cls
+
+
+_TIMINGS, _BY_CLASS = _all_signatures()
+_CHEAT = REPO / "docs" / "audit" / "porting_translation_cheatsheet.md"
+
+
+def symbol_surface_for(texts: list[str]) -> str:
+    """카드별 트림 심볼 표면 — 대상/레퍼런스 텍스트에 등장하는 팩토리·커먼즈 시그니처만.
+    전체 ~39K 대신 필요한 것만 → 로컬 모델(31B)의 컨텍스트 부담·환각·응답시간 대폭 감소.
+    레퍼런스 포팅본이 이미 정답 심볼을 보여주므로 전체 목록 불필요."""
+    blob = "\n".join(texts)
+    used = set(re.findall(r"\b([A-Za-z0-9_]+)\s*\(", blob))  # 호출된 이름
+    out = [
+        "## 사용 가능한 심볼(밖의 이름·인자 금지. 목록에 없는 커먼즈/팩토리를 절대 발명하지 마라)",
+        f"### 유효 EffectTiming (이 중에서만): {', '.join(_TIMINGS)}",
+    ]
+    # 발명 방지: 전체 이름 목록(컴팩트). 필요한 커먼즈가 레퍼런스에 없어도 목록에서 골라 쓰게 한다.
+    for cls in ("CardEffectFactory", "CardEffectCommons"):
+        allnames = sorted({s.split("(")[0] for s in _BY_CLASS.get(cls, [])})
+        if allnames:
+            out.append(f"### {cls} 전체 이름(이 중에서만 선택; 없는 이름 발명 금지):\n{', '.join(allnames)}")
+    # 상세 시그니처: 레퍼런스/대상에 등장한 것만(정확한 인자 안내).
+    for cls in ("CardEffectFactory", "CardEffectCommons"):
+        picked = [s for s in _BY_CLASS.get(cls, []) if s.split("(")[0] in used]
+        if picked:
+            out.append(f"### {cls} 시그니처 상세(정확한 인자):")
+            out.extend(f"{cls}.{s}" for s in picked)
+    out.append("### HeadlessPlayerId/HeadlessEntityId는 Value·IsEmpty만. permanent.X는 CardEffectCommons.X(card, id)로. "
+               "필요한 개념의 커먼즈가 위 목록에 없으면 발명하지 말고 가장 가까운 것을 쓰되, 없으면 그대로 두라(추측 금지).")
+    if _CHEAT.exists():
+        out.append("\n## 번역 규칙\n" + _CHEAT.read_text(encoding="utf-8"))
+    return "\n".join(out)
+
+
+def select_targets(tier: str, set_code: str, n: int) -> list[dict]:
+    conn = sqlite3.connect(str(DB))
+    conn.row_factory = sqlite3.Row
+    if tier == "exact":
+        where = "port_status='pending' AND set_code=? AND reference_card IS NOT NULL"
+    elif tier in ("family", "cold"):
+        where = "port_status='pending' AND set_code=? AND reference_card IS NULL AND action_tags != '[]'"
+    else:
+        raise SystemExit(f"unknown tier: {tier}")
+    rows = conn.execute(
+        f"SELECT card_id, action_tags, shape FROM card WHERE {where} ORDER BY card_id LIMIT ?",
+        (set_code, n),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def family_reference(conn: sqlite3.Connection, action_tags: str, exclude: str) -> str | None:
+    row = conn.execute(
+        "SELECT card_id FROM card WHERE port_status='ported' AND action_tags=? AND card_id!=? LIMIT 1",
+        (action_tags, exclude),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _tags_of(card_id: str) -> str:
+    conn = sqlite3.connect(str(DB))
+    row = conn.execute("SELECT action_tags FROM card WHERE card_id=?", (card_id,)).fetchone()
+    conn.close()
+    return row[0] if row else "[]"
+
+
+def _self_reference(ref_id: str) -> dict:
+    t = build_task(sqlite3.connect(str(DB)), ref_id)
+    return {"card_id": ref_id, "asis": t["target_asis"], "ported": _ported_text(ref_id)}
+
+
+def _render_task(task: dict) -> str:
+    parts = [f"# 대상 카드: {task['card_id']}", "## 대상 AS-IS", task["target_asis"]]
+    ref = task.get("reference")
+    if ref:
+        parts += [f"## 레퍼런스 {ref['card_id']} — AS-IS", ref["asis"]]
+        if ref.get("ported"):
+            parts += [f"## 레퍼런스 {ref['card_id']} — 헤드리스 포팅본(본떠라)", ref["ported"]]
+    parts += ["## 지시", task.get("instruction") or ""]
+    return "\n\n".join(parts)
+
+
+def build_prompt(conn: sqlite3.Connection, card_id: str, tier: str) -> tuple[str, dict] | None:
+    task = build_task(sqlite3.connect(str(DB)), card_id)
+    if tier == "family":
+        ref = family_reference(sqlite3.connect(str(DB)), _tags_of(card_id), card_id)
+        if ref is None:
+            return None
+        ref_task = build_task(sqlite3.connect(str(DB)), ref)
+        task["reference"] = ref_task.get("reference") or _self_reference(ref)
+        task["instruction"] = (
+            f"레퍼런스 {ref}는 대상과 같은 액션 계열이지만 구조가 다를 수 있다. "
+            "레퍼런스의 변환 방식을 참고하되 대상 AS-IS의 실제 구조·인자에 맞게 포팅하라."
+        )
+    elif tier == "cold":
+        task["reference"] = None
+        task["instruction"] = "레퍼런스 없이 대상 AS-IS만으로 헤드리스 .NET 포팅을 작성하라."
+    return _render_task(task), task
+
+
+def pick_reference(conn: sqlite3.Connection, card_id: str) -> tuple[str | None, str]:
+    """레퍼런스 자동 선정: exact > family > cold."""
+    row = conn.execute("SELECT reference_card, action_tags FROM card WHERE card_id=?", (card_id,)).fetchone()
+    if row and row[0]:
+        return row[0], "exact"
+    fam = conn.execute(
+        "SELECT card_id FROM card WHERE port_status='ported' AND action_tags=? AND card_id!=? LIMIT 1",
+        (row[1] if row else "[]", card_id),
+    ).fetchone()
+    if fam:
+        return fam[0], "family"
+    return None, "cold"
+
+
+def build_prompt_for(card_id: str, ref_id: str | None, tier: str) -> tuple[str, dict]:
+    task = build_task(sqlite3.connect(str(DB)), card_id)
+    if tier == "exact":
+        pass
+    elif tier == "family" and ref_id:
+        rt = build_task(sqlite3.connect(str(DB)), ref_id)
+        task["reference"] = {"card_id": ref_id, "asis": rt["target_asis"], "ported": _ported_text(ref_id)}
+        task["instruction"] = (
+            f"레퍼런스 {ref_id}는 대상과 같은 액션 계열이다(구조는 다를 수 있음). "
+            "변환 방식을 참고하되 대상 AS-IS의 실제 구조·인자에 맞게 포팅하라. "
+            "번역 규칙(도메인 탐색→커먼즈)을 반드시 적용하라."
+        )
+    else:
+        task["reference"] = None
+        task["instruction"] = "레퍼런스 없이 대상 AS-IS만으로 헤드리스 포팅을 작성하라."
+    return _render_task(task), task
+
+
+def _ported_text(card_id: str) -> str:
+    base = REPO / "src" / "HeadlessDCGO.Engine" / "Assets" / "Scripts" / "CardEffect"
+    if not base.exists():
+        return ""
+    for p in base.rglob(f"{card_id}.cs"):
+        return p.read_text(encoding="utf-8", errors="ignore")
+    return ""
+
+
+def compile_gate(cs_text: str, card_id: str, source_path: str, keep_on_pass: bool = False) -> tuple[bool, str]:
+    """G1: 생성 .cs를 대상 경로에 배치하고 엔진 빌드. 실패 또는 keep=False면 원복."""
+    target = REPO / "src" / "HeadlessDCGO.Engine" / "Assets" / "Scripts" / "CardEffect" / source_path
+    backup = target.read_text(encoding="utf-8") if target.exists() else None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(cs_text, encoding="utf-8")
+
+    env_path = f"{REPO / '.dotnet'}:{__import__('os').environ.get('PATH', '')}"
+    proc = subprocess.run(
+        ["dotnet", "build", "src/HeadlessDCGO.Engine/HeadlessDCGO.Engine.csproj", "--nologo", "-v", "q"],
+        cwd=str(REPO), capture_output=True, text=True, timeout=300,
+        env={**__import__('os').environ, "PATH": env_path},
+    )
+    ok = proc.returncode == 0
+    detail = "" if ok else (proc.stdout + proc.stderr)[-1800:]
+
+    if ok and keep_on_pass:
+        pass
+    elif backup is not None:
+        target.write_text(backup, encoding="utf-8")
+    else:
+        target.unlink(missing_ok=True)
+    return ok, detail
+
+
+def maybe_plan(router: LocalModelRouter, tier: str, attempt: int, user0: str, detail: str | None = None) -> str:
+    """family는 처음부터, exact는 반복 실패 후 planner 지시를 추가한다."""
+    if tier == "family" and attempt == 1:
+        return router.plan(PLANNER_PROMPT, f"아래 포팅 태스크를 분석해 coder에게 줄 구현 지시를 작성하라.\n\n{user0}")
+    if attempt >= 3 and detail:
+        return router.plan(
+            PLANNER_PROMPT,
+            f"아래 포팅 시도가 반복 실패했다. 컴파일 오류 원인을 분석하고 coder에게 줄 수정 지시만 작성하라.\n\n"
+            f"## 원래 태스크\n{user0}\n\n## 컴파일 오류\n{detail[-1500:]}",
+        )
+    return ""
+
+
+def review_pass(router: LocalModelRouter, user0: str, cs: str) -> tuple[bool, str]:
+    review = router.review(
+        REVIEWER_PROMPT,
+        f"아래 카드는 컴파일을 통과했다. 원본 AS-IS와 생성 코드의 의미가 같은지 검수하라.\n\n"
+        f"## 태스크\n{user0}\n\n## 생성 코드\n```csharp\n{cs}\n```",
+    ).strip()
+    return review.upper().startswith("PASS"), review
+
+
+def port_card(
+    conn: sqlite3.Connection,
+    card_id: str,
+    router: LocalModelRouter,
+    system: str,
+    max_retries: int,
+    keep: bool,
+    no_compile: bool = False,
+    semantic_review: bool = False,
+) -> dict:
+    ref_id, tier = pick_reference(conn, card_id)
+    user0, task = build_prompt_for(card_id, ref_id, tier)
+    source_rel = task["target_path"].split("CardEffect/")[-1]
+    # 카드별 트림 심볼 표면: 대상 AS-IS + 레퍼런스(AS-IS·포팅본)에 등장한 심볼만(system은 원칙 프롬프트).
+    ref_texts = [task["target_asis"]]
+    if task.get("reference"):
+        ref_texts += [task["reference"].get("asis", ""), task["reference"].get("ported", "")]
+    system = system + "\n\n" + symbol_surface_for(ref_texts)
+    record = {"card_id": card_id, "tier": tier, "reference": ref_id, "ok": False, "attempts": 0}
+
+    last_detail = ""
+    for attempt in range(1, max_retries + 2):
+        record["attempts"] = attempt
+        try:
+            plan = maybe_plan(router, tier, attempt, user0, last_detail)
+            user = user0
+            if plan:
+                user += f"\n\n## Planner 지시\n{plan}"
+            if last_detail:
+                user += (
+                    f"\n\n## 직전 시도의 컴파일 오류(고쳐라)\n{last_detail[-1200:]}\n"
+                    "위 오류만 정확히 수정한 완성본을 다시 출력하라(코드 블록 하나)."
+                )
+            cs = router.code(system, user)
+        except Exception as ex:  # noqa: BLE001
+            record["error"] = str(ex)[:500]
+            return record
+
+        if no_compile:
+            record.update({"ok": True, "generated_chars": len(cs), "compile_skipped": True, "code": cs})
+            return record
+
+        ok, detail = compile_gate(cs, card_id, source_rel, keep_on_pass=keep)
+        if ok:
+            record["compile_ok"] = True
+            if semantic_review:
+                passed, review = review_pass(router, user0, cs)
+                record["review"] = review[:1000]
+                if not passed:
+                    # keep=True로 이미 남긴 경우 의미검수 실패 시 원복이 필요할 수 있으니 기본은 keep=False 파일럿에서 사용 권장.
+                    last_detail = "의미 검수 실패: " + review
+                    continue
+            record["ok"] = True
+            return record
+
+        last_detail = detail
+        record["last_detail"] = detail[-600:]
+
+    return record
+
+
+def run_all_pending(
+    conn: sqlite3.Connection,
+    router: LocalModelRouter,
+    system: str,
+    set_code: str,
+    max_retries: int,
+    keep: bool,
+    log_path: Path,
+    limit: int | None,
+    skip_cold: bool = True,
+    no_compile: bool = False,
+    semantic_review: bool = False,
+) -> None:
+    where = "port_status='pending' AND readiness!='blocked' AND set_code=?"
+    rows = conn.execute(f"SELECT card_id FROM card WHERE {where} ORDER BY card_id", (set_code,)).fetchall()
+    done = set()
+    if log_path.exists():
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            if rec.get("ok"):
+                done.add(rec["card_id"])
+    cards = [r[0] for r in rows if r[0] not in done][: limit or None]
+    print(f"set={set_code} pending {len(rows)}장 중 미완 {len(cards)}장 (skip_cold={skip_cold}, 재시도 {max_retries})")
+
+    passed = 0
+    by_tier: dict[str, list[int]] = {}
+    for i, cid in enumerate(cards, 1):
+        ref_id, tier = pick_reference(conn, cid)
+        if skip_cold and tier == "cold":
+            rec = {"card_id": cid, "tier": "cold", "ok": False, "skipped": "no_reference"}
+            _log(log_path, rec)
+            _log_cold_queue(log_path.parent / "cold_queue.jsonl", rec)
+            print(f"  [{i}/{len(cards)}] {cid} (cold): SKIP(레퍼런스 없음)")
+            by_tier.setdefault("cold", [0, 0])[1] += 1
+            continue
+
+        rec = port_card(conn, cid, router, system, max_retries, keep, no_compile, semantic_review)
+        _log(log_path, rec)
+        by_tier.setdefault(rec["tier"], [0, 0])
+        by_tier[rec["tier"]][1] += 1
+        if rec.get("ok"):
+            passed += 1
+            by_tier[rec["tier"]][0] += 1
+        mark = "PASS" if rec.get("ok") else ("CALL-FAIL" if "error" in rec else "FAIL")
+        print(f"  [{i}/{len(cards)}] {cid} ({rec['tier']}, {rec['attempts']}회): {mark}")
+
+    print(f"\n=== {set_code} 완료: {passed}/{len(cards)} 통과 ===")
+    for tier, (ok, tot) in sorted(by_tier.items()):
+        print(f"  {tier}: {ok}/{tot}")
+
+
+def _log(path: Path, record: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _log_cold_queue(path: Path, record: dict) -> None:
+    _log(path, record)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tier", choices=["exact", "family", "cold"], help="파일럿 티어 모드")
+    parser.add_argument("--all-pending", action="store_true", help="세트 전체 pending 포팅")
+    parser.add_argument("--set", dest="set_code", default="BT1")
+    parser.add_argument("--n", type=int, default=15)
+    parser.add_argument("--limit", type=int, help="all-pending 제한")
+    parser.add_argument("--retries", type=int, default=2, help="컴파일-수정 재시도 횟수")
+    parser.add_argument("--keep", action="store_true", help="통과 카드를 대상 경로에 유지")
+    parser.add_argument("--out", default="../runs/local-pilot")
+    parser.add_argument("--no-compile", action="store_true", help="G1 컴파일 게이트 생략")
+    parser.add_argument("--skip-cold", action="store_true", default=True, help="cold 카드는 큐에 기록하고 스킵")
+    parser.add_argument("--include-cold", action="store_true", help="cold도 생성 시도")
+    parser.add_argument("--semantic-review", action="store_true", help="컴파일 통과 후 reviewer 의미 검수 수행")
+    args = parser.parse_args()
+
+    system_prompt = SYSTEM_PROMPT  # 심볼 표면은 port_card 내부에서 카드별 트림으로 붙인다.
+    router = LocalModelRouter()
+
+    if args.include_cold:
+        args.skip_cold = False
+
+    if args.all_pending:
+        out = (REPO / args.out).resolve() / args.set_code
+        out.mkdir(parents=True, exist_ok=True)
+        run_all_pending(
+            sqlite3.connect(str(DB)), router, system_prompt, args.set_code,
+            args.retries, args.keep, out / "results.jsonl", args.limit,
+            skip_cold=args.skip_cold, no_compile=args.no_compile, semantic_review=args.semantic_review,
+        )
+        return
+
+    if not args.tier:
+        parser.error("--tier 또는 --all-pending 필요")
+
+    out_dir = (REPO / args.out).resolve() / args.tier
+    out_dir.mkdir(parents=True, exist_ok=True)
+    log_path = out_dir / "results.jsonl"
+
+    conn = sqlite3.connect(str(DB))
+    targets = select_targets(args.tier, args.set_code, args.n)
+    print(f"tier={args.tier} set={args.set_code} 대상 {len(targets)}장")
+
+    passed = 0
+    for t in targets:
+        cid = t["card_id"]
+        if args.tier == "cold" and args.skip_cold:
+            rec = {"card_id": cid, "tier": "cold", "ok": False, "skipped": "no_reference"}
+            _log(log_path, rec)
+            _log_cold_queue(out_dir / "cold_queue.jsonl", rec)
+            print(f"  {cid}: SKIP(cold)")
+            continue
+        rec = port_card(conn, cid, router, system_prompt, args.retries, args.keep, args.no_compile, args.semantic_review)
+        _log(log_path, rec)
+        passed += int(bool(rec.get("ok")))
+        mark = "PASS" if rec.get("ok") else ("CALL-FAIL" if "error" in rec else "FAIL")
+        print(f"  {cid}: {mark}")
+
+    print(f"\n통과: {passed}/{len(targets)} (tier={args.tier})")
+    print(f"산출: {out_dir}")
+
+
+if __name__ == "__main__":
+    main()
