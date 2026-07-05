@@ -530,6 +530,10 @@ public sealed class GameFlowProcessor
         EffectTiming.OnAllyAttack,
         EffectTiming.OnDestroyedAnyone,
         EffectTiming.OnUnTappedAnyone,
+        // (v4) attack-declaration window — emitted with subject = attacker alongside OnAttack/OnAllyAttack
+        // (AttackPermanentAction:151), so "[When Attacking]" activated effects (incl. Digi-Burst bodies declared
+        // at OnDeclaration) resolve at declaration. Once per declaration event; a card gates itself.
+        EffectTiming.OnDeclaration,
     };
 
     /// <summary>(v3) Subject-scoped timings that can fire MULTIPLE times per turn (a card can be re-suspended and

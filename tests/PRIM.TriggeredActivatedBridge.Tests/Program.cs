@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("[When Attacking] draw 1 (activated) fires via the auto-processing bridge on OnAllyAttack", DrawsOnAttack),
     ("a NON-subject card's OnAllyAttack does not fire another card's activated trigger", ScopedToSubject),
     ("[End of Your Turn] draw 1 (boundary, no subject) fires via the scan bridge — owner's turn only, once", EndTurnDraw),
+    ("[When Attacking] draw 1 at OnDeclaration (attack-declaration, Digi-Burst timing) fires via the bridge (v4)", DrawsOnDeclaration),
     ("[on unsuspend] draw 1: fires once, and a SECOND unsuspend same turn does NOT re-fire (v3 cap)", UnsuspendOncePerTurn),
 };
 
@@ -37,6 +38,27 @@ async Task DrawsOnAttack()
     TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnAllyAttack, actor: P1, subject: Attacker);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before + 1, HandCount(ctx, P1), "the attacker's [When Attacking] draw 1 resolved via the bridge");
+}
+
+async Task DrawsOnDeclaration()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 5);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (HeadlessDCGO.Engine.Headless.DataLoading.CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxWhenDeclareDraw"), "TfxWhenDeclareDraw", "WD", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var attacker = new HeadlessEntityId("1:battle:WD");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(attacker, new HeadlessEntityId("TfxWhenDeclareDraw"), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.None, ChoiceZone.BattleArea));
+    for (int i = 0; i < 3; i++)
+    {
+        var lib = new HeadlessEntityId($"1:lib:d{i}");
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib, new HeadlessEntityId("TfxWhenDeclareDraw"), P1, Metadata: new Dictionary<string, object?>()));
+        await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, lib, ChoiceZone.None, ChoiceZone.Library));
+    }
+    int before = HandCount(ctx, P1);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnDeclaration, actor: P1, subject: attacker);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before + 1, HandCount(ctx, P1), "the attacker's OnDeclaration draw 1 resolved via the bridge");
 }
 
 async Task ScopedToSubject()

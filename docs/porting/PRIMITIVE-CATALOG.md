@@ -1,6 +1,6 @@
 # 프리미티브 카탈로그 (카드-facing 팩토리 전수)
 
-> 자동생성 · `CardEffectFactory` 공개 팩토리 **147종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
+> 자동생성 · `CardEffectFactory` 공개 팩토리 **152종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
 
 > 공통 인자: `card`=`CardSource`(호스트), `isInheritedEffect`=진화원 상속 여부(대개 false), `condition`=`Func<bool>?`(발동 게이트, 없으면 null). **모든 술어/값 인자는 실동작한다** — 원본이 넘기는 값을 그대로 넘겨라(null로 뭉개지 말 것): `permanentCondition`(대상 술어), `skillCondition`(원인-효과 술어), `level/minLevel/maxLevel`(진화 레벨 게이트), `trashValue`(Fragment X), `cardSourceConditions`(Partition 색 그룹), `isLinkedEffect`(링크 상태 게이트 — 원본이 `SetIsLinkedEffect(true)` 하면 true), `defenderCondition`/`canAttackPlayer`(공격 대상 술어).
 >
@@ -203,6 +203,7 @@
 | `AddAppfuseMethodByName` | ICardEffect | `ICardEffect AddAppfuseMethodByName(IReadOnlyList<string> cardNames, CardSource card, int cost = 0, string effectName = "App Fusion")` |
 | `AddDetailClass` | ICardEffect | `ICardEffect AddDetailClass(Func<bool>? canUseCondition, Func<Permanent, bool>? permanentCondition, string detail, bool triggerEffect, CardSource card)` |
 | `AddDigivolutionRequirementStaticEffect` | ICardEffect | `ICardEffect AddDigivolutionRequirementStaticEffect(string fromColor, int fromLevel, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `AddJogressLevelsEffect` | ICardEffect | `ICardEffect AddJogressLevelsEffect(CardSource card, Func<CardSource, IReadOnlyList<int>> getLevels, Func<bool>? condition = null, string name = "Also treated as additional levels for DNA Digivolution")` |
 | `AddMemoryTriggerEffect` | ICardEffect | `ICardEffect AddMemoryTriggerEffect(EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description, Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null)` |
 | `AddSelfDigivolutionRequirementStaticEffect` | ICardEffect | `ICardEffect AddSelfDigivolutionRequirementStaticEffect(Func<Permanent, bool> permanentCondition, int digivolutionCost, bool ignoreDigivolutionRequirement, CardSource card, Func<bool>? condition, string? effectName = null, Func<CardSource, bool>? cardCondition = null, Func<int>? costEquation = null, int level = -1, int minLevel = -1, int maxLevel = -1)` |
 | `AddSelfLinkConditionStaticEffect` | ICardEffect | `ICardEffect AddSelfLinkConditionStaticEffect(Func<Permanent, bool> permanentCondition, int linkCost, CardSource card, Func<bool>? condition = null, Func<CardSource, bool>? cardCondition = null, string? effectName = null)` |
@@ -222,6 +223,7 @@
 | `BlitzStaticEffect` | ICardEffect | `ICardEffect BlitzStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `BlockerSelfStaticEffect` | ICardEffect | `ICardEffect BlockerSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `BlockerStaticEffect` | ICardEffect | `ICardEffect BlockerStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false)` |
+| `BurstDigivolveEffect` | ICardEffect | `ICardEffect BurstDigivolveEffect(CardSource card, Func<CardSource, bool> digimonCondition, Func<CardSource, bool> tamerCondition, int cost = 0, Func<bool>? condition = null)` |
 | `CanNotAddMemoryStaticEffect` | ICardEffect | `ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)` |
 | `CanNotAddSecurityStaticEffect` | ICardEffect | `ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)` |
 | `CanNotAffectedStaticEffect` | ICardEffect | `ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
@@ -261,8 +263,11 @@
 | `DecodeSelfEffect` | ICardEffect | `ICardEffect DecodeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `DecoySelfEffect` | ICardEffect | `ICardEffect DecoySelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<Permanent, bool>? permanentCondition = null, string? effectName = null, string? effectDescription = null)` |
 | `DecoyStaticEffect` | ICardEffect | `ICardEffect DecoyStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `DigiBurstEffect` | ICardEffect | `ICardEffect DigiBurstEffect(CardSource card, int count, ICardEffect innerEffect, string description)` |
 | `DigiXrosEffect` | ICardEffect | `ICardEffect DigiXrosEffect(CardSource card, int costReduction, params SpecialPlayMaterial[] materials)` |
 | `DigiXrosEffectFromNames` | ICardEffect | `ICardEffect DigiXrosEffectFromNames(CardSource card, int costReduction, object? canTargetCondition = null, params string[] names)` |
+| `DigiXrosWithExtraMaterialsEffect` | ICardEffect | `ICardEffect DigiXrosWithExtraMaterialsEffect(CardSource card, int costReduction, Func<CardSource, int>? maxTrashCount, Func<CardSource, int>? maxUnderTamerCount, params SpecialPlayMaterial[] materials)` |
+| `DnaDigivolveFromHandOrTrashEffect` | ICardEffect | `ICardEffect DnaDigivolveFromHandOrTrashEffect(CardSource card, Func<CardSource, bool> intoCondition, Func<CardSource, bool> permanentCondition, Func<CardSource, bool> materialCondition, bool intoFromHand, bool materialFromHand, string description = "DNA Digivolve using a hand/trash card")` |
 | `DrawCardsEffect` | IActivatedCardEffect | `IActivatedCardEffect DrawCardsEffect(CardSource card, int count)` |
 | `EoTLose3Memory` | ICardEffect | `ICardEffect EoTLose3Memory(CardSource card)` |
 | `EvadeSelfEffect` | ICardEffect | `ICardEffect EvadeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition)` |

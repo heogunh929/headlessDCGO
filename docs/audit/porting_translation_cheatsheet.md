@@ -114,8 +114,33 @@ if (timing == EffectTiming.OnEndTurn && CardEffectCommons.IsOwnerTurn(card))
 자동 적용(OnceFlags, 턴엔드 리셋). 즉 카드는 `[Once Per Turn]` 명시 없이 activated 팩토리만 반환하면 됨(재-언서스펜드
 시 재발화 안 됨). memory/DP/recovery/unsuspend는 여전히 기존 triggered 팩토리(scheduler-캡) 사용 — 브릿지 대상 아님.
 
-브릿지 커버: **[When Attacking]·[On Deletion]·[End/Start of Turn]·[Start of Main Phase]·[on unsuspend]**에서
-draw/trash/delete/select 등 activated 팩토리를 그 타이밍에 반환하면 해소됨.
+**v4 추가**: `[When Attacking]`의 **공격 선언 타이밍** `OnDeclaration`도 브릿지됨(subject=공격자, OnAllyAttack과
+동일 방식으로 emit). AS-IS가 OnDeclaration에 선언한 activated 효과(**Digi-Burst body 포함** — BT6_028류가 여기서
+발동)가 선언 시 해소됨. 298장 OnDeclaration 카드의 activated 계층이 열림.
+
+브릿지 커버: **[When Attacking](OnAllyAttack·OnDeclaration)·[On Deletion]·[End/Start of Turn]·[Start of Main
+Phase]·[on unsuspend]**에서 draw/trash/delete/select 등 activated 팩토리를 그 타이밍에 반환하면 해소됨.
+
+## 8. 특수 플레이 프리미티브 (2026-07-05 — Special Mechanics STOP 전량 해소)
+
+DigiXros/DNA/Blast 계열의 STOP-표면이 전부 헤드리스 팩토리로 열렸다. **이 메커니즘들은 더 이상 STOP이 아니다.**
+헤드리스 특수플레이는 **auto-match 모델**(플레이어 인터랙티브 선택이 아니라, 조건 만족 재료를 엔진이 자동 매칭) —
+카드는 조건(술어)만 선언하면 된다. 시그니처 전수 = `PRIMITIVE-CATALOG.md`.
+
+| AS-IS 패턴 | 헤드리스 |
+|---|---|
+| `AddDigiXrosConditionClass`(기본 DigiXros) | `CardEffectFactory.DigiXrosEffect(card, costReduction, new SpecialPlayMaterial(술어, "라벨"), ...)` — 각 재료는 배틀존 후보를 매칭하는 술어 |
+| `AddMaxTrashCountDigiXrosClass` / `maxTamerDigivolutionCardsCount`(재료를 트래시/테이머-진화원에서) | `CardEffectFactory.DigiXrosWithExtraMaterialsEffect(card, costReduction, maxTrashCount:Func<CardSource,int>?, maxUnderTamerCount:Func<CardSource,int>?, materials...)` — 재료 슬롯을 트래시 존/테이머 진화원 소스로 최대 N장 충족(getMaxTrashCount Func 그대로 스레드) |
+| `AddJogressConditionClass`(DNA/Jogress) | `CardEffectFactory.JogressEffect(card, condition, new SpecialPlayMaterial(술어, "라벨"), ...)` 또는 이름 기반 `JogressEffectFromNames(card, condition, "이름1", "이름2")` |
+| `AddJogressLevelsClass`("이 카드도 레벨 N으로 취급") | `CardEffectFactory.AddJogressLevelsEffect(card, getLevels:Func<CardSource,IReadOnlyList<int>>)` — getLevels는 진화 카드(jogressCard)를 받아 이 카드가 추가로 취급될 레벨 목록 반환. 레벨-기반 재료 술어는 `material.JogressLevelsAgainst(jogressCard).Contains(N)`로 판정 |
+| `BurstDigivolutionCondition`(Burst Digivolve: 타겟 위로 진화 + 테이머 바운스) | `CardEffectFactory.BurstDigivolveEffect(card, digimonCondition:Func<CardSource,bool>, tamerCondition:Func<CardSource,bool>, cost)` — 타겟 Digimon 위로 무료진화 + 매칭 테이머 hand 바운스 + cost. 엔진이 타겟·테이머 자동 매칭 |
+| `IDigiBurst`(`[Digi-Burst N] <효과>`: 진화원 N장 trash 비용) | `CardEffectFactory.DigiBurstEffect(card, count, innerEffect:ICardEffect, "설명")` — 자기 진화원 소스 N장 trash 후 innerEffect 발동. inner가 activated면 해소, **연속 grant(키워드/스탯)면 register**. ≥N trashable 소스일 때만 발동. 트리거 타이밍(OnDeclaration 등)에서 반환하면 브릿지가 해소 |
+| `DNADigivolveWithHandOrTrashCardIntoHandOrTrash`(효과-구동 DNA: hand/trash 카드로 진화) | `CardEffectFactory.DnaDigivolveFromHandOrTrashEffect(card, intoCondition, permanentCondition, materialCondition, intoFromHand:bool, materialFromHand:bool)` — into-카드(hand/trash) 위로 필드 permanent + hand/trash 재료를 융합. 엔진이 자동 매칭 |
+| `AddAssemblyConditionClass`(Assembly: 트래시에서 재료로 플레이) | 이미 배선됨 — 카드가 `AssemblyConditionOf`를 선언하면 `PlayCardAction`이 트래시 재료로 Assembly 플레이를 제안. 별도 팩토리 불요 |
+
+**주의**: 위 재료 술어(`SpecialPlayMaterial`의 `Func<CardSource,bool>`, `digimonCondition`, `tamerCondition`)는
+§0 규칙대로 **술어를 그대로 평가**하라(카드명 동등만 하지 말고 레벨/색/타입 등 원본 조건 미러). Digi-Burst inner가
+"gain 키워드"류 **연속 효과**면 activated가 아니므로 register 경로로 자동 처리된다(카드는 inner를 그대로 넘기면 됨).
 
 ## 5. 파일럿 실측 (BT1 exact 15장, Sonnet 4.6)
 
