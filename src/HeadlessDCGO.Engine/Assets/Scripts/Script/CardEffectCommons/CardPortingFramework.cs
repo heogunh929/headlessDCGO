@@ -2685,6 +2685,50 @@ public sealed class DigiBurstActivatedEffect : IActivatedCardEffect
         throw new NotSupportedException($"Digi-Burst effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(PRIM special-play) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c>
+/// (DNADigivolveEffects.cs:256) — an EFFECT-driven DNA Digivolution: DNA-digivolve INTO a card taken from the
+/// hand or trash (<see cref="IntoCondition"/>, zone by <see cref="IntoFromHand"/>) by fusing a battle-area
+/// permanent (<see cref="PermanentCondition"/>) together with a hand/trash material (<see cref="MaterialCondition"/>,
+/// zone by <see cref="MaterialFromHand"/>) under it. Resolved via the activation flow (auto-matched, like the
+/// other special plays). EX6_072 / EX11_059.</summary>
+public sealed class DnaFromHandOrTrashActivatedEffect : IActivatedCardEffect
+{
+    public DnaFromHandOrTrashActivatedEffect(
+        CardSource card, Func<CardSource, bool> intoCondition, Func<CardSource, bool> permanentCondition,
+        Func<CardSource, bool> materialCondition, bool intoFromHand, bool materialFromHand, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(intoCondition);
+        ArgumentNullException.ThrowIfNull(permanentCondition);
+        ArgumentNullException.ThrowIfNull(materialCondition);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        IntoCondition = intoCondition;
+        PermanentCondition = permanentCondition;
+        MaterialCondition = materialCondition;
+        IntoFromHand = intoFromHand;
+        MaterialFromHand = materialFromHand;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public Func<CardSource, bool> IntoCondition { get; }
+
+    public Func<CardSource, bool> PermanentCondition { get; }
+
+    public Func<CardSource, bool> MaterialCondition { get; }
+
+    public bool IntoFromHand { get; }
+
+    public bool MaterialFromHand { get; }
+
+    public string Description { get; }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"DNA-from-hand/trash effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// An activated "gain/lose N memory" effect for player-activated skills (Option [Main] / [Security], e.g.
 /// ST2_13). Resolved imperatively; <see cref="Apply"/> emits an AddMemory mutation.
@@ -5501,6 +5545,17 @@ public static partial class CardEffectFactory
         effect.SetUpAddJogressLevelsClass(getLevels);
         return effect;
     }
+
+    /// <summary>(PRIM special-play) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> — an effect-driven
+    /// DNA Digivolution into a hand/trash card (<paramref name="intoCondition"/>) fusing a battle-area permanent
+    /// (<paramref name="permanentCondition"/>) with a hand/trash material (<paramref name="materialCondition"/>).
+    /// Resolved via the activation flow.</summary>
+    public static ICardEffect DnaDigivolveFromHandOrTrashEffect(
+        CardSource card, Func<CardSource, bool> intoCondition, Func<CardSource, bool> permanentCondition,
+        Func<CardSource, bool> materialCondition, bool intoFromHand, bool materialFromHand,
+        string description = "DNA Digivolve using a hand/trash card") =>
+        new DnaFromHandOrTrashActivatedEffect(
+            card, intoCondition, permanentCondition, materialCondition, intoFromHand, materialFromHand, description);
 
     /// <summary>(PRIM-W5) Jogress with ARBITRARY per-material predicates (faithful form of
     /// <c>AddJogressConditionClass</c>'s <c>GetJogress</c>).</summary>

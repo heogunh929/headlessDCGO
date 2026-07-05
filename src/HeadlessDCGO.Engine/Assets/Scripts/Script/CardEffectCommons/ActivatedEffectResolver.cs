@@ -159,6 +159,39 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case DnaFromHandOrTrashActivatedEffect dna:
+                {
+                    // (PRIM special-play) AS-IS DNADigivolveWithHandOrTrashCardIntoHandOrTrash: auto-match an
+                    // into-card (hand/trash), a battle-area permanent, and a hand/trash material, then fuse the
+                    // permanent + material under the into-card (DNA digivolution). Consistent with the other
+                    // special plays' auto-match model.
+                    var reader = (Headless.Services.IZoneStateReader)context.ZoneMover;
+                    HeadlessPlayerId owner = dna.Card.Owner;
+                    ChoiceZone intoZone = dna.IntoFromHand ? ChoiceZone.Hand : ChoiceZone.Trash;
+                    ChoiceZone materialZone = dna.MaterialFromHand ? ChoiceZone.Hand : ChoiceZone.Trash;
+
+                    HeadlessEntityId? into = FirstMatch(context, reader.GetCards(owner, intoZone), owner, dna.IntoCondition, exclude: default);
+                    HeadlessEntityId? permanent = FirstMatch(context, reader.GetCards(owner, ChoiceZone.BattleArea), owner, dna.PermanentCondition, exclude: default);
+                    HeadlessEntityId? material = into is HeadlessEntityId intoId
+                        ? FirstMatch(context, reader.GetCards(owner, materialZone), owner, dna.MaterialCondition, exclude: intoId)
+                        : null;
+
+                    if (into is HeadlessEntityId topId && permanent is HeadlessEntityId permId && material is HeadlessEntityId matId)
+                    {
+                        IReadOnlyList<HeadlessEntityId> merged = await FusionDigivolveHelpers.FuseAsync(
+                            context.CardInstanceRepository, context.ZoneMover, topId, intoZone,
+                            new[] { permId, matId }, gameEventQueue: context.GameEventQueue,
+                            kind: FusionKind.DnaDigivolve, cancellationToken: cancellationToken).ConfigureAwait(false);
+                        if (merged.Count > 0)
+                        {
+                            resolved++;
+                        }
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case PlayOptionCardEffect playOption:
                 {
                     // (PRIM-P0 B.O.5) select Option card(s) from a zone and play each as a nested effect: trash it
@@ -404,5 +437,22 @@ public static class ActivatedEffectResolver
         Add(context.TurnController.Current.TurnPlayerId);
         Add(context.TurnController.Current.NonTurnPlayerId);
         return players;
+    }
+
+    /// <summary>(DNA-from-hand/trash) The first card in <paramref name="pool"/> that satisfies
+    /// <paramref name="condition"/> (evaluated as a <see cref="CardSource"/>), other than <paramref name="exclude"/>.</summary>
+    private static HeadlessEntityId? FirstMatch(
+        EngineContext context, IReadOnlyList<HeadlessEntityId> pool, HeadlessPlayerId owner,
+        Func<CardSource, bool> condition, HeadlessEntityId exclude)
+    {
+        foreach (HeadlessEntityId id in pool)
+        {
+            if (id != exclude && condition(new CardSource(context, id, owner, owner)))
+            {
+                return id;
+            }
+        }
+
+        return null;
     }
 }
