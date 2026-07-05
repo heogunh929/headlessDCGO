@@ -116,6 +116,7 @@ public sealed class PlayCardAction
         // brick only makes you pay LESS; offering the card when you can only afford the reduced cost is the
         // availability concern (brick 3).
         int memoryCost = payload.MemoryCost;
+        context.CurrentPayCostRoot = PayCostRoot.Play;   // (B.O.4 #1) gate [BeforePayCost] effects to the play action.
         try
         {
             int beforePayCostResolved = await ActivatedEffectResolver
@@ -139,6 +140,10 @@ public sealed class PlayCardAction
             pending["pendingChoice"] = true;
             pending["pendingChoiceMessage"] = ex.Message;
             return ActionProcessResult.Success("Card play awaiting BeforePayCost choice.", pending);
+        }
+        finally
+        {
+            context.CurrentPayCostRoot = PayCostRoot.None;
         }
 
         return await CompletePlayAsync(context, action, payload, validation, memoryCost, cancellationToken)
@@ -386,12 +391,23 @@ public sealed class PlayCardAction
 
         var card = new CardSource(context, cardId, playerId, instance.OwnerId);
         int reduction = 0;
-        foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.BeforePayCost, card))
+        // (B.O.4 #1) this is a PLAY availability pre-discount — set the Play root so the card's root-gated
+        // [BeforePayCost] reduction is offered (else it self-gates out and the card looks unaffordable).
+        PayCostRoot previousRoot = context.CurrentPayCostRoot;
+        context.CurrentPayCostRoot = PayCostRoot.Play;
+        try
         {
-            if (cardEffect is SuspendCostReductionEffect suspendReduce)
+            foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.BeforePayCost, card))
             {
-                reduction += suspendReduce.CostReduction;
+                if (cardEffect is SuspendCostReductionEffect suspendReduce)
+                {
+                    reduction += suspendReduce.CostReduction;
+                }
             }
+        }
+        finally
+        {
+            context.CurrentPayCostRoot = previousRoot;
         }
 
         return reduction;

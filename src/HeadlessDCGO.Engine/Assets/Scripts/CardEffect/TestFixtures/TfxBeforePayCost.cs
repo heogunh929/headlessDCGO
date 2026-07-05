@@ -15,8 +15,9 @@ public sealed class TfxBeforePayCost : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // [When Would be Played] By suspending 2 Digimon, reduce the play cost by 4.
-        if (timing == EffectTiming.BeforePayCost)
+        // [When Would be Played] By suspending 2 Digimon, reduce the play cost by 4. (B.O.4 #1) Gated to the
+        // PLAY root so it does NOT fire when this card is digivolved/option-activated (AS-IS rootCondition).
+        if (timing == EffectTiming.BeforePayCost && CardEffectCommons.IsPayCostRoot(card, HeadlessDCGO.Engine.Headless.Bridge.PayCostRoot.Play))
         {
             bool CanSuspendTarget(HeadlessEntityId id) =>
                 CardEffectCommons.IsOwnerBattleAreaDigimon(card, id) && !CardEffectCommons.IsSuspended(card, id);

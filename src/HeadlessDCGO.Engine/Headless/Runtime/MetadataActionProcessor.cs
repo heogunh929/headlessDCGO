@@ -604,6 +604,13 @@ public sealed class MetadataActionProcessor : IActionProcessor
             if (context.DeferredActivations.Pending is { } pendingActivation)
             {
                 bool beforePayCost = pendingActivation.Timing == Assets.Scripts.Script.CardEffectCommons.EffectTiming.BeforePayCost;
+                // (B.O.4 #1) a resumed BeforePayCost activation is a suspended PLAY (only PlayCardAction defers this
+                // timing in v1) — restore the Play root so the card's root-gated [BeforePayCost] effect re-appears.
+                if (beforePayCost)
+                {
+                    context.CurrentPayCostRoot = Headless.Bridge.PayCostRoot.Play;
+                }
+
                 try
                 {
                     await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.ResolveAsync(
@@ -619,6 +626,13 @@ public sealed class MetadataActionProcessor : IActionProcessor
                     resumePending["pendingChoice"] = true;
                     resumePending["pendingChoiceMessage"] = resumeEx.Message;
                     return ActionProcessResult.Success("Choice resolved; activation awaiting further choice.", resumePending);
+                }
+                finally
+                {
+                    if (beforePayCost)
+                    {
+                        context.CurrentPayCostRoot = Headless.Bridge.PayCostRoot.None;
+                    }
                 }
 
                 // (brick 2b) A suspended PLAY committed nothing before its BeforePayCost choice — now that the

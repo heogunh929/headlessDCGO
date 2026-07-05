@@ -14,13 +14,27 @@ public sealed class TfxBeforePayCostReduction : CEntity_Effect
     public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
-        if (timing == EffectTiming.BeforePayCost)
+        // (B.O.4 #1) gate to a root read from the "gateRoot" metadata ("play" default / "digivolve" / "option")
+        // so tests can target each action; a play-cost card gates to Play, a digivolve one to Digivolve.
+        var gateRoot = Headless.Bridge.PayCostRoot.Play;
+        if (card.Context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? rec) && rec is not null &&
+            rec.Metadata.TryGetValue("gateRoot", out object? rootRaw) && rootRaw is string rootStr)
+        {
+            gateRoot = rootStr switch
+            {
+                "digivolve" => Headless.Bridge.PayCostRoot.Digivolve,
+                "option" => Headless.Bridge.PayCostRoot.Option,
+                _ => Headless.Bridge.PayCostRoot.Play,
+            };
+        }
+
+        if (timing == EffectTiming.BeforePayCost && CardEffectCommons.IsPayCostRoot(card, gateRoot))
         {
             bool Condition() =>
                 !card.Context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? r) ||
                 r is null || !r.Metadata.TryGetValue("allowReduce", out object? raw) || raw is not bool b || b;
 
-            effects.Add(CardEffectFactory.BeforePayCostReductionEffect(card, amount: 3, condition: Condition, "Play cost -3."));
+            effects.Add(CardEffectFactory.BeforePayCostReductionEffect(card, amount: 3, condition: Condition, "Cost -3."));
         }
 
         return effects;

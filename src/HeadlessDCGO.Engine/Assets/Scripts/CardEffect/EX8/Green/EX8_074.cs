@@ -36,7 +36,9 @@ public sealed class EX8_074 : CEntity_Effect
         #region When Would be Played
 
         // "When this card would be played, by suspending 2 Digimon, reduce the play cost by 4."
-        if (timing == EffectTiming.BeforePayCost)
+        // (B.O.4 #1) This is a "[When Would be Played]" reduction — gate to the PLAY root so it does NOT fire
+        // when EX8_074 is DIGIVOLVED (AS-IS rootCondition; the BeforePayCost timing is shared by play/digivolve).
+        if (timing == EffectTiming.BeforePayCost && CardEffectCommons.IsPayCostRoot(card, Headless.Bridge.PayCostRoot.Play))
         {
             // AS-IS CanSelectPermanentCondition (original EX8_074.cs):
             //   IsPermanentExistsOnBattleAreaDigimon(p) && p.TopCard && !p.TopCard.CanNotBeAffected(activateClass)

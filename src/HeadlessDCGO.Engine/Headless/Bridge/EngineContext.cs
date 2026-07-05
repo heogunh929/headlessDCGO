@@ -109,6 +109,11 @@ public sealed class EngineContext
 
     public DcgoMatch? CurrentMatch { get; private set; }
 
+    /// <summary>(PRIM-P0 B.O.4 #1) The action whose cost is currently being paid, set by the play / digivolve /
+    /// option action around its BeforePayCost window so a card's [BeforePayCost] effect can gate on WHICH cost
+    /// it is (AS-IS ChangeCostClass rootCondition). <see cref="PayCostRoot.None"/> outside a pay window.</summary>
+    public PayCostRoot CurrentPayCostRoot { get; set; } = PayCostRoot.None;
+
     public ObservationSnapshot CurrentState { get; private set; } = ObservationSnapshot.Empty;
 
     public IReadOnlyDictionary<Type, object> Services =>

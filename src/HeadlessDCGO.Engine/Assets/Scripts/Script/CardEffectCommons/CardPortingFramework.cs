@@ -8477,6 +8477,15 @@ public static class CardEffectCommons
         return TurnOwnershipHelpers.IsOwnerTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
     }
 
+    /// <summary>(PRIM-P0 B.O.4 #1) True when the action currently paying cost matches <paramref name="root"/>.
+    /// Gate a [BeforePayCost] effect with this so it fires only for the intended action (AS-IS ChangeCostClass
+    /// rootCondition), since the BeforePayCost timing is shared by play / digivolve / option.</summary>
+    public static bool IsPayCostRoot(CardSource card, Headless.Bridge.PayCostRoot root)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return card.Context.CurrentPayCostRoot == root;
+    }
+
     /// <summary>It is the opponent's turn.</summary>
     public static bool IsOpponentTurn(CardSource card)
     {

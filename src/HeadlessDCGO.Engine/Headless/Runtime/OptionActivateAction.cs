@@ -51,10 +51,33 @@ public sealed class OptionActivateAction
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         // F-6.7: wrap the option-cost payment with the Before/AfterPayCost windows.
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
-        // (PRIM-P0 B.O.4 #1) a re-resolve-BeforePayCost seam here needs the same action-context gating as
-        // digivolve (a play-intended before-pay effect must not fire on an option activation) — deferred to
-        // the #1 gating design. See docs/porting/cost_modification_design.md.
-        HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
+
+        // (PRIM-P0 B.O.4 #1) resolve [BeforePayCost] one-shot option-cost reductions, then re-resolve. Option cost
+        // uses the PlayCost metric (ResolveOptionCost). CurrentPayCostRoot = Option gates play-intended effects out.
+        int memoryCost = payload.MemoryCost;
+        context.CurrentPayCostRoot = PayCostRoot.Option;
+        try
+        {
+            int beforePayResolved = await ActivatedEffectResolver
+                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.BeforePayCost, cancellationToken)
+                .ConfigureAwait(false);
+            if (beforePayResolved > 0 &&
+                context.CardInstanceRepository.TryGetInstance(payload.CardId, out CardInstanceRecord? optionInstance) && optionInstance is not null &&
+                context.CardRepository.TryGetCard(optionInstance.DefinitionId, out CardRecord? optionCard) && optionCard is not null)
+            {
+                memoryCost = ResolveOptionCost(context, payload.CardId, optionCard, optionInstance);
+            }
+        }
+        catch (DeferredChoicePendingException)
+        {
+            memoryCost = payload.MemoryCost;
+        }
+        finally
+        {
+            context.CurrentPayCostRoot = PayCostRoot.None;
+        }
+
+        HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
         EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);

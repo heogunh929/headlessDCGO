@@ -15,6 +15,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("condition met: the play pays the reduced cost (6 - 3 = 3)", ReducesOwnCost),
     ("condition unmet: the play pays the full cost (6)", ConditionUnmetPaysFull),
+    ("#1 digivolve: a Digivolve-gated before-pay reduction lowers the DIGIVOLVE cost (4 -> 1)", DigivolveReducesCost),
 };
 
 var failures = new List<string>();
@@ -56,6 +57,32 @@ async Task ConditionUnmetPaysFull()
 
     AssertTrue(result.IsSuccess, "the play resolved");
     AssertEqual(2, context.MemoryController.Current.Current, "no reduction: paid the full cost 6 (8 -> 2)");
+}
+
+async Task DigivolveReducesCost()
+{
+    EngineContext context = Context();
+    context.MemoryController.Set(8);
+    var cards = (CardDatabase)context.CardRepository;
+
+    // Target: a base Digimon on the battle area.
+    var tgtDef = new HeadlessEntityId("DEF:TGT");
+    cards.Upsert(new CardRecord(tgtDef, "TGT", "Base", new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 3 }, CardType: "Digimon"));
+    var target = new HeadlessEntityId("1:battle:TGT");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(target, tgtDef, P1, Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, target, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    // The digivolving card (TfxBeforePayCostReduction, gated to the Digivolve root), digivolution cost 4.
+    var evoDef = new HeadlessEntityId("TfxBeforePayCostReduction");
+    cards.Upsert(new CardRecord(evoDef, "TfxBeforePayCostReduction", "Evo", new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon", EvolutionCost: 4));
+    var evo = new HeadlessEntityId("1:hand:Evo");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(evo, evoDef, P1, Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["allowReduce"] = true, ["gateRoot"] = "digivolve" }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, evo, ChoiceZone.None, ChoiceZone.Hand));
+
+    ActionProcessResult result = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, 4), context);
+
+    AssertTrue(result.IsSuccess, $"the digivolve resolved ({result.Message})");
+    AssertEqual(7, context.MemoryController.Current.Current, "paid the reduced digivolve cost 1 (8 -> 7), not 4");
 }
 
 // --- Harness -------------------------------------------------------------
