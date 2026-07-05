@@ -8080,6 +8080,42 @@ public static class CardEffectCommons
             binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
     }
 
+    /// <summary>(PRIM-P0 B.O.5-tail) AS-IS temp <c>AddEffectToPermanent</c> for a SELF-[On Deletion] grant — the
+    /// nested effect must fire ON the target's OWN removal (e.g. EX8_059 "1 Digimon gains '[On Deletion] ...'
+    /// until end of turn"). Same as <see cref="AddEffectToPermanent"/> but stamps the binding SurviveOwnLeave (so
+    /// leave-play cleanup does not drop it before OnDeletion resolves) + DelayedOneShot (removed after it fires),
+    /// with the <paramref name="effectDuration"/> as the backstop for a non-deletion departure. The nested effect
+    /// should be built with the TARGET's CardSource and self-gate on the deletion subject (TriggerEntityId).</summary>
+    public static void AddSelfRemovalEffectToPermanent(
+        Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(cardEffect);
+        _ = timing;
+        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
+        {
+            return;
+        }
+
+        EffectBinding binding = cardEffect.ToBinding(
+            $"{card.InstanceId.Value}:addSelfRemovalEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}");
+        var values = new Dictionary<string, object?>(binding.Request.Context.Values, StringComparer.Ordinal)
+        {
+            [AutoProcessingTriggerCollector.SurviveOwnLeaveKey] = true,
+            [AutoProcessingTriggerCollector.DelayedOneShotKey] = true,
+        };
+        var retargeted = new EffectContext(
+            binding.Request.Context.SourcePlayerId,
+            binding.Request.Context.OwnerPlayerId,
+            binding.Request.Context.SourceEntityId,
+            binding.Request.Context.TriggerEntityId,
+            targetEntityIds: new[] { targetPermanent.InstanceId },
+            values: values);
+        card.Context.EffectRegistry.Register(new EffectBinding(
+            new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, retargeted),
+            binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
+    }
+
     /// <summary>AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect)</c>
     /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:57): register ANY ICardEffect at PLAYER scope with a
     /// duration (the AS-IS player duration buckets).</summary>

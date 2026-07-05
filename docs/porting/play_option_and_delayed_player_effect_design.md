@@ -62,14 +62,22 @@ target이 **생존하는** 타이밍의 triggered grant(예 "[End of Your Turn] 
 SourceEntityId=target·Timing=nestedTiming binding이 등록되고, 기존 collect→gate→fire 경로가 발화, duration
 만료도 정상. 검증: `PRIM-P0.GrantTriggeredToPermanent.Tests`(발화 + 만료).
 
-### ⛔ self-[On Deletion] grant — BLOCKED = STOP (조사 낙관 반증)
-조사는 "EX8_059(canonical, target의 [On Deletion])는 오늘 라우팅됨"이라 했으나 **실증으로 반증**: target을
-실제 삭제하면 `CardLeavePlayCleanup`이 `SourceEntityId==target`인 모든 binding(=granted 효과 포함)을
-**OnDeletion 해소 전에 제거** → 발화 못함(메모리 0 실측). 즉 "자기 제거 시 발화하는 grant"는 leave-play
-cleanup **면제 메커니즘**(신규·공유경로)이 필요. 부수 발견: broadcast 효과의 self-scope는 collector가 아니라
-효과 CanResolve의 self-gate(`TriggerEntityId==subject`, GameFlowProcessor가 enrich)로 하며, 이때
-`TriggerEventEmitter.Emit(subject:)`는 subject를 HeadlessEntityId로 저장하는데 enrichment의 `TryReadSubject`는
-string만 읽는 불일치가 있음(실제 삭제 경로는 string 저장이라 무영향, 수동 emit 테스트에만 영향).
+### ✅ self-[On Deletion] grant — 해결됨 (leave-play cleanup 면제 메커니즘 구현)
+초기 실증에서 "발화 못함"으로 보였으나, 두 원인은 **테스트 셋업 버그**였음: (1) dp를 카드 정의 메타에 넣어
+`SweepAsync`(인스턴스 메타 읽음)가 target을 삭제조차 안 함, (2) `AddMemoryTriggerEffect`의 `isOptional` 기본이
+amount>0→true라 에이전트 없는 테스트에서 자동 해소 안 됨. 셋업 정정 후 **면제 메커니즘이 정상 동작**:
+- **마커** `AutoProcessingTriggerCollector.SurviveOwnLeaveKey` — self-[On Deletion] grant에 스탬프.
+- **두 cleanup 지점 면제**: `CardLeavePlayCleanup.OnLeftPlay` + `MatchStateMutationSink`(DeleteKind, :731)의
+  `RemoveWhere(SourceEntityId==card)`가 마커 있는 binding을 건너뜀 → grant가 target 삭제를 살아남아 OnDeletion
+  해소 때 존재.
+- **fire-then-clear**: 동시에 `DelayedOneShotKey` 스탬프 → 발화 후 GameFlowProcessor가 제거(B.O.5 재사용).
+  duration이 비-삭제 이탈(바운스)의 백스톱.
+- **팩토리** `CardEffectCommons.AddSelfRemovalEffectToPermanent(target, duration, card, nested, timing)` —
+  기존 AddEffectToPermanent 미러 + 두 마커 스탬프. nested는 target CardSource + self-gate(`TriggerEntityId==target`).
+- 검증: 실제 0-DP sweep 삭제로 발화(+2)·target-scoped·self-remove·만료. 전체 스위트 327 PASS(공유 삭제 경로 무회귀).
+
+부수 확인: broadcast 효과의 self-scope는 collector가 아니라 효과 CanResolve의 self-gate(`TriggerEntityId==subject`,
+GameFlowProcessor가 실제 삭제 경로에서 string subject로 enrich)로 함.
 
 ### AddSkillClass — STOP 유지
 라이브 술어 기반 쿼리-타임 set-splice. 헤드리스 유사물 없음(GetEffectsForTiming은 등록 binding만 읽음). 늦게

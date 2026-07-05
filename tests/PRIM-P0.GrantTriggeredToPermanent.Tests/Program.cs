@@ -1,11 +1,10 @@
 // PRIM-P0 B.O.5-tail: grant a TRIGGERED nested effect to a permanent with a duration (AS-IS temp
-// AddEffectToPermanent). PROVEN TRACTABLE SUBSET: a triggered grant at a timing where the target SURVIVES
-// (here [End of Your Turn]) fires through the existing collect→gate→fire path and expires at its duration.
-//
-// KNOWN LIMITATION (STOP): a self-[On Deletion] grant (fires on the TARGET's own removal) does NOT fire — when
-// the target leaves play, CardLeavePlayCleanup removes every binding whose SourceEntityId is the target
-// (including the grant) BEFORE OnDeletion resolves. That canonical case (EX8_059) needs a leave-play cleanup
-// EXEMPTION for grant-on-self-removal, a new shared-path mechanism — see the design doc. Empirically confirmed.
+// AddEffectToPermanent, e.g. EX8_059 "1 Digimon gains '[On Deletion] ...' until end of turn").
+//   - tractable subset (target survives): AddEffectToPermanent registers the nested trigger; it fires at its
+//     timing and expires at the duration boundary.
+//   - self-[On Deletion] (fires on the target's OWN removal): AddSelfRemovalEffectToPermanent marks the binding
+//     SurviveOwnLeave so leave-play cleanup does not drop it before OnDeletion resolves; it fires on the real
+//     deletion then self-removes (DelayedOneShot). Target-scoped via the nested effect's self-gate.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -20,8 +19,11 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("a triggered grant fires at its timing while the target is alive ([End of Turn] +2)", FiresAtTiming),
-    ("the grant expires at its duration boundary and no longer fires", ExpiresAtBoundary),
+    ("tractable: a triggered grant fires at its timing while the target is alive ([End of Turn] +2)", FiresAtTiming),
+    ("tractable: the grant expires at its duration boundary and no longer fires", ExpiresAtBoundary),
+    ("self-[On Deletion]: survives leave-play cleanup, fires on the target's real deletion (+2), self-removes", SelfDeletionFires),
+    ("self-[On Deletion]: target-scoped — another card's deletion does NOT fire it", SelfDeletionScoped),
+    ("self-[On Deletion]: after the duration expires it no longer fires on deletion", SelfDeletionExpires),
 };
 
 var failures = new List<string>();
@@ -36,43 +38,89 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task FiresAtTiming()
 {
     EngineContext ctx = Ctx();
-    var src = await Put(ctx, P1, "SRC");
-    var target = await Put(ctx, P1, "TGT");
-    Grant(ctx, src, target, EffectDuration.UntilOpponentTurnEnd);
+    var src = await Put(ctx, "SRC", 4000);
+    var target = await Put(ctx, "TGT", 4000);
+    GrantEndTurn(ctx, src, target);
     ctx.MemoryController.Set(0);
-
     await EmitEndTurn(ctx);
-
     AssertEqual(2, ctx.MemoryController.Current.Current, "the granted [End of Turn] trigger fired");
 }
 
 async Task ExpiresAtBoundary()
 {
     EngineContext ctx = Ctx();
-    var src = await Put(ctx, P1, "SRC");
-    var target = await Put(ctx, P1, "TGT");
-    Grant(ctx, src, target, EffectDuration.UntilOpponentTurnEnd);
+    var src = await Put(ctx, "SRC", 4000);
+    var target = await Put(ctx, "TGT", 4000);
+    GrantEndTurn(ctx, src, target);
     ctx.MemoryController.Set(0);
-
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);   // UntilOpponentTurnEnd expires
+    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
     await EmitEndTurn(ctx);
-
     AssertEqual(0, ctx.MemoryController.Current.Current, "after expiry the grant no longer fires");
+}
+
+async Task SelfDeletionFires()
+{
+    EngineContext ctx = Ctx();
+    var src = await Put(ctx, "SRC", 4000);
+    var target = await Put(ctx, "TGT", 0);   // 0-DP -> really swept
+    GrantSelfDeletion(ctx, src, target);
+    ctx.MemoryController.Set(0);
+    await Sweep(ctx);
+    AssertEqual(2, ctx.MemoryController.Current.Current, "survived cleanup and fired on the target's deletion");
+    AssertEqual(0, ctx.EffectRegistry.GetEffectsForTiming(TriggerTimings.OnDeletion).Count, "self-removed after firing");
+}
+
+async Task SelfDeletionScoped()
+{
+    EngineContext ctx = Ctx();
+    var src = await Put(ctx, "SRC", 4000);
+    var target = await Put(ctx, "TGT", 4000);   // survives
+    await Put(ctx, "OTH", 0);                    // this one is deleted
+    GrantSelfDeletion(ctx, src, target);
+    ctx.MemoryController.Set(0);
+    await Sweep(ctx);
+    AssertEqual(0, ctx.MemoryController.Current.Current, "another card's deletion did NOT fire the target's grant");
+}
+
+async Task SelfDeletionExpires()
+{
+    EngineContext ctx = Ctx();
+    var src = await Put(ctx, "SRC", 4000);
+    var target = await Put(ctx, "TGT", 0);
+    GrantSelfDeletion(ctx, src, target);
+    ctx.MemoryController.Set(0);
+    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);   // UntilOpponentTurnEnd expires the grant first
+    await Sweep(ctx);
+    AssertEqual(0, ctx.MemoryController.Current.Current, "expired before the deletion -> no fire");
 }
 
 // --- Harness -------------------------------------------------------------
 
-// The nested trigger is built with the TARGET's CardSource (fires as the target's own trigger) and registered
-// on the target with a duration via the existing AddEffectToPermanent (proven for the triggered case here).
-void Grant(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId target, EffectDuration duration)
+void GrantEndTurn(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId target)
 {
     ICardEffect nested = new TriggeredGainMemoryEffect(V(ctx, target), EffectTiming.OnEndTurn, amount: 2, "[End of Your Turn] Gain 2 memory.");
-    CardEffectCommons.AddEffectToPermanent(Perm(ctx, target), duration, V(ctx, src), nested, EffectTiming.OnEndTurn);
+    CardEffectCommons.AddEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnEndTurn);
+}
+
+void GrantSelfDeletion(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId target)
+{
+    ICardEffect nested = CardEffectFactory.AddMemoryTriggerEffect(
+        EffectTiming.OnDestroyedAnyone, amount: 2, isInheritedEffect: false, card: V(ctx, target), condition: null,
+        description: "[On Deletion] Gain 2 memory.",
+        triggerGate: rc => rc.EffectContext.TriggerEntityId is HeadlessEntityId subj && subj == target,
+        isOptional: false);
+    CardEffectCommons.AddSelfRemovalEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnDestroyedAnyone);
 }
 
 async Task EmitEndTurn(EngineContext ctx)
 {
     TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndTurn, actor: P1, subject: default);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+}
+
+async Task Sweep(EngineContext ctx)
+{
+    await DpZeroDeletionHelpers.SweepAsync(ctx, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(ctx);
 }
 
@@ -83,20 +131,18 @@ EngineContext Ctx()
     return ctx;
 }
 
-async Task<HeadlessEntityId> Put(EngineContext ctx, HeadlessPlayerId owner, string tag)
+async Task<HeadlessEntityId> Put(EngineContext ctx, string tag, int dp)
 {
     var cards = (CardDatabase)ctx.CardRepository;
-    cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:{tag}"), tag, tag, new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
-    var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF:{tag}"), owner, Metadata: new Dictionary<string, object?>()));
-    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:{tag}"), tag, tag, new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"1:battle:{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF:{tag}"), P1, Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp }));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea));
     return id;
 }
 
-CardSource V(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, OwnerOf(ctx, id), OwnerOf(ctx, id));
-Permanent Perm(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, OwnerOf(ctx, id));
-HeadlessPlayerId OwnerOf(EngineContext ctx, HeadlessEntityId id) =>
-    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r.OwnerId : P1;
+CardSource V(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, P1, P1);
+Permanent Perm(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, P1);
 
 static void AssertEqual<T>(T expected, T actual, string label)
 {

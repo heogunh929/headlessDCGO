@@ -47,7 +47,10 @@ public static class CardLeavePlayCleanup
             return;
         }
 
-        effectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == cardId);
+        // (B.O.5-tail) a self-[On Deletion] grant marked SurviveOwnLeave must OUTLIVE the card leaving play so it
+        // can fire ON that removal; it is removed after it resolves (DelayedOneShot) or at its duration boundary.
+        effectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == cardId
+            && !(binding.Request.Context.Values.TryGetValue(Effects.AutoProcessingTriggerCollector.SurviveOwnLeaveKey, out object? survive) && survive is true));
     }
 
     /// <summary>(A4) snapshot the live post-deletion keyword state — and Partition's stored condition list —

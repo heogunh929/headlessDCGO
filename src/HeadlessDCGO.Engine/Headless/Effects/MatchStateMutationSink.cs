@@ -727,8 +727,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         HeadlessPlayerId owner = record.OwnerId;
         _pendingAsync.Add(ct => zoneMover.AddToTrashAsync(owner, targetId, ct));
-        // G6-001: the card left play — drop the continuous/trigger bindings it had auto-registered.
-        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
+        // G6-001: the card left play — drop the continuous/trigger bindings it had auto-registered. (B.O.5-tail)
+        // EXCEPT a self-[On Deletion] grant marked SurviveOwnLeave, which must fire ON this deletion; it is
+        // removed after it resolves (DelayedOneShot) or at its duration boundary.
+        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId
+            && !ReadBool(binding.Request.Context.Values, AutoProcessingTriggerCollector.SurviveOwnLeaveKey));
         // C-6 Fortitude: after the deletion completes (card now in trash), a Digimon that had >= 1
         // digivolution source replays itself from the trash for free (OnDestroyed). Enqueued after the
         // trash move so it runs once the card has actually arrived there.

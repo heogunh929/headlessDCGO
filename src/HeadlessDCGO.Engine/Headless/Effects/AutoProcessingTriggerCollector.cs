@@ -9,6 +9,13 @@ public sealed class AutoProcessingTriggerCollector
     /// <summary>(PRIM-P0 B.O.5) marks a delayed one-shot player effect (AS-IS AddEffectToPlayer): it fires once
     /// at its timing then GameFlowProcessor removes its binding after resolution (fire-then-clear).</summary>
     public const string DelayedOneShotKey = "delayedOneShot";
+
+    /// <summary>(PRIM-P0 B.O.5-tail) marks a granted effect that must SURVIVE its own source card leaving play —
+    /// a self-[On Deletion] grant (AS-IS temp AddEffectToPermanent) whose whole point is to fire ON the target's
+    /// removal. The leave-play cleanup (CardLeavePlayCleanup.OnLeftPlay + the sink's delete path) skips these so
+    /// the grant is still registered when OnDeletion resolves; it is then removed via <see cref="DelayedOneShotKey"/>
+    /// (fire-then-clear), with the grant's EffectDuration as the backstop for a non-deletion departure.</summary>
+    public const string SurviveOwnLeaveKey = "surviveOwnLeave";
     public const string TriggerTimingKey = "triggerTiming";
     public const string TimingKey = "timing";
     public const string EffectTimingKey = "effectTiming";
