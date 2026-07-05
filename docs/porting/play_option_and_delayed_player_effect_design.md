@@ -52,6 +52,30 @@ self-remove로 우회.
 - P2: OnEndTurn 지연효과가 1회 발화 후 재발화 안 함(다음 턴 무발화).
 - 각 단계 전체 스위트 무회귀.
 
+## Primitive 3 — temp AddEffectToPermanent (triggered) — 실증 결과 (2026-07-05)
+
+조사(nested-effect-grant 서브시스템)와 **실증 테스트**로 확정한 실제 상태:
+
+### tractable subset — 오늘 동작 (엔진 변경 불요)
+target이 **생존하는** 타이밍의 triggered grant(예 "[End of Your Turn] +2까지", "[When Attacking] ...")는
+기존 `CardEffectCommons.AddEffectToPermanent`가 그대로 처리한다. nested를 target CardSource로 만들면
+SourceEntityId=target·Timing=nestedTiming binding이 등록되고, 기존 collect→gate→fire 경로가 발화, duration
+만료도 정상. 검증: `PRIM-P0.GrantTriggeredToPermanent.Tests`(발화 + 만료).
+
+### ⛔ self-[On Deletion] grant — BLOCKED = STOP (조사 낙관 반증)
+조사는 "EX8_059(canonical, target의 [On Deletion])는 오늘 라우팅됨"이라 했으나 **실증으로 반증**: target을
+실제 삭제하면 `CardLeavePlayCleanup`이 `SourceEntityId==target`인 모든 binding(=granted 효과 포함)을
+**OnDeletion 해소 전에 제거** → 발화 못함(메모리 0 실측). 즉 "자기 제거 시 발화하는 grant"는 leave-play
+cleanup **면제 메커니즘**(신규·공유경로)이 필요. 부수 발견: broadcast 효과의 self-scope는 collector가 아니라
+효과 CanResolve의 self-gate(`TriggerEntityId==subject`, GameFlowProcessor가 enrich)로 하며, 이때
+`TriggerEventEmitter.Emit(subject:)`는 subject를 HeadlessEntityId로 저장하는데 enrichment의 `TryReadSubject`는
+string만 읽는 불일치가 있음(실제 삭제 경로는 string 저장이라 무영향, 수동 emit 테스트에만 영향).
+
+### AddSkillClass — STOP 유지
+라이브 술어 기반 쿼리-타임 set-splice. 헤드리스 유사물 없음(GetEffectsForTiming은 등록 binding만 읽음). 늦게
+입장한 Digimon도 스킬을 받아야 하므로 정적 N-등록으로 격하 불가 → 공유 collector에 쿼리-타임 확장 훅 필요.
+triggered-grant 코어(+ self-deletion 면제)가 증명된 후 별도 P0로.
+
 ## 관련
 - [ALL_CARD_PRIMITIVE_BACKLOG.md](ALL_CARD_PRIMITIVE_BACKLOG.md) B.O.5.
 - 재사용: `ActivatedSelectAndPlayEffect`/`ReuseMainOptionEffect`(재귀), `OptionActivateAction`(OnUseOption/ResolveOptionCost),
