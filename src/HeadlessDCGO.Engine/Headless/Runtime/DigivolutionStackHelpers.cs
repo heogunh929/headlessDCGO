@@ -161,8 +161,9 @@ public static class DigivolutionStackHelpers
         }
 
         List<string> sources = existing.ToList();
-        int trashed = 0;
-        var discarded = new List<string>();
+        // First determine which requested cards are real sources (and their owners) WITHOUT moving them yet, so
+        // the OnDigivolutionCardDiscarded trigger can fire BEFORE the cards physically leave (AS-IS ordering).
+        var discarded = new List<(HeadlessEntityId Id, HeadlessPlayerId Owner)>();
         foreach (HeadlessEntityId cardId in cardIds)
         {
             if (!sources.Remove(cardId.Value))
@@ -173,33 +174,39 @@ public static class DigivolutionStackHelpers
             HeadlessPlayerId owner = repository.TryGetInstance(cardId, out CardInstanceRecord? card) && card is not null
                 ? card.OwnerId
                 : host.OwnerId;
-            await zoneMover.MoveAsync(
-                new ZoneMoveRequest(owner, cardId, ChoiceZone.None, ChoiceZone.Trash), cancellationToken).ConfigureAwait(false);
-            discarded.Add(cardId.Value);
-            trashed++;
+            discarded.Add((cardId, owner));
         }
 
-        if (trashed > 0)
+        if (discarded.Count == 0)
         {
-            repository.TryGetInstance(hostId, out CardInstanceRecord? refreshed);
-            repository.Upsert(refreshed! with
-            {
-                Metadata = new Dictionary<string, object?>(refreshed!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = sources.ToArray() }
-            });
-
-            // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards fires OnDigivolutionCardDiscarded.
-            if (gameEventQueue is not null)
-            {
-                TriggerEventEmitter.Emit(
-                    gameEventQueue,
-                    TriggerTimings.OnDigivolutionCardDiscarded,
-                    actor: host.OwnerId,
-                    subject: hostId,
-                    extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", discarded) });
-            }
+            return 0;
         }
 
-        return trashed;
+        repository.TryGetInstance(hostId, out CardInstanceRecord? refreshed);
+        repository.Upsert(refreshed! with
+        {
+            Metadata = new Dictionary<string, object?>(refreshed!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = sources.ToArray() }
+        });
+
+        // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards fires OnDigivolutionCardDiscarded
+        // just BEFORE the cards physically move to the trash (CardController.cs:5215, move at :5219).
+        if (gameEventQueue is not null)
+        {
+            TriggerEventEmitter.Emit(
+                gameEventQueue,
+                TriggerTimings.OnDigivolutionCardDiscarded,
+                actor: host.OwnerId,
+                subject: hostId,
+                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", discarded.Select(d => d.Id.Value)) });
+        }
+
+        foreach ((HeadlessEntityId id, HeadlessPlayerId owner) in discarded)
+        {
+            await zoneMover.MoveAsync(
+                new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.Trash), cancellationToken).ConfigureAwait(false);
+        }
+
+        return discarded.Count;
     }
 
     /// <summary>(B-10) Return <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
@@ -280,17 +287,9 @@ public static class DigivolutionStackHelpers
 
         repository.Upsert(host with { Metadata = WithSources(host.Metadata, remaining) });
 
-        foreach (string sourceValue in removed)
-        {
-            var sourceId = new HeadlessEntityId(sourceValue);
-            HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
-                ? src.OwnerId
-                : host.OwnerId;
-            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
-        }
-
-        // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards fires OnDigivolutionCardDiscarded when SOURCE cards are
-        // trashed. Only for the Trash destination (ReturnSourcesAsync -> Hand/Library is not a discard).
+        // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards fires OnDigivolutionCardDiscarded just BEFORE the source
+        // cards physically move to the trash. Only for the Trash destination (ReturnSourcesAsync -> Hand/Library
+        // is not a discard).
         if (gameEventQueue is not null && destination == ChoiceZone.Trash && removed.Count > 0)
         {
             TriggerEventEmitter.Emit(
@@ -299,6 +298,15 @@ public static class DigivolutionStackHelpers
                 actor: host.OwnerId,
                 subject: hostId,
                 extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", removed) });
+        }
+
+        foreach (string sourceValue in removed)
+        {
+            var sourceId = new HeadlessEntityId(sourceValue);
+            HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
+                ? src.OwnerId
+                : host.OwnerId;
+            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
         }
 
         return removed.Count;
