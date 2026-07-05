@@ -56,14 +56,18 @@ AS-IS의 `CanUseCondition(Hashtable)`은 헤드리스에서 타이밍별 트리�
 | `CanTriggerWhenDigivolving(hashtable, card)` | 타이밍 `WhenDigivolving`(번역됨 — AS-IS는 `OnEnterFieldAnyone` 게이팅) |
 | `CanTriggerOptionMainEffect(hashtable, card)` | 타이밍 `OptionSkill`/`SecuritySkill` |
 
-## 4. 확정된 프리미티브 갭 (치트시트로 못 여는 계층 — 프리미티브 개발 필요)
+## 4. 상태-읽기 질의 갭 (2026-07-06 정정 — 대부분 "이름 모름"이지 "부재" 아님)
 
-파일럿 실측 결과, 잔여 실패는 "프롬프트 정보 부족"이 아니라 **헤드리스에 질의 술어가 없는 진짜 갭**:
-- **키워드 보유 질의**(`HasPierce`/`HasBlocker` …): 조건으로 "특정 키워드 보유" 판정 술어 부재. `Gain*`은 부여용.
+**정정**: 초기 파일럿은 잔여 실패를 "질의 술어 부재(capability gap)"로 봤으나, BT2 재측정(§9)에서 실측하니
+**키워드 보유 질의는 이미 존재**(`ContinuousKeywordGate.HasKeyword`)했고, 트래시 수·색·소유도 전부 실재였다. 즉
+로컬모델이 **진짜 이름을 몰라 할루시네이션**한 naming/문서 갭이 대부분 → **§9 매핑으로 해소**(발명 아님).
+
+**진짜 capability 갭(강모델 영역, 여전히 부재)**:
 - **메모리 값 조건**(`MemoryForPlayer >= N`): 메모리 값을 조건으로 읽는 질의 술어 부재.
+- **메인 페이즈 여부**(`IsMainPhase`): 카드-facing 술어 부재(§9 참조 — 대개 불요).
 
-이 둘은 [primitive_backlog.md]/[fidelity_debt.md] 영역 — 강모델이 질의 프리미티브를 선행 개발해야 열린다
-(카드 포팅 중 per-card 이연 금지 원칙). 치트시트로 커버 불가.
+이 진짜 갭만 [primitive_backlog.md]/[fidelity_debt.md] 영역(강모델 선행개발, per-card 이연 금지). 나머지 상태-읽기
+질의는 §9의 진짜 이름을 쓰면 열린다.
 
 ## 6. 신규 EFFECT 프리미티브 번역 (2026-07-05 — P0 Build Order 전량 구현)
 
@@ -141,6 +145,35 @@ DigiXros/DNA/Blast 계열의 STOP-표면이 전부 헤드리스 팩토리로 열
 **주의**: 위 재료 술어(`SpecialPlayMaterial`의 `Func<CardSource,bool>`, `digimonCondition`, `tamerCondition`)는
 §0 규칙대로 **술어를 그대로 평가**하라(카드명 동등만 하지 말고 레벨/색/타입 등 원본 조건 미러). Digi-Burst inner가
 "gain 키워드"류 **연속 효과**면 activated가 아니므로 register 경로로 자동 처리된다(카드는 inner를 그대로 넘기면 됨).
+
+## 9. 상태-읽기 질의: 진짜 헤드리스 이름 (2026-07-06 BT2 재측정 할루시네이션 정정)
+
+**이 질의들은 헤드리스에 이미 있다 — 존재하지 않는 이름을 지어내지 말고 아래 진짜 이름을 써라.** (BT2 재측정에서
+로컬모델이 아래 왼쪽을 할루시네이션했으나, 전부 오른쪽으로 실재.) 카드 조건 술어 안에서 `card.Context`로 상태 접근.
+
+| 지어낸 이름(쓰지 말 것) | 진짜 헤드리스 |
+|---|---|
+| `HasReboot(x)` / `HasBlocker(x)` 등 키워드 보유 | `HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.HasKeyword(card.Context, 대상_InstanceId, "Reboot")` — 모든 키워드 동일(Blocker/Rush/Jamming/…) |
+| `GetTrashCount()` / `GetOpponentTrashCount()` 트래시 수 | `((IZoneStateReader)card.Context.ZoneMover).GetCards(플레이어, ChoiceZone.Trash).Count` — 자기=`card.Owner`, 상대=상대 playerId. 덱/시큐리티/hand도 존만 바꿔 동일 |
+| `TopCardHasColor("Red")` 색 보유 | `card.HasCardColor("Red")` (또는 `card.CardColors` — 색변경 효과까지 반영) |
+| `IsOwnerOwnedDigimon(x)` 소유+타입 | 조합: `x.Owner == card.Owner && x.IsDigimon` (`Owner`/`Controller`/`IsDigimon`/`IsTamer` 실재) |
+| `card.PermanentId` | `card.InstanceId` (permanent id = 그 카드 InstanceId) |
+| `card.CardNames`, `card.Level`, `card.HasCardColor`, `card.DP` | 실재 접근자 — 카드 조건은 이걸로 구성(레벨/색/이름/DP 질의 별도 함수 지어내지 말 것) |
+
+**진짜 없는 것(문서화만, 발명·구현 보류)**:
+- **메인 페이즈 여부 질의**(`IsMainPhase`): 카드-facing 술어 부재. 대개 activated 능력은 타이밍/컨텍스트가 이미
+  메인페이즈를 강제하므로 별도 체크 불요 — 그 경우 조건에서 빼라. 정말 페이즈 값이 필요하면 **STOP**(강모델 영역).
+
+### 팩토리 시그니처 — 인자 지어내지 말 것
+
+컴파일 실패 다수가 **팩토리 인자 수/타입 할루시네이션**이다. 시그니처는 반드시 `PRIMITIVE-CATALOG.md`에서 확인하고
+그대로 호출하라. 자주 틀린 것:
+
+| 오호출 | 진짜 시그니처 |
+|---|---|
+| `SelectAndReturnToDeckEffect(...)` | `(CardSource card, Func<HeadlessEntityId,bool> canTarget, int maxCount, bool toTop, bool canEndNotMax, string description)` |
+| `PlaceSelfDelayOptionSecurityEffect(card, condition)` | `(CardSource card)` — **인자 `card` 하나뿐. condition 오버로드 없다** |
+| 술어 자리에 2-인자 람다 | 대부분 `Func<bool>`(조건) 또는 `Func<HeadlessEntityId,bool>`(canTarget). 인자 개수를 카탈로그로 확인 |
 
 ## 5. 파일럿 실측 (BT1 exact 15장, Sonnet 4.6)
 
