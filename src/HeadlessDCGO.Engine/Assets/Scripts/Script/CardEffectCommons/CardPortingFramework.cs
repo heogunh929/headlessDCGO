@@ -4665,6 +4665,14 @@ public static partial class CardEffectFactory
             ? new ContinuousSelfRestrictionEffect(card, ReplacementHelpers.ImmuneFromDpMinusKey, isInheritedEffect, condition)
             : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.ImmuneFromDpMinusKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
+    /// <summary>(PRIM-P0 B.O.6) <c>CannotReduceCostClass</c> — the play/digivolution cost of this card (or, with
+    /// <paramref name="permanentCondition"/>, the owner's matching cards) cannot be reduced. Registers a
+    /// continuous CostReduction/Immune replacement honoured by ContinuousModifierGate.Resolve{Play,Digivolution}Cost.</summary>
+    public static ICardEffect CanNotReduceCostStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        permanentCondition is null
+            ? new ContinuousSelfRestrictionEffect(card, ReplacementHelpers.ImmuneFromCostReductionKey, isInheritedEffect, condition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.ImmuneFromCostReductionKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
     /// <summary>(PRIM-W4) <c>AllianceStaticEffect</c> — grants Alliance to the owner's Digimon (player-scope
     /// keyword). <paramref name="permanentCondition"/> per-card.</summary>
     public static ICardEffect AllianceStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
