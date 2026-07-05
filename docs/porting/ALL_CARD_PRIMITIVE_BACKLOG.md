@@ -112,6 +112,21 @@ These are the largest practical blockers for broad per-card porting.
 
 ## P0/P1 Special Mechanics
 
+> **✅ 감사 정정 (2026-07-05):** 아래 표의 다수 "STOP"이 stale(이름-커버리지 스캔 아티팩트) — 헤드리스 팩토리로
+> 이미 커버됨. 실측 확인:
+> - **Cannot add security (104)** → `CanNotAddSecurityStaticEffect` (구현됨, 이번 세션).
+> - **AddDigiXrosConditionClass (79)** → `DigiXrosEffect(card, costReduction, SpecialPlayMaterial[])` (술어 기반 재료, 1:1).
+> - **AddJogressConditionClass (59)** → `JogressEffect(...)` / `GetJogressConditionClass(...)` (술어 기반).
+> - **App Fusion by condition (4)** → `AddAppfuseMethodByCondition(...)`.
+> - **Mind Link (11)** → `MindLinkClass` / `MindLinkSelfEffect`.
+> - **ACE overflow (3)** → **엔진 자동**(`AceOverflowGate.OverflowFor`가 printed Overflow 읽음) — 카드-facing 불요.
+> - **DNA(basic)** → `BlastDNADigivolveEffect` 등.
+>
+> **진짜 남은 STOP(~67장, special-play 변형/서브시스템):** Max-trash-count DigiXros (9)·Max-under-Tamer DigiXros (8)
+> ·Digi-Burst (39)·Burst Digivolution (5)·Jogress by levels (4)·DNA temp materials (2)·Assembly 필드-대체. 이들은
+> `SpecialPlayRecipe` 확장(가변-count/변형 재료) 또는 Digi-Burst 서브시스템이 필요 — 이름-커버리지가 아닌 실제
+> 미구현. 아래 표의 위 항목들은 stale이므로 무시.
+
 | Mechanic / class | Cards | Notes |
 | --- | ---: | --- |
 | Cannot add security | 104 | Scan catches `CannotAddSecurity` / `CanAddSecurity` family. `BT9_103` was already a known STOP probe. Needs a modeled security-add restriction gate. |
