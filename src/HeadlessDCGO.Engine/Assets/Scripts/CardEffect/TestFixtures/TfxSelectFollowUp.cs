@@ -7,6 +7,7 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class TfxSelectFollowUp : CEntity_Effect
@@ -38,6 +39,14 @@ public sealed class TfxSelectFollowUp : CEntity_Effect
                 break;
             case "sec":
                 effects.Add(CardEffectFactory.SelectAndPutSecurityEffect(card, IsOpponentDigimon, maxCount: 1, toTop: true, canEndNotMax: false, "Place 1 of your opponent's Digimon on top of security."));
+                break;
+            case "addhand":
+                // Zone-card select: add 1 of the owner's Trash cards to hand.
+                effects.Add(CardEffectFactory.SelectAndAddToHandFromZoneEffect(card, ChoiceZone.Trash, _ => true, maxCount: 1, canEndNotMax: false, "Add 1 card from your trash to your hand."));
+                break;
+            case "trashzone":
+                // Zone-card select: trash 1 of the owner's Library cards.
+                effects.Add(CardEffectFactory.SelectAndTrashFromZoneEffect(card, ChoiceZone.Library, _ => true, maxCount: 1, canEndNotMax: false, "Trash 1 card from your deck."));
                 break;
         }
 

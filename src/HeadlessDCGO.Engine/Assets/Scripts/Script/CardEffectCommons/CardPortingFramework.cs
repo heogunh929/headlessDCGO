@@ -3660,6 +3660,73 @@ public sealed class ActivatedSelectAndPlayEffect : IActivatedCardEffect
         throw new NotSupportedException($"Select-and-play effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(PRIM-P0-flow B.O.3) An activated "select up to <paramref name="maxCount"/> of the owner's cards in
+/// <paramref name="fromZone"/> (Trash / Library / Security …) matching a predicate, then apply a single-target
+/// mutation to each" — the zone-card select-follow-up wrapper (AS-IS SelectCardEffect Mode AddHand / Discard).
+/// The mutation kind picks the follow-up (ReturnToHand = add-to-hand, TrashCard = trash-from-zone); the sink
+/// moves each target from its current zone, so no from-zone payload is needed.</summary>
+public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
+{
+    private readonly ChoiceZone _fromZone;
+    private readonly Func<HeadlessEntityId, bool> _canTarget;
+    private readonly int _maxCount;
+    private readonly bool _canEndNotMax;
+    private readonly string _mutationKind;
+
+    public ActivatedSelectFromZoneEffect(CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget,
+        int maxCount, bool canEndNotMax, string mutationKind, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mutationKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _fromZone = fromZone;
+        _canTarget = canTarget;
+        _maxCount = maxCount;
+        _canEndNotMax = canEndNotMax;
+        _mutationKind = mutationKind;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    private IEnumerable<HeadlessEntityId> Candidates() =>
+        ((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, _fromZone).Where(_canTarget);
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
+    {
+        var candidates = Candidates()
+            .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, _fromZone, isSelectable: true, Card.Owner))
+            .ToList();
+        int max = Math.Min(_maxCount, candidates.Count);
+        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: _canEndNotMax ? 0 : max, maxCount: max, canSkip: _canEndNotMax, candidates);
+    }
+
+    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(selected);
+        foreach (HeadlessEntityId id in selected)
+        {
+            if (id.IsEmpty)
+            {
+                continue;
+            }
+
+            sink.Apply(new EffectMutation(
+                _mutationKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = id.Value }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Select-from-zone effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack and/or
 /// block for a <see cref="EffectDuration"/>" effect (e.g. ST2_14). <see cref="ApplyRestriction"/> registers
@@ -4841,6 +4908,20 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectAndPlayFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
         new ActivatedSelectAndPlayEffect(card, fromZone, canTarget, maxCount, canEndNotMax, description);
+
+    /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
+    /// <paramref name="fromZone"/> (Trash / Library / Security …) matching <paramref name="canTarget"/> and add
+    /// each to the owner's hand. AS-IS SelectCardEffect.Mode AddHand.</summary>
+    public static ICardEffect SelectAndAddToHandFromZoneEffect(
+        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
+        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.ReturnToHandKind, description);
+
+    /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
+    /// <paramref name="fromZone"/> matching <paramref name="canTarget"/> and trash each. AS-IS
+    /// SelectCardEffect.Mode Discard.</summary>
+    public static ICardEffect SelectAndTrashFromZoneEffect(
+        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
+        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.TrashCardKind, description);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.AddThisCardToHand(..)</c> — return
     /// this card to the owner's hand.</summary>

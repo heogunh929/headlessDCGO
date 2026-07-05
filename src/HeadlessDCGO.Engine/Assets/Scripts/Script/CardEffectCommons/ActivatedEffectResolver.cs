@@ -111,6 +111,35 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ActivatedSelectFromZoneEffect selectZone:
+                {
+                    // (PRIM-P0-flow B.O.3) zone-card select-follow-up (add-to-hand / trash-from-zone).
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(selectZone.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        selectZone.Apply(sink, result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
+                case ActivatedSelectAndPlayEffect selectPlay:
+                {
+                    // (B.O.3) wire the zone-select play into the activation flow (was previously only driven by
+                    // direct BuildRequest/Apply in tests).
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(selectPlay.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        selectPlay.Apply(sink, result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case ActivatedTargetBuffEffect targetBuff:
                 {
                     ChoiceResult result = await context.ChoiceProvider

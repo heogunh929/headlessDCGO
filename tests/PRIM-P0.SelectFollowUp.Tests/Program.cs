@@ -18,6 +18,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("unconditional chain: a returned [select+suspend, draw] list runs BOTH steps in order", SequenceRunsBothSteps),
     ("SelectAndReturnToDeckEffect: the selected opponent Digimon goes to the deck", ReturnToDeck),
     ("SelectAndPutSecurityEffect: the selected opponent Digimon goes to security", PutSecurity),
+    ("SelectAndAddToHandFromZoneEffect: a selected trash card is added to hand", AddToHandFromTrash),
+    ("SelectAndTrashFromZoneEffect: a selected deck card is trashed", TrashFromDeck),
 };
 
 var failures = new List<string>();
@@ -69,6 +71,34 @@ async Task PutSecurity()
 
     AssertTrue(InZone(context, P2, ChoiceZone.Security, foe), "opponent Digimon placed into security");
     AssertTrue(!InZone(context, P2, ChoiceZone.BattleArea, foe), "left the battle area");
+}
+
+async Task AddToHandFromTrash()
+{
+    (EngineContext context, _) = await Setup("addhand");
+    var trashed = new HeadlessEntityId("1:trash:T1");
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("DEF:T1"), "T1", "T1", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(trashed, new HeadlessEntityId("DEF:T1"), P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, trashed, ChoiceZone.None, ChoiceZone.Trash));
+    int handBefore = HandCount(context, P1);
+    Answer(context, ChoiceResult.Select(trashed));
+
+    await ActivatedEffectResolver.ResolveAsync(context, Src, P1, EffectTiming.OptionSkill);
+
+    AssertTrue(InZone(context, P1, ChoiceZone.Hand, trashed), "the trash card was added to hand");
+    AssertEqual(handBefore + 1, HandCount(context, P1), "hand grew by 1");
+}
+
+async Task TrashFromDeck()
+{
+    (EngineContext context, _) = await Setup("trashzone");
+    var deckCard = new HeadlessEntityId("1:lib:01");   // seeded by Setup
+    Answer(context, ChoiceResult.Select(deckCard));
+
+    await ActivatedEffectResolver.ResolveAsync(context, Src, P1, EffectTiming.OptionSkill);
+
+    AssertTrue(InZone(context, P1, ChoiceZone.Trash, deckCard), "the selected deck card was trashed");
+    AssertTrue(!InZone(context, P1, ChoiceZone.Library, deckCard), "left the deck");
 }
 
 // --- Harness -------------------------------------------------------------
