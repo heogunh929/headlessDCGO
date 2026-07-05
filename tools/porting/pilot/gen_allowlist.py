@@ -62,6 +62,30 @@ def members_of(text: str, class_name: str) -> list[str]:
     return []
 
 
+def factory_signatures(text: str) -> dict[str, str]:
+    """factory name -> its parameter list (collapsed), so the gemma diagnosis can cite the real signature."""
+    out: dict[str, str] = {}
+    for m in re.finditer(r"public\s+static\s+(?:ICardEffect|IActivatedCardEffect)\s+(\w+)\s*\(", text):
+        name = m.group(1)
+        # paren-match from the opening '(' to capture the full (possibly multi-line) param list.
+        i = m.end() - 1
+        depth = 0
+        buf = []
+        for ch in text[i:]:
+            if ch == "(":
+                depth += 1
+                if depth == 1:
+                    continue
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            buf.append(ch)
+        params = re.sub(r"\s+", " ", "".join(buf)).strip()
+        out.setdefault(name, params)
+    return out
+
+
 def gate_statics() -> dict[str, list[str]]:
     """public static method names of every *Gate.cs (query helpers like HasKeyword)."""
     out: dict[str, list[str]] = {}
@@ -96,6 +120,7 @@ def main() -> None:
         "CardEffectCommons": members_of(text, "CardEffectCommons"),
         "CardSource": members_of(text, "CardSource"),
         "gates": gate_statics(),
+        "factory_signatures": factory_signatures(text),
         "known_hallucinations": KNOWN_HALLUCINATIONS,
     }
     OUT.write_text(json.dumps(allow, ensure_ascii=False, indent=2), encoding="utf-8")

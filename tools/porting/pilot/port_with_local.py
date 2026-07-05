@@ -57,6 +57,29 @@ def _validate_symbols_text(cs: str) -> str:
         lines.append(f"  - {f['symbol']}: {f['suggestion']}")
     return "\n".join(lines)
 
+
+def _diagnose_compile_error(router: LocalModelRouter, detail: str) -> str:
+    """(Step 2 gemma 진단) validator가 못 잡는 실컴파일 오류(시그니처/타입/오버로드)를 gemma가 진단.
+    오류에 등장한 팩토리의 '진짜 시그니처'와 §9 대안만 근거로 제공 → gemma가 정밀 수정 지시를 생성.
+    인용할 지식이 없으면(순수 문법오류 등) 빈 문자열 → raw 오류가 그대로 coder에 전달된다."""
+    if not _ALLOWLIST:
+        return ""
+    sigs = _ALLOWLIST.get("factory_signatures", {})
+    known = _ALLOWLIST.get("known_hallucinations", {})
+    ctx = [f"- {name}({sig})  ← 진짜 시그니처" for name, sig in sigs.items() if name in detail]
+    ctx += [f"- {bad} 는 없음 → {fix}" for bad, fix in known.items() if bad in detail]
+    if not ctx:
+        return ""
+    prompt = (
+        "아래 C# 컴파일 오류의 원인을 짚고, 제공된 '진짜 시그니처/대안'만 근거로 정확한 수정 지시를 3줄 이내로 작성하라. "
+        "코드 전체를 다시 쓰지 말고 무엇을 어떻게 고칠지 지시만 출력.\n\n"
+        f"## 오류\n{detail[-800:]}\n\n## 진짜 시그니처/대안\n" + "\n".join(ctx[:8])
+    )
+    try:
+        return router.plan("너는 C# 컴파일 오류 진단가다. 간결한 수정 지시만 출력한다.", prompt).strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
 _FRAMEWORK = (REPO / "src" / "HeadlessDCGO.Engine" / "Assets" / "Scripts" / "Script"
               / "CardEffectCommons" / "CardPortingFramework.cs")
 _PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
@@ -375,8 +398,13 @@ def port_card(
             record["ok"] = True
             return record
 
+        # (Step 2 gemma 진단) 실컴파일 오류 → gemma가 진짜 시그니처/§9 근거로 정밀 수정 지시를 덧붙임.
         last_detail = detail
-        record["last_detail"] = detail[-600:]
+        diag = _diagnose_compile_error(router, detail)
+        if diag:
+            record["diagnosed"] = record.get("diagnosed", 0) + 1
+            last_detail = f"{detail[-900:]}\n\n## 진단(gemma) — 이대로 고쳐라\n{diag}"
+        record["last_detail"] = last_detail[-800:]
 
     return record
 
