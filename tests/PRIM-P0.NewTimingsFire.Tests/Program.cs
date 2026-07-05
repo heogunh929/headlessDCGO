@@ -7,6 +7,7 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -22,6 +23,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("CONTROL OnAllyAttack (known-good timing) fires in this harness", OnAllyAttack_Control),
     ("OnDeclaration fires: declaring an attack resolves the attacker's OnDeclaration effect", OnDeclaration_Fires),
     ("OnEndBattle fires: resolving a battle resolves the attacker's OnEndBattle effect", OnEndBattle_Fires),
+    ("batch-2 enum members register a binding under their emitted timing string", Batch2_RegistersUnderEmittedString),
 };
 
 var failures = new List<string>();
@@ -92,6 +94,41 @@ async Task OnEndBattle_Fires()
     await new GameFlowProcessor().RunToStableAsync(context);
 
     AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnEndBattle effect gained 1 memory when the battle resolved");
+}
+
+// batch-2 timings are already emitted by the engine (verified emit sites, exercised by the full suite) and
+// share OnEndBattle's proven fire mechanism. What THIS change adds is the card-facing enum member + AllTimings
+// entry, so a card returning an effect on the timing registers a binding keyed by the emitted string. This
+// test verifies exactly that half: enum name -> emitted timing string -> the collector can find the binding.
+async Task Batch2_RegistersUnderEmittedString()
+{
+    var batch2 = new (EffectTiming Timing, string EmittedString)[]
+    {
+        (EffectTiming.OnTappedAnyone, "OnTappedAnyone"),
+        (EffectTiming.OnUnTappedAnyone, "OnUnTappedAnyone"),
+        (EffectTiming.OnCounterTiming, "OnCounterTiming"),
+        (EffectTiming.WhenLinked, "WhenLinked"),
+        (EffectTiming.OnLinkCardDiscarded, "OnLinkCardDiscarded"),
+        (EffectTiming.OnAddDigivolutionCards, "OnAddDigivolutionCards"),
+        (EffectTiming.OnUseOption, "OnUseOption"),
+        (EffectTiming.OnDiscardSecurity, "OnDiscardSecurity"),
+        (EffectTiming.AfterPayCost, "AfterPayCost"),
+        (EffectTiming.WhenTopCardTrashed, "WhenTopCardTrashed"),
+        (EffectTiming.OnFaceUpSecurityIncreased, "OnFaceUpSecurityIncreased"),
+    };
+
+    foreach ((EffectTiming timing, string emitted) in batch2)
+    {
+        EngineContext context = EngineContext.CreateDefault(randomSeed: 7);
+        context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+        var id = new HeadlessEntityId($"1:battle:{timing}");
+        ((CardDatabase)context.CardRepository).Upsert(Digimon($"DEF-{timing}"));
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF-{timing}"), Player, Metadata: new Dictionary<string, object?>()));
+        Register(context, new TimingProbe(timing), $"P-{timing}", id);
+
+        int hits = ((EffectRegistry)context.EffectRegistry).GetEffectsForTiming(emitted).Count();
+        AssertEqual(1, hits, $"{timing} registers exactly one binding findable under emitted string \"{emitted}\"");
+    }
 }
 
 // --- Harness -------------------------------------------------------------

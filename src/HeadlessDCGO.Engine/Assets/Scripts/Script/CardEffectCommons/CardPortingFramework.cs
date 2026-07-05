@@ -69,6 +69,26 @@ public enum EffectTiming
     OnStartMainPhase,
     OnEndBattle,
     OnDeclaration,
+
+    // (PRIM-P0-timing batch 2) Timings ALREADY emitted by the engine (verified emit sites) that only lacked
+    // a card-facing enum member. Each name is string-equal to its emitted TriggerTimings value. Pure enum
+    // additions against existing emits (same low-risk shape as OnEndBattle) — collection/resolution reuse the
+    // generic path. "...Anyone" board timings are self-scoped here (cross-card broadcast is a per-card
+    // follow-up via TriggerTimings.BroadcastTimings, as with the existing OnBlockAnyone).
+    //   OnTappedAnyone 139 · OnCounterTiming 111 · WhenLinked 64 · OnAddDigivolutionCards 50 · OnUseOption 30
+    //   OnUnTappedAnyone 29 · OnDiscardSecurity 14 · OnLinkCardDiscarded 7 · AfterPayCost 7 · WhenTopCardTrashed 3
+    //   OnFaceUpSecurityIncreased 1
+    OnTappedAnyone,
+    OnUnTappedAnyone,
+    OnCounterTiming,
+    WhenLinked,
+    OnLinkCardDiscarded,
+    OnAddDigivolutionCards,
+    OnUseOption,
+    OnDiscardSecurity,
+    AfterPayCost,
+    WhenTopCardTrashed,
+    OnFaceUpSecurityIncreased,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -9282,6 +9302,18 @@ public static class CardEffectRegistrar
         EffectTiming.OnStartMainPhase,
         EffectTiming.OnEndBattle,
         EffectTiming.OnDeclaration,
+        // (PRIM-P0-timing batch 2) already-emitted timings, enum-only additions.
+        EffectTiming.OnTappedAnyone,
+        EffectTiming.OnUnTappedAnyone,
+        EffectTiming.OnCounterTiming,
+        EffectTiming.WhenLinked,
+        EffectTiming.OnLinkCardDiscarded,
+        EffectTiming.OnAddDigivolutionCards,
+        EffectTiming.OnUseOption,
+        EffectTiming.OnDiscardSecurity,
+        EffectTiming.AfterPayCost,
+        EffectTiming.WhenTopCardTrashed,
+        EffectTiming.OnFaceUpSecurityIncreased,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the
