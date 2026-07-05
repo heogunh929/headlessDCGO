@@ -111,6 +111,10 @@ public enum EffectTiming
     OnRemovedField,
     OnLeaveFieldAnyone,
     OnReturnCardsToLibraryFromTrash,
+
+    // (PRIM-P0-timing batch 3b) OnEndAttack (80 cards): end of a single attack. Already collected by
+    // EndAttackTriggerHook (keys on "OnEndAttack") at AttackPipeline.AdvanceEndAttackAsync — enum-only add.
+    OnEndAttack,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -9351,6 +9355,8 @@ public static class CardEffectRegistrar
         EffectTiming.OnRemovedField,
         EffectTiming.OnLeaveFieldAnyone,
         EffectTiming.OnReturnCardsToLibraryFromTrash,
+        // (PRIM-P0-timing batch 3b) end-of-single-attack, collected by EndAttackTriggerHook.
+        EffectTiming.OnEndAttack,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the

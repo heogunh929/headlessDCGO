@@ -71,6 +71,10 @@ public static class TriggerTimings
     public const string OnStartMainPhase = "OnStartMainPhase";
     public const string OnEndMainPhase = "OnEndMainPhase";
     public const string OnEndAttackPhase = "OnEndAttackPhase";
+    // (PRIM-P0-timing batch 3b) End of a single attack (distinct from OnEndAttackPhase = the whole attack
+    // step ending). Already collected by EndAttackTriggerHook (which keys on this same "OnEndAttack" string)
+    // at AttackPipeline.AdvanceEndAttackAsync — this const just names it in the shared vocabulary.
+    public const string OnEndAttack = "OnEndAttack";
 
     // Digivolution / draw.
     public const string WhenDigivolving = "WhenDigivolving";

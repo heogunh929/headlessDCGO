@@ -25,6 +25,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("OnEndBattle fires: resolving a battle resolves the attacker's OnEndBattle effect", OnEndBattle_Fires),
     ("batch-2 enum members register a binding under their emitted timing string", Batch2_RegistersUnderEmittedString),
     ("WhenRemoveField (derived) fires: a field card leaving the battle area resolves its effect", WhenRemoveField_Fires),
+    ("OnEndAttack fires: an attack ending resolves the attacker's OnEndAttack effect", OnEndAttack_Fires),
 };
 
 var failures = new List<string>();
@@ -145,6 +146,24 @@ async Task Batch2_RegistersUnderEmittedString()
         int hits = ((EffectRegistry)context.EffectRegistry).GetEffectsForTiming(emitted).Count();
         AssertEqual(1, hits, $"{timing} registers exactly one binding findable under emitted string \"{emitted}\"");
     }
+}
+
+// OnEndAttack is collected by EndAttackTriggerHook at AttackPipeline.AdvanceEndAttackAsync (end of a single
+// attack), not TriggerEventEmitter — driving a full attack to resolution runs the hook and fires the effect.
+async Task OnEndAttack_Fires()
+{
+    (DcgoMatch match, EngineContext context) = await BuildMatchInMain();
+    Register(context, new TimingProbe(EffectTiming.OnEndAttack), "PROBE", AttackerId);
+    context.MemoryController.Set(0);
+
+    LegalAction declare = match.GetLegalActions(Player).Single(a =>
+        a.ActionType == HeadlessActionTypes.DeclareAttack &&
+        (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackTargetId, out object? raw) ? raw?.ToString() : null) == TargetId.Value);
+    await match.ApplyActionAsync(declare);
+    await match.StepAsync();                             // advances the attack through resolution -> end-attack hook
+    await new GameFlowProcessor().RunToStableAsync(context);
+
+    AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnEndAttack effect gained 1 memory when the attack ended");
 }
 
 // A derived timing (WhenRemoveField is produced by TriggerTimingMap from a field->non-field CardMoved, not an
