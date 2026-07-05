@@ -1037,6 +1037,137 @@ public sealed class ArtsDigivolveSelfEffect : IActivatedCardEffect
         throw new NotSupportedException("Arts Digivolve is resolved via the activation flow, not registered.");
 }
 
+/// <summary>(PRIM-P0-flow B.O.3) The cost treatment of a select-and-digivolve (AS-IS payCost / reduceCost /
+/// fixedCost knobs).</summary>
+public enum DigivolveCost
+{
+    Free,     // payCost:false
+    Normal,   // the resolved evolution cost (ContinuousModifierGate-folded)
+    Reduced,  // Normal minus a fixed amount (floored at 0)
+    Fixed,    // a fixed literal cost
+}
+
+/// <summary>(PRIM-P0-flow B.O.3) The headless mirror of the AS-IS <c>DigivolveIntoHandOrTrashCard</c> (309
+/// cards): select 1 of the owner's Digimon (<paramref name="targetPredicate"/>), select a source card in
+/// <c>sourceZone</c> (Hand / Trash, matching <c>sourcePredicate</c>) that can legally digivolve onto it, pay the
+/// cost per <see cref="DigivolveCost"/>, and place the source onto the target as a digivolution (stack fold +
+/// WhenDigivolving). A generalization of <see cref="ArtsDigivolveSelfEffect"/> adding source-card selection and
+/// cost. v1 ENFORCES digivolution requirements (the TryGetEvolutionCost gate); requirement-bypass is a follow-up.
+/// See docs/porting/select_and_digivolve_design.md.</summary>
+public sealed class SelectAndDigivolveEffect : IActivatedCardEffect
+{
+    private readonly ChoiceZone _sourceZone;
+    private readonly Func<HeadlessEntityId, bool> _sourcePredicate;
+    private readonly Func<HeadlessEntityId, bool> _targetPredicate;
+    private readonly DigivolveCost _cost;
+    private readonly int _costAmount;
+
+    public SelectAndDigivolveEffect(CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> sourcePredicate,
+        Func<HeadlessEntityId, bool> targetPredicate, DigivolveCost cost, int costAmount, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sourcePredicate);
+        ArgumentNullException.ThrowIfNull(targetPredicate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _sourceZone = sourceZone;
+        _sourcePredicate = sourcePredicate;
+        _targetPredicate = targetPredicate;
+        _cost = cost;
+        _costAmount = costAmount;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(CancellationToken cancellationToken)
+    {
+        EngineContext context = Card.Context;
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        // 1. Select the target Digimon (own battle area, predicate, not digivolve-restricted).
+        var targetCandidates = zones.GetCards(Card.Owner, ChoiceZone.BattleArea)
+            .Where(_targetPredicate)
+            .Where(id => !Headless.Runtime.ContinuousRestrictionGate.EvaluateDigivolve(context, id).IsRestricted)
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: Card.Owner))
+            .ToList();
+        if (targetCandidates.Count == 0)
+        {
+            return;
+        }
+
+        ChoiceResult targetResult = await context.ChoiceProvider.ChooseAsync(
+            new ChoiceRequest(ChoiceType.Card, Card.Owner, Description, minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, targetCandidates),
+            cancellationToken).ConfigureAwait(false);
+        if (targetResult.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        HeadlessEntityId targetId = targetResult.SelectedIds[0];
+
+        // 2. Select the source card in the zone that can legally digivolve onto the target (TryGetEvolutionCost
+        // is the AS-IS CanPlayCardTargetFrame legality + requirement gate).
+        var sourceCandidates = zones.GetCards(Card.Owner, _sourceZone)
+            .Where(_sourcePredicate)
+            .Where(id => Headless.Runtime.DigivolveAction.TryGetEvolutionCost(context, id, targetId, out _, out _))
+            .Select(id => new ChoiceCandidate(id, id.Value, _sourceZone, IsSelectable: true, ownerId: Card.Owner))
+            .ToList();
+        if (sourceCandidates.Count == 0)
+        {
+            return;
+        }
+
+        ChoiceResult sourceResult = await context.ChoiceProvider.ChooseAsync(
+            new ChoiceRequest(ChoiceType.Card, Card.Owner, Description, minCount: 1, maxCount: 1, canSkip: false, _sourceZone, sourceCandidates),
+            cancellationToken).ConfigureAwait(false);
+        if (sourceResult.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        HeadlessEntityId sourceId = sourceResult.SelectedIds[0];
+
+        // 3. Resolve the cost.
+        int normalCost = Headless.Runtime.DigivolveAction.TryGetEvolutionCost(context, sourceId, targetId, out int resolved, out _) ? resolved : 0;
+        int payCost = _cost switch
+        {
+            DigivolveCost.Free => 0,
+            DigivolveCost.Fixed => Math.Max(0, _costAmount),
+            DigivolveCost.Reduced => Math.Max(0, normalCost - _costAmount),
+            _ => normalCost,
+        };
+
+        // 4. Pay (skip if the owner cannot afford — AS-IS CanPlayCardTargetFrame would not have offered it).
+        if (payCost > 0)
+        {
+            if (!context.MemoryController.CanPay(payCost))
+            {
+                return;
+            }
+
+            context.MemoryController.Pay(payCost);
+        }
+
+        // 5. Place the source onto the target as a digivolution (same order as ArtsDigivolveSelfEffect).
+        await context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(Card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None), cancellationToken).ConfigureAwait(false);
+        await context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(Card.Owner, sourceId, _sourceZone, ChoiceZone.BattleArea), cancellationToken).ConfigureAwait(false);
+        Headless.Runtime.DigivolveAction.AttachTargetAsSource(context.CardInstanceRepository, sourceId, targetId);
+        TriggerEventEmitter.Emit(context.GameEventQueue, Headless.Effects.TriggerTimings.WhenDigivolving, actor: Card.Owner, subject: sourceId);
+        CardEffectRegistrar.RegisterCard(context, sourceId, Card.Owner);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Select-and-digivolve is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>(PRIM-W2) Mirror of the original <c>&lt;Link&gt;</c> activation (<c>CardEffectFactory.LinkEffect</c>):
 /// attach THIS card as a link card to a chosen own battle-area Digimon, paying the link cost. Drives the
 /// host choice through the activation <c>ChoiceProvider</c> and attaches via
@@ -4922,6 +5053,15 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectAndTrashFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
         new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.TrashCardKind, description);
+
+    /// <summary>(PRIM-P0-flow B.O.3) AS-IS <c>DigivolveIntoHandOrTrashCard</c>: select 1 of the owner's Digimon
+    /// (<paramref name="targetPredicate"/>) and a source card in <paramref name="sourceZone"/> (Hand / Trash,
+    /// <paramref name="sourcePredicate"/>) that can digivolve onto it, pay the cost, and digivolve. v1 enforces
+    /// requirements.</summary>
+    public static ICardEffect SelectAndDigivolveEffect(
+        CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> sourcePredicate,
+        Func<HeadlessEntityId, bool> targetPredicate, DigivolveCost cost, int costAmount, string description) =>
+        new SelectAndDigivolveEffect(card, sourceZone, sourcePredicate, targetPredicate, cost, costAmount, description);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.AddThisCardToHand(..)</c> — return
     /// this card to the owner's hand.</summary>

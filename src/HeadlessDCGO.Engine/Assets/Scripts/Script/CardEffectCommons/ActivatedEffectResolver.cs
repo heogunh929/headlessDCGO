@@ -185,6 +185,14 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case SelectAndDigivolveEffect selectDigivolve:
+                {
+                    // (PRIM-P0-flow B.O.3) select target + source card (hand/trash) then digivolve, paying cost.
+                    await selectDigivolve.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case RevealMultiSelectEffect revealMulti:
                 {
                     // (P4) FULL multi-condition reveal (shared pool, per-pass destination incl. Custom,
