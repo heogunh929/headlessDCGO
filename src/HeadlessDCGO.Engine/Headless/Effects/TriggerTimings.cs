@@ -14,6 +14,10 @@ public static class TriggerTimings
     public const string OnEnterField = "OnEnterFieldAnyone";
     public const string OnLeaveField = "OnLeaveFieldAnyone";
     public const string WhenRemoveField = "WhenRemoveField";
+    // (PRIM-P0-timing batch 4) The would-be-deleted replacement/prevention window (AS-IS
+    // CardController.Destroy willBeRemoveField cut-in). A card registered here surfaces as a PRE option in the
+    // existing DeletionReplacementTiming window; activating it prevents/replaces the deletion (ClearDeletion).
+    public const string WhenPermanentWouldBeDeleted = "WhenPermanentWouldBeDeleted";
 
     // Deletion / return.
     public const string OnDeletion = "OnDestroyedAnyone";

@@ -45,6 +45,10 @@ public sealed class DeletionReplacementTiming
     public const string AscensionOption = "ascension";  // POST, no sub
     public const string ArmorPurgeOption = "armorpurge"; // (B1) PRE, no sub — deletion CANCELLED: trash top only, promote under-source
     public const string DecoyOption = "decoy";          // PRE, effect/enemy-gated, sub = which Decoy ally
+    // (PRIM-P0-timing batch 4) PRE, no built-in sub — a card-registered WhenPermanentWouldBeDeleted effect.
+    // Activating it runs the card's own effect body (which prevents/replaces via ClearDeletion). Any target/cost
+    // sub-pick the effect needs is handled inside the effect's own resolution, not the gate's two-step picker.
+    public const string CustomWouldBeDeletedOption = "customwouldbedeleted";
     public const string DecoyEligibleKey = "decoyEligible";
     public const string SaveOption = "save";            // POST, sub = which permanent to place this under
     public const string DecodeOption = "decode";        // POST, effect-deletion only, sub = which source to play free
@@ -103,6 +107,14 @@ public sealed class DeletionReplacementTiming
             options.Add(DecoyOption);
         }
 
+        // (PRIM-P0-timing batch 4) a card with a live effect registered at WhenPermanentWouldBeDeleted surfaces
+        // as an optional PRE replacement — the generic bridge from the card-facing timing into this window.
+        if (effectRegistry is not null &&
+            effectRegistry.GetEffects(record.InstanceId, TriggerTimings.WhenPermanentWouldBeDeleted).Count > 0)
+        {
+            options.Add(CustomWouldBeDeletedOption);
+        }
+
         return options;
     }
 
@@ -156,6 +168,12 @@ public sealed class DeletionReplacementTiming
                 context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry, context).Count > 0)
         {
             options.Add(DecoyOption);
+        }
+
+        // (PRIM-P0-timing batch 4) card-registered WhenPermanentWouldBeDeleted effect — see static overload.
+        if (context.EffectRegistry.GetEffects(record.InstanceId, TriggerTimings.WhenPermanentWouldBeDeleted).Count > 0)
+        {
+            options.Add(CustomWouldBeDeletedOption);
         }
 
         return options;
@@ -763,6 +781,17 @@ public sealed class DeletionReplacementTiming
                 // top card is trashed and the under-source is promoted; the permanent never leaves play.
                 return await DeDigivolveHelpers.ArmorPurgeTopAsync(
                     context.CardInstanceRepository, context.ZoneMover, cardId, context.GameEventQueue).ConfigureAwait(false);
+            case CustomWouldBeDeletedOption:
+                // (PRIM-P0-timing batch 4) run the card's own WhenPermanentWouldBeDeleted effect body(ies)
+                // and cancel the deletion (AS-IS willBeRemoveField=false). Activating this option IS the
+                // decision to survive/replace; the effect body performs any bounce/source-trash/play itself.
+                foreach (EffectBinding binding in context.EffectRegistry.GetEffects(cardId, TriggerTimings.WhenPermanentWouldBeDeleted))
+                {
+                    context.EffectScheduler.Enqueue(binding.Request);
+                }
+
+                ClearDeletion(context, cardId);
+                return true;
             default:
                 return false;
         }

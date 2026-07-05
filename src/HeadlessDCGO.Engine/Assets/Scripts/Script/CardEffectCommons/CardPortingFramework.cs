@@ -122,6 +122,11 @@ public enum EffectTiming
     // Both are broadcast (see TriggerTimings.BroadcastTimings) to mirror the AS-IS global StackSkillInfos.
     OnDigivolutionCardDiscarded,
     OnAttackTargetChanged,
+
+    // (PRIM-P0-timing batch 4) The would-be-deleted replacement/prevention window (206 cards). A card
+    // registered here surfaces as a PRE option in the existing DeletionReplacementTiming synchronous window;
+    // activating it prevents/replaces the deletion. See docs/porting/when_permanent_would_be_deleted_design.md.
+    WhenPermanentWouldBeDeleted,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -9369,6 +9374,8 @@ public static class CardEffectRegistrar
         // (PRIM-P0-timing batch 3b) new emit sites (source-discard / attack-target-change).
         EffectTiming.OnDigivolutionCardDiscarded,
         EffectTiming.OnAttackTargetChanged,
+        // (PRIM-P0-timing batch 4) would-be-deleted window — registered so HasPreOption can find the effect.
+        EffectTiming.WhenPermanentWouldBeDeleted,
     });
 
     /// <summary>(G6-001) Auto-register the effects of the card instance entering play, resolved from the
