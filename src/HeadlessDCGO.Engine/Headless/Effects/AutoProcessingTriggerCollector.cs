@@ -64,8 +64,20 @@ public sealed class AutoProcessingTriggerCollector
                 continue;
             }
 
+            // (PRIM-P0 AddSkill) a matched TRIGGER GRANT resolves against the card that actually triggered — inject
+            // the event subject as the trigger's TriggerEntityId so the granted effect (and its per-card predicate)
+            // acts on that card rather than on the granting source.
+            EffectRequest request = effect;
+            if (effect.Context.Values.TryGetValue(TriggerGrantKey, out object? grant) && grant is true
+                && gameEvent.Subject is { IsEmpty: false } subject)
+            {
+                EffectContext ctx = effect.Context;
+                request = new EffectRequest(effect.EffectId, effect.ControllerId, effect.Timing,
+                    new EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, ctx.SourceEntityId, subject, ctx.TargetEntityIds, ctx.Values));
+            }
+
             triggers.Add(new TimingWindowTrigger(
-                effect,
+                request,
                 mode,
                 kind,
                 priority,
@@ -229,11 +241,34 @@ public sealed class AutoProcessingTriggerCollector
     /// [Counter] effect (resolves in the second counter pass).</summary>
     public const string IsCounterEffectKey = "counter.isCounterEffect";
 
+    /// <summary>(PRIM-P0 AddSkill) marks a player-scope TRIGGER GRANT (AS-IS AddSkillClass whose getEffects
+    /// splices a TRIGGERED activated effect onto a live-matched set). One binding registered under the granted
+    /// timing fires for ANY event whose actor is the scoped player (ScopePlayerId / ScopeAnyPlayer); the collector
+    /// injects the event subject as the trigger's TriggerEntityId so the granted effect resolves against the card
+    /// that actually triggered (and applies its per-card predicate there).</summary>
+    public const string TriggerGrantKey = "triggerGrant";
+
     private static bool MatchesEvent(
         EffectRequest effect,
         GameEvent gameEvent,
         string timing)
     {
+        // (PRIM-P0 AddSkill) a player-scope TRIGGER GRANT fires for any event whose ACTOR is the scoped player —
+        // that is the live matching set. It bypasses the card-scoped filters below (its SourceEntityId is the
+        // granting card, not the triggering card); the granted effect's own per-card predicate + the injected
+        // subject (TriggerEntityId, see CollectForTiming) scope it to the exact card.
+        if (effect.Context.Values.TryGetValue(TriggerGrantKey, out object? grantRaw) && grantRaw is true)
+        {
+            if (effect.Context.Values.TryGetValue(PlayerScopeContinuousHelpers.ScopeAnyPlayerKey, out object? anyRaw) && anyRaw is true)
+            {
+                return true;
+            }
+
+            return gameEvent.Actor is HeadlessPlayerId actor
+                && effect.Context.Values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid)
+                && pid is int scopeId && scopeId == actor.Value;
+        }
+
         // (P5) two-pass counter timing: the emitting pipeline tags the pass; effects split by their
         // IsCounterEffect marker (AS-IS non-[Counter] resolve first, then [Counter]).
         if (gameEvent.Metadata.TryGetValue(CounterPassKey, out object? passRaw) && passRaw is string pass)

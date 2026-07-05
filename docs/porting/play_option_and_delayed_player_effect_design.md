@@ -90,8 +90,20 @@ port 대상 = player-scope `XxxStaticEffect(permanentCondition, isInherited, car
 Alliance/Rush/Reboot/Jamming/Collision/Vortex/TreatAsDigimon/Blocker. 신규 추가(이번): Piercing/Blitz/Retaliation/
 Scapegoat/Decoy/Barrier. ChangeSAttack은 `ChangeSAttackStaticEffect`(기존 player-scope modifier).
 
-잔여 STOP(소수): getEffects가 **triggered activated 효과**(키워드 아님)를 라이브 세트에 부여하는 드문 경우(BT8_031류
-ActivateClass@OnAllyAttack) — 이것만 쿼리-타임 triggered set-splice 훅이 필요. 키워드 부여(대다수)는 완료.
+### triggered set-splice — 해결됨 (collector 쿼리-타임 훅, 조사 낙관 반증 아님·설계대로)
+getEffects가 **triggered activated 효과**(키워드 아님)를 라이브 세트에 부여하는 경우(BT8_031 OnAllyAttack·
+BT7_055 WhenUntapAnyone·EX7_072 OnEndTurn 등)는 진짜 신규 훅이 필요 — 구현·검증:
+- 마커 `AutoProcessingTriggerCollector.TriggerGrantKey`. grant = nested triggered 효과의 binding에 TriggerGrant +
+  player-scope 마커 스탬프(팩토리 `GrantTriggeredEffectToScopedSet` / 클래스 `PlayerScopeTriggerGrantEffect`).
+- **MatchesEvent 확장(가산적)**: TriggerGrant binding은 `gameEvent.Actor == scopePlayer`(또는 any-player)면 매칭
+  — 카드-스코프 self 필터 우회(라이브 세트 = actor의 카드들). ONE binding이 그 플레이어의 모든 해당-타이밍
+  이벤트에 발화.
+- **CollectForTiming 주입**: 매칭된 TriggerGrant 트리거에 `gameEvent.Subject`를 TriggerEntityId로 주입 → nested
+  효과가 실제 트리거한 카드를 읽음(string-only enrichment 우회). nested 효과가 그 subject + per-card 술어로 스코프.
+- 검증: 매칭 플레이어 이벤트에 발화·상대 actor 제외·per-card 술어 준수(PRIM-P0.TriggerGrantSetSplice.Tests).
+  전체 스위트 329 PASS(공유 collector 무회귀).
+
+**AddSkillClass 완전 해결**: 키워드 부여(대다수)=player-scope 키워드 static, triggered 부여=trigger-grant. STOP 없음.
 
 ## 관련
 - [ALL_CARD_PRIMITIVE_BACKLOG.md](ALL_CARD_PRIMITIVE_BACKLOG.md) B.O.5.

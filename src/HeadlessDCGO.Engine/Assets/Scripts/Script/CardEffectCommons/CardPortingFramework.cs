@@ -1622,6 +1622,57 @@ public sealed class ContinuousPlayerScopeKeywordEffect : ICardEffect
     }
 }
 
+/// <summary>(PRIM-P0 AddSkill) The headless mirror of AS-IS AddSkillClass whose getEffects splices a TRIGGERED
+/// activated effect onto a live-matched set. Wraps a nested triggered effect's binding with the TriggerGrant +
+/// player-scope markers so it is registered under the nested effect's timing but fires for ANY event whose actor
+/// is the scoped player; the collector injects the triggering card as the subject so the nested effect (built to
+/// read TriggerEntityId and apply its per-card predicate) resolves against that card. See
+/// docs/porting/play_option_and_delayed_player_effect_design.md.</summary>
+public sealed class PlayerScopeTriggerGrantEffect : ICardEffect
+{
+    public PlayerScopeTriggerGrantEffect(CardSource card, HeadlessPlayerId scopePlayer, ICardEffect nestedEffect, bool scopeAnyPlayer = false)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(nestedEffect);
+        Card = card;
+        ScopePlayer = scopePlayer;
+        NestedEffect = nestedEffect;
+        ScopeAnyPlayer = scopeAnyPlayer;
+    }
+
+    public CardSource Card { get; }
+
+    public HeadlessPlayerId ScopePlayer { get; }
+
+    public ICardEffect NestedEffect { get; }
+
+    public bool ScopeAnyPlayer { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        EffectBinding inner = NestedEffect.ToBinding(effectId);
+        Headless.Effects.EffectContext ctx = inner.Request.Context;
+        var values = new Dictionary<string, object?>(ctx.Values, StringComparer.Ordinal)
+        {
+            [AutoProcessingTriggerCollector.TriggerGrantKey] = true,
+            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
+        };
+        if (ScopeAnyPlayer)
+        {
+            values[Headless.Effects.PlayerScopeContinuousHelpers.ScopeAnyPlayerKey] = true;
+        }
+        else
+        {
+            values[Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = ScopePlayer.Value;
+        }
+
+        var newCtx = new Headless.Effects.EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, ctx.SourceEntityId, ctx.TriggerEntityId, ctx.TargetEntityIds, values);
+        return new EffectBinding(
+            new EffectRequest(inner.Request.EffectId, inner.Request.ControllerId, inner.Request.Timing, newCtx),
+            inner.Keywords, inner.QueryRoles, inner.QueryScopes, inner.Effect, inner.Duration);
+    }
+}
+
 /// <summary>Minimal headless mirror of the original <c>Permanent</c> — used only for the signature of
 /// card <c>permanentCondition</c> predicates. Player-scope effects scope to the owner's cards directly, so
 /// the predicate body is not invoked by the headless evaluation (it exists for 1:1 source fidelity).</summary>
@@ -4766,6 +4817,14 @@ public static partial class CardEffectFactory
     /// <summary>(PRIM-P0 AddSkill) grants Barrier to the owner's matching Digimon (player-scope).</summary>
     public static ICardEffect BarrierStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Barrier, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(PRIM-P0 AddSkill) AS-IS AddSkillClass whose getEffects splices a TRIGGERED activated effect onto
+    /// a live-matched set: <paramref name="nestedTriggeredEffect"/> (built to read the triggering card via
+    /// TriggerEntityId and apply the per-card predicate + a nested activated resolution) fires for any event whose
+    /// actor is <paramref name="scopePlayer"/> (the live set). The nested effect's ToBinding sets the granted
+    /// timing.</summary>
+    public static ICardEffect GrantTriggeredEffectToScopedSet(CardSource card, HeadlessPlayerId scopePlayer, ICardEffect nestedTriggeredEffect, bool scopeAnyPlayer = false) =>
+        new PlayerScopeTriggerGrantEffect(card, scopePlayer, nestedTriggeredEffect, scopeAnyPlayer);
 
     /// <summary>(PRIM-W4) <c>JammingStaticEffect</c> — grants Jamming to the owner's Digimon (player-scope
     /// keyword). <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> per-card.</summary>
