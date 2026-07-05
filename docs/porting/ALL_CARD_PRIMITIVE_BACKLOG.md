@@ -26,6 +26,29 @@ This is a static source scan for primitive planning. It does not change card beh
 
 The broad result is similar to the BT20+ scan: most direct `CardEffectFactory.*` calls already have a headless surface. The real blockers are missing card-facing timings, coroutine-shaped choice/follow-up flows, temporary effect grants, option play, cost-modification windows, and several special mechanics.
 
+## ✅ P0 해결 상태 (2026-07-05) — 아래 STOP/갭은 전부 구현 완료
+
+이 세션에서 P0 Build Order 전부 구현·검증(전체 스위트 329 PASS). **아래 갭들은 더 이상 STOP이 아니다** — 지정된
+헤드리스 팩토리/타이밍/메커니즘으로 포팅하라. 상세 번역은 `docs/audit/porting_translation_cheatsheet.md` §6, 시그니처는
+`PRIMITIVE-CATALOG.md`(147종).
+
+| AS-IS 갭 | 헤드리스 해결 (팩토리/메커니즘) |
+|---|---|
+| 타이밍 부재(OnDeclaration/OnStartMainPhase/WhenPermanentWouldBeDeleted/OnEndAttack/OnDigivolutionCardDiscarded/OnAttackTargetChanged 등 32종) | `EffectTiming` enum에 추가·발화됨. 타이밍 심볼 그대로 사용. |
+| mode-choice (`Mode.Custom` 메뉴, 366장) | `CardEffectFactory.SelectModeEffect(card, desc, params ModeChoiceEffect.Mode[])` — 각 모드는 라벨+가용성술어+분기효과 |
+| typed select-follow-up (존에서 골라 hand/trash/deck/security/디지볼브, 2,806장 흐름) | `SelectAndAddToHandFromZoneEffect` / `SelectAndTrashFromZoneEffect` / `SelectAndReturnToDeckEffect` / `SelectAndPutSecurityEffect` / `SelectAndDigivolveEffect` |
+| cost-modification 윈도우 (`BeforePayCost`, 134장) | `CardEffectFactory.BeforePayCostReductionEffect(card, amount, condition, desc)` + 액션-루트 게이팅(`CardEffectCommons.IsPayCostRoot`) |
+| Cannot add security (104) | `CardEffectFactory.CanNotAddSecurityStaticEffect(scopePlayer, isInherited, card, condition, causingEffectPredicate?)` |
+| Cannot add memory (6) | `CardEffectFactory.CanNotAddMemoryStaticEffect(scopePlayer, isInherited, card, condition, causingEffectPredicate?)` |
+| Cannot reduce cost (5) | `CardEffectFactory.CanNotReduceCostStaticEffect(permanentCondition, isInherited, card, condition)` |
+| `PlayOptionCards` (34) | `CardEffectFactory.PlayOptionCardEffect(card, sourceZone, optionPredicate, maxCount, canEndNotMax, desc)` |
+| `AddEffectToPlayer` 지연 one-shot (30) | `CardEffectCommons.AddEffectToPlayer(duration, card, nestedEffect, timing)` — nested가 timing T에 1회 발화 후 self-remove |
+| temp `AddEffectToPermanent` (26) | `CardEffectCommons.AddEffectToPermanent(perm, duration, card, nested, timing)`; **자기-[On Deletion]**은 `AddSelfRemovalEffectToPermanent(...)`(leave-play cleanup 면제 + fire-then-clear) |
+| `AddSkillClass` 키워드 부여 (대다수) | player-scope `XxxStaticEffect(permanentCondition, isInherited, card, condition)` — Piercing/Blitz/Retaliation/Scapegoat/Decoy/Barrier/Alliance/Rush/Reboot/Jamming/Blocker/ChangeSAttack |
+| `AddSkillClass` triggered 부여 (BT8_031류) | `CardEffectFactory.GrantTriggeredEffectToScopedSet(card, scopePlayer, nestedTriggeredEffect)` — nested는 `TriggerEntityId`(트리거한 카드)를 읽고 per-card 술어 적용 |
+
+여전히 STOP인 것(소수): STOP 동적 표면 중 nested 임의효과(일부), DNA 임시재료, max-trash DigiXros 등 — 아래 표 유지. 위 표 밖의 갭만 STOP.
+
 ## P0 Timing Surface
 
 These `EffectTiming.*` values appear in original card scripts but are missing from the current headless `EffectTiming` enum.
