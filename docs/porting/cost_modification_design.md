@@ -38,10 +38,17 @@ CardEffectFactory.BeforePayCostReductionEffect(card, Func<int> amount | int amou
 - `ActivatedEffectResolver`에 case 추가(SuspendCostReduction 옆): 조건 통과 시 등록.
 - PLAY: PlayCardAction이 BeforePayCost 재해소하므로 즉시 반영. Digivolve/Option: #1 후 반영.
 
-### #1 Digivolve/Option 재해소 (후속 배치)
+### #1 Digivolve/Option 재해소 (후속 배치 — #2보다 큼)
 DigivolveAction·OptionActivateAction의 BeforePayCost 방출 직후 `ResolveAsync(BeforePayCost)` → 비용
 재-read(`ResolveDigivolutionCost`/`ResolvePlayCost`) → 감액분 반영 후 Pay. PlayCardAction:121-137 seam 미러.
 availability 사전할인은 `BeforePayCostAvailabilityReduction` 미러.
+
+**정밀 발견(metric 라우팅):** `NumericModifier`는 metric별(ModifierHelpers.cs:9). `playCostDelta`→**PlayCost**
+metric(:429), `digivolutionCostDelta`→**DigivolutionCost** metric(:434) — 별개 키. `ResolveDigivolutionCost`는
+DigivolutionCost metric만 적용하므로 #2의 `BeforePayCostReductionEffect`(PlayCostDelta)는 **play 비용만** 감액.
+digivolve 비용 감액엔 `DigivolutionCostDeltaKey` modifier 필요. 따라서 #1은 (a)2액션 재해소 seam +
+(b)`BeforePayCostReductionEffect`에 metric 선택(play vs digivolve, 또는 별도 팩토리) + (c)DeferredChoice 처리 —
+#2보다 크고 비용지불 경로를 건드리므로 별도 집중 패스 권장. option 비용 metric도 확인 필요.
 
 ## 4. 경계 (fidelity)
 - v1 #2는 **자기-비용(this play/digivolve)** 감액 — BeforePayCost ActivateClass가 자기 카드에 등록되는 지배 형태.
