@@ -1805,6 +1805,67 @@ public sealed class DeferredCardEffect : IActivatedCardEffect
         throw new NotSupportedException($"Card effect not yet ported: {Reason}");
 }
 
+/// <summary>(PRIM-P0-flow) An activated "choose one of the following modes" menu (AS-IS UserSelectionManager
+/// SetBool/IntSelection). Each available mode is a labeled branch (an existing <see cref="ICardEffect"/>); the
+/// selected branch is dispatched recursively by the ActivatedEffectResolver. Modes whose availability predicate
+/// returns false are OMITTED from the menu, mirroring the AS-IS conditional <c>selectionElements.Add</c>. The
+/// menu is mandatory (pick exactly one of the offered modes). See docs/porting/mode_choice_primitive_design.md.</summary>
+public sealed class ModeChoiceEffect : IActivatedCardEffect
+{
+    /// <summary>One mode: a menu label, an optional availability predicate (null = always available), and the
+    /// branch effect run when this mode is chosen.</summary>
+    public readonly record struct Mode(string Label, Func<bool>? IsAvailable, ICardEffect Branch);
+
+    private const string ModeToken = "mode";
+    private readonly IReadOnlyList<Mode> _modes;
+
+    public ModeChoiceEffect(CardSource card, string description, IReadOnlyList<Mode> modes)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentNullException.ThrowIfNull(modes);
+        Card = card;
+        Description = description;
+        _modes = modes;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    /// <summary>Modes whose availability predicate passes (null predicate = always available).</summary>
+    public IReadOnlyList<Mode> AvailableModes() => _modes.Where(m => m.IsAvailable?.Invoke() ?? true).ToList();
+
+    /// <summary>The mandatory labeled-menu ChoiceRequest — one candidate per available mode (synthetic id
+    /// <c>"{inst}#mode#{index}"</c> + the mode's label).</summary>
+    public ChoiceRequest BuildRequest(IReadOnlyList<Mode> available)
+    {
+        var candidates = new List<ChoiceCandidate>(available.Count);
+        for (int index = 0; index < available.Count; index++)
+        {
+            candidates.Add(new ChoiceCandidate(
+                new HeadlessEntityId($"{Card.InstanceId.Value}#{ModeToken}#{index}"),
+                available[index].Label, ChoiceZone.BattleArea, IsSelectable: true, ownerId: Card.Owner));
+        }
+
+        return new ChoiceRequest(
+            ChoiceType.ModeChoice, Card.Owner, Description,
+            minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, candidates);
+    }
+
+    /// <summary>The branch effect for the chosen candidate id (parses the index off <c>"{inst}#mode#{index}"</c>).</summary>
+    public ICardEffect BranchFor(IReadOnlyList<Mode> available, HeadlessEntityId selectedId)
+    {
+        string[] parts = selectedId.Value.Split('#');
+        return int.TryParse(parts.Length > 2 ? parts[2] : null, out int index) && index >= 0 && index < available.Count
+            ? available[index].Branch
+            : available[0].Branch;
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Mode-choice effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// An activated targeted effect (an Option [Main] / [Security] skill that selects permanents and acts on
 /// them, e.g. "delete up to 2 of your opponent's Digimon"). Wraps the <see cref="SelectPermanentEffect"/>
@@ -4734,6 +4795,12 @@ public static partial class CardEffectFactory
         bool canEndNotMax,
         string description) =>
         new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Destroy, description);
+
+    /// <summary>(PRIM-P0-flow) An activated "choose one of the following modes" menu (AS-IS UserSelectionManager
+    /// SetBool/IntSelection). Each mode is a labeled branch effect; a mode with an availability predicate that
+    /// returns false is omitted. The selected branch resolves through the same activation flow / sink.</summary>
+    public static ICardEffect SelectModeEffect(CardSource card, string description, params ModeChoiceEffect.Mode[] modes) =>
+        new ModeChoiceEffect(card, description, modes);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>new SuspendPermanentsClass(perms, ..).Tap()</c>
     /// coroutine: select up to <paramref name="maxCount"/> matching permanents and suspend them.</summary>

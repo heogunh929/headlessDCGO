@@ -27,5 +27,9 @@ public enum ChoiceType
     OverclockTarget,
     // B-7: select from revealed deck-top cards (AS-IS RevealLibrary RevealDeckTopCardsAndSelect) — the
     // selected cards go to one destination, the rest to another.
-    RevealSelect
+    RevealSelect,
+    // (PRIM-P0-flow) the mandatory "choose one of the following modes" menu (AS-IS UserSelectionManager
+    // SetBool/IntSelection). Candidates are synthetic labeled options; the selected branch is dispatched
+    // by ActivatedEffectResolver. See docs/porting/mode_choice_primitive_design.md.
+    ModeChoice
 }

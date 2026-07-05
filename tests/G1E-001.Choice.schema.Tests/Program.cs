@@ -159,6 +159,7 @@ Task ChoiceEnumsCoverAsIsSelectionCategories()
             "EffectAttack", // S1 (C-20 Vortex / C-16 Overclock): EffectDrivenAttack — optional effect-driven attack target
             "OverclockTarget", // C-16 Overclock: OverclockEffect — optional delete-a-trait-ally choice
             "RevealSelect", // B-7: RevealAndSelect — select from revealed deck-top cards
+            "ModeChoice", // PRIM-P0-flow: mode-choice menu (AS-IS UserSelectionManager SetBool/IntSelection)
         },
         Enum.GetNames<ChoiceType>(),
         "choice type names");

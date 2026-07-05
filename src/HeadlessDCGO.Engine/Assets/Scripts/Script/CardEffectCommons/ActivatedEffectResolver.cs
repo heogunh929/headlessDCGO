@@ -78,6 +78,26 @@ public static class ActivatedEffectResolver
         {
             switch (cardEffect)
             {
+                case ModeChoiceEffect mode:
+                {
+                    // (PRIM-P0-flow) present the mode menu (available modes only), then dispatch the chosen
+                    // branch through this same resolver — sharing the one sink and deferred-choice cycle.
+                    IReadOnlyList<ModeChoiceEffect.Mode> available = mode.AvailableModes();
+                    if (available.Count > 0)
+                    {
+                        ChoiceResult result = await context.ChoiceProvider
+                            .ChooseAsync(mode.BuildRequest(available), cancellationToken).ConfigureAwait(false);
+                        if (!result.IsSkipped && result.SelectedIds.Count > 0)
+                        {
+                            ICardEffect branch = mode.BranchFor(available, result.SelectedIds[0]);
+                            resolved += await ResolveListAsync(
+                                context, effectClass, card, players, sink, new[] { branch }, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+
+                    break;
+                }
+
                 case ActivatedSelectEffect select:
                 {
                     ChoiceResult result = await context.ChoiceProvider
