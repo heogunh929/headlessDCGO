@@ -375,6 +375,29 @@ public sealed class CardSource
     // (A3) printed-data based like AS-IS CEntity_Base.HasLevel — a level-change fold does not grant a level.
     public bool HasLevel => PrintedLevel >= 0;
 
+    /// <summary>(Jogress by levels) AS-IS <c>Permanent</c> levels-for-Jogress fold (Permanent.cs:3560-3600): the
+    /// levels THIS card counts as when used as a Jogress / DNA-Digivolution material against
+    /// <paramref name="jogressCard"/> (the digivolving card). Its printed level PLUS every extra level its own
+    /// <see cref="CardEffects.AddJogressLevelsClass"/> effects contribute (self-scoped, mirroring the AS-IS
+    /// self-gated board scan). Level-based Jogress/DNA material predicates test membership in this set.</summary>
+    public IReadOnlyList<int> JogressLevelsAgainst(CardSource jogressCard)
+    {
+        ArgumentNullException.ThrowIfNull(jogressCard);
+        var levels = new List<int>();
+        if (HasLevel)
+        {
+            levels.Add(Level);
+        }
+
+        foreach (Func<CardSource, IReadOnlyList<int>> getLevels in
+            SelfTransforms<Func<CardSource, IReadOnlyList<int>>>(CardEffects.AddJogressLevelsClass.GetJogressLevelsKey))
+        {
+            levels.AddRange(getLevels(jogressCard));
+        }
+
+        return levels;
+    }
+
     /// <summary>(W6-P) printed-data based like AS-IS <c>HasDP</c> — the card defines a DP at all.</summary>
     public bool HasDP => Definition?.Metadata.TryGetValue("dp", out object? dp) == true && dp is int;
 
@@ -5447,6 +5470,20 @@ public static partial class CardEffectFactory
     {
         SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(SpecialPlayKind.DnaDigivolve, NameMaterials(names), MemoryCost: 0, Condition: condition));
         return new SpecialPlayRecipeMarkerEffect(card);
+    }
+
+    /// <summary>(Jogress by levels) AS-IS <c>AddJogressLevelsClass</c> — makes THIS card count as extra level(s)
+    /// when it is a Jogress / DNA-Digivolution material (e.g. "Also treated as level 6 for DNA Digivolution").
+    /// <paramref name="getLevels"/> maps the digivolving (Jogress) card to the extra levels this material grants;
+    /// read by <see cref="CardSource.JogressLevelsAgainst"/>. Level-based material predicates then test it.</summary>
+    public static ICardEffect AddJogressLevelsEffect(
+        CardSource card, Func<CardSource, IReadOnlyList<int>> getLevels, Func<bool>? condition = null,
+        string name = "Also treated as additional levels for DNA Digivolution")
+    {
+        var effect = new CardEffects.AddJogressLevelsClass();
+        effect.SetUpICardEffect(name, condition, card);
+        effect.SetUpAddJogressLevelsClass(getLevels);
+        return effect;
     }
 
     /// <summary>(PRIM-W5) Jogress with ARBITRARY per-material predicates (faithful form of

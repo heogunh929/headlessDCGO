@@ -130,8 +130,11 @@ These are the largest practical blockers for broad per-card porting.
 > = AS-IS IDigiBurst(자기 진화원 소스 N장 trash 비용 + inner 효과, ≥N 게이트). activated inner(draw/delete/trash 등)
 > 커버. 잔여: 연속-grant inner(gain-unblockable류), optional 프롬프트, per-source 면역 — 후속 정제.
 >
-> **진짜 남은 STOP(~11장):** Burst Digivolution (5)·Jogress by levels (4)·DNA temp materials (2)·Assembly 필드-대체.
-> 이들은
+> **✅ 추가 해결(2026-07-05):** ①Assembly — STALE(이미 완전 배선: PlayCardAction.CreateAssemblyActionIfPlayable +
+> SelectAssemblyClass, 트래시→새 permanent 아래, G9-065 테스트). ②Jogress by levels(4) — AddJogressLevelsEffect
+> (CardSource.JogressLevelsAgainst: printed + self AddJogressLevels, AS-IS self-gated 스캔 미러).
+>
+> **진짜 남은 STOP(~7장):** Burst Digivolution (5)·DNA temp materials (2). 이들은
 > `SpecialPlayRecipe` 확장(가변-count/변형 재료) 또는 Digi-Burst 서브시스템이 필요 — 이름-커버리지가 아닌 실제
 > 미구현. 아래 표의 위 항목들은 stale이므로 무시.
 
