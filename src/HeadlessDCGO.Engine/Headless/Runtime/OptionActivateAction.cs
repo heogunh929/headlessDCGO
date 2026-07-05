@@ -51,6 +51,9 @@ public sealed class OptionActivateAction
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         // F-6.7: wrap the option-cost payment with the Before/AfterPayCost windows.
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId);
+        // (PRIM-P0 B.O.4 #1) a re-resolve-BeforePayCost seam here needs the same action-context gating as
+        // digivolve (a play-intended before-pay effect must not fire on an option activation) — deferred to
+        // the #1 gating design. See docs/porting/cost_modification_design.md.
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(payload.MemoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
         // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.

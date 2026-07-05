@@ -2089,7 +2089,14 @@ public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
             return;
         }
 
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [ModifierHelpers.PlayCostDeltaKey] = -amount };
+        // Register BOTH the play-cost (PlayCost metric — play & option) and digivolution-cost (DigivolutionCost
+        // metric) deltas. A given action pays exactly one of these costs, so only the relevant metric's resolve
+        // applies the reduction — registering both lets one effect cover play / option / digivolve uniformly.
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ModifierHelpers.PlayCostDeltaKey] = -amount,
+            [ModifierHelpers.DigivolutionCostDeltaKey] = -amount,
+        };
         var context = new EffectContext(
             Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
             targetEntityIds: new[] { Card.InstanceId }, values: values);

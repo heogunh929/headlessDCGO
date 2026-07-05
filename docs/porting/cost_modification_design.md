@@ -44,11 +44,22 @@ DigivolveAction·OptionActivateAction의 BeforePayCost 방출 직후 `ResolveAsy
 availability 사전할인은 `BeforePayCostAvailabilityReduction` 미러.
 
 **정밀 발견(metric 라우팅):** `NumericModifier`는 metric별(ModifierHelpers.cs:9). `playCostDelta`→**PlayCost**
-metric(:429), `digivolutionCostDelta`→**DigivolutionCost** metric(:434) — 별개 키. `ResolveDigivolutionCost`는
-DigivolutionCost metric만 적용하므로 #2의 `BeforePayCostReductionEffect`(PlayCostDelta)는 **play 비용만** 감액.
-digivolve 비용 감액엔 `DigivolutionCostDeltaKey` modifier 필요. 따라서 #1은 (a)2액션 재해소 seam +
-(b)`BeforePayCostReductionEffect`에 metric 선택(play vs digivolve, 또는 별도 팩토리) + (c)DeferredChoice 처리 —
-#2보다 크고 비용지불 경로를 건드리므로 별도 집중 패스 권장. option 비용 metric도 확인 필요.
+metric(:429), `digivolutionCostDelta`→**DigivolutionCost** metric(:434) — 별개 키. Option 비용은 PlayCost
+metric(`ResolveOptionCost`→`ResolvePlayCost`). 해결: `BeforePayCostReductionEffect`가 **두 델타 모두 등록**(카드는
+play XOR digivolve XOR option이라 해당 metric만 적용 — 이미 반영됨, 무해).
+
+**⚠️ #1 시도 결과 — 액션-컨텍스트 게이팅 필요(회귀 발견, 2026-07-05):** DigivolveAction/OptionActivateAction에
+PlayCardAction식 `ResolveAsync(BeforePayCost)` 재해소 seam을 넣으니, **진화되는 카드의 BeforePayCost 효과가
+digivolve 시에도 발화**해 회귀(G9-011·G9-013). 예: EX8_074의 서스펜드-감액(플레이 의도)이 EX8_074를 진화시킬 때
+발화 → WhenDigivolving choice와 "another choice pending" 충돌. BeforePayCost 타이밍은 play/digivolve/option
+공용이라, **한 액션 의도의 효과가 다른 액션에서 발화하면 안 됨**. AS-IS는 ChangeCostClass의 rootCondition(Hand vs
+digivolve)으로 게이트하지만 헤드리스 효과엔 액션 컨텍스트가 없음.
+
+→ #1은 단순 재해소 seam이 아니라 **액션-컨텍스트 게이팅**이 선행되어야 함. 방안: (a) 방출된 BeforePayCost
+이벤트 metadata(`isEvolution`)를 `ResolveAsync`가 전달하고 효과가 게이트, 또는 (b) 타이밍 분리
+(BeforePayCostPlay/Digivolve), 또는 (c) `BeforePayCostReductionEffect`에 적용 액션(Play|Digivolve|Option) 인자.
+비용지불 경로 + 게이팅 설계라 별도 집중 패스. **2액션 seam은 게이팅 없이는 회귀 → 미착수(revert됨).**
+#2(play 감액)는 완료·유효.
 
 ## 4. 경계 (fidelity)
 - v1 #2는 **자기-비용(this play/digivolve)** 감액 — BeforePayCost ActivateClass가 자기 카드에 등록되는 지배 형태.
