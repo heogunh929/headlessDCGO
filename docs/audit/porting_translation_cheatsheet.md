@@ -175,6 +175,38 @@ DigiXros/DNA/Blast 계열의 STOP-표면이 전부 헤드리스 팩토리로 열
 | `PlaceSelfDelayOptionSecurityEffect(card, condition)` | `(CardSource card)` — **인자 `card` 하나뿐. condition 오버로드 없다** |
 | 술어 자리에 2-인자 람다 | 대부분 `Func<bool>`(조건) 또는 `Func<HeadlessEntityId,bool>`(canTarget). 인자 개수를 카탈로그로 확인 |
 
+## 10. action_tag → 정규 팩토리 맵 (2026-07-06 — 레퍼런스 대체 계층)
+
+**왜**: 카드 단위 레퍼런스는 60%가 signature 고유라 일반화 안 됨(시딩 무의미). 그러나 **action_tag는 83%가 공유** —
+"카드는 다 달라도 무슨 동작을 하는가는 겹친다". 그래서 아래 **액션→팩토리** 맵이 레퍼런스를 대체하는 일반화 계층이다.
+카드의 동작을 이 팩토리로 매핑하라(전부 실재 — 발명 아님). 하네스는 카드의 action_tags에 해당하는 줄만 프롬프트에
+자동 주입한다(`action_map.json`, `gen_action_map.py`로 재생성). 시그니처는 `PRIMITIVE-CATALOG.md`에서 확인.
+
+| action_tag | 정규 팩토리 (변형) | 비고 |
+|---|---|---|
+| `play` | `SelectAndPlayFromZoneEffect` / PlayOptionCardEffect | 존에서 골라 플레이 / 옵션 플레이 |
+| `trash` | `SelectAndTrashFromZoneEffect` / SelectAndTrashDigivolutionEffect | 존에서 골라 trash / 진화원 trash |
+| `once_per_turn` | *(modifier)* | 액션 아님 = [Once Per Turn] 캡. 다중발화 타이밍은 브릿지가 OnceFlags 자동 캡(§7 v3) |
+| `security` | `SelectAndPutSecurityEffect` / ReplaceBottomSecurityWithFaceUpOptionEffect | 시큐리티에 놓기 |
+| `memory` | `GainMemoryActivatedEffect` | 메모리 증감(+/-) |
+| `digivolve` | `SelectAndDigivolveEffect` / BlastDigivolveEffect, BurstDigivolveEffect, ArtsDigivolveEffect | 골라 진화 / 특수진화 |
+| `delete` | `SelectAndDestroyEffect` | 디지몬 골라 삭제(canTarget 술어로 제한) |
+| `to_hand` | `SelectAndAddToHandFromZoneEffect` / SelectAndBounceEffect, AddThisCardToHandEffect | 존→손패 / 필드 바운스 / 자기 손패 |
+| `deenergize` | `SelectAndDeDigivolveEffect` / SelectAndTrashDigivolutionEffect | 진화원 N장 trash |
+| `draw` | `DrawCardsEffect` | N장 드로우 |
+| `suspend` | `SelectAndSuspendEffect` | 골라 서스펜드(탭) |
+| `bounce` | `SelectAndBounceEffect` / SelectAndReturnToDeckEffect | 손패 바운스 / 덱(toTop bool) |
+| `cannot` | *(restriction-family)* `CanNot*StaticEffect` | 금지 대상별: Attack/BeDestroyed/AddSecurity/Digivolve/Block 등 |
+| `unsuspend` | `SelectAndUnsuspendEffect` | 골라 언서스펜드 |
+| `dp_minus` | `SelectAndBuffDpEffect`(음수) / ChangeDPStaticEffect | DP -N |
+| `dp_plus` | `SelectAndBuffDpEffect` / PlayerScopeBuffDpEffect, ChangeSelfDPStaticEffect | DP +N (대상/스코프/자기) |
+| `recovery` | `RecoveryTriggerEffect` | 시큐리티 회복 |
+| `blocker` | `BlockerStaticEffect` / BlockerSelfStaticEffect | Blocker 부여(스코프/자기) |
+| `piercing` | `PiercingStaticEffect` / PierceSelfEffect | Piercing 부여(스코프/자기) |
+
+**주의**: 맵은 **개별 동작**을 정규 팩토리로 접지할 뿐이다. 여러 동작의 **합성**(조건·대상·타이밍 배선)과 술어의
+**충실 평가**(§0)는 여전히 카드별로 해야 한다 — 태그로 뭉개지 말 것.
+
 ## 5. 파일럿 실측 (BT1 exact 15장, Sonnet 4.6)
 
 | 라운드 | 프롬프트 | 컴파일 통과 |

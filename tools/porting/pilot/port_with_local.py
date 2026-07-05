@@ -43,6 +43,34 @@ try:
 except Exception:  # noqa: BLE001  allowlist 없으면 검사 skip(빌드 게이트가 여전히 잡음)
     _ALLOWLIST = {}
 
+try:
+    _ACTION_MAP = json.loads((Path(__file__).resolve().parent / "action_map.json").read_text(encoding="utf-8"))
+except Exception:  # noqa: BLE001
+    _ACTION_MAP = {}
+
+
+def action_map_surface(action_tags_json: str | None) -> str:
+    """(action_tag→factory) 이 카드의 action_tags에 해당하는 정규 팩토리만 프롬프트에 주입.
+    카드-단위 레퍼런스(60% 짝없음) 대신 액션-단위 매핑(83% 공유)으로 접지 — 카드가 달라도 동작은 이걸로 매핑."""
+    if not _ACTION_MAP or not action_tags_json:
+        return ""
+    try:
+        tags = json.loads(action_tags_json)
+    except Exception:  # noqa: BLE001
+        return ""
+    rel = [(t, _ACTION_MAP[t]) for t in tags if t in _ACTION_MAP]
+    if not rel:
+        return ""
+    lines = ["## 이 카드의 action → 정규 팩토리 (아래 팩토리를 써라 — 카드가 달라도 동작은 이걸로 매핑된다)"]
+    for tag, e in rel:
+        if e.get("factory"):
+            lines.append(f"- [{tag}] {e['factory']}({e.get('sig', '')})  {e.get('note', '')}")
+            if e.get("also"):
+                lines.append(f"    변형: {', '.join(e['also'])}")
+        else:
+            lines.append(f"- [{tag}] ({e.get('kind')}) {e.get('note', '')}")
+    return "\n".join(lines)
+
 
 def _validate_symbols_text(cs: str) -> str:
     """(#3 pre-build validator) 생성 .cs가 존재하지 않는 헤드리스 심볼을 참조하면 §9 힌트 포함 지시문을 반환.
@@ -353,6 +381,11 @@ def port_card(
     if task.get("reference"):
         ref_texts += [task["reference"].get("asis", ""), task["reference"].get("ported", "")]
     system = system + "\n\n" + symbol_surface_for(ref_texts)
+    # (action_tag→factory) 이 카드의 action_tags에 해당하는 정규 팩토리를 주입 — 레퍼런스 없어도 액션으로 접지.
+    _atrow = conn.execute("SELECT action_tags FROM card WHERE card_id=?", (card_id,)).fetchone()
+    _amsurface = action_map_surface(_atrow[0] if _atrow else None)
+    if _amsurface:
+        system = system + "\n\n" + _amsurface
     record = {"card_id": card_id, "tier": tier, "reference": ref_id, "ok": False, "attempts": 0}
 
     last_detail = ""
