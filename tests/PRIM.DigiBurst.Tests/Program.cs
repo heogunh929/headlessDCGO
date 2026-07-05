@@ -15,6 +15,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("[Digi-Burst 2] with 3 sources: trashes 2 sources (1 remains) and draws 1", BurstsAndResolves),
     ("[Digi-Burst 2] with only 1 source: does NOT fire (no trash, no draw)", GateBlocks),
+    ("[Digi-Burst 2] with a CONTINUOUS keyword-grant body: trashes 2 and the card gains the keyword", ContinuousInner),
 };
 
 var failures = new List<string>();
@@ -55,6 +56,20 @@ async Task GateBlocks()
     AssertEqual(handBefore, HandCount(ctx, P1), "the inner effect did NOT resolve (no draw)");
 }
 
+async Task ContinuousInner()
+{
+    EngineContext ctx = Ctx();
+    var s = new[] { MakeSource(ctx, "S1"), MakeSource(ctx, "S2"), MakeSource(ctx, "S3") };
+    var burst = await PutWithSources(ctx, "TfxDigiBurstKeyword", s);
+
+    await ActivatedEffectResolver.ResolveAsync(ctx, burst, P1, EffectTiming.OptionSkill);
+
+    var stack = DigivolutionStackReader.Read(ctx.CardInstanceRepository, ctx.CardRepository, burst);
+    AssertEqual(1, stack.UnderCards.Count, "2 sources trashed as the Digi-Burst cost");
+    AssertTrue(HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.HasKeyword(ctx, burst, HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.Piercing),
+        "the continuous keyword grant was registered (card has Piercing)");
+}
+
 // --- Harness ---
 EngineContext Ctx()
 {
@@ -89,4 +104,5 @@ async Task Lib(EngineContext ctx, int i)
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.Library));
 }
 int HandCount(EngineContext ctx, HeadlessPlayerId p) => ((IZoneStateReader)ctx.ZoneMover).GetCards(p, ChoiceZone.Hand).Count;
+static void AssertTrue(bool v, string l) { if (!v) throw new InvalidOperationException($"{l}: expected true."); }
 static void AssertEqual<T>(T e, T a, string l) { if (!EqualityComparer<T>.Default.Equals(e,a)) throw new InvalidOperationException($"{l}: expected '{e}', actual '{a}'."); }

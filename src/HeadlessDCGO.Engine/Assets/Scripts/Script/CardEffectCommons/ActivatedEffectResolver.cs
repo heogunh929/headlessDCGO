@@ -127,12 +127,11 @@ public static class ActivatedEffectResolver
 
                 case DigiBurstActivatedEffect burst:
                 {
-                    // (PRIM special-play) AS-IS IDigiBurst: gate on the card's own permanent holding >= Count
-                    // digivolution sources; pay by trashing Count of them (from the bottom, face-down); then
-                    // resolve the inner effect through the SAME sink / choice cycle.
-                    Headless.State.DigivolutionStack stack = Headless.State.DigivolutionStackReader.Read(
-                        context.CardInstanceRepository, context.CardRepository, burst.Card.InstanceId);
-                    if (stack.UnderCards.Count >= burst.Count)
+                    // (PRIM special-play) AS-IS IDigiBurst.CanDigiBurst: gate on the card's own permanent holding
+                    // >= Count TRASHABLE digivolution sources (per-source trash-protection honoured, mirroring
+                    // !CanNotTrashFromDigivolutionCards). Pay by trashing Count from the bottom (face-down), then
+                    // resolve/register the inner effect through the SAME sink / choice cycle.
+                    if (CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
                     {
                         sink.Apply(new EffectMutation(
                             MatchStateMutationSink.TrashDigivolutionCardsKind, burst.Card.InstanceId,
@@ -141,8 +140,19 @@ public static class ActivatedEffectResolver
                                 [MatchStateMutationSink.CountKey] = burst.Count,
                                 [MatchStateMutationSink.FromBottomKey] = true,
                             }));
-                        resolved += await ResolveListAsync(
-                            context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken).ConfigureAwait(false);
+
+                        // The Digi-Burst body is either an ACTIVATED effect (draw/delete/trash — resolve it) or a
+                        // CONTINUOUS grant (e.g. "your Digimon gain <keyword>" — register it, as at enter-play).
+                        if (burst.InnerEffect is IActivatedCardEffect)
+                        {
+                            resolved += await ResolveListAsync(
+                                context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            context.EffectRegistry.Register(burst.InnerEffect.ToBinding(
+                                $"{burst.Card.InstanceId.Value}:digiburst:{Guid.NewGuid():N}"));
+                        }
                     }
 
                     resolved++;
