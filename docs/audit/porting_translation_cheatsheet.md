@@ -87,6 +87,24 @@ AS-IS의 STOP-표면(동적/코루틴 흐름)을 헤드리스 카드-facing 팩�
 | `AddSkillClass`로 "네 디지몬이 \<키워드\> 획득" | player-scope `<키워드>StaticEffect(permanentCondition, isInherited, card, condition)` — cardSourceCondition을 permanentCondition으로. 라이브 세트(늦게 입장한 카드도 획득). Piercing/Blitz/Retaliation/Scapegoat/Decoy/Barrier/Alliance/Rush/Reboot/Jamming/Blocker |
 | `AddSkillClass`로 "네 디지몬이 \<triggered 효과\> 획득"(BT8_031류) | `CardEffectFactory.GrantTriggeredEffectToScopedSet(card, scopePlayer, nested)`. nested는 `TriggerEntityId`(실제 트리거한 카드)를 읽고 cardSourceCondition을 그 카드에 적용하도록 구성 |
 
+## 7. 트리거된 activated 효과 (2026-07-05 브릿지 v1)
+
+`[When Attacking]`(OnAllyAttack)·`[On Deletion]`(OnDestroyedAnyone) 타이밍에서 **해소가 필요한 액션**(draw/trash/
+delete/select 등)은 이제 그 타이밍에 **activated 팩토리를 그대로 반환**하면 auto-processing 브릿지가 해소한다.
+
+```
+// [When Attacking] draw 1
+if (timing == EffectTiming.OnAllyAttack)
+    effects.Add(CardEffectFactory.DrawCardsEffect(card, 1));
+// [On Deletion] delete 1 opp Digimon (activated select)
+if (timing == EffectTiming.OnDestroyedAnyone)
+    effects.Add(CardEffectFactory.SelectAndDestroyEffect(card, canTarget, 1, false, "..."));
+```
+
+주의: v1은 위 2개 타이밍만(이벤트당 1회). `[End of Turn]`·`[on unsuspend]` 등 **once-per-turn** 타이밍의 activated는
+아직 브릿지 미적용(OnceFlags 통합 후 확장 예정). memory/DP/recovery/unsuspend는 기존 triggered 팩토리
+(`AddMemoryTriggerEffect`/`SelfDpBuffTriggerEffect`/`RecoveryTriggerEffect`/`UnsuspendSelfTriggerEffect`) 사용.
+
 ## 5. 파일럿 실측 (BT1 exact 15장, Sonnet 4.6)
 
 | 라운드 | 프롬프트 | 컴파일 통과 |
