@@ -2048,6 +2048,61 @@ public sealed class ActivatedSelectEffect : IActivatedCardEffect
         throw new NotSupportedException($"Activated select effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(PRIM-P0 B.O.4) A non-interactive one-shot before-pay cost reduction: when this card is being
+/// played/digivolved and <see cref="_condition"/> holds, register a one-shot <c>playCostDelta = -amount</c>
+/// self modifier tagged <see cref="EffectDuration.UntilCalculateFixedCost"/> (cleared once the cost is locked).
+/// The headless mirror of the AS-IS <c>BeforePayCost</c> ActivateClass that does
+/// <c>card.Owner.UntilCalculateFixedCostEffect.Add(_ =&gt; changeCostClass)</c> (e.g. BT18_057). Non-interactive
+/// counterpart of <see cref="SuspendCostReductionEffect"/>. Reduces THIS play's own cost. See
+/// docs/porting/cost_modification_design.md.</summary>
+public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
+{
+    private readonly Func<int> _amount;
+    private readonly Func<bool>? _condition;
+
+    public BeforePayCostReductionEffect(CardSource card, Func<int> amount, Func<bool>? condition, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(amount);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _amount = amount;
+        _condition = condition;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    /// <summary>Register the one-shot reduction if the condition holds and the amount is positive.</summary>
+    public void Apply()
+    {
+        if (_condition is not null && !_condition())
+        {
+            return;
+        }
+
+        int amount = _amount();
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [ModifierHelpers.PlayCostDeltaKey] = -amount };
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
+            targetEntityIds: new[] { Card.InstanceId }, values: values);
+        Card.Context.EffectRegistry.Register(new EffectBinding(
+            new EffectRequest(new HeadlessEntityId($"{Card.InstanceId.Value}:beforePayCostReduction"), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope },
+            effect: null, duration: EffectDuration.UntilCalculateFixedCost));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Before-pay cost reduction is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// (EX8_074 Stage 3 brick) An activated "suspend N of your Digimon to reduce THIS card's play cost by M"
 /// effect — the headless composite of the original <c>SuspendPermanentsClass.Tap()</c> +
@@ -5062,6 +5117,16 @@ public static partial class CardEffectFactory
         CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> sourcePredicate,
         Func<HeadlessEntityId, bool> targetPredicate, DigivolveCost cost, int costAmount, string description) =>
         new SelectAndDigivolveEffect(card, sourceZone, sourcePredicate, targetPredicate, cost, costAmount, description);
+
+    /// <summary>(PRIM-P0 B.O.4) A one-shot before-pay reduction of THIS card's own play/digivolve cost by
+    /// <paramref name="amount"/> when <paramref name="condition"/> holds (AS-IS BeforePayCost ActivateClass →
+    /// UntilCalculateFixedCostEffect.Add). Non-interactive.</summary>
+    public static ICardEffect BeforePayCostReductionEffect(CardSource card, int amount, Func<bool>? condition, string description) =>
+        new BeforePayCostReductionEffect(card, () => amount, condition, description);
+
+    /// <summary>(PRIM-P0 B.O.4) As above with a dynamic reduction amount (e.g. -1 per matching card).</summary>
+    public static ICardEffect BeforePayCostReductionEffect(CardSource card, Func<int> amount, Func<bool>? condition, string description) =>
+        new BeforePayCostReductionEffect(card, amount, condition, description);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.AddThisCardToHand(..)</c> — return
     /// this card to the owner's hand.</summary>

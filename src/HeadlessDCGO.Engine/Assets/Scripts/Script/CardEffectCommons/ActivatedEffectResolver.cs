@@ -268,6 +268,14 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case BeforePayCostReductionEffect beforePayReduce:
+                {
+                    // (PRIM-P0 B.O.4) non-interactive one-shot before-pay reduction of this play's own cost.
+                    beforePayReduce.Apply();
+                    resolved++;
+                    break;
+                }
+
                 case SuspendCostReductionEffect suspendReduce:
                 {
                     // (EX8_074 Stage 3 brick) "Suspend N of your Digimon to reduce this card's play cost by M":
