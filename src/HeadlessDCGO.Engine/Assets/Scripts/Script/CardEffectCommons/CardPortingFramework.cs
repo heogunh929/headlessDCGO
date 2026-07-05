@@ -4739,6 +4739,34 @@ public static partial class CardEffectFactory
     public static ICardEffect AllianceStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Alliance, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
+    // (PRIM-P0 AddSkillClass) player-scope keyword grants — "your Digimon (matching permanentCondition) gain
+    // <keyword>". These are the headless port target for AS-IS AddSkillClass whose getEffects grants a
+    // <keyword>SelfEffect to a live-matched set: the player-scope binding re-evaluates the set per query, so a
+    // Digimon that enters AFTER the grant still gains the keyword (proven in PRIM-P0.AddSkillLiveSet.Tests).
+    /// <summary>(PRIM-P0 AddSkill) grants Piercing to the owner's matching Digimon (player-scope).</summary>
+    public static ICardEffect PiercingStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Piercing, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(PRIM-P0 AddSkill) grants Blitz to the owner's matching Digimon (player-scope).</summary>
+    public static ICardEffect BlitzStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Blitz, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(PRIM-P0 AddSkill) grants Retaliation to the owner's matching Digimon (player-scope).</summary>
+    public static ICardEffect RetaliationStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Retaliation, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(PRIM-P0 AddSkill) grants Scapegoat (deletion-replacement) to the owner's matching Digimon (player-scope).</summary>
+    public static ICardEffect ScapegoatStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Scapegoat, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(PRIM-P0 AddSkill) grants Decoy (deletion-replacement) to the owner's matching Digimon (player-scope).</summary>
+    public static ICardEffect DecoyStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Decoy, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(PRIM-P0 AddSkill) grants Barrier to the owner's matching Digimon (player-scope).</summary>
+    public static ICardEffect BarrierStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.Barrier, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
     /// <summary>(PRIM-W4) <c>JammingStaticEffect</c> — grants Jamming to the owner's Digimon (player-scope
     /// keyword). <paramref name="permanentCondition"/>/<paramref name="isLinkedEffect"/> per-card.</summary>
     public static ICardEffect JammingStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false) =>

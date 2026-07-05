@@ -79,10 +79,19 @@ amount>0→true라 에이전트 없는 테스트에서 자동 해소 안 됨. �
 부수 확인: broadcast 효과의 self-scope는 collector가 아니라 효과 CanResolve의 self-gate(`TriggerEntityId==subject`,
 GameFlowProcessor가 실제 삭제 경로에서 string subject로 enrich)로 함.
 
-### AddSkillClass — STOP 유지
-라이브 술어 기반 쿼리-타임 set-splice. 헤드리스 유사물 없음(GetEffectsForTiming은 등록 binding만 읽음). 늦게
-입장한 Digimon도 스킬을 받아야 하므로 정적 N-등록으로 격하 불가 → 공유 collector에 쿼리-타임 확장 훅 필요.
-triggered-grant 코어(+ self-deletion 면제)가 증명된 후 별도 P0로.
+### AddSkillClass — 키워드 부여는 해결(기존 player-scope 키워드 grant), 조사 반증
+조사는 "쿼리-타임 set-splice 신규 훅 필요"라 했으나 **틀렸음**: 41장의 getEffects가 부여하는 것은 거의 전부
+`XxxSelfEffect` **연속 키워드**(Piercing 7·Scapegoat 3·Retaliation 3·Alliance 3·Blitz 2·Decoy·Barrier·
+ChangeSAttack)이지 triggered 효과가 아님. "your Digimon gain <keyword>"는 **기존 `ContinuousPlayerScopeKeywordEffect`**
+(라이브 세트 재평가)로 표현됨 — 신규 훅 불요. **실증**: grant 후 입장한 Digimon도 키워드 획득·owner-scoped·per-card
+술어 준수(PRIM-P0.AddSkillLiveSet.Tests).
+
+port 대상 = player-scope `XxxStaticEffect(permanentCondition, isInherited, card, condition)` 팩토리. 기존:
+Alliance/Rush/Reboot/Jamming/Collision/Vortex/TreatAsDigimon/Blocker. 신규 추가(이번): Piercing/Blitz/Retaliation/
+Scapegoat/Decoy/Barrier. ChangeSAttack은 `ChangeSAttackStaticEffect`(기존 player-scope modifier).
+
+잔여 STOP(소수): getEffects가 **triggered activated 효과**(키워드 아님)를 라이브 세트에 부여하는 드문 경우(BT8_031류
+ActivateClass@OnAllyAttack) — 이것만 쿼리-타임 triggered set-splice 훅이 필요. 키워드 부여(대다수)는 완료.
 
 ## 관련
 - [ALL_CARD_PRIMITIVE_BACKLOG.md](ALL_CARD_PRIMITIVE_BACKLOG.md) B.O.5.
