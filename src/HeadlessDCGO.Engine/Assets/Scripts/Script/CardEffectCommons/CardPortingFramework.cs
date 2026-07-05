@@ -5371,6 +5371,22 @@ public static partial class CardEffectFactory
         return new SpecialPlayRecipeMarkerEffect(card);
     }
 
+    /// <summary>(PRIM special-play) DigiXros whose material slots may ALSO be satisfied by cards from the TRASH
+    /// (up to <paramref name="maxTrashCount"/>) and/or a Tamer's digivolution sources (up to
+    /// <paramref name="maxUnderTamerCount"/>) — AS-IS <c>AddMaxTrashCountDigiXrosClass</c> /
+    /// <c>maxTamerDigivolutionCardsCount</c>, whose <c>getMaxTrashCount</c> Func is threaded 1:1 (evaluated per
+    /// play). Pass null (or a Func returning 0) for a source not allowed.</summary>
+    public static ICardEffect DigiXrosWithExtraMaterialsEffect(
+        CardSource card, int costReduction,
+        Func<CardSource, int>? maxTrashCount, Func<CardSource, int>? maxUnderTamerCount,
+        params SpecialPlayMaterial[] materials)
+    {
+        SpecialPlayRecipeRegistry.Register(card.CardNumber, new SpecialPlayRecipe(
+            SpecialPlayKind.DigiXros, materials, MemoryCost: 0, Condition: null,
+            MaxTrashCount: maxTrashCount, MaxUnderTamerCount: maxUnderTamerCount));
+        return new SpecialPlayRecipeMarkerEffect(card);
+    }
+
     /// <summary>A material slot matched by card name (the name-equality subset of a DigiXros condition).</summary>
     public static SpecialPlayMaterial MaterialByName(string name) =>
         new(cs => cs.EqualsCardName(name), name);

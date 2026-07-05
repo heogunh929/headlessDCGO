@@ -93,10 +93,14 @@ public static class FusionDigivolveHelpers
             new ZoneMoveRequest(top.OwnerId, topCardId, topFromZone, ChoiceZone.BattleArea, FaceUp: true),
             cancellationToken).ConfigureAwait(false);
 
+        // (max-trash DigiXros) materials may come from DIFFERENT zones (field + trash) — move each from its
+        // ACTUAL current zone, not a single materialFromZone. Falls back to materialFromZone if unresolved.
+        var reader = zoneMover as IZoneStateReader;
         foreach (CardInstanceRecord material in validMaterials)
         {
+            ChoiceZone from = ResolveMaterialZone(reader, material.OwnerId, material.InstanceId, materialFromZone);
             await zoneMover.MoveAsync(
-                new ZoneMoveRequest(material.OwnerId, material.InstanceId, materialFromZone, ChoiceZone.None),
+                new ZoneMoveRequest(material.OwnerId, material.InstanceId, from, ChoiceZone.None),
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -124,6 +128,26 @@ public static class FusionDigivolveHelpers
         }
 
         return merged.Select(id => new HeadlessEntityId(id)).ToArray();
+    }
+
+    /// <summary>(max-trash DigiXros) The zone a material is CURRENTLY in — a material may sit on the battle area
+    /// or in the trash (both valid DigiXros sources). Returns the zone containing it, else <paramref name="fallback"/>.</summary>
+    private static ChoiceZone ResolveMaterialZone(IZoneStateReader? reader, HeadlessPlayerId owner, HeadlessEntityId material, ChoiceZone fallback)
+    {
+        if (reader is null)
+        {
+            return fallback;
+        }
+
+        foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.Trash, ChoiceZone.Hand })
+        {
+            if (reader.GetCards(owner, zone).Contains(material))
+            {
+                return zone;
+            }
+        }
+
+        return fallback;
     }
 
     private static IReadOnlyList<HeadlessEntityId> ReadSourceIds(IReadOnlyDictionary<string, object?> metadata)

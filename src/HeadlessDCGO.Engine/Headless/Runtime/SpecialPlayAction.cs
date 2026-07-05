@@ -74,8 +74,15 @@ public sealed class SpecialPlayAction
 
             // (FR2) honour the card-authored availability condition (AS-IS special-play `condition`) — the play
             // is only offered when it passes, not unconditionally.
+            // (max-trash DigiXros) up to recipe.MaxTrashCount of the material slots may be satisfied by cards
+            // from the trash (evaluated against the DigiXros source card).
+            int maxTrash = recipe.MaxTrashCount is null ? 0
+                : Math.Max(0, recipe.MaxTrashCount(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, handCard, playerId, instance.OwnerId)));
+            IReadOnlyList<HeadlessEntityId> trash = maxTrash > 0
+                ? zones.GetCards(playerId, ChoiceZone.Trash) : Array.Empty<HeadlessEntityId>();
+
             if ((recipe.Condition is null || recipe.Condition())
-                && TryMatchMaterials(context, battle, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
+                && TryMatchMaterials(context, battle, trash, maxTrash, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
                 && context.MemoryController.CanPay(recipe.MemoryCost))
             {
                 actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
@@ -111,17 +118,20 @@ public sealed class SpecialPlayAction
     }
 
     private static bool TryMatchMaterials(
-        EngineContext context, IReadOnlyList<HeadlessEntityId> battle, IReadOnlyList<SpecialPlayMaterial> required,
-        HeadlessPlayerId owner, out List<HeadlessEntityId> materials)
+        EngineContext context, IReadOnlyList<HeadlessEntityId> battle,
+        IReadOnlyList<HeadlessEntityId> trash, int maxTrash,
+        IReadOnlyList<SpecialPlayMaterial> required, HeadlessPlayerId owner, out List<HeadlessEntityId> materials)
     {
         // (AD1-J) BACKTRACKING assignment, not greedy — AS-IS enumerates PERMUTATIONS
         // (CanPlayJogress, CardSource.cs:2755 ParameterComparer.Enumerate), so a candidate that satisfies
         // two slots must not starve the second slot when another candidate could take the first.
+        // (max-trash DigiXros) field candidates are unlimited; up to `maxTrash` slots may instead be satisfied
+        // by trash cards — the trash budget is tracked so it is never exceeded.
         materials = new List<HeadlessEntityId>();
         var used = new HashSet<HeadlessEntityId>();
-        return Assign(0, materials, used);
+        return Assign(0, 0, materials, used);
 
-        bool Assign(int slotIndex, List<HeadlessEntityId> assigned, HashSet<HeadlessEntityId> taken)
+        bool Assign(int slotIndex, int trashUsed, List<HeadlessEntityId> assigned, HashSet<HeadlessEntityId> taken)
         {
             if (slotIndex >= required.Count)
             {
@@ -129,32 +139,40 @@ public sealed class SpecialPlayAction
             }
 
             SpecialPlayMaterial slot = required[slotIndex];
-            foreach (HeadlessEntityId id in battle)
+
+            bool TrySource(IReadOnlyList<HeadlessEntityId> pool, bool isTrash)
             {
-                if (taken.Contains(id))
+                if (isTrash && trashUsed >= maxTrash)
                 {
-                    continue;
+                    return false;
                 }
 
-                // Evaluate the card-authored material predicate against the candidate (1:1 with the original
-                // CanSelectCardCondition) — not a mere card-name equality.
-                if (!slot.Matches(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, id, owner, owner)))
+                foreach (HeadlessEntityId id in pool)
                 {
-                    continue;
+                    // Evaluate the card-authored material predicate against the candidate (1:1 with the original
+                    // CanSelectCardCondition) — not a mere card-name equality.
+                    if (taken.Contains(id)
+                        || !slot.Matches(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, id, owner, owner)))
+                    {
+                        continue;
+                    }
+
+                    taken.Add(id);
+                    assigned.Add(id);
+                    if (Assign(slotIndex + 1, trashUsed + (isTrash ? 1 : 0), assigned, taken))
+                    {
+                        return true;
+                    }
+
+                    taken.Remove(id);
+                    assigned.RemoveAt(assigned.Count - 1);
                 }
 
-                taken.Add(id);
-                assigned.Add(id);
-                if (Assign(slotIndex + 1, assigned, taken))
-                {
-                    return true;
-                }
-
-                taken.Remove(id);
-                assigned.RemoveAt(assigned.Count - 1);
+                return false;
             }
 
-            return false;
+            // Prefer field candidates (unlimited); fall back to trash candidates within the trash budget.
+            return TrySource(battle, isTrash: false) || TrySource(trash, isTrash: true);
         }
     }
 
@@ -207,9 +225,11 @@ public sealed class SpecialPlayAction
 
         foreach (HeadlessEntityId material in materials)
         {
-            if (!zones.GetCards(action.PlayerId, ChoiceZone.BattleArea).Contains(material))
+            // (max-trash DigiXros) a material may be on the battle area OR in the trash (a valid DigiXros source).
+            if (!zones.GetCards(action.PlayerId, ChoiceZone.BattleArea).Contains(material)
+                && !zones.GetCards(action.PlayerId, ChoiceZone.Trash).Contains(material))
             {
-                return ActionProcessResult.Illegal(action, $"Material '{material}' is not on the player's battle area.", BaseMetadata(action));
+                return ActionProcessResult.Illegal(action, $"Material '{material}' is not on the player's battle area or in the trash.", BaseMetadata(action));
             }
         }
 
@@ -310,7 +330,18 @@ public sealed class SpecialPlayAction
 /// a card-name equality — so the ported condition is preserved 1:1. <see cref="Label"/> is for logging.</summary>
 public sealed record SpecialPlayMaterial(Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> Matches, string Label);
 
-public sealed record SpecialPlayRecipe(SpecialPlayKind Kind, IReadOnlyList<SpecialPlayMaterial> Materials, int MemoryCost, Func<bool>? Condition = null);
+/// <param name="MaxTrashCount">(max-trash DigiXros) AS-IS <c>AddMaxTrashCountDigiXrosClass.GetMaxTrashCount</c> —
+/// up to this many of the card's DigiXros material slots may be satisfied by cards FROM THE TRASH (isTrashCard),
+/// not only hand/field. Evaluated per play against the DigiXros source card. Null = 0 (no trash materials).</param>
+/// <param name="MaxUnderTamerCount">(max-under-Tamer DigiXros) the parallel <c>maxTamerDigivolutionCardsCount</c>
+/// — up to this many slots may be satisfied by a Tamer's digivolution-source cards.</param>
+public sealed record SpecialPlayRecipe(
+    SpecialPlayKind Kind,
+    IReadOnlyList<SpecialPlayMaterial> Materials,
+    int MemoryCost,
+    Func<bool>? Condition = null,
+    Func<Assets.Scripts.Script.CardEffectCommons.CardSource, int>? MaxTrashCount = null,
+    Func<Assets.Scripts.Script.CardEffectCommons.CardSource, int>? MaxUnderTamerCount = null);
 
 /// <summary>(G8-006) Maps a card number to its special-play recipe. Populated by ported DigiXros / DNA /
 /// Blast cards (the recipe registry, analogous to the effect dispatch).</summary>
