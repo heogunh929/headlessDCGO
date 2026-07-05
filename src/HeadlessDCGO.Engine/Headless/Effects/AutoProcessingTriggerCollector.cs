@@ -6,6 +6,9 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class AutoProcessingTriggerCollector
 {
+    /// <summary>(PRIM-P0 B.O.5) marks a delayed one-shot player effect (AS-IS AddEffectToPlayer): it fires once
+    /// at its timing then GameFlowProcessor removes its binding after resolution (fire-then-clear).</summary>
+    public const string DelayedOneShotKey = "delayedOneShot";
     public const string TriggerTimingKey = "triggerTiming";
     public const string TimingKey = "timing";
     public const string EffectTimingKey = "effectTiming";

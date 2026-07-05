@@ -8088,11 +8088,25 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(cardEffect);
+        // (PRIM-P0 B.O.5) AS-IS AddEffectToPlayer registers a delayed effect that fires ONCE at `timing` then is
+        // cleared (fire-then-clear). `timing` is carried by the delayed effect's own binding (e.g. a
+        // TriggeredMemoryEffect(OnEndTurn)). We register it with duration=null so it survives the headless
+        // turn-end expiry race (CLEAR-then-FIRE at MetadataActionProcessor), and stamp DelayedOneShotKey so
+        // GameFlowProcessor removes the binding after it resolves — giving the single-fire AS-IS semantics.
+        _ = effectDuration;
         _ = timing;
         EffectBinding binding = cardEffect.ToBinding(
             $"{card.InstanceId.Value}:addPlayerEffect:{Guid.NewGuid():N}");
+        EffectContext ctx = binding.Request.Context;
+        var mergedValues = new Dictionary<string, object?>(ctx.Values, StringComparer.Ordinal)
+        {
+            [AutoProcessingTriggerCollector.DelayedOneShotKey] = true,
+        };
+        var oneShotRequest = new EffectRequest(
+            binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing,
+            new EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, ctx.SourceEntityId, ctx.TriggerEntityId, ctx.TargetEntityIds, mergedValues));
         card.Context.EffectRegistry.Register(new EffectBinding(
-            binding.Request, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
+            oneShotRequest, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, duration: null));
     }
 
     /// <summary>(W6-G) shared restriction-grant core — AS-IS GiveEffectToPermanent shape: target-locked,

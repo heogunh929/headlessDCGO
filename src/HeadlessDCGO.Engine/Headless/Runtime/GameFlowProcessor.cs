@@ -425,6 +425,10 @@ public sealed class GameFlowProcessor
         context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
 
         int collected = 0;
+        // (PRIM-P0 B.O.5) delayed one-shot player effects (AS-IS AddEffectToPlayer) that fire this pass — their
+        // bindings are removed AFTER resolution (fire-then-clear), never before (the scheduler re-looks-up the
+        // binding by id at resolve time, so early removal would leave the enqueued request unbound).
+        var oneShotFired = new List<HeadlessEntityId>();
         IReadOnlyList<GameEvent> pendingEvents = context.GameEventQueue.DrainPending();
         if (pendingEvents.Count > 0)
         {
@@ -477,6 +481,12 @@ public sealed class GameFlowProcessor
                         continue;
                     }
 
+                    if (enriched.Context.Values.TryGetValue(AutoProcessingTriggerCollector.DelayedOneShotKey, out object? oneShot)
+                        && oneShot is true)
+                    {
+                        oneShotFired.Add(enriched.EffectId);
+                    }
+
                     batch.Add(ReclassifyKind(context, new TimingWindowTrigger(
                         enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)));
                 }
@@ -488,6 +498,13 @@ public sealed class GameFlowProcessor
         IReadOnlyList<EffectResult> results = await context.EffectScheduler
             .ResolveAllAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // (PRIM-P0 B.O.5) fire-then-clear: remove the delayed one-shot bindings that just resolved so they never
+        // fire again (AS-IS AddEffectToPlayer clears its list after firing).
+        if (oneShotFired.Count > 0)
+        {
+            context.EffectRegistry.RemoveWhere(binding => oneShotFired.Contains(binding.Request.EffectId));
+        }
 
         // #2: after mandatory effects resolve, surface the next queued optional-trigger prompt to the
         // agent. Counts as progress so the loop re-iterates and pauses on the now-pending choice.
