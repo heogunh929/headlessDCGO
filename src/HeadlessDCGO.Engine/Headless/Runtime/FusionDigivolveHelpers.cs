@@ -93,15 +93,24 @@ public static class FusionDigivolveHelpers
             new ZoneMoveRequest(top.OwnerId, topCardId, topFromZone, ChoiceZone.BattleArea, FaceUp: true),
             cancellationToken).ConfigureAwait(false);
 
-        // (max-trash DigiXros) materials may come from DIFFERENT zones (field + trash) — move each from its
-        // ACTUAL current zone, not a single materialFromZone. Falls back to materialFromZone if unresolved.
+        // (max-trash / max-under-Tamer DigiXros) materials may come from DIFFERENT zones (field + trash) OR from
+        // UNDER a Tamer (a digivolution source, in no zone). Move zone materials from their ACTUAL zone; for an
+        // under-Tamer source, detach it from its host's source stack instead of a zone move.
         var reader = zoneMover as IZoneStateReader;
         foreach (CardInstanceRecord material in validMaterials)
         {
-            ChoiceZone from = ResolveMaterialZone(reader, material.OwnerId, material.InstanceId, materialFromZone);
-            await zoneMover.MoveAsync(
-                new ZoneMoveRequest(material.OwnerId, material.InstanceId, from, ChoiceZone.None),
-                cancellationToken).ConfigureAwait(false);
+            ChoiceZone? from = ResolveMaterialZone(reader, material.OwnerId, material.InstanceId);
+            if (from is ChoiceZone zone)
+            {
+                await zoneMover.MoveAsync(
+                    new ZoneMoveRequest(material.OwnerId, material.InstanceId, zone, ChoiceZone.None),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // Under-Tamer material: it is already off-field (a source under a Tamer). Detach it from the host.
+                DetachUnderTamerSource(repository, reader, material.OwnerId, material.InstanceId);
+            }
         }
 
         // Re-read the top (the move may have touched state) and write the merged stack.
@@ -130,13 +139,13 @@ public static class FusionDigivolveHelpers
         return merged.Select(id => new HeadlessEntityId(id)).ToArray();
     }
 
-    /// <summary>(max-trash DigiXros) The zone a material is CURRENTLY in — a material may sit on the battle area
-    /// or in the trash (both valid DigiXros sources). Returns the zone containing it, else <paramref name="fallback"/>.</summary>
-    private static ChoiceZone ResolveMaterialZone(IZoneStateReader? reader, HeadlessPlayerId owner, HeadlessEntityId material, ChoiceZone fallback)
+    /// <summary>(max-trash DigiXros) The zone a material is CURRENTLY in — battle area / trash / hand (all valid
+    /// DigiXros sources). Returns null when it is in no zone (an under-Tamer digivolution source).</summary>
+    private static ChoiceZone? ResolveMaterialZone(IZoneStateReader? reader, HeadlessPlayerId owner, HeadlessEntityId material)
     {
         if (reader is null)
         {
-            return fallback;
+            return ChoiceZone.BattleArea;
         }
 
         foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.Trash, ChoiceZone.Hand })
@@ -147,7 +156,46 @@ public static class FusionDigivolveHelpers
             }
         }
 
-        return fallback;
+        return null;
+    }
+
+    /// <summary>(max-under-Tamer DigiXros) Detach <paramref name="material"/> from the digivolution-source stack of
+    /// whichever battle-area permanent currently holds it (its Tamer host), so it can be re-attached under the new
+    /// DigiXros top. AS-IS: a Tamer's digivolution card selected as a DigiXros material leaves that Tamer.</summary>
+    private static void DetachUnderTamerSource(ICardInstanceRepository repository, IZoneStateReader? reader, HeadlessPlayerId owner, HeadlessEntityId material)
+    {
+        if (reader is null)
+        {
+            return;
+        }
+
+        foreach (HeadlessEntityId hostId in reader.GetCards(owner, ChoiceZone.BattleArea))
+        {
+            if (!repository.TryGetInstance(hostId, out CardInstanceRecord? host) || host is null)
+            {
+                continue;
+            }
+
+            IReadOnlyList<HeadlessEntityId> sources = ReadSourceIds(host.Metadata);
+            if (!sources.Contains(material))
+            {
+                continue;
+            }
+
+            var remaining = sources.Where(id => id != material).ToArray();
+            var metadata = new Dictionary<string, object?>(host.Metadata, StringComparer.Ordinal);
+            if (remaining.Length > 0)
+            {
+                metadata[SourceIdsKey] = remaining.Select(id => id.Value).ToArray();
+            }
+            else
+            {
+                metadata.Remove(SourceIdsKey);
+            }
+
+            repository.Upsert(host with { Metadata = metadata });
+            return;
+        }
     }
 
     private static IReadOnlyList<HeadlessEntityId> ReadSourceIds(IReadOnlyDictionary<string, object?> metadata)

@@ -74,15 +74,24 @@ public sealed class SpecialPlayAction
 
             // (FR2) honour the card-authored availability condition (AS-IS special-play `condition`) — the play
             // is only offered when it passes, not unconditionally.
-            // (max-trash DigiXros) up to recipe.MaxTrashCount of the material slots may be satisfied by cards
-            // from the trash (evaluated against the DigiXros source card).
-            int maxTrash = recipe.MaxTrashCount is null ? 0
-                : Math.Max(0, recipe.MaxTrashCount(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, handCard, playerId, instance.OwnerId)));
-            IReadOnlyList<HeadlessEntityId> trash = maxTrash > 0
-                ? zones.GetCards(playerId, ChoiceZone.Trash) : Array.Empty<HeadlessEntityId>();
+            // (max-trash / max-under-Tamer DigiXros) up to recipe.MaxTrashCount slots may be satisfied by TRASH
+            // cards, and up to recipe.MaxUnderTamerCount by a Tamer's digivolution-source cards (AS-IS
+            // AddMaxTrashCountDigiXros / maxTamerDigivolutionCardsCount). Evaluated against the DigiXros source card.
+            var xrosCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, handCard, playerId, instance.OwnerId);
+            int maxTrash = recipe.MaxTrashCount is null ? 0 : Math.Max(0, recipe.MaxTrashCount(xrosCard));
+            int maxUnderTamer = recipe.MaxUnderTamerCount is null ? 0 : Math.Max(0, recipe.MaxUnderTamerCount(xrosCard));
+            var cappedPools = new List<(IReadOnlyList<HeadlessEntityId> Pool, int Cap)>();
+            if (maxTrash > 0)
+            {
+                cappedPools.Add((zones.GetCards(playerId, ChoiceZone.Trash), maxTrash));
+            }
+            if (maxUnderTamer > 0)
+            {
+                cappedPools.Add((UnderTamerSources(context, zones, playerId), maxUnderTamer));
+            }
 
             if ((recipe.Condition is null || recipe.Condition())
-                && TryMatchMaterials(context, battle, trash, maxTrash, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
+                && TryMatchMaterials(context, battle, cappedPools, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
                 && context.MemoryController.CanPay(recipe.MemoryCost))
             {
                 actions.Add(Create(playerId, handCard, materials, recipe.MemoryCost, recipe.Kind));
@@ -119,19 +128,20 @@ public sealed class SpecialPlayAction
 
     private static bool TryMatchMaterials(
         EngineContext context, IReadOnlyList<HeadlessEntityId> battle,
-        IReadOnlyList<HeadlessEntityId> trash, int maxTrash,
+        IReadOnlyList<(IReadOnlyList<HeadlessEntityId> Pool, int Cap)> cappedPools,
         IReadOnlyList<SpecialPlayMaterial> required, HeadlessPlayerId owner, out List<HeadlessEntityId> materials)
     {
         // (AD1-J) BACKTRACKING assignment, not greedy — AS-IS enumerates PERMUTATIONS
         // (CanPlayJogress, CardSource.cs:2755 ParameterComparer.Enumerate), so a candidate that satisfies
         // two slots must not starve the second slot when another candidate could take the first.
-        // (max-trash DigiXros) field candidates are unlimited; up to `maxTrash` slots may instead be satisfied
-        // by trash cards — the trash budget is tracked so it is never exceeded.
+        // (max-trash / max-under-Tamer DigiXros) field candidates are unlimited; each CAPPED pool (trash /
+        // under-Tamer) may satisfy up to its Cap slots — a per-pool budget is tracked so no cap is exceeded.
         materials = new List<HeadlessEntityId>();
         var used = new HashSet<HeadlessEntityId>();
-        return Assign(0, 0, materials, used);
+        int[] poolUsed = new int[cappedPools.Count];
+        return Assign(0, materials, used);
 
-        bool Assign(int slotIndex, int trashUsed, List<HeadlessEntityId> assigned, HashSet<HeadlessEntityId> taken)
+        bool Assign(int slotIndex, List<HeadlessEntityId> assigned, HashSet<HeadlessEntityId> taken)
         {
             if (slotIndex >= required.Count)
             {
@@ -140,9 +150,10 @@ public sealed class SpecialPlayAction
 
             SpecialPlayMaterial slot = required[slotIndex];
 
-            bool TrySource(IReadOnlyList<HeadlessEntityId> pool, bool isTrash)
+            bool TrySource(IReadOnlyList<HeadlessEntityId> pool, int poolIndex)
             {
-                if (isTrash && trashUsed >= maxTrash)
+                // poolIndex < 0 = the uncapped field pool.
+                if (poolIndex >= 0 && poolUsed[poolIndex] >= cappedPools[poolIndex].Cap)
                 {
                     return false;
                 }
@@ -159,11 +170,12 @@ public sealed class SpecialPlayAction
 
                     taken.Add(id);
                     assigned.Add(id);
-                    if (Assign(slotIndex + 1, trashUsed + (isTrash ? 1 : 0), assigned, taken))
+                    if (poolIndex >= 0) { poolUsed[poolIndex]++; }
+                    if (Assign(slotIndex + 1, assigned, taken))
                     {
                         return true;
                     }
-
+                    if (poolIndex >= 0) { poolUsed[poolIndex]--; }
                     taken.Remove(id);
                     assigned.RemoveAt(assigned.Count - 1);
                 }
@@ -171,9 +183,42 @@ public sealed class SpecialPlayAction
                 return false;
             }
 
-            // Prefer field candidates (unlimited); fall back to trash candidates within the trash budget.
-            return TrySource(battle, isTrash: false) || TrySource(trash, isTrash: true);
+            // Prefer field candidates (unlimited); fall back to each capped pool within its budget.
+            if (TrySource(battle, -1))
+            {
+                return true;
+            }
+            for (int i = 0; i < cappedPools.Count; i++)
+            {
+                if (TrySource(cappedPools[i].Pool, i))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
+    }
+
+    /// <summary>(max-under-Tamer DigiXros) The player's Tamers' digivolution-source cards — candidate DigiXros
+    /// materials sourced from under a Tamer (AS-IS <c>permanent.IsTamer &amp;&amp; permanent.DigivolutionCards</c>).</summary>
+    private static IReadOnlyList<HeadlessEntityId> UnderTamerSources(EngineContext context, IZoneStateReader zones, HeadlessPlayerId playerId)
+    {
+        var sources = new List<HeadlessEntityId>();
+        foreach (HeadlessEntityId permanentId in zones.GetCards(playerId, ChoiceZone.BattleArea))
+        {
+            if (!context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? perm) || perm is null
+                || !context.CardRepository.TryGetCard(perm.DefinitionId, out CardRecord? def) || def is null
+                || !def.IsCardType("Tamer"))
+            {
+                continue;
+            }
+
+            Headless.State.DigivolutionStack stack = Headless.State.DigivolutionStackReader.Read(
+                context.CardInstanceRepository, context.CardRepository, permanentId);
+            sources.AddRange(stack.UnderCards.Select(sc => sc.InstanceId));
+        }
+
+        return sources;
     }
 
     public static LegalAction Create(
@@ -225,11 +270,13 @@ public sealed class SpecialPlayAction
 
         foreach (HeadlessEntityId material in materials)
         {
-            // (max-trash DigiXros) a material may be on the battle area OR in the trash (a valid DigiXros source).
+            // (max-trash / max-under-Tamer DigiXros) a material may be on the battle area, in the trash, OR a
+            // digivolution source under one of the player's battle-area permanents (a Tamer).
             if (!zones.GetCards(action.PlayerId, ChoiceZone.BattleArea).Contains(material)
-                && !zones.GetCards(action.PlayerId, ChoiceZone.Trash).Contains(material))
+                && !zones.GetCards(action.PlayerId, ChoiceZone.Trash).Contains(material)
+                && !UnderTamerSources(context, zones, action.PlayerId).Contains(material))
             {
-                return ActionProcessResult.Illegal(action, $"Material '{material}' is not on the player's battle area or in the trash.", BaseMetadata(action));
+                return ActionProcessResult.Illegal(action, $"Material '{material}' is not on the player's battle area, in the trash, or under a Tamer.", BaseMetadata(action));
             }
         }
 

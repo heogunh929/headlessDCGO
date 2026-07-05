@@ -122,8 +122,12 @@ These are the largest practical blockers for broad per-card porting.
 > - **ACE overflow (3)** → **엔진 자동**(`AceOverflowGate.OverflowFor`가 printed Overflow 읽음) — 카드-facing 불요.
 > - **DNA(basic)** → `BlastDNADigivolveEffect` 등.
 >
-> **진짜 남은 STOP(~67장, special-play 변형/서브시스템):** Max-trash-count DigiXros (9)·Max-under-Tamer DigiXros (8)
-> ·Digi-Burst (39)·Burst Digivolution (5)·Jogress by levels (4)·DNA temp materials (2)·Assembly 필드-대체. 이들은
+> **✅ 추가 해결(2026-07-05):** Max-trash-count DigiXros (9) + Max-under-Tamer DigiXros (8) 충실 구현 — DigiXros 재료
+> 슬롯을 트래시 존/테이머 진화원 소스로 최대 N장 충족(SpecialPlayRecipe.MaxTrash/UnderTamerCount +
+> `DigiXrosWithExtraMaterialsEffect`, FuseAsync 다중존/소스-detach). AS-IS 1:1(getMaxTrashCount Func).
+>
+> **진짜 남은 STOP(~50장):** Digi-Burst (39)·Burst Digivolution (5)·Jogress by levels (4)·DNA temp materials (2)·
+> Assembly 필드-대체. 이들은
 > `SpecialPlayRecipe` 확장(가변-count/변형 재료) 또는 Digi-Burst 서브시스템이 필요 — 이름-커버리지가 아닌 실제
 > 미구현. 아래 표의 위 항목들은 stale이므로 무시.
 
