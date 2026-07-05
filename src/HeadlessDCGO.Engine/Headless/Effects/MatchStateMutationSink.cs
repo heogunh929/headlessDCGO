@@ -356,7 +356,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             case AddToSecurityKind:
                 // (PRIM-P0 B.O.6) a player-scope "cannot add security" restriction blocks the add (AS-IS
                 // Player.CanAddSecurity gate consulted before every AddSecurityCard).
-                if (IsPlayerRestricted(record.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey))
+                if (IsPlayerRestricted(record.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey, mutation.SourceEntityId))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -471,7 +471,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (AS-IS Player.CanAddMemory gate). A memory loss / SetMemory is not a gain and is unaffected.
         if (!isSet && amount > 0 && !mutation.SourceEntityId.IsEmpty &&
             _repository.TryGetInstance(mutation.SourceEntityId, out CardInstanceRecord? src) && src is not null &&
-            IsPlayerRestricted(src.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddMemoryKey))
+            IsPlayerRestricted(src.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddMemoryKey, mutation.SourceEntityId))
         {
             _skipped.Add(mutation);
             _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "restricted"));
@@ -532,7 +532,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         }
 
         // (PRIM-P0 B.O.6) recovery adds to security — blocked by a "cannot add security" restriction.
-        if (IsPlayerRestricted(player, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey))
+        if (IsPlayerRestricted(player, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey, mutation.SourceEntityId))
         {
             _skipped.Add(mutation);
             _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "restricted"));
@@ -785,7 +785,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     /// <summary>(PRIM-P0 B.O.6) Whether <paramref name="player"/> has an active player-scope restriction under
     /// <paramref name="restrictionKey"/> (AS-IS Player.Can... gate). Unlike <see cref="IsRestrictedFromCause"/>
     /// this is not tied to a card — it consults every player-scope continuous restriction binding.</summary>
-    private bool IsPlayerRestricted(HeadlessPlayerId player, string restrictionKey)
+    private bool IsPlayerRestricted(HeadlessPlayerId player, string restrictionKey, HeadlessEntityId causingSourceId)
     {
         if (_effectRegistry is null || player.IsEmpty)
         {
@@ -801,15 +801,33 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 continue;
             }
 
-            if (ReadBool(values, PlayerScopeContinuousHelpers.ScopeAnyPlayerKey))
+            bool playerMatches = ReadBool(values, PlayerScopeContinuousHelpers.ScopeAnyPlayerKey) ||
+                (values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid) && pid is int id && id == player.Value);
+            if (!playerMatches)
             {
-                return true;
+                continue;
             }
 
-            if (values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid) && pid is int id && id == player.Value)
+            // (fidelity) AS-IS CannotAddSecurity/Memory carry a CardEffectCondition — the restriction fires only
+            // when the CAUSING effect matches (e.g. IsOpponentEffect). No predicate = block every add.
+            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CausingEffectPredicateKey, out object? predRaw)
+                && predRaw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
             {
-                return true;
+                if (_context is null || causingSourceId.IsEmpty)
+                {
+                    continue;
+                }
+
+                HeadlessPlayerId causeOwner = _repository.TryGetInstance(causingSourceId, out CardInstanceRecord? cs) && cs is not null ? cs.OwnerId : default;
+                if (predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(_context, causingSourceId, causeOwner, causeOwner)))
+                {
+                    return true;
+                }
+
+                continue;
             }
+
+            return true;
         }
 
         return false;

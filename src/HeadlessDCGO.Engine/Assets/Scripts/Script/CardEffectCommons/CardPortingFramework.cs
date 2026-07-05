@@ -4674,15 +4674,17 @@ public static partial class CardEffectFactory
             : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.ImmuneFromCostReductionKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
     /// <summary>(PRIM-P0 B.O.6) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/> cannot add cards to
-    /// their security (AS-IS Player.CanAddSecurity). Player-scope continuous restriction consulted at the
-    /// AddToSecurity / Recover mutation chokes in MatchStateMutationSink.</summary>
-    public static ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayer, RestrictionHelpers.CannotAddSecurityKey, scopeCardType: null, isInheritedEffect, condition);
+    /// their security (AS-IS Player.CanAddSecurity). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
+    /// <c>CardEffectCondition</c> — the restriction fires only when the CAUSING effect matches (e.g.
+    /// IsOpponentEffect); null = block every add. Consulted at the AddToSecurity / Recover mutation chokes.</summary>
+    public static ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null) =>
+        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayer, RestrictionHelpers.CannotAddSecurityKey, scopeCardType: null, isInheritedEffect, condition, causingEffectPredicate: causingEffectPredicate);
 
     /// <summary>(PRIM-P0 B.O.6) <c>CannotAddMemoryClass</c> — <paramref name="scopePlayer"/> cannot gain memory
-    /// (AS-IS Player.CanAddMemory). Player-scope continuous restriction consulted at the AddMemory mutation choke.</summary>
-    public static ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayer, RestrictionHelpers.CannotAddMemoryKey, scopeCardType: null, isInheritedEffect, condition);
+    /// (AS-IS Player.CanAddMemory). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
+    /// <c>CardEffectCondition</c> (null = block every gain). Consulted at the AddMemory mutation choke.</summary>
+    public static ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null) =>
+        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayer, RestrictionHelpers.CannotAddMemoryKey, scopeCardType: null, isInheritedEffect, condition, causingEffectPredicate: causingEffectPredicate);
 
     /// <summary>(PRIM-W4) <c>AllianceStaticEffect</c> — grants Alliance to the owner's Digimon (player-scope
     /// keyword). <paramref name="permanentCondition"/> per-card.</summary>
