@@ -506,11 +506,79 @@ public sealed class GameFlowProcessor
             context.EffectRegistry.RemoveWhere(binding => oneShotFired.Contains(binding.Request.EffectId));
         }
 
+        // (PRIM triggered-activated bridge) the scheduler above only resolves IHeadlessCardEffect (mutation)
+        // triggers (memory/DP/…). A card's ACTIVATED effects (draw/trash/delete/select) at a general trigger
+        // timing are otherwise dropped — resolve them here via ActivatedEffectResolver (the same seam the action
+        // handlers use). No-op unless the subject has activated effects at that timing; non-activated effects are
+        // skipped by the resolver, so there is no double-resolution.
+        int activatedProgress = await BridgeActivatedTriggersAsync(context, pendingEvents, cancellationToken).ConfigureAwait(false);
+
         // #2: after mandatory effects resolve, surface the next queued optional-trigger prompt to the
         // agent. Counts as progress so the loop re-iterates and pauses on the now-pending choice.
         bool openedPrompt = RequestNextOptionalPrompt(context);
 
-        return (results.Count(result => result.Resolved), collected + (openedPrompt ? 1 : 0));
+        return (results.Count(result => result.Resolved) + activatedProgress, collected + (openedPrompt ? 1 : 0));
+    }
+
+    /// <summary>(PRIM triggered-activated bridge) Timings whose ACTIVATED effects the auto-processing resolves via
+    /// <see cref="ActivatedEffectResolver"/>. Deliberately an ALLOW-LIST of general trigger timings that are NOT
+    /// already wired through an action handler (OnEnterFieldAnyone → PlayCardAction, WhenDigivolving →
+    /// DigivolveAction, OptionSkill/SecuritySkill → their actions) so nothing double-fires. These fire once per
+    /// event (per attack / per deletion), so no per-turn cap is needed here.</summary>
+    private static readonly IReadOnlySet<Assets.Scripts.Script.CardEffectCommons.EffectTiming> ActivatedTriggerTimings = new HashSet<Assets.Scripts.Script.CardEffectCommons.EffectTiming>
+    {
+        Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnAllyAttack,
+        Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone,
+    };
+
+    private static async Task<int> BridgeActivatedTriggersAsync(
+        EngineContext context, IReadOnlyList<GameEvent> pendingEvents, CancellationToken cancellationToken)
+    {
+        if (pendingEvents.Count == 0)
+        {
+            return 0;
+        }
+
+        int progressed = 0;
+        var seen = new HashSet<(HeadlessEntityId, Assets.Scripts.Script.CardEffectCommons.EffectTiming)>();
+        foreach (GameEvent gameEvent in pendingEvents)
+        {
+            if (gameEvent.Subject is not { IsEmpty: false } subject)
+            {
+                continue;
+            }
+
+            foreach (string timingName in TriggerTimingMap.Derive(gameEvent))
+            {
+                if (!Enum.TryParse(timingName, ignoreCase: false, out Assets.Scripts.Script.CardEffectCommons.EffectTiming timing)
+                    || !ActivatedTriggerTimings.Contains(timing)
+                    || !seen.Add((subject, timing)))
+                {
+                    continue;
+                }
+
+                if (!context.CardInstanceRepository.TryGetInstance(subject, out CardInstanceRecord? instance)
+                    || instance is null || instance.OwnerId.IsEmpty)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    progressed += await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver
+                        .ResolveAsync(context, subject, instance.OwnerId, timing, cancellationToken).ConfigureAwait(false);
+                }
+                catch (DeferredChoicePendingException)
+                {
+                    // An interactive activated trigger suspended — record it and stop; RunToStableAsync's
+                    // IsPending check pauses on the next iteration (same pattern as OnPlayReactivation).
+                    context.DeferredActivations.Suspend(subject, timing, instance.OwnerId);
+                    return progressed;
+                }
+            }
+        }
+
+        return progressed;
     }
 
     /// <summary>
