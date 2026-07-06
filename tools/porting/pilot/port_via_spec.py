@@ -7,10 +7,14 @@ arg values, which predicate expressions). render_spec.py then renders exact C#. 
 the semantic mapping (its strength); the mechanical C# is deterministic (its weakness removed).
 
 Usage:
+  # per-card:
   LOCAL_LLM_BASE_URL=... CODER_MODEL=... python3 tools/porting/pilot/port_via_spec.py BT2_030 [BT2_028 ...]
+  # set (folder) batch — every pending, non-blocked card in the set:
+  ... python3 tools/porting/pilot/port_via_spec.py --set BT2 [--limit N] [--out ../runs/spec-BT2]
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sqlite3
@@ -131,14 +135,57 @@ def port_card(card_id: str, retries: int = 3) -> dict:
     return {"card_id": card_id, "ok": False, "attempts": retries + 1, "last_err": last_err[-500:]}
 
 
+def _report(rec: dict) -> None:
+    print(f"=== {rec['card_id']}: {'PASS' if rec['ok'] else 'FAIL'} | attempts={rec['attempts']} ===", flush=True)
+    if rec["ok"]:
+        print("  spec effects:", [(e["timing"], e["factory"]) for e in rec["spec"]["effects"]], flush=True)
+    else:
+        print("  last_err:", rec.get("last_err", ""), flush=True)
+
+
+def select_set_cards(set_code: str, include_blocked: bool, limit: int | None) -> list[str]:
+    """Pending cards in the set (folder). The spec pipeline needs no reference, so reference tiers are
+    irrelevant here — port every pending card. Skip readiness='blocked' unless include_blocked."""
+    conn = sqlite3.connect(str(DB))
+    where = "port_status='pending' AND set_code=?"
+    if not include_blocked:
+        where += " AND readiness!='blocked'"
+    q = f"SELECT card_id FROM card WHERE {where} ORDER BY card_id" + (f" LIMIT {int(limit)}" if limit else "")
+    return [r[0] for r in conn.execute(q, (set_code,)).fetchall()]
+
+
+def run_set(set_code: str, include_blocked: bool, limit: int | None, out: Path, retries: int) -> None:
+    cards = select_set_cards(set_code, include_blocked, limit)
+    out.mkdir(parents=True, exist_ok=True)
+    results_path = out / "results.jsonl"
+    passed = 0
+    print(f"set={set_code}: {len(cards)}장 (spec 파이프라인, retries={retries})", flush=True)
+    with results_path.open("w", encoding="utf-8") as fh:
+        for i, cid in enumerate(cards, 1):
+            rec = port_card(cid, retries=retries)
+            passed += 1 if rec["ok"] else 0
+            fh.write(json.dumps({k: v for k, v in rec.items() if k != "spec"}, ensure_ascii=False) + "\n")
+            fh.flush()
+            print(f"[{i}/{len(cards)}] {cid}: {'PASS' if rec['ok'] else 'FAIL'}  (누적 {passed}/{i})", flush=True)
+    print(f"\n=== {set_code} 완료: {passed}/{len(cards)} PASS === -> {results_path}", flush=True)
+
+
 def main() -> None:
-    for cid in sys.argv[1:] or ["BT2_030"]:
-        rec = port_card(cid)
-        print(f"=== {cid}: {'PASS' if rec['ok'] else 'FAIL'} | attempts={rec['attempts']} ===", flush=True)
-        if rec["ok"]:
-            print("  spec effects:", [(e["timing"], e["factory"]) for e in rec["spec"]["effects"]], flush=True)
-        else:
-            print("  last_err:", rec["last_err"], flush=True)
+    parser = argparse.ArgumentParser(description="Structured-output porting (spec -> deterministic render).")
+    parser.add_argument("cards", nargs="*", help="개별 카드 ID (예: BT2_030 BT2_028)")
+    parser.add_argument("--set", dest="set_code", help="세트(폴더) 단위 배치 — 그 세트의 pending 전량")
+    parser.add_argument("--include-blocked", action="store_true", help="readiness='blocked'도 시도")
+    parser.add_argument("--limit", type=int, help="세트 배치 개수 제한")
+    parser.add_argument("--retries", type=int, default=3, help="spec 재시도 횟수")
+    parser.add_argument("--out", default="../runs/spec-pilot", help="세트 배치 결과 출력 디렉터리")
+    args = parser.parse_args()
+
+    if args.set_code:
+        out = (Path(__file__).resolve().parents[3] / args.out).resolve() / args.set_code
+        run_set(args.set_code, args.include_blocked, args.limit, out, args.retries)
+    else:
+        for cid in args.cards or ["BT2_030"]:
+            _report(port_card(cid, retries=args.retries))
 
 
 if __name__ == "__main__":
