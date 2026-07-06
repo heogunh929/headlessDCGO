@@ -1,0 +1,24 @@
+{
+  "namespace": "HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue",
+  "className": "BT2_030",
+  "effects": [
+    {
+      "timing": "OnEnterFieldAnyone",
+      "factory": "SelectAndBounceEffect",
+      "args": {
+        "canTarget": "CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.LevelOf(card, id) <= 4",
+        "maxCount": 2,
+        "canEndNotMax": true,
+        "description": "[On Play] Return up to 2 of your opponent's level 4 or lower Digimon to hand."
+      }
+    },
+    {
+      "timing": "None",
+      "factory": "CanNotBeBlockedStaticSelfEffect",
+      "args": {
+        "isInheritedEffect": false,
+        "condition": "CardEffectCommons.IsOwnerTurn(card)"
+      }
+    }
+  ]
+}
