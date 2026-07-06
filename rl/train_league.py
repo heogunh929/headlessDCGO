@@ -145,6 +145,8 @@ def main() -> None:
     parser.add_argument("--weakness-min-games", type=int, default=30)
     parser.add_argument("--rating-window", type=float, default=200.0)
     parser.add_argument("--out", type=str, default="../runs/league-l1")
+    parser.add_argument("--log-level", choices=["OFF", "RESULT", "REPLAY", "ANALYSIS", "TRACE"],
+                        default="OFF", help="매치 이벤트 로그 레벨(RlBridgeHost). OFF=끔")
     args = parser.parse_args()
 
     out_dir = Path(args.out).resolve()
@@ -175,6 +177,8 @@ def main() -> None:
                 experiment_seed=args.seed * 1000 + rank,
                 opponent=pool,
                 result_log=str(out_dir / f"results-env{rank}.jsonl"),
+                log_level=args.log_level,
+                event_log=(str(out_dir / f"event-env{rank}.jsonl") if args.log_level != "OFF" else None),
             )
             return ActionMasker(env, lambda e: e.action_masks())
         return _thunk

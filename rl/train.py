@@ -30,6 +30,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--eval-matches", type=int, default=40)
     parser.add_argument("--out", type=str, default="../runs/l0-smoke")
+    parser.add_argument("--log-level", choices=["OFF", "RESULT", "REPLAY", "ANALYSIS", "TRACE"],
+                        default="OFF", help="매치 이벤트 로그 레벨(RlBridgeHost). OFF=끔")
+    parser.add_argument("--event-log", type=str, default=None,
+                        help="이벤트 로그 파일 경로 접두(비면 out/event-env<rank>.jsonl)")
     parser.add_argument("--vec", choices=["dummy", "subproc"], default="dummy",
                         help="subproc = env 스테핑을 워커 프로세스로 병렬화(env 수만큼 스루풋 확장)")
     args = parser.parse_args()
@@ -52,6 +56,8 @@ def main() -> None:
             env = DcgoSeatEnv(
                 experiment_seed=args.seed * 1000 + rank,
                 result_log=str(out_dir / f"results-env{rank}.jsonl"),
+                log_level=args.log_level,
+                event_log=(str(out_dir / f"event-env{rank}.jsonl") if args.log_level != "OFF" else None),
             )
             return ActionMasker(env, lambda e: e.action_masks())
 

@@ -33,10 +33,11 @@ PYTHON = str(RL_DIR / ".venv" / "bin" / "python")
 TRAIN_SCRIPTS = {"train": "train.py", "train_league": "train_league.py"}
 # 런처 폼 → CLI 인자 화이트리스트 (스크립트별 허용 키와 형 변환)
 TRAIN_ARG_SPEC = {
-    "train": {"steps": int, "n_envs": int, "seed": int, "eval_matches": int, "vec": str},
+    "train": {"steps": int, "n_envs": int, "seed": int, "eval_matches": int, "vec": str, "log_level": str},
     "train_league": {"steps": int, "n_envs": int, "seed": int, "freeze_every": int,
-                     "weakness_min_games": int, "init": str},
+                     "weakness_min_games": int, "init": str, "log_level": str},
 }
+LOG_LEVELS = ("OFF", "RESULT", "REPLAY", "ANALYSIS", "TRACE")
 
 _jobs: dict[int, dict] = {}  # pid -> {name, script, proc, log, out}
 
@@ -160,6 +161,12 @@ def start_training(payload: dict) -> dict:
                 value = safe_policy_path(str(value))
             if key == "vec" and value not in ("dummy", "subproc"):
                 raise ValueError("vec must be dummy|subproc")
+            if key == "log_level":
+                value = str(value).upper()
+                if value not in LOG_LEVELS:
+                    raise ValueError(f"log_level must be one of {'|'.join(LOG_LEVELS)}")
+                if value == "OFF":
+                    continue  # default; don't pass the flag
             cmd += [f"--{key.replace('_', '-')}", str(value)]
 
     log_path = out_dir / "train.log"

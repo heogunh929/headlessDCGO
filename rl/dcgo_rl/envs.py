@@ -39,9 +39,11 @@ class DcgoSeatEnv(gym.Env):
         opponent: OpponentPolicy = random_opponent,
         alternate_seats: bool = True,
         result_log: str | None = None,
+        log_level: str = "OFF",
+        event_log: str | None = None,
     ):
         super().__init__()
-        self._client = BridgeClient(result_log=result_log)
+        self._client = BridgeClient(result_log=result_log, log_level=log_level, event_log=event_log)
         self._decks = decks or {"1": "starter:ST1", "2": "starter:ST2"}
         self._experiment_seed = experiment_seed
         self._max_steps = max_steps

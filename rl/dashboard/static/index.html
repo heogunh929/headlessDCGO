@@ -151,6 +151,14 @@
         <select id="ln-init"></select></label>
       <label class="f" data-for="train">벡터화
         <select id="ln-vec"><option>dummy</option><option>subproc</option></select></label>
+      <label class="f">로그 레벨
+        <select id="ln-loglevel">
+          <option value="OFF">OFF (끔)</option>
+          <option value="RESULT">RESULT</option>
+          <option value="REPLAY">REPLAY</option>
+          <option value="ANALYSIS">ANALYSIS</option>
+          <option value="TRACE">TRACE</option>
+        </select></label>
       <label class="f">&nbsp;<button class="act" onclick="startTrain()">시작</button></label>
     </div>
     <div class="muted" id="ln-msg"></div>
@@ -343,6 +351,7 @@ async function startTrain() {
     script, name: $('#ln-name').value,
     steps: Number($('#ln-steps').value), n_envs: Number($('#ln-nenvs').value),
     seed: Number($('#ln-seed').value),
+    log_level: $('#ln-loglevel').value,
   };
   if (script === 'train_league') {
     payload.freeze_every = Number($('#ln-freeze').value);
