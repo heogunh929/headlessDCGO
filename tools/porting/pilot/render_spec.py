@@ -90,6 +90,24 @@ _PROP_MAP = {
 _PROP_RE = re.compile(r"\b(\w+)\.(" + "|".join(_PROP_MAP) + r")\b")
 
 
+# (§2) AS-IS self/owner traversal -> headless form. Var-INDEPENDENT (applies to any predicate slot).
+_ZONE_MAP = {"TrashCards": "Trash", "LibraryCards": "Library", "SecurityCards": "Security", "HandCards": "Hand"}
+_ZONE_COUNT_RE = re.compile(r"card\.Owner\.(TrashCards|LibraryCards|SecurityCards|HandCards)\.Count")
+
+
+def _rewrite_self_traversal(expr: str) -> str:
+    """(§2) AS-IS `card.Owner.<Zone>Cards.Count` / `PermanentOfThisCard()` / `SecurityCount(card.Owner)`
+    -> the headless idiom. Own-zone only (opponent traversal needs an opponent-id resolver — left to compile)."""
+    expr = _ZONE_COUNT_RE.sub(
+        lambda m: f"((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.{_ZONE_MAP[m.group(1)]}).Count",
+        expr)
+    # the effect's card IS its own permanent context in headless.
+    expr = expr.replace("card.PermanentOfThisCard()", "card")
+    # commons that take the card, not the player id.
+    expr = re.sub(r"CardEffectCommons\.SecurityCount\(card\.Owner\)", "CardEffectCommons.SecurityCount(card)", expr)
+    return expr
+
+
 def _rewrite_predicate(expr: str, var: str) -> str:
     """(§1 deterministic transform) `<targetvar>.<Prop>` -> `CardEffectCommons.<mapped>(card, id)`.
     Only for the id form (dominant canTarget/optionPredicate case); `card.<X>` (this card's own property) is
@@ -109,6 +127,7 @@ def _rewrite_predicate(expr: str, var: str) -> str:
 def _render_func(base: str, pname: str, expr: str) -> str:
     """Wrap a predicate expression as a lambda of the correct arity/var, and validate arity.
     Func<bool> -> () => (...) and MUST NOT reference a target var; Func<X,bool> -> <var> => (...)."""
+    expr = _rewrite_self_traversal(expr)  # (§2) var-independent self/owner traversal rewrite
     inner = base[len("Func<"):].rsplit(">", 1)[0]
     argtypes = [t.strip() for t in _split_top_level(inner)]
     if len(argtypes) <= 1:  # Func<bool> / Func<int> — no target arg
