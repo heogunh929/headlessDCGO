@@ -1,12 +1,12 @@
 {
   "draw": {
     "factory": "DrawCardsEffect",
-    "note": "N장 드로우",
+    "note": "draw N",
     "sig": "CardSource card, int count"
   },
   "delete": {
     "factory": "SelectAndDestroyEffect",
-    "note": "디지몬 골라 삭제(canTarget 술어로 대상 제한)",
+    "note": "select and delete a Digimon (restrict via canTarget predicate)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "trash": {
@@ -14,7 +14,7 @@
     "also": [
       "SelectAndTrashDigivolutionEffect"
     ],
-    "note": "존에서 골라 trash / 진화원 trash",
+    "note": "select and trash from a zone / trash digivolution sources",
     "sig": "CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "to_hand": {
@@ -23,7 +23,7 @@
       "SelectAndBounceEffect",
       "AddThisCardToHandEffect"
     ],
-    "note": "존에서 손패로 / 필드 permanent를 손패로 바운스 / 자기 손패로",
+    "note": "from a zone to hand / bounce a field permanent to hand / this card to hand",
     "sig": "CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "bounce": {
@@ -31,7 +31,7 @@
     "also": [
       "SelectAndReturnToDeckEffect"
     ],
-    "note": "손패로 바운스 / 덱으로(toTop bool)",
+    "note": "bounce to hand / to deck (toTop bool)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "security": {
@@ -39,12 +39,12 @@
     "also": [
       "ReplaceBottomSecurityWithFaceUpOptionEffect"
     ],
-    "note": "시큐리티에 놓기",
+    "note": "put to security",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool toTop, bool canEndNotMax, string description"
   },
   "memory": {
     "factory": "GainMemoryActivatedEffect",
-    "note": "메모리 증감(+/-)",
+    "note": "gain/lose memory (+/-)",
     "sig": "CardSource card, int amount, string description"
   },
   "digivolve": {
@@ -54,7 +54,7 @@
       "BurstDigivolveEffect",
       "ArtsDigivolveEffect"
     ],
-    "note": "골라 진화 / Blast·Burst·Arts 특수진화",
+    "note": "select and digivolve / Blast/Burst/Arts special digivolve",
     "sig": "CardSource card, ChoiceZone sourceZone, Func<HeadlessEntityId, bool> sourcePredicate, Func<HeadlessEntityId, bool> targetPredicate, DigivolveCost cost, int costAmount, string description"
   },
   "deenergize": {
@@ -62,17 +62,17 @@
     "also": [
       "SelectAndTrashDigivolutionEffect"
     ],
-    "note": "진화원 N장 trash(디에너자이즈)",
+    "note": "trash N digivolution sources (de-digivolve)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int count, bool canEndNotMax, string description"
   },
   "suspend": {
     "factory": "SelectAndSuspendEffect",
-    "note": "골라 서스펜드(탭)",
+    "note": "select and suspend (tap)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "unsuspend": {
     "factory": "SelectAndUnsuspendEffect",
-    "note": "골라 언서스펜드(언탭)",
+    "note": "select and unsuspend (untap)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "dp_plus": {
@@ -81,7 +81,7 @@
       "PlayerScopeBuffDpEffect",
       "ChangeSelfDPStaticEffect"
     ],
-    "note": "DP +N (대상/스코프/자기)",
+    "note": "DP +N (target/scope/self)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description"
   },
   "dp_minus": {
@@ -89,12 +89,12 @@
     "also": [
       "ChangeDPStaticEffect"
     ],
-    "note": "DP -N (음수 amount)",
+    "note": "DP -N (negative amount)",
     "sig": "CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description"
   },
   "recovery": {
     "factory": "RecoveryTriggerEffect",
-    "note": "시큐리티 회복",
+    "note": "security recovery",
     "sig": "EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description"
   },
   "blocker": {
@@ -102,7 +102,7 @@
     "also": [
       "BlockerSelfStaticEffect"
     ],
-    "note": "Blocker 부여(스코프/자기)",
+    "note": "grant Blocker (scope/self)",
     "sig": "Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool isLinkedEffect = false"
   },
   "piercing": {
@@ -110,7 +110,7 @@
     "also": [
       "PierceSelfEffect"
     ],
-    "note": "Piercing 부여(스코프/자기)",
+    "note": "grant Piercing (scope/self)",
     "sig": "Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition"
   },
   "play": {
@@ -118,16 +118,16 @@
     "also": [
       "PlayOptionCardEffect"
     ],
-    "note": "존에서 골라 플레이 / 옵션 플레이",
+    "note": "select and play from a zone / option play",
     "sig": "CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description"
   },
   "cannot": {
     "kind": "restriction-family",
     "prefix": "CanNot*StaticEffect",
-    "note": "무엇을 금지하는지로 선택: CanNotAttackStaticEffect / CanNotBeDestroyedStaticEffect / CanNotAddSecurityStaticEffect / CanNotDigivolveStaticEffect / CanNotBlockStaticEffect 등"
+    "note": "pick by what is forbidden: CanNotAttackStaticEffect / CanNotBeDestroyedStaticEffect / CanNotAddSecurityStaticEffect / CanNotDigivolveStaticEffect / CanNotBlockStaticEffect etc."
   },
   "once_per_turn": {
     "kind": "modifier",
-    "note": "액션이 아니라 [Once Per Turn] 캡. 온-언서스펜드 등 다중발화 타이밍은 브릿지가 OnceFlags로 자동 캡(cheatsheet §7 v3) — 별도 표시 불필요. 그 외엔 트리거를 once로 게이트."
+    "note": "not an action = [Once Per Turn] cap. Multi-fire timings (e.g. on-unsuspend) are auto-capped by the bridge via OnceFlags (cheatsheet section 7 v3) — no explicit marker needed. Otherwise gate the trigger as once."
   }
 }

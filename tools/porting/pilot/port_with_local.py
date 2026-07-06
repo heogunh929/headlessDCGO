@@ -61,12 +61,12 @@ def action_map_surface(action_tags_json: str | None) -> str:
     rel = [(t, _ACTION_MAP[t]) for t in tags if t in _ACTION_MAP]
     if not rel:
         return ""
-    lines = ["## 이 카드의 action → 정규 팩토리 (아래 팩토리를 써라 — 카드가 달라도 동작은 이걸로 매핑된다)"]
+    lines = ["## This card's actions -> canonical factories (use the factory below; effects differ but the action maps here)"]
     for tag, e in rel:
         if e.get("factory"):
             lines.append(f"- [{tag}] {e['factory']}({e.get('sig', '')})  {e.get('note', '')}")
             if e.get("also"):
-                lines.append(f"    변형: {', '.join(e['also'])}")
+                lines.append(f"    variants: {', '.join(e['also'])}")
         else:
             lines.append(f"- [{tag}] ({e.get('kind')}) {e.get('note', '')}")
     return "\n".join(lines)
@@ -80,7 +80,7 @@ def _validate_symbols_text(cs: str) -> str:
     findings = _validate_symbols(cs, _ALLOWLIST)
     if not findings:
         return ""
-    lines = ["정적 검사(빌드 전): 아래 심볼은 헤드리스에 존재하지 않는다 — 반드시 아래 대안으로 고쳐라."]
+    lines = ["Static check (pre-build): the symbols below do NOT exist in the headless engine — you MUST fix them using the alternatives shown."]
     for f in findings:
         lines.append(f"  - {f['symbol']}: {f['suggestion']}")
     return "\n".join(lines)
@@ -99,12 +99,13 @@ def _diagnose_compile_error(router: LocalModelRouter, detail: str) -> str:
     if not ctx:
         return ""
     prompt = (
-        "아래 C# 컴파일 오류의 원인을 짚고, 제공된 '진짜 시그니처/대안'만 근거로 정확한 수정 지시를 3줄 이내로 작성하라. "
-        "코드 전체를 다시 쓰지 말고 무엇을 어떻게 고칠지 지시만 출력.\n\n"
-        f"## 오류\n{detail[-800:]}\n\n## 진짜 시그니처/대안\n" + "\n".join(ctx[:8])
+        "Identify the cause of the C# compile error below and write a precise fix instruction (<= 3 lines), "
+        "grounded ONLY in the provided real signatures/alternatives. Do not rewrite the whole file — output only "
+        "what to change and how.\n\n"
+        f"## Error\n{detail[-800:]}\n\n## Real signatures / alternatives\n" + "\n".join(ctx[:8])
     )
     try:
-        return router.plan("너는 C# 컴파일 오류 진단가다. 간결한 수정 지시만 출력한다.", prompt).strip()
+        return router.plan("You diagnose C# compile errors. Output only a concise fix instruction.", prompt).strip()
     except Exception:  # noqa: BLE001
         return ""
 
@@ -120,17 +121,17 @@ def read_prompt(name: str, fallback: str) -> str:
 
 SYSTEM_PROMPT = read_prompt(
     "system_porting.md",
-    """너는 Digimon TCG 헤드리스 엔진의 카드 효과를 원본(Unity C#)에서 헤드리스(.NET C#)로 포팅한다.\n"
-    "출력은 완성된 .cs 파일 내용만, csharp 코드 블록 하나로 출력한다. 설명·주석 추가 금지.""",
+    "You port Digimon TCG card effects from the original (Unity C#) to the headless engine (.NET C#).\n"
+    "Output ONLY the finished .cs file content, as a single csharp code block. No explanations or comments.",
 )
-PLANNER_PROMPT = read_prompt("planner.md", "너는 카드 포팅 기획자다. 구현 지시만 작성한다.")
-REVIEWER_PROMPT = read_prompt("reviewer.md", "너는 카드 포팅 검수자다. PASS 또는 FAIL: 수정 지시만 출력한다.")
+PLANNER_PROMPT = read_prompt("planner.md", "You are a card-porting planner. Write only fix instructions.")
+REVIEWER_PROMPT = read_prompt("reviewer.md", "You are a card-porting reviewer. Output PASS or FAIL: fix instructions.")
 
 
 def symbol_surface() -> str:
     """헤드리스가 실제로 정의한 유효 심볼을 프롬프트에 붙여 심볼 환각을 줄인다."""
     if not _FRAMEWORK.exists():
-        return "## 사용 가능한 심볼\nCardPortingFramework.cs를 찾지 못했다. 없는 심볼을 발명하지 마라."
+        return "## Available symbols\nCardPortingFramework.cs not found. Do not invent symbols."
 
     fw = _FRAMEWORK.read_text(encoding="utf-8", errors="ignore")
     timing = re.search(r"enum EffectTiming\s*\{(.*?)\}", fw, re.S)
@@ -143,22 +144,22 @@ def symbol_surface() -> str:
         by_class.setdefault(cls, []).append(f"{m.group(1)}({' '.join(m.group(2).split())})")
 
     out = [
-        "## 사용 가능한 심볼(이 목록 밖의 이름·인자를 지어내지 마라. 도메인 타입에 없는 속성/메서드도 금지)",
-        f"### 유효 EffectTiming (이 중에서만): {', '.join(timings)}",
+        "## Available symbols (do NOT invent names/args outside this list; forbidden properties/methods on domain types too)",
+        f"### Valid EffectTiming (only these): {', '.join(timings)}",
     ]
     for cls in ("CardEffectFactory", "CardEffectCommons"):
         if cls in by_class:
-            out.append(f"### {cls} 시그니처(정확히 이 이름·인자·클래스만):")
+            out.append(f"### {cls} signatures (exactly these names/args/class only):")
             out.extend(f"{cls}.{sig}" for sig in by_class[cls])
 
     out.append(
-        "### 주의: AS-IS의 Unity 도메인 탐색(card.Owner.Enemy.SecurityCards 등)은 헤드리스에 1:1 속성이 없다. "
-        "그런 조건은 위 CardEffectCommons 술어로 재표현하라. HeadlessPlayerId/HeadlessEntityId는 Value·IsEmpty만 있다."
+        "### Note: AS-IS Unity domain traversal (card.Owner.Enemy.SecurityCards etc.) has no 1:1 property in headless. "
+        "Re-express such conditions via the CardEffectCommons predicates above. HeadlessPlayerId/HeadlessEntityId expose only Value/IsEmpty."
     )
 
     cheat = REPO / "docs" / "audit" / "porting_translation_cheatsheet.md"
     if cheat.exists():
-        out.append("\n## 번역 규칙 (AS-IS 도메인 패턴 → 헤드리스)\n" + cheat.read_text(encoding="utf-8"))
+        out.append("\n## Translation rules (AS-IS domain pattern -> headless)\n" + cheat.read_text(encoding="utf-8"))
     return "\n".join(out)
 
 
@@ -186,26 +187,28 @@ def symbol_surface_for(texts: list[str]) -> str:
     전체 ~39K 대신 필요한 것만 → 로컬 모델(31B)의 컨텍스트 부담·환각·응답시간 대폭 감소.
     레퍼런스 포팅본이 이미 정답 심볼을 보여주므로 전체 목록 불필요."""
     blob = "\n".join(texts)
-    used = set(re.findall(r"\b([A-Za-z0-9_]+)\s*\(", blob))  # 호출된 이름
+    used = set(re.findall(r"\b([A-Za-z0-9_]+)\s*\(", blob))  # names actually called
     out = [
-        "## 사용 가능한 심볼(밖의 이름·인자 금지. 목록에 없는 커먼즈/팩토리를 절대 발명하지 마라)",
-        f"### 유효 EffectTiming (이 중에서만): {', '.join(_TIMINGS)}",
+        "## Available symbols (do NOT use names/args outside these. NEVER invent a commons/factory not listed)",
+        f"### Valid EffectTiming (only these): {', '.join(_TIMINGS)}",
     ]
-    # 발명 방지: 전체 이름 목록(컴팩트). 필요한 커먼즈가 레퍼런스에 없어도 목록에서 골라 쓰게 한다.
+    # Anti-invention: compact full name list. If a needed commons isn't in the reference, pick from this list.
     for cls in ("CardEffectFactory", "CardEffectCommons"):
         allnames = sorted({s.split("(")[0] for s in _BY_CLASS.get(cls, [])})
         if allnames:
-            out.append(f"### {cls} 전체 이름(이 중에서만 선택; 없는 이름 발명 금지):\n{', '.join(allnames)}")
-    # 상세 시그니처: 레퍼런스/대상에 등장한 것만(정확한 인자 안내).
+            out.append(f"### {cls} full name list (choose ONLY from these; do not invent names):\n{', '.join(allnames)}")
+    # Detailed signatures: only those appearing in the reference/target (exact args).
     for cls in ("CardEffectFactory", "CardEffectCommons"):
         picked = [s for s in _BY_CLASS.get(cls, []) if s.split("(")[0] in used]
         if picked:
-            out.append(f"### {cls} 시그니처 상세(정확한 인자):")
+            out.append(f"### {cls} signature details (exact args):")
             out.extend(f"{cls}.{s}" for s in picked)
-    out.append("### HeadlessPlayerId/HeadlessEntityId는 Value·IsEmpty만. permanent.X는 CardEffectCommons.X(card, id)로. "
-               "필요한 개념의 커먼즈가 위 목록에 없으면 발명하지 말고 가장 가까운 것을 쓰되, 없으면 그대로 두라(추측 금지).")
+    out.append("### The CARD's own property queries live on `card` (card.HasCardColor / card.Level / card.CardNames / "
+               "card.Owner / card.IsDigimon), NOT on CardEffectCommons. A PERMANENT-property predicate uses "
+               "CardEffectCommons.<Predicate>(id). HeadlessPlayerId/HeadlessEntityId expose only Value/IsEmpty. "
+               "If a needed commons is not listed above, do not invent — use the closest one, or leave it as-is (no guessing).")
     if _CHEAT.exists():
-        out.append("\n## 번역 규칙\n" + _CHEAT.read_text(encoding="utf-8"))
+        out.append("\n## Translation rules\n" + _CHEAT.read_text(encoding="utf-8"))
     return "\n".join(out)
 
 
@@ -247,13 +250,13 @@ def _self_reference(ref_id: str) -> dict:
 
 
 def _render_task(task: dict) -> str:
-    parts = [f"# 대상 카드: {task['card_id']}", "## 대상 AS-IS", task["target_asis"]]
+    parts = [f"# Target card: {task['card_id']}", "## Target AS-IS", task["target_asis"]]
     ref = task.get("reference")
     if ref:
-        parts += [f"## 레퍼런스 {ref['card_id']} — AS-IS", ref["asis"]]
+        parts += [f"## Reference {ref['card_id']} — AS-IS", ref["asis"]]
         if ref.get("ported"):
-            parts += [f"## 레퍼런스 {ref['card_id']} — 헤드리스 포팅본(본떠라)", ref["ported"]]
-    parts += ["## 지시", task.get("instruction") or ""]
+            parts += [f"## Reference {ref['card_id']} — headless port (model it on this)", ref["ported"]]
+    parts += ["## Instruction", task.get("instruction") or ""]
     return "\n\n".join(parts)
 
 
@@ -266,12 +269,12 @@ def build_prompt(conn: sqlite3.Connection, card_id: str, tier: str) -> tuple[str
         ref_task = build_task(sqlite3.connect(str(DB)), ref)
         task["reference"] = ref_task.get("reference") or _self_reference(ref)
         task["instruction"] = (
-            f"레퍼런스 {ref}는 대상과 같은 액션 계열이지만 구조가 다를 수 있다. "
-            "레퍼런스의 변환 방식을 참고하되 대상 AS-IS의 실제 구조·인자에 맞게 포팅하라."
+            f"Reference {ref} is the same action family as the target but may differ in structure. "
+            "Use the reference's conversion approach, but port to the target AS-IS's actual structure and args."
         )
     elif tier == "cold":
         task["reference"] = None
-        task["instruction"] = "레퍼런스 없이 대상 AS-IS만으로 헤드리스 .NET 포팅을 작성하라."
+        task["instruction"] = "Write the headless .NET port from the target AS-IS alone, with no reference."
     return _render_task(task), task
 
 
@@ -297,13 +300,13 @@ def build_prompt_for(card_id: str, ref_id: str | None, tier: str) -> tuple[str, 
         rt = build_task(sqlite3.connect(str(DB)), ref_id)
         task["reference"] = {"card_id": ref_id, "asis": rt["target_asis"], "ported": _ported_text(ref_id)}
         task["instruction"] = (
-            f"레퍼런스 {ref_id}는 대상과 같은 액션 계열이다(구조는 다를 수 있음). "
-            "변환 방식을 참고하되 대상 AS-IS의 실제 구조·인자에 맞게 포팅하라. "
-            "번역 규칙(도메인 탐색→커먼즈)을 반드시 적용하라."
+            f"Reference {ref_id} is the same action family as the target (structure may differ). "
+            "Use the conversion approach, but port to the target AS-IS's actual structure and args. "
+            "You MUST apply the translation rules (domain traversal -> commons)."
         )
     else:
         task["reference"] = None
-        task["instruction"] = "레퍼런스 없이 대상 AS-IS만으로 헤드리스 포팅을 작성하라."
+        task["instruction"] = "Write the headless port from the target AS-IS alone, with no reference."
     return _render_task(task), task
 
 
@@ -344,12 +347,12 @@ def compile_gate(cs_text: str, card_id: str, source_path: str, keep_on_pass: boo
 def maybe_plan(router: LocalModelRouter, tier: str, attempt: int, user0: str, detail: str | None = None) -> str:
     """family는 처음부터, exact는 반복 실패 후 planner 지시를 추가한다."""
     if tier == "family" and attempt == 1:
-        return router.plan(PLANNER_PROMPT, f"아래 포팅 태스크를 분석해 coder에게 줄 구현 지시를 작성하라.\n\n{user0}")
+        return router.plan(PLANNER_PROMPT, f"Analyze the porting task below and write implementation instructions for the coder.\n\n{user0}")
     if attempt >= 3 and detail:
         return router.plan(
             PLANNER_PROMPT,
-            f"아래 포팅 시도가 반복 실패했다. 컴파일 오류 원인을 분석하고 coder에게 줄 수정 지시만 작성하라.\n\n"
-            f"## 원래 태스크\n{user0}\n\n## 컴파일 오류\n{detail[-1500:]}",
+            f"The porting attempt below has failed repeatedly. Analyze the compile-error cause and write only fix instructions for the coder.\n\n"
+            f"## Original task\n{user0}\n\n## Compile error\n{detail[-1500:]}",
         )
     return ""
 
@@ -357,8 +360,8 @@ def maybe_plan(router: LocalModelRouter, tier: str, attempt: int, user0: str, de
 def review_pass(router: LocalModelRouter, user0: str, cs: str) -> tuple[bool, str]:
     review = router.review(
         REVIEWER_PROMPT,
-        f"아래 카드는 컴파일을 통과했다. 원본 AS-IS와 생성 코드의 의미가 같은지 검수하라.\n\n"
-        f"## 태스크\n{user0}\n\n## 생성 코드\n```csharp\n{cs}\n```",
+        f"The card below compiled. Review whether the generated code means the same as the original AS-IS.\n\n"
+        f"## Task\n{user0}\n\n## Generated code\n```csharp\n{cs}\n```",
     ).strip()
     return review.upper().startswith("PASS"), review
 
@@ -398,11 +401,11 @@ def port_card(
             plan = maybe_plan(router, tier, attempt, user0, last_detail)
             user = user0
             if plan:
-                user += f"\n\n## Planner 지시\n{plan}"
+                user += f"\n\n## Planner instructions\n{plan}"
             if last_detail:
                 user += (
-                    f"\n\n## 직전 시도의 컴파일 오류(고쳐라)\n{last_detail[-1200:]}\n"
-                    "위 오류만 정확히 수정한 완성본을 다시 출력하라(코드 블록 하나)."
+                    f"\n\n## Previous attempt's compile error (fix it)\n{last_detail[-1200:]}\n"
+                    "Fix exactly the errors above and output the complete corrected file (one code block)."
                 )
             cs = router.code(system, user)
         except Exception as ex:  # noqa: BLE001

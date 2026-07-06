@@ -23,44 +23,45 @@ OUT = HERE / "action_map.json"
 # Curated tag -> canonical factory(ies). Every factory name is verified present in allowlist.json.
 # `factory` = the primary "do this action" call; `also` = common variants; `kind` marks non-factory tags.
 CURATED: dict[str, dict] = {
-    "draw":        {"factory": "DrawCardsEffect", "note": "N장 드로우"},
-    "delete":      {"factory": "SelectAndDestroyEffect", "note": "디지몬 골라 삭제(canTarget 술어로 대상 제한)"},
+    "draw":        {"factory": "DrawCardsEffect", "note": "draw N"},
+    "delete":      {"factory": "SelectAndDestroyEffect", "note": "select and delete a Digimon (restrict via canTarget predicate)"},
     "trash":       {"factory": "SelectAndTrashFromZoneEffect",
-                    "also": ["SelectAndTrashDigivolutionEffect"], "note": "존에서 골라 trash / 진화원 trash"},
+                    "also": ["SelectAndTrashDigivolutionEffect"], "note": "select and trash from a zone / trash digivolution sources"},
     "to_hand":     {"factory": "SelectAndAddToHandFromZoneEffect",
                     "also": ["SelectAndBounceEffect", "AddThisCardToHandEffect"],
-                    "note": "존에서 손패로 / 필드 permanent를 손패로 바운스 / 자기 손패로"},
+                    "note": "from a zone to hand / bounce a field permanent to hand / this card to hand"},
     "bounce":      {"factory": "SelectAndBounceEffect",
-                    "also": ["SelectAndReturnToDeckEffect"], "note": "손패로 바운스 / 덱으로(toTop bool)"},
+                    "also": ["SelectAndReturnToDeckEffect"], "note": "bounce to hand / to deck (toTop bool)"},
     "security":    {"factory": "SelectAndPutSecurityEffect",
-                    "also": ["ReplaceBottomSecurityWithFaceUpOptionEffect"], "note": "시큐리티에 놓기"},
-    "memory":      {"factory": "GainMemoryActivatedEffect", "note": "메모리 증감(+/-)"},
+                    "also": ["ReplaceBottomSecurityWithFaceUpOptionEffect"], "note": "put to security"},
+    "memory":      {"factory": "GainMemoryActivatedEffect", "note": "gain/lose memory (+/-)"},
     "digivolve":   {"factory": "SelectAndDigivolveEffect",
                     "also": ["BlastDigivolveEffect", "BurstDigivolveEffect", "ArtsDigivolveEffect"],
-                    "note": "골라 진화 / Blast·Burst·Arts 특수진화"},
+                    "note": "select and digivolve / Blast/Burst/Arts special digivolve"},
     "deenergize":  {"factory": "SelectAndDeDigivolveEffect",
-                    "also": ["SelectAndTrashDigivolutionEffect"], "note": "진화원 N장 trash(디에너자이즈)"},
-    "suspend":     {"factory": "SelectAndSuspendEffect", "note": "골라 서스펜드(탭)"},
-    "unsuspend":   {"factory": "SelectAndUnsuspendEffect", "note": "골라 언서스펜드(언탭)"},
+                    "also": ["SelectAndTrashDigivolutionEffect"], "note": "trash N digivolution sources (de-digivolve)"},
+    "suspend":     {"factory": "SelectAndSuspendEffect", "note": "select and suspend (tap)"},
+    "unsuspend":   {"factory": "SelectAndUnsuspendEffect", "note": "select and unsuspend (untap)"},
     "dp_plus":     {"factory": "SelectAndBuffDpEffect",
-                    "also": ["PlayerScopeBuffDpEffect", "ChangeSelfDPStaticEffect"], "note": "DP +N (대상/스코프/자기)"},
+                    "also": ["PlayerScopeBuffDpEffect", "ChangeSelfDPStaticEffect"], "note": "DP +N (target/scope/self)"},
     "dp_minus":    {"factory": "SelectAndBuffDpEffect",
-                    "also": ["ChangeDPStaticEffect"], "note": "DP -N (음수 amount)"},
-    "recovery":    {"factory": "RecoveryTriggerEffect", "note": "시큐리티 회복"},
+                    "also": ["ChangeDPStaticEffect"], "note": "DP -N (negative amount)"},
+    "recovery":    {"factory": "RecoveryTriggerEffect", "note": "security recovery"},
     "blocker":     {"factory": "BlockerStaticEffect",
-                    "also": ["BlockerSelfStaticEffect"], "note": "Blocker 부여(스코프/자기)"},
+                    "also": ["BlockerSelfStaticEffect"], "note": "grant Blocker (scope/self)"},
     "piercing":    {"factory": "PiercingStaticEffect",
-                    "also": ["PierceSelfEffect"], "note": "Piercing 부여(스코프/자기)"},
+                    "also": ["PierceSelfEffect"], "note": "grant Piercing (scope/self)"},
     "play":        {"factory": "SelectAndPlayFromZoneEffect",
-                    "also": ["PlayOptionCardEffect"], "note": "존에서 골라 플레이 / 옵션 플레이"},
-    # 팩토리 하나로 안 떨어지는 태그(액션이 아님) — kind로 표시.
+                    "also": ["PlayOptionCardEffect"], "note": "select and play from a zone / option play"},
+    # Tags that are not a single factory (not an action) — marked with kind.
     "cannot":      {"kind": "restriction-family",
                     "prefix": "CanNot*StaticEffect",
-                    "note": "무엇을 금지하는지로 선택: CanNotAttackStaticEffect / CanNotBeDestroyedStaticEffect / "
-                            "CanNotAddSecurityStaticEffect / CanNotDigivolveStaticEffect / CanNotBlockStaticEffect 등"},
+                    "note": "pick by what is forbidden: CanNotAttackStaticEffect / CanNotBeDestroyedStaticEffect / "
+                            "CanNotAddSecurityStaticEffect / CanNotDigivolveStaticEffect / CanNotBlockStaticEffect etc."},
     "once_per_turn": {"kind": "modifier",
-                      "note": "액션이 아니라 [Once Per Turn] 캡. 온-언서스펜드 등 다중발화 타이밍은 브릿지가 "
-                              "OnceFlags로 자동 캡(cheatsheet §7 v3) — 별도 표시 불필요. 그 외엔 트리거를 once로 게이트."},
+                      "note": "not an action = [Once Per Turn] cap. Multi-fire timings (e.g. on-unsuspend) are "
+                              "auto-capped by the bridge via OnceFlags (cheatsheet section 7 v3) — no explicit marker needed. "
+                              "Otherwise gate the trigger as once."},
 }
 
 

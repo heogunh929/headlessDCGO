@@ -49,14 +49,14 @@ def validate(text: str, allow: dict) -> list[dict]:
 
     for cls, member in STATIC_REF.findall(text):
         if member not in set(allow.get(cls, [])):
-            # 재발 패턴: CardSource 멤버(HasCardColor/CardNames/Level…)를 CardEffectCommons/Factory 하위로 오참조.
+            # Recurring pattern: a CardSource member (HasCardColor/CardNames/Level...) mis-referenced under CardEffectCommons/Factory.
             if member in cs_members:
-                sugg = f"이건 CardSource 멤버다 — {cls}.{member}가 아니라 card.{member} 로 호출"
+                sugg = f"This is a CardSource member — call card.{member}, NOT {cls}.{member}"
             else:
-                sugg = hint(member) or f"{cls}에 그런 멤버 없음 — PRIMITIVE-CATALOG.md / cheatsheet §9 확인"
+                sugg = hint(member) or f"{cls} has no such member — check PRIMITIVE-CATALOG.md / cheatsheet section 9"
             findings.append({
                 "kind": "unknown-symbol", "symbol": f"{cls}.{member}",
-                "message": f"'{cls}.{member}' 는 존재하지 않는다.",
+                "message": f"'{cls}.{member}' does not exist.",
                 "suggestion": sugg,
             })
 
@@ -65,8 +65,8 @@ def validate(text: str, allow: dict) -> list[dict]:
         if gate in gates and member not in set(gates[gate]):
             findings.append({
                 "kind": "unknown-symbol", "symbol": f"{gate}.{member}",
-                "message": f"'{gate}.{member}' 는 존재하지 않는다.",
-                "suggestion": hint(member) or f"{gate} 유효 멤버: {', '.join(gates[gate][:6])}",
+                "message": f"'{gate}.{member}' does not exist.",
+                "suggestion": hint(member) or f"{gate} valid members: {', '.join(gates[gate][:6])}",
             })
 
     # CardSource member access on a known CardSource variable.
@@ -75,8 +75,8 @@ def validate(text: str, allow: dict) -> list[dict]:
             if member and member not in cs_members and member[0].isupper():
                 findings.append({
                     "kind": "unknown-member", "symbol": f"{var}.{member} (CardSource)",
-                    "message": f"CardSource 에 '{member}' 멤버 없음.",
-                    "suggestion": hint(member) or "CardSource 유효 멤버는 allowlist.json 참조",
+                    "message": f"CardSource has no member '{member}'.",
+                    "suggestion": hint(member) or "See allowlist.json for valid CardSource members",
                 })
 
     # de-dup by symbol
