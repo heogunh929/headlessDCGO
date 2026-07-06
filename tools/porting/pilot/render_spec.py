@@ -70,6 +70,34 @@ def _parse_params(sig: str) -> list[tuple[str, str]]:
     return result
 
 
+# lambda variable name per single-arg predicate type (so the model's expression can reference it).
+FUNC_VARS = {"HeadlessEntityId": "id", "Permanent": "p", "CardSource": "cs"}
+_TARGET_VARS = ("id", "p", "cs")
+
+
+def _render_func(base: str, pname: str, expr: str) -> str:
+    """Wrap a predicate expression as a lambda of the correct arity/var, and validate arity.
+    Func<bool> -> () => (...) and MUST NOT reference a target var; Func<X,bool> -> <var> => (...)."""
+    inner = base[len("Func<"):].rsplit(">", 1)[0]
+    argtypes = [t.strip() for t in _split_top_level(inner)]
+    if len(argtypes) <= 1:  # Func<bool> / Func<int> — no target arg
+        for v in _TARGET_VARS:
+            if re.search(rf"\b{v}\b", expr):
+                raise ValueError(
+                    f"param '{pname}' is {base} (no target argument) — its expression must NOT reference "
+                    f"'{v}'. Use only 'card' / global state (e.g. CardEffectCommons.IsOwnerTurn(card)).")
+        return f"() => ({expr})"
+    vtype = argtypes[0]
+    var = FUNC_VARS.get(vtype, "x")
+    # a single-arg predicate must reference its own var, not a different target var.
+    for v in _TARGET_VARS:
+        if v != var and re.search(rf"\b{v}\b", expr):
+            raise ValueError(
+                f"param '{pname}' is {base}; its lambda variable is '{var}' (a {vtype}), not '{v}'. "
+                f"Rewrite the expression using '{var}'.")
+    return f"{var} => ({expr})"
+
+
 def _render_arg(ptype: str, pname: str, args: dict) -> str | None:
     """Render one argument to C# source. Returns None to omit an optional arg not provided."""
     base = ptype.rstrip("?").strip()
@@ -79,13 +107,8 @@ def _render_arg(ptype: str, pname: str, args: dict) -> str | None:
     if not provided:
         return None if ptype.endswith("?") else "null"
     val = args[pname]
-    if base.startswith("Func<HeadlessEntityId"):
-        return f"id => ({val})"
-    if base.startswith("Func<bool>"):
-        return f"() => ({val})"
     if base.startswith("Func<"):
-        # generic predicate — pass the expression verbatim (model wrote the lambda form)
-        return str(val)
+        return _render_func(base, pname, str(val))
     if base == "int":
         # a plain literal, or a C# int EXPRESSION (e.g. Math.Min(2, Commons.Count(...))) — pass verbatim.
         if isinstance(val, bool):

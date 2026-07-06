@@ -46,15 +46,14 @@ Rules:
 - "factory": exactly one factory from the Available factories list below. Pick the one whose meaning AND signature match the AS-IS effect.
 - "args": give each factory parameter BY NAME. OMIT the CardSource 'card' parameter (auto-filled).
   * int / bool / string params: a literal value.
-  * predicate params (type Func<HeadlessEntityId,bool>): a C# boolean EXPRESSION string. Do NOT write the `id =>` arrow.
-      The expression tests one candidate whose id is `id`. Two distinct things:
-        - `id`   = the TARGET/candidate being tested (the "permanent" in the AS-IS predicate).
-        - `card` = THIS effect's source card (self).
-      A TARGET's property -> CardEffectCommons.<Predicate>(card, id).  e.g. target level: CardEffectCommons.LevelOf(card, id) <= 4;
-        opponent Digimon target: CardEffectCommons.IsOpponentBattleAreaDigimon(card, id).
-      THIS card's own property (its color/level/owner/type) -> card.<Property>.
-      NEVER pass `card` where the AS-IS passed the permanent — use `id`. Do NOT use card.TopCard or card.Level to mean the target.
-  * predicate params (type Func<bool>): a C# boolean expression about global/self state (e.g. CardEffectCommons.IsOwnerTurn(card)).
+  * predicate params: a C# boolean EXPRESSION string (do NOT write the lambda arrow — the renderer adds it).
+      The lambda variable depends on the param's Func TYPE in the signature — write the expression using EXACTLY that variable:
+        - Func<bool>                  -> NO target variable. Use only `card` / global state. e.g. CardEffectCommons.IsOwnerTurn(card)
+        - Func<HeadlessEntityId,bool> -> target var is `id`.  Query it: CardEffectCommons.<Predicate>(card, id). e.g. CardEffectCommons.LevelOf(card, id) <= 4
+        - Func<Permanent,bool>        -> target var is `p`.   Query it: CardEffectCommons.<Predicate>(p, card). (permanent FIRST)
+        - Func<CardSource,bool>       -> target var is `cs`.  Query it: CardEffectCommons.<Predicate>(cs, card) or cs.<Property>
+      `card` always = THIS effect's source card (self). NEVER use a target variable that doesn't match the param's Func type.
+      THIS card's own property (its color/level/owner) -> card.<Property>. Do NOT use card.TopCard / card.Level to mean the target.
 - Do NOT invent factories or predicates outside the lists below.
 - Preserve the AS-IS condition faithfully — never blur a compound predicate into a single coarse check.
 """
