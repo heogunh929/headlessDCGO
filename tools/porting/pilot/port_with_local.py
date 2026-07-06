@@ -92,7 +92,7 @@ def _diagnose_compile_error(router: LocalModelRouter, detail: str) -> str:
     인용할 지식이 없으면(순수 문법오류 등) 빈 문자열 → raw 오류가 그대로 coder에 전달된다."""
     if not _ALLOWLIST:
         return ""
-    sigs = _ALLOWLIST.get("factory_signatures", {})
+    sigs = {**_ALLOWLIST.get("factory_signatures", {}), **_ALLOWLIST.get("commons_signatures", {})}
     known = _ALLOWLIST.get("known_hallucinations", {})
     ctx = [f"- {name}({sig})  ← 진짜 시그니처" for name, sig in sigs.items() if name in detail]
     ctx += [f"- {bad} 는 없음 → {fix}" for bad, fix in known.items() if bad in detail]

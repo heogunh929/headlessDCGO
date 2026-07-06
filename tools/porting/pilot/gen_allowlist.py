@@ -62,6 +62,54 @@ def members_of(text: str, class_name: str) -> list[str]:
     return []
 
 
+def _paren_params(text: str, open_idx: int) -> str:
+    """text[open_idx]가 '('일 때, 대응 ')'까지의 파라미터 목록을 collapsed로 반환."""
+    depth = 0
+    buf: list[str] = []
+    for ch in text[open_idx:]:
+        if ch == "(":
+            depth += 1
+            if depth == 1:
+                continue
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        buf.append(ch)
+    return re.sub(r"\s+", " ", "".join(buf)).strip()
+
+
+def _class_body(text: str, class_name: str) -> str:
+    """class_name의 본문 소스 슬라이스(brace 추적)."""
+    lines = text.splitlines()
+    i, n = 0, len(lines)
+    while i < n:
+        m = CLASS.search(lines[i])
+        if m and m.group(1) == class_name:
+            depth, opened, j, body = 0, False, i, []
+            while j < n:
+                depth += lines[j].count("{") - lines[j].count("}")
+                if "{" in lines[j]:
+                    opened = True
+                body.append(lines[j])
+                if opened and depth == 0:
+                    break
+                j += 1
+            return "\n".join(body)
+        i += 1
+    return ""
+
+
+def commons_signatures(text: str) -> dict[str, str]:
+    """CardEffectCommons public static 메서드 name -> params. gemma 진단이 커먼즈 메서드(CanTriggerOnPlay 등)의
+    진짜 시그니처를 인용할 수 있게 한다(팩토리만으론 부족)."""
+    body = _class_body(text, "CardEffectCommons")
+    out: dict[str, str] = {}
+    for m in re.finditer(r"public\s+static\s+[\w<>\[\],\.\?]+\s+(\w+)\s*\(", body):
+        out.setdefault(m.group(1), _paren_params(body, m.end() - 1))
+    return out
+
+
 def factory_signatures(text: str) -> dict[str, str]:
     """factory name -> its parameter list (collapsed), so the gemma diagnosis can cite the real signature."""
     out: dict[str, str] = {}
@@ -124,6 +172,7 @@ def main() -> None:
         "CardSource": members_of(text, "CardSource"),
         "gates": gate_statics(),
         "factory_signatures": factory_signatures(text),
+        "commons_signatures": commons_signatures(text),
         "known_hallucinations": KNOWN_HALLUCINATIONS,
     }
     OUT.write_text(json.dumps(allow, ensure_ascii=False, indent=2), encoding="utf-8")

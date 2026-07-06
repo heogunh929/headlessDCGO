@@ -49,10 +49,15 @@ def validate(text: str, allow: dict) -> list[dict]:
 
     for cls, member in STATIC_REF.findall(text):
         if member not in set(allow.get(cls, [])):
+            # 재발 패턴: CardSource 멤버(HasCardColor/CardNames/Level…)를 CardEffectCommons/Factory 하위로 오참조.
+            if member in cs_members:
+                sugg = f"이건 CardSource 멤버다 — {cls}.{member}가 아니라 card.{member} 로 호출"
+            else:
+                sugg = hint(member) or f"{cls}에 그런 멤버 없음 — PRIMITIVE-CATALOG.md / cheatsheet §9 확인"
             findings.append({
                 "kind": "unknown-symbol", "symbol": f"{cls}.{member}",
                 "message": f"'{cls}.{member}' 는 존재하지 않는다.",
-                "suggestion": hint(member) or f"{cls}에 그런 멤버 없음 — PRIMITIVE-CATALOG.md / cheatsheet §9 확인",
+                "suggestion": sugg,
             })
 
     gates = allow.get("gates", {})
