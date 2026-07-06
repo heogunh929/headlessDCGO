@@ -788,7 +788,7 @@ public sealed class ContinuousSelfModifierEffect : ICardEffect
 /// <c>ContinuousScopeEvaluation</c> as the modifier gate). Reused across the CanNot* self-static primitives.</summary>
 public sealed class ContinuousSelfRestrictionEffect : ICardEffect
 {
-    public ContinuousSelfRestrictionEffect(CardSource card, string restrictionKey, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
+    public ContinuousSelfRestrictionEffect(CardSource card, string restrictionKey, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null, Func<CardSource, bool>? counterpartPredicate = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
@@ -797,6 +797,7 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
         IsInheritedEffect = isInheritedEffect;
         Condition = condition;
         CausingEffectPredicate = causingEffectPredicate;
+        CounterpartPredicate = counterpartPredicate;
     }
 
     public CardSource Card { get; }
@@ -811,6 +812,11 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
     /// SOURCE card matches this. Null = blocks any effect.</summary>
     public Func<CardSource, bool>? CausingEffectPredicate { get; }
 
+    /// <summary>(W6-G) AS-IS defenderCondition/attackerCondition — the restriction only applies when the COUNTERPART
+    /// (blocker for BeBlocked, attacker for BeAttacked) matches this predicate; consumed by
+    /// <c>ContinuousRestrictionGate.SoftenByCounterpart</c>. Null = applies to any counterpart.</summary>
+    public Func<CardSource, bool>? CounterpartPredicate { get; }
+
     public EffectBinding ToBinding(string effectId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
@@ -823,6 +829,11 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
         if (CausingEffectPredicate is not null)
         {
             values[RestrictionHelpers.CausingEffectPredicateKey] = CausingEffectPredicate;
+        }
+
+        if (CounterpartPredicate is not null)
+        {
+            values[RestrictionHelpers.CounterpartPredicateKey] = CounterpartPredicate;
         }
 
         if (IsInheritedEffect)
@@ -4754,8 +4765,12 @@ public static partial class CardEffectFactory
 
     /// <summary>(PRIM-W3) <c>CanNotBeBlockedStaticSelfEffect</c> — this Digimon cannot be blocked (unblockable);
     /// consulted by BlockTiming when enumerating blocker candidates.</summary>
-    public static ICardEffect CanNotBeBlockedStaticSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotBeBlockedKey, isInheritedEffect, condition);
+    public static ICardEffect CanNotBeBlockedStaticSelfEffect(Func<Permanent, bool>? defenderCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
+        new ContinuousSelfRestrictionEffect(
+            card, RestrictionHelpers.CannotBeBlockedKey, isInheritedEffect, condition,
+            counterpartPredicate: defenderCondition is null
+                ? null
+                : cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
 
     /// <summary>(PRIM-W3) <c>CantUnsuspendStaticEffect</c> — this Digimon does not unsuspend; consulted by the
     /// Unsuspend step.</summary>

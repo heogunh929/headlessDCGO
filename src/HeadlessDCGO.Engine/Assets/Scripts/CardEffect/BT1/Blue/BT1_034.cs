@@ -16,6 +16,7 @@ public sealed class BT1_034 : CEntity_Effect
             }
 
             cardEffects.Add(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
+                defenderCondition: null,
                 isInheritedEffect: true,
                 card: card,
                 condition: Condition));

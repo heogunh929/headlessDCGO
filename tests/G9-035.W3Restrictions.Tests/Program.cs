@@ -48,7 +48,7 @@ async Task CanNotBeBlocked()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousRestrictionGate.EvaluateBeBlocked(context, id).IsRestricted, "not restricted before grant");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(false, new CardSource(context, id, P1), null).ToBinding($"cbb:{id.Value}"));
+    context.EffectRegistry.Register(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"cbb:{id.Value}"));
     AssertTrue(ContinuousRestrictionGate.EvaluateBeBlocked(context, id).IsRestricted, "unblockable after grant");
 }
 

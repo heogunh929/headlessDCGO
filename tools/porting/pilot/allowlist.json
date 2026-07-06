@@ -553,7 +553,7 @@
     "CanNotAttackStaticEffect": "HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null",
     "Gain1MemoryTamerOpponentDigimonEffect": "CardSource card",
     "Gain2MemoryOptionDelayEffect": "CardSource card",
-    "CanNotBeBlockedStaticSelfEffect": "bool isInheritedEffect, CardSource card, Func<bool>? condition",
+    "CanNotBeBlockedStaticSelfEffect": "Func<Permanent, bool>? defenderCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null",
     "CantUnsuspendStaticEffect": "bool isInheritedEffect, CardSource card, Func<bool>? condition",
     "CanNotBeDestroyedBySkillStaticEffect": "bool isInheritedEffect, CardSource card, Func<bool>? condition",
     "ChangeSAttackStaticEffect": "Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition",
