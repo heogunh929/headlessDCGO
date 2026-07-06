@@ -515,6 +515,366 @@
       "TrySaveAsync"
     ]
   },
+  "enums": {
+    "GameEventType": [
+      "Unknown",
+      "StateChanged",
+      "CardMoved",
+      "EffectQueued",
+      "EffectResolved",
+      "ChoiceRequested",
+      "ChoiceResolved",
+      "ChoiceCleared",
+      "ActionQueued",
+      "ActionProcessed",
+      "InvalidAction",
+      "AttackDeclared",
+      "AttackResolved",
+      "AttackCleared",
+      "SecurityCheck",
+      "SecuritySkill",
+      "DelayedTrigger",
+      "GameEnded"
+    ],
+    "SpecialPlayKind": [
+      "DigiXros",
+      "DnaDigivolve",
+      "Blast",
+      "AppFusion",
+      "Burst"
+    ],
+    "RevealDestination": [
+      "Hand",
+      "DeckTop",
+      "DeckBottom",
+      "Trash",
+      "DeckTopOrBottom",
+      "Custom"
+    ],
+    "SourceStackMutation": [
+      "AttachTop",
+      "AttachBottom",
+      "Detach"
+    ],
+    "SourceAttachPosition": [
+      "Top",
+      "Bottom"
+    ],
+    "AttackTargetKind": [
+      "Player",
+      "Digimon"
+    ],
+    "AttackPhase": [
+      "None",
+      "Declared",
+      "Blocking",
+      "Combat",
+      "DeletionReplacement",
+      "PiercingSecurity",
+      "Resolved",
+      "Completed"
+    ],
+    "FlowProcessStatus": [
+      "Stable",
+      "PausedForChoice",
+      "MaxIterationsExceeded"
+    ],
+    "CardStateMutation": [
+      "Suspend",
+      "Unsuspend",
+      "Reveal",
+      "Hide"
+    ],
+    "FusionKind": [
+      "None",
+      "DnaDigivolve",
+      "DigiXros"
+    ],
+    "Outcome": [
+      "Pending",
+      "Destroyed",
+      "Spared"
+    ],
+    "HeadlessPhase": [
+      "None",
+      "Active",
+      "Draw",
+      "Breeding",
+      "Main",
+      "End",
+      "Setup",
+      "Unsuspend",
+      "MemoryPass"
+    ],
+    "ChoiceType": [
+      "Unknown",
+      "Card",
+      "HandCard",
+      "Permanent",
+      "Count",
+      "AttackTarget",
+      "MainPhaseAction",
+      "OptionalEffect",
+      "Blocker",
+      "Mulligan",
+      "DeletionReplacement",
+      "AllianceTarget",
+      "EffectAttack",
+      "OverclockTarget",
+      "RevealSelect",
+      "ModeChoice"
+    ],
+    "ChoiceZone": [
+      "Library",
+      "Trash",
+      "Clock",
+      "Security",
+      "Custom",
+      "Hand",
+      "Recollection",
+      "Execution",
+      "DigivolutionCards",
+      "LinkedCards",
+      "BattleArea",
+      "BreedingArea",
+      "DigitamaLibrary",
+      "None"
+    ],
+    "PlayCostModifierStage": [
+      "CostItself",
+      "PayingCost"
+    ],
+    "PlayCostModifierMode": [
+      "Add",
+      "Set"
+    ],
+    "PlayCostRoot": [
+      "None",
+      "Hand",
+      "Trash",
+      "Library",
+      "Security",
+      "Source",
+      "Link"
+    ],
+    "EffectResolutionMode": [
+      "Unknown",
+      "MainStack",
+      "CutIn",
+      "Background",
+      "RuleProcess"
+    ],
+    "EffectResolutionStatus": [
+      "Resolved",
+      "Unbound",
+      "Failed",
+      "Suspended"
+    ],
+    "EffectDuration": [
+      "UntilEachTurnEnd",
+      "UntilOwnerTurnEnd",
+      "UntilOpponentTurnEnd",
+      "UntilEndAttack",
+      "UntilEndBattle",
+      "UntilOwnerActivePhase",
+      "UntilNextUntap",
+      "UntilCalculateFixedCost"
+    ],
+    "LogLevel": [
+      "Info",
+      "Warn",
+      "Error"
+    ],
+    "EffectQueryRole": [
+      "None",
+      "Continuous",
+      "Replacement",
+      "Modifier",
+      "Restriction"
+    ],
+    "ZoneInsertion": [
+      "Bottom",
+      "Top"
+    ],
+    "MinMaxRequirementMetric": [
+      "DP",
+      "PlayCost",
+      "Level",
+      "DigivolutionCards"
+    ],
+    "MinMaxRequirementMode": [
+      "Min",
+      "Max"
+    ],
+    "CardRequirementKind": [
+      "Name",
+      "Color",
+      "Trait"
+    ],
+    "CardRequirementQuantifier": [
+      "Any",
+      "All"
+    ],
+    "CardRequirementTextMode": [
+      "Exact",
+      "Contains"
+    ],
+    "Category": [
+      "NameColors",
+      "Traits"
+    ],
+    "CanUseEffectEvaluationKind": [
+      "Trigger",
+      "Activate",
+      "Use"
+    ],
+    "CannotRestrictionKind": [
+      "Attack",
+      "Block",
+      "Delete",
+      "ReturnToHand",
+      "ReturnToDeck",
+      "Suspend",
+      "Digivolve",
+      "Unsuspend",
+      "BeBlocked",
+      "DeleteBySkill",
+      "BeAttacked"
+    ],
+    "ReplacementEventKind": [
+      "RemoveFromField",
+      "Delete",
+      "DpReduction",
+      "EffectMutation",
+      "CostReduction"
+    ],
+    "ReplacementActionKind": [
+      "Prevent",
+      "Redirect",
+      "Immune"
+    ],
+    "EffectSourceKind": [
+      "Native",
+      "Inherited",
+      "Granted",
+      "Security"
+    ],
+    "OnceFlagScope": [
+      "Turn",
+      "Timing"
+    ],
+    "EffectTiming": [
+      "None",
+      "OnEnterFieldAnyone",
+      "OnDetermineDoSecurityCheck",
+      "OnUseAttack",
+      "WhenDigivolving",
+      "OnDestroyedAnyone",
+      "OnAllyAttack",
+      "OnBlockAnyone",
+      "OnEndTurn",
+      "OnStartTurn",
+      "OptionSkill",
+      "SecuritySkill",
+      "BeforePayCost",
+      "OnMove",
+      "OnStartMainPhase",
+      "OnEndBattle",
+      "OnDeclaration",
+      "OnTappedAnyone",
+      "OnUnTappedAnyone",
+      "OnCounterTiming",
+      "WhenLinked",
+      "OnLinkCardDiscarded",
+      "OnAddDigivolutionCards",
+      "OnUseOption",
+      "OnDiscardSecurity",
+      "AfterPayCost",
+      "WhenTopCardTrashed",
+      "OnFaceUpSecurityIncreased",
+      "WhenRemoveField",
+      "OnLoseSecurity",
+      "OnDiscardHand",
+      "OnAddHand",
+      "OnDiscardLibrary",
+      "OnAddSecurity",
+      "WhenReturntoHandAnyone",
+      "WhenReturntoLibraryAnyone",
+      "OnSecurityCheck",
+      "OnReturnCardsToHandFromTrash",
+      "OnPermamemtReturnedToHand",
+      "OnRemovedField",
+      "OnLeaveFieldAnyone",
+      "OnReturnCardsToLibraryFromTrash",
+      "OnEndAttack",
+      "OnDigivolutionCardDiscarded",
+      "OnAttackTargetChanged",
+      "WhenPermanentWouldBeDeleted"
+    ],
+    "DigivolveCost": [
+      "Free",
+      "Normal",
+      "Reduced",
+      "Fixed"
+    ],
+    "TargetCandidateKind": [
+      "Card",
+      "Permanent",
+      "Player"
+    ],
+    "TargetOwnerScope": [
+      "Any",
+      "SourcePlayer",
+      "Opponent"
+    ],
+    "TargetVisibilityScope": [
+      "PublicOnly",
+      "ControllerPrivate",
+      "IncludeHidden"
+    ],
+    "TargetSuspensionScope": [
+      "Any",
+      "SuspendedOnly",
+      "UnsuspendedOnly"
+    ],
+    "NumericModifierMetric": [
+      "Dp",
+      "BaseDp",
+      "PlayCost",
+      "DigivolutionCost",
+      "SecurityAttack",
+      "LinkedMax",
+      "LinkCost"
+    ],
+    "NumericModifierMode": [
+      "Add",
+      "Set",
+      "InvertDelta"
+    ],
+    "TriggerConditionKind": [
+      "OnPlay",
+      "OnDigivolve",
+      "WhenAttacking"
+    ],
+    "KeywordBaseBatch1Kind": [
+      "Blocker",
+      "Jamming",
+      "Reboot",
+      "Piercing"
+    ],
+    "KeywordBaseBatch2Kind": [
+      "Rush",
+      "Blitz",
+      "Retaliation",
+      "ArmorPurge",
+      "Decode",
+      "Alliance",
+      "Vortex",
+      "Overclock",
+      "Partition",
+      "Progress"
+    ]
+  },
   "factory_signatures": {
     "ChangeSelfSAttackStaticEffect": "int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition",
     "ChangeSelfDPStaticEffect": "int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition",

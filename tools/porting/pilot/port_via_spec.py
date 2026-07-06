@@ -142,6 +142,7 @@ def port_card(card_id: str, retries: int = 3) -> dict:
 
     router = LocalModelRouter()
     last_err = ""
+    last_spec = None  # (survey) the last well-formed spec the model produced, for failure analysis.
     for attempt in range(1, retries + 2):
         raw = router.call("coder", SPEC_SYSTEM, build_user(card_id, ns, asis, tags, last_err), extract_code=False)
         try:
@@ -149,6 +150,7 @@ def port_card(card_id: str, retries: int = 3) -> dict:
         except Exception as ex:  # noqa: BLE001
             last_err = f"JSON parse error: {ex}. Output ONLY a valid JSON spec in a ```json block."
             continue
+        last_spec = spec
         try:
             cs = render(spec, ALLOW)
         except Exception as ex:  # noqa: BLE001
@@ -162,7 +164,7 @@ def port_card(card_id: str, retries: int = 3) -> dict:
         if ok:
             return {"card_id": card_id, "ok": True, "attempts": attempt, "spec": spec}
         last_err = detail
-    return {"card_id": card_id, "ok": False, "attempts": retries + 1, "last_err": last_err[-500:]}
+    return {"card_id": card_id, "ok": False, "attempts": retries + 1, "last_err": last_err[-500:], "last_spec": last_spec}
 
 
 def _report(rec: dict) -> None:

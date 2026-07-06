@@ -34,6 +34,10 @@ import sys
 from pathlib import Path
 
 ALLOWLIST = Path(__file__).resolve().parent / "allowlist.json"
+try:
+    _ENUMS: dict[str, list[str]] = json.loads(ALLOWLIST.read_text(encoding="utf-8")).get("enums", {})
+except Exception:  # noqa: BLE001
+    _ENUMS = {}
 DEFAULT_USINGS = [
     "HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons",
     "HeadlessDCGO.Engine.Headless.Services",
@@ -152,7 +156,14 @@ def _render_arg(ptype: str, pname: str, args: dict) -> str | None:
         return str(val)  # a bool expression string
     if base == "string":
         return json.dumps(str(val))  # C# string literal
-    # enums / other: pass verbatim
+    # (enum) the model often writes a bare enum value ('Trash' instead of 'ChoiceZone.Trash'); prefix it.
+    if base in _ENUMS:
+        s = str(val).strip()
+        if "." not in s and s in _ENUMS[base]:
+            return f"{base}.{s}"
+        # already-qualified or unknown value -> pass verbatim (compiler validates)
+        return s
+    # other: pass verbatim
     return str(val)
 
 

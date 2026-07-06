@@ -134,6 +134,40 @@ def factory_signatures(text: str) -> dict[str, str]:
     return out
 
 
+def enum_values() -> dict[str, list[str]]:
+    """enum type name -> its member names, for the factory-arg enums the model tends to write bare
+    (ChoiceZone.Trash written as 'Trash' etc.). Scanned from the engine so it stays in sync."""
+    out: dict[str, list[str]] = {}
+    roots = [
+        ROOT / "src/HeadlessDCGO.Engine/Headless/Runtime",
+        ROOT / "src/HeadlessDCGO.Engine/Headless/Choices",
+        ROOT / "src/HeadlessDCGO.Engine/Headless/Effects",
+        ROOT / "src/HeadlessDCGO.Engine/Headless/Services",
+        ROOT / "src/HeadlessDCGO.Engine/Assets/Scripts/Script/CardEffectCommons",
+    ]
+    seen: set[str] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.cs"):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            for m in re.finditer(r"\benum\s+(\w+)\s*\{(.*?)\}", text, re.S):
+                name = m.group(1)
+                if name in seen:
+                    continue
+                members = re.findall(r"\b([A-Z]\w*)\b", m.group(2).split("//")[0] if "//" not in m.group(2) else m.group(2))
+                # clean: split lines, take the leading identifier before '=' or ','
+                vals = []
+                for line in m.group(2).splitlines():
+                    mm = re.match(r"\s*([A-Za-z_]\w*)\s*(?:=|,|$)", line.split("//")[0])
+                    if mm:
+                        vals.append(mm.group(1))
+                if vals:
+                    out[name] = vals
+                    seen.add(name)
+    return out
+
+
 def gate_statics() -> dict[str, list[str]]:
     """public static method names of every *Gate.cs (query helpers like HasKeyword)."""
     out: dict[str, list[str]] = {}
@@ -171,6 +205,7 @@ def main() -> None:
         "CardEffectCommons": members_of(text, "CardEffectCommons"),
         "CardSource": members_of(text, "CardSource"),
         "gates": gate_statics(),
+        "enums": enum_values(),
         "factory_signatures": factory_signatures(text),
         "commons_signatures": commons_signatures(text),
         "known_hallucinations": KNOWN_HALLUCINATIONS,
