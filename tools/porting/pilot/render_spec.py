@@ -74,6 +74,33 @@ def _parse_params(sig: str) -> list[tuple[str, str]]:
 FUNC_VARS = {"HeadlessEntityId": "id", "Permanent": "p", "CardSource": "cs"}
 _TARGET_VARS = ("id", "p", "cs")
 
+# (§1) AS-IS permanent.<Property> -> headless commons method (id form). The model routinely transcribes the
+# AS-IS predicate as `<var>.<Property>` (member access) instead of the commons call; this deterministically
+# rewrites the known ones — the exact mechanical transform the model keeps missing (BT2_003 etc.).
+_PROP_MAP = {
+    "IsSuspended": "IsSuspended",
+    "IsDigimon": "IsBattleAreaDigimon",
+    "HasNoDigivolutionCards": "HasNoDigivolutionCards",
+    "Level": "LevelOf",
+}
+_PROP_RE = re.compile(r"\b(\w+)\.(" + "|".join(_PROP_MAP) + r")\b")
+
+
+def _rewrite_predicate(expr: str, var: str) -> str:
+    """(§1 deterministic transform) `<targetvar>.<Prop>` -> `CardEffectCommons.<mapped>(card, id)`.
+    Only for the id form (dominant canTarget/optionPredicate case); `card.<X>` (this card's own property) is
+    preserved. Normalises a wrong/AS-IS variable name to `id` too."""
+    if var != "id":
+        return expr  # conservative: p/cs commons overloads differ (permanent-first) — leave the model's output
+
+    def repl(m: re.Match) -> str:
+        obj, prop = m.group(1), m.group(2)
+        if obj == "card":  # THIS card's own property (card.Level etc.) — not a target query
+            return m.group(0)
+        return f"CardEffectCommons.{_PROP_MAP[prop]}(card, {var})"
+
+    return _PROP_RE.sub(repl, expr)
+
 
 def _render_func(base: str, pname: str, expr: str) -> str:
     """Wrap a predicate expression as a lambda of the correct arity/var, and validate arity.
@@ -89,6 +116,8 @@ def _render_func(base: str, pname: str, expr: str) -> str:
         return f"() => ({expr})"
     vtype = argtypes[0]
     var = FUNC_VARS.get(vtype, "x")
+    # (§1) deterministic member-access -> commons rewrite (normalises wrong var to `id` for the id form).
+    expr = _rewrite_predicate(expr, var)
     # a single-arg predicate must reference its own var, not a different target var.
     for v in _TARGET_VARS:
         if v != var and re.search(rf"\b{v}\b", expr):
