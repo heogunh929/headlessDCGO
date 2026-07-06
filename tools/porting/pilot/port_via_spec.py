@@ -63,7 +63,30 @@ Rules:
 """
 
 
+# per-param guidance so the model never has to INFER the lambda variable from the Func type.
+def _param_hint(ptype: str, pname: str) -> str:
+    base = ptype.rstrip("?").strip()
+    if base == "CardSource":
+        return f"{pname}: OMIT (the 'card' parameter is auto-filled)"
+    if base.startswith("Func<"):
+        inner = base[len("Func<"):].rsplit(">", 1)[0]
+        args = [t.strip() for t in inner.split(",")]
+        if len(args) <= 1:  # Func<bool>
+            return f"{pname} [{ptype}]: SELF/global condition — use ONLY `card`, NO target variable. e.g. CardEffectCommons.IsOwnerTurn(card)"
+        vtype = args[0]
+        var = {"HeadlessEntityId": "id", "Permanent": "p", "CardSource": "cs"}.get(vtype, "x")
+        if var == "id":
+            ex = "CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.LevelOf(card, id) <= 4"
+        elif var == "p":
+            ex = "CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(p, card)  (permanent FIRST)"
+        else:
+            ex = f"CardEffectCommons.<Predicate>({var}, card)"
+        return f"{pname} [{ptype}]: TARGET predicate — use variable `{var}` (a {vtype}). e.g. {ex}"
+    return f"{pname}: {ptype}"
+
+
 def factory_context(action_tags: list[str]) -> str:
+    from render_spec import _parse_params  # reuse the exact param parser
     sigs = ALLOW["factory_signatures"]
     facs: set[str] = set()
     for t in action_tags:
@@ -73,7 +96,14 @@ def factory_context(action_tags: list[str]) -> str:
         facs.update(e.get("also", []))
     facs.update(f for f in ALLOW["CardEffectFactory"]
                 if f.startswith("SelectAnd") or f in ("DrawCardsEffect",) or f.startswith("CanNot"))
-    return "\n".join(f"- {f}({sigs[f]})" for f in sorted(facs) if f in sigs)
+    blocks = []
+    for f in sorted(facs):
+        if f not in sigs:
+            continue
+        params = _parse_params(sigs[f])
+        lines = [f"{f}:"] + [f"    - {_param_hint(t, n)}" for t, n in params]
+        blocks.append("\n".join(lines))
+    return "\n".join(blocks)
 
 
 def commons_context() -> str:
