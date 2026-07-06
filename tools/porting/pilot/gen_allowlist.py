@@ -110,6 +110,9 @@ KNOWN_HALLUCINATIONS = {
     "IsOwnerOwnedDigimon": "x.Owner == card.Owner && x.IsDigimon",
     "PermanentId": "InstanceId",
     "IsMainPhase": "(no card-facing predicate — usually unnecessary; if truly needed this is a STOP)",
+    # 클래스 오참조(BT2 cold): 팩토리를 CardEffectCommons 하위로 잘못 중첩.
+    "CardEffectFactory": "CardEffectFactory는 별개의 정적 클래스 — CardEffectCommons.CardEffectFactory가 아니라 CardEffectFactory.<메서드>로 직접 호출",
+    "ActivateClass": "ActivateClass는 AS-IS 클래스명 — 헤드리스엔 없음. activated 효과는 해당 팩토리(DrawCardsEffect/SelectAndDestroyEffect 등)를 그 타이밍에 반환하면 브릿지가 해소(cheatsheet §7)",
 }
 
 

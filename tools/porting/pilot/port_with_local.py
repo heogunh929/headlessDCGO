@@ -374,6 +374,9 @@ def port_card(
     semantic_review: bool = False,
 ) -> dict:
     ref_id, tier = pick_reference(conn, card_id)
+    # (cold 층2) cold은 다층 오류(using 누락·네임스페이싱)라 한 층씩 걷어내려면 재시도 여유가 더 필요.
+    if tier == "cold":
+        max_retries += 2
     user0, task = build_prompt_for(card_id, ref_id, tier)
     source_rel = task["target_path"].split("CardEffect/")[-1]
     # 카드별 트림 심볼 표면: 대상 AS-IS + 레퍼런스(AS-IS·포팅본)에 등장한 심볼만(system은 원칙 프롬프트).

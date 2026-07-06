@@ -19,8 +19,11 @@
 namespace <Namespace hint 그대로>;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-// 필요할 때만 추가: using HeadlessDCGO.Engine.Headless.Services;  // IZoneStateReader
+using HeadlessDCGO.Engine.Headless.Services;   // HeadlessEntityId (select 술어 Func<HeadlessEntityId,bool>에 필수), IZoneStateReader
 // 필요할 때만 추가: using HeadlessDCGO.Engine.Headless.Runtime;   // ContinuousKeywordGate, ChoiceZone
+
+// 주의: CardEffectFactory는 CardEffectCommons와 별개의 정적 클래스다. 팩토리는 반드시 CardEffectFactory.<메서드>로
+// 호출하라 — CardEffectCommons.CardEffectFactory.<...> 같은 중첩 경로는 존재하지 않는다.
 
 public sealed class <카드번호> : CEntity_Effect
 {
