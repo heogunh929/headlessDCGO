@@ -87,9 +87,17 @@ def _render_arg(ptype: str, pname: str, args: dict) -> str | None:
         # generic predicate — pass the expression verbatim (model wrote the lambda form)
         return str(val)
     if base == "int":
-        return str(int(val))
+        # a plain literal, or a C# int EXPRESSION (e.g. Math.Min(2, Commons.Count(...))) — pass verbatim.
+        if isinstance(val, bool):
+            return str(int(val))
+        if isinstance(val, (int, float)):
+            return str(int(val))
+        s = str(val).strip()
+        return s if not re.fullmatch(r"-?\d+", s) else str(int(s))
     if base == "bool":
-        return "true" if val else "false"
+        if isinstance(val, bool):
+            return "true" if val else "false"
+        return str(val)  # a bool expression string
     if base == "string":
         return json.dumps(str(val))  # C# string literal
     # enums / other: pass verbatim
