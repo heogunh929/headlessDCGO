@@ -135,6 +135,69 @@ public sealed class TrashSecurityBody : IEffectBody
     }
 }
 
+/// <summary>Pay a "trash <c>count</c> cards from your own hand" cost, then apply a self mutation
+/// (<paramref name="followUpKind"/>, e.g. <see cref="MatchStateMutationSink.UnsuspendKind"/> for BT1_039
+/// "trash 3 cards in your hand to unsuspend this Digimon"). Interactive: the player picks exactly
+/// <c>count</c> hand cards (the caller's CanActivate has already ensured enough are held), they are trashed,
+/// then the self mutation resolves — mirroring the AS-IS SelectHandEffect(discard) → follow-up coroutine.</summary>
+public sealed class SelectTrashHandThenSelfMutationBody : IEffectBody
+{
+    private readonly int _count;
+    private readonly string _followUpKind;
+    private readonly string _message;
+
+    public SelectTrashHandThenSelfMutationBody(int count, string followUpKind, string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(followUpKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        _count = count;
+        _followUpKind = followUpKind;
+        _message = message;
+    }
+
+    public bool IsInteractive => true;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        var reader = (IZoneStateReader)card.Context.ZoneMover;
+        var candidates = reader.GetCards(card.Owner, ChoiceZone.Hand)
+            .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, ChoiceZone.Hand, isSelectable: true, card.Owner))
+            .ToList();
+        int max = Math.Min(_count, candidates.Count);
+        if (max <= 0)
+        {
+            return null;
+        }
+
+        // canNoSelect:false (AS-IS) → exactly max, no skip.
+        return EffectChoiceHelpers.CreatePermanentRequest(card.Owner, _message, minCount: max, maxCount: max, canSkip: false, candidates);
+    }
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        // Cost: trash each selected hand card.
+        foreach (HeadlessEntityId id in selected)
+        {
+            if (id.IsEmpty)
+            {
+                continue;
+            }
+
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.TrashCardKind, card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = id.Value }));
+        }
+
+        // Effect: the self mutation (e.g. unsuspend this card).
+        sink.Apply(new EffectMutation(
+            _followUpKind, card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
+    }
+}
+
 /// <summary>Pay a self-suspend cost, then gain N memory (AS-IS <c>SuspendPermanentsClass(this).Tap()</c>
 /// followed by <c>card.Owner.AddMemory(N)</c>) — e.g. ST4_14 "you may suspend this Tamer to gain 1 memory".
 /// The optional "may" is the activation itself (isOptional on the ActivatedEffect); the cost is applied
