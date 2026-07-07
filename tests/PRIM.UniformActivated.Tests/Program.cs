@@ -1,8 +1,10 @@
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // PRIM uniform-activated: the single ActivatedEffect (mirror of AS-IS ActivateClass) expresses shapes that had
@@ -18,6 +20,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("draw @ trigger: does NOT fire when another card is the subject", DrawTriggerOther),
     ("CanActivate precondition gates the body (deck empty -> blocked)", PreconditionGate),
     ("memory body: gain 1 memory", MemoryBodyGain),
+    ("BT1_003 LIVE: [When Attacking] conditional draw fires via bridge when this card attacks + opponent qualifies", BT1_003_Live),
+    ("BT1_003 LIVE: once-per-turn — a 2nd attack same turn does NOT draw again", BT1_003_OncePerTurn),
+    ("BT1_003 LIVE: no draw when the opponent has no no-source Digimon (CanActivate fails)", BT1_003_NoCondition),
+    ("BT1_003 LIVE: no draw when a DIFFERENT ally attacks (self-scope)", BT1_003_OtherAlly),
 };
 
 var failures = new List<string>();
@@ -81,6 +87,73 @@ async Task MemoryBodyGain()
     AssertTrue(e.CanResolve(TriggerCtx(self)), "CanResolve true for self");
     await Resolve(ctx, e);
     AssertEqual(1, ctx.MemoryController.Current.Current, "+1 memory applied");
+}
+
+// --- BT1_003 live (real card via the bridge) ---
+
+async Task BT1_003_Live()
+{
+    (EngineContext ctx, HeadlessEntityId atk) = BoardBT1_003(opponentNoSourceDigimon: true, deck: 3);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnAllyAttack", actor: P1, subject: atk);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(2, DeckCount(ctx, P1), "deck 3 - 1 = 2 (conditional draw@trigger fired live via the uniform primitive)");
+}
+
+async Task BT1_003_OncePerTurn()
+{
+    (EngineContext ctx, HeadlessEntityId atk) = BoardBT1_003(opponentNoSourceDigimon: true, deck: 3);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnAllyAttack", actor: P1, subject: atk);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnAllyAttack", actor: P1, subject: atk);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(2, DeckCount(ctx, P1), "only 1 draw this turn (once-per-turn cap): deck stays at 2");
+}
+
+async Task BT1_003_NoCondition()
+{
+    (EngineContext ctx, HeadlessEntityId atk) = BoardBT1_003(opponentNoSourceDigimon: false, deck: 3);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnAllyAttack", actor: P1, subject: atk);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(3, DeckCount(ctx, P1), "no qualifying opponent Digimon -> CanActivate fails -> no draw");
+}
+
+async Task BT1_003_OtherAlly()
+{
+    (EngineContext ctx, HeadlessEntityId atk) = BoardBT1_003(opponentNoSourceDigimon: true, deck: 3);
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnAllyAttack", actor: P1, subject: new HeadlessEntityId("p1:battle:OTHER"));
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(3, DeckCount(ctx, P1), "a different ally attacking does not fire BT1_003 (self-scope)");
+}
+
+(EngineContext, HeadlessEntityId) BoardBT1_003(bool opponentNoSourceDigimon, int deck)
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 3);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)ctx.CardRepository;
+
+    // BT1_003 on P1's battle area (definition cardNumber = "BT1_003" so its effect class is dispatched).
+    var atk = new HeadlessEntityId("p1:battle:BT1_003");
+    cards.Upsert(new CardRecord(new HeadlessEntityId("BT1_003"), "BT1_003", "Betamon", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(atk, new HeadlessEntityId("BT1_003"), P1));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, atk, ChoiceZone.None, ChoiceZone.BattleArea)).Wait();
+
+    if (opponentNoSourceDigimon)
+    {
+        var foe = new HeadlessEntityId("p2:battle:FOE");
+        cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:FOE"), "FOE", "Foe", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(foe, new HeadlessEntityId("DEF:FOE"), P2));
+        ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, foe, ChoiceZone.None, ChoiceZone.BattleArea)).Wait();
+    }
+
+    for (int i = 0; i < deck; i++)
+    {
+        var id = new HeadlessEntityId($"1:deck:{i}");
+        cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:d{i}"), $"d{i}", $"d{i}", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF:d{i}"), P1));
+        ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.Library)).Wait();
+    }
+
+    return (ctx, atk);
 }
 
 // --- Helpers ---

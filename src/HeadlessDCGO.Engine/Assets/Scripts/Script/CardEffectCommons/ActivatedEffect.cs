@@ -100,9 +100,14 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         MaxCountPerTurn = maxCountPerTurn;
         IsOptional = isOptional;
         Description = description;
+        // Stable per (card, timing, body-kind) so a once-per-turn cap keys the same flag across firings.
+        EffectId = new HeadlessEntityId($"{card.InstanceId.Value}:ae:{timing}:{body.GetType().Name}");
     }
 
     public CardSource Card { get; }
+
+    /// <summary>Stable id for once-per-turn flag keying (the activation flow is imperative, not a registered binding).</summary>
+    public HeadlessEntityId EffectId { get; }
 
     public EffectTiming Timing { get; }
 

@@ -290,6 +290,32 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ActivatedEffect uniform:
+                {
+                    // Uniform activated effect (mirror of AS-IS ActivateClass): honour the CanUse gate (subject
+                    // scope) + CanActivate precondition BEFORE the once-per-turn cap is consumed, then drive the
+                    // composable body (interactive choice or direct mutation). The card being resolved IS the
+                    // event subject here (bridge/onplay/digivolve route by subject), so enrich TriggerEntityId with it.
+                    var subjectCtx = new EffectContext(
+                        uniform.Card.Controller, uniform.Card.Owner, uniform.Card.InstanceId,
+                        triggerEntityId: uniform.Card.InstanceId, targetEntityIds: Array.Empty<HeadlessEntityId>());
+                    var resolveCtx = new CardEffectResolveContext(new EffectRequest(
+                        uniform.EffectId, uniform.Card.Controller, EffectTimings.ToTriggerName(uniform.Timing), subjectCtx));
+                    if (!uniform.CanResolve(resolveCtx))
+                    {
+                        break;
+                    }
+
+                    if (uniform.MaxCountPerTurn is int cap && !context.OnceFlags.TryActivate(resolveCtx.Request, cap))
+                    {
+                        break;
+                    }
+
+                    await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case DrawEffect draw:
                 {
                     // (BT-PRE-A1) "draw N" — no choice; stage the DrawCards mutation on the shared sink.
