@@ -100,6 +100,72 @@ public sealed class RecoveryBody : IEffectBody
     }
 }
 
+/// <summary>Trash the top/bottom N security cards of <paramref name="player"/> (AS-IS IDestroySecurity /
+/// DestroySecurity coroutine). Non-interactive.</summary>
+public sealed class TrashSecurityBody : IEffectBody
+{
+    private readonly HeadlessPlayerId _player;
+    private readonly int _count;
+    private readonly bool _fromTop;
+
+    public TrashSecurityBody(HeadlessPlayerId player, int count, bool fromTop)
+    {
+        _player = player;
+        _count = count;
+        _fromTop = fromTop;
+    }
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.TrashSecurityKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.PlayerIdKey] = _player.Value,
+                [MatchStateMutationSink.CountKey] = _count,
+                [MatchStateMutationSink.FromTopKey] = _fromTop,
+            }));
+    }
+}
+
+/// <summary>Pay a self-suspend cost, then gain N memory (AS-IS <c>SuspendPermanentsClass(this).Tap()</c>
+/// followed by <c>card.Owner.AddMemory(N)</c>) — e.g. ST4_14 "you may suspend this Tamer to gain 1 memory".
+/// The optional "may" is the activation itself (isOptional on the ActivatedEffect); the cost is applied
+/// first, then the memory gain, matching the AS-IS coroutine order. Non-interactive.</summary>
+public sealed class SuspendSelfAndGainMemoryBody : IEffectBody
+{
+    private readonly int _amount;
+
+    public SuspendSelfAndGainMemoryBody(int amount) => _amount = amount;
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        // Cost: suspend this card's own permanent (EntityId = source, TargetEntityIdKey = the suspend target).
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.SuspendKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
+        // Effect: gain N memory for the card's owner (same shape as MemoryBody).
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _amount }));
+    }
+}
+
 /// <summary>Return THIS card to its owner's hand (AS-IS AddThisCardToHand). Non-interactive.</summary>
 public sealed class SelfToHandBody : IEffectBody
 {

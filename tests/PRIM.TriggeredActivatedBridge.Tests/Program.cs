@@ -22,6 +22,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("[on unsuspend] draw 1: fires once, and a SECOND unsuspend same turn does NOT re-fire (v3 cap)", UnsuspendOncePerTurn),
     ("OnDigivolutionCardDiscarded (event-broadcast): a NON-subject listener fires when the OPPONENT's host loses a source", BroadcastDigiTrashFires),
     ("OnDigivolutionCardDiscarded gate scopes: OWN host's trashed source does NOT fire the opponent-gated listener", BroadcastDigiTrashGateScopes),
+    ("OnEndBattle (event-broadcast): a winner card's [End of Battle] activated effect fires, reading event.winnerIds", BroadcastEndBattleWinnerFires),
+    ("OnEndBattle gate scopes: a NON-winner card's win-gated effect does NOT fire", BroadcastEndBattleNonWinnerScoped),
+    ("OnTappedAnyone (event-broadcast): a NON-subject card fires when an OPPONENT's Digimon is suspended", BroadcastOppSuspendFires),
 };
 
 var failures = new List<string>();
@@ -173,6 +176,75 @@ async Task<(EngineContext Ctx, HeadlessEntityId Host)> SetupDigiTrash(HeadlessPl
     }
 
     return (ctx, host);
+}
+
+async Task BroadcastEndBattleWinnerFires()
+{
+    (EngineContext ctx, HeadlessEntityId winner, HeadlessEntityId loser) = await SetupEndBattle();
+    int before = HandCount(ctx, P1);
+    // Emit OnEndBattle actor-only (no subject) with battle-result metadata, as BattleResolver does.
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndBattle, actor: P1, subject: default,
+        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["winnerIds"] = winner.Value, ["loserIds"] = loser.Value });
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before + 1, HandCount(ctx, P1), "the winner card's [End of Battle] draw fired via the event-broadcast bridge (read event.winnerIds)");
+}
+
+async Task BroadcastEndBattleNonWinnerScoped()
+{
+    (EngineContext ctx, HeadlessEntityId winner, HeadlessEntityId loser) = await SetupEndBattle();
+    int before = HandCount(ctx, P1);
+    // The winner card is NOT among winnerIds (only the loser is) -> its win-gated effect must NOT fire.
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnEndBattle, actor: P1, subject: default,
+        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["winnerIds"] = loser.Value, ["loserIds"] = winner.Value });
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before, HandCount(ctx, P1), "a non-winner card's win-gated effect did not fire");
+}
+
+// P1 has the TfxWinBattleDraw card in play + library; an opponent card sits in play as the loser.
+async Task<(EngineContext Ctx, HeadlessEntityId Winner, HeadlessEntityId Loser)> SetupEndBattle()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 11);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxWinBattleDraw"), "TfxWinBattleDraw", "WB", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:LOSE"), "LOSE", "LO", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var winner = new HeadlessEntityId("1:battle:WIN");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(winner, new HeadlessEntityId("TfxWinBattleDraw"), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, winner, ChoiceZone.None, ChoiceZone.BattleArea));
+    var loser = new HeadlessEntityId("2:battle:LOSE");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(loser, new HeadlessEntityId("DEF:LOSE"), P2, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, loser, ChoiceZone.None, ChoiceZone.BattleArea));
+    for (int i = 1; i <= 3; i++)
+    {
+        var lib = new HeadlessEntityId($"1:lib:wb{i}");
+        cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:WB{i}"), $"WB{i}", $"WB{i}", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib, new HeadlessEntityId($"DEF:WB{i}"), P1, Metadata: new Dictionary<string, object?>()));
+        await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, lib, ChoiceZone.None, ChoiceZone.Library));
+    }
+    return (ctx, winner, loser);
+}
+
+async Task BroadcastOppSuspendFires()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 12);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);   // P1's turn
+    ctx.MemoryController.Initialize(0);
+    var cards = (CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOppSuspendMemory"), "TfxOppSuspendMemory", "OS", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Tamer"));
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:OPPD"), "OPPD", "OD", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    // P1's reacting card (a different card than the suspended subject)
+    var reactor = new HeadlessEntityId("1:battle:REACT");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(reactor, new HeadlessEntityId("TfxOppSuspendMemory"), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, reactor, ChoiceZone.None, ChoiceZone.BattleArea));
+    // P2's Digimon that becomes suspended (the event subject)
+    var oppDigi = new HeadlessEntityId("2:battle:OPPD");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(oppDigi, new HeadlessEntityId("DEF:OPPD"), P2, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, oppDigi, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    int beforeMem = ctx.MemoryController.Current.Current;
+    TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnTappedAnyone", actor: P2, subject: oppDigi);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(beforeMem + 1, ctx.MemoryController.Current.Current, "opponent's Digimon suspended -> the non-subject P1 card gained 1 memory via the broadcast bridge");
 }
 
 // --- Harness ---

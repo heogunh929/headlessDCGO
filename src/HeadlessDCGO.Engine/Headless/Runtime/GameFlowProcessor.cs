@@ -530,7 +530,10 @@ public sealed class GameFlowProcessor
         EffectTiming.OnAllyAttack,
         EffectTiming.OnDestroyedAnyone,
         EffectTiming.OnUnTappedAnyone,
-        EffectTiming.OnTappedAnyone,   // (Phase D) symmetric to OnUnTapped — MatchStateMutationSink emits it with subject
+        // OnTappedAnyone moved to EventBroadcastActivatedTimings: "[Your Turn] when an OPPONENT'S Digimon is
+        // suspended, …" lives on a DIFFERENT card (e.g. a Tamer, ST4_14) than the suspended subject, so it
+        // needs the cross-card broadcast, not the subject-scoped path. The suspend event carries subject =
+        // the tapped card, which the broadcast threads for each listener's CanTriggerWhenPermanentSuspends.
         // (v4) attack-declaration window — emitted with subject = attacker alongside OnAttack/OnAllyAttack
         // (AttackPermanentAction:151), so "[When Attacking]" activated effects (incl. Digi-Burst bodies declared
         // at OnDeclaration) resolve at declaration. Once per declaration event; a card gates itself.
@@ -545,7 +548,6 @@ public sealed class GameFlowProcessor
     private static readonly IReadOnlySet<EffectTiming> OncePerTurnBridgeTimings = new HashSet<EffectTiming>
     {
         EffectTiming.OnUnTappedAnyone,
-        EffectTiming.OnTappedAnyone,
     };
 
     /// <summary>(v2) BOUNDARY timings — carry no card subject (a turn boundary emitted with only an actor). The
@@ -556,10 +558,12 @@ public sealed class GameFlowProcessor
         EffectTiming.OnEndTurn,
         EffectTiming.OnStartTurn,
         EffectTiming.OnStartMainPhase,
-        // (Phase B) [End of Battle] — TriggerEventEmitter emits OnEndBattle actor-only; each card gates itself,
-        // one event per battle. (Other emitted windows use TriggerTimings names with no matching EffectTiming enum
-        // member yet — OnEndAttackPhase/OnEndMainPhase/OnDraw — so they need enum + name reconciliation first.)
-        EffectTiming.OnEndBattle,
+        // (Other emitted windows use TriggerTimings names with no matching EffectTiming enum member yet —
+        // OnEndAttackPhase/OnEndMainPhase/OnDraw — so they need enum + name reconciliation first.)
+        // NOTE: OnEndBattle moved to EventBroadcastActivatedTimings below — it carries battle-result metadata
+        // (winnerIds/loserIds) that "[End of Battle] when this deletes an opponent in battle" gates need, and
+        // the boundary branch discards the driving event. Broadcast per-battle-event is also more correct than
+        // the boundary's once-per-pass model when a turn has multiple battles.
     };
 
     /// <summary>(Phase D broadcast) EVENT-BROADCAST timings — the AS-IS fires these via a global
@@ -577,6 +581,16 @@ public sealed class GameFlowProcessor
     private static readonly IReadOnlySet<EffectTiming> EventBroadcastActivatedTimings = new HashSet<EffectTiming>
     {
         EffectTiming.OnDigivolutionCardDiscarded,
+        // (Phase D) [End of Battle] — emitted actor-only with battle-result metadata (winnerIds/loserIds/…,
+        // BattleResolver). Broadcast to every field card, threading the driving event so gates like
+        // CanTriggerWhenDeleteOpponentDigimonByBattle read "event.winnerIds"/"event.loserIds"; each card
+        // self-gates. One resolve per battle event (a turn with N battles opens N windows, as AS-IS); a
+        // "[Once Per Turn]" card caps itself via MaxCountPerTurn.
+        EffectTiming.OnEndBattle,
+        // (Phase D) [Your Turn] "when an opponent's Digimon is suspended, …" — the reacting effect lives on a
+        // different card (Tamer, ST4_14) than the suspended subject, so it broadcasts. The event carries
+        // subject = the suspended card; each listener's CanTriggerWhenPermanentSuspends self-gates on it.
+        EffectTiming.OnTappedAnyone,
     };
 
     private static async Task<int> BridgeActivatedTriggersAsync(

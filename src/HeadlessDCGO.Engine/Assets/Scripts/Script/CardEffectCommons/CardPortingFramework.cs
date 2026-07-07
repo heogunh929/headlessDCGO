@@ -2133,6 +2133,66 @@ public sealed class ActivatedSelectEffect : IActivatedCardEffect
         throw new NotSupportedException($"Activated select effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(ST4_16) Composite "select 1 (or up to <c>maxCount</c>) Digimon → bounce to hand" activated
+/// effect where the bounce ALSO discards all of the target's digivolution cards — the headless mirror of
+/// AS-IS <c>HandBounceClaass.Bounce()</c> (CardController.cs:2622), which unconditionally runs
+/// <c>permanent.DiscardEvoRoots()</c> (Permanent.cs:106) immediately before the top card leaves the field,
+/// for EVERY hand-bounce (not gated by any "cannot trash digivolution cards" flag, and NOT the
+/// <c>OnDigivolutionCardDiscarded</c> trigger — those belong to the separate skill-driven
+/// <c>ITrashDigivolutionCards</c> subsystem used by ST2_03/06/09, a different AS-IS mechanism).
+/// <para>Candidate enumeration/selection reuses <see cref="SelectPermanentEffect"/> (Mode.Bounce shape,
+/// same as the plain <see cref="ActivatedSelectEffect"/> bounce). <see cref="Apply"/> drives only the
+/// bounce mutation — the shared Mode→mutation contract stays 1:1 (locked by the G3.5-CVA2 ModeMapping
+/// test's "one mutation per mode" assertion); the resolver calls <see cref="DiscardSourcesAsync"/>
+/// separately and unconditionally, BEFORE <see cref="Apply"/>, mirroring the AS-IS ordering.</para></summary>
+public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCardEffect
+{
+    private readonly SelectPermanentEffect _select = new();
+
+    public ActivatedSelectBounceAndDiscardSourcesEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        Description = description;
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, card.InstanceId);
+        _select.SetUpCustomMessage(description);
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players) =>
+        _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
+
+    /// <summary>AS-IS <c>DiscardEvoRoots</c>: unconditionally trash ALL of each selected target's
+    /// digivolution sources (deepest DigiEgg included), bypassing the skill-trash immune gate and the
+    /// OnDigivolutionCardDiscarded trigger (both <c>ITrashDigivolutionCards</c>-specific — a different
+    /// AS-IS subsystem). Call BEFORE <see cref="Apply"/>, matching the AS-IS coroutine order.</summary>
+    public async Task DiscardSourcesAsync(IEnumerable<HeadlessEntityId> selected, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        foreach (HeadlessEntityId target in selected)
+        {
+            // count: int.MaxValue clamps to "all sources" inside TrashSourcesAsync (Math.Min(count, depth));
+            // gameEventQueue: null intentionally suppresses OnDigivolutionCardDiscarded (see summary above).
+            await DigivolutionStackHelpers.TrashSourcesAsync(
+                Card.Context.CardInstanceRepository, Card.Context.ZoneMover, target,
+                int.MaxValue, true, cancellationToken, null).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The bounce itself — the same <see cref="MatchStateMutationSink.ReturnToHandKind"/> mutation
+    /// the shared Mode.Bounce mapping emits.</summary>
+    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected) => _select.Apply(sink, selected);
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Activated bounce+source-discard effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>(PRIM-P0 B.O.4) A non-interactive one-shot before-pay cost reduction: when this card is being
 /// played/digivolved and <see cref="_condition"/> holds, register a one-shot <c>playCostDelta = -amount</c>
 /// self modifier tagged <see cref="EffectDuration.UntilCalculateFixedCost"/> (cleared once the cost is locked).
@@ -5691,6 +5751,15 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectAndBounceEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
         new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, description);
+
+    /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon, return each to its owner's
+    /// hand, AND trash all of that Digimon's digivolution cards" effect (Option [Main] bounce, e.g. ST4_16).
+    /// AS-IS <c>HandBounceClaass.Bounce()</c> unconditionally runs <c>permanent.DiscardEvoRoots()</c>
+    /// immediately before the top card leaves the field for EVERY hand-bounce (Permanent.cs:106) — see
+    /// <see cref="ActivatedSelectBounceAndDiscardSourcesEffect"/>.</summary>
+    public static ICardEffect SelectAndBounceWithSourceDiscardEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
+        new ActivatedSelectBounceAndDiscardSourcesEffect(card, canTarget, maxCount, description);
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack
     /// and/or block for <paramref name="duration"/>" effect (e.g. ST2_14).</summary>
@@ -9787,12 +9856,23 @@ public static class CardEffectCommons
     }
 
     /// <summary>Mirror of the original <c>AddActivateMainOptionSecurityEffect</c>: reuse the Option's [Main]
-    /// skill from security. The security-skill activation flow is not yet ported (kept for source fidelity,
-    /// not auto-registered).</summary>
-    public static void AddActivateMainOptionSecurityEffect(CardSource card, ref List<ICardEffect> cardEffects, string effectName)
+    /// skill from security (driven live by <see cref="Headless.Runtime.SecurityResolver"/> →
+    /// <see cref="ActivatedEffectResolver"/> at the SecuritySkill timing). <paramref name="afterMainBody"/>
+    /// mirrors the AS-IS <c>afterMainEffect</c> callback: a follow-up body (e.g. <see cref="SelfToHandBody"/>
+    /// for "then, add this card to your hand", ST4_15) resolved AFTER the reused [Main], in order.</summary>
+    public static void AddActivateMainOptionSecurityEffect(
+        CardSource card, ref List<ICardEffect> cardEffects, string effectName, IEffectBody? afterMainBody = null)
     {
         ArgumentNullException.ThrowIfNull(cardEffects);
         cardEffects.Add(new ReuseMainOptionEffect(effectName));
+        if (afterMainBody is not null)
+        {
+            // A gate-free ActivatedEffect carrying the follow-up body: resolved right after the reused [Main]
+            // in the same ResolveListAsync pass (SecuritySkill flow), matching the AS-IS sequential callback.
+            cardEffects.Add(new ActivatedEffect(
+                card: card, timing: EffectTiming.SecuritySkill, canUse: null, canActivate: null,
+                body: afterMainBody, maxCountPerTurn: null, isOptional: false, description: effectName));
+        }
     }
 
     /// <summary>Mirror of the original <c>Permanent.HasNoDigivolutionCards</c> (entity-id form): the

@@ -124,6 +124,24 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ActivatedSelectBounceAndDiscardSourcesEffect bounceDiscard:
+                {
+                    // (ST4_16) select + bounce, where the bounce ALSO discards all of the target's
+                    // digivolution cards — AS-IS HandBounceClaass.Bounce() runs DiscardEvoRoots()
+                    // unconditionally BEFORE the permanent leaves the field, so the discard is awaited
+                    // here first, then the bounce mutation is queued through the SAME sink.
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(bounceDiscard.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        await bounceDiscard.DiscardSourcesAsync(result.SelectedIds, cancellationToken).ConfigureAwait(false);
+                        bounceDiscard.Apply(sink, result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
                 case ActivatedSelectFromZoneEffect selectZone:
                 {
                     // (PRIM-P0-flow B.O.3) zone-card select-follow-up (add-to-hand / trash-from-zone).
