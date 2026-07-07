@@ -26,6 +26,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT1_003 LIVE: no draw when the opponent has no no-source Digimon (CanActivate fails)", BT1_003_NoCondition),
     ("BT1_003 LIVE: no draw when a DIFFERENT ally attacks (self-scope)", BT1_003_OtherAlly),
     ("select body (interactive): select + destroy the chosen opponent Digimon", SelectDestroyBody),
+    ("grant-continuous body: a [Main] skill grants a restriction (registers the continuous binding)", GrantRestrictionBody),
 };
 
 var failures = new List<string>();
@@ -89,6 +90,20 @@ async Task MemoryBodyGain()
     AssertTrue(e.CanResolve(TriggerCtx(self)), "CanResolve true for self");
     await Resolve(ctx, e);
     AssertEqual(1, ctx.MemoryController.Current.Current, "+1 memory applied");
+}
+
+async Task GrantRestrictionBody()
+{
+    (EngineContext ctx, HeadlessEntityId self) = Board();
+    var card = new CardSource(ctx, self, P1);
+    AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(ctx, self).IsRestricted, "not restricted before the grant");
+
+    var e = new ActivatedEffect(card, EffectTiming.OptionSkill, canUse: null, canActivate: null,
+        body: new GrantContinuousBody(CardEffectFactory.CantUnsuspendStaticEffect(false, card, null)),
+        maxCountPerTurn: null, isOptional: false, "[Main] grant: this Digimon can't unsuspend");
+
+    await Resolve(ctx, e);
+    AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(ctx, self).IsRestricted, "restricted after the [Main] grant resolved (continuous binding registered)");
 }
 
 async Task SelectDestroyBody()

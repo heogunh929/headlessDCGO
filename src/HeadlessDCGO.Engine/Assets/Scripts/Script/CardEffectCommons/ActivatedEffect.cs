@@ -118,6 +118,32 @@ public sealed class SelfToHandBody : IEffectBody
     }
 }
 
+/// <summary>Grant a continuous effect (a restriction / cost-modifier / keyword — any registered-continuous
+/// <see cref="ICardEffect"/>) by registering its binding when the activated skill resolves. Subsumes the
+/// "apply a CanNot* restriction / cost change via a [Main]/[Security]/trigger skill" shape — the ~18 static
+/// restriction factories + the cost factories are the payload; this body just wires their registration into the
+/// activation flow. Non-interactive.</summary>
+public sealed class GrantContinuousBody : IEffectBody
+{
+    private readonly ICardEffect _continuous;
+
+    public GrantContinuousBody(ICardEffect continuous)
+    {
+        ArgumentNullException.ThrowIfNull(continuous);
+        _continuous = continuous;
+    }
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        card.Context.EffectRegistry.Register(_continuous.ToBinding($"{card.InstanceId.Value}:grant:{_continuous.GetType().Name}"));
+    }
+}
+
 /// <summary>Select up to <c>maxCount</c> matching permanents and apply a <see cref="SelectPermanentEffect.Mode"/>
 /// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. Interactive.</summary>
 public sealed class SelectBody : IEffectBody
