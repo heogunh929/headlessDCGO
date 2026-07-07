@@ -9772,6 +9772,18 @@ public static class CardEffectCommons
         return count;
     }
 
+    /// <summary>AS-IS <c>Player.MemoryForPlayer</c>: the shared memory gauge read from <paramref name="card"/>'s
+    /// OWNER's perspective. The headless gauge (<c>MemoryController.Current.Current</c>) is single-signed and
+    /// turn-player-relative (positive = the turn player, per AceOverflowGate), so it is negated when the owner is
+    /// NOT the current turn player — giving the owner-relative value the AS-IS predicate compares (e.g. BT1_054
+    /// <c>MemoryForPlayer &gt;= 3</c>).</summary>
+    public static int MemoryForPlayer(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        int memory = card.Context.MemoryController.Current.Current;
+        return card.Context.TurnController.Current.TurnPlayerId == card.Owner ? memory : -memory;
+    }
+
     /// <summary>The field permanents matching <paramref name="condition"/> as a materialised id list — the
     /// enumeration mirror of <see cref="MatchConditionPermanentCount"/>. Used by the no-select "apply a mutation
     /// to EVERY matching permanent" bodies (the AS-IS <c>foreach (… GetBattleAreaDigimons().Filter(…))</c> loop),
@@ -9793,6 +9805,20 @@ public static class CardEffectCommons
         return ids;
     }
 
+    /// <summary>Stage a delete (AS-IS <c>DestroyPermanentsClass(target).Destroy()</c>) on <paramref name="target"/>
+    /// via the sink — the per-target action for select/derived-set destroy bodies (e.g. BT1_084 "delete every
+    /// same-named opponent Digimon"). The sink's centralised immunity + deletion-prevention gates filter
+    /// (source = <paramref name="card"/>), mirroring <c>DestroyPermanentsEffect</c>.</summary>
+    public static void DestroyPermanent(MatchStateMutationSink sink, CardSource card, HeadlessEntityId target)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(card);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.DeleteKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
+    }
+
     /// <summary>Stage a suspend (AS-IS <c>SuspendPermanentsClass(target).Tap()</c>) on <paramref name="target"/>
     /// via the sink — the per-target action for the no-select "suspend all matching" bodies. The sink's
     /// centralised immunity + cannot-suspend gates filter (source = <paramref name="card"/>).</summary>
@@ -9811,7 +9837,14 @@ public static class CardEffectCommons
     /// action for the no-select "trash all digivolution cards under every matching Digimon" bodies. Passing
     /// <c>int.MaxValue</c> lets the sink clamp to the host's actual source count. The sink's centralised immunity
     /// gate filters (source = <paramref name="card"/>).</summary>
-    public static void TrashAllDigivolutionCards(MatchStateMutationSink sink, CardSource card, HeadlessEntityId host, bool fromBottom)
+    public static void TrashAllDigivolutionCards(MatchStateMutationSink sink, CardSource card, HeadlessEntityId host, bool fromBottom) =>
+        TrashDigivolutionCards(sink, card, host, count: int.MaxValue, fromBottom);
+
+    /// <summary>Stage a trash of <paramref name="count"/> of <paramref name="host"/>'s digivolution cards from
+    /// the top/bottom (AS-IS <c>TrashDigivolutionCardsFromTopOrBottom(trashCount, isFromTop)</c>) via the sink —
+    /// the per-target action for suspend-cost / select bodies (e.g. BT1_086 "trash the bottom digivolution card
+    /// of 1 opponent Digimon" -> count:1, fromBottom:true). The sink clamps to the host's actual source count.</summary>
+    public static void TrashDigivolutionCards(MatchStateMutationSink sink, CardSource card, HeadlessEntityId host, int count, bool fromBottom)
     {
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(card);
@@ -9821,7 +9854,7 @@ public static class CardEffectCommons
             new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
-                [MatchStateMutationSink.CountKey] = int.MaxValue,
+                [MatchStateMutationSink.CountKey] = count,
                 [MatchStateMutationSink.FromBottomKey] = fromBottom,
             }));
     }

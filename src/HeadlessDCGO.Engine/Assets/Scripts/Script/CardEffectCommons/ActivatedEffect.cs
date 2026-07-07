@@ -302,6 +302,109 @@ public sealed class GrantPlayerScopeRestrictionBody : IEffectBody
     }
 }
 
+/// <summary>Pay an N-memory cost then unsuspend this card's own permanent — the AS-IS ActivateCoroutine
+/// <c>card.Owner.AddMemory(-N)</c> THEN <c>IUnsuspendPermanents(self).Unsuspend()</c> (e.g. BT1_081
+/// "[End of Attack][Twice Per Turn] You can unsuspend this Digimon by decreasing your memory by 3"). The
+/// payability gate (<c>MemoryController.CanPay(N)</c>) rides the owning ActivatedEffect's CanActivate. The
+/// reverse-order sibling of <see cref="SuspendSelfAndGainMemoryBody"/> (cost = suspend, effect = gain memory).
+/// Non-interactive.</summary>
+public sealed class MemoryCostThenUnsuspendSelfBody : IEffectBody
+{
+    private readonly int _memoryCost;
+
+    public MemoryCostThenUnsuspendSelfBody(int memoryCost) => _memoryCost = memoryCost;
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        // Cost: AS-IS card.Owner.AddMemory(-N).
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = -_memoryCost }));
+        // Effect: AS-IS IUnsuspendPermanents(self).Unsuspend().
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.UnsuspendKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
+    }
+}
+
+/// <summary>Gain N memory now, then schedule a one-shot reversal (lose N memory) at end of THIS turn — the AS-IS
+/// ActivateCoroutine <c>card.Owner.AddMemory(+N)</c> THEN a nested one-shot <c>AddMemory(-N)</c> registered via
+/// <c>AddEffectToPlayer(timing: OnEndTurn)</c> (e.g. BT1_090 "[Main] Gain 2 memory. At end of turn, lose 2
+/// memory"). The reversal fires exactly once (AddEffectToPlayer's DelayedOneShot bookkeeping), so it is a
+/// this-turn-only boost, not a permanent gain. Non-interactive.</summary>
+public sealed class MemoryGainThenScheduledReversalBody : IEffectBody
+{
+    private readonly int _amount;
+
+    public MemoryGainThenScheduledReversalBody(int amount) => _amount = amount;
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        // Immediate: AS-IS card.Owner.AddMemory(+N).
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _amount }));
+        // Deferred: AS-IS nested ActivateClass "Memory -N" registered via AddEffectToPlayer(OnEndTurn) — a
+        // fire-once end-of-turn reversal (DelayedOneShot semantics), mirrored by a TriggeredMemoryEffect(-N).
+        ICardEffect reversal = CardEffectFactory.AddMemoryTriggerEffect(
+            timing: EffectTiming.OnEndTurn,
+            amount: -_amount,
+            isInheritedEffect: false,
+            card: card,
+            condition: null,
+            description: $"At end of turn, lose {_amount} memory.");
+        CardEffectCommons.AddEffectToPlayer(EffectDuration.UntilEachTurnEnd, card, reversal, EffectTiming.OnEndTurn);
+    }
+}
+
+/// <summary>Pay a self-suspend cost (AS-IS <c>SuspendPermanentsClass(card.PermanentOfThisCard()).Tap()</c>) then
+/// run an inner body — the "you can suspend this &lt;card&gt; to &lt;effect&gt;" activated cost shape (e.g. BT1_086
+/// "you can suspend this Tamer to trash the bottom digivolution card of 1 opponent Digimon"). BuildRequest is
+/// delegated to the inner body (so an interactive inner select still surfaces its choice); Apply pays the suspend
+/// cost first, then runs the inner body. Interactive iff the inner body is.</summary>
+public sealed class SuspendSelfCostThenBody : IEffectBody
+{
+    private readonly IEffectBody _inner;
+
+    public SuspendSelfCostThenBody(IEffectBody inner)
+    {
+        ArgumentNullException.ThrowIfNull(inner);
+        _inner = inner;
+    }
+
+    public bool IsInteractive => _inner.IsInteractive;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) =>
+        _inner.BuildRequest(card, players);
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        // Cost: AS-IS SuspendPermanentsClass(card.PermanentOfThisCard()).Tap() — suspend this card's own permanent.
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.SuspendKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
+        _inner.Apply(card, sink, selected);
+    }
+}
+
 /// <summary>Apply a caller-supplied per-target mutation to EVERY field permanent matching a predicate, with NO
 /// player selection — the AS-IS ActivateCoroutine that runs <c>foreach (… GetBattleAreaDigimons().Filter(pred))
 /// &lt;mutation&gt;</c> directly (e.g. "trash all digivolution cards under every opponent Digimon" / "suspend all
@@ -347,16 +450,19 @@ public sealed class SelectBody : IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
     private readonly Action<HeadlessEntityId>? _onEachSelected;
+    private readonly Action<CardSource, MatchStateMutationSink, HeadlessEntityId>? _onEachSelectedWithSink;
 
     public SelectBody(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canNoSelect, bool canEndNotMax,
-        SelectPermanentEffect.Mode mode, string description, Action<HeadlessEntityId>? onEachSelected = null)
+        SelectPermanentEffect.Mode mode, string description, Action<HeadlessEntityId>? onEachSelected = null,
+        Action<CardSource, MatchStateMutationSink, HeadlessEntityId>? onEachSelectedWithSink = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(canTarget);
         _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId);
         _select.SetUpCustomMessage(description);
         _onEachSelected = onEachSelected;
+        _onEachSelectedWithSink = onEachSelectedWithSink;
     }
 
     public bool IsInteractive => true;
@@ -371,12 +477,22 @@ public sealed class SelectBody : IEffectBody
         _select.Apply(sink, selected);
         // ... then the AS-IS SelectPermanentCoroutine / afterSelectPermanentCoroutine per-selected-permanent
         // follow-up, scoped to exactly the id(s) the player chose (maxCount is <= 1 for every current caller, so
-        // the per-id vs after-all ordering distinction is moot).
+        // the per-id vs after-all ordering distinction is moot). The registry-scoped callback (keyword / DP
+        // grants that self-register via EffectRegistry) runs first; the sink-scoped callback (mutations derived
+        // from the pick — e.g. destroy every same-named permanent, trash the pick's digivolution cards) second.
         if (_onEachSelected is not null)
         {
             foreach (HeadlessEntityId id in selected)
             {
                 _onEachSelected(id);
+            }
+        }
+
+        if (_onEachSelectedWithSink is not null)
+        {
+            foreach (HeadlessEntityId id in selected)
+            {
+                _onEachSelectedWithSink(card, sink, id);
             }
         }
     }

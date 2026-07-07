@@ -75,7 +75,10 @@
 // No cardEffects registered for either branch. — 강모델
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.White;
 
+using System.Linq;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT1_084 : CEntity_Effect
 {
@@ -83,10 +86,51 @@ public sealed class BT1_084 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // STOP: [When Digivolving] "Choose 1 of your opponent's Digimon. Delete all of your opponent's
-        // Digimon that share a name with it." — needs a "select 1 reference -> destroy every same-named
-        // opponent permanent" activated body that does not exist yet (see file header).
-        // if (timing == EffectTiming.WhenDigivolving) { ... }
+        // [When Digivolving] "Choose 1 of your opponent's Digimon. Delete all of your opponent's Digimon that
+        // share a name with it." AS-IS: ActivateClass gated by CanTriggerWhenDigivolving (ported under the
+        // WhenDigivolving timing per the BT1_074/ST1_08/BT1_017 idiom — the bridge routes OnEnterFieldAnyone
+        // activated selects nowhere live). CanActivateCondition = IsExistOnBattleArea && HasMatchConditionPermanent
+        // (opponent battle-area Digimon). ActivateCoroutine: SelectPermanentEffect(Mode.Custom, maxCount=Min(1,
+        // count)) picks 1 reference, THEN destroyTargets = opponent battle-area Digimon whose TopCard.HasSameCardName
+        // (reference.TopCard) -> DestroyPermanentsClass(destroyTargets).Destroy() (reflexive: includes the reference).
+        // Headless mirror: uniform ActivatedEffect + SelectBody with a sink-scoped follow-up that, from the picked
+        // reference id, derives the same-named opponent set (MatchConditionPermanentIds + CardNames overlap) and
+        // deletes each (DestroyPermanent). The sink's immunity/deletion-prevention gates filter.
+        if (timing == EffectTiming.WhenDigivolving)
+        {
+            bool CanSelect(HeadlessEntityId id) => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+
+            cardEffects.Add(new ActivatedEffect(
+                card: card,
+                timing: EffectTiming.WhenDigivolving,
+                canUse: null,
+                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.HasMatchConditionPermanent(card, CanSelect),
+                body: new SelectBody(
+                    card: card,
+                    canTarget: CanSelect,
+                    maxCount: 1,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    mode: SelectPermanentEffect.Mode.Custom,
+                    description: "[When Digivolving] Choose 1 of your opponent's Digimon. Delete all of your opponent's Digimon that share a name with it.",
+                    onEachSelectedWithSink: (c, sink, refId) =>
+                    {
+                        IReadOnlyList<string> refNames = new Permanent(c.Context, refId, c.Owner).TopCard.CardNames;
+                        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(
+                            c, x => CardEffectCommons.IsOpponentBattleAreaDigimon(c, x)))
+                        {
+                            CardSource top = new Permanent(c.Context, id, c.Owner).TopCard;
+                            if (refNames.Any(n => top.EqualsCardName(n)))
+                            {
+                                CardEffectCommons.DestroyPermanent(sink, c, id);
+                            }
+                        }
+                    }),
+                maxCountPerTurn: null,
+                isOptional: false,
+                description: "[When Digivolving] Choose 1 of your opponent's Digimon. Delete all of your opponent's Digimon that share a name with it."));
+        }
 
         // STOP: [When Attacking] "You can unsuspend this Digimon by returning 1 of this Digimon's level 6
         // digivolution cards to your hand." — needs a "select 1 matching card from THIS permanent's own

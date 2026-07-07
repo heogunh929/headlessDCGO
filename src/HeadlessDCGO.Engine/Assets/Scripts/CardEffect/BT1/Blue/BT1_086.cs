@@ -49,7 +49,9 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT1_086 : CEntity_Effect
 {
@@ -62,10 +64,46 @@ public sealed class BT1_086 : CEntity_Effect
             cardEffects.Add(CardEffectFactory.SetMemoryTo3TamerEffect(card));
         }
 
-        // STOP: [Your Turn] When you play a blue Digimon, you can suspend this Tamer to trash the
-        // bottom digivolution card of 1 of your opponent's Digimon — needs a composed "suspend-self
-        // cost + interactive select-1-opponent-Digimon + trash bottom digivolution card" activated body
-        // that does not exist yet (see file header). — 강모델
+        // [Your Turn] When you play a blue Digimon, you can suspend this Tamer to trash the bottom digivolution
+        // card of 1 of your opponent's Digimon. AS-IS: ActivateClass on OnEnterFieldAnyone (broadcast when-play),
+        // CanUseCondition = IsExistOnBattleArea && IsOwnerTurn && CanTriggerOnPermanentPlay(PermanentCondition =
+        // owner's own battle-area blue Digimon), CanActivateCondition = IsExistOnBattleArea &&
+        // CanActivateSuspendCostEffect, ORDER=-1, ISOPTIONAL=true. ActivateCoroutine: SuspendPermanentsClass(self)
+        // .Tap() as cost, THEN SelectPermanentEffect(Mode.Custom, maxCount=Min(1,count), opponent Digimon with a
+        // trashable digivolution card) -> TrashDigivolutionCardsFromTopOrBottom(trashCount:1, isFromTop:false).
+        // Headless mirror: uniform ActivatedEffect + SuspendSelfCostThenBody(SelectBody) — the suspend-self cost
+        // wrapper runs first, then the interactive select trashes the bottom digivolution card of the pick via the
+        // sink-scoped follow-up.
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            bool PermanentCondition(Permanent permanent) =>
+                CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
+                    && permanent.TopCard.HasCardColor("Blue");
+
+            bool CanSelect(HeadlessEntityId id) =>
+                CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
+                    && CardEffectCommons.TrashableDigivolutionCount(card, id) >= 1;
+
+            cardEffects.Add(new ActivatedEffect(
+                card: card,
+                timing: EffectTiming.OnEnterFieldAnyone,
+                canUse: ctx => CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.IsOwnerTurn(card)
+                    && CardEffectCommons.CanTriggerOnPermanentPlay(ctx, card, PermanentCondition),
+                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.CanActivateSuspendCostEffect(card),
+                body: new SuspendSelfCostThenBody(new SelectBody(
+                    card: card,
+                    canTarget: CanSelect,
+                    maxCount: 1,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    mode: SelectPermanentEffect.Mode.Custom,
+                    description: "[Your Turn] You can suspend this Tamer to trash the bottom digivolution card of 1 of your opponent's Digimon.",
+                    onEachSelectedWithSink: (c, sink, id) => CardEffectCommons.TrashDigivolutionCards(sink, c, id, count: 1, fromBottom: true))),
+                maxCountPerTurn: null,
+                isOptional: true,
+                description: "[Your Turn] When you play a blue Digimon, you can suspend this Tamer to trash the bottom digivolution card of 1 of your opponent's Digimon."));
+        }
 
         if (timing == EffectTiming.SecuritySkill)
         {
