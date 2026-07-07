@@ -1,6 +1,6 @@
 # 프리미티브 카탈로그 (카드-facing 팩토리 전수)
 
-> 자동생성 · `CardEffectFactory` 공개 팩토리 **153종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
+> 자동생성 · `CardEffectFactory` 공개 팩토리 **154종**. 포팅 시 원본 `CardEffectFactory.<이름>(...)` 호출을 아래 헤드리스 시그니처로 미러한다(이름 동일이 원칙). 시그니처가 다르면 아래를 따른다.
 
 > 공통 인자: `card`=`CardSource`(호스트), `isInheritedEffect`=진화원 상속 여부(대개 false), `condition`=`Func<bool>?`(발동 게이트, 없으면 null). **모든 술어/값 인자는 실동작한다** — 원본이 넘기는 값을 그대로 넘겨라(null로 뭉개지 말 것): `permanentCondition`(대상 술어), `skillCondition`(원인-효과 술어), `level/minLevel/maxLevel`(진화 레벨 게이트), `trashValue`(Fragment X), `cardSourceConditions`(Partition 색 그룹), `isLinkedEffect`(링크 상태 게이트 — 원본이 `SetIsLinkedEffect(true)` 하면 true), `defenderCondition`/`canAttackPlayer`(공격 대상 술어).
 >
@@ -256,6 +256,7 @@
 | `ChangeSAttackStaticEffect` | ICardEffect | `ICardEffect ChangeSAttackStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `ChangeSecurityDigimonCardDPStaticEffect` | ICardEffect | `ICardEffect ChangeSecurityDigimonCardDPStaticEffect(Func<CardSource, bool> cardCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null)` |
 | `ChangeSelfDPStaticEffect` | ICardEffect | `ICardEffect ChangeSelfDPStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
+| `ChangeSelfDPStaticEffect` | ICardEffect | `ICardEffect ChangeSelfDPStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `ChangeSelfLinkMaxStaticEffect` | ICardEffect | `ICardEffect ChangeSelfLinkMaxStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `ChangeSelfSAttackStaticEffect` | ICardEffect | `ICardEffect ChangeSelfSAttackStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |
 | `ChangeSelfSAttackStaticEffect` | ICardEffect | `ICardEffect ChangeSelfSAttackStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)` |

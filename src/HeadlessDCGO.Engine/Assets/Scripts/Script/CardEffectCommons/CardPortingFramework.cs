@@ -4634,6 +4634,16 @@ public static partial class CardEffectFactory
     public static ICardEffect ChangeSelfDPStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousSelfModifierEffect(card, ModifierHelpers.DpDeltaKey, changeValue, isInheritedEffect, condition);
 
+    /// <summary>Original: <c>ChangeSelfDPStaticEffect&lt;Func&lt;int&gt;&gt;</c> — continuous ±DP on self with a
+    /// dynamic (read-time) value (e.g. BT1_073 "+1000 per suspended opponent Digimon"). Mirror of the
+    /// existing SAttack dynamic overload; the underlying <see cref="ContinuousSelfModifierEffect"/> already
+    /// supports the dynamic-value plumbing, only the DP-key factory overload was missing.</summary>
+    public static ICardEffect ChangeSelfDPStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(changeValue);
+        return new ContinuousSelfModifierEffect(card, ModifierHelpers.DpDeltaKey, changeValue: 0, isInheritedEffect, condition, dynamicValue: changeValue);
+    }
+
     /// <summary>(PRIM-W1-3) Original: <c>ChangeDigivolutionCostStaticEffect</c> — continuous ±digivolution
     /// cost on self (delta). Registers a <see cref="DigivolutionCostHelpers.DigivolutionCostDeltaKey"/> modifier
     /// under the continuous-modifier scope, which <c>ContinuousModifierGate.ResolveDigivolutionCost</c> folds
