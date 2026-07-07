@@ -74,6 +74,50 @@ public sealed class MemoryBody : IEffectBody
     }
 }
 
+/// <summary>&lt;Recovery +N (Deck)&gt; — move the top N deck cards onto the owner's security stack. Non-interactive.</summary>
+public sealed class RecoveryBody : IEffectBody
+{
+    private readonly int _amount;
+
+    public RecoveryBody(int amount) => _amount = amount;
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.RecoverKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.PlayerIdKey] = card.Owner.Value,
+                [MatchStateMutationSink.CountKey] = _amount,
+            }));
+    }
+}
+
+/// <summary>Return THIS card to its owner's hand (AS-IS AddThisCardToHand). Non-interactive.</summary>
+public sealed class SelfToHandBody : IEffectBody
+{
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ReturnToHandKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
+    }
+}
+
 /// <summary>Select up to <c>maxCount</c> matching permanents and apply a <see cref="SelectPermanentEffect.Mode"/>
 /// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. Interactive.</summary>
 public sealed class SelectBody : IEffectBody
