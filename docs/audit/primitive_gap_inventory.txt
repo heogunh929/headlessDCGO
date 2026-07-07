@@ -1,0 +1,63 @@
+scanned 1037 AS-IS cards across 20 sets
+
+=== DISTINCT SHAPES: 63  |  covered: 34  |  GAP: 29 ===
+
+### MISSING PRIMITIVES (action x timing-class, by #cards affected) ###
+   150  select_custom        @ trigger
+    58  play                 @ trigger
+    53  draw                 @ trigger
+    42  suspend              @ trigger
+    38  restriction          @ onplay
+    36  restriction          @ trigger
+    34  restriction          @ activated
+    29  select_destroy       @ trigger
+    23  select_suspend       @ trigger
+    23  cost_change          @ continuous
+    22  select_discard       @ trigger
+    22  trash_digivolution   @ trigger
+    21  select_discard       @ onplay
+    18  recovery             @ onplay
+    18  select_to_hand       @ trigger
+    17  cost_change          @ trigger
+    16  suspend              @ onplay
+    13  sattack_change       @ trigger
+    12  reveal_select        @ trigger
+    10  select_bounce        @ trigger
+     4  suspend              @ activated
+     3  recovery             @ activated
+     3  cost_change          @ activated
+     3  select_custom        @ continuous
+     2  grant_keyword        @ trigger
+     2  select_discard       @ activated
+     1  to_deck              @ activated
+     1  play                 @ continuous
+     1  to_deck              @ onplay
+
+  total card-hits on gaps: 675
+
+### COVERED shapes (for reference) ###
+   142  select_custom        @ onplay
+   122  memory               @ trigger
+   119  select_custom        @ activated
+    87  select_to_hand       @ onplay
+    69  dp_change            @ trigger
+    64  reveal_select        @ onplay
+    55  self_to_hand         @ activated
+    48  select_destroy       @ onplay
+    42  select_destroy       @ activated
+    39  memory               @ onplay
+    37  dp_change            @ activated
+    37  play                 @ onplay
+    32  draw                 @ onplay
+    31  play                 @ activated
+    28  dp_change            @ onplay
+    27  restriction          @ continuous
+    21  select_suspend       @ activated
+    19  select_suspend       @ onplay
+    16  trash_digivolution   @ onplay
+    14  select_bounce        @ activated
+    13  sattack_change       @ onplay
+    12  draw                 @ activated
+    12  memory               @ activated
+    12  sattack_change       @ activated
+    12  select_bounce        @ onplay
