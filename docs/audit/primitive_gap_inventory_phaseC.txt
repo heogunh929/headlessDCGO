@@ -1,0 +1,35 @@
+scanned 1037 cards | 206 distinct (action,timing) shapes
+
+COVERED shapes: 111  (1598 card-hits)
+GAP - unreachable timing (engine emission): 84  (184 hits)
+GAP - missing body (reachable timing): 11  (130 hits)
+
+### GAP: engine-emission (timing not emitted/bridged) — top ###
+    16  cost_change          @ BeforePayCost
+    10  restriction          @ BeforePayCost
+     8  memory               @ OnDigivolutionCardDiscarded
+     8  select_suspend       @ BeforePayCost
+     7  suspend              @ BeforePayCost
+     6  select_custom        @ WhenPermanentWouldBeDeleted
+     5  memory               @ OnTappedAnyone
+     4  trash_digivolution   @ OnDigivolutionCardDiscarded
+     4  select_custom        @ OnDigivolutionCardDiscarded
+     4  select_custom        @ BeforePayCost
+     4  memory               @ OnMove
+     4  play                 @ WhenPermanentWouldBeDeleted
+     3  memory               @ OnEndAttack
+     3  memory               @ OnLoseSecurity
+     3  dp_change            @ OnDigivolutionCardDiscarded
+
+### GAP: missing body (timing reachable, needs a body/effect) — top ###
+    38  restriction          @ OnEnterFieldAnyone
+    30  restriction          @ OptionSkill
+    23  cost_change          @ None
+    14  restriction          @ OnAllyAttack
+    12  restriction          @ SecuritySkill
+     4  restriction          @ OnDeclaration
+     3  cost_change          @ OptionSkill
+     3  select_custom        @ None
+     1  to_deck              @ OptionSkill
+     1  play                 @ None
+     1  to_deck              @ OnEnterFieldAnyone

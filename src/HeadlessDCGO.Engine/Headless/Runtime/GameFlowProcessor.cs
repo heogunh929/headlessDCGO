@@ -554,6 +554,10 @@ public sealed class GameFlowProcessor
         EffectTiming.OnEndTurn,
         EffectTiming.OnStartTurn,
         EffectTiming.OnStartMainPhase,
+        // (Phase B) [End of Battle] — TriggerEventEmitter emits OnEndBattle actor-only; each card gates itself,
+        // one event per battle. (Other emitted windows use TriggerTimings names with no matching EffectTiming enum
+        // member yet — OnEndAttackPhase/OnEndMainPhase/OnDraw — so they need enum + name reconciliation first.)
+        EffectTiming.OnEndBattle,
     };
 
     private static async Task<int> BridgeActivatedTriggersAsync(
