@@ -562,6 +562,23 @@ public sealed class GameFlowProcessor
         EffectTiming.OnEndBattle,
     };
 
+    /// <summary>(Phase D broadcast) EVENT-BROADCAST timings — the AS-IS fires these via a global
+    /// StackSkillInfos(hashtable, timing) that offers the event to EVERY field card; each card's OWN gate
+    /// (e.g. <c>CanTriggerOnTrashDigivolutionCard</c>) decides scope (self / ally / opponent host). The
+    /// bridge scans every battle-area card and passes the DRIVING EVENT through to the resolver, so gates
+    /// read the event subject (TriggerEntityId = the host permanent, NOT the listener) and the event's
+    /// metadata ("event.discardedCardIds" …) — mirror of the scheduler path's <see cref="TriggerTimingMap"/>
+    /// broadcast allow-list, for ACTIVATED effects. Fires once per event (a second trash that turn fires
+    /// again, as AS-IS), so no per-turn cap here; a card caps itself via MaxCountPerTurn.
+    /// KNOWN BOUNDARY: AS-IS GetSkillInfos also offers the timing to trash / hand / face-up security
+    /// cards; this scan covers the battle area only (same model as the boundary scan) — every current
+    /// listener at these timings lives on the field. Extend the scan zones when a trash/hand listener
+    /// is actually ported.</summary>
+    private static readonly IReadOnlySet<EffectTiming> EventBroadcastActivatedTimings = new HashSet<EffectTiming>
+    {
+        EffectTiming.OnDigivolutionCardDiscarded,
+    };
+
     private static async Task<int> BridgeActivatedTriggersAsync(
         EngineContext context, IReadOnlyList<GameEvent> pendingEvents, CancellationToken cancellationToken)
     {
@@ -571,8 +588,10 @@ public sealed class GameFlowProcessor
         }
 
         // Collect the (card, timing) resolutions this pass, de-duplicated, then resolve. Subject-scoped timings
-        // resolve the event subject; boundary timings scan every battle-area card (their events carry no subject).
-        var toResolve = new List<(HeadlessEntityId Card, EffectTiming Timing)>();
+        // resolve the event subject; boundary timings scan every battle-area card (their events carry no subject);
+        // event-broadcast timings scan every battle-area card PER EVENT, carrying the driving event through so the
+        // per-card gates decide scope (two distinct events fire twice — the AS-IS opens one window per trash).
+        var toResolve = new List<(HeadlessEntityId Card, EffectTiming Timing, GameEvent? Event)>();
         var seen = new HashSet<(HeadlessEntityId, EffectTiming)>();
         IZoneStateReader? zones = context.ZoneMover as IZoneStateReader;
         foreach (GameEvent gameEvent in pendingEvents)
@@ -588,7 +607,7 @@ public sealed class GameFlowProcessor
                 {
                     if (gameEvent.Subject is { IsEmpty: false } subject && seen.Add((subject, timing)))
                     {
-                        toResolve.Add((subject, timing));
+                        toResolve.Add((subject, timing, null));
                     }
                 }
                 else if (BoundaryActivatedTimings.Contains(timing) && zones is not null)
@@ -599,8 +618,20 @@ public sealed class GameFlowProcessor
                         {
                             if (seen.Add((cardId, timing)))
                             {
-                                toResolve.Add((cardId, timing));
+                                toResolve.Add((cardId, timing, null));
                             }
+                        }
+                    }
+                }
+                else if (EventBroadcastActivatedTimings.Contains(timing) && zones is not null)
+                {
+                    // No cross-event de-dup on purpose: each event is its own window. Within one event the
+                    // battle-area scan visits a card exactly once.
+                    foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+                    {
+                        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+                        {
+                            toResolve.Add((cardId, timing, gameEvent));
                         }
                     }
                 }
@@ -608,7 +639,7 @@ public sealed class GameFlowProcessor
         }
 
         int progressed = 0;
-        foreach ((HeadlessEntityId card, EffectTiming timing) in toResolve)
+        foreach ((HeadlessEntityId card, EffectTiming timing, GameEvent? drivingEvent) in toResolve)
         {
             if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
                 || instance is null || instance.OwnerId.IsEmpty)
@@ -632,13 +663,15 @@ public sealed class GameFlowProcessor
             try
             {
                 progressed += await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver
-                    .ResolveAsync(context, card, instance.OwnerId, timing, cancellationToken).ConfigureAwait(false);
+                    .ResolveAsync(context, card, instance.OwnerId, timing, cancellationToken, drivingEvent: drivingEvent)
+                    .ConfigureAwait(false);
             }
             catch (DeferredChoicePendingException)
             {
-                // An interactive activated trigger suspended — record it and stop; RunToStableAsync's IsPending
-                // check pauses on the next iteration (same pattern as OnPlayReactivation).
-                context.DeferredActivations.Suspend(card, timing, instance.OwnerId);
+                // An interactive activated trigger suspended — record it (with the driving event, so a broadcast
+                // gate re-evaluates against the same subject/metadata on resume) and stop; RunToStableAsync's
+                // IsPending check pauses on the next iteration (same pattern as OnPlayReactivation).
+                context.DeferredActivations.Suspend(card, timing, instance.OwnerId, drivingEvent);
                 return progressed;
             }
         }

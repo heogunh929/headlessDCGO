@@ -16,9 +16,9 @@ public sealed class DeferredActivationController : IHeadlessMatchStateResettable
 
     public bool HasPending => Pending is not null;
 
-    public void Suspend(HeadlessEntityId cardId, EffectTiming timing, HeadlessPlayerId playerId)
+    public void Suspend(HeadlessEntityId cardId, EffectTiming timing, HeadlessPlayerId playerId, GameEvent? drivingEvent = null)
     {
-        Pending = new DeferredActivation(cardId, timing, playerId);
+        Pending = new DeferredActivation(cardId, timing, playerId, drivingEvent);
     }
 
     public void Clear() => Pending = null;
@@ -26,4 +26,7 @@ public sealed class DeferredActivationController : IHeadlessMatchStateResettable
     public void ResetMatchState() => Pending = null;
 }
 
-public sealed record DeferredActivation(HeadlessEntityId CardId, EffectTiming Timing, HeadlessPlayerId PlayerId);
+/// <summary><paramref name="DrivingEvent"/> keeps the game event that drove a bridged broadcast activation
+/// (e.g. OnDigivolutionCardDiscarded) across the suspend, so the re-invoked resolver re-evaluates the gate
+/// with the same subject + event metadata (the AS-IS coroutine keeps its hashtable alive across the choice).</summary>
+public sealed record DeferredActivation(HeadlessEntityId CardId, EffectTiming Timing, HeadlessPlayerId PlayerId, GameEvent? DrivingEvent = null);

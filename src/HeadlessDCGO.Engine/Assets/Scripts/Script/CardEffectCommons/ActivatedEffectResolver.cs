@@ -28,7 +28,8 @@ public static class ActivatedEffectResolver
         HeadlessPlayerId controller,
         EffectTiming timing,
         CancellationToken cancellationToken = default,
-        bool skipReactivationHolder = false)
+        bool skipReactivationHolder = false,
+        GameEvent? drivingEvent = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -68,7 +69,7 @@ public static class ActivatedEffectResolver
         }
 
         int resolved = await ResolveListAsync(
-            context, effect, card, players, sink, effects, cancellationToken).ConfigureAwait(false);
+            context, effect, card, players, sink, effects, cancellationToken, drivingEvent).ConfigureAwait(false);
 
         await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
         coordinator?.CompleteResolution();
@@ -82,7 +83,8 @@ public static class ActivatedEffectResolver
         IReadOnlyList<HeadlessPlayerId> players,
         MatchStateMutationSink sink,
         IReadOnlyList<ICardEffect> cardEffects,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        GameEvent? drivingEvent = null)
     {
         int resolved = 0;
         foreach (ICardEffect cardEffect in cardEffects)
@@ -102,7 +104,7 @@ public static class ActivatedEffectResolver
                         {
                             ICardEffect branch = mode.BranchFor(available, result.SelectedIds[0]);
                             resolved += await ResolveListAsync(
-                                context, effectClass, card, players, sink, new[] { branch }, cancellationToken).ConfigureAwait(false);
+                                context, effectClass, card, players, sink, new[] { branch }, cancellationToken, drivingEvent).ConfigureAwait(false);
                         }
                     }
 
@@ -294,11 +296,37 @@ public static class ActivatedEffectResolver
                 {
                     // Uniform activated effect (mirror of AS-IS ActivateClass): honour the CanUse gate (subject
                     // scope) + CanActivate precondition BEFORE the once-per-turn cap is consumed, then drive the
-                    // composable body (interactive choice or direct mutation). The card being resolved IS the
-                    // event subject here (bridge/onplay/digivolve route by subject), so enrich TriggerEntityId with it.
+                    // composable body (interactive choice or direct mutation). Without a driving event the card
+                    // being resolved IS the event subject (subject-scoped bridge/onplay/digivolve route by
+                    // subject), so TriggerEntityId falls back to the card itself. A BROADCAST bridge timing
+                    // (AS-IS StackSkillInfos offers the event to every field card) passes the driving event:
+                    // TriggerEntityId is then the event's subject (e.g. the Digimon whose sources were trashed,
+                    // not this listener) and the event's primitive metadata is threaded as "event.<key>" values
+                    // so gates (CanTriggerOnTrashDigivolutionCard …) read the AS-IS hashtable mirror.
+                    HeadlessEntityId triggerId =
+                        drivingEvent?.Subject is HeadlessEntityId eventSubject && !eventSubject.IsEmpty
+                            ? eventSubject
+                            : uniform.Card.InstanceId;
+                    Dictionary<string, object?>? eventValues = null;
+                    if (drivingEvent is not null)
+                    {
+                        eventValues = new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            [GameFlowProcessor.EventTypeKey] = drivingEvent.Type.ToString(),
+                        };
+                        foreach (KeyValuePair<string, object?> pair in drivingEvent.Metadata)
+                        {
+                            if (pair.Value is string or int or bool or long)
+                            {
+                                eventValues[$"{GameFlowProcessor.EventValuePrefix}{pair.Key}"] = pair.Value;
+                            }
+                        }
+                    }
+
                     var subjectCtx = new EffectContext(
                         uniform.Card.Controller, uniform.Card.Owner, uniform.Card.InstanceId,
-                        triggerEntityId: uniform.Card.InstanceId, targetEntityIds: Array.Empty<HeadlessEntityId>());
+                        triggerEntityId: triggerId, targetEntityIds: Array.Empty<HeadlessEntityId>(),
+                        values: eventValues);
                     var resolveCtx = new CardEffectResolveContext(new EffectRequest(
                         uniform.EffectId, uniform.Card.Controller, EffectTimings.ToTriggerName(uniform.Timing), subjectCtx));
                     if (!uniform.CanResolve(resolveCtx))

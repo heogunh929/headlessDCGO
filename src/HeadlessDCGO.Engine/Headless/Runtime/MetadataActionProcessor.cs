@@ -614,7 +614,8 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 try
                 {
                     await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.ResolveAsync(
-                        context, pendingActivation.CardId, pendingActivation.PlayerId, pendingActivation.Timing, cancellationToken)
+                        context, pendingActivation.CardId, pendingActivation.PlayerId, pendingActivation.Timing, cancellationToken,
+                        drivingEvent: pendingActivation.DrivingEvent)
                         .ConfigureAwait(false);
                     // Clear BEFORE the brick-2b continuation: finishing the play may itself open a deferred
                     // [All Turns] reactivation, which re-suspends a FRESH activation we must not clobber.

@@ -20,6 +20,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("[End of Your Turn] draw 1 (boundary, no subject) fires via the scan bridge — owner's turn only, once", EndTurnDraw),
     ("[When Attacking] draw 1 at OnDeclaration (attack-declaration, Digi-Burst timing) fires via the bridge (v4)", DrawsOnDeclaration),
     ("[on unsuspend] draw 1: fires once, and a SECOND unsuspend same turn does NOT re-fire (v3 cap)", UnsuspendOncePerTurn),
+    ("OnDigivolutionCardDiscarded (event-broadcast): a NON-subject listener fires when the OPPONENT's host loses a source", BroadcastDigiTrashFires),
+    ("OnDigivolutionCardDiscarded gate scopes: OWN host's trashed source does NOT fire the opponent-gated listener", BroadcastDigiTrashGateScopes),
 };
 
 var failures = new List<string>();
@@ -114,6 +116,63 @@ async Task UnsuspendOncePerTurn()
     TriggerEventEmitter.Emit(ctx.GameEventQueue, "OnUnTappedAnyone", actor: P1, subject: sub);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before + 1, HandCount(ctx, P1), "second unsuspend same turn did NOT re-fire (once-per-turn cap)");
+}
+
+async Task BroadcastDigiTrashFires()
+{
+    (EngineContext ctx, HeadlessEntityId host) = await SetupDigiTrash(hostOwner: P2);
+    int before = HandCount(ctx, P1);
+    // Real emission path: trash 1 digivolution source off the OPPONENT's host (emits the event with
+    // subject = host + discardedCardIds metadata), then let auto-processing bridge it.
+    int trashed = await DigivolutionStackHelpers.TrashSourcesAsync(
+        ctx.CardInstanceRepository, ctx.ZoneMover, host, 1, fromBottom: true,
+        cancellationToken: default, gameEventQueue: ctx.GameEventQueue);
+    AssertEqual(1, trashed, "one digivolution source trashed off the host");
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before + 1, HandCount(ctx, P1), "the non-subject listener's draw fired via the event-broadcast bridge");
+}
+
+async Task BroadcastDigiTrashGateScopes()
+{
+    (EngineContext ctx, HeadlessEntityId host) = await SetupDigiTrash(hostOwner: P1);
+    int before = HandCount(ctx, P1);
+    // The host is the LISTENER'S OWN Digimon — the opponent-scope gate must reject it.
+    int trashed = await DigivolutionStackHelpers.TrashSourcesAsync(
+        ctx.CardInstanceRepository, ctx.ZoneMover, host, 1, fromBottom: true,
+        cancellationToken: default, gameEventQueue: ctx.GameEventQueue);
+    AssertEqual(1, trashed, "one digivolution source trashed off the host");
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+    AssertEqual(before, HandCount(ctx, P1), "own host's trash did NOT pass the opponent-scope gate");
+}
+
+// Listener (P1, TfxDigiTrashDraw) on the battle area + a host Digimon (hostOwner) with one digivolution source.
+async Task<(EngineContext Ctx, HeadlessEntityId Host)> SetupDigiTrash(HeadlessPlayerId hostOwner)
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 7);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxDigiTrashDraw"), "TfxDigiTrashDraw", "DT", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var listener = new HeadlessEntityId("1:battle:LIS");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(listener, new HeadlessEntityId("TfxDigiTrashDraw"), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, listener, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:HOST"), "HOST", "H", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var host = new HeadlessEntityId($"{hostOwner.Value}:battle:HOST");
+    var source = new HeadlessEntityId($"{hostOwner.Value}:src:1");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId("DEF:HOST"), hostOwner, Metadata: new Dictionary<string, object?>()));
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(host, new HeadlessEntityId("DEF:HOST"), hostOwner,
+        Metadata: new Dictionary<string, object?> { ["sourceIds"] = new[] { source.Value } }));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(hostOwner, host, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    for (int i = 1; i <= 3; i++)
+    {
+        var lib = new HeadlessEntityId($"1:lib:dt{i}");
+        cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:DT{i}"), $"DT{i}", $"DT{i}", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(lib, new HeadlessEntityId($"DEF:DT{i}"), P1, Metadata: new Dictionary<string, object?>()));
+        await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, lib, ChoiceZone.None, ChoiceZone.Library));
+    }
+
+    return (ctx, host);
 }
 
 // --- Harness ---

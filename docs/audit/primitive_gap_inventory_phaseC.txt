@@ -26,3 +26,17 @@ GAP - missing body (reachable timing): 4  (6 hits)
      1  to_deck              @ OptionSkill
      1  play                 @ None
      1  to_deck              @ OnEnterFieldAnyone
+
+### ADDENDUM (2026-07-07, OnDigivolutionCardDiscarded 브릿지) ###
+OnDigivolutionCardDiscarded는 이제 REACHABLE — 위 top 목록의 해당 4개 shape(19 hits:
+memory 8 / trash_digivolution 4 / select_custom 4 / dp_change 3)은 engine-emission GAP에서
+COVERED로 이동. top-목록 기준 산술 갱신: COVERED >=135 shapes(>=1802 hits) | emission gap
+<=67 shapes(<=104 hits). (top 컷오프 아래 1-hit 꼬리 shape가 이 타이밍에 더 있었다면 수치는
+그만큼 추가 개선 — 원 스캔 스크립트는 세션-로컬이라 정밀 재집계는 다음 전수 재측정 때.)
+
+메커니즘: emission은 기존(DigivolutionStackHelpers, subject=host + discardedCardIds 메타).
+신규는 ACTIVATED 브릿지의 3번째 카테고리 EVENT-BROADCAST(GameFlowProcessor
+EventBroadcastActivatedTimings) — AS-IS StackSkillInfos처럼 배틀에어리어 전 카드를 스캔하되
+driving event를 리졸버까지 전달해 per-card 게이트(CanTriggerOnTrashDigivolutionCard)가
+subject(host)/event.discardedCardIds로 스코프를 판정. suspend 시 DeferredActivation이 이벤트를
+보존(재개 게이트 재평가 동일성). 스케줄러 경로는 기존 TriggerTimingMap.BroadcastTimings로 커버.
