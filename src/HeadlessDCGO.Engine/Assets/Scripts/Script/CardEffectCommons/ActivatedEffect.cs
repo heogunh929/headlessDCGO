@@ -4,6 +4,7 @@
 // fragmented per-(action x timing) factory set that caused the combinatorial primitive-gap explosion.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -71,6 +72,31 @@ public sealed class MemoryBody : IEffectBody
             card.InstanceId,
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _amount }));
     }
+}
+
+/// <summary>Select up to <c>maxCount</c> matching permanents and apply a <see cref="SelectPermanentEffect.Mode"/>
+/// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. Interactive.</summary>
+public sealed class SelectBody : IEffectBody
+{
+    private readonly SelectPermanentEffect _select = new();
+
+    public SelectBody(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canNoSelect, bool canEndNotMax,
+        SelectPermanentEffect.Mode mode, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId);
+        _select.SetUpCustomMessage(description);
+    }
+
+    public bool IsInteractive => true;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) =>
+        _select.BuildRequest((IZoneStateReader)card.Context.ZoneMover, players);
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        _select.Apply(sink, selected);
 }
 
 /// <summary>The uniform activated effect. Resolved through the activation flow (bridge / OptionActivate /

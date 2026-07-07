@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -24,6 +25,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT1_003 LIVE: once-per-turn — a 2nd attack same turn does NOT draw again", BT1_003_OncePerTurn),
     ("BT1_003 LIVE: no draw when the opponent has no no-source Digimon (CanActivate fails)", BT1_003_NoCondition),
     ("BT1_003 LIVE: no draw when a DIFFERENT ally attacks (self-scope)", BT1_003_OtherAlly),
+    ("select body (interactive): select + destroy the chosen opponent Digimon", SelectDestroyBody),
 };
 
 var failures = new List<string>();
@@ -87,6 +89,26 @@ async Task MemoryBodyGain()
     AssertTrue(e.CanResolve(TriggerCtx(self)), "CanResolve true for self");
     await Resolve(ctx, e);
     AssertEqual(1, ctx.MemoryController.Current.Current, "+1 memory applied");
+}
+
+async Task SelectDestroyBody()
+{
+    (EngineContext ctx, HeadlessEntityId self) = Board();
+    var cards = (CardDatabase)ctx.CardRepository;
+    var foe = new HeadlessEntityId("p2:battle:FOE");
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:FOE"), "FOE", "Foe", new Dictionary<string, object?>(), CardType: "Digimon"));
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(foe, new HeadlessEntityId("DEF:FOE"), P2));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, foe, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    var card = new CardSource(ctx, self, P1);
+    var e = new ActivatedEffect(card, EffectTiming.OptionSkill, canUse: null, canActivate: null,
+        body: new SelectBody(card, id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id), maxCount: 1,
+                             canNoSelect: false, canEndNotMax: false, SelectPermanentEffect.Mode.Destroy, "destroy 1"),
+        maxCountPerTurn: null, isOptional: false, "select + destroy 1 opponent Digimon");
+
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(foe));
+    await Resolve(ctx, e);
+    AssertTrue(!((IZoneStateReader)ctx.ZoneMover).GetCards(P2, ChoiceZone.BattleArea).Contains(foe), "chosen opponent Digimon destroyed");
 }
 
 // --- BT1_003 live (real card via the bridge) ---
