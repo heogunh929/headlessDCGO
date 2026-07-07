@@ -139,7 +139,7 @@ async Task ST3_05_SecurityGate()
     await FillSecurity(four, P1, 4);
     IReadOnlyList<EffectBinding> bindings = Register(four, new ST3_05(), "ST3_05", s4);
     four.MemoryController.Set(0);
-    await ResolveTrigger(four, bindings, "OnAllyAttack");
+    await ResolveTrigger(four, bindings, "OnAllyAttack", subject: s4);
     AssertEqual(1, four.MemoryController.Current.Current, "4 security: +1 memory");
 
     // 3 security -> no memory (CanResolve fails).
@@ -149,8 +149,18 @@ async Task ST3_05_SecurityGate()
     await FillSecurity(three, P1, 3);
     IReadOnlyList<EffectBinding> bindings3 = Register(three, new ST3_05(), "ST3_05", s3);
     three.MemoryController.Set(0);
-    await ResolveTrigger(three, bindings3, "OnAllyAttack");
+    await ResolveTrigger(three, bindings3, "OnAllyAttack", subject: s3);
     AssertEqual(0, three.MemoryController.Current.Current, "3 security: no memory");
+
+    // Self-scope: when ANOTHER ally attacks (subject != this card), the +1 must NOT fire even with 4 security.
+    EngineContext other = Context(P1);
+    var sOwn = new HeadlessEntityId("p1:battle:T05c");
+    await PlaceDigimon(other, P1, sOwn, level: 4, sources: 0, dp: 4000);
+    await FillSecurity(other, P1, 4);
+    IReadOnlyList<EffectBinding> bindingsOther = Register(other, new ST3_05(), "ST3_05", sOwn);
+    other.MemoryController.Set(0);
+    await ResolveTrigger(other, bindingsOther, "OnAllyAttack", subject: new HeadlessEntityId("p1:battle:OTHER"));
+    AssertEqual(0, other.MemoryController.Current.Current, "another ally attacking does NOT trigger the +1");
 }
 
 async Task ST3_08_Debuff() => await DebuffCase(new ST3_08(), EffectTiming.OnAllyAttack, -1000);
@@ -166,7 +176,7 @@ async Task ST3_09_Recovery()
     await FillSecurity(low, P1, 2);
     await FillLibrary(low, P1, 3);
     IReadOnlyList<EffectBinding> bindings = Register(low, new ST3_09(), "ST3_09", d);
-    await ResolveTrigger(low, bindings, "OnEnterFieldAnyone");
+    await ResolveTrigger(low, bindings, "OnEnterFieldAnyone", subject: d, digivolve: true);
     AssertEqual(3, SecurityCount(low, P1), "2 + recovered 1 = 3 security");
 
     // 4 security -> condition fails, no recovery.
@@ -176,8 +186,18 @@ async Task ST3_09_Recovery()
     await FillSecurity(high, P1, 4);
     await FillLibrary(high, P1, 3);
     IReadOnlyList<EffectBinding> bindings2 = Register(high, new ST3_09(), "ST3_09", d2);
-    await ResolveTrigger(high, bindings2, "OnEnterFieldAnyone");
+    await ResolveTrigger(high, bindings2, "OnEnterFieldAnyone", subject: d2, digivolve: true);
     AssertEqual(4, SecurityCount(high, P1), "4 security: no recovery");
+
+    // Digivolve-only gate: a plain field entry (NOT a digivolve) must NOT trigger recovery, even at <= 3 security.
+    EngineContext plain = Context(P1);
+    var d3 = new HeadlessEntityId("p1:battle:T09c");
+    await PlaceDigimon(plain, P1, d3, level: 4, sources: 0, dp: 4000);
+    await FillSecurity(plain, P1, 2);
+    await FillLibrary(plain, P1, 3);
+    IReadOnlyList<EffectBinding> bindings3 = Register(plain, new ST3_09(), "ST3_09", d3);
+    await ResolveTrigger(plain, bindings3, "OnEnterFieldAnyone", subject: d3, digivolve: false);
+    AssertEqual(2, SecurityCount(plain, P1), "non-digivolve field entry: no recovery");
 }
 
 async Task ST3_12_SecurityDp()
@@ -415,12 +435,25 @@ async Task<bool> ResolveDeletion(EngineContext context, EffectBinding binding, H
     return result.Resolved;
 }
 
-async Task ResolveTrigger(EngineContext context, IReadOnlyList<EffectBinding> bindings, string timing)
+// Resolve a trigger as the live scheduler would: enrich with the event SUBJECT (TriggerEntityId) so the
+// self-scope gate sees who acted, and (for [When Digivolving]) the isEvolution event marker that
+// CanTriggerWhenDigivolving reads.
+async Task ResolveTrigger(EngineContext context, IReadOnlyList<EffectBinding> bindings, string timing, HeadlessEntityId subject, bool digivolve = false)
 {
     EffectBinding binding = bindings.Single(b => string.Equals(b.Request.Timing, timing, StringComparison.Ordinal));
     AssertTrue(binding.Effect is not null, $"trigger binding for {timing} carries an effect body");
+    EffectContext baseCtx = binding.Request.Context;
+    var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+    if (digivolve)
+    {
+        values[$"{GameFlowProcessor.EventValuePrefix}isEvolution"] = true;
+    }
+
+    var evtCtx = new EffectContext(baseCtx.SourcePlayerId, baseCtx.OwnerPlayerId, baseCtx.SourceEntityId,
+        triggerEntityId: subject, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
+    var request = new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, evtCtx);
     var sink = Sink(context);
-    await binding.Effect!.ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
+    await binding.Effect!.ResolveAsync(new CardEffectResolveContext(request), sink);
     await sink.FlushAsync();
 }
 

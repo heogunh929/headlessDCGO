@@ -64,12 +64,13 @@ public sealed class AutoProcessingTriggerCollector
                 continue;
             }
 
-            // (PRIM-P0 AddSkill) a matched TRIGGER GRANT resolves against the card that actually triggered — inject
-            // the event subject as the trigger's TriggerEntityId so the granted effect (and its per-card predicate)
-            // acts on that card rather than on the granting source.
+            // Inject the event subject (the card the event is about) as the trigger's TriggerEntityId, so a
+            // self-scope trigger-gate (CanTriggerOnAttack etc.) can tell whether THIS card is the subject —
+            // e.g. "[When Attacking] lose 2 memory" must fire only when its own card attacks, not any ally.
+            // (Previously restricted to TRIGGER GRANTs, which left plain self-scoped triggers unscoped; the
+            // GameFlowProcessor path already enriches every trigger — this brings the collector in line.)
             EffectRequest request = effect;
-            if (effect.Context.Values.TryGetValue(TriggerGrantKey, out object? grant) && grant is true
-                && gameEvent.Subject is { IsEmpty: false } subject)
+            if (gameEvent.Subject is { IsEmpty: false } subject && effect.Context.TriggerEntityId is null)
             {
                 EffectContext ctx = effect.Context;
                 request = new EffectRequest(effect.EffectId, effect.ControllerId, effect.Timing,

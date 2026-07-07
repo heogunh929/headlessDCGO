@@ -1,6 +1,9 @@
 // 1:1 mirror of the original ST2_09 (ST2/Blue).
 //   [When Digivolving] Trash 2 digivolution cards at the bottom of 1 of your opponent's Digimon.
-//   -> SelectAndTrashDigivolutionEffect (OnEnterFieldAnyone, from bottom, count 2)
+//   -> SelectAndTrashDigivolutionEffect (WhenDigivolving, from bottom, count 2)
+// Declared under WhenDigivolving (the DigivolveAction-wired timing that resolves activated selects via
+// ActivatedEffectResolver), NOT OnEnterFieldAnyone — the bridge excludes OnEnterFieldAnyone, so an activated
+// select there never fires live. Matches ST1_08's WhenDigivolving idiom.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
 
@@ -13,7 +16,7 @@ public sealed class ST2_09 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        if (timing == EffectTiming.OnEnterFieldAnyone)
+        if (timing == EffectTiming.WhenDigivolving)
         {
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {

@@ -705,8 +705,14 @@ public sealed class GameFlowProcessor
     {
         HeadlessEntityId? triggerId = request.Context.TriggerEntityId;
 
-        // The subject is the card the event is about: self-scoped triggers carry it under SourceEntityId; a
-        // CardMoved event (e.g. a deletion driving OnDestroyedAnyone) carries it under CardId.
+        // The subject is the card the event is about. TriggerEventEmitter sets it as the typed GameEvent.Subject
+        // (attack/self-scoped windows, e.g. OnAllyAttack); prefer that. Fall back to the metadata forms — a
+        // CardMoved event (e.g. a deletion driving OnDestroyedAnyone) carries it as a string CardId.
+        if (triggerId is null && gameEvent.Subject is HeadlessEntityId directSubject && !directSubject.IsEmpty)
+        {
+            triggerId = directSubject;
+        }
+
         if (triggerId is null &&
             (TryReadSubject(gameEvent, AutoProcessingTriggerCollector.SourceEntityIdKey, out string? subjectValue)
              || TryReadSubject(gameEvent, AutoProcessingTriggerCollector.CardIdKey, out subjectValue)))
@@ -741,10 +747,21 @@ public sealed class GameFlowProcessor
 
     private static bool TryReadSubject(GameEvent gameEvent, string key, out string? value)
     {
-        if (gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is string s && !string.IsNullOrWhiteSpace(s))
+        if (gameEvent.Metadata.TryGetValue(key, out object? raw))
         {
-            value = s;
-            return true;
+            // TriggerEventEmitter stores the subject as a HeadlessEntityId (SourceEntityIdKey); other producers
+            // (e.g. CardMoved) store a string CardId. Accept both, else self-scope gates never see the subject.
+            if (raw is string s && !string.IsNullOrWhiteSpace(s))
+            {
+                value = s;
+                return true;
+            }
+
+            if (raw is HeadlessEntityId id && !id.IsEmpty)
+            {
+                value = id.Value;
+                return true;
+            }
         }
 
         value = null;

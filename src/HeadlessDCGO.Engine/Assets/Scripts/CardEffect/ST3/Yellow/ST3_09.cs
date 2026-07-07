@@ -24,7 +24,8 @@ public sealed class ST3_09 : CEntity_Effect
                 amount: 1,
                 card: card,
                 condition: Condition,
-                description: "[When Digivolving] When you have 3 security cards or less, trigger <Recovery +1 (Deck)>."));
+                description: "[When Digivolving] When you have 3 security cards or less, trigger <Recovery +1 (Deck)>.",
+                triggerGate: ctx => CardEffectCommons.CanTriggerWhenDigivolving(ctx, card)));
         }
 
         return cardEffects;

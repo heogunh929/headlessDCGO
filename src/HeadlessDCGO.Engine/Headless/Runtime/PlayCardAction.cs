@@ -213,6 +213,27 @@ public sealed class PlayCardAction
             metadata["assemblyCount"] = payload.AssemblyMaterials.Count;
         }
 
+        // [On Play]: resolve the just-played card's own OnEnterFieldAnyone activated effects (draw / select /
+        // trash …) through the choice flow — mirrors DigivolveAction's WhenDigivolving resolution. These are
+        // IActivatedCardEffect, so they are NOT auto-registered (RegisterOnEnterPlay skips them) and the trigger
+        // bridge excludes OnEnterFieldAnyone (action-wired here); this is their only live resolution point.
+        // No-op for a card without a ported [On Play] activated effect. A deferred agent choice suspends and
+        // reports pending so the next ResolveChoice resumes it (no re-play).
+        try
+        {
+            await ActivatedEffectResolver
+                .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.OnEnterFieldAnyone, cancellationToken,
+                    skipReactivationHolder: true)
+                .ConfigureAwait(false);
+        }
+        catch (DeferredChoicePendingException ex)
+        {
+            context.DeferredActivations.Suspend(payload.CardId, EffectTiming.OnEnterFieldAnyone, action.PlayerId);
+            metadata["pendingChoice"] = true;
+            metadata["pendingChoiceMessage"] = ex.Message;
+            return ActionProcessResult.Success("Card played; [On Play] awaiting choice.", metadata);
+        }
+
         // LA-3: a Digimon entering play triggers eligible "[All Turns] (Once Per Turn) when Digimon are
         // played, activate this Digimon's [When Digivolving] effects" holders (both players). No-op when no
         // such holder is on the board. A deferred agent choice suspends that holder and reports pending.

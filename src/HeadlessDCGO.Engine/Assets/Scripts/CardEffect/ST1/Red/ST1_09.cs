@@ -37,7 +37,8 @@ public sealed class ST1_09 : CEntity_Effect
                 isInheritedEffect: true,
                 card: card,
                 condition: Condition,
-                description: "[Your Turn] When this Digimon is blocked, gain 3 memory."));
+                description: "[Your Turn] When this Digimon is blocked, gain 3 memory.",
+                triggerGate: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card)));
         }
 
         return cardEffects;

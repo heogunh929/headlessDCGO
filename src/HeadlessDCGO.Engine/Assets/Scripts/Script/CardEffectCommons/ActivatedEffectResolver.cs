@@ -27,7 +27,8 @@ public static class ActivatedEffectResolver
         HeadlessEntityId cardInstanceId,
         HeadlessPlayerId controller,
         EffectTiming timing,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool skipReactivationHolder = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -56,8 +57,18 @@ public static class ActivatedEffectResolver
         var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
         coordinator?.BeginResolution();
 
+        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        if (skipReactivationHolder)
+        {
+            // The [On Play] play path resolves a card's own OnEnterFieldAnyone [On Play] effects, but the
+            // [All Turns] reactivation-holder effect (ReuseWhenDigivolvingEffect) shares that timing and must NOT
+            // self-fire — it reacts to OTHER cards' plays (driven by OnPlayReactivation, which excludes the
+            // just-played card). Skip it here so playing a holder doesn't wrongly trigger its own reactivation.
+            effects = effects.Where(e => e is not ReuseWhenDigivolvingEffect).ToList();
+        }
+
         int resolved = await ResolveListAsync(
-            context, effect, card, players, sink, effect.CardEffects(timing, card), cancellationToken).ConfigureAwait(false);
+            context, effect, card, players, sink, effects, cancellationToken).ConfigureAwait(false);
 
         await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
         coordinator?.CompleteResolution();
@@ -250,6 +261,22 @@ public static class ActivatedEffectResolver
                     if (!result.IsSkipped)
                     {
                         targetBuff.ApplyBuff(result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
+                case ActivatedSelectTrashDigivolutionEffect trashDigivolution:
+                {
+                    // (ST2_03/06/09) trash-digivolution select — same BuildRequest -> answer -> Apply shape as the
+                    // other selects. Without this case the bridge reaches the effect but the switch silently drops
+                    // it, so nothing is trashed in live play (only the unit-test's direct Apply worked).
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(trashDigivolution.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        trashDigivolution.Apply(sink, result.SelectedIds);
                     }
 
                     resolved++;

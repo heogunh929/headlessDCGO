@@ -21,7 +21,8 @@ public sealed class ST2_11 : CEntity_Effect
                 card: card,
                 description: "[When Attacking][Once Per Turn] Unsuspend this Digimon.",
                 maxCountPerTurn: 1,
-                hash: "Unsuspend_ST2_11"));
+                hash: "Unsuspend_ST2_11",
+                triggerGate: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card)));
         }
 
         return cardEffects;

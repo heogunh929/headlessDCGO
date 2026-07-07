@@ -25,7 +25,8 @@ public sealed class ST3_05 : CEntity_Effect
                 isInheritedEffect: true,
                 card: card,
                 condition: Condition,
-                description: "[When Attacking] If you have 4 or more security cards, gain 1 memory."));
+                description: "[When Attacking] If you have 4 or more security cards, gain 1 memory.",
+                triggerGate: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card)));
         }
 
         return cardEffects;

@@ -33,7 +33,8 @@ public sealed class ST1_06 : CEntity_Effect
                 isInheritedEffect: false,
                 card: card,
                 condition: null,
-                description: "[When Attacking] Lose 2 memory."));
+                description: "[When Attacking] Lose 2 memory.",
+                triggerGate: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card)));
         }
 
         return cardEffects;

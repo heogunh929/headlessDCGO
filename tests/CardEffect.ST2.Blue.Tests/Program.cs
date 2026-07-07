@@ -25,6 +25,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ST2_06: [When Attacking] trashes 1 bottom digivolution card of the chosen opponent Digimon", ST2_06_Trash),
     ("ST2_09: [When Digivolving] trashes 2 bottom digivolution cards", ST2_09_Trash),
     ("ST2_11: [When Attacking] unsuspends this Digimon", ST2_11_Unsuspend),
+    ("ST2_11: another ally attacking does NOT unsuspend it (self-scope)", ST2_11_OtherAllyNoFire),
     ("ST2_12: [Start of Your Turn] gains 1 memory when opponent has a no-evo Digimon", ST2_12_Memory),
     ("ST2_13: [Main] +1 memory / [Security] +2 memory", ST2_13_Memory),
     ("ST2_14: [Main] makes the chosen opponent Digimon unable to attack/block", ST2_14_Restrict),
@@ -148,7 +149,7 @@ async Task ST2_09_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_09(), context, EffectTiming.OnEnterFieldAnyone);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_09(), context, EffectTiming.WhenDigivolving);
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "only the Digimon with a trashable source is a candidate");
 
@@ -186,6 +187,21 @@ async Task ST2_11_Unsuspend()
     AssertTrue(!IsSuspended(context, id), "next turn: unsuspended");
 }
 
+// Self-scope: when ANOTHER ally attacks (subject != this card), the self-unsuspend must NOT fire.
+async Task ST2_11_OtherAllyNoFire()
+{
+    EngineContext context = Context();
+    var id = new HeadlessEntityId("p1:battle:T11b");
+    await PlaceDigimon(context, P1, id, level: 4, sources: 0);
+    IReadOnlyList<EffectBinding> bindings = RegisterContinuous(context, new ST2_11(), "ST2_11", id);
+    EffectBinding binding = bindings.Single(b => string.Equals(b.Request.Timing, "OnAllyAttack", StringComparison.Ordinal));
+
+    await Suspend(context, id);
+    AssertTrue(!await GateAndResolve(context, binding, subject: new HeadlessEntityId("p1:battle:OTHER")),
+        "another ally attacking does NOT resolve the self-unsuspend");
+    AssertTrue(IsSuspended(context, id), "stays suspended when a different ally attacks");
+}
+
 async Task Suspend(EngineContext context, HeadlessEntityId id)
 {
     var sink = Sink(context);
@@ -195,17 +211,23 @@ async Task Suspend(EngineContext context, HeadlessEntityId id)
 }
 
 // Mirror the live trigger loop (GameFlowProcessor): consult the OnceFlag gate; resolve only if allowed.
-async Task<bool> GateAndResolve(EngineContext context, EffectBinding binding)
+async Task<bool> GateAndResolve(EngineContext context, EffectBinding binding, HeadlessEntityId? subject = null)
 {
     if (!context.OnceFlags.TryActivate(binding.Request, binding.Effect!.Definition.MaxCountPerTurn))
     {
         return false;
     }
 
+    // Enrich with the event SUBJECT (default = self) so the self-scope triggerGate (CanTriggerOnAttack) can
+    // check that THIS card is the attacker; a different subject means another ally attacked.
+    EffectContext ec = binding.Request.Context;
+    var enriched = new EffectContext(ec.SourcePlayerId, ec.OwnerPlayerId, ec.SourceEntityId,
+        triggerEntityId: subject ?? ec.SourceEntityId, targetEntityIds: ec.TargetEntityIds);
+    var request = new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, enriched);
     var sink = Sink(context);
-    await binding.Effect!.ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
+    EffectResult result = await binding.Effect!.ResolveAsync(new CardEffectResolveContext(request), sink);
     await sink.FlushAsync();
-    return true;
+    return result.Resolved;
 }
 
 async Task ST2_12_Memory()

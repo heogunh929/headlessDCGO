@@ -2462,11 +2462,15 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
 /// </summary>
 public sealed class TriggeredUnsuspendSelfEffect : ICardEffect, IHeadlessCardEffect
 {
-    public TriggeredUnsuspendSelfEffect(CardSource card, EffectTiming timing, string description, int? maxCountPerTurn = null, string? hash = null)
+    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
+
+    public TriggeredUnsuspendSelfEffect(CardSource card, EffectTiming timing, string description, int? maxCountPerTurn = null, string? hash = null,
+        Func<CardEffectResolveContext, bool>? triggerGate = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
+        _triggerGate = triggerGate;
         string trigger = EffectTimings.ToTriggerName(timing);
         Definition = new CardEffectDefinition(
             new HeadlessEntityId($"{card.InstanceId.Value}:unsuspendself:{trigger}"), card.InstanceId, description, trigger,
@@ -2477,12 +2481,32 @@ public sealed class TriggeredUnsuspendSelfEffect : ICardEffect, IHeadlessCardEff
 
     public CardEffectDefinition Definition { get; }
 
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+    // Self-scope: without a gate a subject-scoped trigger (e.g. OnAllyAttack) fires for ANY ally's attack;
+    // the gate restricts it to the event whose subject is THIS card (CanTriggerOnAttack).
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (_triggerGate is not null && !_triggerGate(context))
+        {
+            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
+        }
+
+        return CardEffectCanResolveResult.Success();
+    }
 
     public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(mutations);
         cancellationToken.ThrowIfCancellationRequested();
+        // Guard the self-scope gate here too (matching TriggeredMemoryEffect) so every resolve path — not just
+        // the scheduler's CanResolve pre-check — respects "only when THIS card is the event subject".
+        CardEffectCanResolveResult check = CanResolve(context);
+        if (!check.CanResolve)
+        {
+            return ValueTask.FromResult(EffectResult.Failure(check.Message ?? "Cannot resolve.", check.Values));
+        }
+
         mutations.Apply(new EffectMutation(
             MatchStateMutationSink.UnsuspendKind,
             Definition.SourceEntityId,
@@ -4283,14 +4307,17 @@ public sealed class RecoverTriggerEffect : ICardEffect, IHeadlessCardEffect
 {
     private readonly int _amount;
     private readonly Func<bool>? _condition;
+    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
 
-    public RecoverTriggerEffect(CardSource card, EffectTiming timing, int amount, Func<bool>? condition, string description)
+    public RecoverTriggerEffect(CardSource card, EffectTiming timing, int amount, Func<bool>? condition, string description,
+        Func<CardEffectResolveContext, bool>? triggerGate = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
         _amount = amount;
         _condition = condition;
+        _triggerGate = triggerGate;
         string trigger = EffectTimings.ToTriggerName(timing);
         Definition = new CardEffectDefinition(
             new HeadlessEntityId($"{card.InstanceId.Value}:recover:{trigger}"), card.InstanceId, description, trigger, isOptional: true);
@@ -4302,9 +4329,17 @@ public sealed class RecoverTriggerEffect : ICardEffect, IHeadlessCardEffect
 
     public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
     {
+        ArgumentNullException.ThrowIfNull(context);
         if (_condition is not null && !_condition())
         {
             return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        // Self/event gate: e.g. a [When Digivolving] recovery must only fire when THIS card digivolves, not on
+        // every field entry (CanTriggerWhenDigivolving); without it an OnEnterFieldAnyone registration fires broadly.
+        if (_triggerGate is not null && !_triggerGate(context))
+        {
+            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
         }
 
         return CardEffectCanResolveResult.Success();
@@ -5642,8 +5677,9 @@ public static partial class CardEffectFactory
     /// <summary>A triggered "[When ...] unsuspend this Digimon" effect (e.g. ST2_11). Pass
     /// <paramref name="maxCountPerTurn"/> = 1 (+ <paramref name="hash"/> for the original SetHashString) to
     /// mirror a [Once Per Turn] limit — enforced by the live trigger loop via <c>OnceFlagController</c>.</summary>
-    public static ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description, int? maxCountPerTurn = null, string? hash = null) =>
-        new TriggeredUnsuspendSelfEffect(card, timing, description, maxCountPerTurn, hash);
+    public static ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description, int? maxCountPerTurn = null, string? hash = null,
+        Func<CardEffectResolveContext, bool>? triggerGate = null) =>
+        new TriggeredUnsuspendSelfEffect(card, timing, description, maxCountPerTurn, hash, triggerGate);
 
     /// <summary>An activated "gain/lose <paramref name="amount"/> memory" skill (Option [Main] / [Security],
     /// e.g. ST2_13).</summary>
@@ -5670,8 +5706,9 @@ public static partial class CardEffectFactory
         new TriggeredSelfDpBuffEffect(card, timing, changeValue, duration, condition, description, triggerGate, maxCountPerTurn, hash);
 
     /// <summary>A triggered "[When ...] &lt;Recovery +<paramref name="amount"/> (Deck)&gt;" effect (e.g. ST3_09).</summary>
-    public static ICardEffect RecoveryTriggerEffect(EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description) =>
-        new RecoverTriggerEffect(card, timing, amount, condition, description);
+    public static ICardEffect RecoveryTriggerEffect(EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description,
+        Func<CardEffectResolveContext, bool>? triggerGate = null) =>
+        new RecoverTriggerEffect(card, timing, amount, condition, description, triggerGate);
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and give each
     /// +<paramref name="changeValue"/> Security Attack for <paramref name="duration"/>" effect (e.g. ST3_15 [Main]).</summary>
