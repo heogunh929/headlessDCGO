@@ -302,6 +302,41 @@ public sealed class GrantPlayerScopeRestrictionBody : IEffectBody
     }
 }
 
+/// <summary>Apply a caller-supplied per-target mutation to EVERY field permanent matching a predicate, with NO
+/// player selection — the AS-IS ActivateCoroutine that runs <c>foreach (… GetBattleAreaDigimons().Filter(pred))
+/// &lt;mutation&gt;</c> directly (e.g. "trash all digivolution cards under every opponent Digimon" / "suspend all
+/// opponent Digimon without &lt;Blocker&gt;"). The match predicate + per-target action are evaluated live at
+/// resolve time via <see cref="CardEffectCommons.MatchConditionPermanentIds"/>; the sink's centralised immunity
+/// gates filter, mirroring <c>DestroyPermanentsEffect</c>. Non-interactive.</summary>
+public sealed class ApplyToAllMatchingBody : IEffectBody
+{
+    private readonly Func<HeadlessEntityId, bool> _match;
+    private readonly Action<CardSource, MatchStateMutationSink, HeadlessEntityId> _perTarget;
+
+    public ApplyToAllMatchingBody(
+        Func<HeadlessEntityId, bool> match, Action<CardSource, MatchStateMutationSink, HeadlessEntityId> perTarget)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        ArgumentNullException.ThrowIfNull(perTarget);
+        _match = match;
+        _perTarget = perTarget;
+    }
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(card, _match))
+        {
+            _perTarget(card, sink, id);
+        }
+    }
+}
+
 /// <summary>Select up to <c>maxCount</c> matching permanents and apply a <see cref="SelectPermanentEffect.Mode"/>
 /// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. When
 /// <paramref name="onEachSelected"/> is supplied it runs, per chosen id, AFTER the Mode mutation — a 1:1 mirror

@@ -9772,6 +9772,60 @@ public static class CardEffectCommons
         return count;
     }
 
+    /// <summary>The field permanents matching <paramref name="condition"/> as a materialised id list — the
+    /// enumeration mirror of <see cref="MatchConditionPermanentCount"/>. Used by the no-select "apply a mutation
+    /// to EVERY matching permanent" bodies (the AS-IS <c>foreach (… GetBattleAreaDigimons().Filter(…))</c> loop),
+    /// evaluated live at activation-resolve time.</summary>
+    public static IReadOnlyList<HeadlessEntityId> MatchConditionPermanentIds(
+        CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(condition);
+        var ids = new List<HeadlessEntityId>();
+        foreach (HeadlessEntityId id in AllFieldPermanents(card, isContainBreedingArea))
+        {
+            if (condition(id))
+            {
+                ids.Add(id);
+            }
+        }
+
+        return ids;
+    }
+
+    /// <summary>Stage a suspend (AS-IS <c>SuspendPermanentsClass(target).Tap()</c>) on <paramref name="target"/>
+    /// via the sink — the per-target action for the no-select "suspend all matching" bodies. The sink's
+    /// centralised immunity + cannot-suspend gates filter (source = <paramref name="card"/>).</summary>
+    public static void SuspendPermanent(MatchStateMutationSink sink, CardSource card, HeadlessEntityId target)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(card);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.SuspendKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
+    }
+
+    /// <summary>Stage a trash of ALL of <paramref name="host"/>'s digivolution cards (AS-IS
+    /// <c>TrashDigivolutionCardsFromTopOrBottom(count: DigivolutionCards.Count)</c>) via the sink — the per-target
+    /// action for the no-select "trash all digivolution cards under every matching Digimon" bodies. Passing
+    /// <c>int.MaxValue</c> lets the sink clamp to the host's actual source count. The sink's centralised immunity
+    /// gate filters (source = <paramref name="card"/>).</summary>
+    public static void TrashAllDigivolutionCards(MatchStateMutationSink sink, CardSource card, HeadlessEntityId host, bool fromBottom)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(card);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.TrashDigivolutionCardsKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
+                [MatchStateMutationSink.CountKey] = int.MaxValue,
+                [MatchStateMutationSink.FromBottomKey] = fromBottom,
+            }));
+    }
+
     /// <summary>(EX8_074 Stage 1) Mirror of the original <c>HasMatchConditionPermanent</c>: at least one
     /// matching permanent exists (count &gt;= 1).</summary>
     public static bool HasMatchConditionPermanent(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false) =>

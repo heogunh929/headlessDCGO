@@ -19,35 +19,16 @@
 // (c) `!permanent.TopCard.CanNotBeAffected(activateClass)` — then directly runs
 // `new SuspendPermanentsClass(suspendTargetPermanents, ...).Tap()` on that whole precomputed list, with zero
 // player choice (unlike [Main], which does select).
-// STOP: [Security] needs a body that unconditionally Suspends EVERY currently-matching opponent permanent
-// with no player-facing selection step — the same "apply-to-all-matching, no select" shape already flagged
-// as a genuine primitive gap for BT1_100 (player-scope restriction grant) and BT1_101 (trash-all
-// digivolution-cards). Grepped (2 passes: CardPortingFramework.cs class/factory list, then
-// ActivatedEffectResolver.cs's switch) for a no-select "apply mutation to a precomputed target list" shape:
-//   - CardEffectFactory.SelectAndSuspendEffect / ActivatedSelectEffect(Mode.Tap) (used for [Main] above):
-//     ALWAYS routes through SelectPermanentEffect's BuildRequest -> player answer flow (a live ChoiceRequest);
-//     even with maxCount set to the full opponent battle-area count, the player still gets an interactive
-//     Tap-mode selection UI, which is a materially different (choice-bearing) exposure than the AS-IS
-//     zero-agency automatic foreach-Suspend (fidelity-over-coverage — not a faithful mirror).
-//   - DestroyPermanentsEffect / DeckBottomBounceEffect (CardPortingFramework.cs ~3361/~3400): DO take a
-//     pre-computed `IReadOnlyList<HeadlessEntityId> targets` with NO selection step (exactly this card's
-//     [Security] shape) and apply directly via MatchStateMutationSink — but each hardcodes its own mutation
-//     kind (DeleteKind / ReturnToDeckBottomKind respectively) in its constructor body; neither is
-//     parameterized by kind, and there is no sibling class wired for MatchStateMutationSink.SuspendKind.
-//     DestroyPermanentsEffect is also only exercised by TfxDestroy (a test fixture), not by any shipped card,
-//     confirming this "precomputed-list, no-select" family has not yet been extended to Suspend.
-//   - The uniform IEffectBody catalog (ActivatedEffect.cs: DrawBody, MemoryBody, RecoveryBody,
-//     TrashSecurityBody, SelectTrashHandThenSelfMutationBody, SuspendSelfAndGainMemoryBody (self-suspend, not
-//     opponent-scope), SelfToHandBody, GrantContinuousBody, SelectBody): none apply Suspend to every matching
-//     opponent permanent unconditionally.
-// Confirmed gap, not a naming miss: no reusable body/class composes "Suspend every id matching a predicate,
-// no selection" (a "SuspendPermanentsEffect" sibling of DestroyPermanentsEffect/DeckBottomBounceEffect wired
-// to SuspendKind) — adding one is new engine-catalog work out of scope for a single-card porting pass, not a
-// per-card shortcut to invent. Deferred to the strong-model primitive pass. — 강모델
-// [Security] left unregistered pending that primitive; [Main] is ported below (fully expressible today).
+// Headless mirror ([Security]): the no-select "apply a mutation to EVERY matching permanent" gap (shared with
+// BT1_101 trash-all) is now covered by ApplyToAllMatchingBody (ActivatedEffect.cs) — a non-interactive uniform
+// body that, at resolve time, enumerates CardEffectCommons.MatchConditionPermanentIds(match) and runs a
+// per-target sink action (here CardEffectCommons.SuspendPermanent). The AS-IS !CanNotBeAffected guard is folded
+// into the sink's centralised immunity gate (applied to every mutation), so the match predicate carries only
+// "opponent battle-area Digimon && !HasKeyword(Blocker)". See the [Security] block below.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT1_110 : CEntity_Effect
@@ -71,9 +52,33 @@ public sealed class BT1_110 : CEntity_Effect
                 description: "[Main] Suspend 1 of your opponent's Digimon."));
         }
 
-        // STOP: [Security] "Suspend all of your opponent's Digimon without <Blocker>." (SecuritySkill) — no
-        // no-select "apply Suspend to every matching permanent" primitive exists (see file header).
-        // if (timing == EffectTiming.SecuritySkill) { ... }
+        // [Security] "Suspend all of your opponent's Digimon without <Blocker>." (SecuritySkill)
+        // AS-IS: ActivateClass(CanUseCondition = CanTriggerSecurityEffect, ORDER=-1, ISOPTIONAL=false,
+        // IsSecurityEffect=true). ActivateCoroutine has NO SelectPermanentEffect — it computes
+        // card.Owner.Enemy.GetBattleAreaDigimons().Filter(opponent battle-area Digimon && !HasBlocker &&
+        // !CanNotBeAffected) and directly SuspendPermanentsClass(...).Tap() on that whole precomputed list.
+        // Headless mirror: uniform ActivatedEffect whose body is ApplyToAllMatchingBody — per opponent battle-area
+        // Digimon without <Blocker> it stages SuspendPermanent. The AS-IS !CanNotBeAffected guard is handled by the
+        // sink's centralised immunity gate (applied to EVERY mutation, source = this card), so the match predicate
+        // carries only "opponent battle-area Digimon && !HasKeyword(Blocker)".
+        if (timing == EffectTiming.SecuritySkill)
+        {
+            bool Match(HeadlessEntityId id) =>
+                CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
+                    && !ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker);
+
+            cardEffects.Add(new ActivatedEffect(
+                card: card,
+                timing: EffectTiming.SecuritySkill,
+                canUse: ctx => CardEffectCommons.CanTriggerSecurityEffect(ctx, card),
+                canActivate: null,
+                body: new ApplyToAllMatchingBody(
+                    match: Match,
+                    perTarget: (c, sink, id) => CardEffectCommons.SuspendPermanent(sink, c, id)),
+                maxCountPerTurn: null,
+                isOptional: false,
+                description: "[Security] Suspend all of your opponent's Digimon without <Blocker>."));
+        }
 
         return cardEffects;
     }
