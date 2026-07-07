@@ -274,6 +274,48 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ActivatedSelectAndPlayFromZonesEffect selectPlayZones:
+                {
+                    // (BT1_056) multi-zone (Hand ∪ Trash) select-and-play — same choose -> Apply shape as
+                    // ActivatedSelectAndPlayEffect, but candidates span several zones (each tagged with its origin).
+                    ChoiceResult result = await context.ChoiceProvider
+                        .ChooseAsync(selectPlayZones.BuildRequest(players), cancellationToken).ConfigureAwait(false);
+                    if (!result.IsSkipped)
+                    {
+                        selectPlayZones.Apply(sink, result.SelectedIds);
+                    }
+
+                    resolved++;
+                    break;
+                }
+
+                case RevealSelectThenFreeDigivolveSelfEffect revealDigivolve:
+                {
+                    // (BT1_078) reveal top N -> optional select 1 -> free-digivolve onto self -> remaining to
+                    // deck bottom. Drives the ChoiceProvider itself; the digivolve is a direct FuseAsync move.
+                    await revealDigivolve.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case SelectDigivolutionSourceToHandThenUnsuspendSelfEffect sourceToHand:
+                {
+                    // (BT1_084 br2) select 1 source from this card's own stack -> hand -> self-unsuspend. Drives
+                    // the ChoiceProvider + a direct source-return move; the unsuspend is staged on the sink.
+                    await sourceToHand.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case SecuritySelectToHandColorRecoveryShuffleEffect securitySelect:
+                {
+                    // (BT1_087) select 1 security card -> hand, color-gated Recovery+1, then shuffle security.
+                    // Drives the ChoiceProvider; the add-to-hand / recovery / shuffle stage on the sink in order.
+                    await securitySelect.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case ActivatedTargetBuffEffect targetBuff:
                 {
                     ChoiceResult result = await context.ChoiceProvider

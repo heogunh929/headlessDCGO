@@ -545,8 +545,9 @@ public sealed class DigivolveAction
         }
 
         // D-8: fold in continuous digivolution-cost modifiers (effect-driven ±cost), honouring a
-        // continuous "cost cannot be reduced" replacement. Static cost is the base.
-        evolutionCost = ContinuousModifierGate.ResolveDigivolutionCost(context, cardId, baseCost);
+        // continuous "cost cannot be reduced" replacement. Static cost is the base. (BT1_109) pass the
+        // digivolving-FROM target permanent so a two-sided player-scope cost predicate can gate on it.
+        evolutionCost = ContinuousModifierGate.ResolveDigivolutionCost(context, cardId, baseCost, digivolveTargetPermanentId: targetCardId);
         error = null;
         return true;
     }

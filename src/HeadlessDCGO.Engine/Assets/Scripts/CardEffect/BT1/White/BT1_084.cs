@@ -29,50 +29,15 @@
 //   return exactly 1 matching digivolution card from THIS card's OWN permanent (not a zone-wide search) to the
 //   owner's hand, then unsuspend this Digimon.
 //
-// STOP (both branches — genuine uniform-ActivatedEffect IEffectBody / CardEffectFactory primitive gaps, not
-// per-card shortcuts; grepped twice per rule 4):
+// Both branches are now ported (the branch-2 primitive was added in the STOP-remainder pass):
 //
-// Branch 1: needs a body of "interactively select 1 reference permanent (Mode.Custom-shaped: mandatory pick of
-// min(1, available), no further per-target narrowing beyond IsOpponentBattleAreaDigimon), THEN — using the
-// SPECIFIC selected id — compute a DERIVED destroy-target set (every opponent battle-area Digimon whose card
-// name overlaps the reference's) and destroy them all". Grepped (2x) the uniform IEffectBody catalog
-// (Assets/Scripts/Script/CardEffectCommons/ActivatedEffect.cs): DrawBody / MemoryBody / RecoveryBody /
-// TrashSecurityBody / SelectTrashHandThenSelfMutationBody / SuspendSelfAndGainMemoryBody / SelfToHandBody /
-// GrantContinuousBody / SelectBody — none compute a mutation from the selected id's OWN card-name; SelectBody's
-// Apply delegates entirely to SelectPermanentEffect.Mode, and Mode.Custom is EXPLICITLY a no-op in
-// SelectPermanentEffect.BuildMutation ("Mode.Attack or Mode.Custom => null" — Assets/Scripts/Script/
-// SelectPermanentEffect.cs:213), so it cannot emit a "destroy every same-named permanent" mutation from the pick.
-// Also grepped the legacy per-shape factories (CardPortingFramework.cs): CardEffectFactory.SelectAndDestroyEffect
-// only destroys the SELECTED permanent(s) themselves (SelectPermanentEffect.Mode.Destroy applied to the pick),
-// not a name-matched set derived from the pick. No factory composes "select 1 reference -> destroy every
-// same-CardName permanent on the opponent's side" (CardSource.EqualsCardName / CardNames already exist as query
-// primitives — Assets/Scripts/Script/CardEffectCommons/CardPortingFramework.cs:435 — but no activated-effect BODY
-// wires a select's answer into that derived-destroy computation). Per rule 4 this is a primitive gap requiring a
-// new composed IEffectBody in the shared catalog, out of scope for a single-card porting pass.
+// Branch 1 (WhenDigivolving): uniform ActivatedEffect + SelectBody with an onEachSelectedWithSink follow-up
+// that, from the picked reference id, derives the same-named opponent set and deletes each (see the branch below).
 //
-// Branch 2: needs a body of "interactively select 1 matching card (level==6 Digimon) from THIS card's OWN
-// permanent's digivolution-card stack (not a global zone), move it to the owner's hand, THEN apply a fixed self
-// mutation (Unsuspend)". Grepped (2x) the same IEffectBody catalog: SelectTrashHandThenSelfMutationBody is the
-// closest shape (select+cost then fixed self-mutation follow-up) but its select source is hard-coded to the
-// OWNER'S HAND via ChoiceZone.Hand, and its cost action is a TRASH (TrashCardKind), not a return-to-hand pick
-// from a permanent's OWN digivolution-card stack. CardEffectFactory.SelectAndAddToHandFromZoneEffect /
-// ActivatedSelectFromZoneEffect read candidates via ((IZoneStateReader)Context.ZoneMover).GetCards(owner,
-// fromZone) — a flat PER-PLAYER zone dictionary (Headless/Services/InMemoryZoneMover.cs) — but a permanent's
-// digivolution sources are NOT stored in that per-player zone table; they live in the host CardInstanceRecord's
-// own metadata (Headless.State.DigivolutionStackReader.SourceIdsKey / CardPortingFramework.cs:7766-7771's
-// SourcesOf helper), so ChoiceZone.DigivolutionCards candidates would always resolve empty through that factory
-// — it cannot scope to "this specific permanent's" digivolution stack at all. CardEffectFactory.
-// SelectAndTrashDigivolutionEffect / ActivatedSelectTrashDigivolutionEffect (ST2_03/06/09 shape) does read a
-// permanent's own digivolution sources, but only to TRASH a count from top/bottom (no card-level predicate select,
-// no hand destination, no self-mutation follow-up). Headless.Runtime.DigivolutionStackHelpers.PlaySpecificSourceAsync
-// is the exact underlying mechanic (move ONE specific digivolution source to an arbitrary destination zone,
-// including Hand) but — like FreeDigivolveHelpers in BT1_078's gap — it is an internal Runtime helper with no
-// CardEffectFactory-level card-facing wrapper chaining it after a predicate-filtered interactive select, let alone
-// with a follow-up self-Unsuspend mutation. No factory composes "select 1 predicate-matching digivolution card
-// from THIS permanent's own stack -> return to hand -> self-unsuspend". Per rule 4 this is a primitive gap
-// requiring a new composed IEffectBody, out of scope for a single-card porting pass.
-//
-// No cardEffects registered for either branch. — 강모델
+// Branch 2 (OnAllyAttack): SelectDigivolutionSourceToHandThenUnsuspendSelfEffect — "select 1 predicate-matching
+// digivolution card from THIS permanent's own stack -> return to hand (DigivolutionStackHelpers.PlaySpecificSourceAsync,
+// destination Hand) -> self-unsuspend (sink mutation)". The "you can" optionality is a skippable pick in the
+// auto-firing subject-scoped bridge. — 강모델
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.White;
 
 using System.Linq;
@@ -132,11 +97,27 @@ public sealed class BT1_084 : CEntity_Effect
                 description: "[When Digivolving] Choose 1 of your opponent's Digimon. Delete all of your opponent's Digimon that share a name with it."));
         }
 
-        // STOP: [When Attacking] "You can unsuspend this Digimon by returning 1 of this Digimon's level 6
-        // digivolution cards to your hand." — needs a "select 1 matching card from THIS permanent's own
-        // digivolution stack -> return to hand -> self-unsuspend" activated body that does not exist yet
-        // (see file header).
-        // if (timing == EffectTiming.OnAllyAttack) { ... }
+        // [When Attacking] "You can unsuspend this Digimon by returning 1 of this Digimon's level 6
+        // digivolution cards to your hand." AS-IS: ActivateClass on OnAllyAttack, CanUseCondition =
+        // CanTriggerOnAttack, CanActivateCondition = IsExistOnBattleArea && this permanent's
+        // DigivolutionCards.Count(level 6 Digimon w/ HasLevel) >= 1, ORDER=-1, ISOPTIONAL=true. ActivateCoroutine:
+        // SelectCardEffect(root: Custom over selectedPermanent.DigivolutionCards, mode: AddHand, maxCount:
+        // Min(1, matching), canNoSelect:()=>false) THEN IUnsuspendPermanents(self).Unsuspend().
+        // Headless mirror: SelectDigivolutionSourceToHandThenUnsuspendSelfEffect — select 1 matching source from
+        // THIS card's own stack, return it to hand (DigivolutionStackHelpers.PlaySpecificSourceAsync), then
+        // unsuspend this card. isOptional (the "you can") is modeled as a skippable pick in the auto-firing
+        // subject-scoped bridge (skipping = declining to activate). Self-guards on matching-count>=1 (CanActivate).
+        if (timing == EffectTiming.OnAllyAttack)
+        {
+            bool CanSelectCardCondition(CardSource cardSource) =>
+                cardSource.IsDigimon && cardSource.Level == 6 && cardSource.HasLevel;
+
+            cardEffects.Add(new SelectDigivolutionSourceToHandThenUnsuspendSelfEffect(
+                card,
+                canSelect: CanSelectCardCondition,
+                isOptional: true,
+                description: "[When Attacking] You can unsuspend this Digimon by returning 1 of this Digimon's level 6 digivolution cards to your hand."));
+        }
 
         return cardEffects;
     }

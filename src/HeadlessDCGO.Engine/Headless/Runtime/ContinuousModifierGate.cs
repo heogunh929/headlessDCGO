@@ -45,7 +45,9 @@ public static class ContinuousModifierGate
         return ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
 
-    public static int ResolveDigivolutionCost(EngineContext context, HeadlessEntityId cardId, int baseDigivolutionCost, bool canReduceCost = true)
+    public static int ResolveDigivolutionCost(
+        EngineContext context, HeadlessEntityId cardId, int baseDigivolutionCost,
+        HeadlessEntityId digivolveTargetPermanentId = default, bool canReduceCost = true)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardId.IsEmpty)
@@ -53,7 +55,10 @@ public static class ContinuousModifierGate
             return baseDigivolutionCost;
         }
 
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
+        // (BT1_109) pass the digivolving-FROM target permanent so a two-sided player-scope cost predicate
+        // ("...digivolve one of your green Digimon from level 5 to level 6...") can gate on it. Default id
+        // leaves single-sided effects unchanged.
+        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId, digivolveTargetPermanentId);
         bool effectiveCanReduce = canReduceCost && !CostReductionImmune(cardId, result);
         return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }

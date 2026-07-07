@@ -221,6 +221,26 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.CompletedTask;
     }
 
+    // (BT1_087) Shuffle the SECURITY zone in place with the deterministic RNG — mirror of ShuffleAsync but
+    // scoped to ChoiceZone.Security (AS-IS SecurityCards = RandomUtility.ShuffledDeckCards(SecurityCards)).
+    public Task ShuffleSecurityAsync(HeadlessPlayerId playerId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidatePlayerId(playerId);
+        _randomSource.Shuffle(GetZone(playerId, ChoiceZone.Security));
+        RecordEvent(
+            GameEventType.StateChanged,
+            $"Zone shuffled: player={playerId}, zone={ChoiceZone.Security}",
+            new Dictionary<string, object?>
+            {
+                ["playerId"] = playerId.Value,
+                ["zone"] = ChoiceZone.Security.ToString(),
+                ["operation"] = "Shuffle",
+                ["count"] = GetZone(playerId, ChoiceZone.Security).Count
+            });
+        return Task.CompletedTask;
+    }
+
     public void Clear()
     {
         ResetMatchState();

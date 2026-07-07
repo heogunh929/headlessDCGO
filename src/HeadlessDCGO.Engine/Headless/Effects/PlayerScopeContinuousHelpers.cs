@@ -38,6 +38,15 @@ public static class PlayerScopeContinuousHelpers
     /// apply first (cheap), then this predicate.</summary>
     public const string ScopePredicateKey = "scopePredicate";
 
+    /// <summary>(BT1_109) Optional condition for DIGIVOLUTION-COST queries only: a TWO-sided predicate
+    /// <c>Func&lt;CardSource /*digivolving-TO card*/, CardSource /*digivolving-FROM target permanent*/, bool&gt;</c>.
+    /// A one-sided <see cref="ScopePredicateKey"/> can only see the card being queried (the TO card); a
+    /// cost-reduction gated on the FROM permanent ("...when you would digivolve one of your green Digimon from
+    /// level 5 to level 6...") needs both. Evaluated by ContinuousScopeEvaluation ONLY when the digivolution-cost
+    /// resolution supplies the target-permanent id; every other continuous query (no target) treats an effect
+    /// carrying this key as non-applicable, so it stays scoped to digivolve-cost.</summary>
+    public const string ScopeDigivolveTargetPredicateKey = "scopeDigivolveTargetPredicate";
+
     /// <summary>Optional condition: the card's metadata must contain this key...</summary>
     public const string ScopeMetaKeyKey = "scopeMetaKey";
 

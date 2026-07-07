@@ -4612,6 +4612,330 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(BT1_078 [When Attacking]) Reveal the top <c>RevealCount</c> library cards, optionally select 1
+/// matching card (<c>_canSelect</c> — a level-6 card that can legally digivolve onto THIS card's own
+/// permanent), place the remaining revealed cards at the deck bottom, then free-digivolve the selected card
+/// onto this card. 1:1 mirror of the AS-IS SimplifiedRevealDeckTopCardsAndSelect(revealCount, one Custom-mode
+/// select maxCount:1 canNoSelect:true, remaining:DeckBottom) followed by PlayCardClass(selected, payCost:false,
+/// targetPermanent: card.PermanentOfThisCard(), root:Library, activateETB:true). The costless single-target
+/// digivolve reuses <see cref="FreeDigivolveHelpers.DigivolveFreeAsync"/> (the same mechanic Blast/Arts use);
+/// the newly-digivolved top registers its effects (mirror of the post-digivolve RegisterCard).</summary>
+public sealed class RevealSelectThenFreeDigivolveSelfEffect : IActivatedCardEffect
+{
+    private readonly int _revealCount;
+    private readonly Func<HeadlessEntityId, bool> _canSelect;
+
+    public RevealSelectThenFreeDigivolveSelfEffect(CardSource card, int revealCount, Func<HeadlessEntityId, bool> canSelect, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canSelect);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _revealCount = revealCount;
+        _canSelect = canSelect;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(CancellationToken cancellationToken)
+    {
+        EngineContext context = Card.Context;
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        HeadlessPlayerId owner = Card.Owner;
+        List<HeadlessEntityId> revealed = zones.GetCards(owner, ChoiceZone.Library).Take(Math.Max(0, _revealCount)).ToList();
+        if (revealed.Count == 0)
+        {
+            return; // AS-IS: nothing to reveal -> no-op (CanActivate already required >=1 library card).
+        }
+
+        HeadlessEntityId selected = default;
+        List<ChoiceCandidate> candidates = revealed.Where(_canSelect)
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Library, IsSelectable: true, ownerId: owner))
+            .ToList();
+        if (candidates.Count > 0)
+        {
+            // AS-IS canNoSelect:true -> the pick is optional (skippable); maxCount 1.
+            var request = new ChoiceRequest(
+                ChoiceType.Card, owner, Description, minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.Library, candidates);
+            ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!result.IsSkipped && result.SelectedIds.Count > 0)
+            {
+                selected = result.SelectedIds[0];
+            }
+        }
+
+        // AS-IS remaining-cards place: DeckBottom (every revealed card except the one selected to digivolve).
+        foreach (HeadlessEntityId id in revealed)
+        {
+            if (id != selected)
+            {
+                await context.ZoneMover.MoveToDeckBottomAsync(owner, id, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // AS-IS follow-up: costless single-target digivolve of the selected library card onto this card's
+        // own permanent (payCost:false, root:Library).
+        if (!selected.IsEmpty)
+        {
+            bool digivolved = await FreeDigivolveHelpers.DigivolveFreeAsync(
+                context.CardInstanceRepository, context.ZoneMover, selected, Card.InstanceId,
+                ChoiceZone.Library, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+            if (digivolved)
+            {
+                CardEffectRegistrar.RegisterCard(context, selected, owner);
+            }
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Reveal-select-then-free-digivolve effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(BT1_084 [When Attacking]) Select exactly 1 matching card (<c>_canSelect</c>) from THIS card's own
+/// permanent's digivolution-source stack, return it to the owner's hand, then unsuspend this card. 1:1 mirror
+/// of AS-IS SelectCardEffect(root: Custom over selectedPermanent.DigivolutionCards, mode: AddHand, maxCount:
+/// Min(1, matching), canNoSelect:()=>false) THEN IUnsuspendPermanents(selectedPermanent).Unsuspend(). The
+/// specific-source return reuses <see cref="DigivolutionStackHelpers.PlaySpecificSourceAsync"/> (destination
+/// Hand); the self-unsuspend is a sink mutation (immunity/restriction gates honoured).</summary>
+public sealed class SelectDigivolutionSourceToHandThenUnsuspendSelfEffect : IActivatedCardEffect
+{
+    private readonly Func<CardSource, bool> _canSelect;
+    private readonly bool _isOptional;
+
+    public SelectDigivolutionSourceToHandThenUnsuspendSelfEffect(CardSource card, Func<CardSource, bool> canSelect, bool isOptional, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canSelect);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _canSelect = canSelect;
+        _isOptional = isOptional;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+
+        var permanent = new Permanent(context, Card.InstanceId, Card.Owner);
+        List<HeadlessEntityId> matching = permanent.DigivolutionCards
+            .Where(c => _canSelect(c))
+            .Select(c => c.InstanceId)
+            .ToList();
+        if (matching.Count == 0)
+        {
+            return; // AS-IS: CanActivate already ensured >=1; defensive.
+        }
+
+        var candidates = matching
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: Card.Owner))
+            .ToList();
+        // AS-IS canNoSelect:() => false is the pick's rule ONCE the "you can" is activated; in the auto-firing
+        // subject-scoped bridge, the activation optionality (isOptional) is modeled as a skippable request —
+        // skipping = declining to activate; selecting = the mandatory pick of exactly 1.
+        var request = new ChoiceRequest(
+            ChoiceType.Card, Card.Owner, Description, minCount: _isOptional ? 0 : 1, maxCount: 1, canSkip: _isOptional, ChoiceZone.DigivolutionCards, candidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.IsSkipped || result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        HeadlessEntityId sourceId = result.SelectedIds[0];
+        await DigivolutionStackHelpers.PlaySpecificSourceAsync(
+            context.CardInstanceRepository, context.ZoneMover, Card.InstanceId, sourceId, ChoiceZone.Hand, cancellationToken).ConfigureAwait(false);
+
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.UnsuspendKind, Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Select-digivolution-source-to-hand-then-unsuspend effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(BT1_056 [On Play]) Select up to <c>maxCount</c> of the owner's cards spanning MULTIPLE candidate
+/// zones (Hand ∪ Trash) matching <c>_canTarget</c>, then play each as a new permanent COST-FREE from its OWN
+/// origin zone. 1:1 mirror of AS-IS "you may play 1 [X] from your hand or recycle bin" — a single logical
+/// select over a combined candidate pool where each candidate carries its own source zone into the play
+/// mutation (the AS-IS "from hand / from trash" zone prompt is UI sugar; the outcome set is identical).
+/// Generalises <see cref="ActivatedSelectAndPlayEffect"/> (a single fixed fromZone) to a multi-zone pool.</summary>
+public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
+{
+    private readonly IReadOnlyList<ChoiceZone> _fromZones;
+    private readonly Func<HeadlessEntityId, bool> _canTarget;
+    private readonly int _maxCount;
+    private readonly bool _canEndNotMax;
+
+    public ActivatedSelectAndPlayFromZonesEffect(
+        CardSource card, IReadOnlyList<ChoiceZone> fromZones, Func<HeadlessEntityId, bool> canTarget,
+        int maxCount, bool canEndNotMax, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(fromZones);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _fromZones = fromZones;
+        _canTarget = canTarget;
+        _maxCount = maxCount;
+        _canEndNotMax = canEndNotMax;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    private ChoiceZone? ZoneOf(IZoneStateReader zones, HeadlessEntityId id)
+    {
+        foreach (ChoiceZone zone in _fromZones)
+        {
+            if (zones.GetCards(Card.Owner, zone).Contains(id))
+            {
+                return zone;
+            }
+        }
+
+        return null;
+    }
+
+    public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
+    {
+        var zones = (IZoneStateReader)Card.Context.ZoneMover;
+        var candidates = new List<ChoiceCandidate>();
+        foreach (ChoiceZone zone in _fromZones)
+        {
+            foreach (HeadlessEntityId id in zones.GetCards(Card.Owner, zone).Where(_canTarget))
+            {
+                candidates.Add(EffectChoiceHelpers.Candidate(id, id.Value, zone, isSelectable: true, Card.Owner));
+            }
+        }
+
+        int max = Math.Min(_maxCount, candidates.Count);
+        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: _canEndNotMax ? 0 : max, maxCount: max, canSkip: _canEndNotMax, candidates);
+    }
+
+    public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(selected);
+        var zones = (IZoneStateReader)Card.Context.ZoneMover;
+        foreach (HeadlessEntityId id in selected)
+        {
+            if (id.IsEmpty)
+            {
+                continue;
+            }
+
+            ChoiceZone fromZone = ZoneOf(zones, id) ?? _fromZones[0];
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.PlayCardKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.TargetEntityIdKey] = id.Value,
+                    [MatchStateMutationSink.FromZoneKey] = fromZone.ToString(),
+                }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Multi-zone select-and-play effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(BT1_087 [On Play]) Look at your security stack, select exactly 1 card in it and add it to your
+/// hand; if that card has <c>_recoveryColor</c>, &lt;Recovery +1 (Deck)&gt;; then shuffle your security stack.
+/// 1:1 mirror of AS-IS SelectCardEffect(root:Security, mode:AddHand, maxCount:Min(1,count), canNoSelect:()=>
+/// false) with an AfterSelect color-gated IRecovery(owner,1) keyed off the SPECIFIC selected card, followed by
+/// an unconditional RandomUtility.ShuffledDeckCards(SecurityCards). Add-to-hand / recovery / shuffle are staged
+/// on the sink so they flush in that AS-IS order (the recovered card is shuffled in).</summary>
+public sealed class SecuritySelectToHandColorRecoveryShuffleEffect : IActivatedCardEffect
+{
+    private readonly string _recoveryColor;
+
+    public SecuritySelectToHandColorRecoveryShuffleEffect(CardSource card, string recoveryColor, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(recoveryColor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _recoveryColor = recoveryColor;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        HeadlessPlayerId owner = Card.Owner;
+        List<HeadlessEntityId> security = zones.GetCards(owner, ChoiceZone.Security).ToList();
+        if (security.Count == 0)
+        {
+            return; // AS-IS: CanActivate already required >=1 security card; defensive.
+        }
+
+        var candidates = security
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Security, IsSelectable: true, ownerId: owner))
+            .ToList();
+        // AS-IS canNoSelect:() => false -> mandatory pick of exactly 1.
+        var request = new ChoiceRequest(
+            ChoiceType.Card, owner, Description, minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.Security, candidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.IsSkipped || result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        HeadlessEntityId selected = result.SelectedIds[0];
+        // Add the selected security card to hand (moves it out of the security stack).
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ReturnToHandKind, Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = selected.Value }));
+
+        // If the added card matches the recovery color, <Recovery +1 (Deck)> (top library card -> security top).
+        if (new CardSource(context, selected, owner).HasCardColor(_recoveryColor))
+        {
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.RecoverKind, Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.PlayerIdKey] = owner.Value,
+                    [MatchStateMutationSink.CountKey] = 1,
+                }));
+        }
+
+        // Then shuffle the security stack (deferred; flushes after the add-to-hand + recovery moves).
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.ShuffleSecurityKind, Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.PlayerIdKey] = owner.Value }));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Security-select color-recovery-shuffle effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// Headless mirror of the original <c>CardEffectFactory</c>. Method names match the original so ported
 /// card bodies read 1:1. Each returns an <see cref="ICardEffect"/> the registrar lowers to a binding.
@@ -9143,6 +9467,50 @@ public static class CardEffectCommons
     /// <summary>AS-IS <c>IsPermanentExistsOnOwnerBattleArea</c> (:431).</summary>
     public static bool IsPermanentExistsOnOwnerBattleArea(Permanent? permanent, CardSource card) =>
         IsPermanentExistsOnBattleArea(permanent) && IsOwnerPermanent(permanent, card);
+
+    /// <summary>(BT1_109) Register a PLAYER-SCOPE digivolution-cost delta whose applicability is gated on a
+    /// TWO-sided predicate: <paramref name="toCardCondition"/> (the digivolving-TO card) AND
+    /// <paramref name="targetPermanentCondition"/> (the digivolving-FROM target permanent). The digivolution-cost
+    /// pipeline (ContinuousModifierGate.ResolveDigivolutionCost -> ContinuousScopeEvaluation) passes the target
+    /// permanent so both sides evaluate; every other continuous query supplies no target, so this effect stays
+    /// scoped to digivolve-cost resolution. Mirrors AS-IS ChangeCostClass(ChangeCost, CardSourceCondition,
+    /// PermanentsCondition) registered via AddEffectToPlayer(UntilEachTurnEnd).
+    ///
+    /// FIDELITY DEBT (documented, not silent): the AS-IS pairs this with a background cleanup ActivateClass that
+    /// removes the reduction after the FIRST matching digivolve ("the NEXT time... this turn"). Headless has no
+    /// player-scope WhenDigivolving trigger delivery to a trashed Option card (WhenDigivolving is delivered only
+    /// subject-scoped to the digivolved card), so the reduction here lasts <paramref name="duration"/> (turn end)
+    /// and would apply to EVERY matching green-5→6 digivolve that turn rather than only the next one. Scope is
+    /// exact (correct lines only); the sole deviation is one-shot vs. once-per-matching-line-this-turn.</summary>
+    public static void RegisterDigivolutionCostDeltaForPlayer(
+        CardSource card, int delta, Headless.Effects.EffectDuration duration,
+        Func<CardSource, bool> toCardCondition, Func<CardSource, bool> targetPermanentCondition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(toCardCondition);
+        ArgumentNullException.ThrowIfNull(targetPermanentCondition);
+        EngineContext context = card.Context;
+
+        Func<CardSource, CardSource, bool> twoSided = (toCard, targetCard) =>
+            toCardCondition(toCard) && targetPermanentCondition(targetCard);
+
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
+            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = card.Owner.Value,
+            [Headless.Effects.PlayerScopeContinuousHelpers.ScopeDigivolveTargetPredicateKey] = twoSided,
+            [Headless.Effects.DigivolutionCostHelpers.DigivolutionCostDeltaKey] = delta,
+        };
+        var effectContext = new Headless.Effects.EffectContext(
+            card.Controller, card.Owner, card.InstanceId,
+            triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
+        context.EffectRegistry.Register(new Headless.Effects.EffectBinding(
+            new Headless.Effects.EffectRequest(
+                new HeadlessEntityId($"{card.InstanceId.Value}:digivolveCostPlayer:{Guid.NewGuid():N}"),
+                card.Controller, "Continuous", effectContext),
+            keywords: null, Headless.Services.EffectQueryRole.Continuous,
+            new[] { ContinuousModifierGate.Scope }, effect: null, duration: duration));
+    }
 
     /// <summary>AS-IS <c>IsPermanentExistsOnOpponentBattleArea</c> (:448).</summary>
     public static bool IsPermanentExistsOnOpponentBattleArea(Permanent? permanent, CardSource card) =>

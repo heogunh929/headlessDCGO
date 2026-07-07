@@ -5,27 +5,15 @@
 //             stack.) Then shuffle your security stack.
 //   [Security] Play this Tamer.                                     -> PlaySelfTamerSecurityEffect
 //
-// STOP (partial): the [On Play] activated effect is NOT registered. AS-IS ActivateCoroutine is one atomic
-// sequence — select 1 card out of security to hand, THEN conditionally <Recovery +1> keyed off the COLOR
-// OF THE SPECIFIC CARD JUST SELECTED, THEN unconditionally shuffle the remaining security stack — and two
-// of its three steps have no headless primitive:
-//   1) Conditional follow-up gated on a property of the just-selected card. CardEffectFactory's
-//      select-from-zone primitive (SelectAndAddToHandFromZoneEffect / ActivatedSelectFromZoneEffect,
-//      CardPortingFramework.cs:5476/4150) applies one fixed MatchStateMutationSink kind to every chosen id
-//      and has no post-selection hook; SimplifiedRevealAndSelectEffect's per-condition routing
-//      (CardPortingFramework.cs:3000) is Library-only and routes by a target predicate known BEFORE
-//      selection, not a "then do X to the same selected card" step. grep (2x) for
-//      afterSelect/AfterSelect/OnSelected/PostSelect/SelectedCardCondition across Headless/* and
-//      Assets/Scripts/Script/* found no reusable hook outside of unrelated digivolution-trash and
-//      DNA-digivolve helpers.
-//   2) Shuffling the security stack. MatchStateMutationSink has no AddToSecurity/Recover-adjacent shuffle
-//      kind (grep of "Shuffle"/"Kind = \"" across CardPortingFramework.cs and Headless/* — the only shuffle
-//      primitive is IZoneMover.ShuffleAsync / ZoneState.Shuffle, hard-wired to ChoiceZone.Library only;
-//      InMemoryZoneMover.ShuffleAsync explicitly shuffles `GetZone(playerId, ChoiceZone.Library)`).
-// Per the primitive-gap rule (no new primitives, no engine edits, no throw), this timing is left
-// unregistered rather than dropping the conditional-recovery/shuffle semantics or approximating them.
-// [Start of Your Turn] and [Security] are separate, fully-covered blocks and are ported below.
-
+// [On Play] AS-IS: ActivateClass on OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay,
+//   CanActivateCondition = IsExistOnBattleArea && Owner.SecurityCards.Count >= 1, ORDER=-1, ISOPTIONAL=false.
+//   ActivateCoroutine: SelectCardEffect(root:Security, mode:AddHand, maxCount:Min(1,count), canNoSelect:()=>
+//   false) with an AfterSelect step: if the selected card is yellow, IRecovery(owner,1).Recovery(); then
+//   ContinuousController shuffle + Owner.SecurityCards = RandomUtility.ShuffledDeckCards(SecurityCards).
+//   Headless mirror: SecuritySelectToHandColorRecoveryShuffleEffect — mandatory select 1 security card -> hand,
+//   color-gated <Recovery +1 (Deck)> keyed off the SPECIFIC selected card, then a deterministic security
+//   shuffle (ShuffleSecurity sink mutation / IZoneMover.ShuffleSecurityAsync). The three steps stage on the
+//   sink so they flush in AS-IS order (the recovered card is shuffled in). Self-guards on security>=1 (CanActivate).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
@@ -41,8 +29,13 @@ public sealed class BT1_087 : CEntity_Effect
             cardEffects.Add(CardEffectFactory.SetMemoryTo3TamerEffect(card));
         }
 
-        // STOP: [On Play] (OnEnterFieldAnyone) select-from-security + conditional-color-gated recovery +
-        // shuffle-security — see file-header STOP note. Not registered (primitive gap, no engine mod).
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            cardEffects.Add(new SecuritySelectToHandColorRecoveryShuffleEffect(
+                card,
+                recoveryColor: "Yellow",
+                description: "[On Play] Look at your security stack, then reveal 1 card in it and add it to your hand. If that card is yellow, <Recovery +1 (Deck)>. Then shuffle your security stack."));
+        }
 
         if (timing == EffectTiming.SecuritySkill)
         {

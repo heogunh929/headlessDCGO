@@ -67,6 +67,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // B-6: effect-driven security operations (player-scoped batches over IZoneMover primitives).
     public const string RecoverKind = "Recover";              // top N library -> security (AS-IS IRecovery/IAddSecurityFromLibrary)
     public const string TrashSecurityKind = "TrashSecurity";  // N security -> trash (AS-IS IDestroySecurity), emits OnDiscardSecurity
+    public const string ShuffleSecurityKind = "ShuffleSecurity"; // (BT1_087) shuffle the player's security stack (AS-IS RandomUtility.ShuffledDeckCards)
     // B-9: create N token Digimon on the controller's battle area (AS-IS CardEffectCommons.PlayToken).
     public const string CreateTokenKind = "CreateToken";
     public const string TokenDefinitionIdKey = "tokenDefinitionId";
@@ -252,6 +253,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 return;
             case TrashSecurityKind:
                 ApplyTrashSecurity(mutation);
+                return;
+            case ShuffleSecurityKind:
+                ApplyShuffleSecurity(mutation);
                 return;
             case CreateTokenKind:
                 ApplyCreateToken(mutation);
@@ -573,6 +577,29 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _pendingAsync.Add(ct => zoneMover.TrashSecurityAsync(player, count, fromTop, ct));
         _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "trashSecurity"));
         EmitTiming(TriggerTimings.OnDiscardSecurity, player);
+    }
+
+    // (BT1_087) Shuffle the player's security stack — a deferred zone shuffle so it flushes after any
+    // preceding security moves (add-to-hand / recovery) staged on the same sink.
+    private void ApplyShuffleSecurity(EffectMutation mutation)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        HeadlessPlayerId player = ReadPlayer(mutation.Values, PlayerIdKey);
+        if (player.IsEmpty)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' is missing a '{PlayerIdKey}' value.");
+            return;
+        }
+
+        _pendingAsync.Add(ct => zoneMover.ShuffleSecurityAsync(player, ct));
+        _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "shuffleSecurity"));
     }
 
     // B-9 PlayToken: create N token Digimon (IsToken instances of the given token definition) on the
@@ -1161,7 +1188,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             || kind is AddDpModifierKind or SuspendKind or UnsuspendKind or SetFlagKind or ClearFlagKind
             || kind is TrashCardKind or ReturnToHandKind or ReturnToDeckTopKind or ReturnToDeckBottomKind
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
-                or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or CreateTokenKind
+                or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or ShuffleSecurityKind or CreateTokenKind
                 or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind
                 or TrainKind or MaterialSaveKind or DeDigivolveKind
                 or PlayDigivolutionAsDigimonKind;

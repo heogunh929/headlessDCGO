@@ -19,14 +19,15 @@ public static class ContinuousScopeEvaluation
     public static ContinuousEvaluationResult EvaluateForCard(
         EngineContext context,
         string scope,
-        HeadlessEntityId cardId)
+        HeadlessEntityId cardId,
+        HeadlessEntityId digivolveTargetPermanentId = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
 
         var queryContext = new EffectQueryContext(scope, targetEntityId: cardId);
         ResolveCard(context, cardId, out _, out CardRecord? card, out CardInstanceRecord? instance);
-        EffectRequest[] combined = ApplicableEffects(context, scope, cardId);
+        EffectRequest[] combined = ApplicableEffects(context, scope, cardId, digivolveTargetPermanentId);
 
         return ContinuousEffectEvaluator.Evaluate(
             new ContinuousEvaluationRequest(queryContext, combined, card, instance, state: null));
@@ -36,7 +37,8 @@ public static class ContinuousScopeEvaluation
     /// — card-targeted + inherited + player-scope (owner + condition + arbitrary permanentCondition predicate,
     /// evaluated 1:1) — after disable/condition filtering and dynamic-value resolution. Registry-only gates
     /// (sink / battle-deletion) scan this to honour player-scope effects with predicates, not just self.</summary>
-    public static EffectRequest[] ApplicableEffects(EngineContext context, string scope, HeadlessEntityId cardId)
+    public static EffectRequest[] ApplicableEffects(
+        EngineContext context, string scope, HeadlessEntityId cardId, HeadlessEntityId digivolveTargetPermanentId = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
@@ -56,6 +58,7 @@ public static class ContinuousScopeEvaluation
             ? Array.Empty<EffectRequest>()
             : PlayerScopeContinuousHelpers.CollectApplicable(registry, scope, owner, card, ResolveZoneName(context, owner, cardId))
                 .Where(effect => PlayerScopePredicatePasses(context, effect, cardId, owner))
+                .Where(effect => DigivolveTargetPredicatePasses(context, effect, cardId, digivolveTargetPermanentId, owner))
                 .ToArray();
 
         return cardTargeted
@@ -113,6 +116,29 @@ public static class ContinuousScopeEvaluation
         }
 
         return predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner));
+    }
+
+    // (BT1_109) Evaluate a player-scope effect's optional TWO-sided digivolution-cost predicate against
+    // (the digivolving-TO card, the digivolving-FROM target permanent). Absent key -> unaffected (applies).
+    // Present key but no target supplied (any non-digivolve-cost query) -> does NOT apply, keeping the effect
+    // scoped to digivolution-cost resolution.
+    private static bool DigivolveTargetPredicatePasses(
+        EngineContext context, EffectRequest effect, HeadlessEntityId toCardId, HeadlessEntityId targetPermanentId, HeadlessPlayerId owner)
+    {
+        if (!effect.Context.Values.TryGetValue(PlayerScopeContinuousHelpers.ScopeDigivolveTargetPredicateKey, out object? raw)
+            || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
+        {
+            return true;
+        }
+
+        if (targetPermanentId.IsEmpty)
+        {
+            return false;
+        }
+
+        var toCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, toCardId, owner, owner);
+        var targetCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, targetPermanentId, owner, owner);
+        return predicate(toCard, targetCard);
     }
 
     private static EffectRequest ResolveDynamicValue(EffectRequest effect)

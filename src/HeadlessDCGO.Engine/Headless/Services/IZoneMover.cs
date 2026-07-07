@@ -44,4 +44,8 @@ public interface IZoneMover
         CancellationToken cancellationToken = default);
 
     Task ShuffleAsync(HeadlessPlayerId playerId, CancellationToken cancellationToken = default);
+
+    // (BT1_087) Shuffle the player's SECURITY stack (AS-IS RandomUtility.ShuffledDeckCards on SecurityCards).
+    // Distinct from ShuffleAsync (Library-only) — the deterministic RNG shuffles the Security zone in place.
+    Task ShuffleSecurityAsync(HeadlessPlayerId playerId, CancellationToken cancellationToken = default);
 }
