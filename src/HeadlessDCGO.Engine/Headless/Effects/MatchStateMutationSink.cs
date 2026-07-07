@@ -299,11 +299,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 }
 
                 WriteMetadata(record, targetId, mutation.Kind, SuspendedFlagKey, true);
-                EmitTiming(TriggerTimings.OnTapped, record.OwnerId);
+                EmitTiming(TriggerTimings.OnTapped, record.OwnerId, subject: targetId);
                 break;
             case UnsuspendKind:
                 WriteMetadata(record, targetId, mutation.Kind, SuspendedFlagKey, false);
-                EmitTiming(TriggerTimings.OnUntapped, record.OwnerId);
+                EmitTiming(TriggerTimings.OnUntapped, record.OwnerId, subject: targetId);
                 break;
             case SetFlagKind:
                 ApplyNamedFlag(mutation, record, targetId, value: true);
@@ -1147,11 +1147,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
     /// <summary>(CV-A4) Open a global timing window for a state change that is not a zone move (so it is
     /// not derived from a CardMoved event). No-op when the sink was built without a game-event queue.</summary>
-    private void EmitTiming(string timing, HeadlessPlayerId actor)
+    private void EmitTiming(string timing, HeadlessPlayerId actor, HeadlessEntityId? subject = null)
     {
         if (_gameEventQueue is not null)
         {
-            TriggerEventEmitter.Emit(_gameEventQueue, timing, actor: actor);
+            TriggerEventEmitter.Emit(_gameEventQueue, timing, actor: actor, subject: subject);
         }
     }
 

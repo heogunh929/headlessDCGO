@@ -530,6 +530,7 @@ public sealed class GameFlowProcessor
         EffectTiming.OnAllyAttack,
         EffectTiming.OnDestroyedAnyone,
         EffectTiming.OnUnTappedAnyone,
+        EffectTiming.OnTappedAnyone,   // (Phase D) symmetric to OnUnTapped — MatchStateMutationSink emits it with subject
         // (v4) attack-declaration window — emitted with subject = attacker alongside OnAttack/OnAllyAttack
         // (AttackPermanentAction:151), so "[When Attacking]" activated effects (incl. Digi-Burst bodies declared
         // at OnDeclaration) resolve at declaration. Once per declaration event; a card gates itself.
@@ -544,6 +545,7 @@ public sealed class GameFlowProcessor
     private static readonly IReadOnlySet<EffectTiming> OncePerTurnBridgeTimings = new HashSet<EffectTiming>
     {
         EffectTiming.OnUnTappedAnyone,
+        EffectTiming.OnTappedAnyone,
     };
 
     /// <summary>(v2) BOUNDARY timings — carry no card subject (a turn boundary emitted with only an actor). The
