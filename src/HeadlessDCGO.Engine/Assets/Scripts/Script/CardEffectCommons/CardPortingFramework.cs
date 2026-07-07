@@ -8969,6 +8969,16 @@ public static class CardEffectCommons
         return TurnOwnershipHelpers.IsOwnerTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
     }
 
+    /// <summary>AS-IS <c>Player.DigivolveCount_ThisTurn</c>: how many times this card's owner has digivolved
+    /// this turn (0 at turn start, ++ on each digivolve — DigivolveAction). Gate "if you've digivolved this
+    /// turn" with <c>&gt;= 1</c> (BT1_007) or the exact count the card requires.</summary>
+    public static int DigivolveCountThisTurn(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return card.Context.PlayerTurnCounters.Get(
+            card.Owner, Headless.Runtime.PlayerTurnCounterController.DigivolveCountKey);
+    }
+
     /// <summary>(PRIM-P0 B.O.4 #1) True when the action currently paying cost matches <paramref name="root"/>.
     /// Gate a [BeforePayCost] effect with this so it fires only for the intended action (AS-IS ChangeCostClass
     /// rootCondition), since the BeforePayCost timing is shared by play / digivolve / option.</summary>

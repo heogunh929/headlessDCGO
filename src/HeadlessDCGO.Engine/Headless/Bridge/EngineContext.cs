@@ -49,6 +49,7 @@ public sealed class EngineContext
         OptionalPromptQueue = new OptionalPromptQueue();
         MulliganCoordinator = new MulliganCoordinator();
         OnceFlags = new OnceFlagController();
+        PlayerTurnCounters = new HeadlessDCGO.Engine.Headless.Runtime.PlayerTurnCounterController();
         DeferredActivations = new HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
@@ -98,6 +99,9 @@ public sealed class EngineContext
 
     /// <summary>(F-4) Per-turn use-count tracking that gates once-per-turn / max-count-per-turn effects.</summary>
     public OnceFlagController OnceFlags { get; }
+
+    /// <summary>Player-scoped, turn-scoped counters (AS-IS <c>Player.DigivolveCount_ThisTurn</c> etc.).</summary>
+    public HeadlessDCGO.Engine.Headless.Runtime.PlayerTurnCounterController PlayerTurnCounters { get; }
 
     /// <summary>(G11-002) Holds an activation suspended mid-resolution waiting for an agent choice, so the
     /// next ResolveChoice resumes it without re-running the originating action (no re-pay).</summary>
@@ -220,6 +224,7 @@ public sealed class EngineContext
         OptionalPromptQueue.Clear();
         MulliganCoordinator.Clear();
         OnceFlags.ResetMatchState();
+        PlayerTurnCounters.ResetMatchState();
         DeferredActivations.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;

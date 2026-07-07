@@ -817,6 +817,8 @@ public sealed class MetadataActionProcessor : IActionProcessor
 
         // F-4: a new turn begins — reset the once-per-turn use counts (original InitUseCountThisTurn).
         context.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId);
+        // Reset player-scoped per-turn counters (AS-IS TurnStateMachine resets Player.DigivolveCount_ThisTurn etc.).
+        context.PlayerTurnCounters.ResetForTurn();
         // F-1.7: any leftover one-shot "until cost is calculated" modifiers expire at the turn boundary
         // (AS-IS TurnStateMachine clears Player.UntilCalculateFixedCostEffect).
         EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
