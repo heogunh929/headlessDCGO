@@ -273,20 +273,55 @@ public sealed class GrantContinuousBody : IEffectBody
     }
 }
 
+/// <summary>Run a caller-supplied no-select PLAYER-SCOPE grant — the AS-IS ActivateCoroutine that calls a
+/// <c>Gain*PlayerEffect</c> commons procedure (GainCanNotAttackPlayerEffect / GainCanNotUnsuspendPlayerEffect /
+/// …) directly, with NO SelectPermanentEffect step (unlike <see cref="SelectBody"/>). Those procedures take their
+/// own per-permanent scope predicate + duration and self-register a duration-tagged player-scope binding via
+/// EffectRegistry (the AS-IS battle-area + !CanNotBeAffected guards ride the GainToPlayerScope live-CanUse), so
+/// this body just invokes the grant when the activated skill resolves. Non-interactive. Mirrors how
+/// <see cref="GrantContinuousBody"/> wires a registration into the activation flow, but for the self-registering
+/// Gain*PlayerEffect procedures (which have no ICardEffect/ToBinding wrapper to hand GrantContinuousBody).</summary>
+public sealed class GrantPlayerScopeRestrictionBody : IEffectBody
+{
+    private readonly Action<CardSource> _grant;
+
+    public GrantPlayerScopeRestrictionBody(Action<CardSource> grant)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+        _grant = grant;
+    }
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        _grant(card);
+    }
+}
+
 /// <summary>Select up to <c>maxCount</c> matching permanents and apply a <see cref="SelectPermanentEffect.Mode"/>
-/// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. Interactive.</summary>
+/// (Destroy / Tap / UnTap / Bounce / Discard / Custom …) — the AS-IS SelectPermanentEffect coroutine. When
+/// <paramref name="onEachSelected"/> is supplied it runs, per chosen id, AFTER the Mode mutation — a 1:1 mirror
+/// of the AS-IS <c>SelectPermanentCoroutine</c> / <c>afterSelectPermanentCoroutine</c> per-selected-permanent
+/// follow-up (e.g. grant the picked Digimon a keyword, set its base DP, or attach a nested effect via
+/// CardEffectCommons.GainBlocker / ChangeBaseDigimonDP / AddEffectToPermanent). Interactive.</summary>
 public sealed class SelectBody : IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
+    private readonly Action<HeadlessEntityId>? _onEachSelected;
 
     public SelectBody(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canNoSelect, bool canEndNotMax,
-        SelectPermanentEffect.Mode mode, string description)
+        SelectPermanentEffect.Mode mode, string description, Action<HeadlessEntityId>? onEachSelected = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(canTarget);
         _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId);
         _select.SetUpCustomMessage(description);
+        _onEachSelected = onEachSelected;
     }
 
     public bool IsInteractive => true;
@@ -294,8 +329,22 @@ public sealed class SelectBody : IEffectBody
     public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) =>
         _select.BuildRequest((IZoneStateReader)card.Context.ZoneMover, players);
 
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        // AS-IS SelectPermanentEffect: apply the Mode mutation to the pick(s) (UnTap unsuspends, Bounce returns,
+        // Custom is a no-op) ...
         _select.Apply(sink, selected);
+        // ... then the AS-IS SelectPermanentCoroutine / afterSelectPermanentCoroutine per-selected-permanent
+        // follow-up, scoped to exactly the id(s) the player chose (maxCount is <= 1 for every current caller, so
+        // the per-id vs after-all ordering distinction is moot).
+        if (_onEachSelected is not null)
+        {
+            foreach (HeadlessEntityId id in selected)
+            {
+                _onEachSelected(id);
+            }
+        }
+    }
 }
 
 /// <summary>The uniform activated effect. Resolved through the activation flow (bridge / OptionActivate /
