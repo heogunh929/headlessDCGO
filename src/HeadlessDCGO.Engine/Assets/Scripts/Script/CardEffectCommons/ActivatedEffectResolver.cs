@@ -289,11 +289,12 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case RevealSelectThenFreeDigivolveSelfEffect revealDigivolve:
+                case RevealSelectThenPlaySelectedEffect revealPlay:
                 {
-                    // (BT1_078) reveal top N -> optional select 1 -> free-digivolve onto self -> remaining to
-                    // deck bottom. Drives the ChoiceProvider itself; the digivolve is a direct FuseAsync move.
-                    await revealDigivolve.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    // (BT1_078 / BT3_063 / BT3_070 / BT3_073) reveal top N -> optional select 1 -> remaining to
+                    // deck bottom -> play-as-new-permanent OR free-digivolve onto self (RevealPlayMode). Drives
+                    // the ChoiceProvider itself; the follow-up is a direct play/digivolve.
+                    await revealPlay.ResolveAsync(cancellationToken).ConfigureAwait(false);
                     resolved++;
                     break;
                 }
@@ -307,10 +308,11 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case SelectDigivolutionSourceToHandThenUnsuspendSelfEffect sourceToHand:
+                case SelectDigivolutionSourceToHandThenSelfFollowUpEffect sourceToHand:
                 {
-                    // (BT1_084 br2) select 1 source from this card's own stack -> hand -> self-unsuspend. Drives
-                    // the ChoiceProvider + a direct source-return move; the unsuspend is staged on the sink.
+                    // (BT1_084 br2 / BT3_112 br2) select 1 source from this card's own stack -> hand -> self
+                    // follow-up. Drives the ChoiceProvider + a direct source-return move; the follow-up
+                    // (unsuspend via sink / GainCanNotBeBlocked via registry) runs after the return.
                     await sourceToHand.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
                     resolved++;
                     break;

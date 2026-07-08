@@ -60,7 +60,15 @@ public static class ContinuousModifierGate
         // leaves single-sided effects unchanged.
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId, digivolveTargetPermanentId);
         bool effectiveCanReduce = canReduceCost && !CostReductionImmune(cardId, result);
-        return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+        // (G5 / BT3_031 / BT3_111) additionally fold the MOVING card's OWN gated cost statics, read dispatch-first
+        // (they live on a card in hand, which the continuous registrar does not scan). Folded together with the
+        // registry modifiers so the "cannot be reduced" replacement + cost floor apply once, uniformly.
+        IReadOnlyList<NumericModifier> ownGated =
+            DigivolutionCostGateEffect.CollectOwnGatedModifiers(context, cardId, digivolveTargetPermanentId);
+        IReadOnlyList<NumericModifier> modifiers = ownGated.Count == 0
+            ? result.Modifiers
+            : result.Modifiers.Concat(ownGated).ToArray();
+        return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
 
     /// <summary>(D-8) Whether a continuous "cost cannot be reduced" replacement targets the card.</summary>

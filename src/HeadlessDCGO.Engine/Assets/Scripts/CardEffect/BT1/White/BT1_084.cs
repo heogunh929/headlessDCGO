@@ -103,19 +103,20 @@ public sealed class BT1_084 : CEntity_Effect
         // DigivolutionCards.Count(level 6 Digimon w/ HasLevel) >= 1, ORDER=-1, ISOPTIONAL=true. ActivateCoroutine:
         // SelectCardEffect(root: Custom over selectedPermanent.DigivolutionCards, mode: AddHand, maxCount:
         // Min(1, matching), canNoSelect:()=>false) THEN IUnsuspendPermanents(self).Unsuspend().
-        // Headless mirror: SelectDigivolutionSourceToHandThenUnsuspendSelfEffect — select 1 matching source from
-        // THIS card's own stack, return it to hand (DigivolutionStackHelpers.PlaySpecificSourceAsync), then
-        // unsuspend this card. isOptional (the "you can") is modeled as a skippable pick in the auto-firing
+        // Headless mirror: SelectDigivolutionSourceToHandThenSelfFollowUpEffect — select 1 matching source from
+        // THIS card's own stack, return it to hand (DigivolutionStackHelpers.PlaySpecificSourceAsync), then run the
+        // self follow-up (here: CardEffectCommons.UnsuspendSelf). isOptional (the "you can") is modeled as a skippable pick in the auto-firing
         // subject-scoped bridge (skipping = declining to activate). Self-guards on matching-count>=1 (CanActivate).
         if (timing == EffectTiming.OnAllyAttack)
         {
             bool CanSelectCardCondition(CardSource cardSource) =>
                 cardSource.IsDigimon && cardSource.Level == 6 && cardSource.HasLevel;
 
-            cardEffects.Add(new SelectDigivolutionSourceToHandThenUnsuspendSelfEffect(
+            cardEffects.Add(new SelectDigivolutionSourceToHandThenSelfFollowUpEffect(
                 card,
                 canSelect: CanSelectCardCondition,
                 isOptional: true,
+                onSelected: sink => CardEffectCommons.UnsuspendSelf(sink, card),
                 description: "[When Attacking] You can unsuspend this Digimon by returning 1 of this Digimon's level 6 digivolution cards to your hand."));
         }
 

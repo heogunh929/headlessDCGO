@@ -4624,27 +4624,46 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
 }
 
-/// <summary>(BT1_078 [When Attacking]) Reveal the top <c>RevealCount</c> library cards, optionally select 1
-/// matching card (<c>_canSelect</c> — a level-6 card that can legally digivolve onto THIS card's own
-/// permanent), place the remaining revealed cards at the deck bottom, then free-digivolve the selected card
-/// onto this card. 1:1 mirror of the AS-IS SimplifiedRevealDeckTopCardsAndSelect(revealCount, one Custom-mode
-/// select maxCount:1 canNoSelect:true, remaining:DeckBottom) followed by PlayCardClass(selected, payCost:false,
-/// targetPermanent: card.PermanentOfThisCard(), root:Library, activateETB:true). The costless single-target
-/// digivolve reuses <see cref="FreeDigivolveHelpers.DigivolveFreeAsync"/> (the same mechanic Blast/Arts use);
-/// the newly-digivolved top registers its effects (mirror of the post-digivolve RegisterCard).</summary>
-public sealed class RevealSelectThenFreeDigivolveSelfEffect : IActivatedCardEffect
+/// <summary>The follow-up applied to the reveal-selected card in <see cref="RevealSelectThenPlaySelectedEffect"/>.</summary>
+public enum RevealPlayMode
 {
-    private readonly int _revealCount;
-    private readonly Func<HeadlessEntityId, bool> _canSelect;
+    /// <summary>Costless single-target digivolve of the selected card onto THIS card's own permanent (AS-IS
+    /// PlayCardClass with targetPermanent: card.PermanentOfThisCard(), payCost:false, root:Library). BT1_078.</summary>
+    DigivolveOntoSelf,
 
-    public RevealSelectThenFreeDigivolveSelfEffect(CardSource card, int revealCount, Func<HeadlessEntityId, bool> canSelect, string description)
+    /// <summary>Play the selected card as a NEW permanent, cost-free (AS-IS PlayPermanentCards(payCost:false,
+    /// isTapped:false, root:Library, activateETB:true)). BT3_063 / BT3_070 / BT3_073.</summary>
+    PlayAsNewPermanent,
+}
+
+/// <summary>(BT1_078 / BT3_063 / BT3_070 / BT3_073) Reveal the top <c>_revealCount()</c> library cards, optionally
+/// select 1 matching card (<c>_canSelect</c>), place the remaining revealed cards at the deck bottom, then apply
+/// the reveal follow-up (<see cref="RevealPlayMode"/>): DigivolveOntoSelf (BT1_078 — costless digivolve onto this
+/// card's own permanent) or PlayAsNewPermanent (BT3_063/070/073 — play the selected card as a new permanent,
+/// cost-free). 1:1 mirror of the AS-IS SimplifiedRevealDeckTopCardsAndSelect(revealCount, one Custom-mode select
+/// maxCount:1 canNoSelect:true, remaining:DeckBottom) followed by the per-card play/digivolve. The digivolve
+/// reuses <see cref="FreeDigivolveHelpers.DigivolveFreeAsync"/> (the newly-digivolved top registers its effects);
+/// the play reuses <see cref="CardEffectCommons.PlayPermanentCards"/> (root: Library, activateETB:true). The
+/// reveal count is a Func to support BT3_073's dynamic count (= the opponent's battle-area Digimon count,
+/// re-evaluated at resolve).</summary>
+public sealed class RevealSelectThenPlaySelectedEffect : IActivatedCardEffect
+{
+    private readonly Func<int> _revealCount;
+    private readonly Func<HeadlessEntityId, bool> _canSelect;
+    private readonly RevealPlayMode _mode;
+
+    public RevealSelectThenPlaySelectedEffect(
+        CardSource card, Func<int> revealCount, Func<HeadlessEntityId, bool> canSelect,
+        RevealPlayMode mode, string description)
     {
         ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(revealCount);
         ArgumentNullException.ThrowIfNull(canSelect);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
         _revealCount = revealCount;
         _canSelect = canSelect;
+        _mode = mode;
         Description = description;
     }
 
@@ -4661,7 +4680,7 @@ public sealed class RevealSelectThenFreeDigivolveSelfEffect : IActivatedCardEffe
         }
 
         HeadlessPlayerId owner = Card.Owner;
-        List<HeadlessEntityId> revealed = zones.GetCards(owner, ChoiceZone.Library).Take(Math.Max(0, _revealCount)).ToList();
+        List<HeadlessEntityId> revealed = zones.GetCards(owner, ChoiceZone.Library).Take(Math.Max(0, _revealCount())).ToList();
         if (revealed.Count == 0)
         {
             return; // AS-IS: nothing to reveal -> no-op (CanActivate already required >=1 library card).
@@ -4683,7 +4702,7 @@ public sealed class RevealSelectThenFreeDigivolveSelfEffect : IActivatedCardEffe
             }
         }
 
-        // AS-IS remaining-cards place: DeckBottom (every revealed card except the one selected to digivolve).
+        // AS-IS remaining-cards place: DeckBottom (every revealed card except the one selected to play/digivolve).
         foreach (HeadlessEntityId id in revealed)
         {
             if (id != selected)
@@ -4692,43 +4711,69 @@ public sealed class RevealSelectThenFreeDigivolveSelfEffect : IActivatedCardEffe
             }
         }
 
-        // AS-IS follow-up: costless single-target digivolve of the selected library card onto this card's
-        // own permanent (payCost:false, root:Library).
-        if (!selected.IsEmpty)
+        if (selected.IsEmpty)
         {
-            bool digivolved = await FreeDigivolveHelpers.DigivolveFreeAsync(
-                context.CardInstanceRepository, context.ZoneMover, selected, Card.InstanceId,
-                ChoiceZone.Library, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
-            if (digivolved)
+            return;
+        }
+
+        switch (_mode)
+        {
+            case RevealPlayMode.DigivolveOntoSelf:
             {
-                CardEffectRegistrar.RegisterCard(context, selected, owner);
+                // AS-IS: costless single-target digivolve of the selected library card onto this card's own
+                // permanent (payCost:false, root:Library).
+                bool digivolved = await FreeDigivolveHelpers.DigivolveFreeAsync(
+                    context.CardInstanceRepository, context.ZoneMover, selected, Card.InstanceId,
+                    ChoiceZone.Library, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+                if (digivolved)
+                {
+                    CardEffectRegistrar.RegisterCard(context, selected, owner);
+                }
+
+                break;
+            }
+
+            case RevealPlayMode.PlayAsNewPermanent:
+            {
+                // AS-IS: PlayPermanentCards(selected, payCost:false, isTapped:false, root:Library, activateETB:true).
+                await CardEffectCommons.PlayPermanentCards(
+                    new[] { new CardSource(context, selected, owner) }, Card, payCost: false, isTapped: false,
+                    root: ChoiceZone.Library, activateETB: true).ConfigureAwait(false);
+                break;
             }
         }
     }
 
     public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Reveal-select-then-free-digivolve effect is resolved via the activation flow, not registered: {Description}");
+        throw new NotSupportedException($"Reveal-select-then-play effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>(BT1_084 [When Attacking]) Select exactly 1 matching card (<c>_canSelect</c>) from THIS card's own
 /// permanent's digivolution-source stack, return it to the owner's hand, then unsuspend this card. 1:1 mirror
 /// of AS-IS SelectCardEffect(root: Custom over selectedPermanent.DigivolutionCards, mode: AddHand, maxCount:
-/// Min(1, matching), canNoSelect:()=>false) THEN IUnsuspendPermanents(selectedPermanent).Unsuspend(). The
-/// specific-source return reuses <see cref="DigivolutionStackHelpers.PlaySpecificSourceAsync"/> (destination
-/// Hand); the self-unsuspend is a sink mutation (immunity/restriction gates honoured).</summary>
-public sealed class SelectDigivolutionSourceToHandThenUnsuspendSelfEffect : IActivatedCardEffect
+/// Min(1, matching), canNoSelect:()=>false) THEN a per-card self follow-up. The specific-source return reuses
+/// <see cref="DigivolutionStackHelpers.PlaySpecificSourceAsync"/> (destination Hand); the follow-up
+/// (<paramref name="onSelected"/>) runs afterwards — BT1_084 stages a self-unsuspend on the sink
+/// (<see cref="CardEffectCommons.UnsuspendSelf"/>), BT3_112 applies a self GainCanNotBeBlocked (Unblockable)
+/// grant to the registry. Both honour the sink/registry immunity + restriction gates.</summary>
+public sealed class SelectDigivolutionSourceToHandThenSelfFollowUpEffect : IActivatedCardEffect
 {
     private readonly Func<CardSource, bool> _canSelect;
     private readonly bool _isOptional;
+    private readonly Action<MatchStateMutationSink> _onSelected;
 
-    public SelectDigivolutionSourceToHandThenUnsuspendSelfEffect(CardSource card, Func<CardSource, bool> canSelect, bool isOptional, string description)
+    public SelectDigivolutionSourceToHandThenSelfFollowUpEffect(
+        CardSource card, Func<CardSource, bool> canSelect, bool isOptional,
+        Action<MatchStateMutationSink> onSelected, string description)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(canSelect);
+        ArgumentNullException.ThrowIfNull(onSelected);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
         _canSelect = canSelect;
         _isOptional = isOptional;
+        _onSelected = onSelected;
         Description = description;
     }
 
@@ -4769,13 +4814,11 @@ public sealed class SelectDigivolutionSourceToHandThenUnsuspendSelfEffect : IAct
         await DigivolutionStackHelpers.PlaySpecificSourceAsync(
             context.CardInstanceRepository, context.ZoneMover, Card.InstanceId, sourceId, ChoiceZone.Hand, cancellationToken).ConfigureAwait(false);
 
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.UnsuspendKind, Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
+        _onSelected(sink);
     }
 
     public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Select-digivolution-source-to-hand-then-unsuspend effect is resolved via the activation flow, not registered: {Description}");
+        throw new NotSupportedException($"Select-digivolution-source-to-hand-then-self-follow-up effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>(BT1_056 [On Play]) Select up to <c>maxCount</c> of the owner's cards spanning MULTIPLE candidate
@@ -5036,6 +5079,20 @@ public static partial class CardEffectFactory
     /// <summary>(PRIM-W1-3) Dynamic (<c>Func&lt;int&gt;</c>) variant of <see cref="ChangeDigivolutionCostStaticEffect(int,bool,CardSource,Func{bool})"/>.</summary>
     public static ICardEffect ChangeDigivolutionCostStaticEffect(Func<int> changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousSelfModifierEffect(card, DigivolutionCostHelpers.DigivolutionCostDeltaKey, changeValue: 0, isInheritedEffect, condition, dynamicValue: changeValue);
+
+    /// <summary>(G5 / BT3_031 / BT3_111) Full AS-IS <c>ChangeDigivolutionCostStaticEffect(changeValue,
+    /// permanentCondition, cardCondition, rootCondition, condition, setFixedCost)</c>: a continuous cost gate on
+    /// digivolving <paramref name="cardCondition"/>-matching cards (from a <paramref name="rootCondition"/>-matching
+    /// root) onto a <paramref name="permanentCondition"/>-matching target FROM permanent. Unlike the scalar
+    /// self-modifier overload above, this gates on the digivolving-FROM permanent's identity AND is read
+    /// DISPATCH-FIRST off the moving card (so it applies while that card is in HAND — the AS-IS
+    /// <c>condition = card in owner's hand</c> — which the continuous registrar never scans). See
+    /// <see cref="DigivolutionCostGateEffect"/>. <paramref name="setFixedCost"/> = SET the cost rather than ±.</summary>
+    public static ICardEffect ChangeDigivolutionCostStaticEffect(
+        int changeValue, Func<Permanent, bool> permanentCondition, Func<CardSource, bool> cardCondition,
+        Func<ChoiceZone, bool>? rootCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition,
+        bool setFixedCost) =>
+        new DigivolutionCostGateEffect(card, changeValue, permanentCondition, cardCondition, rootCondition, condition, setFixedCost);
 
     /// <summary>(PRIM-W1-5) Original: <c>CanNotDigivolveStaticSelfEffect</c> — a continuous "this card cannot
     /// be digivolved (as the digivolution source)" restriction on self. Registers a
@@ -10280,6 +10337,19 @@ public static class CardEffectCommons
             new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
     }
 
+    /// <summary>Stage an unsuspend of <paramref name="card"/>'s own permanent (AS-IS
+    /// <c>IUnsuspendPermanents(self).Unsuspend()</c>) via the sink — the reusable self follow-up for
+    /// own-stack-return effects (BT1_084 br2). The sink's centralised gates filter.</summary>
+    public static void UnsuspendSelf(MatchStateMutationSink sink, CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(card);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.UnsuspendKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = card.InstanceId.Value }));
+    }
+
     /// <summary>Stage a trash of ALL of <paramref name="host"/>'s digivolution cards (AS-IS
     /// <c>TrashDigivolutionCardsFromTopOrBottom(count: DigivolutionCards.Count)</c>) via the sink — the per-target
     /// action for the no-select "trash all digivolution cards under every matching Digimon" bodies. Passing
@@ -10758,6 +10828,117 @@ public static class CardEffectDispatch
 /// The runtime seam: builds a card's effect bindings (across the given timings) and registers them into
 /// the EffectRegistry. Call when a card enters play. Returns the registered bindings for inspection.
 /// </summary>
+/// <summary>(G5 / BT3_031 / BT3_111) A continuous "while <c>_condition</c>, digivolving THIS card (matching
+/// <c>_cardCondition</c>) from a root matching <c>_rootCondition</c> onto a target permanent matching
+/// <c>_permanentCondition</c> costs <c>_changeValue</c> (±, or SET when <c>_setFixedCost</c>)". 1:1 mirror of
+/// AS-IS <c>ChangeDigivolutionCostStaticEffect(changeValue, permanentCondition, cardCondition, rootCondition,
+/// condition, setFixedCost)</c> registered at <c>EffectTiming.None</c>. Unlike the scalar self-modifier overload
+/// (which the continuous registrar lowers for BATTLE-AREA cards only), the AS-IS target of this shape is a card
+/// IN HAND (<c>condition = card in owner's hand</c>). Headless does not register continuous statics for hand
+/// cards, so this effect is read DISPATCH-FIRST off the moving card at digivolution-cost resolution
+/// (<see cref="CollectOwnGatedModifiers"/>, called by <c>ContinuousModifierGate.ResolveDigivolutionCost</c>) — the
+/// same zone-independent dispatch idiom as <c>CardSource.LinkConditionOf</c>/<c>AppFusionConditionOf</c>. It is an
+/// <see cref="IActivatedCardEffect"/> only in the "not auto-registered; resolved elsewhere" sense (the registrar
+/// skips it; the activated flow never routes an <c>EffectTiming.None</c> effect).</summary>
+public sealed class DigivolutionCostGateEffect : IActivatedCardEffect
+{
+    private readonly int _changeValue;
+    private readonly Func<Permanent, bool> _permanentCondition;
+    private readonly Func<CardSource, bool> _cardCondition;
+    private readonly Func<ChoiceZone, bool>? _rootCondition;
+    private readonly Func<bool>? _condition;
+    private readonly bool _setFixedCost;
+
+    public DigivolutionCostGateEffect(
+        CardSource card, int changeValue, Func<Permanent, bool> permanentCondition,
+        Func<CardSource, bool> cardCondition, Func<ChoiceZone, bool>? rootCondition,
+        Func<bool>? condition, bool setFixedCost)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(permanentCondition);
+        ArgumentNullException.ThrowIfNull(cardCondition);
+        Card = card;
+        _changeValue = changeValue;
+        _permanentCondition = permanentCondition;
+        _cardCondition = cardCondition;
+        _rootCondition = rootCondition;
+        _condition = condition;
+        _setFixedCost = setFixedCost;
+    }
+
+    public CardSource Card { get; }
+
+    // Whether this gate applies to the given digivolution (moving card, its root zone, the target FROM permanent).
+    private bool Applies(CardSource movingCard, ChoiceZone root, Permanent targetPermanent)
+    {
+        if (_condition is not null && !_condition())
+        {
+            return false;
+        }
+
+        return _cardCondition(movingCard)
+            && (_rootCondition is null || _rootCondition(root))
+            && _permanentCondition(targetPermanent);
+    }
+
+    private NumericModifier ToModifier(HeadlessEntityId movingCardId)
+    {
+        string id = $"{Card.InstanceId.Value}:digivolveCostGate:{movingCardId.Value}";
+        return _setFixedCost
+            ? NumericModifier.Set(id, NumericModifierMetric.DigivolutionCost, _changeValue)
+            : NumericModifier.Add(id, NumericModifierMetric.DigivolutionCost, _changeValue);
+    }
+
+    /// <summary>Dispatch-first collection of the MOVING card's own gated digivolution-cost deltas for a digivolve
+    /// (moving card -> <paramref name="targetPermanentId"/>). Returns the matching modifiers to fold into the cost;
+    /// empty when the moving card declares none / none apply. Zone-independent (works for a card in hand).</summary>
+    public static IReadOnlyList<NumericModifier> CollectOwnGatedModifiers(
+        EngineContext context, HeadlessEntityId movingCardId, HeadlessEntityId targetPermanentId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (movingCardId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(movingCardId, out CardInstanceRecord? inst) || inst is null
+            || !context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? entity) || entity is null)
+        {
+            return Array.Empty<NumericModifier>();
+        }
+
+        HeadlessPlayerId owner = inst.OwnerId;
+        var movingCard = new CardSource(context, movingCardId, owner);
+        ChoiceZone root = CurrentZone(context, owner, movingCardId);
+        var targetPermanent = new Permanent(context, targetPermanentId, owner);
+
+        List<NumericModifier>? modifiers = null;
+        foreach (ICardEffect effect in entity.CardEffects(EffectTiming.None, movingCard))
+        {
+            if (effect is DigivolutionCostGateEffect gate && gate.Applies(movingCard, root, targetPermanent))
+            {
+                (modifiers ??= new List<NumericModifier>()).Add(gate.ToModifier(movingCardId));
+            }
+        }
+
+        return (IReadOnlyList<NumericModifier>?)modifiers ?? Array.Empty<NumericModifier>();
+    }
+
+    private static ChoiceZone CurrentZone(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId cardId)
+    {
+        var zones = (IZoneStateReader)context.ZoneMover;
+        foreach (KeyValuePair<ChoiceZone, IReadOnlyList<HeadlessEntityId>> pair in zones.Snapshot(owner))
+        {
+            if (pair.Value.Contains(cardId))
+            {
+                return pair.Key;
+            }
+        }
+
+        return ChoiceZone.None;
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Digivolution-cost gate is read dispatch-first at cost resolution, not registered: {Card.InstanceId.Value}");
+}
+
 public static class CardEffectRegistrar
 {
     /// <summary>The timings auto-registered when a card enters play (continuous + passive triggers).

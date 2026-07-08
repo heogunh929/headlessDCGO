@@ -12,7 +12,7 @@
 //   root:Library, activateETB:true) — digivolve the reveal-selected library card onto THIS card's own
 //   battle-area permanent for free.
 //
-// Headless mirror: RevealSelectThenFreeDigivolveSelfEffect (an IActivatedCardEffect resolved via the
+// Headless mirror: RevealSelectThenPlaySelectedEffect (mode: DigivolveOntoSelf) — an IActivatedCardEffect resolved via the
 //   activation flow / ActivatedEffectResolver). It reveals the top 3 library cards, opens an optional
 //   (canNoSelect) pick of 1 matching card, sends the remaining revealed cards to the deck bottom, then
 //   free-digivolves the selected card onto this card via FreeDigivolveHelpers.DigivolveFreeAsync (the same
@@ -48,10 +48,11 @@ public sealed class BT1_078 : CEntity_Effect
                     && !ContinuousRestrictionGate.EvaluateDigivolve(card.Context, card.InstanceId).IsRestricted;
             }
 
-            cardEffects.Add(new RevealSelectThenFreeDigivolveSelfEffect(
+            cardEffects.Add(new RevealSelectThenPlaySelectedEffect(
                 card,
-                revealCount: 3,
+                revealCount: () => 3,
                 canSelect: CanSelect,
+                mode: RevealPlayMode.DigivolveOntoSelf,
                 description: "[When Attacking] Reveal 3 cards from the top of your deck. You can digivolve this card into 1 level 6 green Digimon card among them without paying its memory cost. Place the remaining cards at the bottom of your deck in any order."));
         }
 
