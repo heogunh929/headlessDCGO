@@ -204,17 +204,24 @@ async Task G10_MassDeDigivolveDestroy()
     var card = new CardSource(ctx, src, P1);
     var eff = new MassDeDigivolveThenConditionalDestroyEffect(
         card,
-        target: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id),
+        // AS-IS scan #1: de-digivolve ALL opp battle Digimon (DP-independent).
+        deDigivolveTarget: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id),
         count: 1,
-        destroyIf: perm => perm.DP <= 5000,
+        // AS-IS scan #2: destroy only opp battle Digimon with DP <= 5000 (a SEPARATE predicate).
+        destroyTarget: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
+            && new Permanent(ctx, id, P2).DP <= 5000,
         description: "[When Digivolving] de-digivolve all opp Digimon, then delete all with DP <=5000");
 
     var sink = NewSink(ctx);
     await eff.ResolveAsync(sink, CancellationToken.None);
     await sink.FlushAsync();
 
+    // The split is enforced: BOTH stacks were de-digivolved (old tops trashed), regardless of DP...
+    AssertTrue(InZoneP(ctx, P2, ChoiceZone.Trash, t1), "t1 old top was de-digivolved (trashed)");
+    AssertTrue(InZoneP(ctx, P2, ChoiceZone.Trash, t2), "t2 (high-DP) old top was ALSO de-digivolved (DP-independent)");
+    // ...then only the DP<=5000 promoted top is destroyed; the high-DP one survives.
     AssertFalse(InZoneP(ctx, P2, ChoiceZone.BattleArea, u1), "DP 4000 (<=5000) promoted top destroyed");
-    AssertTrue(InZoneP(ctx, P2, ChoiceZone.BattleArea, u2), "DP 6000 (>5000) promoted top survives");
+    AssertTrue(InZoneP(ctx, P2, ChoiceZone.BattleArea, u2), "DP 6000 (>5000) promoted top de-digivolved but NOT destroyed");
 }
 
 // ---- G12 ---------------------------------------------------------------------

@@ -4987,28 +4987,35 @@ public sealed class SelectDeDigivolveThenConditionalDestroyEffect : IActivatedCa
         throw new NotSupportedException($"Select-de-digivolve-then-conditional-destroy effect is resolved via the activation flow, not registered: {Description}");
 }
 
-/// <summary>(G10 / BT3_112 [When Digivolving]) Trigger De-Digivolve <c>_count</c> on EVERY <c>_target</c>-matching
-/// permanent, then — re-scanning the resulting tops — destroy each <c>_target</c> permanent for which
-/// <c>_destroyIf</c> holds (e.g. DP ≤ 5000). 1:1 mirror of AS-IS "IDegeneration on each, then
-/// DestroyPermanentsClass(matching)". No select. The de-digivolve runs directly (a flush boundary) so the
-/// re-scan sees the post-de-digivolve tops; each destroy is staged on the sink (gates apply).</summary>
+/// <summary>(G10 / BT3_112 [When Digivolving]) Trigger De-Digivolve <c>_count</c> on EVERY
+/// <c>_deDigivolveTarget</c>-matching permanent, then — re-scanning the resulting tops — destroy EVERY
+/// <c>_destroyTarget</c>-matching permanent. 1:1 mirror of AS-IS's TWO INDEPENDENT scans: a de-digivolve loop
+/// over <c>Enemy.GetBattleAreaDigimons()</c> gated by <c>!TopCard.CanNotBeAffected</c> (DP-INDEPENDENT), THEN
+/// <c>Enemy.GetBattleAreaDigimons().Where(CanSelectPermanentCondition)</c> where CanSelectPermanentCondition =
+/// opp battle Digimon &amp;&amp; <c>DP ≤ MaxDP_DeleteEffect(5000)</c> &amp;&amp; <c>CanBeDestroyedBySkill</c> &amp;&amp;
+/// <c>!TopCard.CanNotBeAffected</c>. The de-digivolve and destroy predicates are DISTINCT and each is scanned
+/// independently — a high-DP Digimon that fails the destroy predicate is STILL de-digivolved. The destroy re-scan
+/// reads post-de-digivolve DP/top state (the de-digivolve runs directly = flush boundary). Each destroy stages on
+/// the sink (immunity/deletion-prevention gates apply). The two predicates are supplied by the card wiring so the
+/// AS-IS split is enforced structurally (not folded into one).</summary>
 public sealed class MassDeDigivolveThenConditionalDestroyEffect : IActivatedCardEffect
 {
-    private readonly Func<HeadlessEntityId, bool> _target;
+    private readonly Func<HeadlessEntityId, bool> _deDigivolveTarget;
     private readonly int _count;
-    private readonly Func<Permanent, bool> _destroyIf;
+    private readonly Func<HeadlessEntityId, bool> _destroyTarget;
 
     public MassDeDigivolveThenConditionalDestroyEffect(
-        CardSource card, Func<HeadlessEntityId, bool> target, int count, Func<Permanent, bool> destroyIf, string description)
+        CardSource card, Func<HeadlessEntityId, bool> deDigivolveTarget, int count,
+        Func<HeadlessEntityId, bool> destroyTarget, string description)
     {
         ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(target);
-        ArgumentNullException.ThrowIfNull(destroyIf);
+        ArgumentNullException.ThrowIfNull(deDigivolveTarget);
+        ArgumentNullException.ThrowIfNull(destroyTarget);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
-        _target = target;
+        _deDigivolveTarget = deDigivolveTarget;
         _count = count;
-        _destroyIf = destroyIf;
+        _destroyTarget = destroyTarget;
         Description = description;
     }
 
@@ -5021,21 +5028,18 @@ public sealed class MassDeDigivolveThenConditionalDestroyEffect : IActivatedCard
         ArgumentNullException.ThrowIfNull(sink);
         EngineContext context = Card.Context;
 
-        // De-Digivolve each current matching permanent (their top ids change as this proceeds).
-        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _target))
+        // AS-IS scan #1 — De-Digivolve each de-digivolve-target permanent (!TopCard.CanNotBeAffected, DP-independent);
+        // their top ids change as this proceeds.
+        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _deDigivolveTarget))
         {
             await DeDigivolveHelpers.DeDigivolveAsync(
                 context.CardInstanceRepository, context.ZoneMover, id, _count, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
         }
 
-        // Re-scan the current matching tops and destroy those satisfying the post-state predicate.
-        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _target))
+        // AS-IS scan #2 — re-scan the SEPARATE destroy predicate over the post-de-digivolve tops and destroy each.
+        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _destroyTarget))
         {
-            var perm = new Permanent(context, id, DeDigivolveDestroyHelpers.OwnerOf(context, id));
-            if (_destroyIf(perm))
-            {
-                CardEffectCommons.DestroyPermanent(sink, Card, id);
-            }
+            CardEffectCommons.DestroyPermanent(sink, Card, id);
         }
     }
 
