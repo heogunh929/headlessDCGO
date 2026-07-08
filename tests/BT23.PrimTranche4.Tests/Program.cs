@@ -23,7 +23,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("G10: new top cost >4 -> survives (post-de-digivolve predicate false)", G10_SelectDeDigivolveSurvives),
     ("G10: mass de-digivolve all opp -> destroy those with DP<=5000 (BT3_112-WD)", G10_MassDeDigivolveDestroy),
     ("G12: choose count 2 -> trash that many (capped) from the bottom of every opp Digimon (BT3_100-A)", G12_ChooseCountTrashAll),
-    ("G12: choosing 0 trashes nothing", G12_ChooseZero),
+    ("G12: CanNoSelect:false forces min 1 (AS-IS excludes 0); pick 1 trashes exactly 1", G12_MinCountEnforcedWhenNotOptional),
+    ("G12: CanNoSelect:true variant allows 0 (nothing trashed)", G12_OptionalAllowsZero),
+    ("G12: trash-protected source in the window is skipped; all-protected stack is not a target (AS-IS ITrashDigivolutionCards)", G12_TrashProtection),
     ("G13: opponent picks 'yes' -> ifYes branch runs (BT3_102)", G13_OpponentYes),
     ("G13: opponent picks 'no' -> ifNo branch runs", G13_OpponentNo),
     ("G13: auto-no when nothing to decide -> ifNo runs with no prompt", G13_AutoNo),
@@ -229,7 +231,7 @@ async Task G12_ChooseCountTrashAll()
     var card = new CardSource(ctx, src, P1);
     var eff = new ChooseCountThenTrashDigivolutionEffect(
         card, target: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id), maxCount: 2, fromBottom: true,
-        description: "[Main] trash up to 2 digivolution cards from the bottom of all opp Digimon");
+        canNoSelect: false, description: "[Main] trash up to 2 digivolution cards from the bottom of all opp Digimon");
 
     var sink = NewSink(ctx);
     Script(ctx, ChoiceResult.SelectCount(2));
@@ -240,7 +242,33 @@ async Task G12_ChooseCountTrashAll()
     AssertEqual(0, new Permanent(ctx, t2, P2).DigivolutionCards.Count, "T2 (1 card) trashed min(2,1)=1 -> 0 left");
 }
 
-async Task G12_ChooseZero()
+async Task G12_MinCountEnforcedWhenNotOptional()
+{
+    // AS-IS BT3_100 uses CanNoSelect:false -> 0 is NOT offered (SelectCountEffect.cs:79-90); minimum 1.
+    EngineContext ctx = NewContext();
+    HeadlessEntityId src = Battle(ctx, "SRC", "Source", cardType: "Digimon");
+    HeadlessEntityId t1 = BattleP2(ctx, "T1", "Opp1");
+    SetSources(ctx, t1, UnderP2(ctx, "A", null, null), UnderP2(ctx, "B", null, null)); // 2 cards
+
+    var card = new CardSource(ctx, src, P1);
+    var eff = new ChooseCountThenTrashDigivolutionEffect(
+        card, target: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id), maxCount: 2, fromBottom: true,
+        canNoSelect: false, description: "trash 1..2");
+
+    // Scripting 0 must be rejected as invalid for a CanNoSelect:false count request (min 1).
+    bool rejected = false;
+    try { Script(ctx, ChoiceResult.SelectCount(0)); await eff.ResolveAsync(NewSink(ctx), CancellationToken.None); }
+    catch { rejected = true; }
+    AssertTrue(rejected, "CanNoSelect:false -> a count of 0 is invalid (minimum 1)");
+
+    var sink = NewSink(ctx);
+    Script(ctx, ChoiceResult.SelectCount(1));
+    await eff.ResolveAsync(sink, CancellationToken.None);
+    await sink.FlushAsync();
+    AssertEqual(1, new Permanent(ctx, t1, P2).DigivolutionCards.Count, "picked 1 -> trashed exactly 1 (2 -> 1 left)");
+}
+
+async Task G12_OptionalAllowsZero()
 {
     EngineContext ctx = NewContext();
     HeadlessEntityId src = Battle(ctx, "SRC", "Source", cardType: "Digimon");
@@ -249,14 +277,49 @@ async Task G12_ChooseZero()
 
     var card = new CardSource(ctx, src, P1);
     var eff = new ChooseCountThenTrashDigivolutionEffect(
-        card, target: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id), maxCount: 2, fromBottom: true, description: "trash");
+        card, target: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id), maxCount: 2, fromBottom: true,
+        canNoSelect: true, description: "trash 0..2");
 
     var sink = NewSink(ctx);
     Script(ctx, ChoiceResult.SelectCount(0));
     await eff.ResolveAsync(sink, CancellationToken.None);
     await sink.FlushAsync();
+    AssertEqual(2, new Permanent(ctx, t1, P2).DigivolutionCards.Count, "canNoSelect:true, count 0 -> nothing trashed");
+}
 
-    AssertEqual(2, new Permanent(ctx, t1, P2).DigivolutionCards.Count, "count 0 -> nothing trashed");
+async Task G12_TrashProtection()
+{
+    // AS-IS ITrashDigivolutionCards filters CanNotTrashFromDigivolutionCards-protected sources out of the window,
+    // and BT3_100 eligibility requires >=1 trashable source. sourceIds are top->bottom; fromBottom trashes the end.
+    EngineContext ctx = NewContext();
+    HeadlessEntityId src = Battle(ctx, "SRC", "Source", cardType: "Digimon");
+
+    // t1: [A (free, top-under), Bprot (protected, bottom-under)] -> eligible (A free); trash 1 from bottom hits the
+    // protected B -> skipped -> nothing trashed (the trash does NOT reach deeper to make up the count).
+    HeadlessEntityId t1 = BattleP2(ctx, "T1", "Opp1");
+    HeadlessEntityId a = UnderP2(ctx, "A", null, null);
+    HeadlessEntityId bProt = UnderP2(ctx, "B", null, null);
+    StampTrashProtected(ctx, bProt);
+    SetSources(ctx, t1, a, bProt);
+
+    // t2: [Cprot] ONLY -> not a target (no trashable source).
+    HeadlessEntityId t2 = BattleP2(ctx, "T2", "Opp2");
+    HeadlessEntityId cProt = UnderP2(ctx, "C", null, null);
+    StampTrashProtected(ctx, cProt);
+    SetSources(ctx, t2, cProt);
+
+    var card = new CardSource(ctx, src, P1);
+    var eff = new ChooseCountThenTrashDigivolutionEffect(
+        card, target: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id), maxCount: 2, fromBottom: true,
+        canNoSelect: false, description: "trash");
+
+    var sink = NewSink(ctx);
+    Script(ctx, ChoiceResult.SelectCount(1));
+    await eff.ResolveAsync(sink, CancellationToken.None);
+    await sink.FlushAsync();
+
+    AssertEqual(2, new Permanent(ctx, t1, P2).DigivolutionCards.Count, "protected bottom source skipped -> nothing trashed from t1");
+    AssertEqual(1, new Permanent(ctx, t2, P2).DigivolutionCards.Count, "all-protected stack was never a target -> untouched");
 }
 
 // ---- G13 ---------------------------------------------------------------------
@@ -402,6 +465,16 @@ HeadlessEntityId UnderP2(EngineContext ctx, string number, int? playCost, int? d
     var id = new HeadlessEntityId($"p2:{number}:src");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId(number), P2, Metadata: instMeta));
     return id;
+}
+
+void StampTrashProtected(EngineContext ctx, HeadlessEntityId sourceId)
+{
+    ctx.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? rec);
+    var meta = new Dictionary<string, object?>(rec!.Metadata, StringComparer.Ordinal)
+    {
+        [CardEffectCommons.TrashProtectedKey] = true,
+    };
+    ctx.CardInstanceRepository.Upsert(rec with { Metadata = meta });
 }
 
 bool InZone(EngineContext ctx, ChoiceZone zone, HeadlessEntityId id) =>

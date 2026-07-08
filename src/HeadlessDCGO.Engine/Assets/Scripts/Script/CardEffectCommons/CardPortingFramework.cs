@@ -5043,20 +5043,26 @@ public sealed class MassDeDigivolveThenConditionalDestroyEffect : IActivatedCard
         throw new NotSupportedException($"Mass-de-digivolve-then-conditional-destroy effect is resolved via the activation flow, not registered: {Description}");
 }
 
-/// <summary>(G12 / BT3_100 Part A [Main]) Choose a single count 0..<c>_maxCount</c>, then trash that many
-/// digivolution cards (from the TOP or BOTTOM per <c>_fromBottom</c>) from EVERY <c>_target</c>-matching
-/// permanent — each capped at its own digivolution-card count. 1:1 mirror of AS-IS SelectCountEffect(MaxCount)
-/// -> foreach target: TrashDigivolutionCardsFromTopOrBottom(Min(count, DigivolutionCards.Count)). The target set
-/// is snapshotted BEFORE the count choice (AS-IS gathers selectedPermanents first). Each trash stages on the
-/// sink (TrashDigivolutionCardsKind).</summary>
+/// <summary>(G12 / BT3_100 Part A [Main]) Choose a single count (<c>_canNoSelect ? 0 : 1</c>..<c>_maxCount</c>), then
+/// trash that many digivolution cards (from the TOP or BOTTOM per <c>_fromBottom</c>) from EVERY
+/// <c>_target</c>-matching permanent that has ≥1 TRASHABLE (non-protected) under-card — each capped at its own
+/// digivolution-card count. 1:1 mirror of AS-IS SelectCountEffect(MaxCount, CanNoSelect) -> foreach eligible
+/// target: TrashDigivolutionCardsFromTopOrBottom(Min(count, DigivolutionCards.Count)). Fidelity notes:
+/// (1) AS-IS eligibility (BT3_100:55) requires <c>Count(!CanNotTrashFromDigivolutionCards) >= 1</c> — mirrored by
+/// <see cref="CardEffectCommons.HasTrashableDigivolutionCards"/> (a permanent with only trash-protected sources
+/// is NOT a target, so if it were the sole candidate no count prompt appears). (2) AS-IS
+/// <c>CanNoSelect:false</c> EXCLUDES 0 from the count candidates (SelectCountEffect.cs:79-90). The per-source
+/// trash-protection skip itself lives in the trash path (RemoveSourcesAsync, mirroring ITrashDigivolutionCards).
+/// The target set is snapshotted BEFORE the count choice (AS-IS gathers selectedPermanents first).</summary>
 public sealed class ChooseCountThenTrashDigivolutionEffect : IActivatedCardEffect
 {
     private readonly Func<HeadlessEntityId, bool> _target;
     private readonly int _maxCount;
     private readonly bool _fromBottom;
+    private readonly bool _canNoSelect;
 
     public ChooseCountThenTrashDigivolutionEffect(
-        CardSource card, Func<HeadlessEntityId, bool> target, int maxCount, bool fromBottom, string description)
+        CardSource card, Func<HeadlessEntityId, bool> target, int maxCount, bool fromBottom, bool canNoSelect, string description)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(target);
@@ -5065,6 +5071,7 @@ public sealed class ChooseCountThenTrashDigivolutionEffect : IActivatedCardEffec
         _target = target;
         _maxCount = maxCount;
         _fromBottom = fromBottom;
+        _canNoSelect = canNoSelect;
         Description = description;
     }
 
@@ -5077,17 +5084,19 @@ public sealed class ChooseCountThenTrashDigivolutionEffect : IActivatedCardEffec
         ArgumentNullException.ThrowIfNull(sink);
         EngineContext context = Card.Context;
 
-        // Snapshot the targets (AS-IS collects selectedPermanents before asking the count).
+        // Snapshot the targets (AS-IS collects selectedPermanents before asking the count). Eligibility mirrors
+        // AS-IS `DigivolutionCards.Count(!CanNotTrashFromDigivolutionCards) >= 1` (trash-protected-only stacks excluded).
         List<HeadlessEntityId> targets = CardEffectCommons.MatchConditionPermanentIds(Card, _target)
-            .Where(id => new Permanent(context, id, DeDigivolveDestroyHelpers.OwnerOf(context, id)).DigivolutionCards.Count > 0)
+            .Where(id => CardEffectCommons.HasTrashableDigivolutionCards(Card, id))
             .ToList();
         if (targets.Count == 0)
         {
             return;
         }
 
+        // AS-IS: CanNoSelect:false excludes 0 from the count candidates -> minimum 1.
         var request = new ChoiceRequest(
-            ChoiceType.Count, Card.Owner, Description, minCount: 0, maxCount: _maxCount, canSkip: false,
+            ChoiceType.Count, Card.Owner, Description, minCount: _canNoSelect ? 0 : 1, maxCount: _maxCount, canSkip: false,
             ChoiceZone.None, Array.Empty<ChoiceCandidate>());
         ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
         int count = result.SelectedCount ?? 0;

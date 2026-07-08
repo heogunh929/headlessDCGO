@@ -1,5 +1,6 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -316,12 +317,17 @@ public static class DigivolutionStackHelpers
 
         int take = Math.Min(count, sources.Count);
         // Bottom (DigiEgg) is the end of the top→bottom list; top is the start.
-        List<string> removed = fromBottom
+        List<string> window = fromBottom
             ? sources.Skip(sources.Count - take).ToList()
             : sources.Take(take).ToList();
-        List<string> remaining = fromBottom
-            ? sources.Take(sources.Count - take).ToList()
-            : sources.Skip(take).ToList();
+        // (fidelity) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards() filters CanNotTrashFromDigivolutionCards-
+        // protected sources OUT of the selected window before trashing — the protection applies to TRASH only, NOT
+        // return-to-hand/deck. A protected source in the window is skipped and stays in the stack; the trash does
+        // NOT reach deeper to make up the count (AS-IS collects the window by position, then filters).
+        List<string> removed = destination == ChoiceZone.Trash
+            ? window.Where(value => !IsTrashProtected(repository, value)).ToList()
+            : window;
+        List<string> remaining = sources.Where(value => !removed.Contains(value)).ToList();
 
         repository.Upsert(host with { Metadata = WithSources(host.Metadata, remaining) });
 
@@ -349,6 +355,14 @@ public static class DigivolutionStackHelpers
 
         return removed.Count;
     }
+
+    // (fidelity) A digivolution source stamped CanNotTrashFromDigivolutionCards (mirror of AS-IS
+    // CardSource.CanNotTrashFromDigivolutionCards). Currently no card stamps it (the granting class is a stub),
+    // so this is inert today, but the trash path filters it so it is faithful the moment the keyword lands.
+    private static bool IsTrashProtected(ICardInstanceRepository repository, string sourceValue) =>
+        !string.IsNullOrEmpty(sourceValue)
+        && repository.TryGetInstance(new HeadlessEntityId(sourceValue), out CardInstanceRecord? source) && source is not null
+        && source.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true;
 
     private static void AppendSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)
     {
