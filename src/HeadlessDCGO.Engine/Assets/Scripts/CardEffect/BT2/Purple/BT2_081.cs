@@ -1,7 +1,54 @@
 // Source: Assets/Scripts/CardEffect/BT2/Purple/BT2_081.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Purple
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+//   [When Attacking] You may play 1 purple level 3 Digimon card from your trash without paying its memory cost.
+//   Any [On Play] effects on Digimon played with this effect don't activate.
+// AS-IS: ActivateClass on EffectTiming.OnAllyAttack.
+//   CanUseCondition = CanTriggerOnAttack. CanActivateCondition = IsExistOnBattleArea(card) &&
+//   HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition).
+//   CanSelectCardCondition: IsDigimon && Owner==card.Owner && HasCardColor(Purple) && Level==3 &&
+//   HasLevel && CanPlayAsNewPermanent(payCost:false). ORDER=-1, ISOPTIONAL=true (canNoSelect:true).
+//   ActivateCoroutine: SelectCardEffect from Trash (maxCount=1, canEndNotMax=false),
+//   then PlayPermanentCards(payCost:false, activateETB:false).
+//
+// Headless mirror: ActivatedSelectAndPlayFromZonesEffect over {Trash} only; canEndNotMax:true (you may).
+// STOP: activateETB:false (suppress [On Play] effects on played Digimon) —
+//   ActivatedSelectAndPlayFromZonesEffect exposes no activateETB parameter in the reference signature.
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Purple;
+
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Services;
+
+public sealed class BT2_081 : CEntity_Effect
+{
+    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        var cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.OnAllyAttack)
+        {
+            // AS-IS CanSelectCardCondition: IsDigimon && HasCardColor(Purple) && Level==3 &&
+            // HasLevel && CanPlayAsNewPermanent(payCost:false).
+            bool CanTarget(HeadlessEntityId id)
+            {
+                var candidate = new CardSource(card.Context, id, card.Owner);
+                return candidate.IsDigimon
+                    && candidate.HasCardColor("Purple")
+                    && candidate.Level == 3
+                    && candidate.HasLevel
+                    && CardEffectCommons.CanPlayAsNewPermanent(candidate, payCost: false, cardEffect: null);
+            }
+
+            // STOP: activateETB:false (suppress [On Play] effects on played Digimon) —
+            //   ActivatedSelectAndPlayFromZonesEffect exposes no activateETB parameter in the reference signature.
+            cardEffects.Add(new ActivatedSelectAndPlayFromZonesEffect(
+                card,
+                fromZones: new[] { ChoiceZone.Trash },
+                canTarget: CanTarget,
+                maxCount: 1,
+                canEndNotMax: true,
+                description: "[When Attacking] You may play 1 purple level 3 Digimon card from your trash without paying its memory cost. Any [On Play] effects on Digimon played with this effect don't activate."));
+        }
+
+        return cardEffects;
+    }
+}

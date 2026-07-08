@@ -1,7 +1,28 @@
-// Source: Assets/Scripts/CardEffect/BT2/Purple/BT2_074.cs
+// Source: Assets/Scripts/CardEffect/BT2/BT2_074.cs
 // Decision: PORT
 // Category: CardEffect
-// Priority: HIGH
-// Migration: Port per-card effect source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Purple
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Migration: Ported per-card effect.
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
+
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public sealed class BT2_074 : CEntity_Effect
+{
+    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
+
+        if (timing == EffectTiming.OnDestroyedAnyone)
+        {
+            cardEffects.Add(CardEffectFactory.RetaliationSelfEffect(isInheritedEffect: false, card: card, condition: null));
+        }
+
+        if (timing == EffectTiming.OnDestroyedAnyone)
+        {
+            cardEffects.Add(CardEffectFactory.RetaliationSelfEffect(isInheritedEffect: true, card: card, condition: null));
+        }
+
+        return cardEffects;
+    }
+}
