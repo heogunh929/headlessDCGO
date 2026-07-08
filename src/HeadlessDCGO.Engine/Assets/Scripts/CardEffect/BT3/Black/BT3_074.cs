@@ -25,7 +25,7 @@ public sealed class BT3_074 : CEntity_Effect
                 return CardEffectCommons.IsOwnerTurn(card);
             }
 
-            cardEffects.Add(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(isInheritedEffect: false, card: card, condition: Condition));
+            cardEffects.Add(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(defenderCondition: null, isInheritedEffect: false, card: card, condition: Condition));
         }
 
         if (timing == EffectTiming.None)
