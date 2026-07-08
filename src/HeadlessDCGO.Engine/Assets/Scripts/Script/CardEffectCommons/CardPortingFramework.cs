@@ -5888,6 +5888,16 @@ public static partial class CardEffectFactory
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
         new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.TrashCardKind, description);
 
+    /// <summary>(G16) Select up to <paramref name="maxCount"/> of the owner's CARDS in <paramref name="fromZone"/>
+    /// (e.g. Trash) matching <paramref name="canTarget"/> and place each on TOP of the owner's security stack,
+    /// FACE-DOWN — the AS-IS "place 1 &lt;X&gt; card from trash face-down on top of security" (IAddSecurity).
+    /// Distinct from <c>SelectAndPutSecurityEffect</c> (which targets battle-area PERMANENTS, Mode PutSecurity);
+    /// this routes a zone card via <see cref="MatchStateMutationSink.AddToSecurityKind"/> (its defaults =
+    /// face-down + top, matching the AS-IS).</summary>
+    public static ICardEffect SelectAndPutSecurityFromZoneEffect(
+        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
+        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.AddToSecurityKind, description);
+
     /// <summary>(PRIM-P0-flow B.O.3) AS-IS <c>DigivolveIntoHandOrTrashCard</c>: select 1 of the owner's Digimon
     /// (<paramref name="targetPredicate"/>) and a source card in <paramref name="sourceZone"/> (Hand / Trash,
     /// <paramref name="sourcePredicate"/>) that can digivolve onto it, pay the cost, and digivolve. v1 enforces
