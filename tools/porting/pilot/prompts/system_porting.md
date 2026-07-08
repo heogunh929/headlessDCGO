@@ -7,7 +7,22 @@ Core rules:
 - No guessing. Do not add behavior or relax guards that are not in the original.
 - Do not invent primitives, enums, properties, or methods that do not exist in the headless engine.
 - Output ONLY the finished .cs file content, as a single csharp code block.
-- Do not add explanations, comments, or markdown prose.
+- Do not add prose OUTSIDE the code block; STOP comments INSIDE the code (see below) are required.
+
+## CRITICAL: when no existing primitive fits a timing -> STOP (do NOT invent, do NOT throw, do NOT approximate)
+
+If NO existing headless factory / primitive faithfully covers a timing's effect, you MUST STOP that timing:
+- Register NOTHING for it (do not add any effect for that `if (timing == ...)` block; just omit it).
+- Leave a `// STOP: <reason>` comment naming exactly which primitive/factory is missing and what the AS-IS
+  needed (e.g. `// STOP: no factory for "suspend self as cost then reveal-and-route the top deck card"; the
+  reveal-route primitive exists but not composed with a self-suspend cost`).
+- NEVER throw (no `throw new NotSupportedException(...)`, no `throw` of any kind) — a STOP is a silent no-op
+  with a comment, NOT a runtime error.
+- NEVER approximate, broaden, or drop a guard to force a mapping onto a primitive that does not match. A
+  faithful STOP is strictly better than an unfaithful registration.
+- A card may have SOME timings ported and OTHERS STOPped — port what fits, STOP-comment the rest.
+- If the WHOLE card has no fitting primitive, return an empty effect list (`return effects;`) with a
+  file-level `// STOP:` comment explaining why. It must still compile.
 
 ## CRITICAL: where each query lives (read this first)
 

@@ -1,0 +1,10 @@
+{"card_id": "BT5_001", "model": "gemma4:26b", "text": "MISSING: HasGreymonName, TopCard\nWHY: HasGreymonName is not a provided primitive and TopCard is not a property of CardSource.", "sec": 59.2}
+{"card_id": "BT5_002", "model": "gemma4:26b", "text": "MISSING: TopCard, HasGarurumonName\nWHY: The condition relies on a TopCard property and a HasGarurumonName method not present in the available CardSource or CardEffectCommons primitives.", "sec": 55.3}
+{"card_id": "BT5_003", "model": "gemma4:26b", "text": "", "sec": 1220.3, "error": "timed out"}
+{"card_id": "BT5_004", "model": "gemma4:26b", "text": "", "sec": 1220.4, "error": "timed out"}
+{"card_id": "BT5_005", "model": "gemma4:26b", "text": "NONE", "sec": 94.1}
+{"card_id": "BT5_006", "model": "gemma4:26b", "text": "NONE", "sec": 67.8}
+{"card_id": "BT5_007", "model": "gemma4:26b", "text": "NONE", "sec": 179.3}
+{"card_id": "BT5_008", "model": "gemma4:26b", "text": "NONE", "sec": 107.7}
+{"card_id": "BT5_009", "model": "gemma4:26b", "text": "NONE", "sec": 52.9}
+{"card_id": "BT5_010", "model": "gemma4:26b", "text": "", "sec": 1220.2, "error": "timed out"}

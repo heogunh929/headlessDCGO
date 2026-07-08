@@ -56,13 +56,19 @@ class LocalModelRouter:
         self.config = config or ModelConfig.from_env()
         try:
             from openai import OpenAI
-        except ImportError as ex:  # pragma: no cover
-            raise RuntimeError("pip install openai 후 다시 실행하세요.") from ex
-        self._client = OpenAI(
-            base_url=self.config.base_url,
-            api_key=self.config.api_key,
-            timeout=self.config.timeout_seconds,
-        )
+            self._client = OpenAI(
+                base_url=self.config.base_url,
+                api_key=self.config.api_key,
+                timeout=self.config.timeout_seconds,
+            )
+        except ImportError:
+            # stdlib fallback: the endpoint is OpenAI-compatible, so a tiny urllib client covers the one
+            # call shape we use (chat.completions.create). Avoids requiring `pip install openai`.
+            self._client = _UrllibOpenAIClient(
+                base_url=self.config.base_url,
+                api_key=self.config.api_key,
+                timeout=self.config.timeout_seconds,
+            )
 
     def model_for(self, role: Role) -> str:
         if role == "planner":
@@ -102,6 +108,74 @@ class LocalModelRouter:
 
     def review(self, system: str, user: str) -> str:
         return self.call("reviewer", system, user, extract_code=False)
+
+
+class _UrllibOpenAIClient:
+    """stdlib-only stand-in for the `openai` client, covering only the chat-completions call the router
+    uses. POSTs to an OpenAI-compatible `{base_url}/chat/completions` endpoint (Ollama / vLLM / SGLang)."""
+
+    def __init__(self, base_url: str, api_key: str, timeout: float):
+        self._url = base_url.rstrip("/") + "/chat/completions"
+        self._api_key = api_key
+        self._timeout = timeout
+        self.chat = _UrllibChat(self)
+
+    def _post(self, payload: dict) -> dict:
+        import json
+        import time
+        import urllib.error
+        import urllib.request
+
+        data = json.dumps(payload).encode("utf-8")
+        last_exc: Exception | None = None
+        # Retry transient connection blips (the local endpoint can briefly refuse during model swap/load).
+        for attempt in range(4):
+            req = urllib.request.Request(
+                self._url,
+                data=data,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as ex:  # noqa: PERF203
+                last_exc = ex
+                time.sleep(2 * (attempt + 1))
+        raise last_exc if last_exc is not None else RuntimeError("post failed")
+
+
+class _UrllibChat:
+    def __init__(self, client: "_UrllibOpenAIClient"):
+        self.completions = _UrllibCompletions(client)
+
+
+class _UrllibCompletions:
+    def __init__(self, client: "_UrllibOpenAIClient"):
+        self._client = client
+
+    def create(self, *, model: str, messages: list, temperature: float = 0, max_tokens: int | None = None):
+        payload: dict = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        raw = self._client._post(payload)
+        return _Resp(raw)
+
+
+class _Resp:
+    def __init__(self, raw: dict):
+        choices = raw.get("choices") or [{}]
+        self.choices = [_Choice(c) for c in choices]
+
+
+class _Choice:
+    def __init__(self, c: dict):
+        self.message = _Msg((c.get("message") or {}).get("content", ""))
+
+
+class _Msg:
+    def __init__(self, content: str):
+        self.content = content
 
 
 def extract_csharp_code(text: str) -> str:

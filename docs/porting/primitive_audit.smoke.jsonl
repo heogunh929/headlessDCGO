@@ -1,0 +1,2 @@
+{"card_id": "AD1_001", "model": "gemma4:26b", "text": "NONE", "sec": 110.7}
+{"card_id": "AD1_002", "model": "gemma4:26b", "text": "MISSING: SelectHandEffect, SelectCardEffect\nWHY: The card's shared effect relies on SelectHandEffect (for discarding from hand) and SelectCardEffect (for playing from hand or trash), which are not provided in the engine's primitive or factory lists.", "sec": 60.6}

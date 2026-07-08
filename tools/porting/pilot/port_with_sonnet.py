@@ -34,7 +34,17 @@ SYSTEM_PROMPT = """\
   대상에 맞게 바꿔 넣는다. 구조·팩토리 이름·논리 분해·네임스페이스 규칙은 레퍼런스와 동일하게 유지한다.
 - 추측 금지. 원본에 없는 동작을 넣거나 가드를 완화하지 않는다. 원본이 하는 것을 정확히 미러한다.
 - 헤드리스에 없는 프리미티브를 발명하지 않는다(있는 팩토리만 사용).
-출력: 완성된 .cs 파일 내용만. 코드 블록(```csharp ... ```) 하나로. 설명·주석 추가 금지."""
+
+STOP 정책(맞는 프리미티브가 없을 때 — 필수, 발명·throw·근사 전부 금지):
+- 어떤 타이밍의 효과를 충실히 커버하는 기존 헤드리스 팩토리/프리미티브가 없으면, 그 타이밍은 STOP 처리한다:
+  · 그 `if (timing == ...)` 블록에 아무 효과도 등록하지 않는다(블록을 비우거나 생략).
+  · 바로 위에 `// STOP: <사유>` 주석을 남긴다 — 어떤 프리미티브/조합/액션이 없어서 못 하는지, AS-IS가 뭘
+    요구했는지 한 줄로 명시(예: `// STOP: self-suspend 코스트 후 reveal-route 조합 body 없음`).
+  · 절대 throw 하지 않는다(`throw new NotSupportedException` 등 금지). STOP은 주석 달린 조용한 no-op이다.
+  · 절대 근사·확대·가드완화로 안 맞는 프리미티브에 억지로 매핑하지 않는다. 충실한 STOP이 부정확한 등록보다 낫다.
+- 일부 타이밍만 포팅하고 나머지는 STOP 주석 처리해도 된다(부분 포팅 허용).
+- 카드 전체가 맞는 프리미티브가 없으면 빈 리스트를 반환하고 파일 상단에 `// STOP:` 사유를 단다. 컴파일은 되어야 한다.
+출력: 완성된 .cs 파일 내용만. 코드 블록(```csharp ... ```) 하나로. 산문 설명은 금지하되, 위 `// STOP:` 주석은 필수."""
 
 
 _FRAMEWORK = (REPO / "src" / "HeadlessDCGO.Engine" / "Assets" / "Scripts" / "Script"
@@ -70,7 +80,7 @@ def symbol_surface() -> str:
     # (파일럿) 번역 치트시트 부록 — 의미 번역 계층(CS1061 도메인 환각) 규칙.
     cheat = REPO / "docs" / "audit" / "porting_translation_cheatsheet.md"
     if cheat.exists():
-        out.append("\n## 번역 규칙 (AS-IS 도메인 패턴 → 헤드리스)\n" + cheat.read_text(encoding="utf-8"))
+        out.append("\n## 번역 규칙(컴팩트: 매핑 테이블·예시만)\n" + _CHEAT_COMPACT)
     return "\n".join(out)
 
 
@@ -91,6 +101,27 @@ _TIMINGS, _BY_CLASS = _all_signatures()
 _CHEAT = (REPO / "docs" / "audit" / "porting_translation_cheatsheet.md")
 
 
+def _compact_cheat() -> str:
+    """치트시트 다이어트 — 매핑 테이블·헤더·코드예시만 유지하고 설명 산문은 제거.
+    매핑 규칙(false STOP/환각 방지의 핵심)은 그대로 두면서 프롬프트를 ~35% 줄여 CLI 타임아웃을 완화한다."""
+    if not _CHEAT.exists():
+        return ""
+    kept: list[str] = []
+    in_fence = False
+    for line in _CHEAT.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s.startswith("```"):
+            in_fence = not in_fence
+            kept.append(line)
+            continue
+        if in_fence or s.startswith("#") or s.startswith("|"):
+            kept.append(line)
+    return "\n".join(kept)
+
+
+_CHEAT_COMPACT = _compact_cheat()
+
+
 def symbol_surface_for(texts: list[str]) -> str:
     """카드별 트림 심볼 표면 — 대상/레퍼런스 텍스트에 등장하는 팩토리·커먼즈 시그니처만.
     전체 43K 대신 필요한 것만 → 호출 속도·안정성 대폭 개선(레퍼런스가 이미 정답 심볼을 보여줌)."""
@@ -104,7 +135,7 @@ def symbol_surface_for(texts: list[str]) -> str:
             out.extend(f"{cls}.{s}" for s in picked)
     out.append("### HeadlessPlayerId/HeadlessEntityId는 Value·IsEmpty만. permanent.X는 CardEffectCommons.X(card,id)로.")
     if _CHEAT.exists():
-        out.append("\n## 번역 규칙\n" + _CHEAT.read_text(encoding="utf-8"))
+        out.append("\n## 번역 규칙(컴팩트: 매핑 테이블·예시만)\n" + _CHEAT_COMPACT)
     return "\n".join(out)
 
 
