@@ -50,6 +50,10 @@ Opus 검증이 **내 BT1 프리미티브(ea339be5)가 없는 d7350dd0 base**에�
 
 9패밀리 개발 완료. 각 단언테스트(tests/BT23.PrimTranche3~5.Tests, 총 22건) + 회귀 green 후 커밋.
 
+> ⚠ **충실도 감사(2026-07-08, 병렬 에이전트 5)**: 사용자 기준 **"구조가 다르면 FAIL"** 적용 시 9패밀리 전부 fidelity
+> 부채 보유(결과-동일 modeling 포함). 실제 동작버그 2건(G12 CanNotTrash 필터·min-count) + 설계취약 1건(G10 mass 술어분리).
+> 전부 미상환(기록만) → **[fidelity_debt.md](fidelity_debt.md) "BT2/BT3 프리미티브 (Tranche 3~5)" 섹션** 참조. 상환은 카드 배선 단계에서.
+
 | 패밀리 | 카드 | 헤드리스 심볼 | 트랜치 |
 |---|---|---|---|
 | G7 | 112/BT1_084 | `SelectDigivolutionSourceToHandThenSelfFollowUpEffect`(follow-up `Action<sink>` 파라미터화) + `CardEffectCommons.UnsuspendSelf` | T3 `84af3236` |

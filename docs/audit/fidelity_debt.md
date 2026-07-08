@@ -228,3 +228,31 @@
 - ~~C3 중첩 치환~~ → **✅ 해소(P6, 2026-07-02)**: 희생이 sink Delete 경유 — 대상의 자체 치환 발동 + `sacrificeAwaiting` 파킹(F68 양방향 테스트).
 - **B3 무DP permanent**: `TrashNoDPPermanentProcess`(printed DP 없는 permanent의 직접 트래시)는 포트 sweep이 미포괄(HasLethalDp가 defined-DP 요구) — 배틀에리어에 무DP 카드가 놓이는 메커니즘 등장 시 폴딩.
 - **B2 시큐리티-디지몬 배틀 앞 OnSecurityCheck 순서**: battle→pierce 구간은 파킹으로 복원; SecurityResolver 내부(OnSecurityCheck 스킬 → 시큐리티 배틀) 순서는 후속(동일 파킹 패턴 적용 조사).
+
+## BT2/BT3 프리미티브 (Tranche 3~5) 충실도 부채 — 2026-07-08
+
+- 방법: AS-IS 카드 ↔ 헤드리스 프리미티브 라인단위 대조(병렬 감사 에이전트 5). 판정 기준(사용자 지시 2026-07-08):
+  **"구조가 다르면 FAIL"** — 결과-동일(outcome-equivalent) modeling도 구조가 원본과 다르면 FAIL로 판정해 debt 기록.
+  ([[fidelity-over-coverage]] [[check-asis-before-implementing]] [[asis-structure-mirror-rule]])
+- 상태: 프리미티브 3트랜치 커밋됨(`84af3236`/`1f375936`/`3535d816`). **아래 부채는 미상환**(수정 안 함, 기록만).
+  실제 카드(BT3_063/070/073/030/031/111/102 등)는 대부분 skeleton stub(미배선) — 배선 단계에서 함께 상환.
+
+| 프리미티브 | 판정 | 부채(구조/동작 차이) | 종류 |
+|---|---|---|---|
+| G7 `SelectDigivolutionSourceToHandThenSelfFollowUpEffect` | **FAIL** | AS-IS는 activate프롬프트(ISOPTIONAL) + 내부 `canNoSelect:()=>false` 필수픽 = **2단계 결정**. 헤드리스는 스킵가능 단일선택으로 collapse. 결과집합 동일(검증)이나 구조 상이. | 구조 |
+| G8 `SelectHandAttachToOwnStackThenMemoryEffect` | **FAIL** | ① AS-IS `AddDigivolutionCardsTop`는 삽입 후 `StackSkillInfos(OnAddDigivolutionCards)` 방출 → 헤드리스 `AddSourcesTopAsync`는 **이벤트 미방출**(엔진 전역: Add* 헬퍼 전부 미방출). ② multi-card top 삽입이 역순(도달불가—maxCount1). | 동작(①)/구조(②) |
+| G1 `RevealSelectThenPlaySelectedEffect` | **FAIL** | ① 남은 카드 덱바닥 배치 시 **≥2장이면 소유자 순서선택**을 AS-IS는 물음 → 헤드리스는 reveal 순서 고정(기존 `RevealMultiSelectEffect`는 순서선택 구현—미사용). ② reveal 창/상대공개 없음(단 공유 머신러리도 동일=엔진전역). ③ 이동이 sink-staged 아닌 imperative. | 동작(①)/구조 |
+| G5 `DigivolutionCostGateEffect` | **FAIL** | AS-IS는 timing None **연속 static**(손패 라이브 등록) → 헤드리스는 **dispatch-first 코스트-시점 읽기**. 등가성 검증(술어가 자기 카드 pin, 양쪽 코스트시점 평가)이나 구조 상이. + 픽스처 `EqualsCardName` vs AS-IS `CardNames.Contains`(리스트) — 배선 시 수정. | 구조 |
+| G9 `ActivatedPlayFromUnderEffect`(일반화) | **FAIL** | ① AS-IS **2단계 select**(퍼머넌트→그 진화원) → 헤드리스 **flatten 단일 select**(도달집합 동일하나 구조 상이). ② 호스트 퍼머넌트 타입(Digimon) 게이트 누락(엣지: Tamer 밑 Lv≤4 Digimon 진화원). ③ 정보노출 차이(전 후보 노출). | 구조/동작(②) |
+| G10 select `SelectDeDigivolveThenConditionalDestroyEffect` | **FAIL** | ① 승격 top 재구성 `under[Count-removed]`(스택순서 대조 검증됨) — 헤드리스 필연이나 AS-IS persistent Permanent 객체와 구조 상이. ② AS-IS `if(TopCard!=null)` 가드 생략(도달불가). | 구조 |
+| G10 mass `MassDeDigivolveThenConditionalDestroyEffect` | **FAIL** | AS-IS는 **두 술어**: 디지그레이드=상대 Digimon(`!CanNotBeAffected`, DP무관) / destroy=`+DP≤MaxDP_DeleteEffect(5000) +CanBeDestroyedBySkill`. 헤드리스는 단일 `_target`로 디지그레이드+재스캔, destroy만 `_destroyIf`. **설계가 분리를 강제 못 함** → 배선이 DP를 `_target`에 넣으면 고DP Digimon 디지그레이드 스킵 = 동작버그. 설계상 `deDigivolveTarget`/`destroyIf` 분리 파라미터 필요. | 설계/동작 |
+| G12 `ChooseCountThenTrashDigivolutionEffect` | **FAIL** | ① AS-IS 자격=`!CanNotTrashFromDigivolutionCards`(트래시 가능 진화원 ≥1) → 헤드리스 raw `Count>0`. 전부 보호된 퍼머넌트를 AS-IS는 대상 제외(유일후보면 카운트 프롬프트 자체 없음), 헤드리스는 포함. sink도 per-card 보호 무시(bottom 무조건 트래시). **동작버그(live 키워드, BT1_086 사용)**. ② `SelectCountEffect.cs:79-90` `CanNoSelect:false`→후보{1,2}(0 제외, 최소1) — 헤드리스 min0 허용. **동작버그**. | 동작 |
+| G13 `OpponentBinaryChoiceEffect` | **FAIL** | ① AS-IS `SetBoolSelection` → 헤드리스 상대소유 `ModeChoice` 매핑(구조 상이, 등가). ② 빈/스킵 응답 시 default-to-no — AS-IS는 mandatory(no-skip). ③ BT3_102 미배선(테스트만 memory placeholder). | 구조/동작(②) |
+| G3 activateETB 억제 | **FAIL** | ① AS-IS 필터는 per-effect `IsOnPlay` 플래그(설명 "[On Play]" prefix)+`ActivateICardEffect` → 헤드리스는 "source==subject && timing∈{OnPlay,OnEnterField}". [On Play] 아닌 self-OnEnterField 트리거를 희귀 과억제 가능(구조 상이). ② 이펙트-플레이 등록 미배선으로 end-to-end inert(§4b 별도 골). | 구조 |
+
+**엔진 전역 별도 골(프리미티브 밖, `bt2_bt3_primitive_dev_status.md §4b`):**
+- **이펙트-플레이 카드 효과 미등록**: `PlayPermanentCards`의 `NewSink`가 `onCardEnteredPlay` 콜백 미배선(액션계층 `EngineContext.cs:261`만) → 낸 카드의 [On Play]/연속/트리거 실전 미발동(G1·G3·G9 공통 근본). AS-IS는 정상/효과 플레이가 **동일 `PlayCardClass.PlayCard()`** 경로라 이 분기 자체가 없음.
+- **G11 Digisorption**: 디지볼브 중 interactive deferred BeforePayCost 미지원(`DigivolveAction.cs:179`) + 디지볼브-코스트 suspend-감산 변형 필요.
+- **`OnAddDigivolutionCards` 방출 미배선**(G8 ①): 진화원 증가에 반응하는 카드가 헤드리스 어디서도 미발동 — Add* 헬퍼 전역.
+
+**상환 우선순위(제안)**: (1) G12 두 동작버그(CanNotTrash 필터 + min-count) → 카드-facing 직접 영향. (2) G10 mass 술어분리 설계. (3) 이펙트-플레이 등록 인프라(G1/G3/G9 근본). (4) 나머지 구조/엣지. 각 상환 시 AS-IS 재대조 + 회귀.
