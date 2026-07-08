@@ -298,6 +298,15 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ActivatedDrawThenDiscardEffect drawDiscard:
+                {
+                    // (G4) draw N -> discard M (atomic; DrawAndDiscardCards flushes the draw before building the
+                    // discard pool). Drives the ChoiceProvider itself for the discard select.
+                    await drawDiscard.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case SelectDigivolutionSourceToHandThenUnsuspendSelfEffect sourceToHand:
                 {
                     // (BT1_084 br2) select 1 source from this card's own stack -> hand -> self-unsuspend. Drives

@@ -591,6 +591,14 @@ public sealed class GameFlowProcessor
         // different card (Tamer, ST4_14) than the suspended subject, so it broadcasts. The event carries
         // subject = the suspended card; each listener's CanTriggerWhenPermanentSuspends self-gates on it.
         EffectTiming.OnTappedAnyone,
+        // (G2) [Your Turn]/[All Turns] "when an Option is used, …" — the reacting effect lives on a DIFFERENT
+        // card (a Tamer/Digimon on the field) than the option card being used. The OnUseOption window IS emitted
+        // (OptionActivateAction.cs:94, subject = the option card, which is already in trash by then so it does
+        // NOT self-fire), but was in none of the dispatch sets, so the event was dropped. Broadcast it to every
+        // battle-area card, threading the driving event so each listener's CanTriggerWhenUseOption /
+        // CanTriggerWhenOwnerUseOption self-gates on the used option (subject) + its cost. Fires once per option
+        // use; a "[Once Per Turn]" reactor caps itself via MaxCountPerTurn.
+        EffectTiming.OnUseOption,
     };
 
     private static async Task<int> BridgeActivatedTriggersAsync(

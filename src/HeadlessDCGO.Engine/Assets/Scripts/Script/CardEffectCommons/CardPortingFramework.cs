@@ -4154,9 +4154,11 @@ public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
     private readonly int _maxCount;
     private readonly bool _canEndNotMax;
     private readonly string _mutationKind;
+    private readonly Action<CardSource, MatchStateMutationSink>? _onSelectedAny;
 
     public ActivatedSelectFromZoneEffect(CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget,
-        int maxCount, bool canEndNotMax, string mutationKind, string description)
+        int maxCount, bool canEndNotMax, string mutationKind, string description,
+        Action<CardSource, MatchStateMutationSink>? onSelectedAny = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(canTarget);
@@ -4169,6 +4171,9 @@ public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
         _canEndNotMax = canEndNotMax;
         _mutationKind = mutationKind;
         Description = description;
+        // (G14) fires ONCE, AFTER the move mutation(s), only when ≥1 card was actually selected — the AS-IS
+        // "if you added a card, THEN <do X>" conditional follow-up (e.g. BT3_034 add-from-security then draw 1).
+        _onSelectedAny = onSelectedAny;
     }
 
     public CardSource Card { get; }
@@ -4191,6 +4196,7 @@ public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
     {
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(selected);
+        bool any = false;
         foreach (HeadlessEntityId id in selected)
         {
             if (id.IsEmpty)
@@ -4198,10 +4204,16 @@ public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
                 continue;
             }
 
+            any = true;
             sink.Apply(new EffectMutation(
                 _mutationKind,
                 Card.InstanceId,
                 new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = id.Value }));
+        }
+
+        if (any)
+        {
+            _onSelectedAny?.Invoke(Card, sink);
         }
     }
 
@@ -4936,6 +4948,50 @@ public sealed class SecuritySelectToHandColorRecoveryShuffleEffect : IActivatedC
         throw new NotSupportedException($"Security-select color-recovery-shuffle effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(G4) Atomic "draw N, THEN discard M from your hand" — the AS-IS DrawClass→then→discard coroutine.
+/// A thin activated wrapper over <see cref="CardEffectCommons.DrawAndDiscardCards"/> (which already draws AND
+/// flushes BEFORE building the discard candidate pool from the resulting hand, so the drawn cards are
+/// discardable — the atomicity a split draw+select cannot give). Both player roles = the card's owner.
+/// <paramref name="canNoSelect"/> = the discard is optional ("you may"); <paramref name="canEndNotMax"/> = the
+/// discard is "up to M" (min 1) rather than exactly M. Resolved via the activation flow (needs the live
+/// ChoiceProvider). e.g. BT3_006 [On Deletion] draw 1 then discard 1 (mandatory); BT3_088 [When Digivolving]
+/// draw 2 then discard up to 2 (canEndNotMax:true).</summary>
+public sealed class ActivatedDrawThenDiscardEffect : IActivatedCardEffect
+{
+    private readonly int _drawAmount;
+    private readonly int _trashAmount;
+    private readonly Func<CardSource, bool>? _canTrash;
+    private readonly bool _canNoSelect;
+    private readonly bool _canEndNotMax;
+
+    public ActivatedDrawThenDiscardEffect(
+        CardSource card, int drawAmount, int trashAmount, Func<CardSource, bool>? canTrash,
+        bool canNoSelect, bool canEndNotMax, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _drawAmount = drawAmount;
+        _trashAmount = trashAmount;
+        _canTrash = canTrash;
+        _canNoSelect = canNoSelect;
+        _canEndNotMax = canEndNotMax;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public Task ResolveAsync(CancellationToken cancellationToken) =>
+        CardEffectCommons.DrawAndDiscardCards(
+            (Card.Owner, Card.Owner), _drawAmount, _trashAmount, Card,
+            _canTrash, _canNoSelect, _canEndNotMax, cancellationToken);
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Draw-then-discard effect is resolved via the activation flow, not registered: {Description}");
+}
+
 /// <summary>
 /// Headless mirror of the original <c>CardEffectFactory</c>. Method names match the original so ported
 /// card bodies read 1:1. Each returns an <see cref="ICardEffect"/> the registrar lowers to a binding.
@@ -5024,6 +5080,16 @@ public static partial class CardEffectFactory
     /// cards. Use this in place of the original draw coroutine.</summary>
     public static IActivatedCardEffect DrawCardsEffect(CardSource card, int count) =>
         new DrawEffect(card, count, $"Draw {count} card(s).");
+
+    /// <summary>(G4) <c>DrawThenDiscardEffect</c> — atomic "draw <paramref name="drawAmount"/>, then discard
+    /// <paramref name="trashAmount"/> from your hand" (AS-IS draw-then-discard coroutine). Wraps
+    /// <see cref="CardEffectCommons.DrawAndDiscardCards"/> (draws+flushes before the discard candidate pool is
+    /// built, so drawn cards are discardable). <paramref name="discardOptional"/> = "you may discard";
+    /// <paramref name="discardUpTo"/> = "discard up to N" (min 1) vs exactly N. Resolved via the activation flow.</summary>
+    public static IActivatedCardEffect DrawThenDiscardEffect(
+        CardSource card, int drawAmount, int trashAmount, string description,
+        Func<CardSource, bool>? canTrash = null, bool discardOptional = false, bool discardUpTo = false) =>
+        new ActivatedDrawThenDiscardEffect(card, drawAmount, trashAmount, canTrash, discardOptional, discardUpTo, description);
 
     /// <summary>Original: <c>PierceSelfEffect</c> — grants Piercing to self.</summary>
     public static ICardEffect PierceSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -5213,9 +5279,12 @@ public static partial class CardEffectFactory
 
     /// <summary>(PRIM-W3) <c>ChangeSAttackStaticEffect</c> — continuous ±security attack on the owner's Digimon
     /// (player-scope SA modifier consulted by ContinuousModifierGate.ResolveSecurityAttack). Mirrors the SA
-    /// analogue of <see cref="ChangeDPStaticEffect"/>; <paramref name="permanentCondition"/> per-card.</summary>
-    public static ICardEffect ChangeSAttackStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new PlayerScopeModifierEffect(card, ModifierHelpers.SAttackDeltaKey, changeValue, scopeCardType: "Digimon", condition, scopePredicate: ScopePred(permanentCondition));
+    /// analogue of <see cref="ChangeDPStaticEffect"/>; <paramref name="permanentCondition"/> per-card.
+    /// (G6) <paramref name="scopeAnyPlayer"/>:true drops the owner-only scope so the predicate decides — needed
+    /// for an OPPONENT-scoped SA modifier ("your opponent's Digimon get -N SA"), a 1:1 mirror of
+    /// <see cref="ChangeSecurityDigimonCardDPStaticEffect"/>'s any-player scope. Default false = owner-scope.</summary>
+    public static ICardEffect ChangeSAttackStaticEffect(Func<Permanent, bool>? permanentCondition, int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool scopeAnyPlayer = false) =>
+        new PlayerScopeModifierEffect(card, ModifierHelpers.SAttackDeltaKey, changeValue, scopeCardType: "Digimon", condition, scopePredicate: ScopePred(permanentCondition), scopeAnyPlayer: scopeAnyPlayer);
 
     /// <summary>(PRIM-W3) <c>ReturnToLibraryBottomDigivolutionCardsClass</c> — returns the host's own
     /// digivolution (under-)cards to the bottom of the deck (activated).</summary>
@@ -5808,8 +5877,9 @@ public static partial class CardEffectFactory
     /// <paramref name="fromZone"/> (Trash / Library / Security …) matching <paramref name="canTarget"/> and add
     /// each to the owner's hand. AS-IS SelectCardEffect.Mode AddHand.</summary>
     public static ICardEffect SelectAndAddToHandFromZoneEffect(
-        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.ReturnToHandKind, description);
+        CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description,
+        Action<CardSource, MatchStateMutationSink>? onSelectedAny = null) =>
+        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.ReturnToHandKind, description, onSelectedAny);
 
     /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
     /// <paramref name="fromZone"/> matching <paramref name="canTarget"/> and trash each. AS-IS
