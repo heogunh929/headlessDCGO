@@ -57,6 +57,44 @@ public static class DigivolutionStackHelpers
         AppendSources(repository, target, appended);
     }
 
+    /// <summary>(G8 / BT3_019 <c>AddDigivolutionCardsTop</c>) Moves <paramref name="cards"/> from
+    /// <paramref name="fromZone"/> off-field and inserts them (in order) at the TOP of
+    /// <paramref name="targetId"/>'s digivolution stack (just below the top card). The sourceIds list is
+    /// top→bottom, so "add to top" prepends.</summary>
+    public static async Task AddSourcesTopAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId targetId,
+        IReadOnlyList<HeadlessEntityId> cards,
+        ChoiceZone fromZone,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        ArgumentNullException.ThrowIfNull(cards);
+
+        if (cards.Count == 0 || !repository.TryGetInstance(targetId, out CardInstanceRecord? target) || target is null)
+        {
+            return;
+        }
+
+        var moved = new List<string>();
+        foreach (HeadlessEntityId cardId in cards)
+        {
+            if (!repository.TryGetInstance(cardId, out CardInstanceRecord? card) || card is null)
+            {
+                continue;
+            }
+
+            await zoneMover.MoveAsync(
+                new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
+                cancellationToken).ConfigureAwait(false);
+            moved.Add(cardId.Value);
+        }
+
+        PrependSources(repository, target, moved);
+    }
+
     /// <summary>(C-23 Material Save) Moves the first <paramref name="count"/> digivolution sources of
     /// <paramref name="fromId"/> to the bottom of <paramref name="toId"/>'s stack (pure re-parent — the
     /// source cards already live off-field). Returns true when at least one source moved.</summary>
@@ -325,6 +363,21 @@ public static class DigivolutionStackHelpers
             : target;
         List<string> sources = ReadSourceIds(current.Metadata).Select(id => id.Value).ToList();
         sources.AddRange(add);
+        repository.Upsert(current with { Metadata = WithSources(current.Metadata, sources) });
+    }
+
+    private static void PrependSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)
+    {
+        if (add.Count == 0)
+        {
+            return;
+        }
+
+        CardInstanceRecord current = repository.TryGetInstance(target.InstanceId, out CardInstanceRecord? latest) && latest is not null
+            ? latest
+            : target;
+        List<string> sources = ReadSourceIds(current.Metadata).Select(id => id.Value).ToList();
+        sources.InsertRange(0, add);
         repository.Upsert(current with { Metadata = WithSources(current.Metadata, sources) });
     }
 

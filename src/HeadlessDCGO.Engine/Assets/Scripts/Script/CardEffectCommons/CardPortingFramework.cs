@@ -4542,11 +4542,20 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
 {
     private readonly string _cardType;
     private readonly string? _cardName;
+    private readonly Func<CardSource, bool>? _canTarget;
+    private readonly bool _isOptional;
 
     /// <summary>(K5) <paramref name="cardType"/> selects which under-cards are candidates ("Digimon" for the
     /// ST2_15-style play-from-under; "Tamer" for the MindLink play-back). <paramref name="cardName"/>
-    /// optionally narrows to a specific card name (AS-IS PlayMindLinkTamerFromDigivolutionCards).</summary>
-    public ActivatedPlayFromUnderEffect(CardSource card, string description, string cardType = "Digimon", string? cardName = null)
+    /// optionally narrows to a specific card name (AS-IS PlayMindLinkTamerFromDigivolutionCards).
+    /// (G9 / BT3_030) <paramref name="canTarget"/> — when supplied — REPLACES the cardType/cardName filter with an
+    /// arbitrary predicate over the under-card (e.g. "own Digimon, Lv≤4, playable"); this flattens the AS-IS
+    /// two-level "pick a permanent, then pick one of ITS matching under-cards" select into the outcome-equivalent
+    /// single select over the same reachable under-card set. <paramref name="isOptional"/> = the AS-IS
+    /// canNoSelect:true ("you may").</summary>
+    public ActivatedPlayFromUnderEffect(
+        CardSource card, string description, string cardType = "Digimon", string? cardName = null,
+        Func<CardSource, bool>? canTarget = null, bool isOptional = false)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -4555,6 +4564,8 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         Description = description;
         _cardType = cardType;
         _cardName = cardName;
+        _canTarget = canTarget;
+        _isOptional = isOptional;
     }
 
     public CardSource Card { get; }
@@ -4570,7 +4581,8 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         }
 
         int max = Math.Min(1, candidates.Count);
-        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: max, maxCount: max, canSkip: false, candidates);
+        int min = _isOptional ? 0 : max;
+        return EffectChoiceHelpers.CreatePermanentRequest(Card.Owner, Description, minCount: min, maxCount: max, canSkip: _isOptional, candidates);
     }
 
     public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected)
@@ -4614,6 +4626,13 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
 
     private bool IsCandidateCard(HeadlessEntityId id)
     {
+        // (G9) an explicit predicate REPLACES the cardType/cardName filter (e.g. BT3_030's "own Digimon, Lv≤4,
+        // playable" under-card gate).
+        if (_canTarget is not null)
+        {
+            return _canTarget(new CardSource(Card.Context, id, Card.Owner));
+        }
+
         return Card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
             && Card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
             && string.Equals(def.CardType, _cardType, StringComparison.OrdinalIgnoreCase)
@@ -4819,6 +4838,369 @@ public sealed class SelectDigivolutionSourceToHandThenSelfFollowUpEffect : IActi
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Select-digivolution-source-to-hand-then-self-follow-up effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(G8 / BT3_019 [When Digivolving]) OPTIONAL select 1 hand card matching <c>_canTarget</c>, place it
+/// on TOP of THIS card's own digivolution stack (AS-IS <c>Permanent.AddDigivolutionCardsTop</c>), then gain
+/// <c>_memoryGain</c> memory — only when a card is actually placed. 1:1 mirror of AS-IS SelectHandEffect(Custom,
+/// maxCount 1, canNoSelect:true) -> AddDigivolutionCardsTop(selected) -> AddMemory(N). The attach reuses
+/// <see cref="DigivolutionStackHelpers.AddSourcesTopAsync"/>; the memory is staged on the sink.</summary>
+public sealed class SelectHandAttachToOwnStackThenMemoryEffect : IActivatedCardEffect
+{
+    private readonly Func<CardSource, bool> _canTarget;
+    private readonly int _memoryGain;
+
+    public SelectHandAttachToOwnStackThenMemoryEffect(CardSource card, Func<CardSource, bool> canTarget, int memoryGain, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _canTarget = canTarget;
+        _memoryGain = memoryGain;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+        var zones = (IZoneStateReader)context.ZoneMover;
+
+        List<HeadlessEntityId> candidates = zones.GetCards(Card.Owner, ChoiceZone.Hand)
+            .Where(id => _canTarget(new CardSource(context, id, Card.Owner)))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return; // AS-IS CanActivate guards >=1; defensive.
+        }
+
+        var choiceCandidates = candidates
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true, ownerId: Card.Owner))
+            .ToList();
+        // AS-IS canNoSelect:true (the "you may") -> optional pick of exactly 1.
+        var request = new ChoiceRequest(
+            ChoiceType.Card, Card.Owner, Description, minCount: 0, maxCount: 1, canSkip: true, ChoiceZone.Hand, choiceCandidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.IsSkipped || result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        await DigivolutionStackHelpers.AddSourcesTopAsync(
+            context.CardInstanceRepository, context.ZoneMover, Card.InstanceId,
+            new[] { result.SelectedIds[0] }, ChoiceZone.Hand, cancellationToken).ConfigureAwait(false);
+
+        if (_memoryGain != 0)
+        {
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.AddMemoryKind, Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _memoryGain }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Select-hand-attach-to-own-stack effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>Shared post-de-digivolve helpers for the G10 conditional-destroy effects.</summary>
+internal static class DeDigivolveDestroyHelpers
+{
+    internal static HeadlessPlayerId OwnerOf(EngineContext context, HeadlessEntityId id) =>
+        context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? i) && i is not null ? i.OwnerId : default;
+}
+
+/// <summary>(G10 / BT3_107 [Main]) Select 1 <c>_canTarget</c>-matching permanent, trigger De-Digivolve
+/// <c>_count</c> on it, then — reading the RESULTING (post-de-digivolve) top — destroy it when
+/// <c>_destroyIf</c> holds. 1:1 mirror of AS-IS SelectPermanentEffect(Custom, 1) -> IDegeneration(count) ->
+/// (if new TopCard predicate) DestroyPermanentsClass. The de-digivolve runs directly (a flush boundary) so the
+/// new top's cost/DP is observable before the destroy decision. The permanent's top id changes on de-digivolve
+/// (old top trashed, immediate under-source promoted); the post-state permanent is identified by that promoted
+/// id (<c>under[Count - removed]</c>). The destroy is staged on the sink (immunity/prevention gates apply).</summary>
+public sealed class SelectDeDigivolveThenConditionalDestroyEffect : IActivatedCardEffect
+{
+    private readonly Func<HeadlessEntityId, bool> _canTarget;
+    private readonly int _count;
+    private readonly Func<Permanent, bool> _destroyIf;
+
+    public SelectDeDigivolveThenConditionalDestroyEffect(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget, int count, Func<Permanent, bool> destroyIf, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        ArgumentNullException.ThrowIfNull(destroyIf);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _canTarget = canTarget;
+        _count = count;
+        _destroyIf = destroyIf;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+        List<HeadlessEntityId> candidates = CardEffectCommons.MatchConditionPermanentIds(Card, _canTarget).ToList();
+        if (candidates.Count == 0)
+        {
+            return; // AS-IS CanActivate guards >=1; defensive.
+        }
+
+        var choiceCandidates = candidates
+            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.BattleArea, IsSelectable: true, ownerId: DeDigivolveDestroyHelpers.OwnerOf(context, id)))
+            .ToList();
+        var request = new ChoiceRequest(
+            ChoiceType.Card, Card.Owner, Description, minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, choiceCandidates);
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.IsSkipped || result.SelectedIds.Count == 0)
+        {
+            return;
+        }
+
+        HeadlessEntityId selectedId = result.SelectedIds[0];
+        HeadlessPlayerId targetOwner = DeDigivolveDestroyHelpers.OwnerOf(context, selectedId);
+
+        // Predict the post-de-digivolve top (immediate under-source) BEFORE the move, then de-digivolve directly
+        // (a flush boundary). under-cards are bottom→top, so removing N promotes under[Count - N].
+        IReadOnlyList<CardSource> under = new Permanent(context, selectedId, targetOwner).DigivolutionCards;
+        int removed = await DeDigivolveHelpers.DeDigivolveAsync(
+            context.CardInstanceRepository, context.ZoneMover, selectedId, _count, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+        HeadlessEntityId newTopId = removed > 0 && removed <= under.Count ? under[under.Count - removed].InstanceId : selectedId;
+
+        var postPermanent = new Permanent(context, newTopId, targetOwner);
+        if (_destroyIf(postPermanent))
+        {
+            CardEffectCommons.DestroyPermanent(sink, Card, newTopId);
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Select-de-digivolve-then-conditional-destroy effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(G10 / BT3_112 [When Digivolving]) Trigger De-Digivolve <c>_count</c> on EVERY <c>_target</c>-matching
+/// permanent, then — re-scanning the resulting tops — destroy each <c>_target</c> permanent for which
+/// <c>_destroyIf</c> holds (e.g. DP ≤ 5000). 1:1 mirror of AS-IS "IDegeneration on each, then
+/// DestroyPermanentsClass(matching)". No select. The de-digivolve runs directly (a flush boundary) so the
+/// re-scan sees the post-de-digivolve tops; each destroy is staged on the sink (gates apply).</summary>
+public sealed class MassDeDigivolveThenConditionalDestroyEffect : IActivatedCardEffect
+{
+    private readonly Func<HeadlessEntityId, bool> _target;
+    private readonly int _count;
+    private readonly Func<Permanent, bool> _destroyIf;
+
+    public MassDeDigivolveThenConditionalDestroyEffect(
+        CardSource card, Func<HeadlessEntityId, bool> target, int count, Func<Permanent, bool> destroyIf, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(destroyIf);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _target = target;
+        _count = count;
+        _destroyIf = destroyIf;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+
+        // De-Digivolve each current matching permanent (their top ids change as this proceeds).
+        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _target))
+        {
+            await DeDigivolveHelpers.DeDigivolveAsync(
+                context.CardInstanceRepository, context.ZoneMover, id, _count, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Re-scan the current matching tops and destroy those satisfying the post-state predicate.
+        foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _target))
+        {
+            var perm = new Permanent(context, id, DeDigivolveDestroyHelpers.OwnerOf(context, id));
+            if (_destroyIf(perm))
+            {
+                CardEffectCommons.DestroyPermanent(sink, Card, id);
+            }
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Mass-de-digivolve-then-conditional-destroy effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(G12 / BT3_100 Part A [Main]) Choose a single count 0..<c>_maxCount</c>, then trash that many
+/// digivolution cards (from the TOP or BOTTOM per <c>_fromBottom</c>) from EVERY <c>_target</c>-matching
+/// permanent — each capped at its own digivolution-card count. 1:1 mirror of AS-IS SelectCountEffect(MaxCount)
+/// -> foreach target: TrashDigivolutionCardsFromTopOrBottom(Min(count, DigivolutionCards.Count)). The target set
+/// is snapshotted BEFORE the count choice (AS-IS gathers selectedPermanents first). Each trash stages on the
+/// sink (TrashDigivolutionCardsKind).</summary>
+public sealed class ChooseCountThenTrashDigivolutionEffect : IActivatedCardEffect
+{
+    private readonly Func<HeadlessEntityId, bool> _target;
+    private readonly int _maxCount;
+    private readonly bool _fromBottom;
+
+    public ChooseCountThenTrashDigivolutionEffect(
+        CardSource card, Func<HeadlessEntityId, bool> target, int maxCount, bool fromBottom, string description)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(target);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        Card = card;
+        _target = target;
+        _maxCount = maxCount;
+        _fromBottom = fromBottom;
+        Description = description;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        EngineContext context = Card.Context;
+
+        // Snapshot the targets (AS-IS collects selectedPermanents before asking the count).
+        List<HeadlessEntityId> targets = CardEffectCommons.MatchConditionPermanentIds(Card, _target)
+            .Where(id => new Permanent(context, id, DeDigivolveDestroyHelpers.OwnerOf(context, id)).DigivolutionCards.Count > 0)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        var request = new ChoiceRequest(
+            ChoiceType.Count, Card.Owner, Description, minCount: 0, maxCount: _maxCount, canSkip: false,
+            ChoiceZone.None, Array.Empty<ChoiceCandidate>());
+        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        int count = result.SelectedCount ?? 0;
+        if (count <= 0)
+        {
+            return;
+        }
+
+        foreach (HeadlessEntityId id in targets)
+        {
+            int available = new Permanent(context, id, DeDigivolveDestroyHelpers.OwnerOf(context, id)).DigivolutionCards.Count;
+            int trash = Math.Min(count, available);
+            if (trash <= 0)
+            {
+                continue;
+            }
+
+            sink.Apply(new EffectMutation(
+                MatchStateMutationSink.TrashDigivolutionCardsKind,
+                Card.InstanceId,
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [MatchStateMutationSink.TargetEntityIdKey] = id.Value,
+                    [MatchStateMutationSink.CountKey] = trash,
+                    [MatchStateMutationSink.FromBottomKey] = _fromBottom,
+                }));
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Choose-count-then-trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(G13 / BT3_102 [Main]) Ask the OPPONENT a binary yes/no decision (<c>_yesLabel</c> / <c>_noLabel</c>)
+/// and branch: <c>_ifYes</c> when they choose yes, <c>_ifNo</c> when they choose no. When <c>_autoNoWhen</c>
+/// holds (e.g. the opponent has no security to trash) the choice is skipped and <c>_ifNo</c> runs directly. 1:1
+/// mirror of AS-IS UserSelectionManager.SetBoolSelection(selectPlayer: card.Owner.Enemy) -> branch (or
+/// SetBool(false) when there is nothing to decide). The binary menu reuses the ModeChoice mechanism but is owned
+/// by the OPPONENT (the ModeChoice primitive is owner-scoped); the branch actions stage on the sink.</summary>
+public sealed class OpponentBinaryChoiceEffect : IActivatedCardEffect
+{
+    private const string ModeToken = "mode";
+    private readonly string _yesLabel;
+    private readonly string _noLabel;
+    private readonly Action<MatchStateMutationSink> _ifYes;
+    private readonly Action<MatchStateMutationSink> _ifNo;
+    private readonly Func<bool>? _autoNoWhen;
+
+    public OpponentBinaryChoiceEffect(
+        CardSource card, string description, string yesLabel, string noLabel,
+        Action<MatchStateMutationSink> ifYes, Action<MatchStateMutationSink> ifNo, Func<bool>? autoNoWhen = null)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentException.ThrowIfNullOrWhiteSpace(yesLabel);
+        ArgumentException.ThrowIfNullOrWhiteSpace(noLabel);
+        ArgumentNullException.ThrowIfNull(ifYes);
+        ArgumentNullException.ThrowIfNull(ifNo);
+        Card = card;
+        Description = description;
+        _yesLabel = yesLabel;
+        _noLabel = noLabel;
+        _ifYes = ifYes;
+        _ifNo = ifNo;
+        _autoNoWhen = autoNoWhen;
+    }
+
+    public CardSource Card { get; }
+
+    public string Description { get; }
+
+    public async Task ResolveAsync(MatchStateMutationSink sink, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        // AS-IS SetBool(false) when there is nothing to decide -> the "no" branch runs with no prompt.
+        if (_autoNoWhen is not null && _autoNoWhen())
+        {
+            _ifNo(sink);
+            return;
+        }
+
+        HeadlessPlayerId opponent = CardEffectCommons.OpponentOf(Card);
+        var candidates = new List<ChoiceCandidate>
+        {
+            new(new HeadlessEntityId($"{Card.InstanceId.Value}#{ModeToken}#0"), _yesLabel, ChoiceZone.BattleArea, IsSelectable: true, ownerId: opponent),
+            new(new HeadlessEntityId($"{Card.InstanceId.Value}#{ModeToken}#1"), _noLabel, ChoiceZone.BattleArea, IsSelectable: true, ownerId: opponent),
+        };
+        var request = new ChoiceRequest(
+            ChoiceType.ModeChoice, opponent, Description, minCount: 1, maxCount: 1, canSkip: false, ChoiceZone.BattleArea, candidates);
+        ChoiceResult result = await Card.Context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+
+        int index = 1; // default to the "no" branch (a skipped/empty answer = declined).
+        if (!result.IsSkipped && result.SelectedIds.Count > 0)
+        {
+            string[] parts = result.SelectedIds[0].Value.Split('#');
+            if (parts.Length > 2 && int.TryParse(parts[2], out int parsed))
+            {
+                index = parsed;
+            }
+        }
+
+        if (index == 0)
+        {
+            _ifYes(sink);
+        }
+        else
+        {
+            _ifNo(sink);
+        }
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException($"Opponent-binary-choice effect is resolved via the activation flow, not registered: {Description}");
 }
 
 /// <summary>(BT1_056 [On Play]) Select up to <c>maxCount</c> of the owner's cards spanning MULTIPLE candidate

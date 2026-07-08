@@ -308,6 +308,48 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case ChooseCountThenTrashDigivolutionEffect chooseCount:
+                {
+                    // (G12 / BT3_100) choose count 0..N -> trash that many (capped) digivolution cards from every matching target.
+                    await chooseCount.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case OpponentBinaryChoiceEffect oppBinary:
+                {
+                    // (G13 / BT3_102) opponent yes/no decision -> branch (auto-no when nothing to decide).
+                    await oppBinary.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case SelectDeDigivolveThenConditionalDestroyEffect selDeDig:
+                {
+                    // (G10 / BT3_107) select 1 -> de-digivolve N (flush) -> destroy if post-state predicate holds.
+                    await selDeDig.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case MassDeDigivolveThenConditionalDestroyEffect massDeDig:
+                {
+                    // (G10 / BT3_112 WD) de-digivolve all matching (flush) -> destroy each satisfying post-state predicate.
+                    await massDeDig.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
+                case SelectHandAttachToOwnStackThenMemoryEffect attachStack:
+                {
+                    // (G8 / BT3_019) optional select 1 hand card -> attach on top of this card's own stack ->
+                    // gain memory (only if placed). Drives the ChoiceProvider + a direct attach move; the
+                    // memory is staged on the sink.
+                    await attachStack.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case SelectDigivolutionSourceToHandThenSelfFollowUpEffect sourceToHand:
                 {
                     // (BT1_084 br2 / BT3_112 br2) select 1 source from this card's own stack -> hand -> self
