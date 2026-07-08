@@ -113,6 +113,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // D-8: optional memory cost paid when an effect plays a card "for cost" (PlayForCost). The effect
     // resolves the (reduced) cost via the cost pipeline and passes it; absent/0 = play for free.
     public const string MemoryCostKey = "memoryCost";
+    // (G3 / BT3_109/110) set on a PlayCard mutation to suppress the played card's OWN [On Play]/OnEnterField
+    // triggers ("play … Any [On Play] effects on the Digimon played with this effect don't activate" —
+    // AS-IS activateETB:false). Threaded onto the CardMoved event so AutoProcessingTriggerCollector drops the
+    // moved card's own enter-play triggers (one-shot; other cards' reactions unaffected).
+    public const string SuppressOnPlayKey = "suppressOnPlay";
 
     private static readonly IReadOnlyDictionary<string, string> KindToFlag =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1060,8 +1065,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         // Mark summoning sickness synchronously (same metadata flag PlayCardAction sets).
         WriteMetadata(record, targetId, mutation.Kind, EnteredThisTurnKey, true);
+        // (G3) an ETB-suppressed play threads a one-shot suppressOnPlay marker onto the CardMoved event so the
+        // moved card's OWN OnPlay/OnEnterField triggers are dropped (other cards' reactions unaffected).
+        IReadOnlyDictionary<string, object?>? moveMetadata = ReadBool(mutation.Values, SuppressOnPlayKey)
+            ? new Dictionary<string, object?>(StringComparer.Ordinal) { [SuppressOnPlayKey] = true }
+            : null;
         _pendingAsync.Add(ct => zoneMover.MoveAsync(
-            new ZoneMoveRequest(owner, targetId, fromZone, ChoiceZone.BattleArea, faceUp), ct));
+            new ZoneMoveRequest(owner, targetId, fromZone, ChoiceZone.BattleArea, faceUp, moveMetadata), ct));
         // (G8-002) The effect played a card onto the field — auto-register its ported effects (no-op for
         // un-ported cards). Binding registration is zone-independent, so it is safe before the deferred move.
         _onCardEnteredPlay?.Invoke(targetId, owner);

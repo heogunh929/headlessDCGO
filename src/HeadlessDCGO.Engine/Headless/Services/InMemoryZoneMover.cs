@@ -431,19 +431,29 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
                 ? "Remove"
                 : "Move";
 
+        var metadata = new Dictionary<string, object?>
+        {
+            ["playerId"] = request.PlayerId.Value,
+            ["cardId"] = request.CardId.Value,
+            ["fromZone"] = request.FromZone.ToString(),
+            ["toZone"] = request.ToZone.ToString(),
+            ["faceUp"] = request.FaceUp,
+            ["operation"] = operation
+        };
+        // (G3) merge any caller-supplied extra metadata (e.g. suppressOnPlay) into the event.
+        if (request.Metadata is { } extra)
+        {
+            foreach (KeyValuePair<string, object?> pair in extra)
+            {
+                metadata[pair.Key] = pair.Value;
+            }
+        }
+
         GameEvent gameEvent = new(
             _events.Count + 1,
             GameEventType.CardMoved,
             $"Card moved: {request.CardId} {request.FromZone}->{request.ToZone}",
-            new Dictionary<string, object?>
-            {
-                ["playerId"] = request.PlayerId.Value,
-                ["cardId"] = request.CardId.Value,
-                ["fromZone"] = request.FromZone.ToString(),
-                ["toZone"] = request.ToZone.ToString(),
-                ["faceUp"] = request.FaceUp,
-                ["operation"] = operation
-            })
+            metadata)
         {
             // G3.5-RL-B2: structured fields alongside the legacy metadata.
             Actor = request.PlayerId,

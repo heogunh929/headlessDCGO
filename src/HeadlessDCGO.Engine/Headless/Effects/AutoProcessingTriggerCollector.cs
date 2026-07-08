@@ -161,11 +161,28 @@ public sealed class AutoProcessingTriggerCollector
         var seen = new HashSet<HeadlessEntityId>();
         var triggers = new List<TimingWindowTrigger>();
 
+        // (G3 / BT3_109/110) an ETB-suppressed play carries a one-shot suppressOnPlay marker on its CardMoved
+        // event: the moved card's OWN OnPlay/OnEnterField triggers are skipped ("Any [On Play] effects on the
+        // Digimon played with this effect don't activate"). Other cards' reactions to it entering are unaffected.
+        HeadlessEntityId? suppressOnPlaySubject =
+            gameEvent.Subject is { IsEmpty: false } subject
+            && gameEvent.Metadata.TryGetValue(MatchStateMutationSink.SuppressOnPlayKey, out object? raw)
+            && raw is true
+                ? subject
+                : null;
+
         foreach (string timing in timings)
         {
+            bool isEnterPlayTiming = timing == TriggerTimings.OnPlay || timing == TriggerTimings.OnEnterField;
             TriggerCollectionResult perTiming = CollectForTiming(gameEvent, timing);
             foreach (TimingWindowTrigger trigger in perTiming.Triggers)
             {
+                if (suppressOnPlaySubject is { } suppressed && isEnterPlayTiming
+                    && trigger.Request.Context.SourceEntityId == suppressed)
+                {
+                    continue; // the moved card's own enter-play trigger — suppressed for this play.
+                }
+
                 if (seen.Add(trigger.Request.EffectId))
                 {
                     triggers.Add(trigger);

@@ -9,7 +9,8 @@ public sealed record ZoneMoveRequest
         HeadlessEntityId CardId,
         ChoiceZone FromZone,
         ChoiceZone ToZone,
-        bool FaceUp = false)
+        bool FaceUp = false,
+        IReadOnlyDictionary<string, object?>? Metadata = null)
     {
         if (PlayerId.IsEmpty)
         {
@@ -46,6 +47,7 @@ public sealed record ZoneMoveRequest
         this.FromZone = FromZone;
         this.ToZone = ToZone;
         this.FaceUp = FaceUp;
+        this.Metadata = Metadata;
     }
 
     public HeadlessPlayerId PlayerId { get; }
@@ -57,4 +59,9 @@ public sealed record ZoneMoveRequest
     public ChoiceZone ToZone { get; }
 
     public bool FaceUp { get; }
+
+    /// <summary>(G3) Optional extra metadata merged into the emitted CardMoved event (e.g. a one-shot
+    /// <c>suppressOnPlay</c> marker so an ETB-suppressed play skips the moved card's own OnPlay/OnEnterField
+    /// triggers). Null for the overwhelming majority of moves.</summary>
+    public IReadOnlyDictionary<string, object?>? Metadata { get; }
 }

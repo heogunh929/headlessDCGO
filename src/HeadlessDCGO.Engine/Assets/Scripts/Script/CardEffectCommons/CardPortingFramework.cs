@@ -8335,19 +8335,18 @@ public static class CardEffectCommons
     /// <summary>AS-IS <c>PlayPermanentCards(cardSources, activateClass, payCost, isTapped, root,
     /// activateETB, isBreedingArea, fixedCost)</c> (CardEffectCommons.cs:23, verbatim verified): filter by
     /// <see cref="CanPlayAsNewPermanent"/> then play each as a new permanent via the sink's PlayCard
-    /// mutation (cost = fixed / resolved play cost when <paramref name="payCost"/>). Note: an
-    /// <paramref name="activateETB"/>=false suppression has no port surface (entry triggers derive from the
-    /// zone move) — every current translated caller passes true; a false caller is a STOP.</summary>
+    /// mutation (cost = fixed / resolved play cost when <paramref name="payCost"/>). (G3) When
+    /// <paramref name="activateETB"/> is false the PlayCard mutation carries
+    /// <see cref="MatchStateMutationSink.SuppressOnPlayKey"/>, which threads a one-shot suppressOnPlay marker
+    /// onto the entering CardMoved event so the played card's OWN [On Play]/OnEnterField triggers are dropped
+    /// ("Any [On Play] effects on the Digimon played with this effect don't activate", BT3_109/110); other
+    /// cards' reactions to it entering are unaffected.</summary>
     public static async Task PlayPermanentCards(
         IReadOnlyList<CardSource> cardSources, CardSource sourceCard, bool payCost, bool isTapped,
         ChoiceZone root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
     {
         ArgumentNullException.ThrowIfNull(cardSources);
         ArgumentNullException.ThrowIfNull(sourceCard);
-        if (!activateETB)
-        {
-            throw new NotSupportedException("PlayPermanentCards(activateETB:false) has no headless surface — STOP (strong model).");
-        }
 
         EngineContext context = sourceCard.Context;
         var playable = cardSources
@@ -8379,6 +8378,12 @@ public static class CardEffectCommons
             if (cost > 0)
             {
                 values[MatchStateMutationSink.MemoryCostKey] = cost;
+            }
+
+            // (G3) activateETB:false suppresses the played card's OWN [On Play]/OnEnterField triggers.
+            if (!activateETB)
+            {
+                values[MatchStateMutationSink.SuppressOnPlayKey] = true;
             }
 
             sink.Apply(new EffectMutation(MatchStateMutationSink.PlayCardKind, sourceCard.InstanceId, values));

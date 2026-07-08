@@ -46,21 +46,41 @@ Opus 검증이 **내 BT1 프리미티브(ea339be5)가 없는 d7350dd0 base**에�
 - **G7 (자기 진화원 stack select→후속, 112+BT1_084)** → ea339be5의
   `SelectDigivolutionSourceToHandThenUnsuspendSelfEffect`를 **후속 액션 파라미터화**(현재 Unsuspend 하드코딩)만.
 
-## 4. 남은 신규 프리미티브 (미개발)
+## 4. 신규 프리미티브 — 개발 완료 (Tranche 3~5, 2026-07-08)
 
-| 우선 | 패밀리 | 카드 | 성격 | 비고 |
-|---|---|---|---|---|
-| 다음 | G7 일반화 | 112 (+BT1_084) | 기존 효과에 follow-up Action 파라미터 | 저위험 |
-| 다음 | G1 reveal→play | 063/070/073 (+BT1_078) | `RevealSelectThenFreeDigivolveSelfEffect`에 PlayMode(PlayAsNewPermanent) 추가 | 내 자산 일반화 |
-| 다음 | G5 static 변형 | 031/111 | 파이프라인 재사용, 연속 self-modifier | 저위험 |
-| 중 | G3 activateETB 억제 | 109/110, BT2_080/081 | PlayCard mutation에 SuppressOnPlay 태그 → enter-play 트리거 스킵 | **민감**(On Play 억제 경로) |
-| 중 | G8 attach-to-stack | 019 | 신규 sink mutation(핸드 카드→퍼머넌트 진화원 stack) + 팩토리 | |
-| 중 | G9 nested dependent play | 030 | 2단계 select(퍼머넌트→그 진화원)→play | G1과 "zone 아닌 카드 play" 공유 |
-| 중 | G10 de-digivolve→조건부 | 107/112-WD | de-digivolve 후 flush boundary → post-state 술어 → destroy | |
-| 중 | G12 count-select+apply-all | 100 | 신규 `SelectCountEffect(min,max)` choice + 팬아웃 body | |
-| 중 | G13 opponent binary→분기 | 102 | 상대에게 yes/no ChoiceType.Confirm → 분기 | |
-| 딥 | G11 Digisorption | 054/056 | `WhenDigisorption` 타이밍+cut-in broadcast + suspend-cost-reduce + CanSuspendByDigisorption | **별도 엔진 골** |
-| 검증 | G17 ignore-option-security | 097 | `CanNotAffectedStaticEffect` 대조 후 genuine 여부 확정 | |
+9패밀리 개발 완료. 각 단언테스트(tests/BT23.PrimTranche3~5.Tests, 총 22건) + 회귀 green 후 커밋.
+
+| 패밀리 | 카드 | 헤드리스 심볼 | 트랜치 |
+|---|---|---|---|
+| G7 | 112/BT1_084 | `SelectDigivolutionSourceToHandThenSelfFollowUpEffect`(follow-up `Action<sink>` 파라미터화) + `CardEffectCommons.UnsuspendSelf` | T3 `84af3236` |
+| G1 | 063/070/073/BT1_078 | `RevealSelectThenPlaySelectedEffect` + `RevealPlayMode`(Digivolve/Play) + `Func<int>` revealCount | T3 |
+| G5-static | 031/111 | `ChangeDigivolutionCostStaticEffect`(permanent/card/root 술어 오버로드) → `DigivolutionCostGateEffect`(dispatch-first 폴드, 손패 카드) | T3 |
+| G8 | 019 | `SelectHandAttachToOwnStackThenMemoryEffect` + `DigivolutionStackHelpers.AddSourcesTopAsync` | T4 `1f375936` |
+| G9 | 030 | `ActivatedPlayFromUnderEffect`(canTarget 술어 + isOptional; 2단계 select를 도달집합 동일 flatten으로 미러) | T4 |
+| G10 | 107/112-WD | `SelectDeDigivolveThenConditionalDestroyEffect` + `MassDeDigivolveThenConditionalDestroyEffect`(flush 경계→post-state 술어→destroy) | T4 |
+| G12 | 100-A | `ChooseCountThenTrashDigivolutionEffect`(`ChoiceType.Count` 0..N→매칭 전부 trash) | T4 |
+| G13 | 102 | `OpponentBinaryChoiceEffect`(상대 소유 ModeChoice yes/no→분기, autoNoWhen) | T4 |
+| G3 | 109/110, BT2_080/081 | `MatchStateMutationSink.SuppressOnPlayKey` → CardMoved 이벤트 one-shot 마커 → `AutoProcessingTriggerCollector`가 subject 자신의 OnPlay/OnEnterField 트리거 드롭. `PlayPermanentCards(activateETB:false)` throw 제거. | T5 |
+
+## 4b. 별도 엔진 골로 분리 (2026-07-08, 사용자 결정) — 이번 프리미티브 패스 제외
+
+fidelity-over-coverage 규약상 "근사치로 뭉개기" 금지 → 아래 둘은 엔진 확장이 필요해 별도 골로 분리.
+
+- **G11 Digisorption (054/056)** — **딥 엔진 갭**. Digisorption은 *선택적 interactive* "당신의 Digimon 1마리를
+  서스펜드해도 됨 → 디지볼브 코스트 -N"인데, `DigivolveAction.cs:179` 주석대로 **디지볼브 중 interactive(deferred-choice)
+  BeforePayCost가 v1-미지원**(deferred가 뜨면 원가 지불). 또 기존 `SuspendCostReductionEffect`는 `PlayCostDeltaKey`(플레이
+  코스트)만 감산 → **디지볼브-코스트 감산 변형 + deferred-choice를 디지볼브 코스트 경로까지 관통**시키는 엔진 작업 필요.
+  056은 추가로 상대-Digimon-서스펜드(CanSuspendByDigisorption) + [Once Per Turn].
+- **이펙트-플레이 카드 효과 미등록** (G1·G3 공통, 신규 발견) — `CardEffectCommons.PlayPermanentCards`가 쓰는
+  `NewSink(context)`는 enter-play 등록 콜백(`onCardEnteredPlay`)을 안 검. 액션 계층 sink만 `EngineContext.cs:261`에서
+  `CardEffectRegistrar.RegisterCard`로 배선됨 → **효과로 낸 카드는 자기 연속/트리거/[On Play] 효과가 등록되지 않아 발동 안 됨.**
+  이 때문에 G3의 [On Play] 억제는 *현재는* 이미 억제된 상태이고(등록 자체가 안 됨), G1의 063 등도 낸 카드 효과가 실전엔 안 뜸.
+  억제 메커니즘 자체는 collector 레벨 단언으로 검증됨(T5). 실전 완전동작하려면 이 등록 인프라를 별도로 배선해야 함(회귀 리스크
+  검증 필요). 설계: PlayPermanentCards의 sink가 context의 등록 콜백을 공유하도록.
+
+## 4c. 검증 대기 (G1~13 범위 밖)
+
+- G17 ignore-option-security(097) — `CanNotAffectedStaticEffect` 대조 후 genuine 여부 확정 (이번 범위 밖).
 
 ## 5. FALSE STOP (프리미티브 불필요 — 재포팅만) — 설계 §2
 
@@ -69,11 +89,9 @@ BT2에서도 동종 오판 존재(예: BT2_008/001 트래시-매수 쿼리 = `Ma
 
 ## 6. 다음 단계 (재개 지점)
 
-1. **G7·G1·G5-static** — 내 BT1 자산 일반화(저위험), 각 단언테스트.
-2. **G8/G9/G10/G12/G13** — 신규 프리미티브, AS-IS 1:1, 각 테스트.
-3. **G3** — On Play 억제(민감). enter-play 트리거 발화 경로 정밀 조사 후.
-4. **G11 Digisorption** — 별도 골로 분리.
-5. FALSE STOP 9장 + 위 커버 카드 재포팅 → 통합 회귀.
+1. ~~G7·G1·G5-static / G8·G9·G10·G12·G13 / G3~~ — **완료**(§4, Tranche 3~5).
+2. **별도 엔진 골**(§4b): (a) 이펙트-플레이 등록 인프라 배선, (b) G11 Digisorption(deferred-digivolve-cost).
+3. FALSE STOP 9장 + §4 커버 카드 재포팅 → 통합 회귀. (등록 인프라(2a) 이후라야 G1/G3 낸-카드 효과가 실동작.)
 
 **진행 규약**: 프리미티브는 AS-IS 1:1 + uniform ActivatedEffect 규약, throw/근사 금지, 트랜치마다
-컴파일+단언테스트+340 회귀 green 후 커밋. 참조: [[bt1-porting-complete-stop-infra]] [[asis-uniform-activateclass]] [[fidelity-over-coverage]].
+컴파일+단언테스트+회귀 green 후 커밋. 참조: [[bt1-porting-complete-stop-infra]] [[asis-uniform-activateclass]] [[fidelity-over-coverage]].
