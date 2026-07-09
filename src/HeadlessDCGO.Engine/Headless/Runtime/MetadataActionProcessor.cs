@@ -809,7 +809,12 @@ public sealed class MetadataActionProcessor : IActionProcessor
         AddMainPhaseMetadata(metadata, mainPhase);
         AddEndTurnCleanupMetadata(metadata, cleanup);
 
-        // W1: open the turn-boundary timing windows so [End of Turn] / [Start of Turn] effects fire.
+        // (RD-6) W1: open the turn-boundary timing windows so [End of Turn] / [Start of Turn] effects fire.
+        // NOTE: AS-IS resolves the [End of your turn] window (AutoProcessing.cs:675 step 3) BEFORE cleanup and
+        // the turn flip, in the ending player's still-live frame. Repositioning the OnEndTurn emit ahead of
+        // cleanup/flip was TRIED and empirically broke 6 turn-boundary tests (memory-pass / end-turn-cleanup /
+        // choice pause-resume) — the emit is NOT frame-independent here, confirming RD-6 has no safe emit-only
+        // subset; the correct pre-flip resolution is Stage-5-coupled (RD-14~17 WindowResolver). See L8.
         if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayer)
         {
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayer);

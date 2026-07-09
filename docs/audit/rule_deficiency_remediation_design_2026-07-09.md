@@ -15,6 +15,7 @@
 | L5 | **RD-13 트리거 경로 optional** | 설계상 분리 | OptionalPromptQueue 경로는 기존 유지(이중 질문 방지). 직접-해소 경로만 게이트 | 5단계서 창-루프로 통합 |
 | L6 | **RD-4 소스-소비 키워드 카드의 진화원 트래시** | 부분 이연 | {Save/Decode/Partition/Fortitude} 보유 삭제 카드는 소스 잔류(POST 창/재생이 삭제 後 참조). AS-IS는 PRE에서 일부 소진 後 잔여를 트래시하는 단일 시퀀스 | RD-4 전체 시퀀스(Decode/Partition PRE 이동=TODO-96) 재설계 시 |
 | L7 | **RD-4 ACE-소스 Overflow · LinkedCards 트래시** | 이연 | `DiscardEvoRoots`의 소스 AceOverflow(TODO-98)·LinkedCards 경로 미미러. 현재 ACE-소스/Link 카드 미포팅 | TODO-98 / Link 메커니즘 포팅 時 |
+| L8 | **RD-6 턴 종료 시퀀스 전체** | 이연(안전 서브셋 부재 실증) | emit 리포지션 시도가 6개 턴-경계 테스트 회귀(§D-RD6) → emit이 프레임-독립 아님, emit-only 안전 서브셋 불성립·코드 원복. 비-공격 [End of your turn] pre-flip 해소=이 타이밍 미니 창-루프=Stage 5. 공격 서브케이스는 EndOfTurnEffectAttack가 이미 프레임-정확. step4 지속-분기=TODO-67 | 5단계 WindowResolver(드레인-전-플립) + TODO-67 |
 
 **공통 원칙**: 위 이연은 [[strong-model-prebuild-latent-infra]] 기준으로 "해당 카드/단계 착수 前 강모델 선행 구축" 대상. 로컬 LLM에 맡기면 안 됨(엔진 내부 발산, silent-wrong 위험). "현재 무영향"은 skip 사유 아님([[no-callsite-not-skip-reason]]).
 
@@ -104,7 +105,10 @@ public static bool Matches(EngineContext ctx, HeadlessPlayerId owner, CardRecord
 
 ## 3단계 — 시퀀스 재설계
 
-### D-RD6. 턴 종료 시퀀스 (MetadataActionProcessor.EndTurn 재배열)
+### D-RD6. 턴 종료 시퀀스 (MetadataActionProcessor.EndTurn 재배열) — ⏸️이연(안전 서브셋 부재 실증, 2026-07-10)
+**시도·결과**: step 3의 `OnEndTurn` emit을 cleanup·`TurnController.EndTurn()` 플립 **前**(ending 프레임)으로 이동하는 "무해 구조 재배열"을 시도 → **6개 턴-경계 테스트 회귀**(G2A-004 memory-pass, G2A-005 end-turn-cleanup, G1E-005 choice pause-resume, G2A-003 draw/unsuspend/breeding, G2E-003 option-activate, G2E-005 pass-cheat-guard). 즉 emit은 이 지점에서 **프레임-독립이 아니며**(cleanup/memory-pass 흐름이 큐 처리 시점에 결합), RD-6는 emit-only 안전 서브셋이 성립하지 않음. **코드 원복**(384/384 유지, 실증 주석만 `MetadataActionProcessor.EndTurn`에 잔류).
+- **결론**: RD-6의 올바른 형태(플립 前 [End of your turn] 창 해소)는 이 타이밍의 미니 창-루프를 요구 = **Stage 5(WindowResolver, RD-14~17)와 구조적 결합**. 공격 서브케이스(Vortex/Overclock/Execute)는 `EndOfTurnEffectAttack`가 이미 플립 지연으로 프레임-정확하므로 잔여는 비-공격 activated + step 4 지속-분기(TODO-67)뿐 → 전량 Stage 5에서 상환.
+
 AS-IS 단계 그래프(AutoProcessing.cs:675-727 + TurnStateMachine.cs:3151-3210) 미러:
 ```
 EndTurn(액션, 구 턴 컨텍스트 유지)
