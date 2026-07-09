@@ -19,6 +19,7 @@ public static async Task OnDigivolveCompletedAsync(EngineContext ctx, HeadlessPl
 ```
 **호출 지점(구현 결과)**: ①`DigivolveAction`(정상+앱퓨전 — 인라인 카운터 대체) ②`SpecialPlayAction`(Burst/Blast/DnaDigivolve; **DigiXros/Assembly는 !isEvolution=제외**, AS-IS :626/755로 확인). **③효과-구동 free-digivolve(CPF:5240 DigivolveOntoSelf)는 보류** — AS-IS도 isEvolution이나(BT1_078 PlayCard 경유 확인), 헤드리스 reveal이 library를 peek만 하고(RevealAndSelect:74) revealed 카드를 물리 제거하지 않아, 이 지점 드로우가 아직 library에 있는 revealed 카드를 뽑는 발산 발생(BT1_078 실증). AS-IS는 revealed 3장을 execution limbo로 빼낸 뒤 그 아래에서 드로우 → **reveal/Executing-존 모델(TODO-68/83) 선행 필요**. 덱아웃은 DrawAsync 내 기존 판정 경유.
 **구현/검증**: `Runtime/DigivolveCommons.OnDigivolveCompletedAsync`(counter+draw+OnDraw). 테스트 RD1-DigivolveDraw(6검). 회귀: 진화가 이제 이동이벤트+1·드로우하므로 G2E-002 단언 `+2→+3` 갱신. 전체 377/377·RuleAudit 0(승패분포·게임길이 변화는 드로우 도입 정상).
+**검수 수정(2026-07-10)**: DigivolveAction의 draw/counter 호출이 WhenDigivolving·OnAddDigivolutionCards **방출 뒤**에 있어 이벤트 큐에서 OnDraw가 digivolve 창들 뒤로 가는 역전 발견 → 방출 **전**으로 이동(AS-IS :1526 draw < :1691 창 스택 순서 미러). SpecialPlayAction은 원래 정상. 회귀 380/380 유지.
 **주의**: 드로우 위치는 AS-IS와 동일하게 **스택 이동·RegisterCard 완료 후, WhenDigivolving 창 해소 전이 아님**(AS-IS는 PlayCard 말미 :1526 — WhenDigivolving 스택보다 뒤). 각 호출부에서 AS-IS 순서 재확인 후 삽입.
 **테스트** `RD1-DigivolveDraw`: 일반/조그레스/버스트/효과-구동 4경로 손패+1, 덱−1; 덱 0장 진화 시 덱아웃.
 
@@ -39,6 +40,7 @@ public static bool Matches(EngineContext ctx, HeadlessPlayerId owner, CardRecord
 - **구현 결과**: `Runtime/OptionColorRequirement.Matches(ctx, owner, optionCardId)` — ①ignore-color(ApplicableEffects서 `IgnoreColorRequirementKey`=AS-IS IgnoreColorConditionClass, self+player-scope+field 조건-aware 스캔), ②옵션 CardColors(2-stage fold=색변경 반영) 전부가 owner BattleArea+**BreedingArea** permanent top-card CardColors 합집합에 존재. `OptionActivateAction.Validate`(:216 IsOptionLocked 뒤)에 게이트. 색-없는 옵션=요건 없음.
 - **ICanNotPlayCardEffect 스캔 보류**: producer 0(스켈레톤)이라 latent = **TODO-49**로 분리(색 요건이 live P0). 착수 시 `RestrictionScan` joint 규약 재사용.
 - **완료**: RD2-OptionColor(7검: 색없음/일치/불일치/타색/2색부분/2색완전/브리딩). 회귀 380/380·RuleAudit 0(20/20 terminal). 기존 옵션 테스트는 colorless라 무영향.
+- **검수 잔여 노트(latent, 2026-07-10)**: ①dual 카드(디지몬이면서 옵션 사용) — AS-IS는 `IsDigimon ? DualCardColors(=OptionCardColorRequirements+fold) : CardColors`(CardSource.cs:307); 헤드리스는 CardColors 고정 → dual 카드 포팅 시 OptionCardColorRequirements 메타+분기 필요. ②AS-IS 색 공급원은 `TopCard.IsPermanent` 가드(:311) — 필드 옵션(딜레이) 포함 여부는 엔티티 데이터 미확인, 헤드리스는 존 카드 전부(저위험). ③옵션 **자신의** ignore-color(AS-IS 자기 EffectList 스캔) — 손패 카드는 미등록이라 ApplicableEffects에 안 잡힘; producer 카드 포팅 시 dispatch-빌드 필요.
 
 ### D-RD3. 버스트 진화 임시성 — ✅완료
 - `SpecialPlayAction`(kind==Burst) 성공 지점에서 burst 톱에 `GameFlowProcessor.BurstTrashAtTurnEndKey` 스탬프.
