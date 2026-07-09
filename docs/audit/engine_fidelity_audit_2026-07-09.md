@@ -93,6 +93,21 @@
 - **P0-restr (printed player-scope immunity)**: ★재검증 — ContinuousPlayerScopeRestrictionEffect가 다수 kind(Suspend·Digivolve·Return·Delete·Block·Attack)에 쓰이고 AS-IS는 kind별 CanNotBeAffected 체크 상이 → uniform 추가 시 Suspend 등 over-lenient. **정확한 per-kind immunity 테이블 필요 → uniform 수정 금지**. 현재 printed player-scope attack/block × 면역 subject 조합은 latent(해당 카드 미포팅으로 추정).
 - P1-PG 잔여 (CanAddMemory ≥10 캡·IsSecurityLooking 재확인·PlayerScope 태그 요구), P1-IMM/BAT faceup 시큐리티 population: latent.
 
+## 구조 복원 진행 (strict 기준, 2026-07-09)
+**완료:**
+- ★ProgressImmunity(C-15) 프로덕션 버그 + context-less 폴백 제거 + 死키 ImmunityFromOpponentOnlyKey 제거 (`43f91829`)
+- ★direct-attack "플레이어 공격불가" 死 플래그 레이어 제거 → AS-IS 통합 null-defender 스캔 (`b47f2ffa`)
+- ★배틀 삭제 per-add 게이트 복원(RemoveAll→add-전 게이트) (`b47f2ffa`)
+
+**검증→cosmetic/결정점:**
+- P1-DV-3 (CanIgnore 역할): 로직 매핑 1:1(헤드리스 grant-flags↔AS-IS `ignore` 속성, IsDigivolveIgnoreBlocked↔AS-IS CanIgnore negation; P1-DV-2로 `grant && !negation` 일관화) → 네이밍만 cosmetic, 수정 불요.
+- **IsDigimon(IsDigiEgg) = 게임-규칙 결정점(사용자 판단 필요)**: AS-IS는 `IsDigimon(egg)=true` + `IsDigiEgg && DP<=0` 게이트(Permanent.cs:2069-2071) → DP>0 egg는 AS-IS서 이동 가능. 헤드리스는 `IsDigimon(egg)=false`로 의도적 GR-002(egg는 digivolve 전 이동 불가, 회귀 테스트 GR-002.BreedingMove) 구현. 실 egg는 DP<=0라 결과 동일하나 구조 발산 + DP>0 egg 정책 상충. AS-IS 1:1(egg 이동 허용)로 갈지 GR-002 유지(발산)할지 **정책 결정 필요**.
+
+**검증→substrate 번역으로 판정(수정 불요, 로직 동일):**
+- CanNotBeAffected 3영역 flatten: AS-IS 3 루프는 Unity object-model(3 collection) 아티팩트, 헤드리스 레지스트리 단일 스캔이 그 substrate 번역(전 효과가 Scope 등록). off-field self 가드는 double-scan 방지용이라 레지스트리 모델 불필요.
+- CanBeDestroyed base pre-gate: 헤드리스도 2-tier(Delete/Prevent 대체 + PreventBattleDeletion 플래그) 순서 유지.
+- 공격 가드 순서: 순수 conjunction이라 순서 무영향(AND 피연산자 순서).
+
 ## 검증으로 기각된 감사 주장 (auditor overreach)
 - **P1-DV-4 (color-ignore가 negation에 과결합)** — **기각**. 감사자는 헤드리스 IgnoreColorRequirementKey를 AS-IS mechanism 2(IIgnoreColorConditionEffect, negation 무관)로 봤으나, 실제로는 mechanism 1(`ignore==Color && CanIgnoreDigivolutionRequirement`, CardSource.cs:596, **negation-gated**)에 대응. BT8_059(진화요구 무시불가)는 color도 negate하는 게 맞고, deliberate 테스트 FAILd-06가 이를 검증. negation 게이트 제거 시 FAILd-06 실패 → 원복. (감사 주장도 AS-IS+기존 deliberate 테스트로 검증 필요 사례.)
 
