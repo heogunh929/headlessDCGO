@@ -127,29 +127,11 @@ public sealed class HeadlessLegalActionDispatcher
             return false;
         }
 
-        // (d-remediation, true-scan) AS-IS Permanent.CanMove — SCAN every field permanent's effects and, for each
-        // usable ICanNotMoveEffect, evaluate CanNotMove(candidate, null) (the state check passes a null causing
-        // effect). Any match blocks the promotion.
-        var candidate = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId, instance.OwnerId);
-        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        // (joint-migration) canonical scan (AS-IS Permanent.CanMove): the move gate passes a null causing effect
+        // (CanNotMove(top, null)); RestrictionScan's default counterpart is null, so the joint predicate sees it.
+        if (RestrictionScan.IsRestricted(context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotMoveKey, cardId, default))
         {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.CanNotMoveEffect.PredicateKey, out object? raw)
-                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource?, bool> predicate)
-            {
-                continue;
-            }
-
-            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
-                && condRaw is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (predicate(candidate, null))
-            {
-                return false;
-            }
+            return false;
         }
 
         // IsDigiEgg && DP <= 0: a Digi-Egg-typed card with no DP cannot move (defensive; redundant with the

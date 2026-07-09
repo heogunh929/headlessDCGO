@@ -580,32 +580,10 @@ public sealed class DigivolveAction
     /// <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c>. Any match ⇒ ignore-grants are negated.</summary>
     private static bool IsDigivolveIgnoreBlocked(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, HeadlessEntityId targetId, HeadlessPlayerId targetOwner)
     {
-        var digivolvingCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId);
-        var target = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, targetId, targetOwner);
-
-        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
-        {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.CannotIgnoreDigivolutionConditionEffect.PredicateKey, out object? raw)
-                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
-            {
-                continue;
-            }
-
-            // AS-IS cardEffect.CanUse(null): the effect's own condition gate.
-            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
-                && condRaw is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (predicate(digivolvingCard, target))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // (joint-migration) canonical scan (AS-IS Player.CanIgnoreDigivolutionRequirement): joint
+        // f(digivolvingCard, target under-card). Any match ⇒ ignore-grants are negated.
+        return RestrictionScan.IsRestricted(
+            context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotIgnoreDigivolutionConditionKey, cardId, targetId);
     }
 
     private static bool HasContinuousFlag(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId, string flagKey)

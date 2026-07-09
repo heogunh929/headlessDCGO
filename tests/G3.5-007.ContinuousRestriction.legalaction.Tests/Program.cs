@@ -60,6 +60,9 @@ Task PredecessorGoalsComplete()
 Task GateReportsContinuousAttackRestriction()
 {
     EngineContext context = EngineContext.CreateDefault();
+    // (joint-migration) the gate now evaluates a joint CanNotAttack(attacker, defender) over a real card, so the
+    // attacker must be a live instance (as it is in a real attack).
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(AttackerId, new HeadlessEntityId("def"), Player));
     RegisterCannotRestriction(context, "fx-cannot-attack", AttackerId, RestrictionHelpers.CannotAttackKey);
 
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(context, AttackerId).IsRestricted, "attacker is restricted");
@@ -71,6 +74,8 @@ Task GateReportsContinuousAttackRestriction()
 Task GateReportsContinuousBlockRestriction()
 {
     EngineContext context = EngineContext.CreateDefault();
+    // (joint-migration) the gate evaluates the joint CanNotBlock over a real card, so the blocker is a live instance.
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(BlockerId, new HeadlessEntityId("def"), Opponent));
     RegisterCannotRestriction(context, "fx-cannot-block", BlockerId, RestrictionHelpers.CannotBlockKey);
 
     AssertTrue(ContinuousRestrictionGate.EvaluateBlock(context, BlockerId).IsRestricted, "blocker is restricted");
@@ -154,6 +159,9 @@ void RegisterCannotRestriction(EngineContext context, string effectId, HeadlessE
             values: new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 [restrictionKey] = true,
+                // (joint-migration) canonical joint: the target entity has this restriction (subject == target).
+                [JointRestrictionEffect.PredicateKey(restrictionKey)] =
+                    (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == targetEntity),
             }));
 
     context.EffectRegistry.Register(new EffectBinding(

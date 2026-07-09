@@ -233,14 +233,9 @@ public static class RestrictionHelpers
     // AddMemory mutation chokes in MatchStateMutationSink.
     public const string CannotAddSecurityKey = "cannotAddSecurity";
     public const string CannotAddMemoryKey = "cannotAddMemory";
-    // (FR-P3) attached to a CannotAttack restriction: only defenders matching this predicate are off-limits
-    // (AS-IS CanNotAttackTargetDefendingPermanent's defenderCondition). Value: Func<CardSource,bool>.
-    public const string DefenderPredicateKey = "defenderPredicate";
-
-    /// <summary>(W6-G) the restriction's COUNTERPART predicate — for CannotBlock/CannotBeAttacked the
-    /// ATTACKER filter, for CannotBeBlocked the BLOCKER filter (AS-IS attackerCondition/defenderCondition
-    /// on the Gain grants). Stored as a <c>Func&lt;CardSource,bool&gt;</c> over the counterpart's top card.</summary>
-    public const string CounterpartPredicateKey = "restriction.counterpartPredicate";
+    // (joint-migration) The former DefenderPredicateKey / CounterpartPredicateKey (separate subject-scope∧counterpart
+    // split keys) are GONE — the counterpart/defender condition is now embedded in the single canonical joint
+    // predicate (JointRestrictionEffect.PredicateKey), mirroring AS-IS CanNotAttackTargetDefendingPermanent(atk, def).
 
     // (FR2/M-2) attached to a return/trash restriction: the restriction only blocks effects whose CAUSING
     // effect matches this predicate (AS-IS cardEffectCondition, e.g. IsOpponentEffect = "cannot be returned/
@@ -300,6 +295,14 @@ public static class RestrictionHelpers
     public static bool IsRestricted(CannotRestrictionRequest request)
     {
         return Evaluate(request).IsRestricted;
+    }
+
+    /// <summary>(joint-migration) True when <paramref name="key"/> is one of the boolean cannot-restriction value
+    /// keys the gates recognise — used by producers to decide whether to additively emit the canonical joint
+    /// predicate alongside the legacy bool flag.</summary>
+    public static bool IsRestrictionKey(string? key)
+    {
+        return key is not null && TryKindFromKey(key, out _);
     }
 
     public static IReadOnlyList<CannotRestriction> ReadRestrictions(
