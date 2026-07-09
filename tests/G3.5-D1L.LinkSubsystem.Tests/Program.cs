@@ -46,6 +46,14 @@ async Task AttachLink()
     CardInstanceRecord host = Instance(context, Host);
     AssertTrue(LinkHelpers.ReadLinkedCardIds(host.Metadata).Contains(Link1), "Link1 tracked on host");
     AssertEqual(2000, LinkHelpers.ReadLinkedDp(host.Metadata), "link DP accumulated");
+
+    // (P1-DP-5) AS-IS folds `DP += LinkedDP` into effective DP (Permanent.cs:639). Previously the headless tracked
+    // LinkedDP on the host but never folded it into ContinuousDpGate.ResolveDp.
+    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, Host, baseDp: 3000), "LinkedDP (2000) folds into effective DP");
+    // AS-IS injects LinkedDP BEFORE the NotIsUpDown/Set group, so a "DP becomes X" set overwrites it.
+    RegisterFixedDp(context, Host, owner: P1, fixedDp: 4000);
+    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, Host, baseDp: 3000), "a set-DP overwrites LinkedDP (AS-IS position)");
+
     AssertFalse(InZone(context, ChoiceZone.Hand, Link1), "Link1 left the hand");
     AssertFalse(InZone(context, ChoiceZone.BattleArea, Link1), "Link1 is off-field, not on the battle area");
     AssertTrue(QueueOpens(context, TriggerTimings.WhenLinked), "WhenLinked opened");
@@ -108,6 +116,18 @@ async Task Place(EngineContext context, HeadlessEntityId id, ChoiceZone zone, in
 
 CardInstanceRecord Instance(EngineContext context, HeadlessEntityId id) =>
     context.CardInstanceRepository.TryGetInstance(id, out var r) && r is not null ? r : throw new InvalidOperationException($"missing {id}");
+
+void RegisterFixedDp(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner, int fixedDp)
+{
+    var effectContext = new EffectContext(
+        owner, owner, new HeadlessEntityId($"src:fixeddp:{cardId.Value}"),
+        triggerEntityId: null, targetEntityIds: new[] { cardId },
+        // "fixedDp" (ModifierHelpers.FixedDpKey) => a Set(Dp) modifier ("DP becomes X").
+        values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["fixedDp"] = fixedDp });
+    context.EffectRegistry.Register(new EffectBinding(
+        new EffectRequest(new HeadlessEntityId($"fixeddp:{cardId.Value}:{fixedDp}"), owner, "Continuous", effectContext),
+        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
+}
 
 bool InZone(EngineContext context, ChoiceZone zone, HeadlessEntityId cardId) =>
     ((IZoneStateReader)context.ZoneMover).GetCards(P1, zone).Contains(cardId);
