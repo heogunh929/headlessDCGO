@@ -103,10 +103,25 @@
 - P1-DV-3 (CanIgnore 역할): 로직 매핑 1:1(헤드리스 grant-flags↔AS-IS `ignore` 속성, IsDigivolveIgnoreBlocked↔AS-IS CanIgnore negation; P1-DV-2로 `grant && !negation` 일관화) → 네이밍만 cosmetic, 수정 불요.
 - ★**IsDigimon(IsDigiEgg) — 사용자 결정: AS-IS 1:1 유지, 수정 완료.** `ContinuousKeywordGate.IsDigimon`을 AS-IS 구조로 복원: IsFlipped(메타 isFlipped)→false, `IsCardType("Digimon") || IsCardType("DigiEgg")`→true. egg-move 차단은 move-gate의 `IsDigiEgg && DP<=0` 게이트가 담당(AS-IS Permanent.cs:2069-2071). 실 egg는 DP<=0라 GR-002 유지, DP>0 egg는 AS-IS대로 이동 가능. 회귀 371.
 
-**검증→substrate 번역으로 판정(수정 불요, 로직 동일):**
+**검증→substrate 번역/수용으로 판정(수정 불요, 로직 동일):**
 - CanNotBeAffected 3영역 flatten: AS-IS 3 루프는 Unity object-model(3 collection) 아티팩트, 헤드리스 레지스트리 단일 스캔이 그 substrate 번역(전 효과가 Scope 등록). off-field self 가드는 double-scan 방지용이라 레지스트리 모델 불필요.
 - CanBeDestroyed base pre-gate: 헤드리스도 2-tier(Delete/Prevent 대체 + PreventBattleDeletion 플래그) 순서 유지.
 - 공격 가드 순서: 순수 conjunction이라 순서 무영향(AND 피연산자 순서).
+- HasDP: DontHaveDp producer가 ContinuousSelf/PlayerScopeRestrictionEffect 경유라 조건/스코프 술어가 ApplicableEffects 스코프-필터로 적용(AS-IS DontHaveDP(this) 술어 동치). IsDigimon/DigiEgg 게이트는 배틀서 Digimon만 DP 해소해 moot.
+
+## 잔여 latent-infra (미포팅 카드 의존 — 해당 카드 포팅 전 엔진에 구축 필요, 현재 동작 무영향)
+[[result-equivalence-not-completion]] 기준으로 로컬 포팅 전 구축 대상. 각 트리거 카드가 없어 현재 회귀엔 안 잡힘:
+- **DPBoost**: DP 부스트 토큰(Boosts) 카드 → Boosts 인프라
+- **SAttack 3-tier**: UpToConstant/UpDownValue/DownToConstant 다중 tier SAttack 카드 → CalculateOrder 3-way
+- **NotIsUpDown ActivatedTime 순서**: 활성시각-의존 set-DP 순서 카드 → ActivatedTime 추적
+- **faceup 시큐리티 삭제-면역 population**: 시큐리티 카드 자체 CanNotBeDestroyedByBattle 방출 카드
+- **P0-restr kind별 immunity**: printed(정적) player-scope cannot-attack/block × 면역 subject
+- **CanBlock permanent-vs-player 면역 비대칭**: printed per-permanent(타 카드 타깃) cannot-block
+- **CanSelectBySkill permanent-only 스코프**: player-scope CannotBeSelectedBySkill 카드 (현재 producer 전무)
+- **ignore-level-only**: IgnoreLevelRequirementKey 그랜트 카드 (effect-path는 이미 처리)
+- **PG minors**: CanAddMemory ≥10 캡·IsSecurityLooking add-재확인·태그없는 permanent-effect형 CannotAddMem/Sec
+- **Piercing-as-activated**: 헤드리스는 키워드 bool, AS-IS는 OnDetermineDoSecurityCheck activated(EffectName "Pierce")
+- **deletion 단일-동시 창**: AS-IS는 전 loser 동시 창, 헤드리스는 라운드루프(nested-coroutine 부재) — 한 loser의 pending 상태 읽는 prevention 카드서만 발산
 
 ## 검증으로 기각된 감사 주장 (auditor overreach)
 - **P1-DV-4 (color-ignore가 negation에 과결합)** — **기각**. 감사자는 헤드리스 IgnoreColorRequirementKey를 AS-IS mechanism 2(IIgnoreColorConditionEffect, negation 무관)로 봤으나, 실제로는 mechanism 1(`ignore==Color && CanIgnoreDigivolutionRequirement`, CardSource.cs:596, **negation-gated**)에 대응. BT8_059(진화요구 무시불가)는 color도 negate하는 게 맞고, deliberate 테스트 FAILd-06가 이를 검증. negation 게이트 제거 시 FAILd-06 실패 → 원복. (감사 주장도 AS-IS+기존 deliberate 테스트로 검증 필요 사례.)
