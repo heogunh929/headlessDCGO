@@ -257,8 +257,9 @@ public static class DigivolutionStackHelpers
         int count,
         ChoiceZone destination,
         bool fromBottom = true,
-        CancellationToken cancellationToken = default) =>
-        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, destination, cancellationToken);
+        CancellationToken cancellationToken = default,
+        GameEventQueue? gameEventQueue = null) =>
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, destination, cancellationToken, gameEventQueue);
 
     /// <summary>(G10-007) Remove a SPECIFIC digivolution source from <paramref name="hostId"/> and move it to
     /// <paramref name="destination"/> (e.g. the battle area, to play it as another Digimon). Returns true if
@@ -342,6 +343,19 @@ public static class DigivolutionStackHelpers
                 actor: host.OwnerId,
                 subject: hostId,
                 extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", removed) });
+        }
+
+        // (c-remediation) AS-IS ReturnToLibraryBottomDigivolutionCards fires OnDigivolutionCardReturnToDeckBottom
+        // (via global StackSkillInfos) when the sources are returned to the DECK — mirror it for the Library
+        // destination (the only return-to-deck path). Fires BEFORE the cards physically move, like the discard.
+        if (gameEventQueue is not null && destination == ChoiceZone.Library && removed.Count > 0)
+        {
+            TriggerEventEmitter.Emit(
+                gameEventQueue,
+                TriggerTimings.OnDigivolutionCardReturnToDeckBottom,
+                actor: host.OwnerId,
+                subject: hostId,
+                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["deckBottomCardIds"] = string.Join(",", removed) });
         }
 
         foreach (string sourceValue in removed)

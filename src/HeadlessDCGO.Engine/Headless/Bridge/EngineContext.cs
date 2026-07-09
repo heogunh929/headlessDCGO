@@ -230,6 +230,15 @@ public sealed class EngineContext
         CurrentState = ObservationSnapshot.Empty;
     }
 
+    /// <summary>Auto-register a card's ported continuous/passive-trigger effects as it enters play. This is
+    /// the enter-play chokepoint every <see cref="MatchStateMutationSink"/> defaults to (a sink that plays a
+    /// card via PlayCardKind / PlayDigivolutionAsDigimonKind invokes this) — mirroring AS-IS, where every play
+    /// (action- or effect-driven) runs through the single <c>PlayCardClass.PlayCard()</c> path, so the entered
+    /// card's <c>EffectList</c> is live regardless of who played it. No-op for un-ported cards;
+    /// <c>RegisterOnEnterPlay</c> skips activated effects, so this never double-runs imperative activations.</summary>
+    public void RegisterEnteredCardEffects(Services.HeadlessEntityId instanceId, Services.HeadlessPlayerId controller)
+        => Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(this, instanceId, controller);
+
     /// <param name="randomSeed">Deterministic RNG seed.</param>
     /// <param name="strictUnbound">(GPT-#1 / 신1) When true, the effect scheduler treats a request with
     /// no bound effect body as a hard failure instead of a silent <c>Unbound</c> drain — a strict
@@ -247,10 +256,10 @@ public sealed class EngineContext
         // Hoisted so the mutation sink can open non-zone-move timing windows (CV-A4: OnTapped/OnUntapped)
         // on the same queue the EngineContext exposes.
         var gameEventQueue = new GameEventQueue();
-        // (G8-002) Captured here, assigned to the constructed context below, so an effect-driven PlayCard
-        // (MatchStateMutationSink) can auto-register the played card's effects via CardEffectRegistrar —
-        // the same enter-play semantics as PlayCardAction. Sinks are created lazily (after construction),
-        // so selfRef is set by the time the hook fires.
+        // (G8-002) Captured here, assigned to the constructed context below. Sinks are created lazily (after
+        // construction), so selfRef is set by the time a sink is built — passing `context: selfRef` gives the
+        // scheduler sink the same enter-play registration every context-bearing sink defaults to
+        // (MatchStateMutationSink → selfRef.RegisterEnteredCardEffects), the same semantics as PlayCardAction.
         EngineContext? selfRef = null;
         var effectScheduler = new EffectScheduler(
             new EffectResolutionQueue(),
@@ -258,16 +267,10 @@ public sealed class EngineContext
                 effectRegistry,
                 sinkFactory: _ => new MatchStateMutationSink(
                     cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue,
-                    onCardEnteredPlay: (id, controller) =>
-                    {
-                        if (selfRef is not null)
-                        {
-                            HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(selfRef, id, controller);
-                        }
-                    },
                     // (PRIM-W4 AceOverflow) turn-relative memory sign for a leaving ACE's overflow penalty.
                     currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
-                    // (FR-P3) EngineContext so restriction/immunity checks honour player-scope predicates.
+                    // (FR-P3) EngineContext so restriction/immunity checks honour player-scope predicates AND the
+                    // played card auto-registers on enter-play via the sink's default hook.
                     context: selfRef),
                 strictUnbound: strictUnbound));
 

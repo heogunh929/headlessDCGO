@@ -1,12 +1,39 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class HeadlessMainPhaseFlow
 {
     public const int DefaultMemoryPassValue = 3;
     public const int DefaultTurnEndMinMemory = 1;
+
+    /// <summary>(d-remediation) AS-IS AutoProcessing.TurnEndMinMemory: default <see cref="DefaultTurnEndMinMemory"/>,
+    /// overridden by any ChangeEndTurnMinMemory effect on the turn player's board (the ported cards SET it).</summary>
+    private static int ResolveTurnEndMinMemory(EngineContext context, HeadlessPlayerId? turnPlayer)
+    {
+        if (turnPlayer is not { } player || context.ZoneMover is not IZoneStateReader zones)
+        {
+            return DefaultTurnEndMinMemory;
+        }
+
+        int threshold = DefaultTurnEndMinMemory;
+        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+        {
+            foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
+            {
+                if (effect.Context.Values.TryGetValue(ModifierHelpers.EndTurnMinMemoryKey, out object? raw) && raw is int minMemory)
+                {
+                    threshold = minMemory;
+                }
+            }
+        }
+
+        return threshold;
+    }
 
     public MainPhaseMemoryResult EvaluateMainPhaseEntry(
         EngineContext context,
@@ -151,7 +178,10 @@ public sealed class HeadlessMainPhaseFlow
         bool mainPhaseEntered,
         string reason)
     {
-        if (currentMemory.Current <= -DefaultTurnEndMinMemory)
+        // (d-remediation) AS-IS AutoProcessing.TurnEndMinMemory: a ChangeEndTurnMinMemory effect (BT14_081/
+        // BT17_069) on the turn player's board raises the threshold the opponent must reach for the turn to auto-end.
+        int turnEndMinMemory = ResolveTurnEndMinMemory(context, currentTurn.TurnPlayerId);
+        if (currentMemory.Current <= -turnEndMinMemory)
         {
             HeadlessTurnState memoryPassTurn = context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
             return new MainPhaseMemoryResult(

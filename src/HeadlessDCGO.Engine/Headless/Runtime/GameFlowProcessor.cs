@@ -581,6 +581,8 @@ public sealed class GameFlowProcessor
     private static readonly IReadOnlySet<EffectTiming> EventBroadcastActivatedTimings = new HashSet<EffectTiming>
     {
         EffectTiming.OnDigivolutionCardDiscarded,
+        // (c-remediation) digivolution cards returned to deck bottom — cross-card reactors thread the driving event.
+        EffectTiming.OnDigivolutionCardReturnToDeckBottom,
         // (Phase D) [End of Battle] — emitted actor-only with battle-result metadata (winnerIds/loserIds/…,
         // BattleResolver). Broadcast to every field card, threading the driving event so gates like
         // CanTriggerWhenDeleteOpponentDigimonByBattle read "event.winnerIds"/"event.loserIds"; each card

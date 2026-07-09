@@ -251,7 +251,7 @@
 | G3 activateETB 억제 | **FAIL** | ① AS-IS 필터는 per-effect `IsOnPlay` 플래그(설명 "[On Play]" prefix)+`ActivateICardEffect` → 헤드리스는 "source==subject && timing∈{OnPlay,OnEnterField}". [On Play] 아닌 self-OnEnterField 트리거를 희귀 과억제 가능(구조 상이). ② 이펙트-플레이 등록 미배선으로 end-to-end inert(§4b 별도 골). | 구조 |
 
 **엔진 전역 별도 골(프리미티브 밖, `bt2_bt3_primitive_dev_status.md §4b`):**
-- **이펙트-플레이 카드 효과 미등록**: `PlayPermanentCards`의 `NewSink`가 `onCardEnteredPlay` 콜백 미배선(액션계층 `EngineContext.cs:261`만) → 낸 카드의 [On Play]/연속/트리거 실전 미발동(G1·G3·G9 공통 근본). AS-IS는 정상/효과 플레이가 **동일 `PlayCardClass.PlayCard()`** 경로라 이 분기 자체가 없음.
+- ~~**이펙트-플레이 카드 효과 미등록**~~ → **✅ 해소(2026-07-08)**: 등록을 sink에 내재화 — `EngineContext.RegisterEnteredCardEffects` chokepoint + `MatchStateMutationSink` 생성자가 context 있으면 enter-play 훅 기본 폴백 → NewSink(`PlayPermanentCards`)·리졸버(play-from-under)·런타임 sink 전부 자동 등록(AS-IS `PlayCardClass.PlayCard()` 미러). `RegisterCard` 멱등화(재등록 전 stale self-바인딩 `UnregisterCard`)로 재진입 중복-바인딩 throw 방지 — 액션 경로 재진입도 함께 해소. 검증 `tests/G8-003`, 회귀 345 green. 상세: [bt2_bt3_primitive_dev_status.md §4b].
 - **G11 Digisorption**: 디지볼브 중 interactive deferred BeforePayCost 미지원(`DigivolveAction.cs:179`) + 디지볼브-코스트 suspend-감산 변형 필요.
 - **`OnAddDigivolutionCards` 방출 미배선**(G8 ①): 진화원 증가에 반응하는 카드가 헤드리스 어디서도 미발동 — Add* 헬퍼 전역.
 - **per-card 트래시 보호 부여 미구현**: `CanNotTrashFromDigivolutionCardsClass.cs` = stub. 쿼리 모델(`TrashProtectedKey` 스탬프 + `HasTrashableDigivolutionCards` + `RemoveSourcesAsync` 스킵)은 배선 완료 → **부여 클래스 구현 + 소스 인스턴스 스탬프 배선**만 하면 전 트래시 경로가 즉시 충실 동작(BT1_086 등).

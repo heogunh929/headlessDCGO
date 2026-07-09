@@ -28,6 +28,28 @@ public static class DeDigivolveHelpers
     /// <summary>Level at/below which a Digimon cannot be de-digivolved further (rookie floor).</summary>
     public const int LevelFloor = 3;
 
+    /// <summary>(b-remediation) AS-IS <c>Permanent.ImmuneFromDeDigivolve()</c>: true when a CONTINUOUS
+    /// "cannot be de-digivolved" restriction (<see cref="CannotBeDeDigivolvedKey"/>, granted by
+    /// <c>ImmuneFromDeDigivolveStaticEffect</c>) applies to <paramref name="cardId"/>. Effect-driven de-digivolve
+    /// call sites check this (they hold the registry) before removing sources, uniformly with the mutation sink.</summary>
+    public static bool IsDeDigivolveImmune(Bridge.EngineContext context, HeadlessEntityId cardId)
+    {
+        if (context is null || cardId.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
+        {
+            if (effect.Context.Values.TryGetValue(CannotBeDeDigivolvedKey, out object? raw) && raw is bool flag && flag)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// (B1) The Armor Purge top-trash: trash ONLY the top card and promote the immediate under-source —
     /// the permanent survives (AS-IS ArmorPurgeProcess: <c>willBeRemoveField = false</c>). Unlike

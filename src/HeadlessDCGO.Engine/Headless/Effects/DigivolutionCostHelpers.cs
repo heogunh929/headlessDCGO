@@ -78,7 +78,8 @@ public sealed record DigivolutionCostRequest
         bool ignoreLevel = false,
         bool checkAvailability = false,
         bool canReduceCost = true,
-        int? availableMemory = null)
+        int? availableMemory = null,
+        bool ignoreColor = false)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(targetCard);
@@ -100,6 +101,7 @@ public sealed record DigivolutionCostRequest
         Modifiers = Array.AsReadOnly((modifiers ?? Array.Empty<PlayCostModifier>()).ToArray());
         FixedCost = fixedCost;
         IgnoreLevel = ignoreLevel;
+        IgnoreColor = ignoreColor;
         CheckAvailability = checkAvailability;
         CanReduceCost = canReduceCost;
         AvailableMemory = availableMemory;
@@ -120,6 +122,10 @@ public sealed record DigivolutionCostRequest
     public int? FixedCost { get; }
 
     public bool IgnoreLevel { get; }
+
+    /// <summary>(IgnoreRequirement.Color / .All) waive the printed COLOR requirement — the digivolving card may
+    /// come from any color as long as the level still matches (or level too, under IgnoreLevel).</summary>
+    public bool IgnoreColor { get; }
 
     public bool CheckAvailability { get; }
 
@@ -202,7 +208,7 @@ public static class DigivolutionCostHelpers
 
         DigivolutionCostRequirement[] requirements = ResolveRequirements(request).ToArray();
         DigivolutionCostRequirement[] matchedRequirements = requirements
-            .Where(requirement => Matches(requirement, request.TargetCard, request.IgnoreLevel))
+            .Where(requirement => Matches(requirement, request.TargetCard, request.IgnoreLevel, request.IgnoreColor))
             .OrderBy(requirement => requirement.MemoryCost)
             .ThenBy(requirement => requirement.Id, StringComparer.Ordinal)
             .ToArray();
@@ -267,7 +273,9 @@ public static class DigivolutionCostHelpers
         CardRecord targetCard,
         CardInstanceRecord? targetInstance,
         out int digivolutionCost,
-        out string? error)
+        out string? error,
+        bool ignoreLevel = false,
+        bool ignoreColor = false)
     {
         DigivolutionCostResult result = Evaluate(new DigivolutionCostRequest(
             card,
@@ -276,7 +284,9 @@ public static class DigivolutionCostHelpers
             targetInstance,
             ReadRequirements(card),
             ReadModifiers(card, instance),
-            ReadFixedCost(card, instance)));
+            ReadFixedCost(card, instance),
+            ignoreLevel: ignoreLevel,
+            ignoreColor: ignoreColor));
         digivolutionCost = result.Cost;
         error = result.IsSuccess ? null : result.Reason;
         return result.IsSuccess;
@@ -345,7 +355,8 @@ public static class DigivolutionCostHelpers
     private static bool Matches(
         DigivolutionCostRequirement requirement,
         CardRecord targetCard,
-        bool ignoreLevel)
+        bool ignoreLevel,
+        bool ignoreColor = false)
     {
         if (requirement.TargetLevel.HasValue &&
             !ignoreLevel &&
@@ -354,7 +365,7 @@ public static class DigivolutionCostHelpers
             return false;
         }
 
-        if (requirement.TargetColor is not null && !ReadColors(targetCard.Metadata).Contains(requirement.TargetColor, StringComparer.OrdinalIgnoreCase))
+        if (requirement.TargetColor is not null && !ignoreColor && !ReadColors(targetCard.Metadata).Contains(requirement.TargetColor, StringComparer.OrdinalIgnoreCase))
         {
             return false;
         }

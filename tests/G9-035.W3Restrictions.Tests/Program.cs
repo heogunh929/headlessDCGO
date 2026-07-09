@@ -56,7 +56,7 @@ async Task DeleteBySkillPrevented()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(false, new CardSource(context, id, P1), null).ToBinding($"cds:{id.Value}"));
+    context.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(permanentCondition: null, cardEffectCondition: null, false, new CardSource(context, id, P1), null).ToBinding($"cds:{id.Value}"));
     await ApplyDelete(context, id);
     AssertTrue(InBattleArea(context, P1, id), "card survives effect deletion");
 }

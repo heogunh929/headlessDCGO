@@ -40,8 +40,9 @@ public static class ContinuousModifierGate
 
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
         // D-8: a continuous "cost cannot be reduced" replacement (AS-IS ICannotReduceCostEffect) forces
-        // reductions off, mirroring ContinuousDpGate's DP-reduction immunity.
-        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(cardId, result);
+        // reductions off, mirroring ContinuousDpGate's DP-reduction immunity. (#5) This is the PLAY-cost path,
+        // so a DIGIVOLUTION-only immunity must NOT apply here.
+        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(context, cardId, result, isDigivolution: false);
         return ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
 
@@ -59,7 +60,8 @@ public static class ContinuousModifierGate
         // ("...digivolve one of your green Digimon from level 5 to level 6...") can gate on it. Default id
         // leaves single-sided effects unchanged.
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId, digivolveTargetPermanentId);
-        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(cardId, result);
+        // (#5) DIGIVOLUTION-cost path — a PLAY-only immunity must NOT apply here.
+        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(context, cardId, result, isDigivolution: true);
         // (G5 / BT3_031 / BT3_111) additionally fold the MOVING card's OWN gated cost statics, read dispatch-first
         // (they live on a card in hand, which the continuous registrar does not scan). Folded together with the
         // registry modifiers so the "cannot be reduced" replacement + cost floor apply once, uniformly.
@@ -71,7 +73,29 @@ public static class ContinuousModifierGate
         return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
 
-    /// <summary>(D-8) Whether a continuous "cost cannot be reduced" replacement targets the card.</summary>
-    private static bool CostReductionImmune(HeadlessEntityId cardId, ContinuousEvaluationResult result) =>
-        ReplacementHelpers.ImmuneFromCostReduction(cardId, result.Replacements).IsReplaced;
+    /// <summary>(D-8 / #5) Whether a continuous "cost cannot be reduced" restriction targets the card for the
+    /// cost being resolved. A <c>Both</c>-scope immunity (parsed replacement) applies to either cost; a
+    /// <c>Play</c>- or <c>Digivolve</c>-scoped immunity applies only to its matching path (read as a raw scoped
+    /// binding, like the DP-minus source predicate), so a "can't reduce DIGIVOLUTION cost" effect does not block
+    /// the PLAY cost and vice versa.</summary>
+    private static bool CostReductionImmune(EngineContext context, HeadlessEntityId cardId, ContinuousEvaluationResult result, bool isDigivolution)
+    {
+        if (ReplacementHelpers.ImmuneFromCostReduction(cardId, result.Replacements).IsReplaced)
+        {
+            return true;   // Both-scope (protects either cost).
+        }
+
+        string kindKey = isDigivolution
+            ? ReplacementHelpers.ImmuneFromDigivolutionCostReductionKey
+            : ReplacementHelpers.ImmuneFromPlayCostReductionKey;
+        foreach (var effect in ContinuousScopeEvaluation.ApplicableEffects(context, Scope, cardId))
+        {
+            if (effect.Context.Values.TryGetValue(kindKey, out object? raw) && raw is bool flag && flag)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

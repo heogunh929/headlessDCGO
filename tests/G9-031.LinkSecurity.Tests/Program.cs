@@ -67,8 +67,16 @@ async Task PlayAfterBattle()
 {
     EngineContext context = Context();
     var card = await Place(context, P1, "DIG", ChoiceZone.Security, linkCost: 0);
-    await ApplyPlaySelf(context, (PlayThisCardToBattleEffect)CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect(new CardSource(context, card, P1)));
-    AssertTrue(InBattle(context, card), "the Digimon was played into the battle area from security");
+    // (#10) [Security] "at end of battle, play this Digimon" now DEFERS: it registers an OnEndBattle trigger
+    // instead of playing immediately (AS-IS). Full deferred-play behavior is covered by FAILa-10.
+    var sink = new MatchStateMutationSink(
+        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
+    ((PlaySelfAtEndOfBattleSecurityEffect)CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect(new CardSource(context, card, P1))).Apply(sink);
+    await sink.FlushAsync();
+    AssertTrue(!InBattle(context, card), "the Digimon is NOT played immediately (deferred to end of battle)");
+    AssertTrue(((HeadlessDCGO.Engine.Headless.Effects.EffectRegistry)context.EffectRegistry)
+        .GetEffects(card, HeadlessDCGO.Engine.Headless.Effects.TriggerTimings.OnEndBattle).Count > 0,
+        "an OnEndBattle trigger was registered to play the Digimon after the battle");
 }
 
 // --- Helpers -------------------------------------------------------------

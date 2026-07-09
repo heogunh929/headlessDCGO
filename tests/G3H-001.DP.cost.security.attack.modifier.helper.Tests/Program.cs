@@ -165,7 +165,9 @@ Task SecurityAttackModifierResolvesAddSetAndInvertDelta()
 
     NumericModifierResult result = ModifierHelpers.ResolveSecurityAttack(1, modifiers, TargetId);
 
-    AssertEqual(3, result.FinalValue, "security attack");
+    // (b-remediation) the invert (+1) is now APPLIED, not merely recorded (AS-IS Permanent.InvertSecutiryValue):
+    // it FLIPS the +2 increase into a -2 decrease, so base 1 -> set 1 -> (1-2) = -1 -> clamped to the 0 floor.
+    AssertEqual(0, result.FinalValue, "security attack (the +2 is inverted to -2, clamped to 0)");
     AssertEqual(1, result.InvertDelta, "invert delta");
     AssertSequence(new[] { "fixed-sattack", "sattack-plus", "invert-plus-to-minus" }, result.AppliedModifierIds, "security attack applied ids");
     return Task.CompletedTask;

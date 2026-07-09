@@ -33,7 +33,8 @@ public sealed record NumericModifier
         NumericModifierMode mode = NumericModifierMode.Add,
         bool isUpDown = true,
         HeadlessEntityId? targetEntityId = null,
-        bool requiresAvailabilityCheck = false)
+        bool requiresAvailabilityCheck = false,
+        HeadlessEntityId? sourceEntityId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         if (!Enum.IsDefined(metric))
@@ -58,6 +59,7 @@ public sealed record NumericModifier
         IsUpDown = isUpDown;
         TargetEntityId = targetEntityId;
         RequiresAvailabilityCheck = requiresAvailabilityCheck;
+        SourceEntityId = sourceEntityId;
     }
 
     public string Id { get; }
@@ -74,14 +76,20 @@ public sealed record NumericModifier
 
     public bool RequiresAvailabilityCheck { get; }
 
+    /// <summary>The instance whose continuous effect emitted this modifier (the "causing effect" source). Used
+    /// by DP-reduction immunity to honour a per-causing-effect predicate (AS-IS ImmuneFromDPMinus(permanent,
+    /// cardEffect)). Null for modifiers read off instance/card metadata (no distinct source effect).</summary>
+    public HeadlessEntityId? SourceEntityId { get; init; }
+
     public static NumericModifier Add(
         string id,
         NumericModifierMetric metric,
         int value,
         HeadlessEntityId? targetEntityId = null,
-        bool requiresAvailabilityCheck = false)
+        bool requiresAvailabilityCheck = false,
+        HeadlessEntityId? sourceEntityId = null)
     {
-        return new NumericModifier(id, metric, value, targetEntityId: targetEntityId, requiresAvailabilityCheck: requiresAvailabilityCheck);
+        return new NumericModifier(id, metric, value, targetEntityId: targetEntityId, requiresAvailabilityCheck: requiresAvailabilityCheck, sourceEntityId: sourceEntityId);
     }
 
     public static NumericModifier Set(
@@ -232,13 +240,16 @@ public static class ModifierHelpers
     public const string FixedBaseDpKey = "fixedBaseDp";
     public const string FixedSecurityAttackKey = "fixedSecurityAttack";
     public const string InvertSecurityAttackDeltaKey = "invertSecurityAttackDelta";
+    // (d-remediation) AS-IS IChangeEndTurnMinMemoryEffect / AutoProcessing.TurnEndMinMemory — the memory the
+    // opponent must reach for the turn to auto-end (default 1). BT14_081/BT17_069 SET it to 3. Not a numeric
+    // metric (no derived NumericModifier); read as a raw value by the turn-pass gate.
+    public const string EndTurnMinMemoryKey = "endTurnMinMemory";
 
     public static NumericModifierResult Evaluate(NumericModifierRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         int current = Math.Max(request.MinimumValue, request.BaseValue);
-        int invertDelta = 0;
         var appliedIds = new List<string>();
         var skippedIds = new List<string>();
         NumericModifier[] modifiers = request.Modifiers
@@ -246,6 +257,15 @@ public static class ModifierHelpers
             .OrderBy(modifier => ModifierOrder(modifier))
             .ThenBy(modifier => modifier.Id, StringComparer.Ordinal)
             .ToArray();
+
+        // (b-remediation) AS-IS Permanent.InvertSecutiryValue: sum every applicable invert modifier and CLAMP to
+        // [-1, 1] — this global inversion FLIPS the direction of each security-attack change (a decrease becomes an
+        // equal increase and vice versa; AS-IS ChangeSAttackClass.GetSAttack). Previously the invert deltas were
+        // accumulated but never applied (dead). Non-SecurityAttack metrics have no invert modifiers, so this is 0.
+        int invertDelta = modifiers
+            .Where(modifier => modifier.Mode == NumericModifierMode.InvertDelta && CanApply(modifier, request))
+            .Sum(modifier => modifier.Value);
+        int invertValue = Math.Clamp(invertDelta, -1, 1);
 
         foreach (NumericModifier modifier in modifiers)
         {
@@ -257,14 +277,26 @@ public static class ModifierHelpers
 
             if (modifier.Mode == NumericModifierMode.InvertDelta)
             {
-                invertDelta += modifier.Value;
-                appliedIds.Add(modifier.Id);
+                appliedIds.Add(modifier.Id);   // already folded into invertValue above
                 continue;
             }
 
             int nextValue = modifier.Mode == NumericModifierMode.Set
                 ? modifier.Value
                 : current + modifier.Value;
+
+            // (b-remediation) apply the global inversion to this change (AS-IS GetSAttack invertValue switch):
+            //   -1 → a decrease (nextValue < current) is flipped to the equal increase,
+            //   +1 → an increase (nextValue > current) is flipped to the equal decrease.
+            if (invertValue == -1 && nextValue < current)
+            {
+                nextValue = current + Math.Abs(nextValue - current);
+            }
+            else if (invertValue == 1 && nextValue > current)
+            {
+                nextValue = current - (nextValue - current);
+            }
+
             if (modifier.IsUpDown && nextValue < current && !request.CanReduceValue)
             {
                 skippedIds.Add(modifier.Id);
@@ -329,7 +361,13 @@ public static class ModifierHelpers
         {
             foreach (EffectRequest request in effectRequests)
             {
-                modifiers.AddRange(ReadModifiersFromValues(request.Context.Values, request.EffectId));
+                // Tag each modifier with the emitting effect's source instance so DP-reduction immunity can
+                // evaluate its causing-effect predicate per modifier (AS-IS ImmuneFromDPMinus(permanent, cardEffect)).
+                HeadlessEntityId? src = request.Context.SourceEntityId is { IsEmpty: false } s ? s : null;
+                foreach (NumericModifier modifier in ReadModifiersFromValues(request.Context.Values, request.EffectId))
+                {
+                    modifiers.Add(src is null ? modifier : modifier with { SourceEntityId = src });
+                }
             }
         }
 

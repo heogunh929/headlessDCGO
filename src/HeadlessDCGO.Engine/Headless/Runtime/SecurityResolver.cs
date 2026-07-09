@@ -158,7 +158,9 @@ public sealed class SecurityResolver
             // W5: a revealed security Digimon battles the attacker. The security card is trashed by the
             // check regardless (already moved above); the only persistent outcome is the attacker's
             // fate. Mirrors AS-IS ISecurityCheck → IBattle(AttackingPermanent, DefendingCard).
-            if (isSecurityDigimon)
+            // (d-remediation) AS-IS DontBattleSecurityDigimonClass (EX4_013 "Ignore Battle"): a revealed security
+            // Digimon whose own intrinsic marker says so does NOT battle the attacker (doBattle = false at :4142).
+            if (isSecurityDigimon && !RevealedSecurityCardSkipsBattle(context, checkedCardId, defendingPlayerId))
             {
                 securityDigimonBattles++;
                 if (await ResolveSecurityDigimonBattleAsync(context, attackerId, attackingPlayerId, securityDp, zoneReader, cancellationToken)
@@ -267,6 +269,29 @@ public sealed class SecurityResolver
     private static bool IsDigimon(CardRecord definition)
     {
         return definition.IsCardType("Digimon");
+    }
+
+    /// <summary>(d-remediation) AS-IS DontBattleSecurityDigimonClass: true when the revealed security card's own
+    /// intrinsic "Ignore Battle" marker (dispatched at EffectTiming.None) says the attacker must not battle it.</summary>
+    private static bool RevealedSecurityCardSkipsBattle(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) || definition is null
+            || !Assets.Scripts.Script.CardEffectCommons.CardEffectDispatch.TryCreateForCard(definition, out Assets.Scripts.Script.CardEffectCommons.CEntity_Effect? effect) || effect is null)
+        {
+            return false;
+        }
+
+        var revealed = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner);
+        foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect in effect.CardEffects(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None, revealed))
+        {
+            if (cardEffect is Assets.Scripts.Script.CardEffectCommons.DontBattleSecurityDigimonEffect marker && marker.SkipsBattle(revealed))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static int ReadStrike(EngineContext context, CardInstanceRecord attacker, CardRecord attackerCard)
