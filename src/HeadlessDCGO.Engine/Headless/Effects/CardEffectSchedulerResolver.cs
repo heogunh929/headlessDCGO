@@ -130,6 +130,9 @@ public static class CardEffectSchedulerResolver
             values[pair.Key] = pair.Value;
         }
 
-        return new EffectResult(result.Resolved, result.Message, values);
+        // (P0-1/RD-10) preserve the ORIGINAL status — a fizzle (EffectResult.Skipped, Resolved=false) must stay
+        // Skipped through sink-metadata merging, else the ctor default reclassifies it to Failed and the scheduler
+        // parks it at the head, re-wedging the queue the RD-10 skip was meant to unblock.
+        return new EffectResult(result.Resolved, result.Message, values, result.Status);
     }
 }

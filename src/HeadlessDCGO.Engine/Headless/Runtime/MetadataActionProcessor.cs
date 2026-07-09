@@ -810,11 +810,16 @@ public sealed class MetadataActionProcessor : IActionProcessor
         AddEndTurnCleanupMetadata(metadata, cleanup);
 
         // (RD-6) W1: open the turn-boundary timing windows so [End of Turn] / [Start of Turn] effects fire.
-        // NOTE: AS-IS resolves the [End of your turn] window (AutoProcessing.cs:675 step 3) BEFORE cleanup and
-        // the turn flip, in the ending player's still-live frame. Repositioning the OnEndTurn emit ahead of
-        // cleanup/flip was TRIED and empirically broke 6 turn-boundary tests (memory-pass / end-turn-cleanup /
-        // choice pause-resume) — the emit is NOT frame-independent here, confirming RD-6 has no safe emit-only
-        // subset; the correct pre-flip resolution is Stage-5-coupled (RD-14~17 WindowResolver). See L8.
+        // NOTE: AS-IS resolves the [End of your turn] window (AutoProcessing.cs:675, "step 3") BEFORE cleanup and
+        // the turn flip, in the ending player's still-live frame. This headless emit position is frame-INDEPENDENT
+        // (EndTurn is fully synchronous; TriggerEventEmitter only enqueues; the queue is drained solely by the
+        // caller's AutoProcessAsync AFTER this action returns — i.e. after the flip below). So moving the emit
+        // earlier is a behavioral no-op and achieves ZERO AS-IS convergence — the [End of your turn] window still
+        // resolves post-flip regardless. The real fix (resolve the window BEFORE the flip, in an in-action mini
+        // window loop) is Stage-5-coupled (WindowResolver). See design doc L8 / D-RD6.
+        // (An earlier note here mis-claimed a reposition "broke 6 turn-boundary tests" — that was a lint-guard
+        // artifact, not behavior; corrected 2026-07-10 by controlled re-experiment. Do NOT put the string
+        // "T-O-D-O" in this file: six tests text-scan it and fail the build.)
         if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayer)
         {
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayer);
