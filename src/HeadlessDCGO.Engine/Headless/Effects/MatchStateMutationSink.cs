@@ -861,6 +861,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 continue;
             }
 
+            // (P1-PG) AS-IS gates the CannotAddSecurity/CannotAddMemory scan with cardEffect.CanUse(null); a
+            // conditional restriction whose condition is currently false must NOT block the add.
+            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
             // (fidelity) AS-IS CannotAddSecurity/Memory carry a CardEffectCondition — the restriction fires only
             // when the CAUSING effect matches (e.g. IsOpponentEffect). No predicate = block every add.
             if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CausingEffectPredicateKey, out object? predRaw)

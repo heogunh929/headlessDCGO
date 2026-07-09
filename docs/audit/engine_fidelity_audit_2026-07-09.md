@@ -74,6 +74,19 @@
 - **★P0-DP-1 완료** (371/371·RuleAudit 0): `ContinuousDpGate.ResolveDp`에 이중 클램프(`Math.Max(0, effectiveBase)` + `Math.Max(0, final)`). ST3_16 테스트가 언클램프 −2000을 인코딩했던 것 → AS-IS-correct 0으로 수정.
 - **★P0-DP-2 완료** (371/371·RuleAudit 0): `ModifierHelpers.ModifierOrder`를 **metric-aware**로. 근본원인=헤드리스가 3 metric의 상이한 AS-IS 순서를 단일 order로 flatten(DP=isUpDown-first, Cost=NotIsUpDown-first[CardSource.cs:848], SAttack=3-tier UpToConstant→UpDownValue→DownToConstant[Permanent.cs:1900-1930]). DP/BaseDp만 isUpDown-first로 교정, cost/SAttack은 Set-first 유지. 잔여: SAttack 3-tier를 2값 isUpDown로 근사(latent P2 — UpToConstant/DownToConstant 구분 불가).
 
+## P1 상환 진행 (2026-07-09)
+**완료(각 371/371):**
+- ★P1-DP-3: `ContinuousDpGate.ResolveDp`에 일반 CanNotBeAffected 필터 추가 — modifier의 source에 대상이 면역이면 drop(self-source는 opponent 아니라 유지). AS-IS `!TopCard.CanNotBeAffected(cardEffect)` 미러.
+- ★P1-DP-4: `IsDpReduction`을 `BaseDp` 음수도 매칭 → base-DP-minus 면역(ImmuneFromDPMinus) 적용. AS-IS Permanent.cs:221-227.
+- ★P1-PG: `IsPlayerRestricted`에 CanUse(ConditionKey) 게이트 추가 — 조건부 add-제한이 조건 false여도 차단하던 것 교정.
+
+**미완(rule-sensitive/복잡/latent — 개별 신중 처리 필요):**
+- P1-DP-5 (LinkedDP/DPBoost 폴딩): Link 인프라 표현 여부 확인 선행 필요.
+- P1-DP-6 (IsDigimon IsDigiEgg→true + IsFlipped 가드): ★AS-IS 확인됐으나 move-gate가 DigiEgg move 적법성에 rule-sensitive — DCG 규칙 검증 필요.
+- P1-DV-1~4 (digivolve ignore-level 분기·added-path negation·CanIgnore 역할 반전·color 과결합): 상호 얽힌 4건, grant-scan vs negation-scan 역할 정리 필요.
+- P0-restr (printed player-scope cannot-block/attack immunity): AS-IS가 kind별로 CanNotBeAffected 체크 상이(Attack/Block/Return 체크, Move/Suspend 미체크) → blanket 추가 시 새 발산. per-kind 처리 필요.
+- P1-PG 잔여 (CanAddMemory ≥10 캡·IsSecurityLooking 재확인·PlayerScope 태그 요구), P1-IMM/BAT faceup 시큐리티 population: latent.
+
 ## 상환 우선순위 제안
 1. **P0-DP-1 (0-clamp)** — 안전·명확, 즉시. 중간 BaseDP + 최종 DP 이중 클램프.
 2. **P0-DP-2 (순서 역전)** — ModifierOrder를 isUpDown-먼저로. ⚠️load-bearing, 테스트 churn 예상, isUpDown 포팅 태그 병행 검증.
