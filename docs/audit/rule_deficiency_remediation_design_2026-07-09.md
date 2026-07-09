@@ -40,7 +40,11 @@ public static bool Matches(EngineContext ctx, HeadlessPlayerId owner, CardRecord
 - **구현 결과**: `Runtime/OptionColorRequirement.Matches(ctx, owner, optionCardId)` — ①ignore-color(ApplicableEffects서 `IgnoreColorRequirementKey`=AS-IS IgnoreColorConditionClass, self+player-scope+field 조건-aware 스캔), ②옵션 CardColors(2-stage fold=색변경 반영) 전부가 owner BattleArea+**BreedingArea** permanent top-card CardColors 합집합에 존재. `OptionActivateAction.Validate`(:216 IsOptionLocked 뒤)에 게이트. 색-없는 옵션=요건 없음.
 - **ICanNotPlayCardEffect 스캔 보류**: producer 0(스켈레톤)이라 latent = **TODO-49**로 분리(색 요건이 live P0). 착수 시 `RestrictionScan` joint 규약 재사용.
 - **완료**: RD2-OptionColor(7검: 색없음/일치/불일치/타색/2색부분/2색완전/브리딩). 회귀 380/380·RuleAudit 0(20/20 terminal). 기존 옵션 테스트는 colorless라 무영향.
-- **검수 잔여 노트(latent, 2026-07-10)**: ①dual 카드(디지몬이면서 옵션 사용) — AS-IS는 `IsDigimon ? DualCardColors(=OptionCardColorRequirements+fold) : CardColors`(CardSource.cs:307); 헤드리스는 CardColors 고정 → dual 카드 포팅 시 OptionCardColorRequirements 메타+분기 필요. ②AS-IS 색 공급원은 `TopCard.IsPermanent` 가드(:311) — 필드 옵션(딜레이) 포함 여부는 엔티티 데이터 미확인, 헤드리스는 존 카드 전부(저위험). ③옵션 **자신의** ignore-color(AS-IS 자기 EffectList 스캔) — 손패 카드는 미등록이라 ApplicableEffects에 안 잡힘; producer 카드 포팅 시 dispatch-빌드 필요.
+- **검수 잔여 3건 → ✅선행 구축(2026-07-10)**:
+  - **latent-1 dual 카드 색**: AS-IS `IsDigimon ? DualCardColors : CardColors`(CardSource.cs:307). CardSource(CPF)에 `BaseDualCardColors`/`DualCardColors` 미러(seed=`optionColorRequirements` 메타=OptionCardColorRequirements, CardColors와 동일 2-stage fold) + `OptionColorRequirement`가 dual 카드(IsCardType Digimon)면 DualCardColors 사용. (색 데이터는 dual 카드 포팅 시 로더가 메타 채움.)
+  - **latent-2 IsPermanent 가드**: 색 공급원을 `IsCardType(Digimon|Tamer|DigiEgg)` permanent로 제한(CEntity_Base.cs:238 확인 — 순수 필드 옵션 제외).
+  - **latent-3 self ignore-color**: 손패 옵션의 자기 ignore-color를 `CardEffectRegistrar.BuildContinuousRequests`(faceup 시큐리티와 동형 dispatch-빌드)로 스캔, `CardSource.EffectConditionPasses`로 조건 honor.
+  - 테스트 RD2-OptionColor 확장(11검: 기존 7 + 필드-옵션 제외·dual Red요건·dual Green불충족·self ignore-color) + 픽스처 TfxOptionIgnoreColor. 회귀 380/380·RuleAudit 0.
 
 ### D-RD3. 버스트 진화 임시성 — ✅완료
 - `SpecialPlayAction`(kind==Burst) 성공 지점에서 burst 톱에 `GameFlowProcessor.BurstTrashAtTurnEndKey` 스탬프.
