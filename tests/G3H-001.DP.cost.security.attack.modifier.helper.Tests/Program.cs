@@ -13,7 +13,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("G3H-001 goal row and predecessor are satisfied", GoalRowAndPredecessorAreSatisfied),
     ("AS-IS modifier references are recorded", AsIsModifierReferencesAreRecorded),
-    ("DP modifier applies set before add and filters target", DpModifierAppliesSetBeforeAddAndFiltersTarget),
+    ("DP modifier applies isUpDown before set and filters target", DpModifierAppliesSetBeforeAddAndFiltersTarget),
     ("Cost modifiers clamp to zero and respect reduction permission", CostModifiersClampAndRespectReductionPermission),
     ("Digivolution cost modifier reads simple metadata keys", DigivolutionCostModifierReadsSimpleMetadataKeys),
     ("Security attack modifier resolves add set and invert delta", SecurityAttackModifierResolvesAddSetAndInvertDelta),
@@ -98,8 +98,10 @@ Task DpModifierAppliesSetBeforeAddAndFiltersTarget()
 
     NumericModifierResult result = ModifierHelpers.ResolveDp(3000, modifiers, TargetId);
 
-    AssertEqual(7000, result.FinalValue, "final DP");
-    AssertSequence(new[] { "fixed-dp", "dp-plus" }, result.AppliedModifierIds, "applied modifier ids");
+    // (P0-DP-2) AS-IS Permanent.DP applies the isUpDown group FIRST, then the NotIsUpDown/Set group last
+    // (Permanent.cs:290/301). So an upDown "+2000" applies before a "DP becomes 5000" set: 3000+2000=5000, set→5000.
+    AssertEqual(5000, result.FinalValue, "final DP");
+    AssertSequence(new[] { "dp-plus", "fixed-dp" }, result.AppliedModifierIds, "applied modifier ids");
     AssertSequence(new[] { "other-target" }, result.SkippedModifierIds, "skipped modifier ids");
     return Task.CompletedTask;
 }

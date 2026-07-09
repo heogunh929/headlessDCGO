@@ -567,6 +567,17 @@ public static class ModifierHelpers
 
     private static int ModifierOrder(NumericModifier modifier)
     {
+        // AS-IS orders each metric's "Change X" modifiers DIFFERENTLY (a single shared order cannot mirror all):
+        //   - DP  (Permanent.DP / GetDP): isUpDown group FIRST, then NotIsUpDown/Set  (Permanent.cs:290,301).
+        //   - Cost (CardSource cost):     NotIsUpDown/Set FIRST, then isUpDown         (CardSource.cs:848-852).
+        //   - SecurityAttack:             UpToConstant → UpDownValue → DownToConstant  (Permanent.cs:1900-1930).
+        // (P0-DP-2) Only DP was reversed; scope the isUpDown-first ordering to the DP metrics and keep the
+        // Set-first ordering (which matches Cost and the SAttack UpToConstant→UpDownValue tiering) for the rest.
+        if (modifier.Metric is NumericModifierMetric.Dp or NumericModifierMetric.BaseDp)
+        {
+            return modifier.Mode == NumericModifierMode.InvertDelta ? 3 : (modifier.IsUpDown ? 0 : 1);
+        }
+
         return modifier.Mode switch
         {
             NumericModifierMode.Set => 0,
