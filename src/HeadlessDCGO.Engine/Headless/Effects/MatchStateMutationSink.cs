@@ -787,6 +787,12 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _repository.Upsert(record with { Metadata = metadata });
 
         HeadlessPlayerId owner = record.OwnerId;
+        // (RD-4) AS-IS Permanent.DiscardEvoRoots (CardController.cs:3846) trashes the deleted permanent's
+        // digivolution sources BEFORE the top card (:3852) — a direct trash-add, so NO OnDigivolutionCardDiscarded
+        // trigger fires (gameEventQueue omitted). Skipped when a source-consuming replacement/replay keyword
+        // (Save/Decode/Partition/Fortitude) is pending: the headless POST window / Fortitude replay reads those
+        // sources after the deletion (see DeletionSourceTrash).
+        _pendingAsync.Add(ct => Runtime.DeletionSourceTrash.TrashEvoSourcesAsync(_repository, zoneMover, targetId, gameEventQueue: null, ct));
         _pendingAsync.Add(ct => zoneMover.AddToTrashAsync(owner, targetId, ct));
         // G6-001: the card left play — drop the continuous/trigger bindings it had auto-registered. (B.O.5-tail)
         // EXCEPT a self-[On Deletion] grant marked SurviveOwnLeave, which must fire ON this deletion; it is

@@ -2,7 +2,7 @@
 
 입력: `rule_deficiency_2026-07-09.md`(룰 결손 명세) · `fidelity_todo_2026-07-09.md`(TODO 113). 원칙: [[check-asis-before-implementing]](착수 시 AS-IS 지점 재확인 후 미러), [[result-equivalence-not-completion]](구조 1:1, substrate 번역만 허용), 게이트=green+동작단언+RuleAudit 0. 각 항목은 독립 커밋 단위로 설계했고, 단계 간 의존성은 §7에 집약.
 
-## ⚠️ 스코프 한계·이연 목록 (1~2단계 구현 완료분 기준, 2026-07-10)
+## ⚠️ 스코프 한계·이연 목록 (1~3단계(RD-4 부분) 구현 완료분 기준, 2026-07-10)
 
 구현 중 의도적으로 **보류/부분 처리**한 항목. 각 이연은 근거·의존 선행조건·트리거(어느 카드/단계 착수 시 승격)를 명시. 전부 **현재 회귀·RuleAudit 무영향**(latent 또는 구조-등가)이나, 아래 조건 충족 시 반드시 상환.
 
@@ -13,6 +13,8 @@
 | L3 | **RD-2 ICanNotPlayCardEffect 연속 스캔** | 이연 | "이 옵션 플레이 불가" 연속 제한 인프라 = 스켈레톤, producer 0. RD-2 핵심(색 요건)은 완료 | =TODO-49; CanNotPlay/PutField producer 카드 포팅 前 |
 | L4 | **RD-12 트리거 수집경로 collection-소모** | 부분 이연 | ActivatedEffectResolver 경로는 완료. 트리거 수집(GameFlowProcessor :488 TryActivate)의 declined-optional 과소모는 OptionalPromptQueue/창 흐름과 결합 | 5단계 WindowResolver(재진입 구조)서 자연 해소 |
 | L5 | **RD-13 트리거 경로 optional** | 설계상 분리 | OptionalPromptQueue 경로는 기존 유지(이중 질문 방지). 직접-해소 경로만 게이트 | 5단계서 창-루프로 통합 |
+| L6 | **RD-4 소스-소비 키워드 카드의 진화원 트래시** | 부분 이연 | {Save/Decode/Partition/Fortitude} 보유 삭제 카드는 소스 잔류(POST 창/재생이 삭제 後 참조). AS-IS는 PRE에서 일부 소진 後 잔여를 트래시하는 단일 시퀀스 | RD-4 전체 시퀀스(Decode/Partition PRE 이동=TODO-96) 재설계 시 |
+| L7 | **RD-4 ACE-소스 Overflow · LinkedCards 트래시** | 이연 | `DiscardEvoRoots`의 소스 AceOverflow(TODO-98)·LinkedCards 경로 미미러. 현재 ACE-소스/Link 카드 미포팅 | TODO-98 / Link 메커니즘 포팅 時 |
 
 **공통 원칙**: 위 이연은 [[strong-model-prebuild-latent-infra]] 기준으로 "해당 카드/단계 착수 前 강모델 선행 구축" 대상. 로컬 LLM에 맡기면 안 됨(엔진 내부 발산, silent-wrong 위험). "현재 무영향"은 skip 사유 아님([[no-callsite-not-skip-reason]]).
 
@@ -120,7 +122,16 @@ EndTurn(액션, 구 턴 컨텍스트 유지)
 - **리스크**: EndTurn 액션의 반환 계약 변화("턴 지속" 결과) — MetadataActionProcessor 소비자(RL 액션 루프)와 기존 테스트(GR-001 MemoryTurnEnd 등) 회귀 확인 필수.
 **테스트** `RD6-EndTurnSequence`: ①EoT 창이 구 턴 상태에서 해소(IsOwnerTurn 게이트 효과) ②BT1_021로 메모리 −3 후 임계 미달 → 턴 지속 ③until-턴종료 효과를 EoT 핸들러가 관측 ④EoT 효과 once가 구 턴 장부에 기록.
 
-### D-RD4. 삭제-확정 시퀀스 (진화원 트래시 + PRE 창 정렬)
+### D-RD4. 삭제-확정 시퀀스 (진화원 트래시 + PRE 창 정렬) — ✅부분 완료(진화원 트래시 안전 서브셋, 2026-07-10)
+**구현분(step 4의 안전 부분)**: 삭제 시 진화원(sourceIds) 트래시를 `DeletionSourceTrash.TrashEvoSourcesAsync`로 미러.
+AS-IS `Permanent.DiscardEvoRoots`(CardController.cs:3846, 톱 `AddTrashCard`(:3852) 前) 순서 그대로 **소스 먼저→톱**.
+- 배선 2곳: sink `MatchStateMutationSink.ApplyDelete`(톱-트래시 pending 前), `BattleResolver.FinalizeAsync`(phase-2 톱-이동 前).
+- `DiscardEvoRoots`는 `AddTrashCard` 직접 호출=`ITrashDigivolutionCards` 아님 → `OnDigivolutionCardDiscarded` **미발화**(gameEventQueue=null).
+- **게이트(안전 서브셋 핵심)**: 삭제 카드에 소스-소비 치환/재생 키워드({Save,Decode,Partition,Fortitude}) 중 하나라도 있으면 **스킵**(소스 잔류).
+  이들은 헤드리스 POST-창(Save/Decode/Partition은 ChoiceZone.None 소스 플레이) / Fortitude 재생(소스 count 판독)이 삭제 **後** 참조하므로.
+- 테스트 `RD4-SourceTrash`(8 checks): 평범 삭제→소스 전부 트래시·스택 비움; Decode/Save/Partition/Fortitude→소스 잔류; 무소스 no-op. 회귀 384/384, RuleAudit 0.
+- **이연(아래 목표의 나머지)**: step 1(PRE RemoveField 브릿지 TODO-97)·step 2(Decode/Partition PRE 이동 TODO-96)·step 3(삭제-직전 스냅샷 TODO-99)·step 4의 ACE-소스 Overflow(TODO-98)·LinkedCards 트래시. 위 4키워드 보유 카드의 소스는 여전히 잔류(전체 시퀀스 재설계 시 "PRE 창이 일부 소진 後 잔여 소스 트래시"로 승격).
+
 AS-IS 순서(CardController.cs:3690-3900) 미러 목표:
 ```
 would-be-deleted 확정(치환 전부 거절/소진) 시:
