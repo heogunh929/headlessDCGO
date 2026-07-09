@@ -5243,6 +5243,13 @@ public sealed class RevealSelectThenPlaySelectedEffect : IActivatedCardEffect
                 if (digivolved)
                 {
                     CardEffectRegistrar.RegisterCard(context, selected, owner);
+                    // (RD-1 follow-up) AS-IS this effect-driven free digivolve IS isEvolution and draws 1
+                    // (CardController.cs:1526-1529 via PlayCard). BUT it runs inside a library REVEAL whose
+                    // headless model only PEEKS the library (RevealAndSelect) — the revealed cards are still in
+                    // the library when a draw would fire, so drawing here would pull a revealed-but-unplaced card
+                    // instead of the card below them (AS-IS pulls the 3 revealed into an execution limbo FIRST,
+                    // then the isEvolution draw hits the remaining deck). Deferred until the Executing-zone /
+                    // reveal-removal model lands (TODO-68/83); wiring the draw before that would be incorrect.
                 }
 
                 break;
@@ -12170,6 +12177,49 @@ public static class CardEffectRegistrar
         }
 
         return context.EffectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == instanceId);
+    }
+
+    /// <summary>(faceup security) Build — but do NOT register — a card instance's CONTINUOUS (EffectTiming.None,
+    /// non-activated) effect requests, so a face-up security card can be scanned as a live continuous-effect
+    /// source WITHOUT the lifecycle of a registry binding (AS-IS re-scans <c>player.SecurityCards where
+    /// !IsFlipped</c> live in every getter; there is no registration). Only the None timing is built — a security
+    /// card's triggered/activated timings must NOT fire (AS-IS trigger collection scans the field only). Only
+    /// bindings carrying the Continuous role for <paramref name="scope"/> are returned (matching how registered
+    /// continuous effects are queried). Returns empty for an un-ported card.</summary>
+    public static IReadOnlyList<EffectRequest> BuildContinuousRequests(
+        EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId controller, string scope)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        if (instanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return Array.Empty<EffectRequest>();
+        }
+
+        var card = new CardSource(context, instanceId, controller, instance.OwnerId);
+        var requests = new List<EffectRequest>();
+        int index = 0;
+        foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.None, card))
+        {
+            if (cardEffect is IActivatedCardEffect)
+            {
+                continue;
+            }
+
+            EffectBinding binding = cardEffect.ToBinding($"faceupsec:{instanceId.Value}:{def.CardNumber}:None:{index++}");
+            if (binding.HasRole(EffectQueryRole.Continuous) && binding.QueryScopes.Contains(scope, StringComparer.Ordinal))
+            {
+                requests.Add(binding.Request);
+            }
+        }
+
+        return requests;
     }
 
     public static IReadOnlyList<EffectBinding> RegisterOnEnterPlay(

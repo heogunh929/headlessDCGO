@@ -164,16 +164,27 @@ public sealed class BattleResolver
         bool attackerSurvives = !deleted.Any(p => p.InstanceId == attacker.InstanceId);
 
         var movementResults = new List<ZoneMoveResult>();
+        // (deletion single-simultaneous window) AS-IS deletes EVERY battle loser together in one
+        // DestroyPermanentsClass(LoserPermanents, hashtable) call (CardController.Battle :4705) — so while any
+        // dying permanent's own effects resolve, the CO-losers are still present (on the field, effects still
+        // live), being deleted simultaneously, not one-fully-then-the-next. Mirror that with TWO phases instead
+        // of an interleaved per-loser (window → cleanup → move) loop:
+        //   phase 1 — resolve every loser's SUBJECT-scoped knock-out window while ALL losers are still on the
+        //             battle area with their bindings intact (AS-IS simultaneity: a co-loser is visible/live
+        //             during another's window), and
+        //   phase 2 — only then run leave-play cleanup + move-to-trash for all of them.
+        // F-6.3/P1: AS-IS stacks AND resolves the dying permanent's effects DURING its deletion processing
+        // (TriggeredSkillProcess after battle) and only then lets them lapse — so each window still resolves
+        // BEFORE any leave-play cleanup drops a binding (the scheduler resolves requests through the registry; a
+        // dropped binding would be a no-op). Two-phase preserves that AND the cross-loser simultaneity.
         foreach (BattleParticipant participant in deleted)
         {
             MarkDeletedByBattle(context, participant);
-            // F-6.3/P1: the knock-out window is SUBJECT-scoped — it is the dead card's OWN triggers. AS-IS
-            // stacks AND resolves the dying permanent's effects DURING its deletion processing
-            // (TriggeredSkillProcess after battle) and only then lets them lapse — so resolve them
-            // synchronously BEFORE the leave-play cleanup drops the bindings (the scheduler resolves
-            // requests through the registry; a dropped binding would be a no-op). Same seam as the
-            // OnStartBattle window (G8-003).
             await ResolveKnockOutWindowAsync(context, participant, cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (BattleParticipant participant in deleted)
+        {
             // (P1) leave-play cleanup BEFORE the move (and before Fortitude reads the keyword state):
             // snapshot the dead card's post-deletion keywords, then drop its bindings — previously the
             // battle path never dropped them, so a battle-deleted card's continuous effects kept applying.
