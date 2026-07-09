@@ -68,31 +68,31 @@ public sealed class BattleResolver
             return await ResolveRoundAsync(context, cancellationToken).ConfigureAwait(false);
         }
 
+        // (structure-1:1) AS-IS gates EACH battle loser with CanBeDestroyedByBattle(...) BEFORE adding it to
+        // LoserPermanents (CardController.Battle :4618/4628/4631/4638) — not add-then-RemoveAll. PreventBattleDeletion
+        // (CanNotBeDeletedByBattle flag) + continuous deletion-prevention REPLACEMENTS (R2-1/N-2) are the headless
+        // form of CanBeDestroyedByBattle. A participant that cannot be battle-destroyed is never added as a loser.
+        //
+        // NOTE: Jamming is intentionally NOT a mutual-deletion rule here. In the original, Jamming is a conditional
+        // CanNotBeDestroyedByBattle that protects the ATTACKER only when it battles a Security Digimon — that surface
+        // lives in SecurityResolver (W5). This field battle (attacker vs a battle-area Digimon) is unaffected by Jamming.
+        bool CanBeBattleDestroyed(BattleParticipant participant) =>
+            !HasFlag(participant, PreventBattleDeletionKey) &&
+            !BattleDeletionGate.PreventsBattleDeletion(context, participant.InstanceId);
+
         switch (comparison)
         {
             case > 0:
-                deleted.Add(defender);
+                if (CanBeBattleDestroyed(defender)) deleted.Add(defender);
                 break;
             case < 0:
-                deleted.Add(attacker);
+                if (CanBeBattleDestroyed(attacker)) deleted.Add(attacker);
                 break;
             default:
-                deleted.Add(attacker);
-                deleted.Add(defender);
+                if (CanBeBattleDestroyed(attacker)) deleted.Add(attacker);
+                if (CanBeBattleDestroyed(defender)) deleted.Add(defender);
                 break;
         }
-
-        // NOTE: Jamming is intentionally NOT a mutual-deletion rule here. In the original, Jamming is a
-        // conditional CanNotBeDestroyedByBattle that protects the ATTACKER only when it battles a
-        // Security Digimon. That surface lives in SecurityResolver (W5): the security-Digimon battle
-        // honours PreventBattleDeletion on the attacker, which is what Jamming applies. This field
-        // battle (attacker vs a battle-area Digimon) is unaffected by Jamming.
-
-        // PreventBattleDeletion (CanNotBeDeletedByBattle): flagged participants survive the battle.
-        // R2-1/N-2: also honour continuous deletion-prevention REPLACEMENTS from other cards.
-        deleted.RemoveAll(participant =>
-            HasFlag(participant, PreventBattleDeletionKey) ||
-            BattleDeletionGate.PreventsBattleDeletion(context, participant.InstanceId));
 
         // F-6.8: a battle deletion is OPTIONAL-replaceable. Flag the DP-losers as pending battle deletions,
         // then resolve the battle in ROUNDS (ResolveRoundAsync): each round applies confirmed Retaliation

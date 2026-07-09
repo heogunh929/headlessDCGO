@@ -16,8 +16,6 @@ public sealed class AttackPermanentAction
     private const string EnteredThisTurnKey = "enteredThisTurn";
     private const string HasRushKey = "hasRush";
     private const string HasBlitzKey = "hasBlitz";
-    private const string CanAttackPlayerKey = "canAttackPlayer";
-    private const string CannotAttackPlayerKey = "cannotAttackPlayer";
     private const string CanAttackUnsuspendedDigimonKey = "canAttackUnsuspendedDigimon";
 
     public IReadOnlyList<LegalAction> GetLegalActions(
@@ -278,13 +276,10 @@ public sealed class AttackPermanentAction
                 return AttackPermanentValidation.Illegal("Targetless attack must be marked as direct.");
             }
 
-            if (ReadBool(attacker.Metadata, CannotAttackPlayerKey) ||
-                ReadBool(attackerCard.Metadata, CannotAttackPlayerKey) ||
-                !ReadBool(attacker.Metadata, CanAttackPlayerKey, defaultValue: true))
-            {
-                return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot attack the player.");
-            }
-
+            // (structure-1:1) AS-IS expresses "cannot attack the player" via the SAME ICanNotAttackTargetDefendingPermanent
+            // scan evaluated with Defender==null (Permanent.CanAttackTargetDigimon(null)) — already run above as
+            // EvaluateAttack(attackerId, targetId:null). There is no separate can/cannot-attack-player flag layer in AS-IS,
+            // so the direct attack is legal here iff that unified restriction scan permitted it.
             return AttackPermanentValidation.Legal(attacker.DefinitionId, null);
         }
 
