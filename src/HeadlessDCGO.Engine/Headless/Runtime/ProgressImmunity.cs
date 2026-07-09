@@ -37,13 +37,23 @@ public static class ProgressImmunity
             return;   // already active this attack
         }
 
+        // (structure-1:1) Progress immunity = "this attacker is unaffected by the opponent's effects during the
+        // attack". Emit the canonical joint predicate ContinuousImmunityGate reads on the context path, so it works
+        // in real play (not only the context-less unit path): protected == this attacker AND the causing effect is
+        // opponent-sourced.
+        HeadlessEntityId protectedId = attackerId;
         var effectContext = new EffectContext(
             owner,
             owner,
             attackerId,
             triggerEntityId: null,
             targetEntityIds: new[] { attackerId },
-            values: new Dictionary<string, object?>(StringComparer.Ordinal) { [ContinuousImmunityGate.ImmunityFromOpponentOnlyKey] = true });
+            values: new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [ContinuousImmunityGate.JointPredicateKey] =
+                    (Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource, bool>)(
+                        (protectedCard, causeSource) => protectedCard.InstanceId == protectedId && causeSource.Owner != protectedCard.Owner),
+            });
 
         context.EffectRegistry.Register(new EffectBinding(
             new EffectRequest(effectId, owner, "Continuous", effectContext),

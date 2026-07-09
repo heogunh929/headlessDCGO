@@ -47,9 +47,9 @@ async Task GateSourceRelativity()
     var protectedId = new HeadlessEntityId("P1-Protected");
     RegisterImmunity(context, protectedId, P1);
 
-    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, protectedId, new HeadlessEntityId("P2-Enemy")),
+    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, protectedId, new HeadlessEntityId("P2-Enemy"), context),
         "opponent-sourced effect is blocked");
-    AssertFalse(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, protectedId, new HeadlessEntityId("P1-Ally")),
+    AssertFalse(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, protectedId, new HeadlessEntityId("P1-Ally"), context),
         "own/ally effect is not blocked (source-relativity)");
 }
 
@@ -96,12 +96,12 @@ async Task ProgressRegistersAndExpires()
     context.AttackController.DeclareAttack(P1, attackerId, P2, targetId: null, isDirectAttack: true);
     ProgressImmunity.TryRegister(context);
 
-    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, attackerId, new HeadlessEntityId("P2-Enemy")),
+    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, attackerId, new HeadlessEntityId("P2-Enemy"), context),
         "Progress immunity is active during the attack");
 
     EffectDurationExpiry.ExpireAttackEnd(context.EffectRegistry);
 
-    AssertFalse(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, attackerId, new HeadlessEntityId("P2-Enemy")),
+    AssertFalse(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, attackerId, new HeadlessEntityId("P2-Enemy"), context),
         "Progress immunity expires at attack end");
 }
 
@@ -123,11 +123,18 @@ async Task<EngineContext> Field(params (string Id, HeadlessPlayerId Owner)[] car
 
 void RegisterImmunity(EngineContext context, HeadlessEntityId targetId, HeadlessPlayerId owner)
 {
+    // (structure-1:1) opponent-only immunity as the canonical joint predicate ContinuousImmunityGate reads on the
+    // context path (mirrors ProgressImmunity + AS-IS CanNotBeAffected — protected card, opponent-sourced cause).
     var effectContext = new EffectContext(
         owner, owner, targetId,
         triggerEntityId: null,
         targetEntityIds: new[] { targetId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { [ContinuousImmunityGate.ImmunityFromOpponentOnlyKey] = true });
+        values: new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [ContinuousImmunityGate.JointPredicateKey] =
+                (Func<HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource, HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource, bool>)(
+                    (prot, cause) => prot.InstanceId == targetId && cause.Owner != prot.Owner),
+        });
     context.EffectRegistry.Register(new EffectBinding(
         new EffectRequest(new HeadlessEntityId($"{targetId.Value}:immunity"), owner, "Continuous", effectContext),
         keywords: new[] { "Progress" },
@@ -137,7 +144,7 @@ void RegisterImmunity(EngineContext context, HeadlessEntityId targetId, Headless
 
 async Task DeleteBy(EngineContext context, HeadlessEntityId targetId, HeadlessEntityId deleter)
 {
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
+    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, deleter,
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = targetId.Value }));
     await sink.FlushAsync();

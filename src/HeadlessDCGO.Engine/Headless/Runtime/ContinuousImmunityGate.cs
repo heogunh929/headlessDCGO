@@ -16,7 +16,6 @@ using HeadlessDCGO.Engine.Headless.Services;
 public static class ContinuousImmunityGate
 {
     public const string Scope = "ContinuousImmunity";
-    public const string ImmunityFromOpponentOnlyKey = "immunityFromOpponentOnly";
 
     // (joint-migration) canonical joint predicate — the AS-IS ICanNotAffectedEffect.CanNotAffect(cardSource,
     // cardEffect) shape: a single Func<CardSource /*protected target*/, CardSource /*causing effect source*/, bool>
@@ -80,18 +79,10 @@ public static class ContinuousImmunityGate
             return false;
         }
 
-        // Context-less fallback (the sink without an EngineContext): the joint predicate needs CardSource views we
-        // cannot build, so only the owner-comparison opponent-only immunity is evaluable here.
-        foreach (EffectRequest request in registry.GetContinuousEffects(new EffectQueryContext(Scope, targetEntityId: targetId)))
-        {
-            IReadOnlyDictionary<string, object?> values = request.Context.Values;
-            if (values.TryGetValue(ImmunityFromOpponentOnlyKey, out object? raw) && raw is bool flag && flag
-                && source.OwnerId != target.OwnerId)
-            {
-                return true;
-            }
-        }
-
+        // AS-IS CardSource.CanNotBeAffected always runs with full Permanent/CardSource objects — there is NO
+        // context-less path. When the headless sink lacks an EngineContext (registry-only unit mode, where no
+        // immunity is registered) we simply cannot build the CardSource views the joint predicate needs, so this
+        // mirrors AS-IS by reporting no immunity rather than inventing an owner-comparison heuristic AS-IS lacks.
         return false;
     }
 }
