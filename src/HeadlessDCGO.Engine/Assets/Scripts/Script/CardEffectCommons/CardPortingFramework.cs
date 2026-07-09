@@ -949,11 +949,19 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
         string? scopeType = ScopeCardType;
         Func<CardSource, bool>? scopePred = ScopePredicate;
         Func<CardSource, bool>? causingP = CausingEffectPredicate;
+        // (P0-restr) AS-IS checks `!TopCard.CanNotBeAffected(cardEffect)` on the SUBJECT for a PRINTED player-scope
+        // cannot-attack / cannot-block (Permanent.cs:2267/2290 attack, :2194 block player-scan) — a subject immune to
+        // the printing card's effects is exempt. Only these kinds are immunity-checked in AS-IS (CanMove/CanSuspend/
+        // CanUnsuspend do NOT check it), so the term is scoped to the confirmed set to avoid inventing immunity.
+        HeadlessEntityId holderId = Card.InstanceId;
+        bool immunityChecked = RestrictionKey == RestrictionHelpers.CannotAttackKey || RestrictionKey == RestrictionHelpers.CannotBlockKey;
         values[JointRestrictionEffect.PredicateKey(RestrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
             (anyPlayer || subject.Owner == scopePlayer)
             && (string.IsNullOrWhiteSpace(scopeType) || (subject.IsCardType(scopeType)))
             && (scopePred is null || scopePred(subject))
-            && (causingP is null || (cp is not null && causingP(cp))));
+            && (causingP is null || (cp is not null && causingP(cp)))
+            && (!immunityChecked || !HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.BlocksOpponentEffect(
+                subject.Context.EffectRegistry, subject.Context.CardInstanceRepository, subject.InstanceId, holderId, subject.Context)));
 
         if (IsInheritedEffect)
         {

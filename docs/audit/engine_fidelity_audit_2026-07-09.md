@@ -109,16 +109,19 @@
 - 공격 가드 순서: 순수 conjunction이라 순서 무영향(AND 피연산자 순서).
 - HasDP: DontHaveDp producer가 ContinuousSelf/PlayerScopeRestrictionEffect 경유라 조건/스코프 술어가 ApplicableEffects 스코프-필터로 적용(AS-IS DontHaveDP(this) 술어 동치). IsDigimon/DigiEgg 게이트는 배틀서 Digimon만 DP 해소해 moot.
 
-## #12 검증 결과 (2026-07-09) — 상당수 기각(감사자 overreach/死코드)
-검증으로 AS-IS 메커니즘 존재·도달성 확인 후 재분류:
-- **ignore-level-only 기각**: AS-IS엔 continuous IgnoreLevelConditionClass 없음(ignore-level은 IgnoreRequirement.Level=effect-driven only, 헤드리스 effect-path가 처리). 헤드리스 player-Validate에 ignore-level 없는 게 맞음(발명 방지 원복).
-- **CanSelectBySkill over-scope 기각**: player-scope CannotBeSelectedBySkill producer 전무 → RestrictionScan 과-스코프 비도달.
-- **DPBoost 기각**: AS-IS `AddBoost`/`new DPBoost` 호출 전무(死코드, Boosts 항상 빈 리스트) → 헤드리스 미표현이 충실.
-- **CanBlock 비대칭 → P0-restr로 수렴**: 헤드리스 printed cannot-block은 player-scope뿐(per-permanent 타깃 없음), AS-IS player-scan은 immunity 체크 → P0-restr와 동일 이슈.
+## #12 처리 (2026-07-09)
+**기각 기준 정정(사용자 지시):** "현재 호출/producer 없음"은 기각 사유 **아님**. 기준은 **AS-IS에 그 메커니즘이 존재하는가** — 존재하면 카드 포팅 때 호출되니 **구축(=FAIL, PASS 아님)**, 부재면 발명 금지. [[strong-model-prebuild-latent-infra]]
 
-**남은 진짜(도달 가능/실 메커니즘):**
-- **P0-restr kind별 immunity**(printed player-scope cannot-attack/block × 면역 subject, producer 6196/6320 실재) — kind별 immunity 테이블 필요(attack/block/return/select/delete는 체크, suspend/move는 미체크). 도달 가능.
-- **PG ≥10 캡**(AS-IS Player.cs:1032, niche), **SAttack 3-tier**(UpToConstant 실재, niche), **ActivatedTime 순서**(niche), **faceup 시큐리티 population**(도달성 미검증), **Piercing-as-activated**(구조, 현재 동작 정상), **deletion 단일창**(latent 아키텍처).
+**기각(AS-IS 메커니즘 부재 — 구축 시 발명):**
+- **ignore-level-only**: AS-IS엔 continuous IgnoreLevelConditionClass 부재(effect-driven IgnoreRequirement.Level만, 헤드리스 effect-path가 처리). 별도 continuous 그랜트는 발명 → 원복 유지.
+- **CanSelectBySkill over-scope**: AS-IS 메커니즘(permanent-scoped)은 존재하고 헤드리스도 보유; 헤드리스가 player-scope까지 스캔하는 건 "더 넓음"(발명이 아니라 과-scope). 저위험 note.
+
+**구축 완료(각 신규 동작 테스트 + 회귀):**
+- ★**DPBoost**: AS-IS Permanent.Boosts/AddBoost/RemoveBoost/DPBoost 메커니즘 존재(현재 미호출이나 구축 대상) → `DpBoostHelpers`(id→dp metadata, AS-IS upsert-by-ID) + ContinuousDpGate 말미 fold(NotIsUpDown 후, clamp 전). 테스트 DPB-DpBoostFold.
+- ★**P0-restr kind별 immunity**: printed player-scope cannot-attack/block(producer 6196/6320)에 immunity 항 embed — AS-IS immunity-체크 kind(Attack 2267/2290·Block 2194)에만(suspend/move는 미체크라 제외). 테스트 P0R-PrintedPlayerScopeImmunity(면역 subject exempt).
+
+**남은 구축 대상(AS-IS 메커니즘 존재 → 순차 구축):**
+- **PG ≥10 캡**(AS-IS Player.cs:1032), **SAttack 3-tier**(UpToConstant 실재), **ActivatedTime 순서**, **faceup 시큐리티 population**, **Piercing-as-activated**(AS-IS OnDetermineDoSecurityCheck activated), **deletion 단일-동시 창**.
 
 ## 잔여 latent-infra (미포팅 카드 의존 — 해당 카드 포팅 전 엔진에 구축 필요, 현재 동작 무영향)
 [[result-equivalence-not-completion]] 기준으로 로컬 포팅 전 구축 대상. 각 트리거 카드가 없어 현재 회귀엔 안 잡힘:
