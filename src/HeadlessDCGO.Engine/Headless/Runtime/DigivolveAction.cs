@@ -260,9 +260,9 @@ public sealed class DigivolveAction
 
         // LA-1: resolve the digivolved card's [When Digivolving] activated effects through the choice flow
         // (ActivatedEffectResolver has the full EngineContext / ChoiceProvider). No-op for cards without a
-        // (AS-IS CardController.cs:1528) the digivolve is now physically done — bump the player's per-turn
-        // digivolve counter (Player.DigivolveCount_ThisTurn++), read by "if you've digivolved this turn" gates.
-        context.PlayerTurnCounters.Increment(action.PlayerId, PlayerTurnCounterController.DigivolveCountKey);
+        // (RD-1 / AS-IS CardController.cs:1526-1529) the digivolve is now physically done — bump the per-turn
+        // digivolve counter AND draw one card (before the WhenDigivolving window resolves).
+        await DigivolveCommons.OnDigivolveCompletedAsync(context, action.PlayerId, cancellationToken).ConfigureAwait(false);
 
         // ported WhenDigivolving activated effect. The interactive deferred path mirrors OptionActivateAction:
         // suspend the activation and report pending so the next ResolveChoice resumes it (no re-digivolve).

@@ -150,9 +150,14 @@ public sealed class DeletionReplacementTiming
             options.Add(ArmorPurgeOption);
         }
 
-        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasScapegoatKey, ContinuousKeywordGate.Scapegoat, context.EffectRegistry) &&
+        // (RD-5 / TODO-102 / AS-IS Scapegoat.cs:65-73) Scapegoat does NOT trigger when the deletion was caused by
+        // the holder's OWNER'S OWN effect (IsByEffect && IsOwnerEffect → return false); battle- and
+        // opponent-effect deletions DO trigger. DeletedByOwnEffectKey is set on the by-effect defer path only, so
+        // its truth already implies "by an effect that is the owner's".
+        if (!ReadOwnEffectDeletion(record) &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasScapegoatKey, ContinuousKeywordGate.Scapegoat, context.EffectRegistry) &&
             DeletionReplacementGate.FindScapegoatSacrificeCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry).Count > 0)
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry, context).Count > 0)
         {
             options.Add(ScapegoatOption);
         }
@@ -178,6 +183,12 @@ public sealed class DeletionReplacementTiming
 
         return options;
     }
+
+    /// <summary>(RD-5 / TODO-102) True when this deletion was caused by the holder's owner's OWN effect
+    /// (the by-effect defer path stamps <see cref="DeletionReplacementGate.DeletedByOwnEffectKey"/>). AS-IS
+    /// Scapegoat is suppressed in exactly this case.</summary>
+    private static bool ReadOwnEffectDeletion(CardInstanceRecord record) =>
+        record.Metadata.TryGetValue(DeletionReplacementGate.DeletedByOwnEffectKey, out object? raw) && raw is true;
 
     /// <summary>(#3) Resolves the card-specific candidate predicate for the holder's option from the
     /// context-registered <see cref="IDeletionReplacementCandidateConditions"/>; null (generic) when none
@@ -411,7 +422,7 @@ public sealed class DeletionReplacementTiming
         option switch
         {
             ScapegoatOption => DeletionReplacementGate.FindScapegoatSacrificeCandidates(
-                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry),
+                context.CardInstanceRepository, zones, record, ResolveCondition(context, record, ScapegoatOption), context.EffectRegistry, context),
             FragmentOption => SourceIds(record.Metadata),   // remaining digivolution sources to trash
             DecoyOption => DeletionReplacementGate.FindDecoyRedirectCandidates(
                 context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry, context),

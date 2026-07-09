@@ -380,6 +380,23 @@ public sealed class SpecialPlayAction
 
         // G6-001: the fused top entered play — auto-register its effects.
         CardEffectRegistrar.RegisterCard(context, topCardId, action.PlayerId);
+        // (RD-3 / AS-IS CardController.cs:1531-1538) a Burst digivolve is TEMPORARY — mark the burst top so the
+        // end-turn cleanup trashes it at the end of this (the burst player's) turn, reverting to the prior form.
+        if (kind == SpecialPlayKind.Burst
+            && context.CardInstanceRepository.TryGetInstance(topCardId, out CardInstanceRecord? burstTop) && burstTop is not null)
+        {
+            var burstMeta = new Dictionary<string, object?>(burstTop.Metadata, StringComparer.Ordinal)
+            {
+                [GameFlowProcessor.BurstTrashAtTurnEndKey] = true,
+            };
+            context.CardInstanceRepository.Upsert(burstTop with { Metadata = burstMeta });
+        }
+        // (RD-1 / AS-IS CardController.cs:1526-1529) Burst / Blast / Jogress(DNA) ARE digivolutions
+        // (isEvolution=true) → counter++ and draw 1. DigiXros is explicitly !isEvolution (AS-IS :626) → no draw.
+        if (kind != SpecialPlayKind.DigiXros)
+        {
+            await DigivolveCommons.OnDigivolveCompletedAsync(context, action.PlayerId, cancellationToken).ConfigureAwait(false);
+        }
         // W1: open the WhenDigivolving window for the new top.
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.WhenDigivolving, actor: action.PlayerId, subject: topCardId);
 
