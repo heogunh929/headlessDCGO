@@ -125,7 +125,9 @@ async Task LegalDigivolvePaysMemoryMovesCardAndAttachesSource()
     AssertMetadata(processed, HeadlessActionParameterKeys.PreviousMemory, beforeMemory);
     AssertMetadata(processed, HeadlessActionParameterKeys.Memory, beforeMemory - 2);
     int afterMoveEvents = match.Context.ZoneMover.Events.Count(e => e.Type == GameEventType.CardMoved);
-    AssertEqual(beforeMoveEvents + 2, afterMoveEvents, "digivolve movement events");
+    // (RD-1) a digivolve now also draws 1 card (AS-IS CardController.cs:1526-1529), so it produces 3 CardMoved
+    // events: evolve card hand->battle, target source under, and the digivolve draw deck->hand.
+    AssertEqual(beforeMoveEvents + 3, afterMoveEvents, "digivolve movement events");
 }
 
 async Task DigivolveRejectsWrongCostWithoutMutation()

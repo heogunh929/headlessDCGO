@@ -276,6 +276,14 @@ public sealed class GameFlowProcessor
     public const string DeleteAtTurnEndSourceKey = "deleteAtTurnEndSource";
     public const string DeleteAtTurnEndDueKey = "deleteAtTurnEndDue";
 
+    /// <summary>(RD-3) AS-IS Burst Digivolve is TEMPORARY: at the end of the burst player's turn the burst
+    /// permanent's TOP card is trashed (CardController.cs:1531-1538 IsBurstDigivolved +
+    /// AddTrashTopCardAtTurnEnd). Stamped on the burst top at play; the end-turn cleanup promotes it to
+    /// <see cref="BurstTrashAtTurnEndDueKey"/> on the owner's turn; the due sweep then trashes the top card
+    /// and promotes the under-source (the permanent survives — same top-trash as Armor Purge).</summary>
+    public const string BurstTrashAtTurnEndKey = "burstTrashAtTurnEnd";
+    public const string BurstTrashAtTurnEndDueKey = "burstTrashAtTurnEndDue";
+
     // (P7) AS-IS IsNotHavingDP (AutoProcessing.cs:165-193): DP < 0 && IsPlaceToTrashDueToNotHavingDP &&
     // (IsDigimon — which includes Digi-Eggs — || un-played Option). Reachable types headless-side: a
     // Digi-Egg on the battle area, or an Option not marked isPlayedOptionPermanent.
@@ -734,8 +742,26 @@ public sealed class GameFlowProcessor
 
             foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea).ToArray())
             {
-                if (!context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) || record is null ||
-                    !record.Metadata.TryGetValue(DeleteAtTurnEndDueKey, out object? due) || due is not true)
+                if (!context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? record) || record is null)
+                {
+                    continue;
+                }
+
+                // (RD-3) a burst-digivolved permanent trashes ONLY its top card (the burst card) and reverts to
+                // the prior form — NOT a full deletion. Handle it before the full-deletion path.
+                if (record.Metadata.TryGetValue(BurstTrashAtTurnEndDueKey, out object? burstDue) && burstDue is true)
+                {
+                    var burstMeta = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
+                    burstMeta.Remove(BurstTrashAtTurnEndDueKey);
+                    context.CardInstanceRepository.Upsert(record with { Metadata = burstMeta });
+                    await DeDigivolveHelpers.ArmorPurgeTopAsync(
+                        context.CardInstanceRepository, context.ZoneMover, id, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+                    any = true;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    continue;
+                }
+
+                if (!record.Metadata.TryGetValue(DeleteAtTurnEndDueKey, out object? due) || due is not true)
                 {
                     continue;
                 }

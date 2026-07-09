@@ -76,6 +76,16 @@ public sealed class HeadlessEndTurnCleanupFlow
                 }
             }
 
+            // (RD-3 / AS-IS CardController.cs:1537) a burst-digivolved permanent's top card is trashed at the end
+            // of the burst PLAYER's (owner's) turn — promote the marker to DUE for the async top-trash sweep.
+            if (turnPlayerId.HasValue && record.OwnerId == turnPlayerId.Value
+                && metadata.TryGetValue(GameFlowProcessor.BurstTrashAtTurnEndKey, out object? burst) && burst is true)
+            {
+                metadata[GameFlowProcessor.BurstTrashAtTurnEndDueKey] = true;
+                metadata.Remove(GameFlowProcessor.BurstTrashAtTurnEndKey);
+                removedForCard.Add(GameFlowProcessor.BurstTrashAtTurnEndKey);
+            }
+
             RemoveKeys(metadata, removedForCard, SharedTurnEndKeys);
 
             if (turnPlayerId.HasValue && record.OwnerId == turnPlayerId.Value)

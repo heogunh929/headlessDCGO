@@ -493,7 +493,8 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneStateReader zones,
         CardInstanceRecord holder,
-        Func<CardInstanceRecord, bool>? candidateCondition = null, EffectRegistry? effectRegistry = null)
+        Func<CardInstanceRecord, bool>? candidateCondition = null, EffectRegistry? effectRegistry = null,
+        EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zones);
@@ -513,9 +514,14 @@ public static class DeletionReplacementGate
         var candidates = new List<HeadlessEntityId>();
         foreach (HeadlessEntityId candidateId in battleArea)
         {
+            // (RD-5 / AS-IS Scapegoat.cs:53) the sacrifice candidate must be an owner-battle-area DIGIMON that is
+            // not the holder itself (IsPermanentExistsOnOwnerBattleAreaDigimon && != this) — a Tamer / Option is
+            // NOT a valid sacrifice. IsDigimon needs the full context (printed type OR TreatAsDigimon); a
+            // context-less pre-check (HasPreOption) is a documented safe superset, strict at resolution.
             if (candidateId != holder.InstanceId &&
                 repository.TryGetInstance(candidateId, out CardInstanceRecord? ally) && ally is not null &&
                 !ReadFlag(ally.Metadata, CannotBeDeletedKey) &&
+                (context is null || ContinuousKeywordGate.IsDigimon(context, candidateId)) &&
                 (candidateCondition is null || candidateCondition(ally)))
             {
                 candidates.Add(candidateId);

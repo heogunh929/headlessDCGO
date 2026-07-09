@@ -221,6 +221,17 @@ public sealed class OptionActivateAction
                 payload.EffectId);
         }
 
+        // (RD-2 / AS-IS CardSource.CanNotPlayThisOption -> !MatchColorRequirement, CardSource.cs:239-245) an
+        // option is playable only if every one of its colors is present on a field/breeding permanent the owner
+        // controls (or an ignore-color effect applies). Checked after the CanNotPlay flag, mirroring AS-IS order.
+        if (!OptionColorRequirement.Matches(context, playerId, payload.CardId))
+        {
+            return OptionActivateValidation.Illegal(
+                $"Option card '{payload.CardId}' does not meet its color requirement.",
+                instance.DefinitionId,
+                payload.EffectId);
+        }
+
         int cardCost = ResolveOptionCost(context, payload.CardId, card, instance);
         if (payload.MemoryCost != cardCost)
         {
