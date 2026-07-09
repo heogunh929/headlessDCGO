@@ -261,7 +261,13 @@ public static class ReplacementHelpers
     public const string ImmuneFromDpMinusKey = "immuneFromDpMinus";
     public const string ImmuneFromEffectsKey = "immuneFromEffects";
     // D-8: "이 카드의 코스트는 감소되지 않는다"(AS-IS ICannotReduceCostEffect). DP-감소-면역과 동형.
+    // ImmuneFromCostReductionKey = BOTH play and digivolution cost (the AS-IS targetPermanentsCondition is trivial).
+    // (#5) The AS-IS targetPermanentsCondition distinguishes which cost is protected: count>=1 => DIGIVOLUTION only
+    // (there are digivolution targets), else PLAY only. These kind-specific keys carry that distinction; the cost
+    // gate checks the matching one (read as a raw scoped binding, like the DP-minus source-predicate).
     public const string ImmuneFromCostReductionKey = "immuneFromCostReduction";
+    public const string ImmuneFromPlayCostReductionKey = "immuneFromPlayCostReduction";
+    public const string ImmuneFromDigivolutionCostReductionKey = "immuneFromDigivolutionCostReduction";
 
     public static ReplacementResult Evaluate(ReplacementRequest request)
     {

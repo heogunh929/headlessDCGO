@@ -49,9 +49,12 @@ async Task Gain2()
 {
     EngineContext context = Context();
     context.MemoryController.Set(0);
-    var tamer = await Place(context, P1, "TAMER", "Tamer", ChoiceZone.BattleArea);
-    await Resolve(context, CardEffectFactory.Gain2MemoryOptionDelayEffect(new CardSource(context, tamer, P1)));
-    AssertEqual(2, context.MemoryController.Current.Current, "Gain2 -> +2");
+    // (#9) Gain2MemoryOptionDelayEffect is now the AS-IS [Main] <Delay>: trash this own battle-area permanent,
+    // then gain 2 ONLY if trashed. The permanent is on the battle area, so the self-trash succeeds and +2 is
+    // gained. (Full deferred/gated behavior is covered by FAILa-09.)
+    var opt = await Place(context, P1, "OPT", "Digimon", ChoiceZone.BattleArea);
+    await ((TrashSelfThenGainMemoryDelayEffect)CardEffectFactory.Gain2MemoryOptionDelayEffect(new CardSource(context, opt, P1))).ResolveAsync(CancellationToken.None);
+    AssertEqual(2, context.MemoryController.Current.Current, "Gain2 -> trashed self and gained +2");
 }
 
 // --- Helpers -------------------------------------------------------------

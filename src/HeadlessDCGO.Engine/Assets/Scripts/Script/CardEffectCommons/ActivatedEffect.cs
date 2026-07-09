@@ -459,7 +459,7 @@ public sealed class SelectBody : IEffectBody
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(canTarget);
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId, card.Context);
         _select.SetUpCustomMessage(description);
         _onEachSelected = onEachSelected;
         _onEachSelectedWithSink = onEachSelectedWithSink;

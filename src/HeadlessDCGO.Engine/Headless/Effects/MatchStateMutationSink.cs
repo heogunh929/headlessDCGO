@@ -209,9 +209,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _memory = memory;
         _effectRegistry = effectRegistry;
         _gameEventQueue = gameEventQueue;
-        // (G8-002) Invoked when an effect plays a card onto the field (PlayCardKind), so the played card's
-        // ported effects auto-register — the enter-play hook the action layer wires to CardEffectRegistrar.
-        _onCardEnteredPlay = onCardEnteredPlay;
+        // (G8-002 / effect-play registration) Invoked when a sink plays a card onto the field (PlayCardKind /
+        // PlayDigivolutionAsDigimonKind), so the played card's ported continuous/trigger effects auto-register.
+        // Default to the context's enter-play chokepoint whenever a context is present, so EVERY sink that can
+        // play a card registers it — not only the action-layer scheduler sink. This mirrors AS-IS, where every
+        // play routes through PlayCardClass.PlayCard(); an explicit hook (if supplied) still wins. A context-less
+        // sink (bare unit test) leaves it null. Future ported cards that play via any sink path register for free.
+        _onCardEnteredPlay = onCardEnteredPlay
+            ?? (context is null ? null : context.RegisterEnteredCardEffects);
         _currentTurnPlayer = currentTurnPlayer;
         _context = context;
     }
@@ -328,8 +333,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case ReturnToHandKind:
                 // (PRIM-W4/FR2 CannotReturnToHandStaticEffect) a continuous "cannot return to hand" restriction
-                // blocks it — honouring any cardEffectCondition against the causing effect's source.
-                if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToHandKey, mutation.SourceEntityId))
+                // blocks it — honouring any cardEffectCondition against the causing effect's source. (d-remediation)
+                // the broader "cannot be removed from the field except by deletion" (CanNotBeRemoved) also blocks it.
+                if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToHandKey, mutation.SourceEntityId) || IsRemovalBlockedByScan(targetId))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -340,7 +346,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToHandAsync(owner, id, ct));
                 break;
             case ReturnToDeckTopKind:
-                if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey, mutation.SourceEntityId))
+                if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey, mutation.SourceEntityId) || IsRemovalBlockedByScan(targetId))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -351,8 +357,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.MoveToDeckTopAsync(owner, id, ct));
                 break;
             case ReturnToDeckBottomKind:
-                // (PRIM-W4 CannotReturnToDeckStaticEffect) a continuous "cannot return to deck" restriction blocks it.
-                if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey, mutation.SourceEntityId))
+                // (PRIM-W4 CannotReturnToDeckStaticEffect) a continuous "cannot return to deck" restriction blocks it;
+                // (d-remediation) as does the broader CanNotBeRemoved ("can't leave the field except by deletion").
+                if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey, mutation.SourceEntityId) || IsRemovalBlockedByScan(targetId))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -401,6 +408,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case DeDigivolveKind:
                 // (PRIM-W5 DigivolveIntoHandOrTrashCard) remove N top digivolution cards from the target.
+                // (b-remediation) AS-IS checks Permanent.ImmuneFromDeDigivolve() first — a CONTINUOUS "cannot be
+                // de-digivolved" restriction (ImmuneFromDeDigivolveClass) is a caller concern (needs the registry),
+                // so honour it here before scheduling the removal (DeDigivolveAsync itself still handles a
+                // metadata-stamped flag on the live top).
+                if (IsRestrictedFromCause(targetId, Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey, mutation.SourceEntityId))
+                {
+                    _skipped.Add(mutation);
+                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
+                    break;
+                }
+
                 if (_zoneMover is { } ddMover)
                 {
                     int ddCount = ReadInt(mutation.Values, CountKey) ?? 1;
@@ -679,7 +697,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // Deletion-prevention: the static cannotBeDeleted flag (card/instance) OR a continuous
         // Delete/Prevent replacement (the same source BattleDeletionGate consults). When prevented, the
         // card stays on the field and the mutation is recorded as skipped with a deletionPrevented marker.
-        if (ReadFlag(record.Metadata, CannotBeDeletedFlagKey) || IsDeletionPreventedByContinuous(targetId))
+        if (ReadFlag(record.Metadata, CannotBeDeletedFlagKey) || IsDeletionPreventedByContinuous(targetId, mutation.SourceEntityId))
         {
             _skipped.Add(mutation);
             _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletionPreventedKey));
@@ -868,6 +886,43 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         return false;
     }
 
+    /// <summary>(d-remediation, true-scan) AS-IS <c>Permanent.CanNotBeRemoved</c>: SCAN every field permanent's
+    /// effects and, for each usable <c>CanNotBeRemoved</c> effect, evaluate its predicate against the candidate.
+    /// Any match ⇒ the candidate cannot leave the battle area (bounce / deck-bounce) — deletion is exempt (the
+    /// caller only consults this on the return chokepoints).</summary>
+    private bool IsRemovalBlockedByScan(HeadlessEntityId candidateId)
+    {
+        if (_context is null || _effectRegistry is null || candidateId.IsEmpty
+            || !_repository.TryGetInstance(candidateId, out CardInstanceRecord? rec) || rec is null || rec.OwnerId.IsEmpty)
+        {
+            return false;
+        }
+
+        var candidate = new Assets.Scripts.Script.CardEffectCommons.CardSource(_context, candidateId, rec.OwnerId, rec.OwnerId);
+        foreach (EffectRequest effect in _effectRegistry.GetContinuousEffects(new EffectQueryContext(Runtime.ContinuousRestrictionGate.Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.CanNotBeRemovedEffect.PredicateKey, out object? raw)
+                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
+            {
+                continue;
+            }
+
+            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            if (predicate(candidate))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool IsRestrictedFromCause(HeadlessEntityId cardId, string restrictionKey, HeadlessEntityId causingSourceId)
     {
         foreach (EffectRequest effect in ScopedEffects(cardId))
@@ -962,7 +1017,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // <paramref name="flagKey"/>=true".
     private bool HasSelfFlag(HeadlessEntityId cardId, string flagKey) => HasValueFlag(cardId, flagKey);
 
-    private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId)
+    private bool IsDeletionPreventedByContinuous(HeadlessEntityId cardId, HeadlessEntityId causingSourceId)
     {
         // (FR-P3) honour self AND player-scope-with-predicate, via the fully PARSED result (every Delete/Prevent
         // replacement source, not just one flag). ApplyDelete is the effect-sourced delete path (battle deletion
@@ -970,21 +1025,19 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         ContinuousEvaluationResult result = ScopedResult(cardId);
         foreach (ReplacementEffect replacement in result.Replacements)
         {
+            // General CanNotBeDestroyed (Delete/Prevent replacement) = unconditional immunity, no causing predicate.
             if (replacement.EventKind == ReplacementEventKind.Delete && replacement.ActionKind == ReplacementActionKind.Prevent)
             {
                 return true;
             }
         }
 
-        foreach (CannotRestriction restriction in result.Restrictions)
-        {
-            if (restriction.Kind == CannotRestrictionKind.DeleteBySkill)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // (fidelity) CanNotBeDestroyedBySkill (effect-delete-only) honours its CAUSING-effect predicate — a card
+        // immune to "opponent's effects" is NOT immune to its own controller's effect (AS-IS
+        // CanNotBeDestroyedBySkill(permanent, cardEffect)). Mirror the CannotReturnToHand/Deck path exactly:
+        // no predicate → unconditional; predicate present → immune only when the deleting effect's source matches.
+        return IsRestrictedFromCause(
+            cardId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotBeDeletedBySkillKey, causingSourceId);
     }
 
     private static bool ReadFlag(IReadOnlyDictionary<string, object?> metadata, string key)
@@ -1118,7 +1171,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         bool fromBottom = !mutation.Values.ContainsKey(FromBottomKey) || ReadBool(mutation.Values, FromBottomKey);
         if (returnToZone is ChoiceZone destination)
         {
-            _pendingAsync.Add(ct => DigivolutionStackHelpers.ReturnSourcesAsync(_repository, zoneMover, hostId, count, destination, fromBottom, ct));
+            // (c-remediation) AS-IS ReturnToLibraryBottomDigivolutionCards checks `TopCard.CanNotBeAffected(CardEffect)`
+            // before returning — a host immune to the causing effect keeps its sources. Mirror it (general effect
+            // immunity), distinct from the trash-only ImmuneStackTrashing gate below.
+            if (Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, hostId, mutation.SourceEntityId, _context))
+            {
+                _skipped.Add(mutation);
+                _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));
+                return;
+            }
+
+            _pendingAsync.Add(ct => DigivolutionStackHelpers.ReturnSourcesAsync(_repository, zoneMover, hostId, count, destination, fromBottom, ct, _gameEventQueue));
         }
         else
         {

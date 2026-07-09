@@ -443,10 +443,13 @@ public sealed class DigivolveAction
         }
         // F-5.3: a continuous "ignore digivolution requirement" effect (AS-IS CanIgnoreDigivolutionRequirement)
         // lets the player digivolve without satisfying the printed evolution condition.
+        // (d-remediation) AS-IS Player.CanIgnoreDigivolutionRequirement returns FALSE while a
+        // CannotIgnoreDigivolutionCondition effect is active (BT8_059) — the ignore grants are then negated.
+        bool ignoreBlocked = IsDigivolveIgnoreBlocked(context, payload.CardId, playerId, payload.TargetCardId, target.OwnerId);
         if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
-            && !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId)
-            && !(CanIgnoreColorRequirement(context, playerId, payload.CardId)
-                && MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard, ignoreColor: true))
+            && (ignoreBlocked || !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId))
+            && (ignoreBlocked || !(CanIgnoreColorRequirement(context, playerId, payload.CardId)
+                && MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard, ignoreColor: true)))
             && !MatchesAddedDigivolutionRequirement(context, payload.CardId, playerId, targetCard, payload.TargetCardId, target.OwnerId))
         {
             return DigivolveValidation.Illegal(
@@ -504,7 +507,9 @@ public sealed class DigivolveAction
         HeadlessEntityId cardId,
         HeadlessEntityId targetCardId,
         out int evolutionCost,
-        out string? error)
+        out string? error,
+        bool ignoreLevel = false,
+        bool ignoreColor = false)
     {
         evolutionCost = default;
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||
@@ -539,7 +544,9 @@ public sealed class DigivolveAction
             targetCard,
             targetInstance,
             out int baseCost,
-            out error))
+            out error,
+            ignoreLevel: ignoreLevel,
+            ignoreColor: ignoreColor))
         {
             return false;
         }
@@ -566,6 +573,40 @@ public sealed class DigivolveAction
 
     private static bool CanIgnoreColorRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
         HasContinuousFlag(context, playerId, cardId, IgnoreColorRequirementKey);
+
+    /// <summary>(d-remediation, true-scan) AS-IS <c>Player.CanIgnoreDigivolutionRequirement</c>: SCAN every field
+    /// permanent's effects (1:1 with the original nested foreach) and, for each usable
+    /// <c>CannotIgnoreDigivolutionCondition</c> effect, evaluate its JOINT predicate
+    /// <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c>. Any match ⇒ ignore-grants are negated.</summary>
+    private static bool IsDigivolveIgnoreBlocked(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, HeadlessEntityId targetId, HeadlessPlayerId targetOwner)
+    {
+        var digivolvingCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId);
+        var target = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, targetId, targetOwner);
+
+        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.CannotIgnoreDigivolutionConditionEffect.PredicateKey, out object? raw)
+                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
+            {
+                continue;
+            }
+
+            // AS-IS cardEffect.CanUse(null): the effect's own condition gate.
+            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            if (predicate(digivolvingCard, target))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool HasContinuousFlag(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId, string flagKey)
     {

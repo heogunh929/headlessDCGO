@@ -50,6 +50,64 @@ public static class PermanentEffectFactory
         return effect;
     }
 
+    /// <summary>(AD1) 1:1 mirror of AS-IS <c>PermanentEffectFactory.DigimonEffectImmunity(permanent)</c>
+    /// (PermanentEffectFactory.cs:51-78): "&lt;permanent&gt; is not affected by the OPPONENT's DIGIMON effects."
+    /// Builds a <see cref="CardEffectCommons.ContinuousImmunityEffect"/> whose TargetPredicate protects exactly
+    /// this permanent (AS-IS <c>CardCondition = cardSource == permanent.TopCard</c>) and whose SkillCondition
+    /// admits only opponent-owned Digimon effects (AS-IS <c>IsOpponentEffect &amp;&amp; IsDigimonEffect</c>, mapped to
+    /// the causing effect's SOURCE card). Live existence gate mirrors AS-IS CanUseCondition
+    /// (<c>IsExistOnBattleArea</c>). Register with a duration to mirror the AS-IS <c>Until…Effects.Add(…)</c>
+    /// bucket. Replaces the earlier flattened binding-rule form that produced BLANKET effect immunity.</summary>
+    public static CardEffectCommons.ContinuousImmunityEffect DigimonEffectImmunity(CardEffectCommons.Permanent permanent)
+    {
+        ArgumentNullException.ThrowIfNull(permanent);
+        CardEffectCommons.CardSource topCard = permanent.TopCard;
+        HeadlessPlayerId owner = permanent.OwnerId;
+        return new CardEffectCommons.ContinuousImmunityEffect(
+            card: topCard,
+            skillCondition: src => src is not null && src.Owner != owner && src.IsDigimon,
+            isInheritedEffect: false,
+            condition: () => CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(topCard),
+            targetPredicate: cs => cs is not null && cs.InstanceId == permanent.InstanceId);
+    }
+
+    /// <summary>(AD1) 1:1 mirror of AS-IS <c>PermanentEffectFactory.OptionEffectImmunity(permanent)</c>
+    /// (PermanentEffectFactory.cs:80-107): "&lt;permanent&gt; is not affected by the OPPONENT's OPTION effects."
+    /// As <see cref="DigimonEffectImmunity"/> but the SkillCondition admits only opponent-owned OPTION effects
+    /// (AS-IS <c>IsOpponentEffect &amp;&amp; !IsDigimonEffect &amp;&amp; !IsTamerEffect</c>).</summary>
+    public static CardEffectCommons.ContinuousImmunityEffect OptionEffectImmunity(CardEffectCommons.Permanent permanent)
+    {
+        ArgumentNullException.ThrowIfNull(permanent);
+        CardEffectCommons.CardSource topCard = permanent.TopCard;
+        HeadlessPlayerId owner = permanent.OwnerId;
+        return new CardEffectCommons.ContinuousImmunityEffect(
+            card: topCard,
+            skillCondition: src => src is not null && src.Owner != owner && !src.IsDigimon && !src.IsTamer,
+            isInheritedEffect: false,
+            condition: () => CardEffectCommons.CardEffectCommons.IsExistOnBattleAreaDigimon(topCard),
+            targetPredicate: cs => cs is not null && cs.InstanceId == permanent.InstanceId);
+    }
+
+    /// <summary>(AD1) 1:1 mirror of AS-IS <c>PermanentEffectFactory.CollisionEffect(targetPermanent,
+    /// activateClass)</c> (PermanentEffectFactory.cs:131-144): grants &lt;Collision&gt; to exactly this permanent.
+    /// Delegates to <c>CollisionStaticEffect</c> with <c>permanentCondition = permanent == targetPermanent</c>
+    /// and the live existence gate (AS-IS CanUseCondition = <c>IsPermanentExistsOnBattleArea</c>). Replaces the
+    /// flattened binding-rule form that dropped the target predicate. <paramref name="activateClass"/> is
+    /// accepted for source-signature fidelity (AS-IS <c>CanNotBeAffected(activateClass)</c> guard is vacuous on
+    /// a self grant, no port surface).</summary>
+    public static CardEffectCommons.ICardEffect CollisionEffect(
+        CardEffectCommons.Permanent targetPermanent, CardEffectCommons.ICardEffect? activateClass = null)
+    {
+        ArgumentNullException.ThrowIfNull(targetPermanent);
+        _ = activateClass;
+        CardEffectCommons.CardSource topCard = targetPermanent.TopCard;
+        return CardEffectCommons.CardEffectFactory.CollisionStaticEffect(
+            permanentCondition: permanent => permanent is not null && permanent.InstanceId == targetPermanent.InstanceId,
+            isInheritedEffect: false,
+            card: topCard,
+            condition: () => CardEffectCommons.CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent));
+    }
+
     public static PermanentEffectFactoryBindingRule DeleteSelfEffect(
         string id,
         IReadOnlyList<string> permanentKeys,

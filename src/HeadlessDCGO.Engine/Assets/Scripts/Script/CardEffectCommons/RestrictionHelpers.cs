@@ -205,6 +205,29 @@ public static class RestrictionHelpers
     public const string CannotBeBlockedKey = "cannotBeBlocked";
     public const string CannotBeDeletedBySkillKey = "cannotBeDeletedBySkill";
     public const string CannotBeAttackedKey = "cannotBeAttacked";
+    // (d-remediation) AS-IS ICanNotSelectBySkillEffect / Permanent.CanSelectBySkill — this permanent cannot be
+    // CHOSEN as a target by a skill effect (untargetability, 39 cards). Candidate-scoped continuous restriction,
+    // honoured by SelectPermanentEffect.BuildRequest (the selection chokepoint); a causingEffectPredicate gates
+    // it on the selecting skill's source (e.g. "cannot be chosen by your opponent's effects").
+    public const string CannotBeSelectedBySkillKey = "cannotBeSelectedBySkill";
+    // (d-remediation) AS-IS ICanNotBeRemovedEffect / Permanent.CanNotBeRemoved — this permanent "can't leave the
+    // battle area except by a deletion effect" (EX6_044/BT16_051). Broader than CannotReturnToHand/Deck: blocks
+    // BOTH bounce (return to hand) and deck-bounce (return to deck top/bottom), but NOT deletion. Honoured at all
+    // three return chokepoints in the sink.
+    public const string CannotBeRemovedKey = "cannotBeRemoved";
+    // (d-remediation) AS-IS ICanNotMoveEffect / Permanent.CanMove — this permanent cannot MOVE (breeding→battle
+    // promotion). Honoured by the legal-action dispatcher's move gate.
+    public const string CannotMoveKey = "cannotMove";
+    // (d-remediation) AS-IS IDontHaveDPEffect / Permanent.HasDP==false — this permanent is treated as having NO DP
+    // (AS-IS Permanent.DP returns -1, overriding base and all DP modifiers). Honoured at the top of
+    // ContinuousDpGate.ResolveDp.
+    public const string DontHaveDpKey = "dontHaveDp";
+    // AS-IS Permanent.DP sentinel for "no DP".
+    public const int NoDpValue = -1;
+    // (d-remediation) AS-IS ICannotIgnoreDigivolutionConditionEffect / Player.CanIgnoreDigivolutionRequirement —
+    // while active, NO player may ignore digivolution requirements (level/colour); it negates the ignore grants
+    // (BT8_059 "Players can't ignore digivolution requirements"). Honoured in DigivolveAction's condition gate.
+    public const string CannotIgnoreDigivolutionConditionKey = "cannotIgnoreDigivolutionCondition";
     // (PRIM-P0 B.O.6) player-scope restrictions: the owner cannot add cards to security / gain memory
     // (AS-IS Player.CanAddSecurity / CanAddMemory). Granted player-scope; consulted at the AddToSecurity /
     // AddMemory mutation chokes in MatchStateMutationSink.

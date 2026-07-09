@@ -22,6 +22,22 @@ public static class ActivatedEffectResolver
     /// <summary>Resolve all activated effects of <paramref name="cardInstanceId"/> for
     /// <paramref name="timing"/>. Returns the number of activated effects resolved (0 if the card has no
     /// ported activated effect — the caller can then fall back to its legacy path).</summary>
+    /// <summary>(#13) A filter that keeps only the [Main]-tagged option effect — AS-IS <c>OptionMainEffect</c>
+    /// selects <c>e is ActivateClass &amp;&amp; e.EffectDiscription.Contains("[Main]")</c>. In headless the "[Main]"
+    /// activation is not a single base type (it can be ActivatedEffect, SelectAndDestroyEffect, PlayOptionCardEffect,
+    /// …) — they all carry a <c>Description</c> that begins with "[Main]", which IS the AS-IS discriminator — so we
+    /// match on the description. Re-running the [Main] side (security / option-main reuse) resolves ONLY these.</summary>
+    internal static bool IsMainOptionEffect(ICardEffect effect)
+    {
+        if (effect is null)
+        {
+            return false;
+        }
+
+        string? description = effect.GetType().GetProperty("Description")?.GetValue(effect) as string;
+        return description is not null && description.Contains("[Main]", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static async Task<int> ResolveAsync(
         EngineContext context,
         HeadlessEntityId cardInstanceId,
@@ -29,7 +45,8 @@ public static class ActivatedEffectResolver
         EffectTiming timing,
         CancellationToken cancellationToken = default,
         bool skipReactivationHolder = false,
-        GameEvent? drivingEvent = null)
+        GameEvent? drivingEvent = null,
+        Func<ICardEffect, bool>? effectFilter = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -49,6 +66,9 @@ public static class ActivatedEffectResolver
             context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue,
             // (FR-P3) pass the EngineContext so a deletion/suspend/return honours PLAYER-SCOPE restrictions with
             // an arbitrary permanentCondition ("your <X> Digimon cannot be ..."), not just the card's own self.
+            // Passing `context` also means an activated play (e.g. ActivatedPlayFromUnderEffect →
+            // PlayDigivolutionAsDigimonKind, G9) auto-registers the entered card's effects via the sink's default
+            // enter-play hook (context.RegisterEnteredCardEffects) — AS-IS PlayCardClass.PlayCard() semantics.
             context: context);
 
         // G7-005: participate in the W7 deferred-choice cycle. With an interactive DeferredChoiceProvider,
@@ -59,6 +79,12 @@ public static class ActivatedEffectResolver
         coordinator?.BeginResolution();
 
         IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        if (effectFilter is not null)
+        {
+            // (#13) e.g. re-run only the [Main] option effect, not every OptionSkill effect.
+            effects = effects.Where(effectFilter).ToList();
+        }
+
         if (skipReactivationHolder)
         {
             // The [On Play] play path resolves a card's own OnEnterFieldAnyone [On Play] effects, but the
@@ -508,6 +534,15 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case TrashSelfThenGainMemoryDelayEffect delayGain:
+                {
+                    // (#9) [Main] <Delay>: trash this card's own permanent, then gain memory ONLY if it was
+                    // trashed (self-contained delete + success branch); does not use the shared sink.
+                    await delayGain.ResolveAsync(cancellationToken).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case DeckBottomBounceEffect bounce:
                 {
                     // (PRIM-W2) direct-return a pre-computed target list to the deck bottom — no choice.
@@ -546,6 +581,15 @@ public static class ActivatedEffectResolver
                     // (G10-003) A Tamer's [Security] "play this Tamer": play the revealed card onto the
                     // battle area cost-free; the PlayCard mutation auto-registers its effects.
                     playSelf.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
+                case PlaySelfAtEndOfBattleSecurityEffect playAfterBattle:
+                {
+                    // (#10) A [Security] "at end of battle, play this Digimon": register the OnEndBattle trigger
+                    // instead of playing now, so the play (and any turn-end delete) resolves after the battle.
+                    playAfterBattle.Apply(sink);
                     resolved++;
                     break;
                 }
@@ -590,11 +634,13 @@ public static class ActivatedEffectResolver
 
                 case ReuseMainOptionEffect:
                 {
-                    // (G8-004) "[Security] activate this card's [Main] effect" — resolve the card's Main
-                    // (OptionSkill) activated effects, recursively, through the same sink / choice provider.
+                    // (G8-004 / #13) "[Security] activate this card's [Main] effect" — resolve ONLY the card's
+                    // [Main]-tagged OptionSkill effect (AS-IS OptionMainEffect), not every OptionSkill effect,
+                    // through the same sink / choice provider.
                     resolved += await ResolveListAsync(
                         context, effectClass, card, players, sink,
-                        effectClass.CardEffects(EffectTiming.OptionSkill, card), cancellationToken).ConfigureAwait(false);
+                        effectClass.CardEffects(EffectTiming.OptionSkill, card).Where(IsMainOptionEffect).ToList(),
+                        cancellationToken).ConfigureAwait(false);
                     break;
                 }
 

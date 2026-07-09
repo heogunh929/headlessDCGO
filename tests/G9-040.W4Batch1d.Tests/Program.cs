@@ -56,7 +56,7 @@ async Task CannotReturnToDeck()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CannotReturnToDeckStaticEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"crd:{id.Value}"));
+    context.EffectRegistry.Register(CardEffectFactory.CannotReturnToDeckStaticEffect(permanentCondition: null, cardEffectCondition: null, false, new CardSource(context, id, P1), null).ToBinding($"crd:{id.Value}"));
     await ApplyKind(context, id, MatchStateMutationSink.ReturnToDeckBottomKind);
     AssertTrue(InBattle(context, P1, id), "stays in play (deck-return blocked)");
 }

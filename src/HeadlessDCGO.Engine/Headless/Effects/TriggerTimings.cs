@@ -100,6 +100,11 @@ public static class TriggerTimings
     // the trashed source ids.
     public const string OnDigivolutionCardDiscarded = "OnDigivolutionCardDiscarded";
 
+    // (AS-IS ReturnToLibraryBottomDigivolutionCardsClass, EffectTiming.OnDigivolutionCardReturnToDeckBottom).
+    // Opens when a Digimon's digivolution (under-)cards are returned to the deck — DISTINCT from the discard
+    // (trash) path above. subject = the Digimon losing sources; deckBottomCardIds metadata carries the returned ids.
+    public const string OnDigivolutionCardReturnToDeckBottom = "OnDigivolutionCardReturnToDeckBottom";
+
     // Link (D-1 / F-6.9). WhenWouldLink opens before the link cost is paid (prevent-link window);
     // WhenLinked opens after a link card is attached; OnLinkCardDiscarded opens when a linked card is
     // trashed. Names mirror the original EffectTiming enum members.
@@ -152,6 +157,9 @@ public static class TriggerTimings
         // self-gates on the subject / discardedCardIds metadata.
         OnDigivolutionCardDiscarded,
         OnAttackTargetChanged,
+        // (c-remediation) AS-IS fires OnDigivolutionCardReturnToDeckBottom via global StackSkillInfos; reactors
+        // may live on other cards. Broadcast so cross-card listeners are collected; each self-gates on subject.
+        OnDigivolutionCardReturnToDeckBottom,
     };
 
     /// <summary>True if <paramref name="timing"/> is a board-wide timing whose listeners fire

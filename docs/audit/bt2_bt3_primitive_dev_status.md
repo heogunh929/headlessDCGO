@@ -75,12 +75,16 @@ fidelity-over-coverage 규약상 "근사치로 뭉개기" 금지 → 아래 둘�
   BeforePayCost가 v1-미지원**(deferred가 뜨면 원가 지불). 또 기존 `SuspendCostReductionEffect`는 `PlayCostDeltaKey`(플레이
   코스트)만 감산 → **디지볼브-코스트 감산 변형 + deferred-choice를 디지볼브 코스트 경로까지 관통**시키는 엔진 작업 필요.
   056은 추가로 상대-Digimon-서스펜드(CanSuspendByDigisorption) + [Once Per Turn].
-- **이펙트-플레이 카드 효과 미등록** (G1·G3 공통, 신규 발견) — `CardEffectCommons.PlayPermanentCards`가 쓰는
-  `NewSink(context)`는 enter-play 등록 콜백(`onCardEnteredPlay`)을 안 검. 액션 계층 sink만 `EngineContext.cs:261`에서
-  `CardEffectRegistrar.RegisterCard`로 배선됨 → **효과로 낸 카드는 자기 연속/트리거/[On Play] 효과가 등록되지 않아 발동 안 됨.**
-  이 때문에 G3의 [On Play] 억제는 *현재는* 이미 억제된 상태이고(등록 자체가 안 됨), G1의 063 등도 낸 카드 효과가 실전엔 안 뜸.
-  억제 메커니즘 자체는 collector 레벨 단언으로 검증됨(T5). 실전 완전동작하려면 이 등록 인프라를 별도로 배선해야 함(회귀 리스크
-  검증 필요). 설계: PlayPermanentCards의 sink가 context의 등록 콜백을 공유하도록.
+- ~~**이펙트-플레이 카드 효과 미등록** (G1·G3·G9 공통)~~ → **✅ 해소(2026-07-08, Fable 5)**: 등록을 sink 자체에
+  내재화. `EngineContext.RegisterEnteredCardEffects`(enter-play chokepoint) 신설 + `MatchStateMutationSink` 생성자가
+  `context`가 있으면 `onCardEnteredPlay`를 이 메서드로 **기본 폴백** → 스케줄러 sink뿐 아니라 `NewSink`(PlayPermanentCards,
+  Fortitude/Decode/Partition)·리졸버 sink(play-from-under)·런타임 sink **전부** 카드-플레이 시 자동 등록. AS-IS 미러(모든 플레이가
+  단일 `PlayCardClass.PlayCard()`→EffectList 라이브). **추가**: `CardEffectRegistrar.RegisterCard`를 **멱등화**(재등록 전
+  `UnregisterCard`로 stale self-바인딩 제거) — 재진입(play-from-under·trash 재생·de-digivolve 복귀) 시 중복-바인딩 throw 방지.
+  이는 액션 경로(PlayCardAction/DigivolveAction/SpecialPlayAction)의 잠재적 재진입 중복도 함께 해소. 검증: `tests/G8-003`
+  (NewSink 등록+멱등 2건), 회귀 345 green, RuleAudit 0. **주의**: "특정 경로로 카드 내는 카드가 아직 없다"는 이유로 일부 sink를 배선
+  제외하지 않음 — 포팅 진행 시 당연히 추가될 것이므로 context-보유 sink 전체를 균일 배선(사용자 지시 2026-07-08).
+  잔여: G3 억제의 구조적 debt(source+timing vs per-effect `IsOnPlay`)는 별건([fidelity_debt.md] G3 항목).
 
 ## 4c. 검증 대기 (G1~13 범위 밖)
 
@@ -94,8 +98,9 @@ BT2에서도 동종 오판 존재(예: BT2_008/001 트래시-매수 쿼리 = `Ma
 ## 6. 다음 단계 (재개 지점)
 
 1. ~~G7·G1·G5-static / G8·G9·G10·G12·G13 / G3~~ — **완료**(§4, Tranche 3~5).
-2. **별도 엔진 골**(§4b): (a) 이펙트-플레이 등록 인프라 배선, (b) G11 Digisorption(deferred-digivolve-cost).
-3. FALSE STOP 9장 + §4 커버 카드 재포팅 → 통합 회귀. (등록 인프라(2a) 이후라야 G1/G3 낸-카드 효과가 실동작.)
+2. **별도 엔진 골**(§4b): ~~(a) 이펙트-플레이 등록 인프라 배선~~ **✅ 완료(2026-07-08)**, (b) G11 Digisorption(deferred-digivolve-cost),
+   (c) `OnAddDigivolutionCards` 방출 배선(G8), (d) per-card 트래시 보호 부여 클래스.
+3. FALSE STOP 9장 + §4 커버 카드 재포팅 → 통합 회귀. (등록 인프라(2a) **완료됨** → G1/G3/G9 낸-카드 효과가 이제 실동작 가능.)
 
 **진행 규약**: 프리미티브는 AS-IS 1:1 + uniform ActivatedEffect 규약, throw/근사 금지, 트랜치마다
 컴파일+단언테스트+회귀 green 후 커밋. 참조: [[bt1-porting-complete-stop-infra]] [[asis-uniform-activateclass]] [[fidelity-over-coverage]].

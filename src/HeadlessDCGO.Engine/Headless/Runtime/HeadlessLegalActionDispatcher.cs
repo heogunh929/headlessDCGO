@@ -2,6 +2,7 @@ namespace HeadlessDCGO.Engine.Headless.Runtime;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class HeadlessLegalActionDispatcher
@@ -124,6 +125,31 @@ public sealed class HeadlessLegalActionDispatcher
             && !ContinuousKeywordGate.IsDigimon(context, cardId))
         {
             return false;
+        }
+
+        // (d-remediation, true-scan) AS-IS Permanent.CanMove — SCAN every field permanent's effects and, for each
+        // usable ICanNotMoveEffect, evaluate CanNotMove(candidate, null) (the state check passes a null causing
+        // effect). Any match blocks the promotion.
+        var candidate = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId, instance.OwnerId);
+        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.CanNotMoveEffect.PredicateKey, out object? raw)
+                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource?, bool> predicate)
+            {
+                continue;
+            }
+
+            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            if (predicate(candidate, null))
+            {
+                return false;
+            }
         }
 
         // IsDigiEgg && DP <= 0: a Digi-Egg-typed card with no DP cannot move (defensive; redundant with the

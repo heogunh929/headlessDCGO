@@ -18,7 +18,9 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -47,6 +49,7 @@ public sealed class SelectPermanentEffect
     private bool _canEndNotMax;
     private Mode _mode = Mode.Custom;
     private HeadlessEntityId _sourceEntityId = new("select");
+    private EngineContext? _context;
     private string _message = "Select target permanent(s).";
     private bool _faceUp;
     private int _degenerationCount = 1;
@@ -64,7 +67,8 @@ public sealed class SelectPermanentEffect
         bool canNoSelect,
         bool canEndNotMax,
         Mode mode,
-        HeadlessEntityId sourceEntityId)
+        HeadlessEntityId sourceEntityId,
+        EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(canTargetCondition);
         if (maxCount < 1)
@@ -79,6 +83,7 @@ public sealed class SelectPermanentEffect
         _canEndNotMax = canEndNotMax;
         _mode = mode;
         _sourceEntityId = sourceEntityId.IsEmpty ? new HeadlessEntityId("select") : sourceEntityId;
+        _context = context;
     }
 
     public void SetUpCustomMessage(string message)
@@ -136,7 +141,9 @@ public sealed class SelectPermanentEffect
         {
             foreach (HeadlessEntityId id in zones.GetCards(player, ChoiceZone.BattleArea))
             {
-                if (_canTargetCondition(id))
+                // (d-remediation) AS-IS Permanent.CanSelectBySkill — a permanent with an untargetability
+                // restriction is excluded from the candidate pool entirely (never offered as a choice).
+                if (_canTargetCondition(id) && !IsUntargetableBySkill(id))
                 {
                     candidates.Add(EffectChoiceHelpers.Candidate(id, id.Value, ChoiceZone.BattleArea, isSelectable: true, player));
                 }
@@ -152,6 +159,62 @@ public sealed class SelectPermanentEffect
         // (P2) the AS-IS combination gate (CanEndSelect) rides on the request so the choice controller
         // rejects an illegal SET centrally (try-reject-retry).
         return _canEndSelectCondition is null ? request : request with { SelectionValidator = _canEndSelectCondition };
+    }
+
+    /// <summary>(d-remediation, true-scan) AS-IS <c>Permanent.CanSelectBySkill(skill)</c>: SCAN every field
+    /// permanent's continuous effects (1:1 with the original's nested foreach), and for each
+    /// <c>CanNotSelectBySkill</c> effect that is usable, evaluate its JOINT predicate
+    /// <c>CanNotSelectBySkill(candidate, skillSource)</c>. Any match ⇒ the candidate cannot be chosen. No context
+    /// (legacy call path) ⇒ not untargetable.</summary>
+    private bool IsUntargetableBySkill(HeadlessEntityId candidateId)
+    {
+        if (_context is null || candidateId.IsEmpty)
+        {
+            return false;
+        }
+
+        CardSource? candidate = null;   // built lazily only when a CanNotSelectBySkill marker is actually present.
+        CardSource? skillSource = null;
+
+        // AS-IS scans EVERY player's field permanents' effects (global), not a per-candidate scope.
+        foreach (EffectRequest effect in _context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!values.TryGetValue(CanNotSelectBySkillEffect.PredicateKey, out object? raw)
+                || raw is not Func<CardSource, CardSource, bool> predicate)
+            {
+                continue;
+            }
+
+            // AS-IS cardEffect.CanUse(null): the effect's own condition gate.
+            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            candidate ??= MakeSource(candidateId);
+            skillSource ??= _sourceEntityId.IsEmpty ? candidate : MakeSource(_sourceEntityId);
+            if (candidate is not null && predicate(candidate, skillSource ?? candidate))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Build a CardSource for a live instance, or null when the instance/owner is unknown.</summary>
+    private CardSource? MakeSource(HeadlessEntityId id)
+    {
+        if (_context is null || id.IsEmpty
+            || !_context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) || rec is null
+            || rec.OwnerId.IsEmpty)
+        {
+            return null;
+        }
+
+        return new CardSource(_context, id, rec.OwnerId, rec.OwnerId);
     }
 
     /// <summary>Map the configured Mode to one mutation per selected target. Attack/Custom yield no

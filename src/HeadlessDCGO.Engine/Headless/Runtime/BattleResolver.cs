@@ -58,6 +58,16 @@ public sealed class BattleResolver
         // G3.5-RL-C2: who is deleted is the DP comparison adjusted by battle keywords.
         int comparison = CompareBattleStats(attacker!, defender!);
         var deleted = new List<BattleParticipant>();
+
+        // (d-remediation) AS-IS Permanent.HasDP gate (CardController.Battle :4478): a DP battle only occurs when
+        // BOTH participants HAVE a DP (Permanent.DP != -1). A DontHaveDP participant (resolved DP = the no-DP
+        // sentinel) neither deletes nor is deleted by battle — the battle block is skipped entirely.
+        if (attacker!.Dp <= Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.NoDpValue
+            || defender!.Dp <= Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.NoDpValue)
+        {
+            return await ResolveRoundAsync(context, cancellationToken).ConfigureAwait(false);
+        }
+
         switch (comparison)
         {
             case > 0:

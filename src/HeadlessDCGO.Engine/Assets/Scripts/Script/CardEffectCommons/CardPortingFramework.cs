@@ -122,6 +122,9 @@ public enum EffectTiming
     // Both are broadcast (see TriggerTimings.BroadcastTimings) to mirror the AS-IS global StackSkillInfos.
     OnDigivolutionCardDiscarded,
     OnAttackTargetChanged,
+    //   OnDigivolutionCardReturnToDeckBottom — a Digimon's digivolution cards returned to the deck (c-remediation,
+    //   AS-IS ReturnToLibraryBottomDigivolutionCardsClass). Broadcast; emitted by DigivolutionStackHelpers.
+    OnDigivolutionCardReturnToDeckBottom,
 
     // (PRIM-P0-timing batch 4) The would-be-deleted replacement/prevention window (206 cards). A card
     // registered here surfaces as a PRE option in the existing DeletionReplacementTiming synchronous window;
@@ -313,17 +316,17 @@ public sealed class CardSource
     /// <summary>Continuous-binding key for an added card name (AS-IS ChangeCardNamesClass).</summary>
     public const string AddedCardNameKey = "addedCardName";
 
-    /// <summary>The card's name(s) (mirror of <c>CardNames</c>) — the printed name plus any names granted by
-    /// active continuous effects (ChangeCardNames).</summary>
+    /// <summary>The card's name(s) (mirror of AS-IS <c>CardSource.BaseCardNames</c>) — the printed name, first
+    /// transformed by active <c>ChangeBaseCardName</c> effects (a REPLACE, like BaseCardColors; BT14_097 "original
+    /// name is [Sukamon]"), then extended with any names ADDED by <c>ChangeCardNames</c> effects.</summary>
     public IReadOnlyList<string> CardNames
     {
         get
         {
-            var names = new List<string>();
-            if (Definition is { } d)
-            {
-                names.Add(d.Name);
-            }
+            // (d-remediation) BASE names = printed name transformed by ChangeBaseCardName (REPLACE), mirroring the
+            // BaseCardColors → CardColors two-stage order.
+            var names = Definition is { } d ? new List<string> { d.Name } : new List<string>();
+            names = FoldListTransforms(names, CardEffects.ChangeBaseCardNameClass.ChangeBaseCardNamesKey);
 
             foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
                 new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: InstanceId)))
@@ -867,7 +870,9 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
 {
     private readonly HeadlessPlayerId _scopePlayerId;
 
-    public ContinuousPlayerScopeRestrictionEffect(CardSource card, HeadlessPlayerId scopePlayerId, string restrictionKey, string? scopeCardType, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? scopePredicate = null, Func<CardSource, bool>? causingEffectPredicate = null)
+    private readonly bool _scopeAnyPlayer;
+
+    public ContinuousPlayerScopeRestrictionEffect(CardSource card, HeadlessPlayerId scopePlayerId, string restrictionKey, string? scopeCardType, bool isInheritedEffect, Func<bool>? condition, Func<CardSource, bool>? scopePredicate = null, Func<CardSource, bool>? causingEffectPredicate = null, bool scopeAnyPlayer = false)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
@@ -879,6 +884,7 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
         Condition = condition;
         ScopePredicate = scopePredicate;
         CausingEffectPredicate = causingEffectPredicate;
+        _scopeAnyPlayer = scopeAnyPlayer;
     }
 
     public CardSource Card { get; }
@@ -904,6 +910,13 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
             [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = _scopePlayerId.Value,
             [RestrictionKey] = true,
         };
+        if (_scopeAnyPlayer)
+        {
+            // (#5) apply to ANY player's matching cards — the ScopePredicate decides (e.g. "the OPPONENT's
+            // Digimon", via p.OwnerId), mirroring the AS-IS playerCondition over the payer.
+            values[PlayerScopeContinuousHelpers.ScopeAnyPlayerKey] = true;
+        }
+
         if (!string.IsNullOrWhiteSpace(ScopeCardType))
         {
             values[PlayerScopeContinuousHelpers.ScopeCardTypeKey] = ScopeCardType;
@@ -2112,7 +2125,7 @@ public sealed class ActivatedSelectEffect : IActivatedCardEffect
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
         Description = description;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect, canEndNotMax, mode, card.InstanceId, card.Context);
         _select.SetUpCustomMessage(description);
     }
 
@@ -2157,7 +2170,7 @@ public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCar
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Card = card;
         Description = description;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, card.InstanceId);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, card.InstanceId, card.Context);
         _select.SetUpCustomMessage(description);
     }
 
@@ -2324,7 +2337,7 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect
     }
 
     private void Configure(bool canNoSelect) =>
-        _select.SetUp(Card.Owner, _canSuspendTarget, maxCount: SuspendCount, canNoSelect, canEndNotMax: false, SelectPermanentEffect.Mode.Tap, Card.InstanceId);
+        _select.SetUp(Card.Owner, _canSuspendTarget, maxCount: SuspendCount, canNoSelect, canEndNotMax: false, SelectPermanentEffect.Mode.Tap, Card.InstanceId, Card.Context);
 
     /// <summary>Whether the owner can pay this card's FULL play cost (without this reduction, which is only
     /// registered in <see cref="Apply"/>). When false, the suspend is mandatory.</summary>
@@ -2408,7 +2421,7 @@ public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect
         ChangeValue = changeValue;
         Duration = duration;
         Description = description;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId, card.Context);
         _select.SetUpCustomMessage(description);
     }
 
@@ -2719,7 +2732,7 @@ public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffec
         Description = description;
         _trashCount = trashCount;
         _fromBottom = fromBottom;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId, card.Context);
         _select.SetUpCustomMessage(description);
     }
 
@@ -4245,7 +4258,7 @@ public sealed class ActivatedTargetRestrictionEffect : IActivatedCardEffect
         _duration = duration;
         _cannotAttack = cannotAttack;
         _cannotBlock = cannotBlock;
-        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId);
+        _select.SetUp(card.Owner, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Custom, card.InstanceId, card.Context);
         _select.SetUpCustomMessage(description);
     }
 
@@ -4531,6 +4544,348 @@ public sealed class PlayThisCardToBattleEffect : IActivatedCardEffect
         throw new NotSupportedException($"Play-this-card effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(PRIM-W2 #10) AS-IS <c>PlaySelfDigimonAfterBattleSecurityEffect</c> — the [Security] activated
+/// effect. When it resolves (during the security check), it does NOT play immediately; instead it registers a
+/// one-shot <see cref="PlaySelfAtEndOfBattleTriggerEffect"/> that plays this card cost-free AT THE END OF THE
+/// BATTLE (AS-IS <c>card.Owner.UntilEndBattleEffects.Add(...)</c>), optionally scheduling a turn-end delete of
+/// the played Digimon (<paramref name="deleteTiming"/>: "own"/"opponent"/"each", or null = keep).</summary>
+public sealed class PlaySelfAtEndOfBattleSecurityEffect : IActivatedCardEffect
+{
+    private readonly string? _deleteTiming;
+
+    public PlaySelfAtEndOfBattleSecurityEffect(CardSource card, string? deleteTiming)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        Card = card;
+        _deleteTiming = deleteTiming;
+    }
+
+    public CardSource Card { get; }
+
+    public void Apply(MatchStateMutationSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        var trigger = new PlaySelfAtEndOfBattleTriggerEffect(Card, _deleteTiming);
+        Card.Context.EffectRegistry.Register(trigger.ToBinding(trigger.Definition.EffectId.Value));
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException("Play-at-end-of-battle security effect is resolved via the activation flow, not registered.");
+}
+
+/// <summary>(PRIM-W2 #10) The one-shot OnEndBattle trigger registered by
+/// <see cref="PlaySelfAtEndOfBattleSecurityEffect"/>: at the end of the current battle, play this card (from
+/// security / the executing area) cost-free, then — if a delete timing was requested — mark the played Digimon
+/// for a turn-end self-delete (the same marker <c>AddSelfDeleteEffect</c> uses). Removes its own binding on
+/// resolution so it fires exactly once.</summary>
+public sealed class PlaySelfAtEndOfBattleTriggerEffect : ICardEffect, IHeadlessCardEffect
+{
+    private readonly string? _deleteTiming;
+
+    public PlaySelfAtEndOfBattleTriggerEffect(CardSource card, string? deleteTiming)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        Card = card;
+        _deleteTiming = deleteTiming;
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:playAfterBattle"),
+            card.InstanceId, "Play this card without paying its memory cost.",
+            Headless.Effects.TriggerTimings.OnEndBattle, isOptional: false);
+    }
+
+    public CardSource Card { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Fire exactly once: drop this binding regardless of whether the play proceeds.
+        Card.Context.EffectRegistry.RemoveWhere(b => b.Request.EffectId == Definition.EffectId);
+
+        var zones = (IZoneStateReader)Card.Context.ZoneMover;
+        ChoiceZone? from = zones.GetCards(Card.Owner, ChoiceZone.Security).Contains(Card.InstanceId) ? ChoiceZone.Security
+            : zones.GetCards(Card.Owner, ChoiceZone.Execution).Contains(Card.InstanceId) ? ChoiceZone.Execution
+            : (ChoiceZone?)null;
+        if (from is null || !CardEffectCommons.CanPlayAsNewPermanent(Card, payCost: false, null))
+        {
+            return ValueTask.FromResult(EffectResult.Success("Card no longer available to play after battle."));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.PlayCardKind,
+            Card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value,
+                [MatchStateMutationSink.FromZoneKey] = from.Value.ToString(),
+            }));
+
+        if (_deleteTiming is not null &&
+            Card.Context.CardInstanceRepository.TryGetInstance(Card.InstanceId, out CardInstanceRecord? rec) && rec is not null)
+        {
+            Card.Context.CardInstanceRepository.Upsert(rec with
+            {
+                Metadata = new Dictionary<string, object?>(rec.Metadata, StringComparer.Ordinal)
+                {
+                    [Headless.Runtime.GameFlowProcessor.DeleteAtTurnEndKey] = _deleteTiming,
+                    [Headless.Runtime.GameFlowProcessor.DeleteAtTurnEndSourceKey] = Card.InstanceId.Value,
+                }
+            });
+        }
+
+        return ValueTask.FromResult(EffectResult.Success("Play this card at the end of the battle."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
+}
+
+/// <summary>(PRIM-W2 #9) AS-IS <c>Gain2MemoryOptionDelayEffect</c> — the [Main] &lt;Delay&gt; activation: TRASH
+/// this card's own battle-area permanent (the Delay option), and ONLY IF it was actually trashed, gain
+/// <see cref="Amount"/> memory. Mirrors AS-IS (DeletePeremanentAndProcessAccordingToResult(self) → successProcess
+/// AddMemory). Replaces the former stub that mapped it to an UNCONDITIONAL start-of-turn memory gain (wrong
+/// trigger AND no self-trash cost).</summary>
+public sealed class TrashSelfThenGainMemoryDelayEffect : IActivatedCardEffect
+{
+    public TrashSelfThenGainMemoryDelayEffect(CardSource card, int amount)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        Card = card;
+        Amount = amount;
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public async Task ResolveAsync(CancellationToken cancellationToken)
+    {
+        // AS-IS card.PermanentOfThisCard(): only a battle-area permanent (the placed Delay option) can be
+        // trashed to activate — no permanent means nothing trashed, hence no gain.
+        if (!((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, ChoiceZone.BattleArea).Contains(Card.InstanceId))
+        {
+            return;
+        }
+
+        var permanent = new Permanent(Card.Context, Card.InstanceId, Card.Owner);
+        await CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(
+            new[] { permanent },
+            Card,
+            successProcess: async _ =>
+            {
+                // The self-trash succeeded — gain the memory (turn-relative sign applied by the sink).
+                var sink = new MatchStateMutationSink(
+                    Card.Context.CardInstanceRepository, Card.Context.LogSink, Card.Context.ZoneMover,
+                    Card.Context.MemoryController, Card.Context.EffectRegistry, Card.Context.GameEventQueue, context: Card.Context);
+                sink.Apply(new EffectMutation(
+                    MatchStateMutationSink.AddMemoryKind, Card.InstanceId,
+                    new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+                await sink.FlushAsync().ConfigureAwait(false);
+            },
+            failureProcess: null,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException("Delay-option trash-self-then-gain effect is resolved via the activation flow, not registered.");
+}
+
+/// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotSelectBySkillEffect</c> / <c>Permanent.CanSelectBySkill</c>:
+/// a continuous effect that, when SCANNED over every field permanent's effects, forbids a candidate from being
+/// CHOSEN by a skill. Carries the AS-IS JOINT predicate <c>CanNotSelectBySkill(candidate, skillSource)</c> as a
+/// single runtime Func (NOT split into scope + causing) so a non-separable predicate is preserved, exactly like
+/// the original's <c>foreach permanent … effect.CanNotSelectBySkill(this, skill)</c> loop.</summary>
+public sealed class CanNotSelectBySkillEffect : ICardEffect
+{
+    public const string PredicateKey = "view.cannotSelectBySkillPredicate";
+
+    private readonly Func<CardSource, CardSource, bool> _predicate;
+    private readonly Func<bool>? _condition;
+
+    public CanNotSelectBySkillEffect(CardSource card, Func<CardSource, CardSource, bool> predicate, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(predicate);
+        Card = card;
+        _predicate = predicate;
+        _condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        if (_condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotBeRemovedEffect</c> / <c>Permanent.CanNotBeRemoved</c>:
+/// SCANNED over every field permanent's effects; while any usable one's predicate <c>CanNotBeRemoved(candidate)</c>
+/// holds, the candidate cannot leave the battle area except by deletion (EX6_044). AS-IS single-arg predicate.</summary>
+public sealed class CanNotBeRemovedEffect : ICardEffect
+{
+    public const string PredicateKey = "view.cannotBeRemovedPredicate";
+
+    private readonly Func<CardSource, bool> _predicate;
+    private readonly Func<bool>? _condition;
+
+    public CanNotBeRemovedEffect(CardSource card, Func<CardSource, bool> predicate, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(predicate);
+        Card = card;
+        _predicate = predicate;
+        _condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        if (_condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotMoveEffect</c> / <c>Permanent.CanMove</c>: SCANNED over every
+/// field permanent's effects; while any usable one's predicate <c>CanNotMove(candidate, causing)</c> holds, the
+/// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).</summary>
+public sealed class CanNotMoveEffect : ICardEffect
+{
+    public const string PredicateKey = "view.cannotMovePredicate";
+
+    private readonly Func<CardSource, CardSource?, bool> _predicate;
+    private readonly Func<bool>? _condition;
+
+    public CanNotMoveEffect(CardSource card, Func<CardSource, CardSource?, bool> predicate, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(predicate);
+        Card = card;
+        _predicate = predicate;
+        _condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        if (_condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(d-remediation, true-scan) AS-IS <c>ICannotIgnoreDigivolutionConditionEffect</c> /
+/// <c>Player.CanIgnoreDigivolutionRequirement</c>: SCANNED over every field permanent's effects; while any usable
+/// one's JOINT predicate <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c> holds, ignore-grants are
+/// negated (BT8_059). Carries the AS-IS predicate as a single runtime Func.</summary>
+public sealed class CannotIgnoreDigivolutionConditionEffect : ICardEffect
+{
+    public const string PredicateKey = "view.cannotIgnoreDigivolutionConditionPredicate";
+
+    private readonly Func<CardSource, CardSource, bool> _predicate;
+    private readonly Func<bool>? _condition;
+
+    public CannotIgnoreDigivolutionConditionEffect(CardSource card, Func<CardSource, CardSource, bool> predicate, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(predicate);
+        Card = card;
+        _predicate = predicate;
+        _condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        if (_condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(d-remediation) AS-IS <c>DontBattleSecurityDigimonClass</c> (<c>IDontBattleSecurityDigimonEffect</c>):
+/// an INTRINSIC marker a card returns at <see cref="EffectTiming.None"/> (e.g. EX4_013 "Ignore Battle") — when the
+/// card is revealed as a security Digimon, the attacker does NOT battle it. Not a registered continuous effect
+/// (the security card is not on the battle area); the security resolver dispatches the revealed card's own effects
+/// and consults this marker. Mirrors AS-IS <c>CanUse</c> (<paramref name="condition"/>) + <c>CardSourceCondition</c>
+/// (evaluated against the revealed card).</summary>
+public sealed class DontBattleSecurityDigimonEffect : ICardEffect
+{
+    private readonly Func<CardSource, bool> _cardSourceCondition;
+    private readonly Func<bool>? _condition;
+
+    public DontBattleSecurityDigimonEffect(CardSource card, Func<CardSource, bool> cardSourceCondition, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(cardSourceCondition);
+        Card = card;
+        _cardSourceCondition = cardSourceCondition;
+        _condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    /// <summary>True when the revealed security card should NOT battle the attacker.</summary>
+    public bool SkipsBattle(CardSource revealedCard) =>
+        (_condition is null || _condition()) && _cardSourceCondition(revealedCard);
+
+    public EffectBinding ToBinding(string effectId) =>
+        throw new NotSupportedException("DontBattleSecurityDigimon is an intrinsic security-check marker, not a registered effect.");
+}
+
 /// <summary>
 /// An activated "choose a Digimon digivolution card under one of your Digimon and play it as another Digimon
 /// without paying its cost" effect (e.g. ST2_15 [Main], the play-from-under flow). Candidates are the
@@ -4544,6 +4899,7 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
     private readonly string? _cardName;
     private readonly Func<CardSource, bool>? _canTarget;
     private readonly bool _isOptional;
+    private readonly bool _selfStackOnly;
 
     /// <summary>(K5) <paramref name="cardType"/> selects which under-cards are candidates ("Digimon" for the
     /// ST2_15-style play-from-under; "Tamer" for the MindLink play-back). <paramref name="cardName"/>
@@ -4552,10 +4908,13 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
     /// arbitrary predicate over the under-card (e.g. "own Digimon, Lv≤4, playable"); this flattens the AS-IS
     /// two-level "pick a permanent, then pick one of ITS matching under-cards" select into the outcome-equivalent
     /// single select over the same reachable under-card set. <paramref name="isOptional"/> = the AS-IS
-    /// canNoSelect:true ("you may").</summary>
+    /// canNoSelect:true ("you may"). <paramref name="selfStackOnly"/> = the AS-IS
+    /// <c>card.PermanentOfThisCard().DigivolutionCards</c> scope (only THIS card's own stack, e.g.
+    /// PlayMindLinkTamer / BT1_044 "under this card"), vs the default all-owner-Digimon 2-level scope
+    /// ("1 of your Digimon", ST2_15).</summary>
     public ActivatedPlayFromUnderEffect(
         CardSource card, string description, string cardType = "Digimon", string? cardName = null,
-        Func<CardSource, bool>? canTarget = null, bool isOptional = false)
+        Func<CardSource, bool>? canTarget = null, bool isOptional = false, bool selfStackOnly = false)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -4566,6 +4925,7 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         _cardName = cardName;
         _canTarget = canTarget;
         _isOptional = isOptional;
+        _selfStackOnly = selfStackOnly;
     }
 
     public CardSource Card { get; }
@@ -4614,6 +4974,13 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         foreach (HeadlessEntityId top in zones.GetCards(Card.Owner, ChoiceZone.BattleArea))
         {
             DigivolutionStack stack = DigivolutionStackReader.Read(Card.Context.CardInstanceRepository, Card.Context.CardRepository, top);
+            // (PlayMindLinkTamer / BT1_044) selfStackOnly = AS-IS card.PermanentOfThisCard(): restrict to the
+            // permanent whose stack THIS card belongs to (its own top or an under-card of it), not every owner Digimon.
+            if (_selfStackOnly && top != Card.InstanceId && !stack.UnderCards.Any(u => u.InstanceId == Card.InstanceId))
+            {
+                continue;
+            }
+
             foreach (StackedCard under in stack.UnderCards)
             {
                 if (IsCandidateCard(under.InstanceId))
@@ -4636,11 +5003,36 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
         return Card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
             && Card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
             && string.Equals(def.CardType, _cardType, StringComparison.OrdinalIgnoreCase)
-            && (_cardName is null || string.Equals(def.Name, _cardName, StringComparison.OrdinalIgnoreCase));
+            && (_cardName is null || string.Equals(def.Name, _cardName, StringComparison.OrdinalIgnoreCase))
+            // (AS-IS CanSelectCardCondition) the under-card must be playable as a new permanent (cost-free).
+            && CardEffectCommons.CanPlayAsNewPermanent(new CardSource(Card.Context, id, Card.Owner), payCost: false, null);
     }
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>1:1 mirror of AS-IS <c>CardEffectCommons.IgnoreRequirement</c> (CardEffectCommons.cs:11) — which
+/// part of a digivolution requirement a "digivolve into" effect waives: <c>None</c> enforces color AND level;
+/// <c>All</c> waives the whole requirement; <c>Level</c> waives level only (color still checked); <c>Color</c>
+/// waives color only (level still checked). Passed to the eligibility check (AS-IS CanPlayCardTargetFrame's
+/// <c>ignore:</c>).</summary>
+public enum IgnoreRequirement
+{
+    None,
+    All,
+    Level,
+    Color,
+}
+
+/// <summary>(#5) Which cost a <c>CannotReduceCost</c> immunity protects — the headless projection of the AS-IS
+/// <c>targetPermanentsCondition</c> (count&gt;=1 =&gt; a digivolution is happening, so only the DIGIVOLUTION cost;
+/// otherwise the PLAY cost). <c>Both</c> = the trivial-predicate case (protect either).</summary>
+public enum CostReductionScope
+{
+    Both,
+    Play,
+    Digivolve,
 }
 
 /// <summary>The follow-up applied to the reveal-selected card in <see cref="RevealSelectThenPlaySelectedEffect"/>.</summary>
@@ -4972,8 +5364,11 @@ public sealed class SelectDeDigivolveThenConditionalDestroyEffect : IActivatedCa
         // Predict the post-de-digivolve top (immediate under-source) BEFORE the move, then de-digivolve directly
         // (a flush boundary). under-cards are bottom→top, so removing N promotes under[Count - N].
         IReadOnlyList<CardSource> under = new Permanent(context, selectedId, targetOwner).DigivolutionCards;
-        int removed = await DeDigivolveHelpers.DeDigivolveAsync(
-            context.CardInstanceRepository, context.ZoneMover, selectedId, _count, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
+        // (b-remediation) AS-IS ImmuneFromDeDigivolve() — a target with a continuous de-digivolve immunity is skipped.
+        int removed = DeDigivolveHelpers.IsDeDigivolveImmune(context, selectedId)
+            ? 0
+            : await DeDigivolveHelpers.DeDigivolveAsync(
+                context.CardInstanceRepository, context.ZoneMover, selectedId, _count, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
         HeadlessEntityId newTopId = removed > 0 && removed <= under.Count ? under[under.Count - removed].InstanceId : selectedId;
 
         var postPermanent = new Permanent(context, newTopId, targetOwner);
@@ -5032,6 +5427,12 @@ public sealed class MassDeDigivolveThenConditionalDestroyEffect : IActivatedCard
         // their top ids change as this proceeds.
         foreach (HeadlessEntityId id in CardEffectCommons.MatchConditionPermanentIds(Card, _deDigivolveTarget))
         {
+            // (b-remediation) AS-IS ImmuneFromDeDigivolve() — skip a target with a continuous de-digivolve immunity.
+            if (DeDigivolveHelpers.IsDeDigivolveImmune(context, id))
+            {
+                continue;
+            }
+
             await DeDigivolveHelpers.DeDigivolveAsync(
                 context.CardInstanceRepository, context.ZoneMover, id, _count, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
         }
@@ -5698,17 +6099,20 @@ public static partial class CardEffectFactory
     public static ICardEffect CanNotAttackStaticEffect(HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
         new ContinuousPlayerScopeRestrictionEffect(card, scopePlayerId, RestrictionHelpers.CannotAttackKey, scopeCardType: null, isInheritedEffect, condition);
 
-    /// <summary>(PRIM-W3) <c>Gain1MemoryTamerOpponentDigimonEffect(card)</c> — "[Start of Your Turn] if your
-    /// opponent has a Digimon, gain 1 memory." (main-phase timing mapped to OnStartTurn).</summary>
+    /// <summary>(PRIM-W3) <c>Gain1MemoryTamerOpponentDigimonEffect(card)</c> — "[Start of Your Main Phase] if
+    /// your opponent has a Digimon, gain 1 memory." AS-IS description is <c>[Start of Your Main Phase]</c>, so it
+    /// registers at <see cref="EffectTiming.OnStartMainPhase"/> (emitted by MetadataActionProcessor at main-phase
+    /// entry) — NOT OnStartTurn, which fires earlier during unsuspend/draw.</summary>
     public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card) =>
-        new TriggeredGainMemoryEffect(card, EffectTiming.OnStartTurn, amount: 1,
-            "[Start of Your Turn] If your opponent has a Digimon, gain 1 memory.",
+        new TriggeredGainMemoryEffect(card, EffectTiming.OnStartMainPhase, amount: 1,
+            "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.",
             extraCondition: () => CardEffectCommons.MatchConditionPermanentCount(card, id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)) > 0);
 
-    /// <summary>(PRIM-W3) <c>Gain2MemoryOptionDelayEffect(card)</c> — a delayed "gain 2 memory" (resolves at
-    /// the next start of the owner's turn). The Option-delay timing is mapped to OnStartTurn.</summary>
+    /// <summary>(PRIM-W2 #9) AS-IS <c>Gain2MemoryOptionDelayEffect(card)</c> — a [Main] &lt;Delay&gt; option: TRASH
+    /// this card's own battle-area permanent to activate, and ONLY IF trashed, gain 2 memory. 1:1 via
+    /// <see cref="TrashSelfThenGainMemoryDelayEffect"/> (was wrongly an unconditional start-of-turn gain).</summary>
     public static ICardEffect Gain2MemoryOptionDelayEffect(CardSource card) =>
-        new TriggeredGainMemoryEffect(card, EffectTiming.OnStartTurn, amount: 2, "Gain 2 memory (delayed to the start of your turn).");
+        new TrashSelfThenGainMemoryDelayEffect(card, amount: 2);
 
     /// <summary>(PRIM-W3) <c>CanNotBeBlockedStaticSelfEffect</c> — this Digimon cannot be blocked (unblockable);
     /// consulted by BlockTiming when enumerating blocker candidates.</summary>
@@ -5725,9 +6129,16 @@ public static partial class CardEffectFactory
         new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotUnsuspendKey, isInheritedEffect, condition);
 
     /// <summary>(PRIM-W3) <c>CanNotBeDestroyedBySkillStaticEffect</c> — this Digimon cannot be deleted by
-    /// effects/skills (battle deletion still applies); consulted by the effect-sourced delete path.</summary>
-    public static ICardEffect CanNotBeDestroyedBySkillStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotBeDeletedBySkillKey, isInheritedEffect, condition);
+    /// effects/skills (battle deletion still applies); consulted by the effect-sourced delete path. Mirrors
+    /// AS-IS <c>CanNotBeDestroyedBySkillStaticEffect(permanentCondition, cardEffectCondition, …)</c>: immunity
+    /// applies only when BOTH the per-permanent predicate AND the CAUSING-effect predicate pass — the AS-IS
+    /// <c>Func&lt;ICardEffect,bool&gt;</c> maps to <paramref name="cardEffectCondition"/> over the causing effect's
+    /// SOURCE card (e.g. "can't be deleted by your OPPONENT's effects" = IsOpponentEffect). <paramref
+    /// name="permanentCondition"/> null → self restriction; non-null → player-scope over matching permanents.</summary>
+    public static ICardEffect CanNotBeDestroyedBySkillStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
+        permanentCondition is null
+            ? new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotBeDeletedBySkillKey, isInheritedEffect, condition, cardEffectCondition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, RestrictionHelpers.CannotBeDeletedBySkillKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), cardEffectCondition);
 
     /// <summary>(PRIM-W3) <c>ChangeSAttackStaticEffect</c> — continuous ±security attack on the owner's Digimon
     /// (player-scope SA modifier consulted by ContinuousModifierGate.ResolveSecurityAttack). Mirrors the SA
@@ -5818,19 +6229,40 @@ public static partial class CardEffectFactory
             : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.PreventDeletionKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
     /// <summary>(PRIM-W4) <c>ImmuneFromDPMinusStaticEffect</c> — this Digimon is immune to DP-reducing effects
-    /// (D-A3). Registers a continuous DpReduction/Immune replacement honoured by ContinuousDpGate.</summary>
-    public static ICardEffect ImmuneFromDPMinusStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+    /// (D-A3). Registers a continuous DpReduction/Immune replacement honoured by ContinuousDpGate. Mirrors AS-IS
+    /// <c>ImmuneFromDPMinus(permanent, cardEffect)</c>: immunity applies only when BOTH the per-permanent
+    /// predicate AND the CAUSING-effect predicate pass. <paramref name="cardEffectCondition"/> is the AS-IS
+    /// <c>Func&lt;ICardEffect,bool&gt;</c> mapped to the DP-reducing effect's SOURCE card (e.g. "immune to your
+    /// OPPONENT's DP-minus" = IsOpponentEffect); null → immune to ALL DP reductions. The predicate is evaluated
+    /// per DP-reducing modifier by ContinuousDpGate against that modifier's <c>SourceEntityId</c>.</summary>
+    public static ICardEffect ImmuneFromDPMinusStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, ReplacementHelpers.ImmuneFromDpMinusKey, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.ImmuneFromDpMinusKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+            ? new ContinuousSelfRestrictionEffect(card, ReplacementHelpers.ImmuneFromDpMinusKey, isInheritedEffect, condition, cardEffectCondition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.ImmuneFromDpMinusKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), cardEffectCondition);
 
-    /// <summary>(PRIM-P0 B.O.6) <c>CannotReduceCostClass</c> — the play/digivolution cost of this card (or, with
-    /// <paramref name="permanentCondition"/>, the owner's matching cards) cannot be reduced. Registers a
-    /// continuous CostReduction/Immune replacement honoured by ContinuousModifierGate.Resolve{Play,Digivolution}Cost.</summary>
-    public static ICardEffect CanNotReduceCostStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, ReplacementHelpers.ImmuneFromCostReductionKey, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, ReplacementHelpers.ImmuneFromCostReductionKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+    /// <summary>(PRIM-P0 B.O.6 / #5) <c>CannotReduceCostClass</c> — the play/digivolution cost of this card (or,
+    /// with <paramref name="permanentCondition"/>, the owner's matching cards) cannot be reduced. Registers a
+    /// continuous CostReduction/Immune restriction honoured by ContinuousModifierGate.Resolve{Play,Digivolution}Cost.
+    /// <paramref name="costKind"/> mirrors the AS-IS <c>targetPermanentsCondition</c>: <see cref="CostReductionScope.Digivolve"/>
+    /// (AS-IS count&gt;=1, e.g. BT5_021 "opponent can't reduce DIGIVOLUTION costs") protects ONLY the digivolution
+    /// cost — NOT the play cost; <see cref="CostReductionScope.Play"/> the reverse; <see cref="CostReductionScope.Both"/>
+    /// (default, trivial predicate) protects either.</summary>
+    public static ICardEffect CanNotReduceCostStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, CostReductionScope costKind = CostReductionScope.Both, bool scopeAnyPlayer = false)
+    {
+        string key = costKind switch
+        {
+            CostReductionScope.Play => ReplacementHelpers.ImmuneFromPlayCostReductionKey,
+            CostReductionScope.Digivolve => ReplacementHelpers.ImmuneFromDigivolutionCostReductionKey,
+            _ => ReplacementHelpers.ImmuneFromCostReductionKey,
+        };
+        // (#5) permanentCondition folds the AS-IS cardCondition (which card) AND playerCondition (the payer, via
+        // the permanent's OwnerId). scopeAnyPlayer:true lets it reach the OPPONENT's cards — e.g. BT5_021
+        // "your OPPONENT can't reduce DIGIVOLUTION costs" = permanentCondition p.OwnerId != card.Owner && IsDigimon,
+        // costKind Digivolve, scopeAnyPlayer true.
+        return permanentCondition is null
+            ? new ContinuousSelfRestrictionEffect(card, key, isInheritedEffect, condition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, key, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), scopeAnyPlayer: scopeAnyPlayer);
+    }
 
     /// <summary>(PRIM-P0 B.O.6) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/> cannot add cards to
     /// their security (AS-IS Player.CanAddSecurity). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
@@ -5911,6 +6343,100 @@ public static partial class CardEffectFactory
             ? new ContinuousSelfModifierEffect(card, ModifierHelpers.InvertSecurityAttackDeltaKey, changeValue, isInheritedEffect, condition)
             : new PlayerScopeModifierEffect(card, ModifierHelpers.InvertSecurityAttackDeltaKey, changeValue, scopeCardType: null, condition, scopeZone: null, scopePredicate: ScopePred(permanentCondition));
 
+    /// <summary>(b-remediation) <c>ImmuneFromDeDigivolveStaticEffect</c> — AS-IS <c>ImmuneFromDeDigivolveClass</c>
+    /// (<c>IImmuneFromDeDigivolveEffect</c>, consumed by <c>Permanent.ImmuneFromDeDigivolve()</c>): a continuous
+    /// "cannot be de-digivolved" restriction on self (or, with <paramref name="permanentCondition"/>, the owner's
+    /// matching Digimon). Previously the consumer (DeDigivolveKind) only read a metadata flag that NOTHING wrote,
+    /// so the immunity could not be granted. Registers the restriction under the shared
+    /// <see cref="HeadlessDCGO.Engine.Headless.Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey"/> so the sink's
+    /// de-digivolve handler skips an immune target.</summary>
+    public static ICardEffect ImmuneFromDeDigivolveStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        permanentCondition is null
+            ? new ContinuousSelfRestrictionEffect(card, HeadlessDCGO.Engine.Headless.Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey, isInheritedEffect, condition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, HeadlessDCGO.Engine.Headless.Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+
+    /// <summary>(d-remediation) <c>CanNotSelectBySkillStaticEffect</c> — AS-IS <c>ICanNotSelectBySkillEffect</c> /
+    /// <c>Permanent.CanSelectBySkill</c>: the protected permanent(s) cannot be CHOSEN as a target by a skill
+    /// effect (untargetability). <paramref name="permanentCondition"/> = AS-IS <c>CanNotSelectBySkill(candidate, …)</c>
+    /// = which candidates are protected (self when null). <paramref name="causingEffectPredicate"/> = the skill-side
+    /// gate ("cannot be chosen by your opponent's effects" ⇒ source-owner != owner). Registered candidate-scoped
+    /// (scopeAnyPlayer so it can protect ANY player's matching cards); consumed by
+    /// <see cref="HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect"/>.BuildRequest.</summary>
+    /// <summary>(true-scan) AS-IS <c>SetUpCanNotSelectBySkillClass(CanNotSelectBySkill)</c>: <paramref name="predicate"/>
+    /// is the joint AS-IS <c>CanNotSelectBySkill(candidate, skillSource)</c> — evaluated at select time by scanning
+    /// EVERY field effect (SelectPermanentEffect), not baked into a scope.</summary>
+    public static ICardEffect CanNotSelectBySkillStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null) =>
+        new CanNotSelectBySkillEffect(card, predicate, condition);
+
+    /// <summary>(d-remediation) <c>CanNotBeRemovedStaticEffect</c> — AS-IS <c>ICanNotBeRemovedEffect</c> /
+    /// <c>Permanent.CanNotBeRemoved</c>: the protected permanent(s) "can't leave the battle area except by a
+    /// deletion effect" (EX6_044/BT16_051). Registers a continuous restriction consumed at the sink's THREE return
+    /// chokepoints (bounce + deck-bounce top/bottom); deletion is NOT blocked. <paramref name="permanentCondition"/>
+    /// = AS-IS PermanentCondition (which permanents are protected; self when null), <paramref name="causingEffectPredicate"/>
+    /// = the effect-source gate ("except by YOUR OPPONENT's effects").</summary>
+    /// <summary>(true-scan) AS-IS <c>SetUpCanNotBeRemovedClass(PermanentCondition)</c>: <paramref name="predicate"/>
+    /// is the AS-IS <c>CanNotBeRemoved(candidate)</c>, evaluated by scanning EVERY field effect (in the sink's
+    /// return chokepoints). Blocks bounce + deck-bounce, NOT deletion.</summary>
+    public static ICardEffect CanNotBeRemovedStaticEffect(Func<CardSource, bool> predicate, CardSource card, Func<bool>? condition = null) =>
+        new CanNotBeRemovedEffect(card, predicate, condition);
+
+    /// <summary>(d-remediation) <c>CanNotMoveStaticEffect</c> — AS-IS <c>ICanNotMoveEffect</c> /
+    /// <c>Permanent.CanMove</c>: the protected permanent(s) cannot MOVE (breeding→battle promotion). Registers a
+    /// continuous restriction consulted by the legal-action dispatcher's move gate.</summary>
+    /// <summary>(true-scan) AS-IS <c>SetUpCanNotMoveClass(CanNotMove)</c>: <paramref name="predicate"/> is the AS-IS
+    /// <c>CanNotMove(candidate, causing)</c>, evaluated by scanning EVERY field effect in the move gate (causing is
+    /// null there, AS-IS <c>CanNotMove(TopCard, null)</c>).</summary>
+    public static ICardEffect CanNotMoveStaticEffect(Func<CardSource, CardSource?, bool> predicate, CardSource card, Func<bool>? condition = null) =>
+        new CanNotMoveEffect(card, predicate, condition);
+
+    /// <summary>(d-remediation) <c>DontHaveDPStaticEffect</c> — AS-IS <c>IDontHaveDPEffect</c> /
+    /// <c>Permanent.HasDP==false</c>: the protected permanent(s) are treated as having NO DP — AS-IS
+    /// <c>Permanent.DP</c> then returns -1, overriding the base DP and every DP modifier. Registers a continuous
+    /// restriction honoured at the top of <c>ContinuousDpGate.ResolveDp</c>.</summary>
+    public static ICardEffect DontHaveDPStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool scopeAnyPlayer = false) =>
+        permanentCondition is null
+            ? new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.DontHaveDpKey, isInheritedEffect, condition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, RestrictionHelpers.DontHaveDpKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), scopeAnyPlayer: scopeAnyPlayer);
+
+    /// <summary>(d-remediation) <c>DontBattleSecurityDigimonStaticEffect</c> — AS-IS <c>DontBattleSecurityDigimonClass</c>:
+    /// intrinsic "Ignore Battle" marker (EX4_013). Returned by the card at <see cref="EffectTiming.None"/>; the
+    /// security resolver consults it when the card is revealed as a security Digimon and skips the attacker battle.
+    /// <paramref name="cardSourceCondition"/> = AS-IS CardSourceCondition (usually <c>cs == card</c>).</summary>
+    public static ICardEffect DontBattleSecurityDigimonStaticEffect(Func<CardSource, bool> cardSourceCondition, CardSource card, Func<bool>? condition) =>
+        new DontBattleSecurityDigimonEffect(card, cardSourceCondition, condition);
+
+    /// <summary>(d-remediation) <c>CannotIgnoreDigivolutionConditionStaticEffect</c> — AS-IS
+    /// <c>ICannotIgnoreDigivolutionConditionEffect</c> / <c>Player.CanIgnoreDigivolutionRequirement</c>: while this
+    /// is active NO player may ignore digivolution requirements (BT8_059 "Players can't ignore digivolution
+    /// requirements") — it negates the ignore-level/ignore-colour grants. Registered board-wide (scopeAnyPlayer,
+    /// so the digivolve target is in scope); honoured by DigivolveAction's evolution-condition gate. Default
+    /// <paramref name="scopeAnyPlayer"/>:true mirrors the AS-IS global scan.</summary>
+    /// <summary>(true-scan) AS-IS <c>SetUpCannotIgnoreDigivolutionConditionClass</c>: <paramref name="predicate"/>
+    /// is the AS-IS joint <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c>, evaluated by scanning
+    /// EVERY field effect in DigivolveAction. BT8_059 uses <c>(_, _) =&gt; true</c> (global lock).</summary>
+    public static ICardEffect CannotIgnoreDigivolutionConditionStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null) =>
+        new CannotIgnoreDigivolutionConditionEffect(card, predicate, condition);
+
+    /// <summary>(d-remediation) <c>ChangeEndTurnMinMemoryStaticEffect</c> — AS-IS <c>IChangeEndTurnMinMemoryEffect</c>
+    /// / <c>AutoProcessing.TurnEndMinMemory</c>: SETS the memory the opponent must reach for the turn to auto-end
+    /// (default 1) to <paramref name="minMemory"/> (BT14_081/BT17_069 set it to 3, so the turn player keeps acting
+    /// until memory is -3). Registered self-scoped; the turn-pass gate scans the turn player's cards for the value.</summary>
+    public static ICardEffect ChangeEndTurnMinMemoryStaticEffect(int minMemory, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousSelfModifierEffect(card, ModifierHelpers.EndTurnMinMemoryKey, minMemory, isInheritedEffect, condition);
+
+    /// <summary>(d-remediation) <c>ChangeBaseCardNameStaticEffect</c> — AS-IS <c>ChangeBaseCardNameClass</c>: SETS
+    /// the target's original card name to <paramref name="newName"/> (BT14_097 "original name is [Sukamon]"),
+    /// REPLACING the printed name for all name matching (<c>CardSource.CardNames</c> / EqualsCardName). Grant on
+    /// the target permanent with a duration for a temporary change.</summary>
+    public static ICardEffect ChangeBaseCardNameStaticEffect(string newName, CardSource card, Func<bool>? condition = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+        var effect = new CardEffects.ChangeBaseCardNameClass();
+        effect.SetUpICardEffect("Change base card name", condition, card);
+        effect.SetUpChangeBaseCardNameClass((_, _) => new List<string> { newName });
+        return effect;
+    }
+
     /// <summary>(PRIM-W4) <c>CollisionStaticEffect</c> — grants Collision to the owner's Digimon (player-scope
     /// keyword). Grant live via HasKeyword; BlockTiming's hasCollision consumer migrates separately.</summary>
     public static ICardEffect CollisionStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -5938,9 +6464,11 @@ public static partial class CardEffectFactory
     public static ICardEffect TreatAsDigimonStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousPlayerScopeKeywordEffect(card, card.Owner, ContinuousKeywordGate.TreatAsDigimon, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
 
-    /// <summary>(PRIM-W4) <c>Gain1MemoryTamerOwnerDigimonConditionalEffect</c> — "[Start of Your Turn] if you
-    /// have a matching Digimon, gain 1 memory." The per-permanent predicate is captured in
-    /// <paramref name="condition"/> at porting time.</summary>
+    /// <summary>(PRIM-W4) <c>Gain1MemoryTamerOwnerDigimonConditionalEffect</c> — "[Start of Your Main Phase] if
+    /// you have a matching Digimon, gain 1 memory." The per-permanent predicate is captured in
+    /// <paramref name="condition"/> at porting time. Registers at <see cref="EffectTiming.OnStartMainPhase"/>
+    /// (AS-IS "[Start of Your Main Phase]" — both known cards BT23_081/BT23_083 return it under that timing),
+    /// NOT OnStartTurn.</summary>
     public static ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool>? permanentCondition, Func<bool>? condition, CardSource card)
     {
         // (FR2) The memory gain is CONDITIONAL on the owner controlling a Digimon matching permanentCondition
@@ -5948,8 +6476,8 @@ public static partial class CardEffectFactory
         Func<bool>? gate = permanentCondition is null
             ? condition
             : () => (condition is null || condition()) && OwnerControlsMatchingDigimon(card, permanentCondition);
-        return new TriggeredGainMemoryEffect(card, EffectTiming.OnStartTurn, amount: 1,
-            string.IsNullOrWhiteSpace(effectDescription) ? "[Start of Your Turn] Gain 1 memory." : effectDescription, extraCondition: gate);
+        return new TriggeredGainMemoryEffect(card, EffectTiming.OnStartMainPhase, amount: 1,
+            string.IsNullOrWhiteSpace(effectDescription) ? "[Start of Your Main Phase] Gain 1 memory." : effectDescription, extraCondition: gate);
     }
 
     /// <summary>(FR2) Whether <paramref name="card"/>'s owner controls at least one permanent in
@@ -5996,11 +6524,16 @@ public static partial class CardEffectFactory
             : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, RestrictionHelpers.CannotReturnToHandKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), cardEffectCondition);
 
     /// <summary>(PRIM-W4) <c>CannotReturnToDeckStaticEffect</c> — this Digimon cannot be returned to the deck
-    /// (self restriction consulted by the ReturnToDeck sink paths).</summary>
-    public static ICardEffect CannotReturnToDeckStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
+    /// (self restriction consulted by the ReturnToDeck sink paths). Mirrors AS-IS
+    /// <c>CannotReturnToDeckStaticEffect(permanentCondition, cardEffectCondition, …)</c>: the restriction fires
+    /// only when the returning effect's source matches <paramref name="cardEffectCondition"/> (AS-IS
+    /// <c>Func&lt;ICardEffect,bool&gt;</c> over the causing effect's source card; e.g. "can't be returned to the
+    /// deck by your OPPONENT's effects" = IsOpponentEffect). Null → unconditional. Read by the sink's
+    /// IsRestrictedFromCause, exactly like <see cref="CannotReturnToHandStaticEffect"/>.</summary>
+    public static ICardEffect CannotReturnToDeckStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
         permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotReturnToDeckKey, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, RestrictionHelpers.CannotReturnToDeckKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+            ? new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.CannotReturnToDeckKey, isInheritedEffect, condition, cardEffectCondition)
+            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, RestrictionHelpers.CannotReturnToDeckKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), cardEffectCondition);
 
     /// <summary>(PRIM-W4) <c>CanNotBeDestroyedByBattleStaticEffect</c> — this Digimon cannot be deleted in
     /// battle (effect deletion still applies). Registers a battle-only immunity flag read by
@@ -6028,15 +6561,18 @@ public static partial class CardEffectFactory
         new ReplaceBottomSecurityWithFaceUpEffect(card, "[Main] Add your top security card to the hand. Then, place this card face up as the top security card.", top: true);
 
     /// <summary>(PRIM-W4/K5) <c>PlayMindLinkTamerFromDigivolutionCards</c> — plays the Mind-Linked TAMER
-    /// under-card matching <paramref name="cardName"/> from a Digimon's digivolution stack onto the field
-    /// (cost-free). Candidates are TAMER under-cards (the previous Digimon-only reuse could never surface
-    /// the tamer), narrowed to the AS-IS card name.</summary>
+    /// under-card matching <paramref name="cardName"/> from THIS card's own digivolution stack onto the field
+    /// (cost-free). AS-IS 1:1: candidates are TAMER under-cards of <c>card.PermanentOfThisCard()</c> (own stack,
+    /// via <c>selfStackOnly</c> — NOT every owner Digimon), narrowed to the card name AND playable
+    /// (CanPlayAsNewPermanent, in the candidate filter); the select is OPTIONAL (AS-IS canNoSelect:true).</summary>
     public static IActivatedCardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription) =>
         new ActivatedPlayFromUnderEffect(
             card,
-            string.IsNullOrWhiteSpace(effectDescription) ? $"Play {cardName} from under a Digimon." : effectDescription,
+            string.IsNullOrWhiteSpace(effectDescription) ? $"Play {cardName} from under this Digimon." : effectDescription,
             cardType: "Tamer",
-            cardName: string.IsNullOrWhiteSpace(cardName) ? null : cardName);
+            cardName: string.IsNullOrWhiteSpace(cardName) ? null : cardName,
+            isOptional: true,
+            selfStackOnly: true);
 
     /// <summary>(PRIM-W4) <c>CanNotBeAttackedSelfStaticEffect</c> — this Digimon cannot be attacked (self
     /// CannotBeAttacked restriction consulted on the defender by AttackPermanentAction).</summary>
@@ -6056,12 +6592,24 @@ public static partial class CardEffectFactory
     public static ICardEffect PlaceSelfDelayOptionSecurityEffect(CardSource card) =>
         new PlayThisCardToBattleEffect(card, "[Security] Place this card in the battle area.");
 
-    /// <summary>(PRIM-W2) Original: <c>PlaySelfDigimonAfterBattleSecurityEffect(card, deleteDigimon)</c> —
-    /// "[Security] play this Digimon" (from security to the battle area). Reuses the play-this-card-to-battle
-    /// mechanism (<see cref="PlayThisCardToBattleEffect"/>). The "at end of battle" timing and the temporary
-    /// (<c>deleteDigimon</c>) lifetime are per-card refinements on the placed Digimon.</summary>
-    public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card) =>
-        new PlayThisCardToBattleEffect(card, "[Security] Play this Digimon (from security).");
+    /// <summary>(PRIM-W2 #10) AS-IS <c>PlaySelfDigimonAfterBattleSecurityEffect(card, deleteDigimon)</c> —
+    /// "[Security] AT THE END OF THE BATTLE, play this Digimon from security cost-free." Now 1:1: the [Security]
+    /// effect defers the play to <see cref="EffectTiming.OnEndBattle"/> (via
+    /// <see cref="PlaySelfAtEndOfBattleSecurityEffect"/>) rather than playing immediately. When
+    /// <paramref name="deleteDigimon"/> is not <see cref="EffectDuration.UntilEndBattle"/>, the played Digimon is
+    /// deleted at the matching turn end (UntilOwnerTurnEnd / UntilOpponentTurnEnd / UntilEachTurnEnd).</summary>
+    public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card, EffectDuration deleteDigimon = EffectDuration.UntilEndBattle) =>
+        new PlaySelfAtEndOfBattleSecurityEffect(card, DeleteTimingString(deleteDigimon));
+
+    /// <summary>Map the AS-IS <c>deleteDigimon</c> EffectDuration to the turn-end self-delete marker string the
+    /// end-turn cleanup sweep consumes (null = no delete, i.e. UntilEndBattle).</summary>
+    private static string? DeleteTimingString(EffectDuration deleteDigimon) => deleteDigimon switch
+    {
+        EffectDuration.UntilOwnerTurnEnd => "own",
+        EffectDuration.UntilOpponentTurnEnd => "opponent",
+        EffectDuration.UntilEachTurnEnd => "each",
+        _ => null,
+    };
 
     /// <summary>(PRIM-W2) Original: <c>LinkEffect(card, condition)</c> — the &lt;Link&gt; activation: attach
     /// this card to a chosen own Digimon, paying the link cost (read from the card's <c>linkCost</c> data).</summary>
@@ -7054,12 +7602,14 @@ public static class CardEffectCommons
     }
 
     /// <summary>AS-IS <c>PlacePermanentInSecurityAndProcessAccordingToResult</c> (CardEffectCommons.cs:644):
-    /// put the target permanent's TOP CARD into its owner's security (top/bottom); success = actually
-    /// placed. (The AS-IS CanAddSecurity guard folds here when the CannotAddSecurity restriction lands —
-    /// fidelity_debt K2 latent.)</summary>
+    /// put the target permanent's TOP CARD into its owner's security (top/bottom, face-up/down per
+    /// <paramref name="isFaceUp"/>), gated by the owner's <c>CanAddSecurity</c>; success = actually placed.
+    /// Routed through the sink's AddToSecurity mutation so BOTH the AS-IS <c>isFaceUp</c> flag AND the
+    /// CanAddSecurity restriction (previously bypassed by the direct ZoneMover call) are honoured, and a face-up
+    /// add opens the OnFaceUpSecurityIncreased window.</summary>
     public static async Task PlacePermanentInSecurityAndProcessAccordingToResult(
         Permanent? targetPermanent, bool toTop, CardSource sourceCard,
-        Func<CardSource, Task>? successProcess, Func<Task>? failureProcess)
+        Func<CardSource, Task>? successProcess, Func<Task>? failureProcess, bool isFaceUp = false)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
         EngineContext context = sourceCard.Context;
@@ -7070,7 +7620,23 @@ public static class CardEffectCommons
             zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BattleArea).Contains(targetPermanent.InstanceId))
         {
             HeadlessEntityId topId = targetPermanent.InstanceId;
-            await context.ZoneMover.AddToSecurityAsync(targetPermanent.OwnerId, topId, faceUp: false, toTop: toTop).ConfigureAwait(false);
+            var sink = NewSink(context);
+            var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = topId.Value,
+            };
+            if (isFaceUp)
+            {
+                values[MatchStateMutationSink.FaceUpKey] = true;
+            }
+
+            if (!toTop)
+            {
+                values[MatchStateMutationSink.ToBottomKey] = true;
+            }
+
+            sink.Apply(new EffectMutation(MatchStateMutationSink.AddToSecurityKind, sourceCard.InstanceId, values));
+            await sink.FlushAsync().ConfigureAwait(false);
             placed = zones.GetCards(targetPermanent.OwnerId, ChoiceZone.Security).Contains(topId);
             placedTop = new CardSource(context, topId, targetPermanent.OwnerId, targetPermanent.OwnerId);
         }
@@ -7136,6 +7702,9 @@ public static class CardEffectCommons
     }
 
     private static MatchStateMutationSink NewSink(EngineContext context) =>
+        // Passing `context` means an effect-driven play through this sink auto-registers the entered card's
+        // ported continuous/trigger effects (MatchStateMutationSink defaults its enter-play hook to
+        // context.RegisterEnteredCardEffects) — the AS-IS PlayCardClass.PlayCard() enter-play semantics.
         new(context.CardInstanceRepository, log: null, context.ZoneMover, memory: context.MemoryController,
             context.EffectRegistry, context.GameEventQueue, context: context);
 
@@ -8444,7 +9013,7 @@ public static class CardEffectCommons
         CardSource sourceCard,
         Func<Task>? successProcess,
         bool ignoreSelection = false,
-        bool ignoreRequirements = false,
+        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
         Func<Task>? failedProcess = null,
         bool isOptional = true,
         CancellationToken cancellationToken = default) =>
@@ -8465,7 +9034,7 @@ public static class CardEffectCommons
         Func<Task>? successProcess,
         Func<Task>? failedProcess,
         bool ignoreSelection,
-        bool ignoreRequirements,
+        IgnoreRequirement ignoreRequirements,
         bool isOptional,
         CancellationToken cancellationToken)
     {
@@ -8478,7 +9047,6 @@ public static class CardEffectCommons
             return;
         }
 
-        bool waiveRequirement = ignoreRequirements || ignoreDigivolutionRequirementFixedCost >= 0;
         HeadlessEntityId targetId = targetPermanent.InstanceId;
 
         bool CanSelect(HeadlessEntityId id)
@@ -8494,8 +9062,15 @@ public static class CardEffectCommons
                 return false;   // AS-IS !CanNotEvolve(targetPermanent)
             }
 
-            return waiveRequirement
-                || Headless.Runtime.DigivolveAction.TryGetEvolutionCost(context, id, targetId, out _, out _);
+            // (IgnoreRequirement) AS-IS passes the enum to CanPlayCardTargetFrame(ignore: …): None checks both
+            // color+level; Level waives level (color still enforced); Color waives color (level enforced); All
+            // waives the whole digivolution requirement. The fixed-cost path only changes the COST, not
+            // eligibility, so it is applied downstream — not here.
+            return ignoreRequirements == IgnoreRequirement.All
+                || Headless.Runtime.DigivolveAction.TryGetEvolutionCost(
+                    context, id, targetId, out _, out _,
+                    ignoreLevel: ignoreRequirements == IgnoreRequirement.Level,
+                    ignoreColor: ignoreRequirements == IgnoreRequirement.Color);
         }
 
         HeadlessEntityId selected = default;
@@ -8890,6 +9465,19 @@ public static class CardEffectCommons
             defMeta["traits"] = new[] { tokenData.Type };
         }
 
+        // (AS-IS ContinuousController.CreateTokenData) tokens carry their Form / Attribute too — e.g.
+        // Diaboromon (Mega / Unknown), Gyuukimon (Ultimate / Virus). Stored under the same "forms"/"attributes"
+        // metadata keys the card loader uses, so a form/attribute-querying effect sees the correct values.
+        if (tokenData.Form is not null)
+        {
+            defMeta["forms"] = new[] { tokenData.Form };
+        }
+
+        if (tokenData.Attribute is not null)
+        {
+            defMeta["attributes"] = new[] { tokenData.Attribute };
+        }
+
         if (context.CardRepository is Headless.DataLoading.CardDatabase database)
         {
             database.Upsert(new CardRecord(
@@ -9255,7 +9843,7 @@ public static class CardEffectCommons
         CardSource sourceCard,
         Func<Task>? successProcess,
         bool ignoreSelection = false,
-        bool ignoreRequirements = false,
+        IgnoreRequirement ignoreRequirements = IgnoreRequirement.None,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
@@ -9277,7 +9865,9 @@ public static class CardEffectCommons
     public static Task<int> ActivateMainOfOptionSide(CardSource card, CardSource sourceCard, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(card);
-        return ActivatedEffectResolver.ResolveAsync(card.Context, card.InstanceId, card.Owner, EffectTiming.OptionSkill, cancellationToken);
+        // (#13) AS-IS OptionMainEffect(card): re-run ONLY the [Main]-tagged OptionSkill effect, not every one.
+        return ActivatedEffectResolver.ResolveAsync(card.Context, card.InstanceId, card.Owner, EffectTiming.OptionSkill, cancellationToken,
+            effectFilter: ActivatedEffectResolver.IsMainOptionEffect);
     }
 
     /// <summary>AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> (DNADigivolveEffects.cs:256)
@@ -9389,7 +9979,8 @@ public static class CardEffectCommons
         Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard,
         string restrictionKey, string gainName,
         Func<Permanent, bool>? counterpartCondition = null,
-        Func<bool>? extraCondition = null)
+        Func<bool>? extraCondition = null,
+        Func<CardSource, bool>? causingEffectPredicate = null)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
         if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
@@ -9432,6 +10023,12 @@ public static class CardEffectCommons
                 ? RestrictionHelpers.DefenderPredicateKey       // FR-P3 pre-existing key for CannotAttack
                 : RestrictionHelpers.CounterpartPredicateKey;   // (W6-G) Block/BeAttacked/BeBlocked
             values[predicateKey] = counterpartPredicate;
+        }
+        if (causingEffectPredicate is not null)
+        {
+            // The restriction fires only when the CAUSING effect's source matches (AS-IS cardEffectCondition),
+            // read by the sink's IsRestrictedFromCause. Without it the restriction is unconditional.
+            values[RestrictionHelpers.CausingEffectPredicateKey] = causingEffectPredicate;
         }
 
         var effectContext = new EffectContext(
@@ -9666,43 +10263,56 @@ public static class CardEffectCommons
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand") =>
         GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotReturnToHandKey, "gainCanNotReturnToHand");
+            RestrictionHelpers.CannotReturnToHandKey, "gainCanNotReturnToHand",
+            causingEffectPredicate: cardEffectSourceCondition);
 
     /// <summary>AS-IS <c>GainCanNotReturnToDeck</c> (…/CanNoReturnToDeck.cs:10).</summary>
     public static bool GainCanNotReturnToDeck(
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck") =>
         GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotReturnToDeckKey, "gainCanNotReturnToDeck");
+            RestrictionHelpers.CannotReturnToDeckKey, "gainCanNotReturnToDeck",
+            causingEffectPredicate: cardEffectSourceCondition);
 
     /// <summary>AS-IS <c>GainCanNotReturnToHandPlayerEffect</c> (GiveEffectToPlayer/CanNotReturnToHand.cs:10).</summary>
     public static bool GainCanNotReturnToHandPlayerEffect(
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to hand") =>
         GainToPlayerScope(effectDuration, sourceCard, "gainCanNotReturnToHandPlayer", permanentCondition,
-            valueKey: RestrictionHelpers.CannotReturnToHandKey, value: true);
+            valueKey: RestrictionHelpers.CannotReturnToHandKey, value: true,
+            extraValues: CausingEffectValues(cardEffectSourceCondition));
 
     /// <summary>AS-IS <c>GainCanNotReturnToDeckPlayerEffect</c> (GiveEffectToPlayer/CanNoReturnToDeck.cs:10).</summary>
     public static bool GainCanNotReturnToDeckPlayerEffect(
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't return to deck") =>
         GainToPlayerScope(effectDuration, sourceCard, "gainCanNotReturnToDeckPlayer", permanentCondition,
-            valueKey: RestrictionHelpers.CannotReturnToDeckKey, value: true);
+            valueKey: RestrictionHelpers.CannotReturnToDeckKey, value: true,
+            extraValues: CausingEffectValues(cardEffectSourceCondition));
 
     /// <summary>AS-IS <c>GainImmuneFromDPMinus</c> (GiveEffectToPermanent/ImmuneFromDPMinus.cs:10):
-    /// this permanent ignores DP-minus effects for the duration.</summary>
+    /// this permanent ignores DP-minus effects for the duration (only from matching causing effects).</summary>
     public static bool GainImmuneFromDPMinus(
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus") =>
         GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            ReplacementHelpers.ImmuneFromDpMinusKey, "gainImmuneFromDpMinus");
+            ReplacementHelpers.ImmuneFromDpMinusKey, "gainImmuneFromDpMinus",
+            causingEffectPredicate: cardEffectSourceCondition);
 
     /// <summary>AS-IS <c>GainImmuneFromDPMinusPlayerEffect</c> (GiveEffectToPlayer/ImmuneFromDPMinus.cs:10).</summary>
     public static bool GainImmuneFromDPMinusPlayerEffect(
         Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Immune from DP minus") =>
         GainToPlayerScope(effectDuration, sourceCard, "gainImmuneFromDpMinusPlayer", permanentCondition,
-            valueKey: ReplacementHelpers.ImmuneFromDpMinusKey, value: true);
+            valueKey: ReplacementHelpers.ImmuneFromDpMinusKey, value: true,
+            extraValues: CausingEffectValues(cardEffectSourceCondition));
+
+    /// <summary>Wrap a causing-effect predicate as continuous-binding values (or null when absent), so a
+    /// player-scope grant carries the AS-IS <c>cardEffectCondition</c> the sink / DP gate evaluate.</summary>
+    private static IReadOnlyDictionary<string, object?>? CausingEffectValues(Func<CardSource, bool>? cardEffectSourceCondition) =>
+        cardEffectSourceCondition is null
+            ? null
+            : new Dictionary<string, object?>(StringComparer.Ordinal) { [RestrictionHelpers.CausingEffectPredicateKey] = cardEffectSourceCondition };
 
     /// <summary>AS-IS <c>GainCanNotBeDeletedByEffect</c> (GiveEffectToPermanent/CanNotBeDeletedByEffect.cs:10)
     /// — skill/effect-deletion immunity for the duration (the effect-delete gate's key).</summary>
@@ -9710,7 +10320,8 @@ public static class CardEffectCommons
         Permanent? targetPermanent, Func<CardSource, bool>? cardEffectSourceCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't be deleted by effects") =>
         GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotBeDeletedBySkillKey, "gainCanNotBeDeletedByEffect");
+            RestrictionHelpers.CannotBeDeletedBySkillKey, "gainCanNotBeDeletedByEffect",
+            causingEffectPredicate: cardEffectSourceCondition);
 
     /// <summary>AS-IS <c>ChangeDigimonSAttackPlayerEffect</c> (GiveEffectToPlayer/ChangeSAttack.cs:10).</summary>
     public static bool ChangeDigimonSAttackPlayerEffect(
@@ -11396,6 +12007,8 @@ public static class CardEffectRegistrar
         // (PRIM-P0-timing batch 3b) new emit sites (source-discard / attack-target-change).
         EffectTiming.OnDigivolutionCardDiscarded,
         EffectTiming.OnAttackTargetChanged,
+        // (c-remediation) digivolution cards returned to deck (AS-IS ReturnToLibraryBottomDigivolutionCardsClass).
+        EffectTiming.OnDigivolutionCardReturnToDeckBottom,
         // (PRIM-P0-timing batch 4) would-be-deleted window — registered so HasPreOption can find the effect.
         EffectTiming.WhenPermanentWouldBeDeleted,
     });
@@ -11417,6 +12030,14 @@ public static class CardEffectRegistrar
             return false;
         }
 
+        // (effect-play registration) A card can RE-enter play — played out from under its host (G9),
+        // replayed from trash (Fortitude/Decode/Partition), or de-digivolved back to the top — while stale
+        // self-sourced bindings from a prior stint on the field still linger in the registry (AS-IS has no
+        // registry: a permanent's EffectList is simply queried live, so re-entering yields exactly its current
+        // effects). Clear this instance's existing self-bindings first so registration is idempotent — removes 0
+        // for a first-time play, and prevents the duplicate-effect-id throw on re-entry. Grants sourced from
+        // OTHER instances (keyed by their own SourceEntityId) are untouched.
+        UnregisterCard(context, instanceId);
         RegisterOnEnterPlay(context, effect, def.CardNumber, new CardSource(context, instanceId, controller, instance.OwnerId));
         return true;
     }

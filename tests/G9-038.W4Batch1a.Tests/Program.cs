@@ -77,7 +77,7 @@ async Task ImmuneFromDpMinus()
     // A -3000 DP reduction from another source.
     context.EffectRegistry.Register(new ContinuousSelfModifierEffect(new CardSource(context, id, P1), ModifierHelpers.DpDeltaKey, -3000, false, null).ToBinding($"dp:{id.Value}"));
     AssertEqual(1000, ContinuousDpGate.ResolveDp(context, id, 4000), "reduction applies before immunity (4000-3000)");
-    context.EffectRegistry.Register(CardEffectFactory.ImmuneFromDPMinusStaticEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"imm:{id.Value}"));
+    context.EffectRegistry.Register(CardEffectFactory.ImmuneFromDPMinusStaticEffect(permanentCondition: null, cardEffectCondition: null, false, new CardSource(context, id, P1), null).ToBinding($"imm:{id.Value}"));
     AssertEqual(4000, ContinuousDpGate.ResolveDp(context, id, 4000), "DP reduction ignored under immunity");
 }
 
