@@ -70,10 +70,15 @@ public static class ContinuousDpGate
 
         // (M-5) Fold BASE-DP modifiers (AS-IS ChangeBaseDP / "origin DP is X") into the base first, THEN apply
         // current-DP modifiers on top — base-DP changes were previously registered but consumed by nothing.
-        int effectiveBase = ModifierHelpers.Evaluate(
-            new NumericModifierRequest(NumericModifierMetric.BaseDp, baseDp, modifiers, cardId)).FinalValue;
+        // (P0-DP-1) AS-IS clamps BaseDP to >=0 AFTER folding base-DP effects (Permanent.BaseDP getter:
+        // `if (BaseDP < 0) BaseDP = 0`) and clamps the final DP to >=0 (Permanent.DP getter: `if (DP < 0) DP = 0`).
+        // Both clamps are load-bearing: the intermediate BaseDP floor changes the value a later current-DP buff
+        // adds onto (base 1000, -3000 base-minus, +2000 buff => AS-IS clamp(-2000)=0, +2000 = 2000; not -2000+2000=0).
+        // The DontHaveDp (-1 NoDpValue) case returned earlier, so a 0-floor here never clobbers the no-DP sentinel.
+        int effectiveBase = Math.Max(0, ModifierHelpers.Evaluate(
+            new NumericModifierRequest(NumericModifierMetric.BaseDp, baseDp, modifiers, cardId)).FinalValue);
 
-        return ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue;
+        return Math.Max(0, ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue);
     }
 
     private static bool IsDpReduction(NumericModifier modifier) =>

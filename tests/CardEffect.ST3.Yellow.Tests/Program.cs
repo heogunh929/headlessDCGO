@@ -334,7 +334,8 @@ async Task DebuffOn(EngineContext context, CEntity_Effect card, EffectTiming tim
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is the candidate");
     effect.ApplyBuff(new[] { foe });
-    AssertEqual(8000 + delta, ContinuousDpGate.ResolveDp(context, foe, baseDp: 8000), $"DP {delta}");
+    // (P0-DP-1) AS-IS Permanent.DP clamps the resolved DP to >=0 (`if (DP < 0) DP = 0`), so a debuff below 0 floors at 0.
+    AssertEqual(Math.Max(0, 8000 + delta), ContinuousDpGate.ResolveDp(context, foe, baseDp: 8000), $"DP {delta}");
 }
 
 // --- Helpers -------------------------------------------------------------
