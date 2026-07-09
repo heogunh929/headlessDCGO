@@ -135,10 +135,20 @@ public static class ContinuousKeywordGate
         ArgumentNullException.ThrowIfNull(context);
         if (!cardId.IsEmpty &&
             context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) && instance is not null &&
-            context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null &&
-            definition.IsCardType("Digimon")) // (C7) dual-kind aware
+            context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null)
         {
-            return true;
+            // AS-IS Permanent.IsDigimon (Permanent.cs:3438): a face-down (flipped) card is NOT a Digimon.
+            if (instance.Metadata.TryGetValue("isFlipped", out object? flip) && flip is bool flipped && flipped)
+            {
+                return false;
+            }
+
+            // AS-IS: `IsDigimon || IsDigiEgg` — a Digi-Egg permanent IS a Digimon. (Egg-move is separately gated by
+            // the `IsDigiEgg && DP<=0` rule in the move gate, Permanent.cs:2069-2071 — NOT by making IsDigimon false.)
+            if (definition.IsCardType("Digimon") || definition.IsCardType("DigiEgg")) // (C7) dual-kind aware
+            {
+                return true;
+            }
         }
 
         return HasKeyword(context, cardId, TreatAsDigimon);

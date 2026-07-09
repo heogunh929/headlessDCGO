@@ -101,7 +101,7 @@
 
 **검증→cosmetic/결정점:**
 - P1-DV-3 (CanIgnore 역할): 로직 매핑 1:1(헤드리스 grant-flags↔AS-IS `ignore` 속성, IsDigivolveIgnoreBlocked↔AS-IS CanIgnore negation; P1-DV-2로 `grant && !negation` 일관화) → 네이밍만 cosmetic, 수정 불요.
-- **IsDigimon(IsDigiEgg) = 게임-규칙 결정점(사용자 판단 필요)**: AS-IS는 `IsDigimon(egg)=true` + `IsDigiEgg && DP<=0` 게이트(Permanent.cs:2069-2071) → DP>0 egg는 AS-IS서 이동 가능. 헤드리스는 `IsDigimon(egg)=false`로 의도적 GR-002(egg는 digivolve 전 이동 불가, 회귀 테스트 GR-002.BreedingMove) 구현. 실 egg는 DP<=0라 결과 동일하나 구조 발산 + DP>0 egg 정책 상충. AS-IS 1:1(egg 이동 허용)로 갈지 GR-002 유지(발산)할지 **정책 결정 필요**.
+- ★**IsDigimon(IsDigiEgg) — 사용자 결정: AS-IS 1:1 유지, 수정 완료.** `ContinuousKeywordGate.IsDigimon`을 AS-IS 구조로 복원: IsFlipped(메타 isFlipped)→false, `IsCardType("Digimon") || IsCardType("DigiEgg")`→true. egg-move 차단은 move-gate의 `IsDigiEgg && DP<=0` 게이트가 담당(AS-IS Permanent.cs:2069-2071). 실 egg는 DP<=0라 GR-002 유지, DP>0 egg는 AS-IS대로 이동 가능. 회귀 371.
 
 **검증→substrate 번역으로 판정(수정 불요, 로직 동일):**
 - CanNotBeAffected 3영역 flatten: AS-IS 3 루프는 Unity object-model(3 collection) 아티팩트, 헤드리스 레지스트리 단일 스캔이 그 substrate 번역(전 효과가 Scope 등록). off-field self 가드는 double-scan 방지용이라 레지스트리 모델 불필요.

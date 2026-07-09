@@ -119,8 +119,9 @@ public sealed class HeadlessLegalActionDispatcher
             return false;
         }
 
-        // IsDigimon: the top card must be a Digimon card (a Digi-Egg / Tamer / Option cannot move).
-        // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
+        // AS-IS Permanent.CanMove `if (!IsDigimon) return false;` (Permanent.cs:2068). IsDigimon is true for a
+        // Digimon OR a Digi-Egg (Permanent.cs:3448) — so an egg PASSES this guard; a Tamer/Option is blocked here.
+        // The egg's own move restriction is the DP<=0 rule below (1:1 with AS-IS's two-part guard).
         if (!definition.IsCardType("Digimon")
             && !ContinuousKeywordGate.IsDigimon(context, cardId))
         {
@@ -134,8 +135,9 @@ public sealed class HeadlessLegalActionDispatcher
             return false;
         }
 
-        // IsDigiEgg && DP <= 0: a Digi-Egg-typed card with no DP cannot move (defensive; redundant with the
-        // Digimon check under the single-CardType model, but faithful to the original two-part guard).
+        // AS-IS `if (TopCard.IsDigiEgg && DP <= 0) return false;` (Permanent.cs:2069-2071): a Digi-Egg with no DP
+        // cannot move. This is the actual egg-move block (IsDigimon is true for an egg, so the guard above lets it
+        // through) — a DP>0 egg CAN move, matching AS-IS.
         if (definition.IsCardType("DigiEgg") && ReadDp(context, instance, definition) <= 0)
         {
             return false;
