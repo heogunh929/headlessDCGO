@@ -226,6 +226,12 @@ public sealed class DigivolveAction
         metadata["stackDepth"] = stack.Depth;
         metadata["stackBaseDp"] = stack.BaseDp;
 
+        // (RD-1 / AS-IS CardController.cs:1526-1529) the digivolve is physically done — bump the per-turn
+        // digivolve counter and draw one card BEFORE the digivolve windows are opened (AS-IS: the isEvolution
+        // draw at :1526 precedes the OnEnterField/WhenDigivolving window stack at :1691, so the OnDraw window
+        // queues ahead of the digivolve windows).
+        await DigivolveCommons.OnDigivolveCompletedAsync(context, action.PlayerId, cancellationToken).ConfigureAwait(false);
+
         // W1: open the WhenDigivolving timing window for the card that just digivolved.
         // (W6 tail) oldLevel = the PRE-digivolve top's level (AS-IS OnEnterField "oldLevels").
         TriggerEventEmitter.Emit(
@@ -260,10 +266,6 @@ public sealed class DigivolveAction
 
         // LA-1: resolve the digivolved card's [When Digivolving] activated effects through the choice flow
         // (ActivatedEffectResolver has the full EngineContext / ChoiceProvider). No-op for cards without a
-        // (RD-1 / AS-IS CardController.cs:1526-1529) the digivolve is now physically done — bump the per-turn
-        // digivolve counter AND draw one card (before the WhenDigivolving window resolves).
-        await DigivolveCommons.OnDigivolveCompletedAsync(context, action.PlayerId, cancellationToken).ConfigureAwait(false);
-
         // ported WhenDigivolving activated effect. The interactive deferred path mirrors OptionActivateAction:
         // suspend the activation and report pending so the next ResolveChoice resumes it (no re-digivolve).
         try
