@@ -26,9 +26,10 @@ public static class OptionColorRequirement
             return true;
         }
 
-        // (1) AS-IS "ignore color requirement" effects — scanned over field permanents + players + itself for
-        // IIgnoreColorConditionEffect. Mirrored by the condition-aware applicable set carrying the
-        // IgnoreColorRequirementKey (the same key the digivolve color-ignore consumes).
+        // (1) AS-IS "ignore color requirement" effects (IIgnoreColorConditionEffect) — scanned over field
+        // permanents + players + ITSELF (CardSource.cs:263-303). Mirrored by the IgnoreColorRequirementKey (the
+        // same key the digivolve color-ignore consumes) across two source sets:
+        //   (1a) field/player-scope granted ignore-color that APPLIES to the option (registry-backed, condition-aware).
         foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, optionCardId))
         {
             if (effect.Context.Values.TryGetValue(DigivolveAction.IgnoreColorRequirementKey, out object? raw) && raw is true)
@@ -37,10 +38,26 @@ public static class OptionColorRequirement
             }
         }
 
-        // (2) every option color must appear on some owner field/breeding permanent's effective colors
-        // (AS-IS colorsToCheck = CardColors for an Option; permanent.TopCard.CardColors reflects color-change
-        // effects — mirrored by CardSource.CardColors' two-stage fold).
-        IReadOnlyList<string> optionColors = new CardSource(context, optionCardId, owner, owner).CardColors;
+        //   (1b) the option's OWN ignore-color effect — the option is in hand (unregistered), so its continuous
+        //   effects are dispatch-built (the same no-register build the face-up-security source scan uses) and
+        //   scanned, honouring each effect's condition gate (AS-IS CanUse).
+        foreach (EffectRequest effect in CardEffectRegistrar.BuildContinuousRequests(context, optionCardId, owner, ContinuousRestrictionGate.Scope))
+        {
+            if (effect.Context.Values.TryGetValue(DigivolveAction.IgnoreColorRequirementKey, out object? raw) && raw is true
+                && CardSource.EffectConditionPasses(effect))
+            {
+                return true;
+            }
+        }
+
+        // (2) every option color must appear on some owner field/breeding permanent's effective colors.
+        // (AS-IS colorsToCheck = IsDigimon ? DualCardColors : CardColors, CardSource.cs:307) — a DUAL card
+        // (Digimon+Option) played as an option uses its separate OptionCardColorRequirements list, not its
+        // printed Digimon colors; a pure option uses CardColors.
+        var optionSource = new CardSource(context, optionCardId, owner, owner);
+        IReadOnlyList<string> optionColors = IsDualCard(context, optionCardId)
+            ? optionSource.DualCardColors
+            : optionSource.CardColors;
         if (optionColors.Count == 0)
         {
             return true;   // a colorless option imposes no requirement
@@ -53,6 +70,14 @@ public static class OptionColorRequirement
             {
                 foreach (HeadlessEntityId permanentId in zones.GetCards(owner, zone))
                 {
+                    // (RD-2 latent-2 / AS-IS permanent.TopCard.IsPermanent, CardSource.cs:311 + CEntity_Base.cs:238)
+                    // only a Digimon / Tamer / DigiEgg supplies colors — a field Option (a delay-option permanent)
+                    // does NOT. A dual card (Digimon+Option) IS a permanent, so IsCardType reports it correctly.
+                    if (!IsColorSupplyingPermanent(context, permanentId))
+                    {
+                        continue;
+                    }
+
                     foreach (string color in new CardSource(context, permanentId, owner, owner).CardColors)
                     {
                         fieldColors.Add(color);
@@ -63,4 +88,24 @@ public static class OptionColorRequirement
 
         return optionColors.All(color => fieldColors.Contains(color));
     }
+
+    /// <summary>AS-IS <c>CardSource.IsPermanent</c> (CEntity_Base.cs:238): the card kind includes Digimon,
+    /// Tamer, OR DigiEgg (a dual card reports true for either of its kinds via <see cref="CardRecord.IsCardType"/>).</summary>
+    private static bool IsColorSupplyingPermanent(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
+            !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) || card is null)
+        {
+            return false;
+        }
+
+        return card.IsCardType("Digimon") || card.IsCardType("Tamer") || card.IsCardType("DigiEgg");
+    }
+
+    /// <summary>AS-IS <c>colorsToCheck = IsDigimon ? DualCardColors : CardColors</c> (CardSource.cs:307): a card
+    /// played as an option that is ALSO a Digimon (a dual card) checks its dual (option-requirement) colours.</summary>
+    private static bool IsDualCard(EngineContext context, HeadlessEntityId cardId) =>
+        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) && instance is not null &&
+        context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) && card is not null &&
+        card.IsCardType("Digimon");
 }

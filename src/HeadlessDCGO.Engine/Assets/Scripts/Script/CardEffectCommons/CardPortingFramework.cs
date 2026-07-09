@@ -260,6 +260,39 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(RD-2 latent-1 / AS-IS metadata key for a DUAL card's separate option colour requirement list —
+    /// <c>CEntity_Base.OptionCardColorRequirements</c>, CEntity_Base.cs:41.)</summary>
+    public const string OptionColorRequirementsKey = "optionColorRequirements";
+
+    /// <summary>(RD-2 latent-1) The card's BASE dual colours (mirror of <c>BaseDualCardColors</c>,
+    /// CardSource.cs:403-441): seeds from <see cref="OptionColorRequirementsKey"/> (a dual card's option-play
+    /// colour requirement, distinct from its printed Digimon colours) then folds every active
+    /// <see cref="CardEffects.ChangeBaseCardColorClass"/> effect — the same two-stage colour machinery as
+    /// <see cref="BaseCardColors"/>, seeded differently.</summary>
+    public IReadOnlyList<string> BaseDualCardColors
+    {
+        get
+        {
+            List<string> colors = ReadStrings(Definition?.Metadata, OptionColorRequirementsKey).ToList();
+            colors = FoldListTransforms(colors, CardEffects.ChangeBaseCardColorClass.ChangeBaseCardColorsKey);
+            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+
+    /// <summary>(RD-2 latent-1) The card's dual colours (mirror of <c>DualCardColors</c>, CardSource.cs:283-341):
+    /// <see cref="BaseDualCardColors"/> then every active <see cref="CardEffects.ChangeCardColorClass"/> effect.
+    /// AS-IS uses this (not <see cref="CardColors"/>) as the option colour requirement when the played card is a
+    /// Digimon (a dual Digimon+Option card).</summary>
+    public IReadOnlyList<string> DualCardColors
+    {
+        get
+        {
+            List<string> colors = BaseDualCardColors.ToList();
+            colors = FoldListTransforms(colors, CardEffects.ChangeCardColorClass.ChangeCardColorsKey);
+            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+
     /// <summary>(A3) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604): printed traits
     /// transformed by the card's OWN <see cref="CardEffects.ChangeTraitsClass"/> effects (AS-IS scans self
     /// only; no Distinct).</summary>
