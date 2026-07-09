@@ -79,6 +79,20 @@ public static class ContinuousDpGate
                 .ToArray();
         }
 
+        // (P1-DP-5) AS-IS folds the host's accumulated LinkedDP (from attached link cards) into DP between the
+        // isUpDown and NotIsUpDown groups (`DP += LinkedDP`, Permanent.cs:639). Inject it as a synthetic Dp Add
+        // whose ModifierOrder places it there; self-sourced positive add, not immunity/DP-minus filtered.
+        int linkedDp = context.CardInstanceRepository.TryGetInstance(cardId, out var linkHost) && linkHost is not null
+            ? LinkHelpers.ReadLinkedDp(linkHost.Metadata)
+            : 0;
+        if (linkedDp != 0)
+        {
+            modifiers = new List<NumericModifier>(modifiers)
+            {
+                NumericModifier.Add(ModifierHelpers.LinkedDpModifierId, NumericModifierMetric.Dp, linkedDp),
+            };
+        }
+
         // (M-5) Fold BASE-DP modifiers (AS-IS ChangeBaseDP / "origin DP is X") into the base first, THEN apply
         // current-DP modifiers on top — base-DP changes were previously registered but consumed by nothing.
         // (P0-DP-1) AS-IS clamps BaseDP to >=0 AFTER folding base-DP effects (Permanent.BaseDP getter:

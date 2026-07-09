@@ -80,9 +80,11 @@
 - ★P1-DP-4: `IsDpReduction`을 `BaseDp` 음수도 매칭 → base-DP-minus 면역(ImmuneFromDPMinus) 적용. AS-IS Permanent.cs:221-227.
 - ★P1-PG: `IsPlayerRestricted`에 CanUse(ConditionKey) 게이트 추가 — 조건부 add-제한이 조건 false여도 차단하던 것 교정.
 
-**미완(rule-sensitive/복잡/latent — 개별 신중 처리 필요):**
-- P1-DP-5 (LinkedDP/DPBoost 폴딩): Link 인프라 표현 여부 확인 선행 필요.
-- P1-DP-6 (IsDigimon IsDigiEgg→true + IsFlipped 가드): ★AS-IS 확인됐으나 move-gate가 DigiEgg move 적법성에 rule-sensitive — DCG 규칙 검증 필요.
+**추가 완료:**
+- ★P1-DP-5 (LinkedDP 폴딩): `ContinuousDpGate`가 host의 `linkedDp`(LinkHelpers)를 AS-IS 위치(isUpDown↔NotIsUpDown 사이, `ModifierHelpers.LinkedDpModifierId` 전용 order tier)로 주입. D1L 테스트에 폴딩(→5000)+set-덮어쓰기(→4000) 검증 추가. (DPBoost는 헤드리스 미표현 — 별도 feature.)
+- ★P1-DP-6 (IsDigimon IsDigiEgg) **검증 후 수정 안 함(의도적 정합)**: 헤드리스 move-gate(dispatcher:112, GR-002+회귀)가 "hatched Digi-Egg는 digivolve 전 move 불가"를 IsDigimon(DigiEgg)=false로 구현. AS-IS는 IsDigimon(DigiEgg)=true지만 CanMove의 별도 breeding-frame 가드(Permanent.cs:2055+)로 egg-move 차단 = **같은 결과, 다른 구조**. DigiEgg는 breeding 전용이라 attack/block/battle 미도달 → IsDigimon=false 무해. IsDigiEgg→true로 고치면 GR-002 회귀 위험 → **변경 금지**. IsFlipped 가드는 latent(face-down 카드가 IsDigimon 호출부에 미도달).
+
+**미완(복잡/latent — 개별 신중 처리 필요):**
 - P1-DV-1~4 (digivolve ignore-level 분기·added-path negation·CanIgnore 역할 반전·color 과결합): 상호 얽힌 4건, grant-scan vs negation-scan 역할 정리 필요.
 - P0-restr (printed player-scope cannot-block/attack immunity): AS-IS가 kind별로 CanNotBeAffected 체크 상이(Attack/Block/Return 체크, Move/Suspend 미체크) → blanket 추가 시 새 발산. per-kind 처리 필요.
 - P1-PG 잔여 (CanAddMemory ≥10 캡·IsSecurityLooking 재확인·PlayerScope 태그 요구), P1-IMM/BAT faceup 시큐리티 population: latent.

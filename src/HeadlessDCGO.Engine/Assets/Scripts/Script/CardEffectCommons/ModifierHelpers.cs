@@ -236,6 +236,9 @@ public static class ModifierHelpers
     // LinkSelfEffect cost) migrate to consult these separately — grant is live, behavior-consumer latent.
     public const string LinkedMaxDeltaKey = "linkedMaxDelta";
     public const string LinkCostDeltaKey = "linkCostDelta";
+    // (P1-DP-5) synthetic modifier id for the host's accumulated LinkedDP (AS-IS Permanent.LinkedDP), injected by
+    // ContinuousDpGate so it folds between the isUpDown and NotIsUpDown DP groups (see ModifierOrder).
+    public const string LinkedDpModifierId = "__linkedDp";
     public const string FixedDpKey = "fixedDp";
     public const string FixedBaseDpKey = "fixedBaseDp";
     public const string FixedSecurityAttackKey = "fixedSecurityAttack";
@@ -575,7 +578,15 @@ public static class ModifierHelpers
         // Set-first ordering (which matches Cost and the SAttack UpToConstant→UpDownValue tiering) for the rest.
         if (modifier.Metric is NumericModifierMetric.Dp or NumericModifierMetric.BaseDp)
         {
-            return modifier.Mode == NumericModifierMode.InvertDelta ? 3 : (modifier.IsUpDown ? 0 : 1);
+            // (P1-DP-5) AS-IS injects `DP += LinkedDP` BETWEEN the isUpDown group and the NotIsUpDown/Set group
+            // (Permanent.cs:639). A later "DP becomes X" set therefore overwrites the linked DP, so LinkedDP must
+            // sort strictly after isUpDown (0) and strictly before Set/notUpDown (2).
+            if (modifier.Id == LinkedDpModifierId)
+            {
+                return 1;
+            }
+
+            return modifier.Mode == NumericModifierMode.InvertDelta ? 4 : (modifier.IsUpDown ? 0 : 2);
         }
 
         return modifier.Mode switch
