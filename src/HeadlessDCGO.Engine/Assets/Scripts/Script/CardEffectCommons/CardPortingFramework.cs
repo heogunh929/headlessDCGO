@@ -3803,12 +3803,6 @@ public sealed class ContinuousImmunityEffect : ICardEffect
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (SkillCondition is null)
-        {
-            // Opponent-only immunity — the only form the context-less sink fallback can evaluate (owner comparison,
-            // no CardSource needed). The joint predicate below carries the full semantics for the context path.
-            values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.ImmunityFromOpponentOnlyKey] = true;
-        }
 
         // (joint-migration) canonical joint mirroring AS-IS CanNotAffectedClass.CanNotAffect(cardSource, cardEffect) =
         // CardCondition(target) && SkillCondition(cause): store ONE joint predicate f(target, cause) so a non-separable

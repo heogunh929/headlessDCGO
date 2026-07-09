@@ -448,6 +448,9 @@ public sealed class DigivolveAction
         bool ignoreBlocked = IsDigivolveIgnoreBlocked(context, payload.CardId, playerId, payload.TargetCardId, target.OwnerId);
         if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
             && (ignoreBlocked || !CanIgnoreDigivolutionRequirement(context, playerId, payload.CardId))
+            // The headless color-ignore is the negation-gated `ignore==Color && CanIgnoreDigivolutionRequirement`
+            // path (CardSource.cs:596): a CannotIgnoreDigivolutionCondition effect (BT8_059) negates it too — colour
+            // is part of the digivolution requirement. Verified by FAILd-06 (deliberate CannotIgnore feature test).
             && (ignoreBlocked || !(CanIgnoreColorRequirement(context, playerId, payload.CardId)
                 && MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard, ignoreColor: true)))
             && !MatchesAddedDigivolutionRequirement(context, payload.CardId, playerId, targetCard, payload.TargetCardId, target.OwnerId))
