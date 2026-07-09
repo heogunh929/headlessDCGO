@@ -2,6 +2,20 @@
 
 입력: `rule_deficiency_2026-07-09.md`(룰 결손 명세) · `fidelity_todo_2026-07-09.md`(TODO 113). 원칙: [[check-asis-before-implementing]](착수 시 AS-IS 지점 재확인 후 미러), [[result-equivalence-not-completion]](구조 1:1, substrate 번역만 허용), 게이트=green+동작단언+RuleAudit 0. 각 항목은 독립 커밋 단위로 설계했고, 단계 간 의존성은 §7에 집약.
 
+## ⚠️ 스코프 한계·이연 목록 (1~2단계 구현 완료분 기준, 2026-07-10)
+
+구현 중 의도적으로 **보류/부분 처리**한 항목. 각 이연은 근거·의존 선행조건·트리거(어느 카드/단계 착수 시 승격)를 명시. 전부 **현재 회귀·RuleAudit 무영향**(latent 또는 구조-등가)이나, 아래 조건 충족 시 반드시 상환.
+
+| # | 항목 | 상태 | 근거·선행조건 | 트리거(승격 시점) |
+|---|------|------|--------------|------------------|
+| L1 | **RD-1 효과-구동 free-digivolve 드로우** | 보류 | 헤드리스 reveal이 library를 peek만(RevealAndSelect:74) → 드로우가 아직-미이동 revealed 카드를 뽑는 발산(BT1_078 실증). AS-IS는 revealed 3장을 execution limbo로 빼낸 뒤 그 아래서 드로우 | Executing-존/reveal-제거 모델(TODO-68/83) 랜딩 시 |
+| L2 | **RD-3 버스트 재-진화 엣지** | 미확인 | AS-IS `AddTrashTopCardAtTurnEnd` **정의가 DCGO export에 없음**(호출부만). 버스트 후 같은 턴 재-진화 시 마커가 buried source로 밀리는 경우 처리 불명 | AS-IS 정의 확보 시 / 재-진화-후-버스트 카드 포팅 시 |
+| L3 | **RD-2 ICanNotPlayCardEffect 연속 스캔** | 이연 | "이 옵션 플레이 불가" 연속 제한 인프라 = 스켈레톤, producer 0. RD-2 핵심(색 요건)은 완료 | =TODO-49; CanNotPlay/PutField producer 카드 포팅 前 |
+| L4 | **RD-12 트리거 수집경로 collection-소모** | 부분 이연 | ActivatedEffectResolver 경로는 완료. 트리거 수집(GameFlowProcessor :488 TryActivate)의 declined-optional 과소모는 OptionalPromptQueue/창 흐름과 결합 | 5단계 WindowResolver(재진입 구조)서 자연 해소 |
+| L5 | **RD-13 트리거 경로 optional** | 설계상 분리 | OptionalPromptQueue 경로는 기존 유지(이중 질문 방지). 직접-해소 경로만 게이트 | 5단계서 창-루프로 통합 |
+
+**공통 원칙**: 위 이연은 [[strong-model-prebuild-latent-infra]] 기준으로 "해당 카드/단계 착수 前 강모델 선행 구축" 대상. 로컬 LLM에 맡기면 안 됨(엔진 내부 발산, silent-wrong 위험). "현재 무영향"은 skip 사유 아님([[no-callsite-not-skip-reason]]).
+
 ---
 
 ## 1단계 — 국소 룰 패치 (독립, 즉시)
