@@ -443,9 +443,16 @@ public sealed class GameFlowProcessor
         {
             var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
             var batch = new List<TimingWindowTrigger>();
-            var seen = new HashSet<HeadlessEntityId>();
-            foreach (GameEvent gameEvent in pendingEvents)
+            // (RD-11) AS-IS stacks a SEPARATE SkillInfo per driving event (AutoProcessing.cs:984-989), so a
+            // "when a Digimon is deleted" effect fires once PER deletion in a pass. Dedup by (EffectId, event)
+            // — the same effect matched twice for ONE event is still collapsed, but distinct events each fire it.
+            // (A once-per-turn cap, if any, then limits the total via OnceFlags — capped effects still fire once.)
+            // Keyed on the event's list position: emitted events can share Sequence=0, so position is the only
+            // reliable per-event identity here.
+            var seen = new HashSet<(HeadlessEntityId EffectId, int EventIndex)>();
+            for (int eventIndex = 0; eventIndex < pendingEvents.Count; eventIndex++)
             {
+                GameEvent gameEvent = pendingEvents[eventIndex];
                 if (gameEvent.Type == GameEventType.Unknown)
                 {
                     continue;
@@ -453,7 +460,7 @@ public sealed class GameFlowProcessor
 
                 foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
                 {
-                    if (!seen.Add(trigger.Request.EffectId))
+                    if (!seen.Add((trigger.Request.EffectId, eventIndex)))
                     {
                         continue;
                     }

@@ -473,11 +473,23 @@ public static class ActivatedEffectResolver
                         break;
                     }
 
-                    if (uniform.MaxCountPerTurn is int cap && !context.OnceFlags.TryActivate(resolveCtx.Request, cap))
+                    // (RD-12) capped-out effects are not offered — a NON-consuming check so the use is registered
+                    // only at execution below (AS-IS registers use in the effect's OnProcess, not at the gate).
+                    if (!context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
                     {
                         break;
                     }
 
+                    // (RD-13) an optional effect ("you may ...") asks the controller yes/no before it runs (AS-IS
+                    // OptionalSkill / Activate_Optional_Effect_Execute). Declining consumes no per-turn use and
+                    // does nothing — a non-interactive optional body was previously force-resolved.
+                    if (uniform.IsOptional && !await ConfirmOptionalAsync(context, uniform, cancellationToken).ConfigureAwait(false))
+                    {
+                        break;
+                    }
+
+                    // (RD-12) register the per-turn use NOW (after the optional yes), then run the body.
+                    context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
                     await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
                     resolved++;
                     break;
@@ -660,6 +672,28 @@ public static class ActivatedEffectResolver
         }
 
         return resolved;
+    }
+
+    /// <summary>(RD-13) Ask the effect's controller whether to use an OPTIONAL effect (AS-IS OptionalSkill
+    /// "Will you use ~?"). A single "use" candidate that the agent selects (yes) or skips (no) — the same
+    /// <see cref="ChoiceType.OptionalEffect"/> the trigger-window optional prompt uses.</summary>
+    private static async Task<bool> ConfirmOptionalAsync(EngineContext context, ActivatedEffect uniform, CancellationToken cancellationToken)
+    {
+        var request = new ChoiceRequest(
+            ChoiceType.OptionalEffect,
+            uniform.Card.Controller,
+            $"Use optional effect? {uniform.Description}",
+            minCount: 0,
+            maxCount: 1,
+            canSkip: true,
+            ChoiceZone.Custom,
+            new[]
+            {
+                new ChoiceCandidate(uniform.EffectId, uniform.Description, ChoiceZone.Custom, IsSelectable: true, ownerId: uniform.Card.Controller),
+            });
+
+        ChoiceResult decision = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+        return !decision.IsSkipped && decision.SelectedIds.Count > 0;
     }
 
     private static IReadOnlyList<HeadlessPlayerId> ResolvePlayers(EngineContext context, HeadlessPlayerId controller)

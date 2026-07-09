@@ -86,6 +86,16 @@ public sealed class EffectScheduler
                 });
         }
 
+        // (RD-10) A FIZZLE (resolution-time gate failed) is dequeued and skipped so it never wedges the queue
+        // (AS-IS skip/continue); a real Failure/Suspended is left at the head (parked for diagnostics / the
+        // agent's answer). Both report Resolved=false, so distinguish by the Skipped status.
+        if (result.IsSkipped)
+        {
+            _queue.TryDequeue(out _);
+            LastResolvedCount = 0;
+            return result;
+        }
+
         if (!result.Resolved)
         {
             LastResolvedCount = 0;
@@ -119,6 +129,13 @@ public sealed class EffectScheduler
         {
             EffectResult result = await ResolveNextAsync(cancellationToken).ConfigureAwait(false);
             results.Add(result);
+            // (RD-10) a Skipped effect was dequeued (fizzle) — keep draining the rest of the window. A real
+            // Failure/Suspended still stops the drain (parked at the head).
+            if (result.IsSkipped)
+            {
+                continue;
+            }
+
             if (!result.Resolved)
             {
                 break;

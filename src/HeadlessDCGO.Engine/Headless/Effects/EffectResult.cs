@@ -12,7 +12,13 @@ public enum EffectResolutionStatus
     Resolved,
     Unbound,
     Failed,
-    Suspended
+    Suspended,
+
+    /// <summary>(RD-10) The effect's resolution-time gate (CanResolve) failed — it FIZZLES. AS-IS
+    /// (MultipleSkills.cs:122-126) skips such an effect and CONTINUES the window; unlike <see cref="Failed"/>
+    /// (a real resolver error, which parks the queue for diagnostics) the scheduler DEQUEUES a skipped effect
+    /// and keeps draining, so a fizzle never wedges the effects behind it.</summary>
+    Skipped
 }
 
 public sealed record EffectResult
@@ -39,6 +45,9 @@ public sealed record EffectResult
 
     public bool IsSuspended => Status == EffectResolutionStatus.Suspended;
 
+    /// <summary>(RD-10) The effect fizzled at its resolution-time gate — dequeue and continue (AS-IS skip).</summary>
+    public bool IsSkipped => Status == EffectResolutionStatus.Skipped;
+
     public string? Message { get; }
 
     public IReadOnlyDictionary<string, object?> Values { get; }
@@ -55,6 +64,16 @@ public sealed record EffectResult
         IReadOnlyDictionary<string, object?>? values = null)
     {
         return new EffectResult(Resolved: false, message, values);
+    }
+
+    // (RD-10) Skipped: the effect's resolution-time gate (CanResolve) failed — it fizzles. Resolved=false so the
+    // scheduler does not count it as resolved, but the Skipped status tells the scheduler to DEQUEUE it and keep
+    // draining (AS-IS MultipleSkills.cs:122-126 skip/continue), so it never wedges the effects queued behind it.
+    public static EffectResult Skipped(
+        string? message = null,
+        IReadOnlyDictionary<string, object?>? values = null)
+    {
+        return new EffectResult(Resolved: false, message, values, EffectResolutionStatus.Skipped);
     }
 
     // Unbound: no effect body is wired yet. Resolved=true so the queue keeps draining, but the

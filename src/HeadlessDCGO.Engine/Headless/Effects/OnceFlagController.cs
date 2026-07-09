@@ -34,25 +34,46 @@ public sealed class OnceFlagController : IHeadlessMatchStateResettable
     public bool TryActivate(EffectRequest request, int? maxCountPerTurn)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!CanActivate(request, maxCountPerTurn))
+        {
+            return false;
+        }
+
+        Consume(request, maxCountPerTurn);
+        return true;
+    }
+
+    /// <summary>(RD-12/13) Whether the effect is still under its per-turn cap — WITHOUT consuming a use. Used to
+    /// gate an OPTIONAL effect's yes/no prompt (don't offer a capped-out effect) so the actual use is registered
+    /// only at execution (after the player accepts), mirroring AS-IS RegisterUseEffectThisTurn firing in the
+    /// effect's OnProcess callback, not at collection.</summary>
+    public bool CanActivate(EffectRequest request, int? maxCountPerTurn)
+    {
+        ArgumentNullException.ThrowIfNull(request);
         if (maxCountPerTurn is not int max)
         {
             return true;
         }
 
-        OnceFlagKey key = OnceFlagHelpers.ForRequest(request);
-        OnceFlagResult canUse = OnceFlagHelpers.CanUse(_state, key, max);
-        if (!canUse.IsSuccess || !canUse.CanUse)
+        OnceFlagResult canUse = OnceFlagHelpers.CanUse(_state, OnceFlagHelpers.ForRequest(request), max);
+        return canUse.IsSuccess && canUse.CanUse;
+    }
+
+    /// <summary>(RD-12/13) Register one use of the effect's per-turn cap (the AS-IS "register use" step). Call
+    /// only after the effect actually resolves (and, for an optional, after the player accepts).</summary>
+    public void Consume(EffectRequest request, int? maxCountPerTurn)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (maxCountPerTurn is not int max)
         {
-            return false;
+            return;
         }
 
-        OnceFlagResult registered = OnceFlagHelpers.RegisterUse(_state, key, max);
+        OnceFlagResult registered = OnceFlagHelpers.RegisterUse(_state, OnceFlagHelpers.ForRequest(request), max);
         if (registered.IsSuccess)
         {
             _state = registered.State;
         }
-
-        return true;
     }
 
     public void ResetMatchState() => _state = OnceFlagState.Empty;
