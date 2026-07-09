@@ -109,6 +109,17 @@
 - 공격 가드 순서: 순수 conjunction이라 순서 무영향(AND 피연산자 순서).
 - HasDP: DontHaveDp producer가 ContinuousSelf/PlayerScopeRestrictionEffect 경유라 조건/스코프 술어가 ApplicableEffects 스코프-필터로 적용(AS-IS DontHaveDP(this) 술어 동치). IsDigimon/DigiEgg 게이트는 배틀서 Digimon만 DP 해소해 moot.
 
+## #12 검증 결과 (2026-07-09) — 상당수 기각(감사자 overreach/死코드)
+검증으로 AS-IS 메커니즘 존재·도달성 확인 후 재분류:
+- **ignore-level-only 기각**: AS-IS엔 continuous IgnoreLevelConditionClass 없음(ignore-level은 IgnoreRequirement.Level=effect-driven only, 헤드리스 effect-path가 처리). 헤드리스 player-Validate에 ignore-level 없는 게 맞음(발명 방지 원복).
+- **CanSelectBySkill over-scope 기각**: player-scope CannotBeSelectedBySkill producer 전무 → RestrictionScan 과-스코프 비도달.
+- **DPBoost 기각**: AS-IS `AddBoost`/`new DPBoost` 호출 전무(死코드, Boosts 항상 빈 리스트) → 헤드리스 미표현이 충실.
+- **CanBlock 비대칭 → P0-restr로 수렴**: 헤드리스 printed cannot-block은 player-scope뿐(per-permanent 타깃 없음), AS-IS player-scan은 immunity 체크 → P0-restr와 동일 이슈.
+
+**남은 진짜(도달 가능/실 메커니즘):**
+- **P0-restr kind별 immunity**(printed player-scope cannot-attack/block × 면역 subject, producer 6196/6320 실재) — kind별 immunity 테이블 필요(attack/block/return/select/delete는 체크, suspend/move는 미체크). 도달 가능.
+- **PG ≥10 캡**(AS-IS Player.cs:1032, niche), **SAttack 3-tier**(UpToConstant 실재, niche), **ActivatedTime 순서**(niche), **faceup 시큐리티 population**(도달성 미검증), **Piercing-as-activated**(구조, 현재 동작 정상), **deletion 단일창**(latent 아키텍처).
+
 ## 잔여 latent-infra (미포팅 카드 의존 — 해당 카드 포팅 전 엔진에 구축 필요, 현재 동작 무영향)
 [[result-equivalence-not-completion]] 기준으로 로컬 포팅 전 구축 대상. 각 트리거 카드가 없어 현재 회귀엔 안 잡힘:
 - **DPBoost**: DP 부스트 토큰(Boosts) 카드 → Boosts 인프라
