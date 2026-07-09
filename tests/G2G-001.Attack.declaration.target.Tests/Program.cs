@@ -1,8 +1,10 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 var root = FindRepositoryRoot();
 HeadlessPlayerId Player = new(1);
@@ -157,11 +159,21 @@ async Task EnteredThisTurnAttackerHasNoCandidates()
 
 async Task CannotAttackPlayerStillAllowsDigimonTargets()
 {
-    DcgoMatch match = await CreateConfiguredMatchAsync(
-        attackerMetadata: new Dictionary<string, object?>
+    DcgoMatch match = await CreateConfiguredMatchAsync();
+    // (structure-1:1) AS-IS models "cannot attack the player" as an ICanNotAttackTargetDefendingPermanent effect
+    // that fires when Defender==null (Permanent.CanAttackTargetDigimon(null)) — NOT a bespoke metadata flag. Register
+    // it as a canonical CannotAttack restriction whose joint predicate restricts only the player (null counterpart).
+    var effectContext = new EffectContext(
+        Player, Player, new HeadlessEntityId("src:cannotAttackPlayer"),
+        triggerEntityId: null, targetEntityIds: new[] { AttackerId },
+        values: new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["cannotAttackPlayer"] = true
+            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
+                (Func<CardSource, CardSource?, bool>)((subject, counterpart) => subject.InstanceId == AttackerId && counterpart is null),
         });
+    match.Context.EffectRegistry.Register(new EffectBinding(
+        new EffectRequest(new HeadlessEntityId("fx:cannotAttackPlayer"), Player, "Continuous", effectContext),
+        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
 
     AttackDeclaration declaration = SingleDeclaration(match);
 
