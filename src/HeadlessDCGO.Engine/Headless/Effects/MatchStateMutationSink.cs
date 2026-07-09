@@ -384,6 +384,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // needs a bottom insert sets the "toBottom" flag on the mutation.
                 bool toTop = !ReadBool(mutation.Values, ToBottomKey);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, toTop, ct));
+                // (faceup security) persist the AS-IS SetFace/SetReverse face state so the continuous-source
+                // scan can find a face-up security card (Runtime.SecurityFaceState).
+                Runtime.SecurityFaceState.Stamp(_repository, targetId, faceUp);
                 // F-6.4: a face-up add raises the face-up security count — open that timing window.
                 if (faceUp)
                 {
@@ -568,7 +571,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         int count = ReadInt(mutation.Values, CountKey) ?? 1;
         bool faceUp = ReadBool(mutation.Values, FaceUpKey);
-        _pendingAsync.Add(ct => zoneMover.AddSecurityFromLibraryAsync(player, count, faceUp, ct));
+        _pendingAsync.Add(async ct =>
+        {
+            IReadOnlyList<HeadlessEntityId> moved = await zoneMover.AddSecurityFromLibraryAsync(player, count, faceUp, ct).ConfigureAwait(false);
+            // (faceup security) persist the face state on each recovered card (AS-IS SetFace/SetReverse).
+            foreach (HeadlessEntityId movedId in moved)
+            {
+                Runtime.SecurityFaceState.Stamp(_repository, movedId, faceUp);
+            }
+        });
         _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "recover"));
         if (faceUp)
         {

@@ -66,7 +66,7 @@
 - `CanBeDestroyed()` base pre-gate 2-tier → 단일 스캔 flatten.
 - 배틀 삭제-대체: AS-IS 단일패스 would-be-deleted 창 vs 헤드리스 라운드-루프(nested-coroutine 부재로 **불가피한 아키텍처 차이**). Retaliation 인라인.
 - 면역 per-add 게이트 vs RemoveAll; Piercing activated→bool; direct-attack "cannot attack player" 전용 플래그 split; CanBlock 면역 비대칭 flatten(masked); CanSelectBySkill이 player-scope까지 union(AS-IS는 permanent만); 공격 가드 순서 차이(합집합 동일).
-- Piercing 이름 변형 `"Pierce"`/`"Piercing"` 둘 다 커버하는지 확인 필요.
+- Piercing 이름 변형 `"Pierce"`/`"Piercing"` — **확인완료(2026-07-09)**: 헤드리스는 grant·read 모두 단일 정식명 `ContinuousKeywordGate.Piercing="Piercing"`로 정규화(KeywordBaseBatch1:339·PierceSelfEffect·PiercingStaticEffect). AS-IS의 dual-name은 effect-name("Pierce") vs keyword-name substrate 아티팩트로 `HasPierce`가 둘 다 수용하는 것; 헤드리스는 단일명 일관 사용이라 grant==read 매칭, 갭 없음. (Piercing-as-activated 기각과 함께 검증)
 
 ---
 
@@ -120,27 +120,35 @@
 - ★**DPBoost**: AS-IS Permanent.Boosts/AddBoost/RemoveBoost/DPBoost 메커니즘 존재(현재 미호출이나 구축 대상) → `DpBoostHelpers`(id→dp metadata, AS-IS upsert-by-ID) + ContinuousDpGate 말미 fold(NotIsUpDown 후, clamp 전). 테스트 DPB-DpBoostFold.
 - ★**P0-restr kind별 immunity**: printed player-scope cannot-attack/block(producer 6196/6320)에 immunity 항 embed — AS-IS immunity-체크 kind(Attack 2267/2290·Block 2194)에만(suspend/move는 미체크라 제외). 테스트 P0R-PrintedPlayerScopeImmunity(면역 subject exempt).
 
+**구축 완료(신규 세션 2026-07-09, 순차):**
+- ★**SAttack 3-tier**: AS-IS `Strike_AllowMinus`/`Strike`가 IChangeSAttackEffect를 isUpDown()→CalculateOrder 3-tier(UpToConstant→UpDownValue→DownToConstant, Permanent.cs:1872-1930)로 버킷·순차 fold; switch에 UpValue/DownValue case 부재 → 그 tier는 collected-but-never-applied(drop). LinkedMax도 동일 switch(Permanent.cs:975-1000). 헤드리스 NumericModifier는 bool isUpDown(DP/Cost용 2-group 축)만이라 3-tier 표현 불가였음 → `CalculateOrder` enum(AS-IS 미러) + NumericModifier.CalcOrder 필드(default UpDownValue) 추가, ModifierOrder를 SecurityAttack/LinkedMax metric에 대해 3-tier 라우팅 + Evaluate에 UpValue/DownValue drop 미러, 포팅층 세팅(ChangeSecurityAttack factory `calcOrder` 인자 + 구조 dict `calcOrder` 키). 모든 실 생산자는 UpDownValue(양 factory 하드코딩)라 additive에 behaviorally inert=회귀중립(374/374), latent 구조만 구축. 테스트 SA3-SAttack3Tier(8검, fold순서·drop·invert·구조dict).
+- ★**ActivatedTime 순서(continuous DP set 그룹)**: AS-IS는 DP NotIsUpDown/set 그룹만 `OrderBy(ActivatedTime)`(Permanent.cs:301/472) — 최신 활성 "DP becomes X"가 마지막 적용=승. static-DP 경로(`DpModifier.ActivatedOrder`/`DpCalculator`)는 이미 충실; **continuous 경로(`ModifierHelpers.Evaluate`, 타 카드 DP를 static base 위 fold)만 set을 Id 정렬**하는 갭이었음. `ActivatedTime`을 쓰는 4개 카드(BT25_104·BT3_014·ChangeOriginDP·TamerBecomes)는 전부 미포팅=latent. → NumericModifier에 `ActivationOrder`(long, default 0=MinValue analog) 추가, Evaluate/ReadModifiers 정렬에 `ActivationTieBreak`(DP/BaseDp tier-2=NotIsUpDown/set 그룹에만 ActivationOrder, 그 외 0=inert) 삽입 후 Id 최종 tie-break(AS-IS MinValue 동률 stable sort 미러), 포팅층 세팅(구조 dict `activatedOrder` 키 + fixedDp/fixedBaseDp 방출에 activatedOrder 반영). substrate 등록순 자동유도는 추측 회피 — 포팅층 명시 공급(기존 DpModifier 관례와 동형). default 0이라 회귀중립(375/375). 테스트 AT-ActivatedTimeSetDp(5검, later-wins·Id fallback·set-over-delta).
+- ★**faceup 시큐리티 continuous-source population**(사용자 결정 "AS-IS와 동일한 구조로"=균일). AS-IS는 faceup 시큐리티(`player.SecurityCards` !IsFlipped)를 필드 permanent와 나란히 ~9 getter서 균일 스캔하는 continuous-source. **(1) substrate 선행구축**: 헤드리스에 시큐리티 카드 영속 faceup 상태 부재였음 → `Runtime.SecurityFaceState`(instance metadata `securityFaceUp` 키, AS-IS SetFace/SetReverse 미러; absent=face-down=AS-IS 기본) + sink가 AddToSecurity/Recover(batch continuation)서 stamp; read는 zone(Security)-gate라 leave-cleanup 불요. **(2) population 스캔**: `CardEffectRegistrar.BuildContinuousRequests`(register 없이 EffectTiming.None non-activated continuous 요청만 빌드; 트리거 미발화=AS-IS 필드-only 스캔 미러) + `ContinuousScopeEvaluation`이 양 플레이어 faceup 시큐리티 소스를 열거해 candidate에 적용(card-targeted OR player-scope coarse-filter, 이후 기존 ScopePredicate/condition 필터 공유). AS-IS live per-access 스캔 미러=라이프사이클 무상태; faceup 없으면 early-out=회귀0(376/376). 모든 getter가 공유 `ContinuousScopeEvaluation` 경유라 DP·immunity·battle-deletion 균일. 테스트 SEC-FaceUpSecuritySource(10검, +DP fold·opponent-scope 제외·face-down/미stamp/zone-leave gate) + 픽스처 TfxSecurityDpBuff.
+
 **남은 구축 대상(AS-IS 메커니즘 존재 → 순차 구축, 각 focused):**
+- ~~**faceup 시큐리티 population**~~ ✅구축(위) — substrate(SecurityFaceState) 선행 + query-time enumeration, 균일 continuous-source
+- ~~**deletion 단일-동시 창**~~ ✅구축(아래)
 - **PG ≥10 캡 = 선행 인프라 blocked**: 헤드리스 memory 모델(`InMemoryHeadlessMemoryController`)이 clamp-only placeholder(파일 주석 "TODO: real memory handoff")라 per-player 관점(MemoryForPlayer) 부재 → ≥10 캡은 memory 서브시스템 완성 후 구축. (AS-IS Player.cs:1032 존재하나 placeholder 위 구축 불가.)
-- **SAttack 3-tier**: AS-IS `isUpDown()`이 CalculateOrder 5값(UpToConstant→UpDownValue→DownToConstant 3-tier 사용). 헤드리스 NumericModifier는 bool isUpDown만 → CalculateOrder 필드 추가 + 포팅층 세팅 필요(moderate 인프라). niche.
-- **ActivatedTime 순서**: NotIsUpDown 그룹을 활성시각순 정렬. 헤드리스는 Id-ordinal → 효과 등록 순번(monotonic seq) 추적 인프라 필요.
-- **faceup 시큐리티 population**: SecurityResolver의 시큐리티-battle서 공개 시큐리티 카드 자체 CanNotBeDestroyedByBattle 스캔 추가. moderate.
-- **Piercing-as-activated**: AS-IS는 OnDetermineDoSecurityCheck activated(EffectName "Pierce"), 헤드리스는 키워드 bool. 현재 동작은 정상(조건 일치), 구조만 상이.
-- **deletion 단일-동시 창**: AS-IS 전 loser 동시 would-be-deleted 창 vs 헤드리스 라운드루프(nested-coroutine 부재). 한 loser의 pending 상태 읽는 prevention 카드서만 발산. 아키텍처.
+
+**구축 완료(신규 세션 2026-07-09, 계속):**
+- ★**deletion 단일-동시 창**: AS-IS는 전 battle loser를 **하나의 `DestroyPermanentsClass(LoserPermanents, hashtable)`**(CardController.Battle:4705)로 동시 삭제 → 한 loser의 dying 효과 resolution 중 co-loser들이 아직 present(필드·바인딩 live). 헤드리스 `BattleResolver.FinalizeAsync`는 per-loser 인터리브 루프(window→cleanup→move)라 loser A를 완전 삭제(trash 이동+바인딩 drop) 후 B의 knock-out 창을 열어 **B 창서 A가 이미 소멸** = 동시성 발산. 감사는 "nested-coroutine 부재로 불가피"로 봤으나, `ResolveKnockOutWindowAsync`가 subject-scoped(자기 참가자 트리거만, 타 참가자 순서 무의존)라 **2-phase 재정렬**로 nested-coroutine 없이 미러: phase1=전 loser의 knock-out 창을 전원 필드-present·바인딩-intact 상태서 해소, phase2=전원 cleanup+trash 이동. 각 창은 여전히 어떤 cleanup보다 먼저(바인딩 drop 전) 해소돼 F-6.3/P1 불변 유지. 회귀중립(376/376, RuleAudit 20게임 상호파괴 포함 0위반·승패분포 동일). 발산 대상=tie 배틀서 co-loser의 pending/present 상태 읽는 dying 효과(latent).
+
+**검증→기각(감사 주장을 AS-IS로 검증한 결과 substrate 번역=재구축 불요):**
+- ★**Piercing-as-activated — 기각(검증된 substrate 번역)**. 감사자는 "AS-IS는 OnDetermineDoSecurityCheck activated(EffectName 'Pierce'), 헤드리스는 키워드 bool → 구조 발산"으로 봤으나, AS-IS Pierce의 유일한 resolution `PierceProcess()`(CardEffectCommons/KeyWordEffects/Pierce.cs)는 **`DoSecurityCheck=true` 하나뿐**(이벤트·상호작용·응답 surface 전무). 헤드리스 `ContinuousKeywordGate.HasKeyword(Piercing)`는 (a)레지스트리 키워드 바인딩 순회-스캔=AS-IS `EffectList(OnDetermineDoSecurityCheck)` Pierce 스캔과 동치 population, (b)`KeywordConditionPasses`=AS-IS CanUseCondition/CanTrigger condition, (c)`BattleResolver`가 won-battle(`attackerSurvives && defenderDeletedNow`)에 follow-up security check — activated의 resolution을 직접 수행. 스캔·condition·가드·결과 모두 동일, stacked-skill은 inert 플러밍 → [[result-equivalence-not-completion]]의 substrate 번역 허용조건 충족. Pierce를 stacked skill로 재구축 시 `DoSecurityCheck=true`로 해소되는 머신러리만 추가(over-engineering, 회귀위험, 행동차0). [[strong-model-prebuild-latent-infra]](강모델도 AS-IS 검증) — P1-DV-4와 동류.
 
 ## 잔여 latent-infra (미포팅 카드 의존 — 해당 카드 포팅 전 엔진에 구축 필요, 현재 동작 무영향)
 [[result-equivalence-not-completion]] 기준으로 로컬 포팅 전 구축 대상. 각 트리거 카드가 없어 현재 회귀엔 안 잡힘:
-- **DPBoost**: DP 부스트 토큰(Boosts) 카드 → Boosts 인프라
-- **SAttack 3-tier**: UpToConstant/UpDownValue/DownToConstant 다중 tier SAttack 카드 → CalculateOrder 3-way
-- **NotIsUpDown ActivatedTime 순서**: 활성시각-의존 set-DP 순서 카드 → ActivatedTime 추적
-- **faceup 시큐리티 삭제-면역 population**: 시큐리티 카드 자체 CanNotBeDestroyedByBattle 방출 카드
+- ~~**DPBoost**~~ ✅구축(위)
+- ~~**SAttack 3-tier**~~ ✅구축(위) — CalculateOrder 3-tier + LinkedMax 동일 라우팅, latent 구조 완비
+- ~~**NotIsUpDown ActivatedTime 순서**~~ ✅구축(위) — continuous DP set 그룹 ActivationOrder; 잔여=BT25_104 turn-start/location 앵커(포팅 시 explicit)
+- ~~**faceup 시큐리티 population**~~ ✅구축(위) — SecurityFaceState substrate + query-time enumeration(BuildContinuousRequests), ~9 getter 균일
 - **P0-restr kind별 immunity**: printed(정적) player-scope cannot-attack/block × 면역 subject
 - **CanBlock permanent-vs-player 면역 비대칭**: printed per-permanent(타 카드 타깃) cannot-block
 - **CanSelectBySkill permanent-only 스코프**: player-scope CannotBeSelectedBySkill 카드 (현재 producer 전무)
 - **ignore-level-only**: IgnoreLevelRequirementKey 그랜트 카드 (effect-path는 이미 처리)
 - **PG minors**: CanAddMemory ≥10 캡·IsSecurityLooking add-재확인·태그없는 permanent-effect형 CannotAddMem/Sec
-- **Piercing-as-activated**: 헤드리스는 키워드 bool, AS-IS는 OnDetermineDoSecurityCheck activated(EffectName "Pierce")
-- **deletion 단일-동시 창**: AS-IS는 전 loser 동시 창, 헤드리스는 라운드루프(nested-coroutine 부재) — 한 loser의 pending 상태 읽는 prevention 카드서만 발산
+- ~~**Piercing-as-activated**~~ **기각(검증된 substrate 번역, 위 참조)** — PierceProcess=DoSecurityCheck=true뿐, 헤드리스 키워드 게이트가 스캔·condition·결과 동일 미러; 재구축 불요
+- ~~**deletion 단일-동시 창**~~ ✅구축(위) — `FinalizeAsync` 2-phase 재정렬(전 knock-out 창 → 전 이동), co-loser 동시-present 미러
 
 ## 검증으로 기각된 감사 주장 (auditor overreach)
 - **P1-DV-4 (color-ignore가 negation에 과결합)** — **기각**. 감사자는 헤드리스 IgnoreColorRequirementKey를 AS-IS mechanism 2(IIgnoreColorConditionEffect, negation 무관)로 봤으나, 실제로는 mechanism 1(`ignore==Color && CanIgnoreDigivolutionRequirement`, CardSource.cs:596, **negation-gated**)에 대응. BT8_059(진화요구 무시불가)는 color도 negate하는 게 맞고, deliberate 테스트 FAILd-06가 이를 검증. negation 게이트 제거 시 FAILd-06 실패 → 원복. (감사 주장도 AS-IS+기존 deliberate 테스트로 검증 필요 사례.)

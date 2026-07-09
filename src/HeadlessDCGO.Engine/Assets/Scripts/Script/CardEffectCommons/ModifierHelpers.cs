@@ -24,6 +24,25 @@ public enum NumericModifierMode
     InvertDelta = 2,
 }
 
+/// <summary>
+/// Mirror of AS-IS <c>CalculateOrder</c> (ICardEffect.cs). AS-IS orders the "Change Security Attack" and
+/// "Change Link Max" effects into three tiers applied strictly in this sequence — UpToConstant, then
+/// UpDownValue, then DownToConstant (Permanent.cs:1872-1930 for SAttack, 975-1000 for LinkMax) — while the DP
+/// path uses a separate boolean isUpDown 2-group split (not this enum). Only the three tiers above are bucketed
+/// by the AS-IS switch; <see cref="UpValue"/>/<see cref="DownValue"/> have no switch case and are therefore
+/// collected-but-never-applied (dropped). Every current SAttack/LinkMax producer emits <see cref="UpDownValue"/>
+/// (both factories hardcode it), so this tiering is behaviourally inert for additive deltas today; it exists so
+/// a future non-additive (cap-style) port can set its tier and fold in the correct order.
+/// </summary>
+public enum CalculateOrder
+{
+    UpValue = 0,
+    DownValue = 1,
+    UpToConstant = 2,
+    UpDownValue = 3,
+    DownToConstant = 4,
+}
+
 public sealed record NumericModifier
 {
     public NumericModifier(
@@ -34,7 +53,9 @@ public sealed record NumericModifier
         bool isUpDown = true,
         HeadlessEntityId? targetEntityId = null,
         bool requiresAvailabilityCheck = false,
-        HeadlessEntityId? sourceEntityId = null)
+        HeadlessEntityId? sourceEntityId = null,
+        CalculateOrder calcOrder = CalculateOrder.UpDownValue,
+        long activationOrder = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         if (!Enum.IsDefined(metric))
@@ -45,6 +66,11 @@ public sealed record NumericModifier
         if (!Enum.IsDefined(mode))
         {
             throw new ArgumentOutOfRangeException(nameof(mode), "Modifier mode must be known.");
+        }
+
+        if (!Enum.IsDefined(calcOrder))
+        {
+            throw new ArgumentOutOfRangeException(nameof(calcOrder), "Modifier calc order must be known.");
         }
 
         if (targetEntityId is { IsEmpty: true })
@@ -60,6 +86,8 @@ public sealed record NumericModifier
         TargetEntityId = targetEntityId;
         RequiresAvailabilityCheck = requiresAvailabilityCheck;
         SourceEntityId = sourceEntityId;
+        CalcOrder = calcOrder;
+        ActivationOrder = activationOrder;
     }
 
     public string Id { get; }
@@ -81,15 +109,31 @@ public sealed record NumericModifier
     /// cardEffect)). Null for modifiers read off instance/card metadata (no distinct source effect).</summary>
     public HeadlessEntityId? SourceEntityId { get; init; }
 
+    /// <summary>AS-IS <c>isUpDown()</c>-&gt;<see cref="CalculateOrder"/> tier. Governs the fold order for the
+    /// SecurityAttack and LinkedMax metrics ONLY (their AS-IS 3-tier switch); ignored for DP/Cost metrics, which
+    /// order by the boolean <see cref="IsUpDown"/> / <see cref="Mode"/> instead. Defaults to the universal
+    /// producer value <see cref="CalculateOrder.UpDownValue"/>.</summary>
+    public CalculateOrder CalcOrder { get; init; }
+
+    /// <summary>AS-IS <c>ICardEffect.ActivatedTime</c> (default <c>DateTime.MinValue</c>) mapped to a deterministic
+    /// monotonic order. AS-IS applies the DP NotIsUpDown/"set" group in <c>OrderBy(ActivatedTime)</c> — the LATEST
+    /// activated "DP becomes X" wins (Permanent.cs:301/472). Consulted ONLY for the DP/BaseDp NotIsUpDown group
+    /// (the sole AS-IS ActivatedTime consumer); everywhere else the value is inert. Defaults to 0 (the MinValue
+    /// analog); an explicitly later-activated set-DP supplies a higher value to win. Same convention as
+    /// <see cref="HeadlessDCGO.Engine.Headless.State.DpModifier.ActivatedOrder"/> on the static-DP path.</summary>
+    public long ActivationOrder { get; init; }
+
     public static NumericModifier Add(
         string id,
         NumericModifierMetric metric,
         int value,
         HeadlessEntityId? targetEntityId = null,
         bool requiresAvailabilityCheck = false,
-        HeadlessEntityId? sourceEntityId = null)
+        HeadlessEntityId? sourceEntityId = null,
+        CalculateOrder calcOrder = CalculateOrder.UpDownValue,
+        long activationOrder = 0)
     {
-        return new NumericModifier(id, metric, value, targetEntityId: targetEntityId, requiresAvailabilityCheck: requiresAvailabilityCheck, sourceEntityId: sourceEntityId);
+        return new NumericModifier(id, metric, value, targetEntityId: targetEntityId, requiresAvailabilityCheck: requiresAvailabilityCheck, sourceEntityId: sourceEntityId, calcOrder: calcOrder, activationOrder: activationOrder);
     }
 
     public static NumericModifier Set(
@@ -225,6 +269,13 @@ public static class ModifierHelpers
     public const string ModifierValueKey = "value";
     public const string ModifierModeKey = "mode";
     public const string ModifierTargetEntityIdKey = "targetEntityId";
+    // (SAttack 3-tier) optional per-modifier CalculateOrder tier for SecurityAttack/LinkedMax structured
+    // modifiers. Absent → UpDownValue (the universal AS-IS producer value; both AS-IS factories hardcode it).
+    public const string ModifierCalcOrderKey = "calcOrder";
+    // (ActivatedTime) optional per-modifier AS-IS ActivatedTime analog (monotonic long). Consulted only for the
+    // DP NotIsUpDown/set group — the latest-activated "DP becomes X" wins. Absent → 0 (MinValue analog). Same
+    // key name as the static-DP path's DpModifier activatedOrder (MatchStateMutationSink.DpActivatedOrderKey).
+    public const string ModifierActivationOrderKey = "activatedOrder";
     public const string DpDeltaKey = "dpDelta";
     public const string BaseDpDeltaKey = "baseDpDelta";
     public const string PlayCostDeltaKey = PlayCostHelpers.PlayCostDeltaKey;
@@ -258,6 +309,7 @@ public static class ModifierHelpers
         NumericModifier[] modifiers = request.Modifiers
             .Where(modifier => modifier.Metric == request.Metric)
             .OrderBy(modifier => ModifierOrder(modifier))
+            .ThenBy(modifier => ActivationTieBreak(modifier))
             .ThenBy(modifier => modifier.Id, StringComparer.Ordinal)
             .ToArray();
 
@@ -273,6 +325,14 @@ public static class ModifierHelpers
         foreach (NumericModifier modifier in modifiers)
         {
             if (!CanApply(modifier, request))
+            {
+                skippedIds.Add(modifier.Id);
+                continue;
+            }
+
+            // (SAttack 3-tier) AS-IS's CalculateOrder switch has no UpValue/DownValue case for SAttack/LinkedMax,
+            // so such an effect is collected but never folded — mirror the drop.
+            if (IsDroppedByCalcOrder(modifier))
             {
                 skippedIds.Add(modifier.Id);
                 continue;
@@ -376,6 +436,7 @@ public static class ModifierHelpers
 
         return modifiers
             .OrderBy(ModifierOrder)
+            .ThenBy(ActivationTieBreak)
             .ThenBy(modifier => modifier.Id, StringComparer.Ordinal)
             .ToArray();
     }
@@ -496,14 +557,18 @@ public static class ModifierHelpers
             yield return NumericModifier.Add(IdFor(effectId, SAttackDeltaKey), NumericModifierMetric.SecurityAttack, sAttackDelta);
         }
 
+        // (ActivatedTime) a "DP becomes X" set can carry an activation order so the latest-activated set wins
+        // among several (AS-IS Permanent.cs:301/472 OrderBy(ActivatedTime)); absent → 0.
+        long setDpActivationOrder = TryReadLong(values, ModifierActivationOrderKey, out long parsedSetDpOrder) ? parsedSetDpOrder : 0;
+
         if (TryReadInt(values, FixedDpKey, out int fixedDp))
         {
-            yield return NumericModifier.Set(IdFor(effectId, FixedDpKey), NumericModifierMetric.Dp, fixedDp);
+            yield return NumericModifier.Set(IdFor(effectId, FixedDpKey), NumericModifierMetric.Dp, fixedDp) with { ActivationOrder = setDpActivationOrder };
         }
 
         if (TryReadInt(values, FixedBaseDpKey, out int fixedBaseDp))
         {
-            yield return NumericModifier.Set(IdFor(effectId, FixedBaseDpKey), NumericModifierMetric.BaseDp, fixedBaseDp);
+            yield return NumericModifier.Set(IdFor(effectId, FixedBaseDpKey), NumericModifierMetric.BaseDp, fixedBaseDp) with { ActivationOrder = setDpActivationOrder };
         }
 
         if (TryReadInt(values, FixedSecurityAttackKey, out int fixedSecurityAttack))
@@ -548,11 +613,15 @@ public static class ModifierHelpers
         HeadlessEntityId? targetEntityId = TryReadEntityId(values, ModifierTargetEntityIdKey, out HeadlessEntityId parsedTarget)
             ? parsedTarget
             : null;
+        CalculateOrder calcOrder = TryReadEnum(values, ModifierCalcOrderKey, CalculateOrder.UpDownValue, out CalculateOrder parsedCalcOrder)
+            ? parsedCalcOrder
+            : CalculateOrder.UpDownValue;
+        long activationOrder = TryReadLong(values, ModifierActivationOrderKey, out long parsedActivation) ? parsedActivation : 0;
         string id = TryReadString(values, "id", out string? parsedId)
             ? parsedId!
             : IdFor(effectId, $"{metric}-{mode}-{value.ToString(CultureInfo.InvariantCulture)}");
 
-        modifier = new NumericModifier(id, metric, value, mode, isUpDown, targetEntityId, requiresAvailability);
+        modifier = new NumericModifier(id, metric, value, mode, isUpDown, targetEntityId, requiresAvailability, calcOrder: calcOrder, activationOrder: activationOrder);
         return true;
     }
 
@@ -573,9 +642,10 @@ public static class ModifierHelpers
         // AS-IS orders each metric's "Change X" modifiers DIFFERENTLY (a single shared order cannot mirror all):
         //   - DP  (Permanent.DP / GetDP): isUpDown group FIRST, then NotIsUpDown/Set  (Permanent.cs:290,301).
         //   - Cost (CardSource cost):     NotIsUpDown/Set FIRST, then isUpDown         (CardSource.cs:848-852).
-        //   - SecurityAttack:             UpToConstant → UpDownValue → DownToConstant  (Permanent.cs:1900-1930).
+        //   - SecurityAttack / LinkedMax: UpToConstant → UpDownValue → DownToConstant  (Permanent.cs:1872-1930 /
+        //                                 975-1000) — the 3-tier CalculateOrder switch, NOT the boolean isUpDown.
         // (P0-DP-2) Only DP was reversed; scope the isUpDown-first ordering to the DP metrics and keep the
-        // Set-first ordering (which matches Cost and the SAttack UpToConstant→UpDownValue tiering) for the rest.
+        // Set-first ordering (which matches Cost) for play/digivolution cost.
         if (modifier.Metric is NumericModifierMetric.Dp or NumericModifierMetric.BaseDp)
         {
             // (P1-DP-5) AS-IS injects `DP += LinkedDP` BETWEEN the isUpDown group and the NotIsUpDown/Set group
@@ -589,6 +659,25 @@ public static class ModifierHelpers
             return modifier.Mode == NumericModifierMode.InvertDelta ? 4 : (modifier.IsUpDown ? 0 : 2);
         }
 
+        // (SAttack 3-tier) SecurityAttack and LinkedMax use the AS-IS CalculateOrder 3-tier switch. Invert
+        // modifiers are consumed globally (pre-summed invertValue) not applied positionally, so they sort last.
+        if (modifier.Metric is NumericModifierMetric.SecurityAttack or NumericModifierMetric.LinkedMax)
+        {
+            if (modifier.Mode == NumericModifierMode.InvertDelta)
+            {
+                return 9;
+            }
+
+            return modifier.CalcOrder switch
+            {
+                CalculateOrder.UpToConstant => 0,
+                CalculateOrder.UpDownValue => 1,
+                CalculateOrder.DownToConstant => 2,
+                // UpValue/DownValue have no AS-IS switch case (dropped in Evaluate); rank them last for a stable sort.
+                _ => 8,
+            };
+        }
+
         return modifier.Mode switch
         {
             NumericModifierMode.Set => 0,
@@ -596,6 +685,29 @@ public static class ModifierHelpers
             NumericModifierMode.InvertDelta => 3,
             _ => 9,
         };
+    }
+
+    /// <summary>(ActivatedTime) AS-IS orders ONLY the DP NotIsUpDown/"set" group by <c>ActivatedTime</c>
+    /// (Permanent.cs:301/472) — the isUpDown group, SAttack, LinkedMax and cost groups are NOT time-ordered. Return
+    /// the modifier's <see cref="NumericModifier.ActivationOrder"/> for exactly that group (DP/BaseDp at fold tier 2,
+    /// i.e. the NotIsUpDown/Set group), so the latest-activated "DP becomes X" is applied last (wins); 0 everywhere
+    /// else keeps the value inert. The final <c>ThenBy(Id)</c> is a deterministic tie-break for equal orders,
+    /// mirroring the AS-IS stable sort over equal (MinValue) timestamps.</summary>
+    private static long ActivationTieBreak(NumericModifier modifier)
+    {
+        return modifier.Metric is NumericModifierMetric.Dp or NumericModifierMetric.BaseDp && ModifierOrder(modifier) == 2
+            ? modifier.ActivationOrder
+            : 0;
+    }
+
+    /// <summary>(SAttack 3-tier) AS-IS buckets SecurityAttack/LinkedMax effects by the <see cref="CalculateOrder"/>
+    /// switch, which has cases ONLY for UpToConstant/UpDownValue/DownToConstant — an effect reporting UpValue or
+    /// DownValue is added to no tier list and thus collected-but-never-applied. Mirror that drop.</summary>
+    private static bool IsDroppedByCalcOrder(NumericModifier modifier)
+    {
+        return modifier.Metric is NumericModifierMetric.SecurityAttack or NumericModifierMetric.LinkedMax
+            && modifier.Mode != NumericModifierMode.InvertDelta
+            && modifier.CalcOrder is CalculateOrder.UpValue or CalculateOrder.DownValue;
     }
 
     private static IEnumerable<object?> FlattenObjects(object raw)
@@ -640,6 +752,33 @@ public static class ModifierHelpers
             string text when int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) => SetInt(parsed, out value),
             _ => false,
         };
+    }
+
+    private static bool TryReadLong(IReadOnlyDictionary<string, object?> values, string key, out long value)
+    {
+        value = 0;
+        if (!values.TryGetValue(key, out object? raw) || raw is null)
+        {
+            return false;
+        }
+
+        switch (raw)
+        {
+            case long longValue:
+                value = longValue;
+                return true;
+            case int intValue:
+                value = intValue;
+                return true;
+            case double doubleValue when doubleValue % 1 == 0:
+                value = (long)doubleValue;
+                return true;
+            case string text when long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed):
+                value = parsed;
+                return true;
+            default:
+                return false;
+        }
     }
 
     private static bool TryReadString(IReadOnlyDictionary<string, object?> values, string key, out string? value)
@@ -767,9 +906,13 @@ public static class ModifierHelperFactory
         return NumericModifier.Set(id, NumericModifierMetric.DigivolutionCost, value);
     }
 
-    public static NumericModifier ChangeSecurityAttack(string id, int value, HeadlessEntityId? targetEntityId = null)
+    public static NumericModifier ChangeSecurityAttack(
+        string id,
+        int value,
+        HeadlessEntityId? targetEntityId = null,
+        CalculateOrder calcOrder = CalculateOrder.UpDownValue)
     {
-        return NumericModifier.Add(id, NumericModifierMetric.SecurityAttack, value, targetEntityId);
+        return NumericModifier.Add(id, NumericModifierMetric.SecurityAttack, value, targetEntityId, calcOrder: calcOrder);
     }
 
     public static NumericModifier InvertSecurityAttack(string id, int value, HeadlessEntityId? targetEntityId = null)

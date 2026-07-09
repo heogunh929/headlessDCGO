@@ -61,9 +61,22 @@ public static class ContinuousScopeEvaluation
                 .Where(effect => DigivolveTargetPredicatePasses(context, effect, cardId, digivolveTargetPermanentId, owner))
                 .ToArray();
 
+        // (faceup security) AS-IS scans `player.SecurityCards where !IsFlipped` as a continuous-effect SOURCE
+        // population alongside the field permanents in every getter (DP / immunity / battle-deletion / …). Mirror
+        // that live per-access scan: fold each face-up security card's continuous effects that apply to this
+        // candidate (card-targeted at it, or player-scope owner+predicate matched), routed through the same
+        // predicate filters as registry player-scope effects. No-op (empty) when no face-up security exists.
+        IReadOnlyList<EffectRequest> faceUpSecurity = owner.IsEmpty
+            ? Array.Empty<EffectRequest>()
+            : CollectFaceUpSecuritySourced(context, scope, cardId, owner, card)
+                .Where(effect => PlayerScopePredicatePasses(context, effect, cardId, owner))
+                .Where(effect => DigivolveTargetPredicatePasses(context, effect, cardId, digivolveTargetPermanentId, owner))
+                .ToArray();
+
         return cardTargeted
             .Concat(inherited)
             .Concat(playerScoped)
+            .Concat(faceUpSecurity)
             .GroupBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .Select(group => group.First())
             .Where(effect => !EffectInvalidation.IsEffectsDisabled(context, effect.Context.SourceEntityId))
@@ -71,6 +84,97 @@ public static class ContinuousScopeEvaluation
             .Select(ResolveDynamicValue)
             .OrderBy(effect => effect.EffectId.Value, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    // (faceup security) The continuous effects sourced by BOTH players' face-up security cards that apply to the
+    // candidate: card-targeted at it, OR player-scope matched by the same coarse filter registry player-scope
+    // effects use (marker + owner/any-player + zone + card-type/meta condition). The ScopePredicate is refined by
+    // the caller's PlayerScopePredicatePasses, uniform with registry player-scope effects.
+    private static IReadOnlyList<EffectRequest> CollectFaceUpSecuritySourced(
+        EngineContext context, string scope, HeadlessEntityId candidateId, HeadlessPlayerId candidateOwner, CardRecord? candidateCard)
+    {
+        IReadOnlyList<HeadlessPlayerId> players = context.TurnController.Current.PlayerOrder;
+        if (players.Count == 0)
+        {
+            return Array.Empty<EffectRequest>();
+        }
+
+        var result = new List<EffectRequest>();
+        foreach (HeadlessPlayerId player in players)
+        {
+            foreach (HeadlessEntityId securityId in SecurityFaceState.FaceUpSecurityCards(context, player))
+            {
+                if (securityId == candidateId)
+                {
+                    continue;   // a source never scans itself as its own target
+                }
+
+                foreach (EffectRequest request in CardEffectRegistrar.BuildContinuousRequests(context, securityId, player, scope))
+                {
+                    if (request.Context.TargetEntityIds.Contains(candidateId))
+                    {
+                        result.Add(request);   // explicitly targets the candidate
+                        continue;
+                    }
+
+                    IReadOnlyDictionary<string, object?> values = request.Context.Values;
+                    if (!values.TryGetValue(PlayerScopeContinuousHelpers.PlayerScopeKey, out object? ps) || ps is not true)
+                    {
+                        continue;   // self/other card-targeted at a non-candidate — not applicable here
+                    }
+
+                    // Mirror PlayerScopeContinuousHelpers.CollectApplicable's coarse owner/zone/condition filter.
+                    bool anyPlayer = values.TryGetValue(PlayerScopeContinuousHelpers.ScopeAnyPlayerKey, out object? ap) && ap is true;
+                    if (!anyPlayer)
+                    {
+                        if (!TryScopePlayer(values, out HeadlessPlayerId scopePlayer) || scopePlayer != candidateOwner)
+                        {
+                            continue;
+                        }
+                    }
+
+                    if (values.TryGetValue(PlayerScopeContinuousHelpers.ScopeZoneKey, out object? zoneRaw) && zoneRaw is string scopeZone
+                        && !string.Equals(scopeZone, ResolveZoneName(context, candidateOwner, candidateId), StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (PlayerScopeContinuousHelpers.ConditionMatches(values, candidateCard))
+                    {
+                        result.Add(request);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static bool TryScopePlayer(IReadOnlyDictionary<string, object?> values, out HeadlessPlayerId playerId)
+    {
+        playerId = default;
+        if (!values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? raw) || raw is null)
+        {
+            return false;
+        }
+
+        switch (raw)
+        {
+            case HeadlessPlayerId typed:
+                playerId = typed;
+                return !typed.IsEmpty;
+            case int i:
+                playerId = new HeadlessPlayerId(i);
+                return true;
+            case long l:
+                playerId = new HeadlessPlayerId((int)l);
+                return true;
+            case string s when int.TryParse(s, out int parsed):
+                playerId = new HeadlessPlayerId(parsed);
+                return true;
+            default:
+                return false;
+        }
     }
 
     // The zones a player-scope effect can scope to (battle-area buffs and security-Digimon buffs). Returns
