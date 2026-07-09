@@ -276,7 +276,10 @@ public sealed class HeadlessCardEffectResolver
 
         if (!check.CanResolve)
         {
-            return EffectResult.Failure(
+            // (RD-10) a resolution-time gate failure is a FIZZLE, not an error — AS-IS skips it and continues
+            // the window (MultipleSkills.cs:122-126). Report Skipped so the scheduler dequeues it and keeps
+            // draining, instead of wedging the queue on a permanently-unresolvable head.
+            return EffectResult.Skipped(
                 check.Message ?? "Card effect cannot resolve.",
                 MergeValues(effect, check.Values));
         }

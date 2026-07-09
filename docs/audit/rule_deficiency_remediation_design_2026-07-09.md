@@ -60,7 +60,9 @@ public static bool Matches(EngineContext ctx, HeadlessPlayerId owner, CardRecord
 
 ---
 
-## 2단계 — 트리거 hotfix (창-루프 재설계 前 선행 가능)
+## 2단계 — 트리거 hotfix (창-루프 재설계 前 선행 가능) — ✅완료(RD-10/11/12/13, 2026-07-10)
+
+**요약**: RD-10(fizzle=Skipped dequeue)·RD-11(이벤트별 dedupe)·RD-13(optional yes/no 게이트) 완전 구현. RD-12는 ActivatedEffectResolver 경로 완전 구현(cap을 CanActivate 비소모 체크→optional yes/no→수락 시 Consume), **트리거 수집 경로(:488)의 collection-소모는 OptionalPromptQueue/창 흐름 결합이라 5단계로 이연**. 회귀 383/383·RuleAudit 0. 신규 테스트 RD10/RD11/RD13(+RD-12 동일 테스트) + 픽스처 TfxOnDeleteGainMemory·TfxOptionalMemory.
 
 ### D-RD10. fizzle = skip (wedge 제거)
 - `EffectScheduler.ResolveNextAsync`: 결과 분류 3종으로 — ①`Resolved` → dequeue ②**`GateFailed`(CanResolve-실패)** → **dequeue + skip 기록**(AS-IS MultipleSkills.cs:122-126 continue 미러) ③`Error`(리졸버 예외/불변 위반) → 현행 유지(비-dequeue, 진단 보존).
@@ -72,16 +74,15 @@ public static bool Matches(EngineContext ctx, HeadlessPlayerId owner, CardRecord
 - once-cap과의 상호작용: 캡 소비는 RD-12에 따라 실행 시점이므로 여기서 N회 enqueue돼도 캡이 M<N이면 실행 시 잘림(AS-IS 동일).
 **테스트** `RD11-PerEventFire`: 한 pass 2건 삭제 → "삭제될 때마다" 효과 2회 발화, 각 발화의 subject가 해당 삭제 카드.
 
-### D-RD12. once-per-turn 소모를 실행 시점으로
-- 수집 루프(:479-483)의 `OnceFlags.TryActivate` → `OnceFlags.CanActivate`(비소모 사전 필터, 캡 초과분 수집 제외는 유지)로 교체.
-- 소모 지점: `EffectScheduler` 해소 성공 직후 + `OptionalPromptQueue.ResolveChoice`의 **선택된** 트리거 enqueue 시(거절분 미소모). AS-IS `UseOptional || !IsOptional` 게이트(ICardEffect.cs:1118-1121) 미러.
-- 키는 enriched request에 실어 전달(수집 시 계산한 (effectId,source,owner) 키 재사용 — TODO-14 키 정밀도는 별건, 여기선 시점만).
-**테스트** `RD12-OnceOnExecute`: 캡1 optional 거절→같은 턴 재트리거 가능; 수락→불가; Gate-fizzle→미소모.
+### D-RD12. once-per-turn 소모를 실행 시점으로 — ✅부분 완료(ActivatedEffectResolver 경로)
+- **구현**: `OnceFlagController`에 `CanActivate`(비소모 체크)+`Consume`(소모) 분리, `TryActivate`는 둘의 합성으로 유지. `ActivatedEffectResolver` uniform 케이스: CanResolve → `CanActivate`(capped-out면 미제시) → optional yes/no(RD-13) → 수락 시 `Consume`+ResolveBody. 거절/capped 시 미소모. AS-IS OnProcess 소모 시점 미러(ICardEffect.cs:1118-1121).
+- **이연(5단계)**: **트리거 수집 경로**(GameFlowProcessor :488 `TryActivate`)의 collection-소모 — declined trigger-optional(OptionalPromptQueue 경유) 과소모는 창-루프(WindowResolver) 재진입 구조서 자연 해소. 현재 이 경로 optional의 캡은 수집 시 소모(과소모는 declined 시만, rare).
+**테스트** `RD13-OptionalGate`(RD-12 겸): 캡1 optional 거절→같은 턴 재발화 가능(미소모); 수락→+1·재수락 no-op(소모).
 
-### D-RD13. IsOptional yes/no 게이트
-- `ActivatedEffectResolver.ResolveAsync` 진입부: `effect.IsOptional`이면 body 구동 전 yes/no ChoiceRequest(AS-IS OptionalSkill "Will you use ~?" 미러; RL 표면 = 2후보 choice). 거절 시 `EffectResult.Skipped`(once 미소모 — RD-12와 정합).
-- 브릿지/스케줄러 경로: `TimingWindowTriggerKind.Optional` 재분류는 기존대로 프롬프트 경유 — 이 게이트는 **비대화형 body의 직접 해소 경로**(PlayCardAction/DigivolveAction/OptionActivate가 부르는 resolver) 전용. 이중 질문 방지: 프롬프트 경유로 이미 수락된 요청에는 `optionalAccepted` 마커를 실어 게이트 스킵.
-**테스트** `RD13-OptionalPrompt`: 비대화형 optional(메모리+1) — 거절 시 무변화, 수락 시 +1; 프롬프트 경유 시 단일 질문.
+### D-RD13. IsOptional yes/no 게이트 — ✅완료
+- **구현**: `ActivatedEffectResolver` uniform 케이스에 `ConfirmOptionalAsync`(ChoiceType.OptionalEffect 단일 "use" 후보, canSkip=true → 선택=yes/skip=no) — cap 소모 前. AS-IS OptionalSkill "Will you use ~?" 미러. 비대화형 body의 강제 실행 해소.
+- 트리거 경로 optional(OptionalPromptQueue)은 기존대로 유지(이중 질문 없음 — 이 게이트는 직접-해소 경로 전용). ScriptedChoiceProvider 미스크립트 fallback=skip이라 기존 테스트 무영향(383/383).
+**테스트** `RD13-OptionalGate`: 비대화형 optional(메모리+1) — 거절 시 무변화, 수락 시 +1, 캡 1회.
 
 ---
 
