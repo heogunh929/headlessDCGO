@@ -103,7 +103,11 @@ public static class ContinuousDpGate
         int effectiveBase = Math.Max(0, ModifierHelpers.Evaluate(
             new NumericModifierRequest(NumericModifierMetric.BaseDp, baseDp, modifiers, cardId)).FinalValue);
 
-        return Math.Max(0, ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue);
+        int resolved = ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue;
+
+        // (DPBoost) AS-IS folds the per-card Boosts at the VERY end, after the NotIsUpDown group, before the final
+        // >=0 clamp (Permanent.cs:653-663: `foreach (DPBoost boost in Boosts) DP += boost.DP;`).
+        return Math.Max(0, resolved + DpBoostHelpers.TotalBoost(linkHost?.Metadata));
     }
 
     // (P1-DP-4) AS-IS applies ImmuneFromDPMinus to BOTH current-DP and BASE-DP reductions (Permanent.cs:221-227
