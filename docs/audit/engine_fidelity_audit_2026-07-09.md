@@ -120,8 +120,13 @@
 - ★**DPBoost**: AS-IS Permanent.Boosts/AddBoost/RemoveBoost/DPBoost 메커니즘 존재(현재 미호출이나 구축 대상) → `DpBoostHelpers`(id→dp metadata, AS-IS upsert-by-ID) + ContinuousDpGate 말미 fold(NotIsUpDown 후, clamp 전). 테스트 DPB-DpBoostFold.
 - ★**P0-restr kind별 immunity**: printed player-scope cannot-attack/block(producer 6196/6320)에 immunity 항 embed — AS-IS immunity-체크 kind(Attack 2267/2290·Block 2194)에만(suspend/move는 미체크라 제외). 테스트 P0R-PrintedPlayerScopeImmunity(면역 subject exempt).
 
-**남은 구축 대상(AS-IS 메커니즘 존재 → 순차 구축):**
-- **PG ≥10 캡**(AS-IS Player.cs:1032), **SAttack 3-tier**(UpToConstant 실재), **ActivatedTime 순서**, **faceup 시큐리티 population**, **Piercing-as-activated**(AS-IS OnDetermineDoSecurityCheck activated), **deletion 단일-동시 창**.
+**남은 구축 대상(AS-IS 메커니즘 존재 → 순차 구축, 각 focused):**
+- **PG ≥10 캡 = 선행 인프라 blocked**: 헤드리스 memory 모델(`InMemoryHeadlessMemoryController`)이 clamp-only placeholder(파일 주석 "TODO: real memory handoff")라 per-player 관점(MemoryForPlayer) 부재 → ≥10 캡은 memory 서브시스템 완성 후 구축. (AS-IS Player.cs:1032 존재하나 placeholder 위 구축 불가.)
+- **SAttack 3-tier**: AS-IS `isUpDown()`이 CalculateOrder 5값(UpToConstant→UpDownValue→DownToConstant 3-tier 사용). 헤드리스 NumericModifier는 bool isUpDown만 → CalculateOrder 필드 추가 + 포팅층 세팅 필요(moderate 인프라). niche.
+- **ActivatedTime 순서**: NotIsUpDown 그룹을 활성시각순 정렬. 헤드리스는 Id-ordinal → 효과 등록 순번(monotonic seq) 추적 인프라 필요.
+- **faceup 시큐리티 population**: SecurityResolver의 시큐리티-battle서 공개 시큐리티 카드 자체 CanNotBeDestroyedByBattle 스캔 추가. moderate.
+- **Piercing-as-activated**: AS-IS는 OnDetermineDoSecurityCheck activated(EffectName "Pierce"), 헤드리스는 키워드 bool. 현재 동작은 정상(조건 일치), 구조만 상이.
+- **deletion 단일-동시 창**: AS-IS 전 loser 동시 would-be-deleted 창 vs 헤드리스 라운드루프(nested-coroutine 부재). 한 loser의 pending 상태 읽는 prevention 카드서만 발산. 아키텍처.
 
 ## 잔여 latent-infra (미포팅 카드 의존 — 해당 카드 포팅 전 엔진에 구축 필요, 현재 동작 무영향)
 [[result-equivalence-not-completion]] 기준으로 로컬 포팅 전 구축 대상. 각 트리거 카드가 없어 현재 회귀엔 안 잡힘:
