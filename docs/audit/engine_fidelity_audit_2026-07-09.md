@@ -84,9 +84,13 @@
 - ★P1-DP-5 (LinkedDP 폴딩): `ContinuousDpGate`가 host의 `linkedDp`(LinkHelpers)를 AS-IS 위치(isUpDown↔NotIsUpDown 사이, `ModifierHelpers.LinkedDpModifierId` 전용 order tier)로 주입. D1L 테스트에 폴딩(→5000)+set-덮어쓰기(→4000) 검증 추가. (DPBoost는 헤드리스 미표현 — 별도 feature.)
 - ★P1-DP-6 (IsDigimon IsDigiEgg) **검증 후 수정 안 함(의도적 정합)**: 헤드리스 move-gate(dispatcher:112, GR-002+회귀)가 "hatched Digi-Egg는 digivolve 전 move 불가"를 IsDigimon(DigiEgg)=false로 구현. AS-IS는 IsDigimon(DigiEgg)=true지만 CanMove의 별도 breeding-frame 가드(Permanent.cs:2055+)로 egg-move 차단 = **같은 결과, 다른 구조**. DigiEgg는 breeding 전용이라 attack/block/battle 미도달 → IsDigimon=false 무해. IsDigiEgg→true로 고치면 GR-002 회귀 위험 → **변경 금지**. IsFlipped 가드는 latent(face-down 카드가 IsDigimon 호출부에 미도달).
 
-**미완(복잡/latent — 개별 신중 처리 필요):**
-- P1-DV-1~4 (digivolve ignore-level 분기·added-path negation·CanIgnore 역할 반전·color 과결합): 상호 얽힌 4건, grant-scan vs negation-scan 역할 정리 필요.
-- P0-restr (printed player-scope cannot-block/attack immunity): AS-IS가 kind별로 CanNotBeAffected 체크 상이(Attack/Block/Return 체크, Move/Suspend 미체크) → blanket 추가 시 새 발산. per-kind 처리 필요.
+**추가 완료:**
+- ★P1-DV-2 (added-requirement 경로 negation 게이트): `AddedLevelGatePasses`의 ignore-level waive를 `CanIgnoreDigivolutionRequirement(grant) && !IsDigivolveIgnoreBlocked(negation)`으로 게이트 — AS-IS `ignore==Level/All && CanIgnoreDigivolutionRequirement`(AddDigivolutionRequirement.cs:64-72) 미러. CannotIgnore 활성 중 added-ignore 경로가 통과하던 것 차단(CannotIgnore 활성 시에만 더 제한적).
+
+**미완(복잡/latent — 개별 신중 처리 필요, 대부분 narrow):**
+- P1-DV-1 (player-Validate ignore-LEVEL-only 분기 누락): effect-driven path서 완화. narrow.
+- P1-DV-3/4 (CanIgnore grant vs negation 네이밍·color-ignore가 IIgnoreColorConditionEffect[미negation-gate]인지 확인): grant×negation 로직은 P1-DV-2로 일관 적용됨; 네이밍/color 매핑은 설계 검증 필요. narrow(CannotIgnore+color 동시).
+- **P0-restr (printed player-scope immunity)**: ★재검증 — ContinuousPlayerScopeRestrictionEffect가 다수 kind(Suspend·Digivolve·Return·Delete·Block·Attack)에 쓰이고 AS-IS는 kind별 CanNotBeAffected 체크 상이 → uniform 추가 시 Suspend 등 over-lenient. **정확한 per-kind immunity 테이블 필요 → uniform 수정 금지**. 현재 printed player-scope attack/block × 면역 subject 조합은 latent(해당 카드 미포팅으로 추정).
 - P1-PG 잔여 (CanAddMemory ≥10 캡·IsSecurityLooking 재확인·PlayerScope 태그 요구), P1-IMM/BAT faceup 시큐리티 population: latent.
 
 ## 상환 우선순위 제안

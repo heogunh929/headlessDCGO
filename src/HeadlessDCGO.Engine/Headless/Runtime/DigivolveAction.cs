@@ -718,7 +718,14 @@ public sealed class DigivolveAction
         int level = ReadIntValue(values, AddedEvolutionLevelKey);
         int minLevel = ReadIntValue(values, AddedEvolutionMinLevelKey);
         int maxLevel = ReadIntValue(values, AddedEvolutionMaxLevelKey);
-        if ((level < 0 && minLevel < 0 && maxLevel < 0) || CanIgnoreDigivolutionRequirement(context, playerId, cardId))
+        // (P1-DV-2) AS-IS AddDigivolutionRequirement gates the ignore-level waive with the negation
+        // (`ignore==Level/All && CanIgnoreDigivolutionRequirement`, AddDigivolutionRequirement.cs:64-72): while a
+        // CannotIgnoreDigivolutionCondition effect is active the ignore is VOIDED, so the level gate is NOT waived.
+        // The headless splits grant (CanIgnoreDigivolutionRequirement) and negation (IsDigivolveIgnoreBlocked) —
+        // the added path previously consulted only the grant, letting an ignore-path digivolve through a live negation.
+        if ((level < 0 && minLevel < 0 && maxLevel < 0)
+            || (CanIgnoreDigivolutionRequirement(context, playerId, cardId)
+                && !IsDigivolveIgnoreBlocked(context, cardId, playerId, permanent.InstanceId, permanent.OwnerId)))
         {
             return true;
         }
