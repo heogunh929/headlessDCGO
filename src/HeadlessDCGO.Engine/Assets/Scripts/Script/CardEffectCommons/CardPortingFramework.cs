@@ -372,6 +372,8 @@ public sealed class CardSource
     public bool IsDigimon => Definition?.IsCardType("Digimon") == true;
     public bool IsTamer => Definition?.IsCardType("Tamer") == true;
     public bool IsOption => Definition?.IsCardType("Option") == true;
+    /// <summary>(joint-migration) public card-type check for scope synthesis in restriction producers.</summary>
+    public bool IsCardType(string cardType) => Definition?.IsCardType(cardType) == true;
     public bool IsToken => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
         && i.Metadata.TryGetValue("isToken", out object? t) && t is bool b && b;
 
@@ -816,8 +818,8 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
     public Func<CardSource, bool>? CausingEffectPredicate { get; }
 
     /// <summary>(W6-G) AS-IS defenderCondition/attackerCondition — the restriction only applies when the COUNTERPART
-    /// (blocker for BeBlocked, attacker for BeAttacked) matches this predicate; consumed by
-    /// <c>ContinuousRestrictionGate.SoftenByCounterpart</c>. Null = applies to any counterpart.</summary>
+    /// (blocker for BeBlocked, attacker for BeAttacked) matches this predicate; embedded into the canonical joint
+    /// predicate (<c>JointRestrictionEffect.PredicateKey</c>) and evaluated by <c>RestrictionScan</c>. Null = any counterpart.</summary>
     public Func<CardSource, bool>? CounterpartPredicate { get; }
 
     public EffectBinding ToBinding(string effectId)
@@ -834,10 +836,16 @@ public sealed class ContinuousSelfRestrictionEffect : ICardEffect
             values[RestrictionHelpers.CausingEffectPredicateKey] = CausingEffectPredicate;
         }
 
-        if (CounterpartPredicate is not null)
-        {
-            values[RestrictionHelpers.CounterpartPredicateKey] = CounterpartPredicate;
-        }
+        // (joint-migration) canonical joint predicate synthesised from this SELF restriction:
+        // subject = this card; the 2nd arg (counterpart participant OR causing effect source) must satisfy any
+        // provided predicate (cp==null + a predicate ⇒ not restricted, mirroring IsRestrictedFromCause).
+        HeadlessEntityId selfId = Card.InstanceId;
+        Func<CardSource, bool>? causing = CausingEffectPredicate;
+        Func<CardSource, bool>? counterpart = CounterpartPredicate;
+        values[JointRestrictionEffect.PredicateKey(RestrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
+            subject.InstanceId == selfId
+            && (causing is null || (cp is not null && causing(cp)))
+            && (counterpart is null || (cp is not null && counterpart(cp))));
 
         if (IsInheritedEffect)
         {
@@ -931,6 +939,21 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
         {
             values[RestrictionHelpers.CausingEffectPredicateKey] = CausingEffectPredicate;
         }
+
+        // (joint-migration) additively emit the canonical joint predicate synthesised from this PLAYER-SCOPE
+        // restriction: subject membership = (anyPlayer OR owner==scopePlayer) ∧ cardType ∧ scopePredicate; the 2nd
+        // arg (causing effect source) must satisfy any causing predicate (mirrors PlayerScopeContinuousHelpers +
+        // IsRestrictedFromCause).
+        HeadlessPlayerId scopePlayer = _scopePlayerId;
+        bool anyPlayer = _scopeAnyPlayer;
+        string? scopeType = ScopeCardType;
+        Func<CardSource, bool>? scopePred = ScopePredicate;
+        Func<CardSource, bool>? causingP = CausingEffectPredicate;
+        values[JointRestrictionEffect.PredicateKey(RestrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
+            (anyPlayer || subject.Owner == scopePlayer)
+            && (string.IsNullOrWhiteSpace(scopeType) || (subject.IsCardType(scopeType)))
+            && (scopePred is null || scopePred(subject))
+            && (causingP is null || (cp is not null && causingP(cp))));
 
         if (IsInheritedEffect)
         {
@@ -3780,19 +3803,24 @@ public sealed class ContinuousImmunityEffect : ICardEffect
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (SkillCondition is not null)
+        if (SkillCondition is null)
         {
-            values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.SkillPredicateKey] = SkillCondition;
-        }
-        else
-        {
+            // Opponent-only immunity — the only form the context-less sink fallback can evaluate (owner comparison,
+            // no CardSource needed). The joint predicate below carries the full semantics for the context path.
             values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.ImmunityFromOpponentOnlyKey] = true;
         }
 
-        if (TargetPredicate is not null)
-        {
-            values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.TargetPredicateKey] = TargetPredicate;
-        }
+        // (joint-migration) canonical joint mirroring AS-IS CanNotAffectedClass.CanNotAffect(cardSource, cardEffect) =
+        // CardCondition(target) && SkillCondition(cause): store ONE joint predicate f(target, cause) so a non-separable
+        // immunity can be expressed. CardCondition = TargetPredicate (field-wide grant) or "is the holder" (self grant);
+        // SkillCondition = the cause filter or opponent-only (cause owned by the target's opponent).
+        Func<CardSource, bool>? skill = SkillCondition;
+        Func<CardSource, bool>? target = TargetPredicate;
+        HeadlessEntityId holder = Card.InstanceId;
+        values[HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.JointPredicateKey] =
+            (Func<CardSource, CardSource, bool>)((protectedCard, causeSource) =>
+                (target is not null ? target(protectedCard) : protectedCard.InstanceId == holder)
+                && (skill is not null ? skill(causeSource) : causeSource.Owner != protectedCard.Owner));
 
         if (IsInheritedEffect)
         {
@@ -3845,8 +3873,14 @@ public sealed class CanNotAttackDefenderConditionEffect : ICardEffect
             [RestrictionHelpers.RestrictionTargetEntityIdKey] = Card.InstanceId.Value,
             [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
             [RestrictionHelpers.CannotAttackKey] = true,
-            [RestrictionHelpers.DefenderPredicateKey] = DefenderPredicate,
         };
+
+        // (joint-migration) canonical joint: subject = this card; cannot attack a defender matching the predicate.
+        HeadlessEntityId selfId = Card.InstanceId;
+        Func<CardSource, bool> defPred = DefenderPredicate;
+        values[JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
+            subject.InstanceId == selfId && cp is not null && defPred(cp));
+
         if (IsInheritedEffect)
         {
             values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
@@ -4280,14 +4314,20 @@ public sealed class ActivatedTargetRestrictionEffect : IActivatedCardEffect
                 [RestrictionHelpers.RestrictionTargetEntityIdKey] = target.Value,
                 [RestrictionHelpers.RestrictionSourceEntityIdKey] = Card.InstanceId.Value,
             };
+            HeadlessEntityId restricted = target;
             if (_cannotAttack)
             {
                 values[RestrictionHelpers.CannotAttackKey] = true;
+                // (joint-migration) canonical joint: the selected target cannot attack (unconditional, subject-identity).
+                values[JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
+                    (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == restricted);
             }
 
             if (_cannotBlock)
             {
                 values[RestrictionHelpers.CannotBlockKey] = true;
+                values[JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotBlockKey)] =
+                    (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == restricted);
             }
 
             var context = new EffectContext(
@@ -4708,8 +4748,6 @@ public sealed class TrashSelfThenGainMemoryDelayEffect : IActivatedCardEffect
 /// the original's <c>foreach permanent … effect.CanNotSelectBySkill(this, skill)</c> loop.</summary>
 public sealed class CanNotSelectBySkillEffect : ICardEffect
 {
-    public const string PredicateKey = "view.cannotSelectBySkillPredicate";
-
     private readonly Func<CardSource, CardSource, bool> _predicate;
     private readonly Func<bool>? _condition;
 
@@ -4727,7 +4765,60 @@ public sealed class CanNotSelectBySkillEffect : ICardEffect
     public EffectBinding ToBinding(string effectId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        // (joint-migration) canonical joint key: f(candidate, selectingSkillSource); the sink falls back to the
+        // candidate itself when there is no distinct selecting source (AS-IS Permanent.CanSelectBySkill self-cause).
+        Func<CardSource, CardSource, bool> pred = _predicate;
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotBeSelectedBySkillKey)] =
+                (Func<CardSource, CardSource?, bool>)((subject, cp) => pred(subject, cp ?? subject)),
+        };
+        if (_condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: new[] { Card.InstanceId }, values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }, effect: null, duration: null);
+    }
+}
+
+/// <summary>(joint-migration) Canonical restriction effect: carries the AS-IS JOINT predicate
+/// <c>f(subject, counterpart)</c> for a restriction <c>kind</c> as a single runtime Func, evaluated by scanning
+/// EVERY field permanent's effects (<see cref="HeadlessDCGO.Engine.Headless.Runtime.RestrictionScan"/>) — 1:1 with
+/// the AS-IS <c>foreach permanent → effect.CanX(subject, counterpart)</c> loop. Replaces the split
+/// (subject-scope ∧ counterpart/causing predicate) form, so a non-separable predicate is preserved and a port can
+/// copy the AS-IS predicate verbatim. The 2nd arg is polymorphic per kind (defender / attacker / blocker / causing
+/// source); null when the check has no counterpart.</summary>
+public sealed class JointRestrictionEffect : ICardEffect
+{
+    /// <summary>Binding-values key carrying the joint predicate for restriction <paramref name="kind"/>.</summary>
+    public static string PredicateKey(string kind) => "joint.restrict:" + kind;
+
+    private readonly string _kind;
+    private readonly Func<CardSource, CardSource?, bool> _predicate;
+    private readonly Func<bool>? _condition;
+
+    public JointRestrictionEffect(CardSource card, string kind, Func<CardSource, CardSource?, bool> predicate, Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentNullException.ThrowIfNull(predicate);
+        Card = card;
+        _kind = kind;
+        _predicate = predicate;
+        _condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey(_kind)] = _predicate };
         if (_condition is not null)
         {
             values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
@@ -4746,8 +4837,6 @@ public sealed class CanNotSelectBySkillEffect : ICardEffect
 /// holds, the candidate cannot leave the battle area except by deletion (EX6_044). AS-IS single-arg predicate.</summary>
 public sealed class CanNotBeRemovedEffect : ICardEffect
 {
-    public const string PredicateKey = "view.cannotBeRemovedPredicate";
-
     private readonly Func<CardSource, bool> _predicate;
     private readonly Func<bool>? _condition;
 
@@ -4765,7 +4854,13 @@ public sealed class CanNotBeRemovedEffect : ICardEffect
     public EffectBinding ToBinding(string effectId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        // (joint-migration) canonical joint key — single-arg AS-IS predicate (no counterpart).
+        Func<CardSource, bool> pred = _predicate;
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotBeRemovedKey)] =
+                (Func<CardSource, CardSource?, bool>)((subject, _) => pred(subject)),
+        };
         if (_condition is not null)
         {
             values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
@@ -4784,8 +4879,6 @@ public sealed class CanNotBeRemovedEffect : ICardEffect
 /// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).</summary>
 public sealed class CanNotMoveEffect : ICardEffect
 {
-    public const string PredicateKey = "view.cannotMovePredicate";
-
     private readonly Func<CardSource, CardSource?, bool> _predicate;
     private readonly Func<bool>? _condition;
 
@@ -4803,7 +4896,11 @@ public sealed class CanNotMoveEffect : ICardEffect
     public EffectBinding ToBinding(string effectId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        // (joint-migration) canonical joint key — the move gate passes a null causing effect (AS-IS CanNotMove(top, null)).
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotMoveKey)] = _predicate,
+        };
         if (_condition is not null)
         {
             values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
@@ -4823,8 +4920,6 @@ public sealed class CanNotMoveEffect : ICardEffect
 /// negated (BT8_059). Carries the AS-IS predicate as a single runtime Func.</summary>
 public sealed class CannotIgnoreDigivolutionConditionEffect : ICardEffect
 {
-    public const string PredicateKey = "view.cannotIgnoreDigivolutionConditionPredicate";
-
     private readonly Func<CardSource, CardSource, bool> _predicate;
     private readonly Func<bool>? _condition;
 
@@ -4842,7 +4937,14 @@ public sealed class CannotIgnoreDigivolutionConditionEffect : ICardEffect
     public EffectBinding ToBinding(string effectId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [PredicateKey] = _predicate };
+        // (joint-migration) canonical joint key: f(digivolvingCard, target under-card). Requires a target (the
+        // digivolve consults it with the under-card), so a null counterpart never blocks.
+        Func<CardSource, CardSource, bool> pred = _predicate;
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotIgnoreDigivolutionConditionKey)] =
+                (Func<CardSource, CardSource?, bool>)((subject, cp) => cp is not null && pred(subject, cp)),
+        };
         if (_condition is not null)
         {
             values[ContinuousSelfModifierEffect.ConditionKey] = _condition;
@@ -6098,6 +6200,11 @@ public static partial class CardEffectFactory
     /// per-card.</summary>
     public static ICardEffect CanNotAttackStaticEffect(HeadlessPlayerId scopePlayerId, bool isInheritedEffect, CardSource card, Func<bool>? condition, string? effectName = null) =>
         new ContinuousPlayerScopeRestrictionEffect(card, scopePlayerId, RestrictionHelpers.CannotAttackKey, scopeCardType: null, isInheritedEffect, condition);
+
+    /// <summary>(joint-migration) Canonical CannotAttack — <paramref name="predicate"/> is the AS-IS joint
+    /// <c>CanNotAttack(attacker, defender)</c> (defender may be null when the gate has no specific defender).</summary>
+    public static ICardEffect CanNotAttackJointStaticEffect(Func<CardSource, CardSource?, bool> predicate, CardSource card, Func<bool>? condition = null) =>
+        new JointRestrictionEffect(card, RestrictionHelpers.CannotAttackKey, predicate, condition);
 
     /// <summary>(PRIM-W3) <c>Gain1MemoryTamerOpponentDigimonEffect(card)</c> — "[Start of Your Main Phase] if
     /// your opponent has a Digimon, gain 1 memory." AS-IS description is <c>[Start of Your Main Phase]</c>, so it
@@ -10014,22 +10121,23 @@ public static class CardEffectCommons
             [restrictionKey] = true,
             [ContinuousSelfModifierEffect.ConditionKey] = liveCondition,
         };
-        if (counterpartCondition is not null)
-        {
-            // Adapt the AS-IS Permanent predicate to the gates' CardSource counterpart idiom.
-            Func<CardSource, bool> counterpartPredicate = cs =>
-                counterpartCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
-            string predicateKey = restrictionKey == RestrictionHelpers.CannotAttackKey
-                ? RestrictionHelpers.DefenderPredicateKey       // FR-P3 pre-existing key for CannotAttack
-                : RestrictionHelpers.CounterpartPredicateKey;   // (W6-G) Block/BeAttacked/BeBlocked
-            values[predicateKey] = counterpartPredicate;
-        }
         if (causingEffectPredicate is not null)
         {
             // The restriction fires only when the CAUSING effect's source matches (AS-IS cardEffectCondition),
             // read by the sink's IsRestrictedFromCause. Without it the restriction is unconditional.
             values[RestrictionHelpers.CausingEffectPredicateKey] = causingEffectPredicate;
         }
+
+        // (joint-migration) additively emit the canonical joint predicate: subject = the granted target permanent;
+        // the 2nd arg (counterpart participant for Attack/Block/…, or the causing effect source) must satisfy any
+        // provided predicate.
+        HeadlessEntityId subjectId = targetId;
+        Func<Permanent, bool>? cpCond = counterpartCondition;
+        Func<CardSource, bool>? causingP2 = causingEffectPredicate;
+        values[JointRestrictionEffect.PredicateKey(restrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
+            subject.InstanceId == subjectId
+            && (cpCond is null || (cp is not null && cpCond(new Permanent(cp.Context, cp.InstanceId, cp.Owner))))
+            && (causingP2 is null || (cp is not null && causingP2(cp))));
 
         var effectContext = new EffectContext(
             sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
@@ -10111,7 +10219,8 @@ public static class CardEffectCommons
         string? keyword = null, string? valueKey = null, object? value = null,
         IReadOnlyDictionary<string, object?>? extraValues = null,
         Func<bool>? extraCondition = null,
-        string? scopeOverride = null)
+        string? scopeOverride = null,
+        Func<CardSource, bool>? counterpartPredicate = null)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
         EngineContext context = sourceCard.Context;
@@ -10145,6 +10254,20 @@ public static class CardEffectCommons
         if (extraCondition is not null)
         {
             values[ContinuousSelfModifierEffect.ConditionKey] = extraCondition;
+        }
+
+        // (joint-migration) canonical joint for player-scope restriction grants: this scope player's permanents (that
+        // pass the live scope predicate — battle area, immunity, caller filter) cannot X the counterpart, when the
+        // counterpart (attacker/defender being blocked) also satisfies the caller's counterpart predicate.
+        if (valueKey is not null && value is bool on && on && RestrictionHelpers.IsRestrictionKey(valueKey))
+        {
+            HeadlessPlayerId scopePlayer = sourceCard.Owner;
+            Func<CardSource, bool> subjectPredicate = scopePredicate;
+            Func<CardSource, bool>? cpPredicate = counterpartPredicate;
+            values[JointRestrictionEffect.PredicateKey(valueKey)] = (Func<CardSource, CardSource?, bool>)((subject, counterpart) =>
+                subject.Owner == scopePlayer
+                && subjectPredicate(subject)
+                && (cpPredicate is null || (counterpart is not null && cpPredicate(counterpart))));
         }
 
         var effectContext = new EffectContext(
@@ -10206,20 +10329,16 @@ public static class CardEffectCommons
     }
 
     /// <summary>AS-IS <c>GainCanNotAttackPlayerEffect</c> (GiveEffectToPlayer/CanNotAttack.cs:10, verbatim):
-    /// the ATTACKER filter rides the scope predicate; the DEFENDER filter rides the pair-gate key.</summary>
+    /// the ATTACKER filter rides the scope predicate; the DEFENDER filter rides the joint counterpart predicate.</summary>
     public static bool GainCanNotAttackPlayerEffect(
         Func<Permanent, bool>? attackerCondition, Func<Permanent, bool>? defenderCondition,
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't attack")
     {
-        var extra = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (defenderCondition is not null)
-        {
-            extra[RestrictionHelpers.DefenderPredicateKey] =
-                (Func<CardSource, bool>)(cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
-        }
-
+        Func<CardSource, bool>? defenderPredicate = defenderCondition is null
+            ? null
+            : cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
         return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotAttackPlayer", attackerCondition,
-            valueKey: RestrictionHelpers.CannotAttackKey, value: true, extraValues: extra);
+            valueKey: RestrictionHelpers.CannotAttackKey, value: true, counterpartPredicate: defenderPredicate);
     }
 
     /// <summary>AS-IS <c>GainCanNotBlockPlayerEffect</c> (GiveEffectToPlayer/CanNotBlock.cs:10).</summary>
@@ -10228,16 +10347,12 @@ public static class CardEffectCommons
         EffectDuration effectDuration, CardSource sourceCard, string effectName = "Can't block")
     {
         // AS-IS naming quirk: the SUBJECT filter arrives as attackerCondition; the counterpart (the
-        // attacker being blocked) as defenderCondition. The gate reads the counterpart predicate.
-        var extra = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (defenderCondition is not null)
-        {
-            extra[RestrictionHelpers.CounterpartPredicateKey] =
-                (Func<CardSource, bool>)(cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
-        }
-
+        // attacker being blocked) as defenderCondition — it rides the joint counterpart predicate.
+        Func<CardSource, bool>? attackerBlockedPredicate = defenderCondition is null
+            ? null
+            : cs => defenderCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner));
         return GainToPlayerScope(effectDuration, sourceCard, "gainCanNotBlockPlayer", attackerCondition,
-            valueKey: RestrictionHelpers.CannotBlockKey, value: true, extraValues: extra);
+            valueKey: RestrictionHelpers.CannotBlockKey, value: true, counterpartPredicate: attackerBlockedPredicate);
     }
 
     /// <summary>AS-IS <c>GainCanNotBeDeletedPlayerEffect</c> (GiveEffectToPlayer/CanNotBeDeletedByBattle.cs:10)

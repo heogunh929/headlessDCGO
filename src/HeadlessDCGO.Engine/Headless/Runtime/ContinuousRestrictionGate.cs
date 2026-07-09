@@ -40,136 +40,55 @@ public static class ContinuousRestrictionGate
     public static CannotRestrictionResult EvaluateAttack(
         EngineContext context,
         HeadlessEntityId attackerId,
-        HeadlessEntityId? defenderId = null)
-    {
-        CannotRestrictionResult result = RestrictionHelpers.CannotAttack(attackerId, Evaluate(context, attackerId), defenderId);
-        if (!result.IsRestricted || defenderId is not { } defender)
-        {
-            return result;
-        }
+        HeadlessEntityId? defenderId = null) =>
+        // (joint-migration) AS-IS Permanent.CanAttack: SCAN every field effect and evaluate the joint
+        // CanNotAttack(attacker, defender). A defender-conditional effect's predicate returns false for a
+        // non-matching defender, so it does not restrict that pairing (subsumes the FR-P3 counterpart-softening logic).
+        JointResult(context, RestrictionHelpers.CannotAttackKey, attackerId, defenderId, "cannotAttack", "attack");
 
-        // (FR-P3) A CannotAttack restriction may be defender-conditional (AS-IS defenderCondition): it only
-        // forbids attacking defenders matching its predicate. If EVERY applicable CannotAttack effect carries
-        // a defenderPredicate that this defender fails, the attacker may attack it after all.
-        bool appliesToThisDefender = false;
-        bool anyDefenderConditional = false;
-        HeadlessPlayerId defenderOwner = context.CardInstanceRepository.TryGetInstance(defender, out CardInstanceRecord? di) && di is not null ? di.OwnerId : default;
-        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, Scope, attackerId))
-        {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!(values.TryGetValue(RestrictionHelpers.CannotAttackKey, out object? on) && on is bool b && b))
-            {
-                continue;
-            }
-
-            if (values.TryGetValue(RestrictionHelpers.DefenderPredicateKey, out object? raw)
-                && raw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> pred)
-            {
-                anyDefenderConditional = true;
-                if (pred(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, defender, defenderOwner, defenderOwner)))
-                {
-                    appliesToThisDefender = true;
-                    break;
-                }
-            }
-            else
-            {
-                appliesToThisDefender = true; // unconditional CannotAttack
-                break;
-            }
-        }
-
-        return (anyDefenderConditional && !appliesToThisDefender)
-            ? CannotRestrictionResult.Success(false, "Defender not in the restricted set.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>())
-            : result;
-    }
+    /// <summary>(joint-migration) Canonical evaluator: SCAN all field effects for a joint restriction of
+    /// <paramref name="kind"/> forbidding (<paramref name="subjectId"/>, <paramref name="counterpartId"/>).
+    /// Mirrors AS-IS <c>Permanent.CanX</c> (a single joint predicate over every field effect).</summary>
+    private static CannotRestrictionResult JointResult(
+        EngineContext context, string kind, HeadlessEntityId subjectId, HeadlessEntityId? counterpartId,
+        string appliedTag, string noun) =>
+        RestrictionScan.IsRestricted(context, kind, subjectId, counterpartId ?? default)
+            ? CannotRestrictionResult.Success(true, $"Cannot {noun}.", new[] { appliedTag }, Array.Empty<string>(), new Dictionary<string, object?>())
+            : CannotRestrictionResult.Success(false, $"No {noun} restriction.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>());
 
     public static CannotRestrictionResult EvaluateBlock(
         EngineContext context,
         HeadlessEntityId blockerId,
-        HeadlessEntityId? attackerId = null)
-    {
-        CannotRestrictionResult result = RestrictionHelpers.CannotBlock(blockerId, Evaluate(context, blockerId), attackerId);
-        return SoftenByCounterpart(context, result, RestrictionHelpers.CannotBlockKey, blockerId, attackerId);
-    }
-
-    /// <summary>(W6-G) FR-P3 generalised: a counterpart-conditional restriction (AS-IS attackerCondition /
-    /// defenderCondition on the Gain grants) only applies when the counterpart matches its predicate — if
-    /// EVERY applicable effect of <paramref name="restrictionKey"/> carries a counterpart predicate that
-    /// <paramref name="counterpartId"/> fails, the restriction does not apply to this pairing.</summary>
-    private static CannotRestrictionResult SoftenByCounterpart(
-        EngineContext context, CannotRestrictionResult result, string restrictionKey,
-        HeadlessEntityId subjectId, HeadlessEntityId? counterpartId)
-    {
-        if (!result.IsRestricted || counterpartId is not { } counterpart || counterpart.IsEmpty)
-        {
-            return result;
-        }
-
-        bool appliesToCounterpart = false;
-        bool anyConditional = false;
-        HeadlessPlayerId counterpartOwner = context.CardInstanceRepository.TryGetInstance(counterpart, out CardInstanceRecord? ci) && ci is not null
-            ? ci.OwnerId
-            : default;
-        foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, Scope, subjectId))
-        {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!(values.TryGetValue(restrictionKey, out object? on) && on is bool b && b))
-            {
-                continue;
-            }
-
-            if (values.TryGetValue(RestrictionHelpers.CounterpartPredicateKey, out object? raw)
-                && raw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> pred)
-            {
-                anyConditional = true;
-                if (pred(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, counterpart, counterpartOwner, counterpartOwner)))
-                {
-                    appliesToCounterpart = true;
-                    break;
-                }
-            }
-            else
-            {
-                appliesToCounterpart = true;   // unconditional restriction
-                break;
-            }
-        }
-
-        return (anyConditional && !appliesToCounterpart)
-            ? CannotRestrictionResult.Success(false, "Counterpart not in the restricted set.", Array.Empty<string>(), Array.Empty<string>(), new Dictionary<string, object?>())
-            : result;
-    }
+        HeadlessEntityId? attackerId = null) =>
+        JointResult(context, RestrictionHelpers.CannotBlockKey, blockerId, attackerId, "cannotBlock", "block");
 
     // (D-A5) Continuous "cannot digivolve" restriction targeting the under-card being evolved.
     public static CannotRestrictionResult EvaluateDigivolve(
         EngineContext context,
         HeadlessEntityId targetCardId,
-        HeadlessEntityId? sourceEntityId = null)
-    {
-        return RestrictionHelpers.CannotDigivolve(targetCardId, Evaluate(context, targetCardId), sourceEntityId);
-    }
+        HeadlessEntityId? sourceEntityId = null) =>
+        JointResult(context, RestrictionHelpers.CannotDigivolveKey, targetCardId, sourceEntityId, "cannotDigivolve", "digivolve");
 
     // (PRIM-W3) Continuous "does not unsuspend" restriction — consulted by the Unsuspend step.
     public static CannotRestrictionResult EvaluateUnsuspend(EngineContext context, HeadlessEntityId targetId) =>
-        RestrictionHelpers.CannotUnsuspend(targetId, Evaluate(context, targetId));
+        JointResult(context, RestrictionHelpers.CannotUnsuspendKey, targetId, null, "cannotUnsuspend", "unsuspend");
 
     // (W6-P) Continuous "cannot suspend" restriction — the AS-IS Permanent.CanSuspend gate half of
     // CanActivatePermanentSuspendCostEffect.
     public static CannotRestrictionResult EvaluateSuspend(EngineContext context, HeadlessEntityId targetId) =>
-        RestrictionHelpers.CannotSuspend(targetId, Evaluate(context, targetId));
+        JointResult(context, RestrictionHelpers.CannotSuspendKey, targetId, null, "cannotSuspend", "suspend");
 
     // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
-    // (W6-G) blocker-conditional form supported (AS-IS GainCanNotBeBlocked defenderCondition).
+    // (W6-G) blocker-conditional form supported (AS-IS GainCanNotBeBlocked defenderCondition, embedded in the joint predicate).
     public static CannotRestrictionResult EvaluateBeBlocked(EngineContext context, HeadlessEntityId attackerId, HeadlessEntityId? blockerId = null) =>
-        SoftenByCounterpart(context, RestrictionHelpers.CannotBeBlocked(attackerId, Evaluate(context, attackerId)), RestrictionHelpers.CannotBeBlockedKey, attackerId, blockerId);
+        JointResult(context, RestrictionHelpers.CannotBeBlockedKey, attackerId, blockerId, "cannotBeBlocked", "be blocked");
 
     // (PRIM-W3) Continuous "cannot be deleted by effect/skill" restriction — consulted by the effect-delete path.
     public static CannotRestrictionResult EvaluateDeleteBySkill(EngineContext context, HeadlessEntityId targetId) =>
-        RestrictionHelpers.CannotBeDeletedBySkill(targetId, Evaluate(context, targetId));
+        JointResult(context, RestrictionHelpers.CannotBeDeletedBySkillKey, targetId, null, "cannotBeDeletedBySkill", "be deleted by skill");
 
     // (PRIM-W4) Continuous "cannot be attacked" restriction on the defender — consulted by AttackPermanentAction.
-    // (W6-G) attacker-conditional form supported (AS-IS GainCanNotBeAttacked attackerCondition).
+    // (W6-G) attacker-conditional form supported (AS-IS GainCanNotBeAttacked attackerCondition, embedded in the joint predicate).
     public static CannotRestrictionResult EvaluateBeAttacked(EngineContext context, HeadlessEntityId defenderId, HeadlessEntityId? attackerId = null) =>
-        SoftenByCounterpart(context, RestrictionHelpers.CannotBeAttacked(defenderId, Evaluate(context, defenderId)), RestrictionHelpers.CannotBeAttackedKey, defenderId, attackerId);
+        JointResult(context, RestrictionHelpers.CannotBeAttackedKey, defenderId, attackerId, "cannotBeAttacked", "be attacked");
 }

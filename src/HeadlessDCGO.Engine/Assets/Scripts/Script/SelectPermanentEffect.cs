@@ -173,48 +173,11 @@ public sealed class SelectPermanentEffect
             return false;
         }
 
-        CardSource? candidate = null;   // built lazily only when a CanNotSelectBySkill marker is actually present.
-        CardSource? skillSource = null;
-
-        // AS-IS scans EVERY player's field permanents' effects (global), not a per-candidate scope.
-        foreach (EffectRequest effect in _context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
-        {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!values.TryGetValue(CanNotSelectBySkillEffect.PredicateKey, out object? raw)
-                || raw is not Func<CardSource, CardSource, bool> predicate)
-            {
-                continue;
-            }
-
-            // AS-IS cardEffect.CanUse(null): the effect's own condition gate.
-            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
-                && condRaw is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            candidate ??= MakeSource(candidateId);
-            skillSource ??= _sourceEntityId.IsEmpty ? candidate : MakeSource(_sourceEntityId);
-            if (candidate is not null && predicate(candidate, skillSource ?? candidate))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>Build a CardSource for a live instance, or null when the instance/owner is unknown.</summary>
-    private CardSource? MakeSource(HeadlessEntityId id)
-    {
-        if (_context is null || id.IsEmpty
-            || !_context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) || rec is null
-            || rec.OwnerId.IsEmpty)
-        {
-            return null;
-        }
-
-        return new CardSource(_context, id, rec.OwnerId, rec.OwnerId);
+        // (joint-migration) canonical scan (AS-IS Permanent.CanSelectBySkill): f(candidate, selecting skill source).
+        // The sentinel default source resolves to no instance ⇒ RestrictionScan's counterpart is null and the joint
+        // wrapper falls back to the candidate itself (self-cause), matching the prior behaviour.
+        return Headless.Runtime.RestrictionScan.IsRestricted(
+            _context, RestrictionHelpers.CannotBeSelectedBySkillKey, candidateId, _sourceEntityId);
     }
 
     /// <summary>Map the configured Mode to one mutation per selected target. Attack/Custom yield no

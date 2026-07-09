@@ -145,6 +145,9 @@ void RegisterPlayerScopeCannotAttack(EngineContext context, HeadlessPlayerId sco
         [PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
         [PlayerScopeContinuousHelpers.ScopePlayerIdKey] = scopePlayer.Value,
         [RestrictionHelpers.CannotAttackKey] = true,
+        // (joint-migration) canonical joint: the scope player's Digimon cannot attack.
+        [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
+            (Func<CardSource, CardSource?, bool>)((subject, _) => subject.Owner == scopePlayer),
     };
     Register(context, $"pscope:cannotattack:{scopePlayer.Value}", scopePlayer, values);
 }

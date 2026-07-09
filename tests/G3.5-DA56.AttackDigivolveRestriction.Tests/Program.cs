@@ -103,10 +103,10 @@ void RegisterCannotAttack(EngineContext context, HeadlessEntityId attackerId, He
     // The simple `cannotAttack` flag yields a GLOBAL restriction, so use the explicit object form.
     Register(context, attackerId, owner, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
-        [RestrictionHelpers.RestrictionsKey] = new[]
-        {
-            new CannotRestriction($"no-attack:{scopedDefender.Value}", CannotRestrictionKind.Attack, targetEntityId: null, sourceEntityId: scopedDefender)
-        }
+        // (joint-migration) canonical joint: this attacker cannot attack the scoped defender specifically.
+        [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotAttackKey)] =
+            (Func<CardSource, CardSource?, bool>)((subject, defender) =>
+                subject.InstanceId == attackerId && defender is not null && defender.InstanceId == scopedDefender),
     });
 }
 
@@ -114,7 +114,10 @@ void RegisterCannotDigivolve(EngineContext context, HeadlessEntityId targetCardI
 {
     Register(context, targetCardId, owner, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
-        [RestrictionHelpers.CannotDigivolveKey] = true
+        [RestrictionHelpers.CannotDigivolveKey] = true,
+        // (joint-migration) canonical joint: this under-card cannot be digivolved onto.
+        [JointRestrictionEffect.PredicateKey(RestrictionHelpers.CannotDigivolveKey)] =
+            (Func<CardSource, CardSource?, bool>)((subject, _) => subject.InstanceId == targetCardId),
     });
 }
 

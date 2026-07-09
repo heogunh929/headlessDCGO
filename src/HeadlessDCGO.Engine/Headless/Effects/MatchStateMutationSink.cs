@@ -892,39 +892,26 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     /// caller only consults this on the return chokepoints).</summary>
     private bool IsRemovalBlockedByScan(HeadlessEntityId candidateId)
     {
-        if (_context is null || _effectRegistry is null || candidateId.IsEmpty
-            || !_repository.TryGetInstance(candidateId, out CardInstanceRecord? rec) || rec is null || rec.OwnerId.IsEmpty)
-        {
-            return false;
-        }
-
-        var candidate = new Assets.Scripts.Script.CardEffectCommons.CardSource(_context, candidateId, rec.OwnerId, rec.OwnerId);
-        foreach (EffectRequest effect in _effectRegistry.GetContinuousEffects(new EffectQueryContext(Runtime.ContinuousRestrictionGate.Scope)))
-        {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.CanNotBeRemovedEffect.PredicateKey, out object? raw)
-                || raw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
-            {
-                continue;
-            }
-
-            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
-                && condRaw is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (predicate(candidate))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        // (joint-migration) canonical scan (AS-IS Permanent.CanNotBeRemoved): single-participant restriction, no cause.
+        return _context is not null
+            && Runtime.RestrictionScan.IsRestricted(
+                _context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotBeRemovedKey, candidateId, default);
     }
 
     private bool IsRestrictedFromCause(HeadlessEntityId cardId, string restrictionKey, HeadlessEntityId causingSourceId)
     {
+        // (joint-migration) canonical scan: mirror AS-IS Permanent.Can<Return/Delete> — SCAN every field effect and
+        // evaluate the joint restriction predicate f(subject = this card, counterpart = the CAUSING effect's source).
+        // The producers embed the AS-IS cardEffectCondition as the counterpart gate, so a causing predicate that the
+        // source fails (or an empty source when the restriction is conditional) does not restrict — matching the old
+        // per-key CausingEffectPredicate branch below.
+        if (_context is not null)
+        {
+            return Runtime.RestrictionScan.IsRestricted(_context, restrictionKey, cardId, causingSourceId);
+        }
+
+        // Registry-only fallback (no EngineContext): only UNCONDITIONAL restrictions can be evaluated — a conditional
+        // (causing-predicate) restriction needs a CardSource for the source, which requires the context.
         foreach (EffectRequest effect in ScopedEffects(cardId))
         {
             IReadOnlyDictionary<string, object?> values = effect.Context.Values;
@@ -933,19 +920,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 continue;
             }
 
-            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CausingEffectPredicateKey, out object? predRaw)
-                && predRaw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
-            {
-                if (_context is not null && !causingSourceId.IsEmpty)
-                {
-                    HeadlessPlayerId causeOwner = _repository.TryGetInstance(causingSourceId, out CardInstanceRecord? cs) && cs is not null ? cs.OwnerId : default;
-                    if (predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(_context, causingSourceId, causeOwner, causeOwner)))
-                    {
-                        return true;
-                    }
-                }
-            }
-            else
+            if (!values.ContainsKey(Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CausingEffectPredicateKey))
             {
                 return true;
             }

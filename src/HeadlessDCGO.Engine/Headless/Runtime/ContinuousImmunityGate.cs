@@ -18,15 +18,11 @@ public static class ContinuousImmunityGate
     public const string Scope = "ContinuousImmunity";
     public const string ImmunityFromOpponentOnlyKey = "immunityFromOpponentOnly";
 
-    // (S2) AS-IS CanNotAffectedClass.SkillCondition — an arbitrary predicate over the CAUSING effect (headless:
-    // its source card) deciding WHICH effects this card is immune to (e.g. "opponent's Digimon effects only").
-    // Value: Func<CardSource,bool> over the causing effect's source. Evaluated when an EngineContext is available.
-    public const string SkillPredicateKey = "immunitySkillPredicate";
-
-    // (C2) AS-IS CanNotAffectedClass.CardCondition (the factory's permanentCondition) — WHICH permanents the
-    // immunity protects (AS-IS: CanNotAffect = CardCondition(target) && SkillCondition(cause)). A grant
-    // carrying this key is registered field-wide (no target) and evaluated live against the PROTECTED card.
-    public const string TargetPredicateKey = "immunity.targetPredicate";
+    // (joint-migration) canonical joint predicate — the AS-IS ICanNotAffectedEffect.CanNotAffect(cardSource,
+    // cardEffect) shape: a single Func<CardSource /*protected target*/, CardSource /*causing effect source*/, bool>
+    // evaluated by SCANNING every field immunity effect (mirrors CardSource.CanNotBeAffected). Producers embed the
+    // AS-IS CardCondition ∧ SkillCondition conjunction into it, so non-separable immunities are expressible.
+    public const string JointPredicateKey = "joint.immunity";
 
     /// <summary>True when an opponent-sourced effect mutation on <paramref name="targetId"/> is prevented by
     /// an active opponent-only immunity. Works from the registry + repository alone (the sink has no
@@ -51,55 +47,48 @@ public static class ContinuousImmunityGate
             return false;
         }
 
-        foreach (EffectRequest request in registry.GetContinuousEffects(new EffectQueryContext(Scope, targetEntityId: targetId)))
-        {
-            IReadOnlyDictionary<string, object?> values = request.Context.Values;
-
-            // (S2) AS-IS SkillCondition: this card is immune to the causing effect iff the predicate matches it
-            // (evaluated over the causing effect's source card). The predicate itself encodes the "opponent /
-            // Digimon-effect / ..." condition (1:1 with the original), so NO blanket opponent hardcoding here.
-            if (values.TryGetValue(SkillPredicateKey, out object? skillRaw)
-                && skillRaw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> skill)
-            {
-                if (context is not null
-                    && skill(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, sourceEntityId, source.OwnerId, source.OwnerId)))
-                {
-                    return true;
-                }
-
-                continue;
-            }
-
-            // Opponent-only immunity (ProgressImmunity): blocks only an effect sourced by the opponent.
-            if (values.TryGetValue(ImmunityFromOpponentOnlyKey, out object? raw) && raw is bool flag && flag
-                && source.OwnerId != target.OwnerId)
-            {
-                return true;
-            }
-        }
-
-        // (C2) predicate-scoped immunity grants (registered field-wide, no target): AS-IS CanNotAffect =
-        // CardCondition(target) && SkillCondition(cause) — BOTH must be present and pass (CanNotAffectedClass
-        // returns true only when both conditions are non-null and match). Needs the EngineContext to build
-        // the CardSource views; context-less callers skip (no such grant exists without a ported card).
+        // (joint-migration) AS-IS CardSource.CanNotBeAffected: SCAN every field immunity effect and evaluate the
+        // joint CanNotAffect(protected target, causing effect source), gated by the effect's own CanUse condition.
+        // Needs the EngineContext to build the CardSource views the joint predicate operates on.
         if (context is not null)
         {
+            var protectedSource = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, targetId, target.OwnerId, target.OwnerId);
+            var causeSource = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, sourceEntityId, source.OwnerId, source.OwnerId);
             foreach (EffectRequest request in registry.GetContinuousEffects(new EffectQueryContext(Scope)))
             {
                 IReadOnlyDictionary<string, object?> values = request.Context.Values;
-                if (!values.TryGetValue(TargetPredicateKey, out object? targetRaw)
-                    || targetRaw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> targetPredicate
-                    || !values.TryGetValue(SkillPredicateKey, out object? skillRaw)
-                    || skillRaw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> skillPredicate)
+                if (!values.TryGetValue(JointPredicateKey, out object? jointRaw)
+                    || jointRaw is not Func<Assets.Scripts.Script.CardEffectCommons.CardSource, Assets.Scripts.Script.CardEffectCommons.CardSource, bool> joint)
                 {
                     continue;
                 }
 
-                if (targetPredicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, targetId, target.OwnerId, target.OwnerId))
-                    && skillPredicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(context, sourceEntityId, source.OwnerId, source.OwnerId)))
+                // AS-IS cardEffect.CanUse(null): the immunity effect's own condition gate (fixes over-immunity when
+                // an immunity is conditional, e.g. "while I have 3+ memory").
+                if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                    && condRaw is Func<bool> condition && !condition())
+                {
+                    continue;
+                }
+
+                if (joint(protectedSource, causeSource))
                 {
                     return true;
                 }
+            }
+
+            return false;
+        }
+
+        // Context-less fallback (the sink without an EngineContext): the joint predicate needs CardSource views we
+        // cannot build, so only the owner-comparison opponent-only immunity is evaluable here.
+        foreach (EffectRequest request in registry.GetContinuousEffects(new EffectQueryContext(Scope, targetEntityId: targetId)))
+        {
+            IReadOnlyDictionary<string, object?> values = request.Context.Values;
+            if (values.TryGetValue(ImmunityFromOpponentOnlyKey, out object? raw) && raw is bool flag && flag
+                && source.OwnerId != target.OwnerId)
+            {
+                return true;
             }
         }
 
