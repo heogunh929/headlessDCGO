@@ -66,33 +66,36 @@ int HostSourceCount(EngineContext ctx, HeadlessEntityId host) =>
     Check(HostSourceCount(ctx, host) == 0, "the host's source stack is emptied after the trash");
 }
 
-// --- 2. Decode pending: sources are preserved (the POST window plays one from ChoiceZone.None). ---
+// --- 2. Decode pending: sources are STILL held back — the headless POST window plays one from
+//        ChoiceZone.None (full AS-IS parity = PRE move, TODO-96). ---
 {
     var (ctx, host, src0, src1) = await Setup((DeletionReplacementGate.HasDecodeKey, true));
     await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
-    Check(!InTrash(ctx, src0) && !InTrash(ctx, src1), "a Decode card's sources are NOT auto-trashed (POST window reads them)");
+    Check(!InTrash(ctx, src0) && !InTrash(ctx, src1), "a Decode card's sources are held for the POST play window");
     Check(HostSourceCount(ctx, host) == 2, "the Decode host keeps both sources");
 }
 
-// --- 3. Save pending: preserved. ---
-{
-    var (ctx, host, src0, _) = await Setup((DeletionReplacementGate.HasSaveKey, true));
-    await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
-    Check(!InTrash(ctx, src0), "a Save card's sources are NOT auto-trashed");
-}
-
-// --- 4. Partition pending: preserved. ---
+// --- 3. Partition pending: still held (same POST reason as Decode). ---
 {
     var (ctx, host, src0, _) = await Setup((DeletionReplacementGate.HasPartitionKey, true));
     await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
-    Check(!InTrash(ctx, src0), "a Partition card's sources are NOT auto-trashed");
+    Check(!InTrash(ctx, src0), "a Partition card's sources are held for the POST play window");
 }
 
-// --- 5. Fortitude pending: preserved (the replay reads the source COUNT to judge eligibility). ---
+// --- 4. (P0-3) Save NO LONGER holds its sources back — AS-IS DiscardEvoRoots trashes them unconditionally;
+//        Save only relocates the TOP card under a Tamer. ---
+{
+    var (ctx, host, src0, src1) = await Setup((DeletionReplacementGate.HasSaveKey, true));
+    await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
+    Check(InTrash(ctx, src0) && InTrash(ctx, src1), "a Save card's sources ARE trashed (Save moves only the top)");
+}
+
+// --- 5. (P0-3) Fortitude NO LONGER holds its sources back — eligibility reads the deletion-time count
+//        SNAPSHOT, so the sources can be trashed exactly like AS-IS. ---
 {
     var (ctx, host, src0, _) = await Setup((DeletionReplacementGate.HasFortitudeKey, true));
     await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
-    Check(!InTrash(ctx, src0), "a Fortitude card's sources are NOT auto-trashed (replay reads their count)");
+    Check(InTrash(ctx, src0), "a Fortitude card's sources ARE trashed (replay reads the count snapshot, not live)");
 }
 
 // --- 6. No sources: a no-op (no throw, nothing added to trash). ---

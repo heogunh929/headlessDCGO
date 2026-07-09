@@ -8,17 +8,20 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// the top. The headless port trashed only the top and left the sources dead in <see cref="ChoiceZone.None"/>,
 /// so the trash count / trash queries were short.
 ///
-/// SCOPE (safe subset): this trashes the sources ONLY when the deleted card carries none of the deletion-
-/// replacement / replay keywords that CONSUME its sources AFTER the deletion — Save / Decode / Partition play a
-/// source from <see cref="ChoiceZone.None"/>, and Fortitude reads the source COUNT to judge its replay. For
-/// those, the sources are kept (current behaviour) so the POST window still works; the full AS-IS "trash the
-/// REMAINING sources after the PRE/POST window consumes some" is the larger RD-4 sequence redesign (deferred).
-/// ACE-overflow on a leaving un-flipped ACE SOURCE (TODO-98) is likewise deferred.
+/// AS-IS trashes the sources UNCONDITIONALLY (Permanent.cs:117-128 — no keyword check). Save moves only the
+/// TOP card under a Tamer (its sources are already in the trash), and Fortitude judges its replay off a
+/// deletion-time source-count SNAPSHOT (<see cref="DeletionReplacementGate.SourceCountAtDeletionKey"/>), not
+/// the live stack — so both work with the sources trashed, matching AS-IS. The ONLY reason a card's sources
+/// are still held back here is Decode / Partition, which in the current headless model PLAY a source from
+/// <see cref="ChoiceZone.None"/> in a POST window (AS-IS plays them in a PRE window, then DiscardEvoRoots
+/// trashes the remainder — the PRE move is the deferred RD-4 restructure, TODO-96). ACE-overflow on a leaving
+/// un-flipped ACE SOURCE (TODO-98) and LinkedCards are likewise deferred.
 /// </summary>
 public static class DeletionSourceTrash
 {
-    /// <summary>Trash the deleted card's digivolution sources unless a source-consuming replacement/replay
-    /// keyword (Save/Decode/Partition/Fortitude) is pending on it. Call after the top card is (being) trashed.</summary>
+    /// <summary>Trash the deleted card's digivolution sources. Skipped only for Decode/Partition, whose POST
+    /// window still plays a source from <see cref="ChoiceZone.None"/> (their remaining-source trash awaits the
+    /// PRE restructure, TODO-96). Call before/as the top card is trashed (AS-IS sources-then-top).</summary>
     public static async Task TrashEvoSourcesAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
@@ -33,12 +36,11 @@ public static class DeletionSourceTrash
             return;
         }
 
-        // Keep the sources when a POST source-consumer (Save/Decode/Partition) or Fortitude (reads source count
-        // to replay) is on the card — those run after the deletion and need the sources present.
-        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasSaveKey)
-            || ReadFlag(record.Metadata, DeletionReplacementGate.HasDecodeKey)
-            || ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey)
-            || ReadFlag(record.Metadata, DeletionReplacementGate.HasFortitudeKey))
+        // Hold the sources back ONLY for Decode/Partition — the headless POST window plays one from
+        // ChoiceZone.None. Save (top-only) and Fortitude (reads the count snapshot) do NOT need them, so their
+        // sources are trashed unconditionally like AS-IS DiscardEvoRoots.
+        if (ReadFlag(record.Metadata, DeletionReplacementGate.HasDecodeKey)
+            || ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey))
         {
             return;
         }

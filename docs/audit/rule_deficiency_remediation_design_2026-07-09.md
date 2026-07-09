@@ -31,8 +31,8 @@
 |---|------|------|------|
 | **P0-1** | **RD-10 수정 사망**: `CardEffectSchedulerResolver.WithSinkMetadata`(:133)가 `new EffectResult(Resolved, Message, values)`로 **Status 미전달** 재구성 → ctor 기본값(EffectResult.cs:33)이 `Resolved=false→Failed`. 라이브 경로(MatchStateMutationSink 사용 시 extra 항상 non-null)에서 Skipped가 **반드시 Failed로 격하** → fizzle 큐-wedge **그대로 잔존**. Skipped 생산자는 엔진 전체에 HeadlessCardEffectContract:282 단 1곳이고 정확히 이 격하 경로를 통과 | 본선 직접 재확인 완료 | Status 전달 1줄 + **라이브-경로 관통** 테스트(커스텀 람다 주입 아닌 실제 resolver 체인) |
 | **P0-2** | **RD-11 동시-배치 과발화**: AS-IS는 동시 삭제(DP-0 스윕 등)를 `DestroyPermanentsClass` **배치당 1회** `StackSkillInfos`(hashtable에 per-permanent 리스트 팩킹, CardController.cs:3736-3743)→리스너당 **1 SkillInfo**·Some-over-batch 술어·1회 실행(+1). 헤드리스는 카드당 CardMoved 이벤트로 N회 발화(+2). 순차 삭제는 별도 call=별도 SkillInfo라 per-event가 맞음 — 즉 수정이 **순차엔 옳고 동시엔 과교정**. `RD11-PerEventFire` 테스트가 정확히 동시-배치 시나리오를 +2로 고정(反AS-IS) | AutoProcessing.cs:469-484 / HashtableSetting.cs:85-131 / OnDeletion.cs:20-38 | 삭제 이벤트를 **배치 단위**로 방출(batched CardMoved 또는 deletion-batch 이벤트)+테스트 기대값 +1로 교정 |
-| **P0-3** | **RD-4 게이트 = AS-IS 위반**: L6 정정 참조(무조건 트래시가 정답; Save=top-only 이동·Fortitude=스냅샷 판독) + Fortitude 재생 후 소스 도달불가 고아화 | Permanent.cs:117-128 / Save.cs:12·61 / Fortitude.cs:29-35 | 게이트 제거→무조건 소스 트래시; Fortitude 적격성은 삭제-시점 소스 count를 메타 스냅샷으로; Save/Decode/Partition POST 참조를 트래시-존 기반으로 전환 |
-| **P0-4** | **RD-4 미배선 삭제 경로 2곳**: ①PRE-창 거절 후 마무리(`GameFlowProcessor.RuleProcessAsync:217-228` — ClearPendingDeletion+raw move, 소스트래시·Fortitude 미호출 → Evade/Scapegoat/Decoy 카드가 창 거절하면 소스 유실) ②시큐리티-배틀 패자(`SecurityResolver.cs:396-398` raw move — 소스트래시·leave-play cleanup·would-be-deleted 창 전부 부재; AS-IS는 동일 DestroyPermanentsClass 경유 CardController.cs:4705) | reviewer 전수 스캔(BattleArea→Trash 이동 전 지점) | 두 경로에 `DeletionSourceTrash`+cleanup 배선(②는 RD-7 공용화 시 자연 해소되나 그 前 최소 배선) |
+| **P0-3** | ✅**상환(2026-07-10, 7780f5a0 후속)** — Save/Fortitude 게이트 제거→무조건 트래시. Fortitude 적격성=삭제-시점 count 스냅샷(`SourceCountAtDeletionKey`, `SnapshotPostReplacementKeywords`서 freeze), 트래시로 고아도 해소. Decode/Partition만 게이트 유지(POST가 None 소스 플레이=PRE 이동 TODO-96 결합). | Permanent.cs:117-128 / Save.cs:61 / Fortitude.cs:29-35 | **잔여**=Decode/Partition PRE 이동(TODO-96) 시 전체 정합 |
+| **P0-4** | ✅**상환(2026-07-10)** — 두 경로 배선(각각 OnDeleted→소스트래시→top 이동→Fortitude 재생, battle 경로 동형): ①`RuleProcessAsync:217`(PRE-거절 마무리) ②`SecurityResolver:389`(시큐리티-배틀 패자). | reviewer 전수 스캔 | (②는 RD-7 공용화 시 재확인) |
 
 ### P1 — 구조 발산 (해당 단계/카드 착수 前 상환)
 
@@ -197,7 +197,9 @@ EndTurn(액션, 구 턴 컨텍스트 유지)
 - **리스크**: EndTurn 액션의 반환 계약 변화("턴 지속" 결과) — MetadataActionProcessor 소비자(RL 액션 루프)와 기존 테스트(GR-001 MemoryTurnEnd 등) 회귀 확인 필수.
 **테스트** `RD6-EndTurnSequence`: ①EoT 창이 구 턴 상태에서 해소(IsOwnerTurn 게이트 효과) ②BT1_021로 메모리 −3 후 임계 미달 → 턴 지속 ③until-턴종료 효과를 EoT 핸들러가 관측 ④EoT 효과 once가 구 턴 장부에 기록.
 
-### D-RD4. 삭제-확정 시퀀스 (진화원 트래시 + PRE 창 정렬) — ⚠️부분 완료였으나 점검으로 게이트 오류·미배선 확인(P0-3/P0-4)
+### D-RD4. 삭제-확정 시퀀스 (진화원 트래시 + PRE 창 정렬) — ✅게이트 오류·미배선 상환(P0-3/P0-4, 2026-07-10); Decode/Partition PRE 이동만 잔여(TODO-96)
+**상환 요약(2026-07-10)**: 게이트에서 Save/Fortitude 제거(무조건 트래시=AS-IS). Fortitude 적격성은 `DeletionReplacementGate.SourceCountAtDeletion`(삭제-시점 count 스냅샷)으로 전환 → 소스 트래시돼도 발화·고아 해소. 미배선 2경로(`GameFlowProcessor.RuleProcessAsync:217` PRE-거절 마무리, `SecurityResolver:389` 시큐리티-배틀 패자)에 OnDeleted→소스트래시→top 이동→Fortitude 재생 배선. 통합 census 테스트 `RD4-DeletionWiring`(sink 관통·Fortitude 스냅샷·Decode 보류). 회귀 386/386·RuleAudit 0. **잔여**: Decode/Partition은 여전히 게이트 유지(POST가 None 소스 플레이) — 완전 정합은 PRE 이동(TODO-96).
+
 **구현분(원 주장, step 4의 "안전" 부분)**: 삭제 시 진화원(sourceIds) 트래시를 `DeletionSourceTrash.TrashEvoSourcesAsync`로 미러.
 AS-IS `Permanent.DiscardEvoRoots`(CardController.cs:3846, 톱 `AddTrashCard`(:3852) 前) 순서 그대로 **소스 먼저→톱**.
 - 배선 2곳: sink `MatchStateMutationSink.ApplyDelete`(톱-트래시 pending 前), `BattleResolver.FinalizeAsync`(phase-2 톱-이동 前).
