@@ -221,9 +221,17 @@ public sealed class GameFlowProcessor
                         // post-deletion keywords, then drop the dead card's bindings (previously leaked).
                         ClearPendingDeletion(context, cardId);
                         CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, cardId);
+                        // (P0-4/RD-4) this deferred-deletion finisher previously moved only the top card,
+                        // stranding the dead permanent's digivolution sources in ChoiceZone.None. Mirror
+                        // AS-IS DiscardEvoRoots (sources → trash, before the top) here too.
+                        await DeletionSourceTrash.TrashEvoSourcesAsync(
+                            context.CardInstanceRepository, context.ZoneMover, cardId, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
                         await context.ZoneMover.MoveAsync(
                             new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
                             cancellationToken).ConfigureAwait(false);
+                        // (P0-4) mandatory post-deletion Fortitude replay, as the sink/battle paths do.
+                        await DeletionReplacementGate.TryFortitudeReplayAsync(
+                            context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken, context.EffectRegistry).ConfigureAwait(false);
                         progressed = true;
                         continue;
                     }

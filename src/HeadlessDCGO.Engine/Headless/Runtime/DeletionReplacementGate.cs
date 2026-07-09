@@ -35,6 +35,11 @@ public static class DeletionReplacementGate
     public const string IsSuspendedKey = "isSuspended";
     public const string CannotBeDeletedKey = "cannotBeDeleted";
     public const string SourceIdsKey = "sourceIds";
+    // (P0-3/RD-4) Digivolution-source COUNT snapshotted at deletion time — AS-IS CanActivateFortitude reads
+    // GetDigivolutionSourcesFromHashtable (the OnDeletion snapshot built BEFORE DiscardEvoRoots), NOT the live
+    // stack. So Fortitude eligibility survives the unconditional source-trash: the sources are already in the
+    // trash by replay time, exactly like AS-IS.
+    public const string SourceCountAtDeletionKey = "sourceCountAtDeletion";
     public const string EnteredThisTurnKey = "enteredThisTurn";
     public const string DeletedByBattleKey = "deletedByBattle";
     public const string DeletedByEffectKey = "deletedByEffect";
@@ -199,7 +204,7 @@ public static class DeletionReplacementGate
         if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
             record is null ||
             !HasReplacementKeyword(record, HasFortitudeKey, ContinuousKeywordGate.Fortitude, effectRegistry) ||
-            SourceCount(record.Metadata) < 1)
+            SourceCountAtDeletion(record.Metadata) < 1)
         {
             return false;
         }
@@ -738,6 +743,12 @@ public static class DeletionReplacementGate
     }
 
     private static int SourceCount(IReadOnlyDictionary<string, object?> metadata) => ReadSourceIds(metadata).Count;
+
+    /// <summary>(P0-3/RD-4) Source count for a POST-deletion replay/replacement gate: the deletion-time
+    /// snapshot (<see cref="SourceCountAtDeletionKey"/>) if present — the sources may already be trashed by the
+    /// unconditional DiscardEvoRoots mirror — else the live stack (paths that did not snapshot).</summary>
+    public static int SourceCountAtDeletion(IReadOnlyDictionary<string, object?> metadata) =>
+        metadata.TryGetValue(SourceCountAtDeletionKey, out object? raw) && raw is int snap ? snap : SourceCount(metadata);
 
     internal static IReadOnlyList<HeadlessEntityId> ReadSourceIds(IReadOnlyDictionary<string, object?> metadata)
     {

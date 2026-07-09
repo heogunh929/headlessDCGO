@@ -65,6 +65,11 @@ public static class CardLeavePlayCleanup
         ArgumentNullException.ThrowIfNull(effectRegistry);
         ArgumentNullException.ThrowIfNull(metadata);
 
+        // (P0-3/RD-4) freeze the digivolution-source count BEFORE the unconditional source-trash empties the
+        // live stack, so Fortitude's post-deletion replay reads the AS-IS OnDeletion snapshot, not 0.
+        metadata[DeletionReplacementGate.SourceCountAtDeletionKey] =
+            DeletionReplacementGate.ReadSourceIds(metadata).Count;
+
         foreach ((string keyword, string flagKey) in new[]
         {
             (ContinuousKeywordGate.Fortitude, DeletionReplacementGate.HasFortitudeKey),

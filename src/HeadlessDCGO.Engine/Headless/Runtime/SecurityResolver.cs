@@ -393,9 +393,18 @@ public sealed class SecurityResolver
         };
         context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
 
+        // (P0-4/RD-4) a security-battle loss deletes the attacker through the SAME AS-IS deletion flow as any
+        // battle loss (CardController.cs:4705 → DestroyPermanentsClass): leave-play cleanup (snapshot keywords +
+        // drop bindings), trash the digivolution sources BEFORE the top (DiscardEvoRoots), then the mandatory
+        // post-deletion Fortitude replay. The previous raw top-only move skipped all three.
+        CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, attackerId);
+        await DeletionSourceTrash.TrashEvoSourcesAsync(
+            context.CardInstanceRepository, context.ZoneMover, attackerId, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
         await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(attackerOwner, attackerId, ChoiceZone.BattleArea, ChoiceZone.Trash),
             cancellationToken).ConfigureAwait(false);
+        await DeletionReplacementGate.TryFortitudeReplayAsync(
+            context.CardInstanceRepository, context.ZoneMover, attackerId, cancellationToken, context.EffectRegistry).ConfigureAwait(false);
         return true;
     }
 
