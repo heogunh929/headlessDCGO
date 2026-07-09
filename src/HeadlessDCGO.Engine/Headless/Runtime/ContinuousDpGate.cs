@@ -55,6 +55,17 @@ public static class ContinuousDpGate
 
         IReadOnlyList<NumericModifier> modifiers = result.Modifiers;
 
+        // (P1-DP-3) AS-IS gates EVERY ChangeDP/ChangeBaseDP candidate with !TopCard.CanNotBeAffected(cardEffect)
+        // (Permanent.cs:229/257/534/567/595): a card immune to an opponent's effect does not receive that effect's
+        // DP change. Drop any modifier whose SOURCE effect this card is immune to (a self-sourced modifier is never
+        // an opponent effect, so BlocksOpponentEffect returns false and it is kept). This is the general immunity,
+        // distinct from the DP-minus-specific ImmuneFromDPMinus filter below.
+        modifiers = modifiers
+            .Where(modifier => modifier.SourceEntityId is not { IsEmpty: false } source
+                || !ContinuousImmunityGate.BlocksOpponentEffect(
+                    context.EffectRegistry, context.CardInstanceRepository, cardId, source, context))
+            .ToArray();
+
         // D-A3: DP-reduction immunity. AS-IS ImmuneFromDPMinus(permanent, cardEffect) is evaluated PER causing
         // effect — a card "immune to your OPPONENT's DP-minus" still takes its own controller's reduction. Collect
         // the immunity grants applicable to this card and drop a DP-reducing modifier only when some immunity's
@@ -81,8 +92,11 @@ public static class ContinuousDpGate
         return Math.Max(0, ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue);
     }
 
+    // (P1-DP-4) AS-IS applies ImmuneFromDPMinus to BOTH current-DP and BASE-DP reductions (Permanent.cs:221-227
+    // gates IChangeBaseDPEffect.IsMinusDP with ImmuneFromDPMinus, same as the current-DP path). A negative Add on
+    // either metric is a "DP minus" in the headless model.
     private static bool IsDpReduction(NumericModifier modifier) =>
-        modifier.Metric == NumericModifierMetric.Dp &&
+        (modifier.Metric == NumericModifierMetric.Dp || modifier.Metric == NumericModifierMetric.BaseDp) &&
         modifier.Mode == NumericModifierMode.Add &&
         modifier.Value < 0;
 
