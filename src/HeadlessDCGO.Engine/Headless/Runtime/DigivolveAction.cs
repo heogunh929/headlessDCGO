@@ -571,6 +571,10 @@ public sealed class DigivolveAction
     // digivolution requirement" (level still enforced).
     public const string IgnoreColorRequirementKey = "ignoreColorRequirement";
 
+    // NOTE: AS-IS has NO continuous "ignore level" grant (no IgnoreLevelConditionClass) — ignore-level exists ONLY as
+    // the effect-driven IgnoreRequirement.Level (CardController.SetIgnoreRequirements), handled by the effect-driven
+    // digivolve path. So the player-initiated Validate deliberately has no ignore-level branch (matches AS-IS).
+
     private static bool CanIgnoreDigivolutionRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
         HasContinuousFlag(context, playerId, cardId, IgnoreDigivolutionRequirementKey);
 
