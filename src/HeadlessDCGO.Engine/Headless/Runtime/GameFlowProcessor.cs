@@ -437,7 +437,10 @@ public sealed class GameFlowProcessor
     /// AS-IS optional-trigger prompt. Opening a prompt pauses the loop via the pending choice.
     /// </para>
     /// </summary>
-    private static async Task<(int Resolved, int Collected)> AutoProcessAsync(
+    /// <summary>(A-2 / RD-6) internal so <c>MetadataActionProcessor.EndTurnAsync</c> can drive the [End of Your
+    /// Turn] window in the ENDING player's still-live frame (drain-before-flip) by looping this one drain pass —
+    /// the same unified-seed window drive the main RunToStable loop uses, without re-entering RunToStable.</summary>
+    internal static async Task<(int Resolved, int Collected)> AutoProcessAsync(
         EngineContext context,
         CancellationToken cancellationToken)
     {

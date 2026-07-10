@@ -55,7 +55,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
             HeadlessActionTypes.NormalizedShuffleDeck => await ShuffleDeckAsync(action, context, cancellationToken).ConfigureAwait(false),
             HeadlessActionTypes.NormalizedEnqueueEffect => EnqueueEffect(action, context),
             HeadlessActionTypes.NormalizedAdvancePhase => await AdvancePhaseAsync(action, context, cancellationToken).ConfigureAwait(false),
-            HeadlessActionTypes.NormalizedEndTurn => EndTurn(action, context),
+            HeadlessActionTypes.NormalizedEndTurn => await EndTurnAsync(action, context, cancellationToken).ConfigureAwait(false),
             HeadlessActionTypes.NormalizedSetMemory => SetMemory(action, context),
             HeadlessActionTypes.NormalizedAddMemory => AddMemory(action, context),
             HeadlessActionTypes.NormalizedPayMemory => PayMemory(action, context),
@@ -822,9 +822,10 @@ public sealed class MetadataActionProcessor : IActionProcessor
             metadata);
     }
 
-    private static ActionProcessResult EndTurn(
+    private static async Task<ActionProcessResult> EndTurnAsync(
         LegalAction action,
-        EngineContext context)
+        EngineContext context,
+        CancellationToken cancellationToken)
     {
         HeadlessTurnState previousTurn = context.TurnController.Current;
 
@@ -839,6 +840,31 @@ public sealed class MetadataActionProcessor : IActionProcessor
             return ActionProcessResult.Success("End-of-turn effect-driven attack window opened.", windowMetadata);
         }
 
+        // (A-2 / RD-6) The [End of Your Turn] effect window (AutoProcessing.cs:699 "step 3") — resolve it in the
+        // ENDING player's STILL-LIVE frame, BEFORE cleanup and the turn flip. Emitting OnEndTurn and draining it
+        // HERE (not enqueue-only for the post-return caller) is load-bearing: a [End of Your Turn] body gates on
+        // `TurnPlayerId == Owner` (e.g. TriggeredGainMemoryEffect, BT1_021 EoTLose3Memory) — drained AFTER the flip
+        // it no-ops entirely (the new turn player owns the frame), silently dropping the effect. Draining pre-flip
+        // fires it against the correct owner/memory-coordinate.
+        if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayerForWindow)
+        {
+            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayerForWindow);
+            bool suspended = await DrainEndOfTurnWindowAsync(context, cancellationToken).ConfigureAwait(false);
+            if (suspended)
+            {
+                // (latent guard, mirrors the A-4 / scheduler-suspend policy) an INTERACTIVE [End of Your Turn]
+                // effect parked the window for an agent choice. Pre-flip drain does not yet own the re-apply /
+                // idempotency path an interactive EoT effect needs (emit-once per turn-end + resume-then-flip), and
+                // no ported [End of Your Turn] effect is interactive today. Fail LOUDLY rather than let a resumed
+                // window re-emit OnEndTurn on the re-applied EndTurn (double-fire) or flip with a window pending.
+                // When such a card is added, wire the attack-window-style early-return + a per-turn-end fired marker.
+                throw new NotSupportedException(
+                    "An interactive [End of Your Turn] effect suspended the pre-flip end-of-turn window. Pre-flip " +
+                    "drain currently supports only non-interactive [End of Your Turn] effects; wire the re-apply + " +
+                    "fired-marker path (A-2 RD-6 follow-up) before adding an interactive one.");
+            }
+        }
+
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         EndOfTurnEffectAttack.ClearForPlayer(context, previousTurn.TurnPlayerId);
         OnPlayReactivation.ClearAll(context); // LA-3: reset the [All Turns] once-per-turn guard for both players.
@@ -851,22 +877,8 @@ public sealed class MetadataActionProcessor : IActionProcessor
         AddMainPhaseMetadata(metadata, mainPhase);
         AddEndTurnCleanupMetadata(metadata, cleanup);
 
-        // (RD-6) W1: open the turn-boundary timing windows so [End of Turn] / [Start of Turn] effects fire.
-        // NOTE: AS-IS resolves the [End of your turn] window (AutoProcessing.cs:675, "step 3") BEFORE cleanup and
-        // the turn flip, in the ending player's still-live frame. This headless emit position is frame-INDEPENDENT
-        // (EndTurn is fully synchronous; TriggerEventEmitter only enqueues; the queue is drained solely by the
-        // caller's AutoProcessAsync AFTER this action returns — i.e. after the flip below). So moving the emit
-        // earlier is a behavioral no-op and achieves ZERO AS-IS convergence — the [End of your turn] window still
-        // resolves post-flip regardless. The real fix (resolve the window BEFORE the flip, in an in-action mini
-        // window loop) is Stage-5-coupled (WindowResolver). See design doc L8 / D-RD6.
-        // (An earlier note here mis-claimed a reposition "broke 6 turn-boundary tests" — that was a lint-guard
-        // artifact, not behavior; corrected 2026-07-10 by controlled re-experiment. Do NOT put the string
-        // "T-O-D-O" in this file: six tests text-scan it and fail the build.)
-        if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayer)
-        {
-            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayer);
-        }
-
+        // (RD-6) W1: the [End of Your Turn] window already drained ABOVE in the ending player's frame; here only
+        // the [Start of Turn] window is emitted for the NEW turn player (drained by the caller's RunToStable).
         // F-4: a new turn begins — reset the once-per-turn use counts (original InitUseCountThisTurn).
         context.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId);
         // Reset player-scoped per-turn counters (AS-IS TurnStateMachine resets Player.DigivolveCount_ThisTurn etc.).
@@ -883,6 +895,34 @@ public sealed class MetadataActionProcessor : IActionProcessor
         return ActionProcessResult.Success(
             $"Turn advanced to player {turn.TurnPlayerId?.Value.ToString() ?? "<none>"} {turn.Phase}.",
             metadata);
+    }
+
+    /// <summary>(A-2 / RD-6) Drain the just-emitted [End of Your Turn] window to completion in the ENDING player's
+    /// frame — looping <see cref="GameFlowProcessor.AutoProcessAsync"/> (the same unified-seed window drive the main
+    /// RunToStable loop uses) WITHOUT re-entering RunToStable, so a [End of Your Turn] body resolves against the
+    /// still-live turn player. A pass that neither resolves nor collects means the queue is empty (fully drained).
+    /// Returns true if a resolution SUSPENDED for an agent choice (parked in WindowResolution / a pending choice) —
+    /// the caller treats an interactive [End of Your Turn] effect as not-yet-supported.</summary>
+    private static async Task<bool> DrainEndOfTurnWindowAsync(EngineContext context, CancellationToken cancellationToken)
+    {
+        const int maxDrainPasses = 256; // runaway bound; a real end-of-turn window settles in a handful of passes.
+        for (int pass = 0; pass < maxDrainPasses; pass++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (context.ChoiceController.Current.IsPending || context.WindowResolution.HasPending)
+            {
+                return true;
+            }
+
+            (int resolved, int collected) =
+                await GameFlowProcessor.AutoProcessAsync(context, cancellationToken).ConfigureAwait(false);
+            if (resolved == 0 && collected == 0)
+            {
+                return false;
+            }
+        }
+
+        return context.ChoiceController.Current.IsPending || context.WindowResolution.HasPending;
     }
 
     private static ActionProcessResult SetMemory(

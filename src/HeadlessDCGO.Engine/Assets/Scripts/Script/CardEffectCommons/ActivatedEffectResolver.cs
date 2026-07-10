@@ -62,6 +62,43 @@ public static class ActivatedEffectResolver
         return effect.CardEffects(timing, card).Count > 0;
     }
 
+    /// <summary>(A-2 / RD-6) Whether the card has any ACTIVATED effect (<see cref="IActivatedCardEffect"/>)
+    /// registered at <paramref name="timing"/> — the resolver's actual domain (the <see cref="ResolveListAsync"/>
+    /// switch is ENTIRELY over IActivatedCardEffect subtypes; a plain scheduler <see cref="IHeadlessCardEffect"/>
+    /// mutation body hits no case and no-ops). Distinct from <see cref="HasEffectsAt"/> (ANY effect, existence):
+    /// a card whose only effect at the timing is a SCHEDULER effect (e.g. TriggeredGainMemoryEffect / BT1_021
+    /// EoTLose3Memory) is already collected by the scheduler half of the unified window seed, so synthesising an
+    /// activated-bridge marker for it would DOUBLE-collect the same effect — the marker only no-ops in the resolver
+    /// yet still competes for the window's order choice (spurious). The activated bridge must mark a card ONLY when
+    /// it has a genuine activated effect the resolver will handle. Pure (builds the effect list, runs nothing).</summary>
+    public static bool HasActivatedEffectsAt(
+        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardInstanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(cardInstanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return false;
+        }
+
+        var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
+        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        for (int i = 0; i < effects.Count; i++)
+        {
+            if (effects[i] is IActivatedCardEffect)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static async Task<int> ResolveAsync(
         EngineContext context,
         HeadlessEntityId cardInstanceId,

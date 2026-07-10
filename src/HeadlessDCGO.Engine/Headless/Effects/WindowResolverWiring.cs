@@ -675,17 +675,22 @@ public static class WindowResolverWiring
             // compete with a real effect for the player's order choice (RD-14). This preserves the batch's
             // resolution outcome (no-effect cards did nothing) while removing the phantom stack entries.
             //
-            // (A-3, adversarially verified 2026-07-10) HasEffectsAt is effect-EXISTENCE at the timing
-            // (CardEffects(timing).Count>0), captured ONCE here at COLLECT — and that is AS-IS-FAITHFUL, NOT an
-            // asymmetry to fix. AS-IS collects existence once too (GetSkillInfos / EffectList(timing),
+            // (A-2 / RD-6) mark ONLY a card with a genuine ACTIVATED effect (IActivatedCardEffect) at this timing —
+            // the resolver's domain. HasActivatedEffectsAt EXCLUDES a scheduler-only effect (IHeadlessCardEffect,
+            // e.g. TriggeredGainMemoryEffect / BT1_021 EoTLose3Memory): that effect is already collected by the
+            // SCHEDULER half of the unified seed (a registered binding), so an activated marker for it would
+            // DOUBLE-collect — the marker only no-ops in the resolver yet still competes for the window's order
+            // choice (a spurious pending choice that suspends the pre-flip end-of-turn drain). Formerly this used
+            // HasEffectsAt (ANY effect existence), which double-collected such cards; the double was masked while
+            // the [End of Turn] window drained POST-flip (the memory body no-opped on the wrong owner anyway).
+            //
+            // (A-3, adversarially verified 2026-07-10) The reactivity check stays at COLLECT (not per-pass) — that
+            // is AS-IS-FAITHFUL: AS-IS collects effect existence once too (GetSkillInfos / EffectList(timing),
             // AutoProcessing.cs:770-857); its window loop re-checks only CanActivate on ALREADY-stacked entries
-            // (MultipleSkills.cs:122/164-165) and NEVER re-collects existence for the original timing. So a card
-            // whose CardEffects(timing) list turns non-empty mid-window with no new event is dropped by AS-IS too
-            // (a shared limitation, not a divergence); an earlier note here that framed this as a per-pass gap to
-            // close was wrong (moving the existence check per-pass would DIVERGE — admit an entry AS-IS never
-            // collects). The genuine per-pass gap is a DIFFERENT thing — the marker's CanActivate/CanResolve is not
-            // re-tested per pass in MarkerGate (RDx-A3 debt below); that is where AS-IS's per-pass CanActivate lives.
-            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasEffectsAt(context, card, instance.OwnerId, timing))
+            // (MultipleSkills.cs:122/164-165) and NEVER re-collects existence for the original timing. Moving it
+            // per-pass would DIVERGE (admit an entry AS-IS never collects). The genuine per-pass gap is a DIFFERENT
+            // thing — the marker's CanActivate/CanResolve is not re-tested per pass in MarkerGate (RDx-A3 debt).
+            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasActivatedEffectsAt(context, card, instance.OwnerId, timing))
             {
                 continue;
             }
