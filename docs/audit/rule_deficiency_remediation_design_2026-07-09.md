@@ -59,11 +59,27 @@
 | D-4 | RD-12 주석·§D-RD12의 AS-IS 소모 지점 과일반화(1곳으로 기술, 실제 3곳) | 본 문서 정정 완료(P1-5); 코드 주석은 P1-5 상환 시 |
 | D-5 | RD-13 부기: AS-IS는 **Owner**에 질문(OptionalSkill.cs:18)+대상 프리뷰 제공(:24-33) — 헤드리스는 Controller에 질문·설명만(현재 controller==owner라 등가) | controller≠owner 분리(빼앗기 효과) 포팅 時 |
 
-### 권고 상환 순서
-1. **P0-1**(Status 전달 1줄+관통 테스트) + **D-1**(허위 주석 정정) — 최소 diff·최대 효과
-2. **P0-3/P0-4** RD-4 재설계(게이트 제거+스냅샷화+2경로 배선) + **D-3** 통합 테스트
-3. **P0-2** RD-11 배치-이벤트 모델 + **D-2** 테스트 교정
+### 권고 상환 순서 — ✅P0 전량 상환(2026-07-10)
+1. ✅**P0-1**(Status 전달, 7780f5a0) + **D-1** — 관통 테스트 RD10-FizzleSkipLive
+2. ✅**P0-3/P0-4**(게이트 제거+스냅샷+2경로, f4642c4e) + **D-3** — RD4-DeletionWiring
+3. ✅**P0-2**(pass=배치 dedup, 541e7425) + **D-2** — RD11 교정
 4. P1군은 각 명시 시점에 상환(P1-1·2·4=Stage 5 설계 입력, P1-3=첫 capped-인터랙티브 카드 前, 나머지=해당 카드/기능 포팅 前)
+
+### ⚔️ P0 상환분 재검수 결과 (독립 reviewer 3기, 2026-07-10) — 핵심 견고, 잔여는 추가 상환·이연
+**P0-1**: 수정 견고(되돌리면 4-FAIL, tautology 아님)·전 경로 Status 보존·fizzle 후 dangling sink/choice 없음. 재검수-후속 상환분 F7 등은 아래.
+- **VR-1(이연, 기존 P1-2/3 병합)**: fizzle이 collection-소모한 once-cap·one-shot 바인딩을 롤백 안 함(AS-IS는 실행 시 소모라 미소모). 수정 前엔 wedge로 가려졌고 이제 라이브 관측 — Stage 5 창-루프서 소모-시점 이동과 함께 해소.
+- **VR-2(문서)**: RD10-FizzleSkipLive의 대조군 test2(body Failure→큐 영구 park)는 **AS-IS 아닌 헤드리스 발명**을 소망 동작으로 고정 — 코루틴은 실패해도 후속 영구 동결 안 함. body Failure가 후속 stranding+RunToStable 조기-Stable 반환하는 latent 문제 = Error-처리 재설계 시 함께(테스트 주석에 "AS-IS 아님" 명기 대상).
+- **VR-3(저순위)**: EffectScheduler skip 분기가 Resolved 분기의 head-identity(`ReferenceEquals`) 재확인 없음 — 단일소비자라 저위험.
+
+**P0-3/P0-4**: 핵심 메커니즘 4경로 전부 정합(스냅샷-前-트래시·소스-前-톱·Fortitude-後·이중트래시 없음)·AS-IS 미러 확인. ✅재검수-후속 상환:
+- ✅**VR-4(F7)**: `SourceCountAtDeletionKey`를 Fortitude 재생·Save 성공 시 소거(stale-count 누수 방어). 테스트 가드 추가.
+- ✅**VR-5(F8)**: 허위 주석 2건(`MatchStateMutationSink`·`BattleResolver` "Save/Decode/Partition/Fortitude 스킵"→"Decode/Partition만") 정정. 미배선 2경로 테스트 커버(RD4-DeletionWiring에 RuleProcessAsync finisher; G3.5-W5에 SecurityResolver 소스트래시). tautology `>=0`→실측 스냅샷(==2)·F7 가드(==0).
+- **VR-6(이연, RD-7 결합)**: SecurityResolver는 POST Fortitude만 배선, PRE would-be-deleted 창(Evade/Barrier/Fragment/Scapegoat) 여전히 미개방 — Evade 공격자가 시큐리티-배틀선 죽고 필드-배틀선 생존(기존 비대칭). RD-7 시큐리티 배틀 공용화 시 해소. 커밋 주석의 "동일 AS-IS 삭제 플로우"는 과장이었음.
+
+**P0-2**: mutation 경로 board-wide 리스터엔 정확·on-fire 클레임·EffectId 인스턴스별·캡 무해. ✅근거 정정+한계 명시(코드 주석):
+- ✅**VR-7(근거 정정)**: "15개 전부 1회라 안전"은 과장 — 수정은 **scheduler(mutation) 경로만** 커버. board-wide **activated bridge** 리스터(BT1_049)는 별 경로라 미커버(현재 board-wide 미배선이라 무발화=기존 under-fire; 배선 시 bridge에도 동일 가드 필요). self-scope activated는 per-subject 정합.
+- **VR-8(이연, F1(b))**: "pass=배치"는 같은 pass에 드레인되는 **독립 2 delete-process**를 under-fire(AS-IS 2회, 여기 1회). 정밀 해법=emission 시 delete-process batch-id 스탬프. 공통 케이스(0-DP 스윕/보드와이프=단일 process)는 정확이라 이연.
+- **VR-9(이연, latent)**: 가드가 OnDestroyedAnyone 전용 — AS-IS 동일 배치인 `OnLeaveFieldAnyone`(CardController:3746) 미dedup. 현재 board-wide leave-field 리스터 미수집(BroadcastTimings 부재)이라 가려짐.
 
 ---
 

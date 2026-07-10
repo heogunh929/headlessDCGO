@@ -22,6 +22,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("Stronger attacker survives the security Digimon", StrongerAttackerSurvives),
     ("Weaker attacker is deleted by the security Digimon", WeakerAttackerDeleted),
+    ("A deleted attacker's digivolution sources are trashed (P0-4 wiring)", DeletedAttackerSourcesAreTrashed),
     ("Equal DP deletes the attacker (mutual)", EqualDpDeletesAttacker),
     ("Jamming attacker survives a losing security battle", JammingAttackerSurvives),
     ("Attacker deletion stops the security check", DeletionStopsSecurityCheck),
@@ -71,6 +72,28 @@ async Task WeakerAttackerDeleted()
     AssertFalse(InZone(match, Player, ChoiceZone.BattleArea, AttackerId), "attacker left the field");
     AssertInZone(match, Player, ChoiceZone.Trash, AttackerId, "attacker moved to trash");
     AssertMetadataTrue(match, AttackerId, BattleResolver.DeletedByBattleKey, "attacker marked deleted by battle");
+}
+
+async Task DeletedAttackerSourcesAreTrashed()
+{
+    // (P0-4/RD-4) a security-battle loser is deleted through SecurityResolver's own path (not the sink/battle
+    // resolver). Verify that path now trashes the attacker's digivolution sources like AS-IS DiscardEvoRoots.
+    DcgoMatch match = await CreateMatchAsync(attackerDp: 2000, securityDps: new[] { 5000 });
+    HeadlessEntityId src0 = new("p1:src:00");
+    HeadlessEntityId src1 = new("p1:src:01");
+    CardDatabase cards = (CardDatabase)match.Context.CardRepository;
+    cards.Upsert(Definition("SRCDEF", "Digimon"));
+    match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(src0, new HeadlessEntityId("SRCDEF"), Player));
+    match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(src1, new HeadlessEntityId("SRCDEF"), Player));
+    SetMetadata(match, AttackerId, new Dictionary<string, object?> { ["sourceIds"] = new[] { src0.Value, src1.Value } });
+    DeclareDirectAttack(match);
+
+    SecurityResolutionResult result = await new SecurityResolver().ResolveAsync(match.Context);
+
+    AssertTrue(result.AttackerDeletedBySecurity, "attacker deleted by security Digimon");
+    AssertInZone(match, Player, ChoiceZone.Trash, AttackerId, "attacker top trashed");
+    AssertInZone(match, Player, ChoiceZone.Trash, src0, "attacker source 0 trashed via SecurityResolver wiring");
+    AssertInZone(match, Player, ChoiceZone.Trash, src1, "attacker source 1 trashed via SecurityResolver wiring");
 }
 
 async Task EqualDpDeletesAttacker()
