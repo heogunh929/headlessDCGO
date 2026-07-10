@@ -30,7 +30,7 @@
 | # | 발견 | 증거 | 상환 |
 |---|------|------|------|
 | **P0-1** | **RD-10 수정 사망**: `CardEffectSchedulerResolver.WithSinkMetadata`(:133)가 `new EffectResult(Resolved, Message, values)`로 **Status 미전달** 재구성 → ctor 기본값(EffectResult.cs:33)이 `Resolved=false→Failed`. 라이브 경로(MatchStateMutationSink 사용 시 extra 항상 non-null)에서 Skipped가 **반드시 Failed로 격하** → fizzle 큐-wedge **그대로 잔존**. Skipped 생산자는 엔진 전체에 HeadlessCardEffectContract:282 단 1곳이고 정확히 이 격하 경로를 통과 | 본선 직접 재확인 완료 | Status 전달 1줄 + **라이브-경로 관통** 테스트(커스텀 람다 주입 아닌 실제 resolver 체인) |
-| **P0-2** | **RD-11 동시-배치 과발화**: AS-IS는 동시 삭제(DP-0 스윕 등)를 `DestroyPermanentsClass` **배치당 1회** `StackSkillInfos`(hashtable에 per-permanent 리스트 팩킹, CardController.cs:3736-3743)→리스너당 **1 SkillInfo**·Some-over-batch 술어·1회 실행(+1). 헤드리스는 카드당 CardMoved 이벤트로 N회 발화(+2). 순차 삭제는 별도 call=별도 SkillInfo라 per-event가 맞음 — 즉 수정이 **순차엔 옳고 동시엔 과교정**. `RD11-PerEventFire` 테스트가 정확히 동시-배치 시나리오를 +2로 고정(反AS-IS) | AutoProcessing.cs:469-484 / HashtableSetting.cs:85-131 / OnDeletion.cs:20-38 | 삭제 이벤트를 **배치 단위**로 방출(batched CardMoved 또는 deletion-batch 이벤트)+테스트 기대값 +1로 교정 |
+| **P0-2** | ✅**상환(2026-07-10)** — 조사결과 포팅 OnDestroyedAnyone body 15개 전부 "1회 발화"(배치 리스트 판독 body 0). 동시 삭제는 모두 1 AutoProcessAsync pass에 드레인(RuleProcessAsync가 pass 前 전량 삭제, BattleResolver 양 패자 동일)이므로 **pass=배치**. OnDestroyedAnyone 트리거를 pass당 1회로 dedup(`firedDeletionEffects`), **게이트+캡 통과 後(on-fire) 클레임**(subject-특정 게이트 under-fire 방지). 순차 삭제는 별도 pass=별도 발화. | AutoProcessing.cs:469-484 / OnDeletion.cs:20-38 (any-match) | **완료** — 배치 리스트를 읽는 "각 삭제마다" 카드 포팅 시 리스트-전달 모델로 확장(현재 그런 body 0) |
 | **P0-3** | ✅**상환(2026-07-10, 7780f5a0 후속)** — Save/Fortitude 게이트 제거→무조건 트래시. Fortitude 적격성=삭제-시점 count 스냅샷(`SourceCountAtDeletionKey`, `SnapshotPostReplacementKeywords`서 freeze), 트래시로 고아도 해소. Decode/Partition만 게이트 유지(POST가 None 소스 플레이=PRE 이동 TODO-96 결합). | Permanent.cs:117-128 / Save.cs:61 / Fortitude.cs:29-35 | **잔여**=Decode/Partition PRE 이동(TODO-96) 시 전체 정합 |
 | **P0-4** | ✅**상환(2026-07-10)** — 두 경로 배선(각각 OnDeleted→소스트래시→top 이동→Fortitude 재생, battle 경로 동형): ①`RuleProcessAsync:217`(PRE-거절 마무리) ②`SecurityResolver:389`(시큐리티-배틀 패자). | reviewer 전수 스캔 | (②는 RD-7 공용화 시 재확인) |
 
@@ -54,7 +54,7 @@
 | # | 항목 | 조치 |
 |---|------|------|
 | D-1 | RD-6 "6-test 회귀 실증" 허위(오진) — 본 문서 L8·§D-RD6은 정정 완료; **`MetadataActionProcessor.cs:812-817` 주석의 동일 허위 잔존** | 코드 주석 정정(P0-1 커밋에 동승; 주석에 "TODO" 문자열 금지 — 린트 가드) |
-| D-2 | RD-10/11 테스트 결함: RD10=커스텀 resolver 람다 주입으로 격하 계층 우회(tautology)+Failure-wedge를 소망 동작으로 고정; RD11=反AS-IS 기대값(+2) 고정 | P0-1/P0-2 상환 시 테스트 재작성 |
+| D-2 | ✅**상환** — RD10: 라이브-경로 관통 테스트 `RD10-FizzleSkipLive` 신규(커스텀 람다 우회 없이 실제 resolver+sink 체인, 수정 되돌리면 4-FAIL로 회귀 포착). RD11: 기대값 +2→+1(동시 배치) 교정 + 순차→+2 가드 추가 + 허위 "per driving event" 주석 정정 | ~~완료~~ |
 | D-3 | RD-4 테스트가 배선 미검증(헬퍼 직접 호출만) — sink/BattleResolver 관통·소스先톱後 순서·게이트 결과 미고정; check 2~5는 발산 동작을 PASS로 고정 | P0-3/P0-4 상환 시 통합 테스트(삭제→트래시 census) 추가 |
 | D-4 | RD-12 주석·§D-RD12의 AS-IS 소모 지점 과일반화(1곳으로 기술, 실제 3곳) | 본 문서 정정 완료(P1-5); 코드 주석은 P1-5 상환 시 |
 | D-5 | RD-13 부기: AS-IS는 **Owner**에 질문(OptionalSkill.cs:18)+대상 프리뷰 제공(:24-33) — 헤드리스는 Controller에 질문·설명만(현재 controller==owner라 등가) | controller≠owner 분리(빼앗기 효과) 포팅 時 |
@@ -139,7 +139,9 @@ public static bool Matches(EngineContext ctx, HeadlessPlayerId owner, CardRecord
 - **P1-1 재평가 소실**: dequeue-on-skip은 AS-IS 같은-창 재평가 루프(매 pass 전 스택 CanActivate 재평가, 제거는 활성화 시만)를 영구 소실 — 나중 해소로 조건 충족된 스킬이 AS-IS선 발화, 헤드리스선 이미 탈락. 수집 시(:488 continue)에도 같은 소실 존재(이벤트가 드레인돼 재수집 불가). Stage 5 창-루프 핵심 요건.
 - **부기**: 재실행 위험 — 변이 적용 후 예외로 Failure 반환 시 head 잔존→다음 pass 재실행→**변이 이중 적용** 가능(AS-IS 코루틴엔 재실행 의미론 없음). Error 처리 재설계 시 고려.
 
-### D-RD11. 이벤트별 발화 (dedupe 키 확장) — ⚠️점검 결과 동시-배치 과발화(P0-2)
+### D-RD11. 이벤트별 발화 (dedupe 키 확장) — ✅배치 과발화 상환(P0-2, 2026-07-10)
+**상환 요약(2026-07-10)**: OnDestroyedAnyone(삭제 타이밍)은 pass당 1회 발화로 dedup(`firedDeletionEffects`, on-fire 클레임) — AS-IS DestroyPermanentsClass 배치당 1회+any-match 미러. 동시 삭제(DP-0 스윕/배틀 양패자)는 1 pass에 드레인되므로 pass=배치. 비-삭제 타이밍은 기존 (EffectId, eventIndex) 유지(per-event 정상). RD11 테스트: 2-동시→+1, 단일→+1, 2-순차(별도 pass)→+2. 조사로 포팅 body 15개 전부 "1회 발화" 확인(리스트-판독 body 0)이라 under-fire 없음. 회귀 386/386·RuleAudit 0. **잔여**: "각 삭제마다 X" body 포팅 시 리스트-전달(subject list) 모델로 확장(현재 그런 카드 0).
+
 - `GameFlowProcessor.AutoProcessAsync`(:438-451): `seen`을 `HashSet<(HeadlessEntityId effectId, long eventSeq)>`로 — **같은 이벤트 내** 중복 수집만 차단, 이벤트별로는 각각 enqueue(각자의 enriched subject 유지 = AS-IS 이벤트별 SkillInfo/hashtable).
 - once-cap과의 상호작용: 캡 소비는 RD-12에 따라 실행 시점이므로 여기서 N회 enqueue돼도 캡이 M<N이면 실행 시 잘림(AS-IS 동일).
 **테스트** `RD11-PerEventFire`: 한 pass 2건 삭제 → "삭제될 때마다" 효과 2회 발화, 각 발화의 subject가 해당 삭제 카드.

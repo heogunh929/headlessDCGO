@@ -451,13 +451,22 @@ public sealed class GameFlowProcessor
         {
             var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
             var batch = new List<TimingWindowTrigger>();
-            // (RD-11) AS-IS stacks a SEPARATE SkillInfo per driving event (AutoProcessing.cs:984-989), so a
-            // "when a Digimon is deleted" effect fires once PER deletion in a pass. Dedup by (EffectId, event)
-            // — the same effect matched twice for ONE event is still collapsed, but distinct events each fire it.
-            // (A once-per-turn cap, if any, then limits the total via OnceFlags — capped effects still fire once.)
-            // Keyed on the event's list position: emitted events can share Sequence=0, so position is the only
-            // reliable per-event identity here.
+            // (RD-11) AS-IS stacks a SEPARATE SkillInfo per driving EVENT (AutoProcessing.cs:984-989), so most
+            // "when X happens" effects fire once PER event in a pass. Dedup by (EffectId, event) — the same
+            // effect matched twice for ONE event is still collapsed, but distinct events each fire it. Keyed on
+            // the event's list position: emitted events can share Sequence=0, so position is the only reliable
+            // per-event identity here.
             var seen = new HashSet<(HeadlessEntityId EffectId, int EventIndex)>();
+            // (P0-2/RD-11) EXCEPTION for the deletion timing: AS-IS DestroyPermanentsClass packs ALL cards
+            // deleted in one delete-PROCESS into a single OnDestroyedAnyone StackSkillInfos call whose gate is an
+            // any-match over the batch list (CardController.cs:3736 / CanUseEffects/OnDeletion.cs) — so a
+            // "when a Digimon is deleted, +1 memory" effect fires ONCE for N simultaneous 0-DP/battle deletions,
+            // not N times. Simultaneous deletions all drain in one AutoProcessAsync pass (RuleProcessAsync deletes
+            // every lethal-DP card before the pass; BattleResolver trashes both losers before the pass), so this
+            // pass IS the batch. Fire an OnDestroyedAnyone effect at most once per pass — claimed on-fire (after
+            // gate+cap), so a subject-specific gate matching only the 2nd deleted card is NOT suppressed by the
+            // 1st. Sequential delete-processes fall in separate passes → separate fires, matching AS-IS.
+            var firedDeletionEffects = new HashSet<HeadlessEntityId>();
             for (int eventIndex = 0; eventIndex < pendingEvents.Count; eventIndex++)
             {
                 GameEvent gameEvent = pendingEvents[eventIndex];
@@ -469,6 +478,15 @@ public sealed class GameFlowProcessor
                 foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
                 {
                     if (!seen.Add((trigger.Request.EffectId, eventIndex)))
+                    {
+                        continue;
+                    }
+
+                    // (P0-2/RD-11) a deletion (OnDestroyedAnyone) effect fires at most once per pass (= per
+                    // AS-IS delete-process batch); if it already fired this pass, skip further deleted cards.
+                    bool isDeletionTiming = string.Equals(
+                        trigger.Request.Timing, TriggerTimings.OnDeletion, StringComparison.Ordinal);
+                    if (isDeletionTiming && firedDeletionEffects.Contains(trigger.Request.EffectId))
                     {
                         continue;
                     }
@@ -513,6 +531,13 @@ public sealed class GameFlowProcessor
 
                     batch.Add(ReclassifyKind(context, new TimingWindowTrigger(
                         enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)));
+
+                    // (P0-2/RD-11) claim the once-per-batch slot only AFTER a successful gate+cap fire, so an
+                    // earlier non-matching deleted card in the same batch does not consume it.
+                    if (isDeletionTiming)
+                    {
+                        firedDeletionEffects.Add(trigger.Request.EffectId);
+                    }
                 }
             }
 
