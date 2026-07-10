@@ -4,7 +4,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 출처: `rule_deficiency_remediation_design_2026-07-09.md`(이연 L1~L8 · P1 레지스터 · VR 재검수) + Stage 5 3b-iii 적대검수 신규 발견.
 원칙: [[check-asis-before-implementing]] · [[result-equivalence-not-completion]] · [[adversarial-review-before-cutover]] · [[fidelity-over-coverage]].
 
-**현행 상태(2026-07-10 갱신)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅ 완료**(main `b0569133`) · **B-1(P1-3) ✅ 완료**(residual-debt-cleanup, 회귀 392/392·RuleAudit 0). **다음 = B-2**. C~F는 미착수. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
+**현행 상태(2026-07-10 갱신, main `b9dad4de`)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅** · **B-1(P1-3)·B-4(P1-7) ✅ 완료**(회귀 393/393·RuleAudit 0). **잔여 B**: B-2·B-3=포팅 時(선언형 메인/재-스택), **B-5=대형 uniform 이관(별도 집중 세션, 설계 `uniform_activated_primitive_design.md`)**. **다음 = C군 또는 B-5(별도)**. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
 
 ---
 
@@ -52,8 +52,8 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
   - AS-IS `CardSource.Init`(:345-350) 진화재료 스택 시 use 리셋. 헤드리스는 턴 경계만. 같은 턴 재-스택/재-플레이 카드 時.
 - [x] ~~**B-4 · P1-7** RemoveUse 환불 프리미티브 부재~~ — **✅ 완료**(residual-debt-cleanup)
   - AS-IS 10+장(AD1_024:265·BT14_029:114)이 `if (!executed) RemoveUse()`로 body 미실행 시 캡 환불. fix: `ActivatedEffect.ResolveBodyAsync`가 `bool executed` 반환(인터랙티브 선택 IsSkipped→false), resolver uniform case가 **executed일 때만 Consume**(B-1 consume-after-body와 결합). 현 헤드리스 body는 전부 canSkip:false라 latent이나 skippable body 포팅 시 발화. 테스트 B1-OncePerTurnInteractiveResume(#2: skip→환불→재발화) + 픽스처 TfxOncePerTurnOptionalTrash(canSkip:true).
-- [ ] **B-5 · P1-8** per-shape optional/cap 우회
-  - IsOptional/MaxCountPerTurn이 uniform ActivatedEffect 전용 — resolver ~30 per-shape 케이스는 캡·yes/no 없음. uniform 프리미티브 이관([[asis-uniform-activateclass]])이 곧 상환.
+- [ ] **B-5 · P1-8** per-shape optional/cap 우회 — **별도 집중 세션 예정**(대형)
+  - IsOptional/MaxCountPerTurn이 uniform ActivatedEffect 전용 — resolver ~12 per-shape 케이스(ActivatedSelect·TargetBuff·SelectFromZone …)는 캡·yes/no 없음(IActivatedCardEffect 인터페이스 비어있음). uniform 프리미티브(`ActivatedEffect`)는 이미 존재 → **각 per-shape를 IEffectBody로 이관 + 그 shape 사용 카드 갱신**(다-shape·다-카드 마이그레이션). 설계 `uniform_activated_primitive_design.md`, [[asis-uniform-activateclass]].
 
 ---
 
