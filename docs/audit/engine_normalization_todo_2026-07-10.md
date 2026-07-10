@@ -19,18 +19,20 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 ## A. Stage 5 직후 마무리 (창-루프가 열어둔 잔여) — **최우선**
 
-- [ ] **A-1 · P1-4** 컷인 창 same-effect dedup 미러 부재
-  - AS-IS `HasExecutedSameEffect` skipCondition(AutoProcessing.cs:623-627; 컷인 창 CardController.cs:727·988·5189·5301·5709). 3b-iii 컷오버에 **미포함** — 같은 효과가 한 창에서 중복 컷인될 수 있음.
-  - (부기) AS-IS `IsCutinEffectUsedMaxCount`(:1095-1098) 부호 역전 의심 — 포팅 시 명시 결정.
+- [x] ~~**A-1 · P1-4** 컷인 창 same-effect dedup 미러 부재~~ — **완료**(커밋 1525b2e6, opt-in 인프라 선행)
+  - AS-IS `HasExecutedSameEffect` skipCondition(AutoProcessing.cs:623-627)은 **컷인 창 5곳에만** 전달(CardController.cs:727·990·5189·5301·5709=SelectCount/TrashDigivolutionCards/TrashLinkCards/Unsuspend), 메인 트리거 창(AutoProcessing.cs:137)은 `null` → **dedup은 컷인 창 한정**. 헤드리스는 현재 메인 루프 창만 WindowResolver로 구동(=AS-IS 메인=dedup 없음)이라 라이브 발산 아님(latent).
+  - 구축: `WindowResolverDeps.SkipCondition`(opt-in) + `WindowContinuation.Resolved`(=skillInfos_used, commit 누적) + `WindowResolverWiring.HasExecutedSameEffect`(IsSameEffect→EffectId 동치). `BuildSchedulerDeps`(컷인 창)가 전달, 메인 루프는 null(과다억제=발산 방지). 5개 컷인 창이 WindowResolver로 배선될 때 skipCondition 전달만 하면 됨.
+  - (결정) AS-IS `IsCutInEffectUsedMaxCount`(:1095-1098)는 `count<ChainActivations`를 skip 조건으로 써 ChainActivations>0 효과가 **영구 skip되는 역-부호 死경로**(+`IsCutInEffectHasUsed` 하드 false) → **미러 안 함**; `ChainLimit`은 runaway 안전바운드만.
 - [ ] **A-2 · L8 / RD-6** 턴 종료 시퀀스 정합
   - AS-IS는 [End of Turn] 창(:699)이 어택 루프(:705)보다 **先**인데 헤드리스는 역순(TryOpen 먼저). 창-루프 위에서 재정렬.
   - **라이브 버그**: BT1_021(EoTLose3Memory)이 새-턴 프레임에서 오해소 중(테스트 미고정). 드레인-前-플립으로 상환.
   - step4 지속-분기 = TODO-67.
-- [ ] **A-3** (신규 latent) `HasEffectsAt` collect-time 비대칭
-  - activated 마커는 collect서 1회 필터 → scheduler 半(per-pass 재평가, P1-1)과 비대칭. board-의존 `CardEffects(timing)` 카드에서만 발현(현재 정적 팩토리라 latent). 그런 카드 추가 시 per-pass 재스캔 필요.
-- [ ] **A-4** (신규 문서화됨) scheduler-body-suspend 인터랙티브 리액터
-  - 현재 `ResolveBodyLiveAsync`가 `NotSupportedException`으로 하드-강제(오늘 bound 리액터 전부 비-인터랙티브). 인터랙티브 bound 트리거 리액터 등장 시 → activated bridge 경유로 배선(SuspendedExternally).
-  - F3 `RuleProcessAsync` mid-window 비-인터랙티브 불변식도 동일(현재 주석만, 강제 안 됨).
+- [x] ~~**A-3** (신규 latent) `HasEffectsAt` collect-time 비대칭~~ — **재평가·정정 완료**(적대검수 2026-07-10, 커밋과 동승 주석 정정)
+  - **원 전제("collect 1회 필터→per-pass 재스캔 필요")는 기각**: `HasEffectsAt`는 효과-존재(`CardEffects(timing).Count>0`)이고 AS-IS도 존재를 **collect 1회**만 포착(GetSkillInfos/EffectList, AutoProcessing.cs:770-857); 루프는 이미-스택된 항목의 `CanActivate`만 per-pass 재검(MultipleSkills.cs:122/164-165), 원 timing 존재를 재수집 안 함. 따라서 **collect-time 필터가 AS-IS 정합**이고, per-pass로 옮기면 AS-IS가 수집 안 하는 항목을 admit해 **오히려 발산**. board-의존 효과-리스트는 AS-IS도 못 잡는 공유 한계.
+  - **진짜 발산(RDx-A3 debt, latent)**: `MarkerGate`가 활성 마커의 CanActivate/CanResolve를 **per-pass 재검 안 함**(OncePerTurn 캡만; `SchedulerGate`는 body.CanResolve per-pass=정합). board-의존 CanActivate false 마커가 order-choice 경쟁·픽되면 resolver서 no-op·소모→AS-IS per-pass deferral 상실. **미수정(의도)**: 충실한 per-pass 게이트는 resolver의 resolveCtx 구성(ActivatedEffectResolver.cs:469-495)을 정확 재사용해야 하며, 근사 시 라이브 메인루프 over/under-게이팅(더 큰 발산). 충실 해법=resolver uniform 게이트에서 `CanActivateAt(card,timing,drivingEvent)` 공용 추출→resolver·MarkerGate 양측 호출.
+- [x] ~~**A-4** (신규 문서화됨) scheduler-body-suspend 인터랙티브 리액터~~ — **완료**(F3 불변식 강제 추가)
+  - 인터랙티브 bound 트리거 리액터: `ResolveBodyLiveAsync`가 scheduler-suspend를 `NotSupportedException`으로 하드-강제(기존 :142-148) — 인터랙티브 리액터는 activated effect여야(SuspendedExternally, 이미 동작).
+  - F3 `RuleProcessAsync` mid-window 비-인터랙티브 불변식: 기존엔 주석만 → **loud throw로 강제**(WindowChoicePendingException/DeferredChoicePendingException catch→NotSupportedException). silent-drop 대신 가시적 실패.
 
 ---
 

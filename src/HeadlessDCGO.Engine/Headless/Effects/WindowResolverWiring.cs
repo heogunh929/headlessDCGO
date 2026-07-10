@@ -165,10 +165,27 @@ public static class WindowResolverWiring
 
         // (F3) state-based rule processing between picks. INVARIANT: this is non-interactive — it sweeps
         // state-based deletions and end-game; would-be-deleted REPLACEMENT windows open at the RunToStable level
-        // (DeletionReplacementTiming), not inside RuleProcessAsync (IsPreAwaiting cards are skipped). If it ever
-        // raised a choice-pending, DriveAsync (which catches only WindowChoicePendingException) would drop the
-        // window; that invariant is relied upon here.
-        await GameFlowProcessor.RuleProcessAsync(context, cancellationToken).ConfigureAwait(false);
+        // (DeletionReplacementTiming), not inside RuleProcessAsync (IsPreAwaiting cards are skipped).
+        //
+        // (A-4) ENFORCE that invariant rather than merely rely on it: if RuleProcessAsync ever raised an
+        // agent-choice mid-window, DriveAsync catches only WindowChoicePendingException and would SILENTLY DROP the
+        // window (the remaining stack + this frame), and a DeferredChoicePendingException would unwind even further.
+        // Convert either into a LOUD failure — same policy as the scheduler-suspend guard above — so a future
+        // interactive rule-process is a visible error, not a silent live divergence. A genuinely interactive
+        // reactor must go through the window / activated-effect bridge, not state-based rule processing.
+        try
+        {
+            await GameFlowProcessor.RuleProcessAsync(context, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException)
+        {
+            throw new NotSupportedException(
+                "State-based RuleProcessAsync raised an agent choice between window picks. Mid-window rule " +
+                "processing MUST be non-interactive (it sweeps state-based deletions and end-game; replacement " +
+                "windows open at RunToStable, not here). An interactive rule-process would be silently dropped by " +
+                "the window driver — wire the reactor through the window / activated-effect bridge instead.", ex);
+        }
+
         return WindowResolveOutcome.Resolved;
     }
 
@@ -342,7 +359,21 @@ public static class WindowResolverWiring
 
     /// <summary>An activated-bridge marker gates itself in the resolver EXCEPT the OnUnTappedAnyone caller-cap
     /// (a card can be re-suspended/unsuspended within a turn — GameFlowProcessor:737-746), mirrored as a
-    /// synthetic-key OnceFlag checked here (per pass) and consumed at commit (F5/RD-12).</summary>
+    /// synthetic-key OnceFlag checked here (per pass) and consumed at commit (F5/RD-12).
+    ///
+    /// (RDx-A3 debt — adversarially verified 2026-07-10) GENUINE per-pass divergence: AS-IS re-checks each stacked
+    /// effect's CanActivate (board CONDITION) EVERY pass (MultipleSkills.cs:122 / 164-165), excluding a
+    /// currently-false effect from that pass's active set (so it does not compete for the order choice) yet keeping
+    /// it stacked to re-test next pass. The scheduler half mirrors this (<see cref="SchedulerGate"/> re-checks
+    /// body.CanResolve per pass); this MarkerGate does NOT — it returns true unconditionally (bar the OncePerTurn
+    /// cap), deferring the condition to the resolver's own gate (ActivatedEffectResolver.cs:495 uniform
+    /// CanResolve). Consequence: an activated effect whose CanActivate is board-dependent and false early but true
+    /// after an earlier pick can be OFFERED and, if picked while false, no-ops in the resolver — losing AS-IS's
+    /// per-pass deferral. LATENT (no ported activated effect flips CanActivate mid-window). NOT fixed here on
+    /// purpose: a faithful per-pass gate must reuse the resolver's exact resolveCtx construction (triggerId +
+    /// driving-event values, :469-495) — reproducing it approximately risks OVER/UNDER-gating the live main loop
+    /// (a worse divergence than the latent gap). The faithful fix is to extract a shared CanActivateAt(card, timing,
+    /// drivingEvent) from ActivatedEffectResolver's uniform gate and call it BOTH from the resolver and here.</summary>
     private static bool MarkerGate(EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner)
     {
         if (ActivatedBridgeTimings.OncePerTurn.Contains(timing))
@@ -643,11 +674,17 @@ public static class WindowResolverWiring
             // battle-area card and let the resolver no-op, but in the ONE window a no-op marker would spuriously
             // compete with a real effect for the player's order choice (RD-14). This preserves the batch's
             // resolution outcome (no-effect cards did nothing) while removing the phantom stack entries.
-            // KNOWN ASYMMETRY (adversarial P1/P2, latent): unlike the scheduler half (whose gate re-evaluates
-            // every pass — P1-1), this filter runs once at COLLECT. A card whose CardEffects(timing) list is
-            // board-state-dependent AND turns non-empty only after an earlier pick (with no new event about it)
-            // would be dropped. Latent because ported CardEffects(timing) lists are static factories, not
-            // board-composed; revisit if a board-dependent effect-list card is added.
+            //
+            // (A-3, adversarially verified 2026-07-10) HasEffectsAt is effect-EXISTENCE at the timing
+            // (CardEffects(timing).Count>0), captured ONCE here at COLLECT — and that is AS-IS-FAITHFUL, NOT an
+            // asymmetry to fix. AS-IS collects existence once too (GetSkillInfos / EffectList(timing),
+            // AutoProcessing.cs:770-857); its window loop re-checks only CanActivate on ALREADY-stacked entries
+            // (MultipleSkills.cs:122/164-165) and NEVER re-collects existence for the original timing. So a card
+            // whose CardEffects(timing) list turns non-empty mid-window with no new event is dropped by AS-IS too
+            // (a shared limitation, not a divergence); an earlier note here that framed this as a per-pass gap to
+            // close was wrong (moving the existence check per-pass would DIVERGE — admit an entry AS-IS never
+            // collects). The genuine per-pass gap is a DIFFERENT thing — the marker's CanActivate/CanResolve is not
+            // re-tested per pass in MarkerGate (RDx-A3 debt below); that is where AS-IS's per-pass CanActivate lives.
             if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasEffectsAt(context, card, instance.OwnerId, timing))
             {
                 continue;
