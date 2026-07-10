@@ -26,6 +26,14 @@ public sealed class OnceFlagController : IHeadlessMatchStateResettable
         }
     }
 
+    /// <summary>(B-3 / P1-6) Reset the per-turn use counts of a SINGLE card (all its effects) — AS-IS
+    /// <c>CardSource.Init()</c>, run when the card gets a fresh play context (played / replayed / de-digivolved /
+    /// re-stacked). Leaves every other card's counts intact.</summary>
+    public void ResetForCard(HeadlessPlayerId owner, HeadlessEntityId cardInstanceId)
+    {
+        _state = OnceFlagHelpers.ResetForCard(_state, owner, cardInstanceId);
+    }
+
     /// <summary>
     /// Gate one activation of <paramref name="request"/>. An effect with no per-turn cap
     /// (<paramref name="maxCountPerTurn"/> is null) always passes. When capped, returns <c>false</c> if

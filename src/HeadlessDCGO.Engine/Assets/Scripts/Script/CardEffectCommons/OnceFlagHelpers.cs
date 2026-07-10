@@ -363,6 +363,36 @@ public static class OnceFlagHelpers
             Values(nextState, key: null, useCount: 0, maxCount: 1, canUse: true));
     }
 
+    /// <summary>(B-3 / P1-6) Reset the per-turn use counts of a SINGLE card (all its effects) — the AS-IS
+    /// <c>CardSource.Init()</c> → <c>InitUseCountThisTurn()</c> that runs whenever a card gets a fresh play context
+    /// (played, replayed from trash, de-digivolved back to top, re-stacked as a source). Removes only the
+    /// <see cref="OnceFlagState.UseCounts"/> entries this owner+source card owns — matched by the
+    /// <c>"{owner}:{source}:"</c> prefix of <see cref="OnceFlagKey.Value"/> (owner = <c>OwnerPlayerId</c>, source =
+    /// <c>SourceEntityId</c>); every other card's counts are untouched. Returns the state unchanged when the card
+    /// has no counts.</summary>
+    public static OnceFlagState ResetForCard(OnceFlagState state, HeadlessPlayerId owner, HeadlessEntityId cardInstanceId)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (cardInstanceId.IsEmpty)
+        {
+            return state;
+        }
+
+        string prefix = string.Join(":", owner.Value, cardInstanceId.Value) + ":";
+        var kept = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, int> pair in state.UseCounts)
+        {
+            if (!pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                kept[pair.Key] = pair.Value;
+            }
+        }
+
+        return kept.Count == state.UseCounts.Count
+            ? state
+            : new OnceFlagState(state.TurnSequence, state.TurnPlayerId, kept);
+    }
+
     public static EffectContext WithUseCount(
         EffectContext context,
         OnceFlagState state,

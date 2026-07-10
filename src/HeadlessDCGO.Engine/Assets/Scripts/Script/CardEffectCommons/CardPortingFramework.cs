@@ -12195,6 +12195,12 @@ public static class CardEffectRegistrar
         // for a first-time play, and prevents the duplicate-effect-id throw on re-entry. Grants sourced from
         // OTHER instances (keyed by their own SourceEntityId) are untouched.
         UnregisterCard(context, instanceId);
+        // (B-3 / P1-6) a card entering a fresh play context gets fresh once-per-turn uses — AS-IS CardSource.Init()
+        // → InitUseCountThisTurn(). The headless keys the per-turn cap by the card INSTANCE, which is stable across a
+        // re-play / de-digivolve / re-stack, so a stale use from an earlier stint this turn would otherwise linger
+        // and wrongly cap the effect on re-entry. Reset only THIS card's counts (others untouched). A first-time
+        // play removes 0.
+        context.OnceFlags.ResetForCard(instance.OwnerId, instanceId);
         RegisterOnEnterPlay(context, effect, def.CardNumber, new CardSource(context, instanceId, controller, instance.OwnerId));
         return true;
     }

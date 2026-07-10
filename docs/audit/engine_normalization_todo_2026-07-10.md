@@ -46,10 +46,11 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 - [x] ~~**B-1 · P1-3** Consume 재실행 계약 위반(latent P0)~~ — **✅ 완료**(residual-debt-cleanup)
   - `ActivatedEffectResolver` uniform case가 `OnceFlags.Consume`를 body **前**에 실행 → capped **인터랙티브** body가 suspend 시 cap 소모됐는데 resume(ResolveAsync 재invoke)서 CanActivate 재검이 소모된 cap을 false로 읽어 효과 증발+use 소진. **fix: Consume을 body 完走 後로 이동**(window의 SchedulerCommit=F5와 별개; suspend 시 미소모+un-flushed sink 폐기, resume 완주서 1회 소모). 테스트 B1-OncePerTurnInteractiveResume(suspend 미소모→resume 트래시→재-resolve no-op) + 픽스처 TfxOncePerTurnInteractiveTrash. 회귀 392/392·RuleAudit 0.
-- [ ] **B-2 · P1-5** 선언형 메인 활성화 = 선언 시점 소모
-  - AS-IS 3 소모지점 중 ②(TurnStateMachine.cs:1183-1186, optional·코스트보다 先) 미러. 선언형 메인-액션(UseCardEffect 상당) 포팅 時.
-- [ ] **B-3 · P1-6** 재-스택 use 리셋 부재
-  - AS-IS `CardSource.Init`(:345-350) 진화재료 스택 시 use 리셋. 헤드리스는 턴 경계만. 같은 턴 재-스택/재-플레이 카드 時.
+- [ ] **B-2 · P1-5** 선언형 메인 활성화 = 선언 시점 소모 — **진짜 포팅 時**(경로 부재 확정 2026-07-10)
+  - AS-IS 소모지점 ②(TurnStateMachine.cs:1178-1189): `UseCardEffect`(선언형 메인 어빌리티 사용)가 `SetIsDeclarative(true)` 後 **body 실행 前** `RegisterUseEffectThisTurn`(MaxCountPerTurn<100). 즉 선언 시점·optional/코스트보다 先 소모.
+  - **헤드리스엔 대응 경로가 없음**: permanent의 [Main] once-per-turn 어빌리티를 능동 사용하는 액션 부재(ActivateOption=옵션 카드뿐, NormalizedUseCardEffect/ActivateMain 없음). → pre-build 대상 없음. 해당 액션 구축 시 ② 소모(선언 시점, body 前) 포함할 것. (activated resolver의 consume-after-body[B-1]와 달리 **선언형은 body 前 소모**임에 주의.)
+- [x] ~~**B-3 · P1-6** 재-스택 use 리셋 부재~~ — **✅ 완료**(residual-debt-cleanup)
+  - AS-IS `CardSource.Init()`(CardSource.cs:345-347)이 `InitUseCountThisTurn`(UseEffectsThisTurn 클리어)를 새 CardSource(=enter-play/이동) 시 호출. 헤드리스는 카드 use를 인스턴스로 키잉해 재-진입서 stale use 잔존. fix: enter-play 훅 `CardEffectRegistrar.RegisterCard`가 `OnceFlags.ResetForCard(owner, instanceId)` 호출(재-플레이/de-digivolve/re-stack 포괄, 첫 플레이는 0 제거=no-op). `OnceFlagHelpers.ResetForCard`(키 `{owner}:{source}:` prefix 매칭, per-card). 테스트 B3-RestackUseReset(re-enter→해당 카드만 리셋). 회귀 검증 중.
 - [x] ~~**B-4 · P1-7** RemoveUse 환불 프리미티브 부재~~ — **✅ 완료**(residual-debt-cleanup)
   - AS-IS 10+장(AD1_024:265·BT14_029:114)이 `if (!executed) RemoveUse()`로 body 미실행 시 캡 환불. fix: `ActivatedEffect.ResolveBodyAsync`가 `bool executed` 반환(인터랙티브 선택 IsSkipped→false), resolver uniform case가 **executed일 때만 Consume**(B-1 consume-after-body와 결합). 현 헤드리스 body는 전부 canSkip:false라 latent이나 skippable body 포팅 시 발화. 테스트 B1-OncePerTurnInteractiveResume(#2: skip→환불→재발화) + 픽스처 TfxOncePerTurnOptionalTrash(canSkip:true).
 - [ ] **B-5 · P1-8** per-shape optional/cap 우회 — **별도 집중 세션 예정**(대형)
