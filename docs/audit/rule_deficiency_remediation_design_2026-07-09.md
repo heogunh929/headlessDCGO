@@ -256,7 +256,10 @@ would-be-deleted 확정(치환 전부 거절/소진) 시:
 
 ## 4단계 — 파이프라인 통합
 
-### D-RD7. 시큐리티 디지몬 배틀 → BattleResolver 공용화
+### D-RD7. 시큐리티 디지몬 배틀 → BattleResolver 공용화 — ✅Part A(CardDP/TODO-71) 완료; Part B(VR-6 재진입) 이연
+**Part A 상환(2026-07-10)**: 시큐리티 DP를 CardDP 의미론으로 교정. `TryReadSecurityDigimonDp`에서 `ContinuousDpGate.ResolveDp`(permanent-DP fold=D-A2 발명) 제거 → static dp + dpModifiers + `securityCardDpDelta` 폴드만. AS-IS 확인: `CardSource.CardDP`(CardSource.cs:2383)는 **유일한 `IChangeCardDPEffect` 구현자 `ChangeCardDPClass`**(=헤드리스 securityCardDpDelta, BT2_003/ST1_14/ST3_12)만 스캔하고 permanent-DP 파이프라인·감소면역·LinkedDP 미적용. 즉 일반 연속 DP 효과는 시큐리티 디지몬 CardDP에 미반영. 테스트 G3.5-N2 교정(일반 debuff는 시큐리티 CardDP 무영향=공격자 사망; 공격자 buff는 permanent 경로라 유지). 회귀 386/386·RuleAudit 0(승패분포 이동=시큐리티 디지몬이 일반 DP약화 면역이라 강해진 정상 변화). **잔여=Part B(아래)**.
+
+**원 설계(Part B 포함)**:
 - `BattleResolver`에 defender-as-card 모드 추가: `ResolveSecurityBattleAsync(ctx, attackerId, securityCardId)` — 참가자 추상화 `BattleParticipant`를 "필드 permanent | 시큐리티 카드(DP=CardDP)"로 확장(AS-IS IBattle(attacker, null, DefendingCard) 미러).
 - 시큐리티 측 DP = **CardDP 메커니즘**(TODO-71 동시 상환): IChangeCardDPEffect 상당(`securityCardDpDelta` + ChangeSecurityDigimonCardDP 계열)만 fold — permanent-DP 폴드(ContinuousDpGate) 사용 금지. 면역/DPBoost/LinkedDP 미적용(AS-IS CardDP에 없음).
 - 공격자 패배 시: 일반 배틀과 동일하게 would-be-deleted 창(Evade/Barrier) → 확정 시 RD-4 시퀀스 → leave-play cleanup. 시큐리티 카드 측은 배틀 결과와 무관하게 기존 체크 플로우(트래시/림보)로.

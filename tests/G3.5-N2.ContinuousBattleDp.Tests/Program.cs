@@ -6,10 +6,11 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// N-2 / D-A1·D-A2: battle DP is now recomputed through the continuous registry (ContinuousDpGate), so a
-// continuous DP modifier sourced from ANOTHER card changes who wins a battle — both a field battle
-// (BattleResolver) and a security-Digimon battle (SecurityResolver). Previously battle DP used only the
-// printed DP plus the instance's own static dpModifiers, ignoring continuous effects entirely.
+// N-2 / D-A1: a FIELD battle recomputes each permanent's DP through the continuous registry (ContinuousDpGate),
+// so a continuous DP modifier from ANOTHER card changes who wins. (RD-7 Part A / TODO-71 correction) A SECURITY
+// battle is different: AS-IS a security Digimon uses its CardDP, which folds ONLY IChangeCardDPEffect
+// (securityCardDpDelta), NOT the permanent-DP pipeline — so a GENERIC continuous DP effect does NOT touch a
+// security Digimon's battle DP (the attacker's own DP, as a permanent, still uses ContinuousDpGate).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -23,7 +24,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Field battle control: without the buff the lower-DP attacker is deleted", FieldControlDeleted),
     ("Field battle: a continuous -DP debuff on the attacker makes it lose", FieldDebuffLoses),
     ("Security battle: a continuous +DP buff lets the attacker survive a stronger security Digimon", SecurityBuffSurvives),
-    ("Security battle: a continuous -DP debuff on the security Digimon lets the attacker survive", SecurityDebuffSurvives),
+    ("Security battle: a GENERIC permanent-DP debuff does NOT touch the security Digimon's CardDP (TODO-71)", SecurityGenericDpDoesNotTouchCardDp),
     ("D-A3: DP-reduction immunity prevents a continuous -DP from reducing the target", ImmunityPreventsReduction),
     ("D-A3: immunity still lets a positive buff apply", ImmunityKeepsBuff),
 };
@@ -85,14 +86,18 @@ async Task SecurityBuffSurvives()
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "buffed attacker survived the security Digimon");
 }
 
-async Task SecurityDebuffSurvives()
+async Task SecurityGenericDpDoesNotTouchCardDp()
 {
-    // Attacker 5000 vs a 7000 security Digimon -> would die; -3000 on the security Digimon makes it 4000.
+    // (RD-7 Part A / TODO-71) A security Digimon battles with its CardDP, which folds ONLY IChangeCardDPEffect
+    // (headless securityCardDpDelta), NOT the permanent-DP pipeline. So a GENERIC continuous -3000 on the
+    // security Digimon does NOT reduce its battle DP: it stays 7000 and the 5000 attacker still dies. (A
+    // securityCardDpDelta effect WOULD change it — covered by the security-battle DP-grant cards.)
     DcgoMatch match = await SecuritySetup(attackerDp: 5000, topSecurityDp: 7000);
     RegisterDpModifier(match.Context, SecurityDigimonId, owner: P2, dpDelta: -3000);
     await DeclareDirectAttack(match);
 
-    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "attacker survived the weakened security Digimon");
+    AssertInZone(match, P1, ChoiceZone.Trash, AttackerId,
+        "a generic permanent-DP debuff does NOT weaken a security Digimon's CardDP; the attacker still dies");
 }
 
 async Task ImmunityPreventsReduction()

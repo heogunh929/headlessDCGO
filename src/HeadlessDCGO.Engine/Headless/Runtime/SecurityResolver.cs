@@ -463,8 +463,12 @@ public sealed class SecurityResolver
             securityDp += delta;
         }
 
-        // N-2 / D-A2: the security Digimon's DP also reflects continuous DP effects from other cards.
-        securityDp = ContinuousDpGate.ResolveDp(context, cardId, securityDp);
+        // (RD-7 Part A / design item RD7-71) AS-IS a security Digimon battles with its CardDP (CardSource.CardDP,
+        // CardSource.cs:2383) — a SEPARATE fold that scans ONLY IChangeCardDPEffect (the single implementer
+        // ChangeCardDPClass = the securityCardDpDelta grants folded above), NOT the permanent-DP pipeline. So
+        // generic continuous DP effects (ContinuousDpGate: DP-boosts/reductions, reduction-immunity, LinkedDP)
+        // do NOT touch a security Digimon's battle DP. The previous ContinuousDpGate.ResolveDp fold (D-A2)
+        // wrongly leaked those permanent-DP effects into the security battle; removed to mirror CardDP.
         return true;
     }
 
