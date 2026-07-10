@@ -50,8 +50,8 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
   - AS-IS 3 소모지점 중 ②(TurnStateMachine.cs:1183-1186, optional·코스트보다 先) 미러. 선언형 메인-액션(UseCardEffect 상당) 포팅 時.
 - [ ] **B-3 · P1-6** 재-스택 use 리셋 부재
   - AS-IS `CardSource.Init`(:345-350) 진화재료 스택 시 use 리셋. 헤드리스는 턴 경계만. 같은 턴 재-스택/재-플레이 카드 時.
-- [ ] **B-4 · P1-7** RemoveUse 환불 프리미티브 부재
-  - AS-IS 10+장(AD1_024:265·BT14_029:114)이 body 미실행 시 캡 환불. 해당 세트 포팅 前 선행 구축.
+- [x] ~~**B-4 · P1-7** RemoveUse 환불 프리미티브 부재~~ — **✅ 완료**(residual-debt-cleanup)
+  - AS-IS 10+장(AD1_024:265·BT14_029:114)이 `if (!executed) RemoveUse()`로 body 미실행 시 캡 환불. fix: `ActivatedEffect.ResolveBodyAsync`가 `bool executed` 반환(인터랙티브 선택 IsSkipped→false), resolver uniform case가 **executed일 때만 Consume**(B-1 consume-after-body와 결합). 현 헤드리스 body는 전부 canSkip:false라 latent이나 skippable body 포팅 시 발화. 테스트 B1-OncePerTurnInteractiveResume(#2: skip→환불→재발화) + 픽스처 TfxOncePerTurnOptionalTrash(canSkip:true).
 - [ ] **B-5 · P1-8** per-shape optional/cap 우회
   - IsOptional/MaxCountPerTurn이 uniform ActivatedEffect 전용 — resolver ~30 per-shape 케이스는 캡·yes/no 없음. uniform 프리미티브 이관([[asis-uniform-activateclass]])이 곧 상환.
 

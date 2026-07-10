@@ -19,6 +19,7 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("a capped interactive activated effect suspends, resumes to completion, and consumes its cap exactly once", CappedInteractiveSurvivesResume),
+    ("(B-4) a SKIPPED interactive selection does nothing and REFUNDS the per-turn cap (re-resolve fires again)", SkippedInteractiveRefundsCap),
 };
 
 var failures = new List<string>();
@@ -78,6 +79,40 @@ async Task CappedInteractiveSurvivesResume()
     AssertTrue(!reSuspended && !context.ChoiceController.Current.IsPending,
         "a same-turn re-resolve does NOT open a choice — the [Once Per Turn] cap was consumed on completion");
     AssertTrue(InZone(context, hand2, ChoiceZone.Hand), "the second hand card is untouched (cap spent, effect capped out)");
+}
+
+async Task SkippedInteractiveRefundsCap()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 21, deferredChoice: true);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)context.CardRepository;
+
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOncePerTurnOptionalTrash"), "TfxOncePerTurnOptionalTrash", "OPTI",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 4 }, CardType: "Digimon"));
+    var self = new HeadlessEntityId("p1:battle:OPTI");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(self, new HeadlessEntityId("TfxOncePerTurnOptionalTrash"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = true }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, self, ChoiceZone.None, ChoiceZone.BattleArea));
+    var hand1 = await PlaceHand(context, "H1");
+
+    // (1) Resolve suspends at the (skippable) hand-select choice.
+    bool suspended = false;
+    try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
+    catch (DeferredChoicePendingException) { suspended = true; }
+    AssertTrue(suspended && context.ChoiceController.Current.IsPending, "the interactive body suspended at its choice");
+
+    // (2) SKIP the selection: the body does nothing (ResolveBodyAsync returns executed=false), so the resolver
+    // REFUNDS the per-turn use instead of consuming it (AS-IS `if (!executed) RemoveUse()`).
+    context.ChoiceController.ResolveChoice(ChoiceResult.Skip());
+    await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone);
+    AssertTrue(InZone(context, hand1, ChoiceZone.Hand), "the skipped selection trashed nothing");
+
+    // (3) The cap was REFUNDED: a same-turn re-resolve fires AGAIN (opens the choice), proving the use was not spent.
+    bool reSuspended = false;
+    try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
+    catch (DeferredChoicePendingException) { reSuspended = true; }
+    AssertTrue(reSuspended && context.ChoiceController.Current.IsPending,
+        "a same-turn re-resolve fires again — the [Once Per Turn] use was REFUNDED on the skip (B-4)");
 }
 
 // --- Helpers -------------------------------------------------------------

@@ -623,8 +623,17 @@ public static class ActivatedEffectResolver
                     // re-invocation passes CanActivate, replays the body to completion, and consumes EXACTLY ONCE.
                     // (The window path's own commit — SchedulerCommit — is unaffected: it consumes the trigger/caller
                     // cap before the body via the idempotent InFlightPick replay, F5/RD-12.)
-                    await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
-                    context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
+                    //
+                    // (B-4 / P1-7) consume ONLY if the body EXECUTED — a skipped interactive selection (ResolveBodyAsync
+                    // returns false) does nothing, so the per-turn use is refunded (AS-IS `if (!executed) RemoveUse()`,
+                    // AD1_024:265 / BT14_029:114 …). Combined with the consume-after-body move above, the cap is spent
+                    // exactly once and only when the effect actually acted.
+                    bool executed = await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
+                    if (executed)
+                    {
+                        context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
+                    }
+
                     resolved++;
                     break;
                 }

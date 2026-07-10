@@ -561,10 +561,13 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         return CanActivate is null || CanActivate();
     }
 
-    /// <summary>Resolve the body: interactive bodies surface a choice (skippable = optional / no selection),
-    /// non-interactive bodies emit their mutation directly. The caller has already passed <see cref="CanResolve"/>
-    /// and consumed any once-per-turn cap.</summary>
-    public async ValueTask ResolveBodyAsync(
+    /// <summary>Resolve the body and report whether it EXECUTED. Interactive bodies surface a choice; a SKIPPED
+    /// selection (no cards chosen) is NOT an execution. Non-interactive bodies emit their mutation directly and
+    /// always execute. Returns false only for a skipped interactive selection — the caller
+    /// (<c>ActivatedEffectResolver</c>) then does NOT consume the once-per-turn cap, mirroring AS-IS
+    /// <c>if (!executed) activateClass.RemoveUse()</c> (B-4 / P1-7: refund a per-turn use whose body did nothing).
+    /// The caller has already passed <see cref="CanResolve"/>; the cap is consumed AFTER this returns true (B-1).</summary>
+    public async ValueTask<bool> ResolveBodyAsync(
         MatchStateMutationSink sink,
         IChoiceProvider choices,
         IReadOnlyList<HeadlessPlayerId> players,
@@ -579,15 +582,16 @@ public sealed class ActivatedEffect : IActivatedCardEffect
                 ChoiceResult result = await choices.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
                 if (result.IsSkipped)
                 {
-                    return;
+                    return false; // (B-4) skipped selection = not executed → the resolver refunds the per-turn cap.
                 }
 
                 Body.Apply(Card, sink, result.SelectedIds);
-                return;
+                return true;
             }
         }
 
         Body.Apply(Card, sink, Array.Empty<HeadlessEntityId>());
+        return true;
     }
 
     public EffectBinding ToBinding(string effectId) =>
