@@ -329,9 +329,9 @@ public static class WindowResolverWiring
     /// case checks CanResolve + MaxCountPerTurn), so it passes here EXCEPT the OnUnTappedAnyone caller-cap.</summary>
     private static bool Gate(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner))
         {
-            return MarkerGate(context, card, timing, owner);
+            return MarkerGate(context, card, timing, owner, drivingEvent);
         }
 
         return SchedulerGate(context, trigger);
@@ -349,9 +349,9 @@ public static class WindowResolverWiring
             return false;
         }
 
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner))
         {
-            return MarkerGate(context, card, timing, owner);
+            return MarkerGate(context, card, timing, owner, drivingEvent);
         }
 
         return SchedulerGate(context, trigger);
@@ -361,21 +361,25 @@ public static class WindowResolverWiring
     /// (a card can be re-suspended/unsuspended within a turn — GameFlowProcessor:737-746), mirrored as a
     /// synthetic-key OnceFlag checked here (per pass) and consumed at commit (F5/RD-12).
     ///
-    /// (RDx-A3 debt — adversarially verified 2026-07-10) GENUINE per-pass divergence: AS-IS re-checks each stacked
-    /// effect's CanActivate (board CONDITION) EVERY pass (MultipleSkills.cs:122 / 164-165), excluding a
-    /// currently-false effect from that pass's active set (so it does not compete for the order choice) yet keeping
-    /// it stacked to re-test next pass. The scheduler half mirrors this (<see cref="SchedulerGate"/> re-checks
-    /// body.CanResolve per pass); this MarkerGate does NOT — it returns true unconditionally (bar the OncePerTurn
-    /// cap), deferring the condition to the resolver's own gate (ActivatedEffectResolver.cs:495 uniform
-    /// CanResolve). Consequence: an activated effect whose CanActivate is board-dependent and false early but true
-    /// after an earlier pick can be OFFERED and, if picked while false, no-ops in the resolver — losing AS-IS's
-    /// per-pass deferral. LATENT (no ported activated effect flips CanActivate mid-window). NOT fixed here on
-    /// purpose: a faithful per-pass gate must reuse the resolver's exact resolveCtx construction (triggerId +
-    /// driving-event values, :469-495) — reproducing it approximately risks OVER/UNDER-gating the live main loop
-    /// (a worse divergence than the latent gap). The faithful fix is to extract a shared CanActivateAt(card, timing,
-    /// drivingEvent) from ActivatedEffectResolver's uniform gate and call it BOTH from the resolver and here.</summary>
-    private static bool MarkerGate(EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner)
+    /// (RDx-A3, fixed) per-pass CanActivate re-check: AS-IS re-checks each stacked skill's CanActivate (board
+    /// CONDITION) EVERY window pass (MultipleSkills.cs:122 / 164-165), excluding a currently-false effect from that
+    /// pass's active set (so it does not compete for the order choice) yet keeping it stacked to re-test. The
+    /// scheduler half mirrors this (<see cref="SchedulerGate"/> re-checks body.CanResolve per pass); this marker gate
+    /// now does too, via <c>ActivatedEffectResolver.CanActivateAt</c> — which reuses the resolver's OWN uniform
+    /// CanResolve gate against the SHARED resolve-context (<c>BuildUniformResolveContext</c>), so there is no
+    /// over/under-gating from a divergent reconstruction. A marker whose activated effects are all currently
+    /// un-resolvable is gate-false this pass (not offered for the order choice) but stays stacked to re-test —
+    /// instead of being offered and no-opping in the resolver, which would consume the AS-IS per-pass deferral.</summary>
+    private static bool MarkerGate(
+        EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner, GameEvent? drivingEvent)
     {
+        // (RDx-A3) per-pass board-condition gate — the activated analogue of SchedulerGate's per-pass CanResolve,
+        // reusing the resolver's own uniform CanResolve via the shared resolve-context (no reconstruction drift).
+        if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.CanActivateAt(context, card, owner, timing, drivingEvent))
+        {
+            return false;
+        }
+
         if (ActivatedBridgeTimings.OncePerTurn.Contains(timing))
         {
             return context.OnceFlags.CanActivate(SyntheticBridgeOnceRequest(card, timing, owner), maxCountPerTurn: 1);

@@ -99,6 +99,94 @@ public static class ActivatedEffectResolver
         return false;
     }
 
+    /// <summary>(RDx-A3) Whether the card has an ACTIVATED effect at <paramref name="timing"/> that can activate
+    /// RIGHT NOW — the per-pass CanActivate re-check AS-IS runs every window pass on already-stacked skills
+    /// (MultipleSkills.cs:122/164-165, mirrored by the scheduler half's <c>SchedulerGate</c>), which
+    /// <see cref="HasActivatedEffectsAt"/> (collect-time EXISTENCE) does not. For a uniform <see cref="ActivatedEffect"/>
+    /// this is its own <c>CanResolve</c> gate — the SAME one the resolver applies (uniform case), evaluated against the
+    /// SHARED <see cref="BuildUniformResolveContext"/> so a divergent reconstruction cannot over/under-gate. A
+    /// non-uniform activated effect has no CanResolve gate in the resolver (it self-no-ops via an empty selection), so
+    /// it counts as potentially-active. Returns false only when EVERY activated effect at the timing is a uniform whose
+    /// CanResolve is currently false, so the window's <c>MarkerGate</c> skips the marker this pass (not offered for the
+    /// order choice) yet keeps it stacked to re-test — instead of offering a no-op marker that consumes the AS-IS
+    /// per-pass deferral. Pure (builds the effect list + CanResolve, runs no body).</summary>
+    public static bool CanActivateAt(
+        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
+        GameEvent? drivingEvent = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardInstanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(cardInstanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return false;
+        }
+
+        var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
+        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        for (int i = 0; i < effects.Count; i++)
+        {
+            if (effects[i] is not IActivatedCardEffect)
+            {
+                continue;
+            }
+
+            if (effects[i] is ActivatedEffect uniform)
+            {
+                if (uniform.CanResolve(BuildUniformResolveContext(uniform, drivingEvent)))
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>(RDx-A3) Build the resolve-context for a uniform <see cref="ActivatedEffect"/> EXACTLY as the
+    /// resolution loop does — TriggerEntityId is the driving event's subject (broadcast bridge) or the card itself
+    /// (subject-scoped), and the event's primitive metadata is threaded as "event.&lt;key&gt;" values. Shared by the
+    /// resolution loop (uniform case) and <see cref="CanActivateAt"/> so the per-pass gate's CanResolve reads the
+    /// IDENTICAL context the resolver will.</summary>
+    internal static CardEffectResolveContext BuildUniformResolveContext(ActivatedEffect uniform, GameEvent? drivingEvent)
+    {
+        ArgumentNullException.ThrowIfNull(uniform);
+        HeadlessEntityId triggerId =
+            drivingEvent?.Subject is HeadlessEntityId eventSubject && !eventSubject.IsEmpty
+                ? eventSubject
+                : uniform.Card.InstanceId;
+        Dictionary<string, object?>? eventValues = null;
+        if (drivingEvent is not null)
+        {
+            eventValues = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [GameFlowProcessor.EventTypeKey] = drivingEvent.Type.ToString(),
+            };
+            foreach (KeyValuePair<string, object?> pair in drivingEvent.Metadata)
+            {
+                if (pair.Value is string or int or bool or long)
+                {
+                    eventValues[$"{GameFlowProcessor.EventValuePrefix}{pair.Key}"] = pair.Value;
+                }
+            }
+        }
+
+        var subjectCtx = new EffectContext(
+            uniform.Card.Controller, uniform.Card.Owner, uniform.Card.InstanceId,
+            triggerEntityId: triggerId, targetEntityIds: Array.Empty<HeadlessEntityId>(),
+            values: eventValues);
+        return new CardEffectResolveContext(new EffectRequest(
+            uniform.EffectId, uniform.Card.Controller, EffectTimings.ToTriggerName(uniform.Timing), subjectCtx));
+    }
+
     public static async Task<int> ResolveAsync(
         EngineContext context,
         HeadlessEntityId cardInstanceId,
@@ -503,32 +591,9 @@ public static class ActivatedEffectResolver
                     // TriggerEntityId is then the event's subject (e.g. the Digimon whose sources were trashed,
                     // not this listener) and the event's primitive metadata is threaded as "event.<key>" values
                     // so gates (CanTriggerOnTrashDigivolutionCard …) read the AS-IS hashtable mirror.
-                    HeadlessEntityId triggerId =
-                        drivingEvent?.Subject is HeadlessEntityId eventSubject && !eventSubject.IsEmpty
-                            ? eventSubject
-                            : uniform.Card.InstanceId;
-                    Dictionary<string, object?>? eventValues = null;
-                    if (drivingEvent is not null)
-                    {
-                        eventValues = new Dictionary<string, object?>(StringComparer.Ordinal)
-                        {
-                            [GameFlowProcessor.EventTypeKey] = drivingEvent.Type.ToString(),
-                        };
-                        foreach (KeyValuePair<string, object?> pair in drivingEvent.Metadata)
-                        {
-                            if (pair.Value is string or int or bool or long)
-                            {
-                                eventValues[$"{GameFlowProcessor.EventValuePrefix}{pair.Key}"] = pair.Value;
-                            }
-                        }
-                    }
-
-                    var subjectCtx = new EffectContext(
-                        uniform.Card.Controller, uniform.Card.Owner, uniform.Card.InstanceId,
-                        triggerEntityId: triggerId, targetEntityIds: Array.Empty<HeadlessEntityId>(),
-                        values: eventValues);
-                    var resolveCtx = new CardEffectResolveContext(new EffectRequest(
-                        uniform.EffectId, uniform.Card.Controller, EffectTimings.ToTriggerName(uniform.Timing), subjectCtx));
+                    // (RDx-A3) build the resolve-context via the SHARED helper so the window's per-pass CanActivate
+                    // gate (CanActivateAt → MarkerGate) reads the IDENTICAL context this resolver will.
+                    CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
                     if (!uniform.CanResolve(resolveCtx))
                     {
                         break;

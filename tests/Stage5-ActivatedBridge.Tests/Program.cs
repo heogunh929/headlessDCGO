@@ -67,33 +67,43 @@ void Check(bool cond, string label)
         $"dispatch: a non-marker trigger resolves through the scheduler (resolved={e.Resolved})");
 }
 
-// --- 3. Cap: an OnUnTappedAnyone marker consumes its synthetic once-key at COMMIT; a non-capped timing does
-//        not. (Gate re-checks the SAME CanActivate predicate, so a consumed key blocks a re-fire this turn.) ---
+// --- 3. Cap: an OnUnTappedAnyone marker consumes its synthetic once-key at COMMIT (so the per-pass Gate blocks a
+//        re-fire this turn); a non-OnUnTapped bridge timing consumes no caller-cap. Uses fixture cards that ACTUALLY
+//        react at the timing — (RDx-A3) MarkerGate now skips a card with no resolvable activated effect (the
+//        per-pass CanActivate re-check), so a real effect is required for the marker to reach Commit. ---
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 3213);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
-    // A generic (non-dispatch) card: the resolver no-ops (no activated effects), but Commit still runs — so the
-    // synthetic cap is observable without needing a real OnUnTapped card.
-    HeadlessEntityId dummy = await Place(ctx, P1, "DUMMY", "DUMMY", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    WindowResolverDeps deps = WindowResolverWiring.BuildMainLoopDeps(ctx);
 
-    EffectRequest untapKey = BridgeOnceKey(dummy, EffectTiming.OnUnTappedAnyone, P1);
+    // TfxUnsuspendDraw: "[Your Turn] when this unsuspends, draw 1" (OnUnTappedAnyone, a non-uniform DrawEffect) —
+    // CanActivateAt is true on the owner's turn, so the marker reaches Commit and consumes the OnUnTapped cap.
+    HeadlessEntityId untapper = await Place(ctx, P1, "TfxUnsuspendDraw", "UNTAP", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    EffectRequest untapKey = BridgeOnceKey(untapper, EffectTiming.OnUnTappedAnyone, P1);
     Check(ctx.OnceFlags.CanActivate(untapKey, 1), "cap: the OnUnTapped synthetic key starts available");
 
     TimingWindowTrigger untapMarker = WindowResolverWiring.MakeActivatedBridgeTrigger(
-        dummy, EffectTiming.OnUnTappedAnyone, P1, null, WindowResolverWiring.ActivatedBridgeCategory.Subject, 0);
-    WindowResolverDeps deps = WindowResolverWiring.BuildMainLoopDeps(ctx);
+        untapper, EffectTiming.OnUnTappedAnyone, P1, null, WindowResolverWiring.ActivatedBridgeCategory.Subject, 0);
     WindowRunResult r1 = await new WindowResolver().DriveAsync(WindowResolver.CreateContinuation(new[] { untapMarker }), deps);
 
-    Check(r1 == WindowRunResult.Completed, "cap: the OnUnTapped window completes (resolver no-op)");
+    Check(r1 == WindowRunResult.Completed, "cap: the OnUnTapped window completes");
     Check(!ctx.OnceFlags.CanActivate(untapKey, 1),
         "cap: Commit consumed the OnUnTapped caller-cap -> Gate (same CanActivate) now blocks a re-fire this turn");
 
-    // A non-OnUnTapped bridge timing carries NO caller-cap: its synthetic key is never created/consumed.
-    EffectRequest battleKey = BridgeOnceKey(dummy, EffectTiming.OnEndBattle, P1);
+    // A non-OnUnTapped bridge timing carries NO caller-cap. TfxWinBattleDraw ("[End of Battle] if this won, draw 1",
+    // a uniform ActivatedEffect gated by CanTriggerWhenWinBattle) — pass a driving event whose winnerIds names this
+    // card so CanActivateAt is true and the marker RUNS; its OnEndBattle synthetic key is never created/consumed.
+    HeadlessEntityId winner = await Place(ctx, P1, "TfxWinBattleDraw", "WINNER", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    EffectRequest battleKey = BridgeOnceKey(winner, EffectTiming.OnEndBattle, P1);
+    var winEvent = new GameEvent(
+        Sequence: 0, Type: GameEventType.Unknown, Message: "OnEndBattle",
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+            { ["triggerTiming"] = "OnEndBattle", ["winnerIds"] = winner.Value })
+        { Actor = P1 };
     TimingWindowTrigger battleMarker = WindowResolverWiring.MakeActivatedBridgeTrigger(
-        dummy, EffectTiming.OnEndBattle, P1, null, WindowResolverWiring.ActivatedBridgeCategory.Broadcast, 1);
+        winner, EffectTiming.OnEndBattle, P1, winEvent, WindowResolverWiring.ActivatedBridgeCategory.Broadcast, 1);
     await new WindowResolver().DriveAsync(WindowResolver.CreateContinuation(new[] { battleMarker }), deps);
-    Check(ctx.OnceFlags.CanActivate(battleKey, 1), "cap: a non-OnUnTapped timing consumes no caller-cap (resolver's own MaxCountPerTurn caps it)");
+    Check(ctx.OnceFlags.CanActivate(battleKey, 1), "cap: a non-OnUnTapped timing consumes no caller-cap");
 }
 
 // --- 4. Collect (subject scan + HasEffectsAt filter): a subject-scoped event (OnDestroyedAnyone) synthesises a
@@ -128,6 +138,22 @@ void Check(bool cond, string label)
         WindowResolverWiring.CollectActivatedBridgeTriggers(ctx, new[] { TimingEvent("OnEndTurn", subject: null, actor: P1) });
     Check(markers.Count == 0,
         $"collect(boundary): the scan visits every battle-area card but only effect-bearing ones bridge (inert -> 0; count={markers.Count})");
+}
+
+// --- 6. (RDx-A3) CanActivateAt gates on the effect's CanResolve (board CONDITION: CanUse + CanActivate) — the
+//        per-pass re-check AS-IS runs every window pass (MultipleSkills.cs:122/164-165) — DISTINCT from
+//        HasActivatedEffectsAt (existence, collect-time). BT2_034's OnDestroyedAnyone effect EXISTS, but its
+//        CanActivate (IsExistOnTrash && SecurityCount <= 3) is NOT met on this bare board, so the per-pass
+//        MarkerGate skips the marker even though the effect exists — proving condition ≠ existence. ---
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 99);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    HeadlessEntityId reactor = await Place(ctx, P1, "BT2_034", "REACT3", ChoiceZone.BattleArea, dp: 3000, level: 4);
+
+    Check(ActivatedEffectResolver.HasActivatedEffectsAt(ctx, reactor, P1, EffectTiming.OnDestroyedAnyone),
+        "RDx-A3: HasActivatedEffectsAt is TRUE — BT2_034 HAS an OnDestroyedAnyone activated effect (existence)");
+    Check(!ActivatedEffectResolver.CanActivateAt(ctx, reactor, P1, EffectTiming.OnDestroyedAnyone, TimingEvent("OnDestroyedAnyone", subject: reactor)),
+        "RDx-A3: CanActivateAt is FALSE — the effect's CanActivate (board CONDITION) is unmet, so MarkerGate skips it per pass (distinct from existence)");
 }
 
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }
