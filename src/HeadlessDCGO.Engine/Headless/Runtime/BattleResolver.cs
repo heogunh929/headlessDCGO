@@ -413,12 +413,11 @@ public sealed class BattleResolver
             Subject = participant.InstanceId,
             Cause = TriggerTimings.OnKnockOut,
         };
-        TriggerCollectionResult collected = new AutoProcessingTriggerCollector(context.EffectRegistry)
-            .CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-        if (collected.EnqueuedCount > 0)
-        {
-            await context.EffectScheduler.ResolveAllAsync(cancellationToken).ConfigureAwait(false);
-        }
+        // (Stage 5, Phase 2) resolve through the WindowResolver — behaviourally equivalent to the legacy
+        // CollectAndEnqueueAll + ResolveAllAsync for this subject-scoped sync window (FIFO, no order prompt).
+        await WindowResolverWiring.RunSyncWindowAsync(
+            context, gameEvent, () => new AutoProcessingTriggerCollector(context.EffectRegistry), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     // (G8-003) Resolve the subject's OnStartBattle effects synchronously through the scheduler (the same
@@ -437,8 +436,10 @@ public sealed class BattleResolver
             Subject = subject,
             Cause = TriggerTimings.OnStartBattle,
         };
-        new AutoProcessingTriggerCollector(context.EffectRegistry).CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-        await context.EffectScheduler.ResolveAllAsync(cancellationToken).ConfigureAwait(false);
+        // (Stage 5, Phase 2) resolve through the WindowResolver (equivalent to the legacy sync path).
+        await WindowResolverWiring.RunSyncWindowAsync(
+            context, gameEvent, () => new AutoProcessingTriggerCollector(context.EffectRegistry), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static string? TryReadParticipant(
