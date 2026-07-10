@@ -852,17 +852,37 @@ public sealed class MetadataActionProcessor : IActionProcessor
             bool suspended = await DrainEndOfTurnWindowAsync(context, cancellationToken).ConfigureAwait(false);
             if (suspended)
             {
-                // (latent guard, mirrors the A-4 / scheduler-suspend policy) an INTERACTIVE [End of Your Turn]
-                // effect parked the window for an agent choice. Pre-flip drain does not yet own the re-apply /
-                // idempotency path an interactive EoT effect needs (emit-once per turn-end + resume-then-flip), and
-                // no ported [End of Your Turn] effect is interactive today. Fail LOUDLY rather than let a resumed
-                // window re-emit OnEndTurn on the re-applied EndTurn (double-fire) or flip with a window pending.
-                // When such a card is added, wire the attack-window-style early-return + a per-turn-end fired marker.
+                // (latent guard, mirrors the A-4 / scheduler-suspend policy) the pre-flip [End of Your Turn] window
+                // parked for an agent choice — EITHER an interactive [End of Your Turn] effect body, OR an order
+                // choice among two-or-more mandatory activated [End of Your Turn] effects the ending player controls
+                // (WindowResolver offers order when a side has >1 active trigger). Pre-flip drain does not yet own
+                // the re-apply / idempotency path either needs (emit-once per turn-end + resume-then-flip), and no
+                // ported [End of Your Turn] effect is interactive OR produces a multi-trigger order choice today
+                // (the only real activated EoT effects are non-interactive / single). Fail LOUDLY rather than let a
+                // resumed window re-emit OnEndTurn on the re-applied EndTurn (double-fire) or flip with a window
+                // pending. When such a card is added, wire the attack-window-style early-return + a fired marker.
                 throw new NotSupportedException(
-                    "An interactive [End of Your Turn] effect suspended the pre-flip end-of-turn window. Pre-flip " +
-                    "drain currently supports only non-interactive [End of Your Turn] effects; wire the re-apply + " +
-                    "fired-marker path (A-2 RD-6 follow-up) before adding an interactive one.");
+                    "The pre-flip end-of-turn window suspended for an agent choice (an interactive [End of Your Turn] " +
+                    "effect, or an order choice among multiple mandatory ones). Pre-flip drain currently supports only " +
+                    "non-interactive, single-trigger [End of Your Turn] resolution; wire the re-apply + fired-marker " +
+                    "path (A-2 RD-6 follow-up) before adding a card that suspends this window.");
             }
+        }
+
+        // (A-2 part2 / RD-6) threshold RE-CHECK (AS-IS EndTurnProcess:714): the [End of Your Turn] effects just
+        // drained may have changed memory. If the opponent is now BELOW TurnEndMinMemory the turn does NOT end —
+        // revert to Main and keep the ending player's turn going (AS-IS SetMainPhase), with NO cleanup / flip. Only
+        // relevant from the MemoryPass ending flow; the common case (no memory change, or a LOSS effect) still ends
+        // (memory stays <= -threshold). The EoT effects already fired this frame; if the player later passes again
+        // they re-fire (AS-IS re-runs the window each EndTurnProcess), bounded by their own once-per-turn caps.
+        if (previousTurn.Phase == HeadlessPhase.MemoryPass
+            && !new HeadlessMainPhaseFlow().ShouldTurnEndAfterEndOfTurnWindow(context, previousTurn.TurnPlayerId))
+        {
+            HeadlessTurnState continuedTurn = context.TurnController.SetPhase(HeadlessPhase.Main);
+            Dictionary<string, object?> continueMetadata = MetadataWithTurn(action, continuedTurn);
+            continueMetadata["turnContinued"] = true;
+            return ActionProcessResult.Success(
+                "End-of-turn effects lifted the opponent below the turn-end threshold; the turn continues.", continueMetadata);
         }
 
         HeadlessMemoryState previousMemory = context.MemoryController.Current;

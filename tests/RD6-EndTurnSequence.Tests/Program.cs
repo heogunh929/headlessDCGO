@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -18,6 +19,7 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("[End of Your Turn] lose-3-memory fires in the ENDING player's frame (pre-flip), not no-op post-flip", EoTFiresPreFlip),
+    ("[End of Your Turn] gain memory that lifts the opponent below the threshold CONTINUES the turn (no flip)", EoTGainContinuesTurn),
 };
 
 var failures = new List<string>();
@@ -81,6 +83,51 @@ async Task EoTFiresPreFlip()
     AssertEqual(P2.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn handed over to P2");
     AssertEqual(cost + 3, context.MemoryController.Current.Current,
         "P2 inherits +6: the pre-flip [End of Your Turn] lose-3 fired in P1's frame (bug would leave +3)");
+}
+
+async Task EoTGainContinuesTurn()
+{
+    var match = new DcgoMatch(EngineContext.CreateDefault(), new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    var env = new HeadlessRlEnvironment(match);
+    await env.InitializeAsync(BuildMatchConfig());
+    await AdvanceToMainAsync(match, P1);
+
+    EngineContext context = match.Context;
+    var cards = (CardDatabase)context.CardRepository;
+
+    // Place a plain Digimon in P1's battle area and bind a scheduler "[End of Your Turn] gain 3 memory" effect.
+    cards.Upsert(new CardRecord(new HeadlessEntityId("GAINER"), "GAINER", "Gainer",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon"));
+    var gainer = new HeadlessEntityId("p1:field:GAINER");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(gainer, new HeadlessEntityId("GAINER"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = false }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, gainer, ChoiceZone.None, ChoiceZone.BattleArea));
+    var gainSrc = new CardSource(context, gainer, P1, P1);
+    var gainEffect = new TriggeredGainMemoryEffect(gainSrc, EffectTiming.OnEndTurn, 3, "[End of Your Turn] Gain 3 memory.");
+    context.EffectRegistry.Register(gainEffect.ToBinding("p1:field:GAINER:eotgain"));
+
+    // A cost-1 play crosses memory 0 -> -1 (the default threshold 1), putting P1 into MemoryPass (turn ending).
+    cards.Upsert(new CardRecord(new HeadlessEntityId("VAN1"), "VAN1", "Vanilla1",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon", PlayCost: 1));
+    var hand = new HeadlessEntityId("p1:hand:VAN1");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(hand, new HeadlessEntityId("VAN1"), P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, hand, ChoiceZone.None, ChoiceZone.Hand));
+
+    context.MemoryController.Set(0);
+    LegalAction play = match.GetLegalActions(P1)
+        .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
+    await env.StepAsync(play);
+    AssertEqual(-1, context.MemoryController.Current.Current, "the cost-1 play took memory to -1");
+    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "memory at threshold -> MemoryPass (turn ending)");
+
+    // EndTurn: the [End of Your Turn] +3 fires PRE-flip (-1 -> +2), lifting the opponent below the threshold, so the
+    // re-check keeps the turn going — no hand-over, phase reverts to Main.
+    LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
+    await env.StepAsync(endTurn);
+
+    AssertEqual(P1.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn did NOT hand over — the EoT gain kept it going");
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "the turn reverted to Main (continues)");
+    AssertEqual(2, context.MemoryController.Current.Current, "the EoT +3 lifted memory from -1 to +2 (above the turn-end threshold)");
 }
 
 // --- Helpers -------------------------------------------------------------

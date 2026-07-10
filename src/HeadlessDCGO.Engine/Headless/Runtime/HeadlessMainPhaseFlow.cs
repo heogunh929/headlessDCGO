@@ -21,18 +21,45 @@ public sealed class HeadlessMainPhaseFlow
         }
 
         int threshold = DefaultTurnEndMinMemory;
-        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+        // (RD-6 both-player scan / design item #67) AS-IS TurnEndMinMemory scans Players_ForTurnPlayer — BOTH
+        // players, turn player FIRST — folding
+        // each IChangeEndTurnMinMemory effect's GetMinMemory (AutoProcessing.cs:645-671). An effect can sit on
+        // EITHER board (e.g. one that raises the min memory the OPPONENT must reach to end this turn lives on the
+        // non-turn player's card), so scanning only the turn player missed those. The ported cards
+        // (BT14_081/BT17_069) SET a fixed value (GetMinMemory returns a constant, per FAILd-07), so last-write-wins
+        // over the turn-player-first order mirrors the fold for the common single-effect case; a dependent-fold
+        // multi-effect edge is deferred (no such ported card). No live change today — the ported cards are
+        // turn-player-board — so this is latent infra for an opponent-board threshold card.
+        foreach (HeadlessPlayerId scanPlayer in
+            new[] { player }.Concat(context.TurnController.Current.PlayerOrder.Where(p => p != player && !p.IsEmpty)))
         {
-            foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
+            foreach (HeadlessEntityId cardId in zones.GetCards(scanPlayer, ChoiceZone.BattleArea))
             {
-                if (effect.Context.Values.TryGetValue(ModifierHelpers.EndTurnMinMemoryKey, out object? raw) && raw is int minMemory)
+                foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
                 {
-                    threshold = minMemory;
+                    if (effect.Context.Values.TryGetValue(ModifierHelpers.EndTurnMinMemoryKey, out object? raw) && raw is int minMemory)
+                    {
+                        threshold = minMemory;
+                    }
                 }
             }
         }
 
         return threshold;
+    }
+
+    /// <summary>(A-2 / RD-6) The turn-end threshold RE-CHECK after the [End of Your Turn] window drains, mirroring
+    /// AS-IS AutoProcessing.EndTurnProcess:714 (<c>NonTurnPlayer.MemoryForPlayer &gt;= TurnEndMinMemory</c> → the
+    /// turn ENDS; otherwise it CONTINUES / SetMainPhase). In the headless single-memory coordinate the opponent's
+    /// memory is <c>-memory.Current</c> when negative, so <c>memory.Current &lt;= -threshold</c> is the faithful
+    /// mirror (identical to <see cref="EvaluateMemoryPass"/>'s gate). Called by EndTurnAsync with the memory the
+    /// [End of Your Turn] effects have already mutated in the ending player's frame — a memory-GAINING effect can
+    /// lift the opponent back below the threshold and keep the turn going.</summary>
+    public bool ShouldTurnEndAfterEndOfTurnWindow(EngineContext context, HeadlessPlayerId? turnPlayer)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        int threshold = ResolveTurnEndMinMemory(context, turnPlayer);
+        return context.MemoryController.Current.Current <= -threshold;
     }
 
     public MainPhaseMemoryResult EvaluateMainPhaseEntry(

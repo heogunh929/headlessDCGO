@@ -88,6 +88,10 @@ async Task EndTurnOpensWindowLive()
     await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
     RegisterVortex(context, vortex, P1);
     context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
+    // A realistic MemoryPass state: memory is at/below the turn-end threshold (the only way a turn reaches
+    // MemoryPass in real play). Without this, the A-2 RD-6 end-of-turn re-check (EndTurnProcess:714) would read
+    // memory 0 > -threshold and KEEP the turn going instead of handing over.
+    context.MemoryController.Set(-HeadlessMainPhaseFlow.DefaultMemoryPassValue);
 
     // 1) EndTurn opens the window instead of ending the turn.
     LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
