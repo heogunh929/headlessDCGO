@@ -1,13 +1,14 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // G3.5-D3: the common loop orders simultaneously-collected triggers before resolving them — turn-player
-// triggers first, then non-turn, mandatory before optional (AS-IS MultipleSkills). Optional triggers
-// are no longer dropped (they auto-resolve after mandatory — the accepted interim limitation until they
-// are surfaced as an agent decision in Phase 4).
+// triggers first, then non-turn (AS-IS MultipleSkills). (Stage 5) among ONE player's simultaneous triggers the
+// controlling player CHOOSES the order (RD-14/15) rather than a fixed mandatory-before-optional drain, and an
+// optional is confirmed yes/no when it is picked (RD-13); both still fire when accepted.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -57,15 +58,22 @@ async Task MandatoryBeforeOptional()
 {
     DcgoMatch match = await MainPhaseMatchAsync();
     EngineContext context = match.Context;
+    var processor = new MetadataActionProcessor();
 
     Register(context, "fx-opt", P1, "O");
     Register(context, "fx-mand", P1, "M");
     Emit(context, timing: "M", optional: false);
     Emit(context, timing: "O", optional: true);
 
+    // (Stage 5) the two simultaneous P1 triggers are the player's to ORDER — the window opens a choice rather
+    // than draining them in a fixed order. Drive the agent picking the mandatory first, then accepting the
+    // optional at its yes/no confirm; both fire, in the chosen order.
     await new GameFlowProcessor().RunToStableAsync(context);
+    AssertTrue(context.ChoiceController.Current.IsPending, "the window opened an order choice for the two simultaneous triggers");
 
-    // The optional fired (not dropped) AND resolved after the mandatory one.
+    await processor.ProcessAsync(HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("fx-mand"))), context);
+    await processor.ProcessAsync(HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("fx-opt"))), context);
+
     AssertOrder("fx-mand", "fx-opt");
 }
 
@@ -78,6 +86,11 @@ void AssertOrder(params string[] expected)
         throw new InvalidOperationException(
             $"resolution order: expected [{string.Join(", ", expected)}], got [{string.Join(", ", resolveOrder)}].");
     }
+}
+
+static void AssertTrue(bool value, string label)
+{
+    if (!value) throw new InvalidOperationException($"{label}: expected true.");
 }
 
 void Register(EngineContext context, string effectId, HeadlessPlayerId controller, string timing)

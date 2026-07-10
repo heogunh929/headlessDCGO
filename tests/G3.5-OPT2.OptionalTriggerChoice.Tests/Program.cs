@@ -5,10 +5,11 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// #2 (optional triggers like the original): a MANDATORY ("강제발동") trigger resolves immediately, while
-// an OPTIONAL ("선택발동", CardEffectDefinition.IsOptional) trigger is NOT auto-fired — it is surfaced as
-// an agent ResolveChoice decision (activate-which / skip) via the OptionalPromptQueue + A2. Mandatory vs
-// optional is distinguished per-effect from the bound effect's Definition.IsOptional.
+// #2 (optional triggers, Stage 5 window model): a MANDATORY ("강제발동") and an OPTIONAL ("선택발동",
+// CardEffectDefinition.IsOptional) trigger fire SIMULTANEOUSLY, so the controlling player ORDERS them (RD-14/15)
+// via the window's order choice — nothing auto-resolves first. When the optional is picked it is confirmed
+// yes/no (RD-13, AS-IS Activate_Optional): accepting resolves it, declining leaves it unresolved. Mandatory vs
+// optional is still distinguished per-effect from the bound effect's Definition.IsOptional.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -16,9 +17,9 @@ const string Timing = "OnTestTiming";
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Mandatory fires immediately; optional pauses for an agent choice", MandatoryAutoOptionalPauses),
-    ("Agent activating the optional resolves it", ActivateOptional),
-    ("Agent skipping the optional leaves it unresolved", SkipOptional),
+    ("Simultaneous mandatory+optional open a player ORDER choice (nothing auto-fires)", MandatoryAutoOptionalPauses),
+    ("Ordering the mandatory first then ACCEPTING the optional resolves both", ActivateOptional),
+    ("Declining the optional at its confirm leaves it unresolved (mandatory still fires)", SkipOptional),
 };
 
 var failures = new List<string>();
@@ -42,23 +43,27 @@ async Task MandatoryAutoOptionalPauses()
 {
     var h = await TriggeredMatchAsync();
 
-    AssertEqual(1, h.Mandatory.ResolveCalls, "mandatory trigger resolved immediately");
-    AssertEqual(0, h.Optional.ResolveCalls, "optional trigger NOT auto-resolved");
-    AssertTrue(h.Match.Context.ChoiceController.Current.IsPending, "an optional prompt is pending");
-    AssertEqual(ChoiceType.OptionalEffect, h.Match.Context.ChoiceController.Current.Type, "pending choice is an optional-effect prompt");
+    // Nothing auto-resolves: the two simultaneous triggers open the window's ORDER choice for the player.
+    AssertEqual(0, h.Mandatory.ResolveCalls, "mandatory trigger did NOT auto-resolve before the player orders");
+    AssertEqual(0, h.Optional.ResolveCalls, "optional trigger did NOT auto-resolve");
+    AssertTrue(h.Match.Context.ChoiceController.Current.IsPending, "a window choice is pending");
+    AssertEqual(ChoiceType.WindowChoice, h.Match.Context.ChoiceController.Current.Type, "pending choice is the window order prompt");
     AssertTrue(
         h.Match.GetLegalActions(P1).Any(a => a.ActionType == HeadlessActionTypes.ResolveChoice),
-        "agent is offered ResolveChoice actions for the optional prompt");
+        "agent is offered ResolveChoice actions for the order prompt");
 }
 
 async Task ActivateOptional()
 {
     var h = await TriggeredMatchAsync();
 
-    // Activate the optional effect (its EffectId is the choice candidate).
+    // Pick the mandatory first (order choice), which resolves it and opens the optional's yes/no confirm; then
+    // accept the optional. Both fire.
+    await Apply(h.Match, HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("mand-fx"))));
     await Apply(h.Match, HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("opt-fx"))));
 
-    AssertEqual(1, h.Optional.ResolveCalls, "activated optional trigger resolved");
+    AssertEqual(1, h.Mandatory.ResolveCalls, "the ordered mandatory trigger resolved");
+    AssertEqual(1, h.Optional.ResolveCalls, "the accepted optional trigger resolved");
     AssertFalse(h.Match.Context.ChoiceController.Current.IsPending, "no choice remains pending");
 }
 
@@ -66,10 +71,13 @@ async Task SkipOptional()
 {
     var h = await TriggeredMatchAsync();
 
+    // Pick the mandatory first (resolves it, opens the optional confirm), then DECLINE the optional.
+    await Apply(h.Match, HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("mand-fx"))));
     await Apply(h.Match, HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Skip()));
 
-    AssertEqual(0, h.Optional.ResolveCalls, "skipped optional trigger does NOT resolve");
-    AssertFalse(h.Match.Context.ChoiceController.Current.IsPending, "choice resolved (skipped)");
+    AssertEqual(1, h.Mandatory.ResolveCalls, "the ordered mandatory trigger still resolved");
+    AssertEqual(0, h.Optional.ResolveCalls, "the declined optional trigger does NOT resolve");
+    AssertFalse(h.Match.Context.ChoiceController.Current.IsPending, "choice resolved (declined)");
 }
 
 // --- Harness -------------------------------------------------------------

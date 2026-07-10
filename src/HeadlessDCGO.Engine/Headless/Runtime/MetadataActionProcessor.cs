@@ -498,7 +498,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
 
                 if (context.WindowResolution.Pending is { } windowContinuation)
                 {
-                    Effects.WindowResolverDeps windowDeps = Effects.WindowResolverWiring.BuildMainLoopDeps(context);
+                    Effects.WindowResolverDeps windowDeps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context);
                     Effects.WindowRunResult windowRun = await new Effects.WindowResolver()
                         .DriveAsync(windowContinuation, windowDeps, cancellationToken).ConfigureAwait(false);
                     if (windowRun == Effects.WindowRunResult.Completed)
@@ -672,6 +672,21 @@ public sealed class MetadataActionProcessor : IActionProcessor
                     return await PlayCardAction.CompleteDeferredPlayAsync(
                         context, pendingActivation.CardId, pendingActivation.PlayerId, cancellationToken)
                         .ConfigureAwait(false);
+                }
+
+                // (Stage 5, 3b-iii) if this activation was a WINDOW body-suspend (SuspendedExternally), the parked
+                // trigger window now continues — the just-finished body was one pick; re-drive to resolve the
+                // REMAINING stack (its own cut-ins are drained as the next pick resolves). A further suspend re-parks
+                // the window (pausing the loop again); running to exhaustion clears it.
+                if (context.WindowResolution.Pending is { } resumedWindow)
+                {
+                    Effects.WindowResolverDeps resumeDeps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context);
+                    Effects.WindowRunResult resumeRun = await new Effects.WindowResolver()
+                        .DriveAsync(resumedWindow, resumeDeps, cancellationToken).ConfigureAwait(false);
+                    if (resumeRun == Effects.WindowRunResult.Completed)
+                    {
+                        context.WindowResolution.Clear();
+                    }
                 }
 
                 return ActionProcessResult.Success("Choice resolved; activation resumed.", MetadataWithChoice(action, choice));
