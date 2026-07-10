@@ -4,6 +4,8 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 출처: `rule_deficiency_remediation_design_2026-07-09.md`(이연 L1~L8 · P1 레지스터 · VR 재검수) + Stage 5 3b-iii 적대검수 신규 발견.
 원칙: [[check-asis-before-implementing]] · [[result-equivalence-not-completion]] · [[adversarial-review-before-cutover]] · [[fidelity-over-coverage]].
 
+**현행 상태(2026-07-10 갱신, main `b0569133`)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅ 완료**(회귀 392/392·RuleAudit 0, 커밋 1525b2e6·ceb7a118·ee1c255b·e93205e9·533cc12c·b0569133). **다음 최우선 = B-1(P1-3)**. B~F는 미착수. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
+
 ---
 
 ## ✅ Stage 5로 해소된 항목 (재작업 불요)
@@ -17,7 +19,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 ---
 
-## A. Stage 5 직후 마무리 (창-루프가 열어둔 잔여) — **최우선**
+## A. Stage 5 직후 마무리 (창-루프가 열어둔 잔여) — **✅ 전량 완료**(A-1~A-4 + 정밀 debt, main b0569133)
 
 - [x] ~~**A-1 · P1-4** 컷인 창 same-effect dedup 미러 부재~~ — **완료**(커밋 1525b2e6, opt-in 인프라 선행)
   - AS-IS `HasExecutedSameEffect` skipCondition(AutoProcessing.cs:623-627)은 **컷인 창 5곳에만** 전달(CardController.cs:727·990·5189·5301·5709=SelectCount/TrashDigivolutionCards/TrashLinkCards/Unsuspend), 메인 트리거 창(AutoProcessing.cs:137)은 `null` → **dedup은 컷인 창 한정**. 헤드리스는 현재 메인 루프 창만 WindowResolver로 구동(=AS-IS 메인=dedup 없음)이라 라이브 발산 아님(latent).
@@ -90,7 +92,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 ## 권고 착수 순서
 
-1. **A군**(Stage 5 직후 마무리) — 창-루프가 방금 열어둔 것, **라이브 버그 A-2(BT1_021) 포함. 최우선.**
-2. **B-1(P1-3)** — 첫 인터랙티브 capped 카드가 이걸 밟기 前 필수(latent P0).
+1. ~~**A군**(Stage 5 직후 마무리)~~ — **✅ 완료**(A-1~A-4 + 정밀 debt RDx-A3·task6/7, main b0569133; 라이브 버그 A-2/BT1_021 상환).
+2. **B-1(P1-3)** ← **현 최우선** — 첫 인터랙티브 capped 카드가 이걸 밟기 前 필수(latent P0).
 3. 나머지 B~E는 각 명시된 카드/기능 착수 前 선행 구축([[strong-model-prebuild-latent-infra]], OPUS-only).
 4. **F-1/F-2** 대형 골은 별도 트랙.
