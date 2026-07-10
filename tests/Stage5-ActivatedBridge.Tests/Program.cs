@@ -96,36 +96,38 @@ void Check(bool cond, string label)
     Check(ctx.OnceFlags.CanActivate(battleKey, 1), "cap: a non-OnUnTapped timing consumes no caller-cap (resolver's own MaxCountPerTurn caps it)");
 }
 
-// --- 4. Collect: a subject-scoped event (OnDestroyedAnyone) synthesises ONE marker for the event subject. ---
+// --- 4. Collect (subject scan + HasEffectsAt filter): a subject-scoped event (OnDestroyedAnyone) synthesises a
+//        marker ONLY for a subject that ACTUALLY reacts at that timing (BT2_034 has an OnDestroyedAnyone effect);
+//        an effect-less subject yields none, so a no-op marker never competes for the player's order choice. ---
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 3214);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
-    HeadlessEntityId subject = await Place(ctx, P1, "SUBJ", "SUBJ", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    HeadlessEntityId reactor = await Place(ctx, P1, "BT2_034", "REACTOR", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    HeadlessEntityId inert = await Place(ctx, P1, "INERT", "INERT", ChoiceZone.BattleArea, dp: 3000, level: 4);
 
-    GameEvent ev = TimingEvent("OnDestroyedAnyone", subject: subject);
-    IReadOnlyList<TimingWindowTrigger> markers = WindowResolverWiring.CollectActivatedBridgeTriggers(ctx, new[] { ev });
+    IReadOnlyList<TimingWindowTrigger> reactorMarkers =
+        WindowResolverWiring.CollectActivatedBridgeTriggers(ctx, new[] { TimingEvent("OnDestroyedAnyone", subject: reactor) });
+    Check(reactorMarkers.Count == 1 && IsBridge(reactorMarkers[0], out HeadlessEntityId c0, out string t0, out string cat0)
+        && c0 == reactor && t0 == "OnDestroyedAnyone" && cat0 == "Subject",
+        $"collect(subject): an effect-bearing subject yields one OnDestroyedAnyone/Subject marker (count={reactorMarkers.Count})");
 
-    Check(markers.Count == 1, $"collect(subject): one marker for the subject (count={markers.Count})");
-    Check(markers.Count == 1 && IsBridge(markers[0], out HeadlessEntityId c0, out string t0, out string cat0)
-        && c0 == subject && t0 == "OnDestroyedAnyone" && cat0 == "Subject",
-        "collect(subject): the marker carries the subject card, OnDestroyedAnyone timing, Subject category");
+    IReadOnlyList<TimingWindowTrigger> inertMarkers =
+        WindowResolverWiring.CollectActivatedBridgeTriggers(ctx, new[] { TimingEvent("OnDestroyedAnyone", subject: inert) });
+    Check(inertMarkers.Count == 0, $"collect(subject): an effect-LESS subject yields no marker (HasEffectsAt filter; count={inertMarkers.Count})");
 }
 
-// --- 5. Collect: a boundary event (OnEndTurn) synthesises one marker per battle-area card (no subject). ---
+// --- 5. Collect (boundary scan + filter): a boundary event (OnEndTurn) visits every battle-area card, but the
+//        HasEffectsAt filter yields markers ONLY for effect-bearing cards — two inert cards produce none. ---
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 3215);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
-    HeadlessEntityId a = await Place(ctx, P1, "A", "A", ChoiceZone.BattleArea, dp: 3000, level: 4);
-    HeadlessEntityId b = await Place(ctx, P2, "B", "B", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    await Place(ctx, P1, "A", "A", ChoiceZone.BattleArea, dp: 3000, level: 4);
+    await Place(ctx, P2, "B", "B", ChoiceZone.BattleArea, dp: 3000, level: 4);
 
-    GameEvent ev = TimingEvent("OnEndTurn", subject: null, actor: P1);
-    IReadOnlyList<TimingWindowTrigger> markers = WindowResolverWiring.CollectActivatedBridgeTriggers(ctx, new[] { ev });
-
-    var cards = markers.Select(m => m.Request.Context.SourceEntityId).ToHashSet();
-    Check(markers.Count == 2 && cards.Contains(a) && cards.Contains(b),
-        $"collect(boundary): one marker per battle-area card, both players (count={markers.Count})");
-    Check(markers.All(m => IsBridge(m, out _, out string t, out string cat) && t == "OnEndTurn" && cat == "Boundary"),
-        "collect(boundary): every marker carries the OnEndTurn timing + Boundary category");
+    IReadOnlyList<TimingWindowTrigger> markers =
+        WindowResolverWiring.CollectActivatedBridgeTriggers(ctx, new[] { TimingEvent("OnEndTurn", subject: null, actor: P1) });
+    Check(markers.Count == 0,
+        $"collect(boundary): the scan visits every battle-area card but only effect-bearing ones bridge (inert -> 0; count={markers.Count})");
 }
 
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }

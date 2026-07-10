@@ -87,6 +87,152 @@ public static class WindowResolverWiring
             () => DrainSchedulerCutIns(context, () => new AutoProcessingTriggerCollector(context.EffectRegistry)));
     }
 
+    /// <summary>Counts effect resolutions (commits) across a live window run so the main loop can report progress
+    /// to <c>RunToStableAsync</c> (which re-iterates while <c>resolved &gt; 0</c>).</summary>
+    public sealed class LiveWindowRun
+    {
+        public int Progress { get; internal set; }
+    }
+
+    /// <summary>(3b-iii) Build the deps that DRIVE the LIVE main-loop window (the <c>AutoProcessAsync</c>
+    /// replacement) and its resume. Same shape as <see cref="BuildMainLoopDeps"/> but with the full main-loop
+    /// semantics: <see cref="GateLive"/>/<see cref="CommitLive"/> (end-game short-circuit + OnDeletion batch
+    /// dedup), <see cref="ResolveBodyLiveAsync"/> (dispatch + one-shot fire-then-clear + F3 rule-processing
+    /// between picks), and the UNIFIED cut-in drain (scheduler + activated markers). <paramref name="run"/>
+    /// accumulates the resolution count for the caller's progress signal (optional on the resume path).</summary>
+    public static WindowResolverDeps BuildLiveMainLoopDeps(EngineContext context, LiveWindowRun? run = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var port = new AgentWindowChoicePort(context.ChoiceController, context.WindowResolution);
+        return new WindowResolverDeps(
+            turnPlayerId: context.TurnController.Current.TurnPlayerId,
+            gate: trigger => GateLive(context, trigger),
+            commit: trigger =>
+            {
+                CommitLive(context, trigger);
+                if (run is not null)
+                {
+                    run.Progress++;
+                }
+            },
+            resolveBody: (trigger, ct) => ResolveBodyLiveAsync(context, trigger, ct),
+            choicePort: port,
+            drainNewTriggers: () => DrainUnifiedCutIns(context));
+    }
+
+    /// <summary>(3b-iii) Resolve a body for the LIVE loop: the shared dispatch (<see cref="ResolveBodyAsync"/>)
+    /// then, only if it RESOLVED (not suspended), the per-pick post-processing AS-IS runs after every skill —
+    /// a DELAYED one-shot player effect (AS-IS AddEffectToPlayer) has its binding removed now that it has fired
+    /// (fire-then-clear, AFTER the body so the scheduler could still look it up), and state-based
+    /// <see cref="GameFlowProcessor.RuleProcessAsync"/> runs BETWEEN picks (F3) so the next pass's gate + cut-in
+    /// drain see the settled board (deletions, end-game).</summary>
+    private static async Task<WindowResolveOutcome> ResolveBodyLiveAsync(
+        EngineContext context, TimingWindowTrigger trigger, CancellationToken cancellationToken)
+    {
+        WindowResolveOutcome outcome = await ResolveBodyAsync(context, trigger, cancellationToken).ConfigureAwait(false);
+        if (outcome != WindowResolveOutcome.Resolved)
+        {
+            return outcome;
+        }
+
+        if (!IsActivatedBridge(trigger, out _, out _, out _, out _)
+            && trigger.Request.Context.Values.TryGetValue(AutoProcessingTriggerCollector.DelayedOneShotKey, out object? oneShot)
+            && oneShot is true)
+        {
+            HeadlessEntityId oneShotId = trigger.Request.EffectId;
+            context.EffectRegistry.RemoveWhere(binding => binding.Request.EffectId == oneShotId);
+        }
+
+        await GameFlowProcessor.RuleProcessAsync(context, cancellationToken).ConfigureAwait(false);
+        return WindowResolveOutcome.Resolved;
+    }
+
+    /// <summary>(3b-iii) The UNIFIED cut-in drain: sync the zone-mover events into the queue, drain them, and
+    /// build the unified seed (scheduler triggers + activated markers) so a resolution's newly-emitted events
+    /// re-enter the SAME window as a cut-in (RD-17), covering BOTH mutation and activated reactors.</summary>
+    private static IReadOnlyList<TimingWindowTrigger> DrainUnifiedCutIns(EngineContext context)
+    {
+        context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
+        IReadOnlyList<GameEvent> pending = context.GameEventQueue.DrainPending();
+        if (pending.Count == 0)
+        {
+            return Array.Empty<TimingWindowTrigger>();
+        }
+
+        return CollectUnifiedSeed(context, pending);
+    }
+
+    /// <summary>(3b-iii) Build the UNIFIED window seed for a pass's drained events: the SCHEDULER half
+    /// (<c>CollectAllTriggers</c> per event, de-duplicated by (effect-id, event-index) — RD-11's per-event
+    /// SkillInfo — then enriched with the event subject + Kind reclassified from the bound effect) plus the
+    /// ACTIVATED half (<see cref="CollectActivatedBridgeTriggers"/>). Unlike the batch collect, NO gate / cap /
+    /// disable is applied here — those move to the window's per-pass Gate / commit-time Consume (P1-1: a trigger
+    /// whose condition becomes true only after an earlier one resolves still fires this window).</summary>
+    public static IReadOnlyList<TimingWindowTrigger> CollectUnifiedSeed(
+        EngineContext context, IReadOnlyList<GameEvent> pendingEvents)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(pendingEvents);
+
+        var seed = new List<TimingWindowTrigger>();
+        if (pendingEvents.Count > 0)
+        {
+            var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
+            var seen = new HashSet<(HeadlessEntityId EffectId, int EventIndex)>();
+            // (P0-2/RD-11) the AS-IS delete-PROCESS batch is ONE StackSkillInfo whose gate any-matches the whole
+            // batch list — so an "on a Digimon deleted, +1 memory" effect is a SINGLE window entry firing once for
+            // N simultaneous deletions, NOT N entries the player would be asked to order. The seed carries one
+            // OnDeletion trigger per deleted card, so collapse them here to the FIRST that GATE-passes (enrich +
+            // CanResolve on its subject), claimed on-fire so a subject-specific gate matching only a later deleted
+            // card is not lost. This is the one collect-time gate the window keeps (the deletion condition is
+            // stable within the pass — P1-1 re-evaluation does not apply); every other trigger stays ungated here
+            // and is re-evaluated per pass by the window.
+            var firedDeletion = new HashSet<HeadlessEntityId>();
+            for (int eventIndex = 0; eventIndex < pendingEvents.Count; eventIndex++)
+            {
+                GameEvent gameEvent = pendingEvents[eventIndex];
+                if (gameEvent.Type == GameEventType.Unknown)
+                {
+                    continue;
+                }
+
+                foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
+                {
+                    if (!seen.Add((trigger.Request.EffectId, eventIndex)))
+                    {
+                        continue;
+                    }
+
+                    EffectRequest enriched = GameFlowProcessor.EnrichWithEventSubject(trigger.Request, gameEvent);
+
+                    if (IsOnDeletion(trigger))
+                    {
+                        if (firedDeletion.Contains(trigger.Request.EffectId)
+                            || EffectInvalidation.IsEffectsDisabled(context, trigger.Request.Context.SourceEntityId))
+                        {
+                            continue;
+                        }
+
+                        IHeadlessCardEffect? body = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect;
+                        if (body is not null && !body.CanResolve(new CardEffectResolveContext(enriched)).CanResolve)
+                        {
+                            continue; // this deleted card's subject does not satisfy the gate — try the next copy.
+                        }
+
+                        firedDeletion.Add(trigger.Request.EffectId);
+                    }
+
+                    seed.Add(GameFlowProcessor.ReclassifyKind(
+                        context,
+                        new TimingWindowTrigger(enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)));
+                }
+            }
+        }
+
+        seed.AddRange(CollectActivatedBridgeTriggers(context, pendingEvents));
+        return seed;
+    }
+
     /// <summary>Build the scheduler-path deps for a window. <paramref name="choicePort"/> drives order/optional
     /// choices; <paramref name="drainNewTriggers"/> collects cut-in triggers emitted during resolution.</summary>
     public static WindowResolverDeps BuildSchedulerDeps(
@@ -113,20 +259,50 @@ public static class WindowResolverWiring
     /// case checks CanResolve + MaxCountPerTurn), so it passes here EXCEPT the OnUnTappedAnyone caller-cap.</summary>
     private static bool Gate(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId bridgeCard, out EffectTiming bridgeTiming, out _, out HeadlessPlayerId bridgeOwner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
         {
-            // Only OnUnTappedAnyone carries a caller-level once-per-turn cap (a card can be re-suspended and
-            // unsuspended within a turn — GameFlowProcessor:737-746). Mirror it as a synthetic-key OnceFlag,
-            // checked here (per pass) and consumed at Commit — the AS-IS TryActivate split into the window's
-            // CanActivate-gate + Consume-at-commit (F5/RD-12). Every other bridged timing gates in the resolver.
-            if (ActivatedBridgeTimings.OncePerTurn.Contains(bridgeTiming))
-            {
-                return context.OnceFlags.CanActivate(SyntheticBridgeOnceRequest(bridgeCard, bridgeTiming, bridgeOwner), maxCountPerTurn: 1);
-            }
-
-            return true;
+            return MarkerGate(context, card, timing, owner);
         }
 
+        return SchedulerGate(context, trigger);
+    }
+
+    /// <summary>(3b-iii live) the main-loop Gate: <see cref="Gate"/> plus an end-game short-circuit — once the
+    /// match is decided no further trigger activates and the window exhausts (AS-IS RuleProcess ends the loop on
+    /// end-game between picks). The OnDeletion delete-process batch dedup is done at COLLECT (CollectUnifiedSeed
+    /// collapses the batch to one entry), NOT here — a window-scoped dedup would wrongly block a LATER cut-in
+    /// delete-process (AS-IS fires each process separately).</summary>
+    private static bool GateLive(EngineContext context, TimingWindowTrigger trigger)
+    {
+        if (context.RuleQueryService.IsTerminal())
+        {
+            return false;
+        }
+
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
+        {
+            return MarkerGate(context, card, timing, owner);
+        }
+
+        return SchedulerGate(context, trigger);
+    }
+
+    /// <summary>An activated-bridge marker gates itself in the resolver EXCEPT the OnUnTappedAnyone caller-cap
+    /// (a card can be re-suspended/unsuspended within a turn — GameFlowProcessor:737-746), mirrored as a
+    /// synthetic-key OnceFlag checked here (per pass) and consumed at commit (F5/RD-12).</summary>
+    private static bool MarkerGate(EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner)
+    {
+        if (ActivatedBridgeTimings.OncePerTurn.Contains(timing))
+        {
+            return context.OnceFlags.CanActivate(SyntheticBridgeOnceRequest(card, timing, owner), maxCountPerTurn: 1);
+        }
+
+        return true;
+    }
+
+    /// <summary>A scheduler (mutation) trigger's gate: bound + not-disabled + CanResolve + once-cap available.</summary>
+    private static bool SchedulerGate(EngineContext context, TimingWindowTrigger trigger)
+    {
         IHeadlessCardEffect? body = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect;
         if (body is null)
         {
@@ -146,21 +322,46 @@ public static class WindowResolverWiring
         return context.OnceFlags.CanActivate(trigger.Request, body.Definition.MaxCountPerTurn);
     }
 
+    private static bool IsOnDeletion(TimingWindowTrigger trigger) =>
+        string.Equals(trigger.Request.Timing, TriggerTimings.OnDeletion, StringComparison.Ordinal);
+
     /// <summary>Consume the once-per-turn use at commit (before the body — RD-12/F5). For an ACTIVATED-bridge
     /// marker only the OnUnTappedAnyone caller-cap is consumed here (its synthetic key); every other activated
     /// timing is uncapped at the caller (the resolver's own MaxCountPerTurn caps it).</summary>
     private static void Commit(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId bridgeCard, out EffectTiming bridgeTiming, out _, out HeadlessPlayerId bridgeOwner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
         {
-            if (ActivatedBridgeTimings.OncePerTurn.Contains(bridgeTiming))
-            {
-                context.OnceFlags.Consume(SyntheticBridgeOnceRequest(bridgeCard, bridgeTiming, bridgeOwner), maxCountPerTurn: 1);
-            }
-
+            MarkerCommit(context, card, timing, owner);
             return;
         }
 
+        SchedulerCommit(context, trigger);
+    }
+
+    /// <summary>(3b-iii live) the main-loop Commit — currently identical to <see cref="Commit"/> (the OnDeletion
+    /// batch dedup is handled at collect, not here); kept distinct so live-only commit concerns have a home.</summary>
+    private static void CommitLive(EngineContext context, TimingWindowTrigger trigger)
+    {
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
+        {
+            MarkerCommit(context, card, timing, owner);
+            return;
+        }
+
+        SchedulerCommit(context, trigger);
+    }
+
+    private static void MarkerCommit(EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner)
+    {
+        if (ActivatedBridgeTimings.OncePerTurn.Contains(timing))
+        {
+            context.OnceFlags.Consume(SyntheticBridgeOnceRequest(card, timing, owner), maxCountPerTurn: 1);
+        }
+    }
+
+    private static void SchedulerCommit(EngineContext context, TimingWindowTrigger trigger)
+    {
         int? maxCountPerTurn = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect?.Definition.MaxCountPerTurn;
         context.OnceFlags.Consume(trigger.Request, maxCountPerTurn);
     }
@@ -188,11 +389,11 @@ public static class WindowResolverWiring
             {
                 // The interactive activated body suspended for an agent choice. Record it EXACTLY as the batch
                 // bridge did (GameFlowProcessor:754-761) so the same resume seam (MetadataActionProcessor
-                // .ResolveChoiceAsync -> DeferredActivations.Pending) advances it. Coordinating that body-resume
-                // with the window's OWN InFlightPick re-drive is the live cut-over (design RD 3b-iii); this
-                // increment only SIGNALS the suspend — no live loop drives the activated body through here yet.
+                // .ResolveChoiceAsync -> DeferredActivations.Pending) advances it — the body resumes OUTSIDE the
+                // window (SuspendedExternally), so the window records no in-flight pick and, once the action
+                // processor finishes the activation, re-drives to continue the remaining stack (3b-iii).
                 context.DeferredActivations.Suspend(card, timing, owner, drivingEvent);
-                return WindowResolveOutcome.Suspended;
+                return WindowResolveOutcome.SuspendedExternally;
             }
         }
 
@@ -381,6 +582,15 @@ public static class WindowResolverWiring
         {
             if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
                 || instance is null || instance.OwnerId.IsEmpty)
+            {
+                continue;
+            }
+
+            // (3b-iii) only bridge a card that ACTUALLY reacts at this timing — the batch scan visited every
+            // battle-area card and let the resolver no-op, but in the ONE window a no-op marker would spuriously
+            // compete with a real effect for the player's order choice (RD-14). This preserves the batch's
+            // resolution outcome (no-effect cards did nothing) while removing the phantom stack entries.
+            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasEffectsAt(context, card, instance.OwnerId, timing))
             {
                 continue;
             }

@@ -38,6 +38,30 @@ public static class ActivatedEffectResolver
         return description is not null && description.Contains("[Main]", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>(Stage 5, 3b-iii) Whether the card has ANY activated effects registered at <paramref name="timing"/>.
+    /// The window's unified-seed collect uses this so an activated-effect BRIDGE marker is only synthesised for a
+    /// card that actually reacts at that timing — the batch bridge scanned every battle-area card and let the
+    /// resolver no-op, but in the ONE window a no-op marker would spuriously compete with a real effect for the
+    /// player's order choice. Pure (builds the effect list, runs nothing).</summary>
+    public static bool HasEffectsAt(
+        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardInstanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(cardInstanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return false;
+        }
+
+        var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
+        return effect.CardEffects(timing, card).Count > 0;
+    }
+
     public static async Task<int> ResolveAsync(
         EngineContext context,
         HeadlessEntityId cardInstanceId,

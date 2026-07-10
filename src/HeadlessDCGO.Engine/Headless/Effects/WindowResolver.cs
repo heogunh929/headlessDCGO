@@ -230,6 +230,16 @@ public sealed class WindowResolver
                 return WindowRunResult.Suspended;
             }
 
+            if (outcome == WindowResolveOutcome.SuspendedExternally)
+            {
+                // (3b-iii) the body paused for an agent choice but RESUMES OUTSIDE this window — an activated-effect
+                // bridge body suspends via DeferredActivations, which the action-processor re-invokes directly (not
+                // by replaying this window's ResolveBody). So DON'T record an in-flight pick: the pick is already
+                // removed from its frame, its use consumed, and on the re-drive (after the external body finishes)
+                // the loop simply continues the remaining stack. Suspending the window still pauses the main loop.
+                return WindowRunResult.Suspended;
+            }
+
             // (RD-17) resolving may have emitted new events — resolve them as a cut-in BEFORE continuing the
             // remaining stack (new triggers first), bounded by the runaway safety limit. Pushing a frame makes the
             // next loop pass process the cut-in depth-first; when it exhausts, the pop returns here to this frame.
@@ -267,6 +277,12 @@ public enum WindowResolveOutcome
 
     /// <summary>The body suspended to ask the agent a choice — the caller parks and resumes the in-flight body.</summary>
     Suspended,
+
+    /// <summary>(3b-iii) The body suspended for an agent choice but its resume is owned OUTSIDE the window (an
+    /// activated-effect bridge body parked in DeferredActivations, re-invoked by the action-processor). The window
+    /// records NO in-flight pick — the pick is already removed and consumed; on the caller's re-drive the loop
+    /// continues the remaining stack. Distinguished from <see cref="Suspended"/> so the loop does not replay it.</summary>
+    SuspendedExternally,
 }
 
 /// <summary>Overall result of a window run.</summary>

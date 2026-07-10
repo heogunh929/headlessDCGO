@@ -159,7 +159,9 @@ public sealed class GameFlowProcessor
     /// <c>TrashNoDPPermanentProcess</c> / <c>CutInProcess</c>: <c>DP &lt;= 0 &amp;&amp; IsDigimon</c>).
     /// Returns true when it acts so the common loop keeps iterating until the board is stable.
     /// </summary>
-    private static async Task<bool> RuleProcessAsync(
+    // (Stage 5, F3) internal so the window loop's ResolveBody can run state-based rule processing BETWEEN picks
+    // (AS-IS MultipleSkills.cs:398-403 RuleProcess after every pick), not just once per RunToStable iteration.
+    internal static async Task<bool> RuleProcessAsync(
         EngineContext context,
         CancellationToken cancellationToken)
     {
@@ -440,146 +442,45 @@ public sealed class GameFlowProcessor
         CancellationToken cancellationToken)
     {
         context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
-
-        int collected = 0;
-        // (PRIM-P0 B.O.5) delayed one-shot player effects (AS-IS AddEffectToPlayer) that fire this pass — their
-        // bindings are removed AFTER resolution (fire-then-clear), never before (the scheduler re-looks-up the
-        // binding by id at resolve time, so early removal would leave the enqueued request unbound).
-        var oneShotFired = new List<HeadlessEntityId>();
         IReadOnlyList<GameEvent> pendingEvents = context.GameEventQueue.DrainPending();
-        if (pendingEvents.Count > 0)
+
+        // (Stage 5, 3b-iii) Build the UNIFIED window seed — the SCHEDULER mutation triggers PLUS the ACTIVATED
+        // effect-bridge markers — WITHOUT collect-time gate/cap (those move to the window's per-pass Gate +
+        // commit-time Consume), then drive the re-entrant window loop (AS-IS
+        // MultipleSkills.ActivateMultipleSkills_OnePlayer): the controlling player orders simultaneous effects,
+        // optionals confirm inline (yes/no), the once-use is consumed at commit, each body resolves through the
+        // scheduler OR ActivatedEffectResolver, state-based rule-processing runs BETWEEN picks (F3), and
+        // newly-emitted events recurse as cut-ins. A body / order / optional choice suspends the window; it is
+        // parked in WindowResolution and the pending choice pauses RunToStable (resumed by the next ResolveChoice).
+        IReadOnlyList<TimingWindowTrigger> seed =
+            Effects.WindowResolverWiring.CollectUnifiedSeed(context, pendingEvents);
+        if (seed.Count == 0)
         {
-            var collector = new AutoProcessingTriggerCollector(context.EffectRegistry);
-            var batch = new List<TimingWindowTrigger>();
-            // (RD-11) AS-IS stacks a SEPARATE SkillInfo per driving EVENT (AutoProcessing.cs:984-989), so most
-            // "when X happens" effects fire once PER event in a pass. Dedup by (EffectId, event) — the same
-            // effect matched twice for ONE event is still collapsed, but distinct events each fire it. Keyed on
-            // the event's list position: emitted events can share Sequence=0, so position is the only reliable
-            // per-event identity here.
-            var seen = new HashSet<(HeadlessEntityId EffectId, int EventIndex)>();
-            // (P0-2/RD-11) EXCEPTION for the deletion timing: AS-IS DestroyPermanentsClass packs ALL cards
-            // deleted in one delete-PROCESS into a single OnDestroyedAnyone StackSkillInfos call whose gate is an
-            // any-match over the batch list (CardController.cs:3736 / CanUseEffects/OnDeletion.cs) — so a
-            // "when a Digimon is deleted, +1 memory" effect fires ONCE for N simultaneous 0-DP/battle deletions,
-            // not N times. Simultaneous deletions all drain in one AutoProcessAsync pass (RuleProcessAsync deletes
-            // every lethal-DP card before the pass; BattleResolver trashes both losers before the pass), so this
-            // pass approximates the batch. Fire an OnDestroyedAnyone effect at most once per pass — claimed on-fire
-            // (after gate+cap), so a subject-specific gate matching only the 2nd deleted card is NOT suppressed by
-            // the 1st. A truly-sequential delete-process (A deletes → its OnDeletion deletes B) emits B during a
-            // LATER pass → separate fire, matching AS-IS.
-            // SCOPE / known limits (verified 2026-07-10):
-            //  - Covers the board-wide MUTATION reactors on the scheduler path (memory/DP: ST3_01/04, BT2_073, …).
-            //    Board-wide ACTIVATED reactors (e.g. BT1_049 "opp deleted → draw") route through the separate
-            //    activated bridge (BridgeActivatedTriggersAsync), which this guard does NOT touch — and are not
-            //    board-wide-wired today, so no live over-fire, but the bridge would need the same guard when they
-            //    are. Self-scope activated ([On Deletion] on the deleted card) are per-subject-correct already.
-            //  - "pass = batch" UNDER-fires the rare case of two INDEPENDENT delete-processes whose events happen
-            //    to drain in one pass (AS-IS = 2 StackSkillInfos = 2 fires; here = 1). The precise fix is a
-            //    per-delete-process batch-id stamped at emission; deferred (the common 0-DP-sweep/board-wipe case
-            //    IS one process and is correct). See design doc P0-2 / D-RD11 limits.
-            //  - Keyed only to OnDestroyedAnyone; AS-IS batches OnLeaveFieldAnyone identically (CardController:3746)
-            //    but no board-wide leave-field reactor is collected today (absent from BroadcastTimings).
-            var firedDeletionEffects = new HashSet<HeadlessEntityId>();
-            for (int eventIndex = 0; eventIndex < pendingEvents.Count; eventIndex++)
-            {
-                GameEvent gameEvent = pendingEvents[eventIndex];
-                if (gameEvent.Type == GameEventType.Unknown)
-                {
-                    continue;
-                }
-
-                foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
-                {
-                    if (!seen.Add((trigger.Request.EffectId, eventIndex)))
-                    {
-                        continue;
-                    }
-
-                    // (P0-2/RD-11) a deletion (OnDestroyedAnyone) effect fires at most once per pass (= per
-                    // AS-IS delete-process batch); if it already fired this pass, skip further deleted cards.
-                    bool isDeletionTiming = string.Equals(
-                        trigger.Request.Timing, TriggerTimings.OnDeletion, StringComparison.Ordinal);
-                    if (isDeletionTiming && firedDeletionEffects.Contains(trigger.Request.EffectId))
-                    {
-                        continue;
-                    }
-
-                    // D-7: skip effects whose source card is invalidated by a continuous "disable
-                    // effects" effect (AS-IS ICardEffect.IsDisabled). Checked before the per-turn gate so
-                    // a disabled effect does not consume its once-per-turn use.
-                    if (EffectInvalidation.IsEffectsDisabled(context, trigger.Request.Context.SourceEntityId))
-                    {
-                        continue;
-                    }
-
-                    // (G11-002/004) Thread the event subject (the card the event is about, e.g. the deleted
-                    // permanent) into the trigger's resolve context so trigger-gates can read it — both for
-                    // the gate check below and for the actual resolution downstream.
-                    EffectRequest enriched = EnrichWithEventSubject(trigger.Request, gameEvent);
-                    IHeadlessCardEffect? effectBody = context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect;
-
-                    // (G11-004) Evaluate the effect's gate (condition + trigger-precondition) BEFORE the
-                    // per-turn cap is consumed, so a trigger whose condition is not met (e.g. a non-0-DP
-                    // deletion) does NOT waste its once-per-turn use. Original AS-IS folds these into one
-                    // CanUseCondition; the headless splits gate (CanResolve) from cap (OnceFlag).
-                    if (effectBody is not null && !effectBody.CanResolve(new CardEffectResolveContext(enriched)).CanResolve)
-                    {
-                        continue;
-                    }
-
-                    // F-4: gate once-per-turn / max-count-per-turn effects. An effect bound with a
-                    // CardEffectDefinition.MaxCountPerTurn cap that has already activated its limit this
-                    // turn is skipped; passing effects register a use. Effects without a cap always pass.
-                    int? maxCountPerTurn = effectBody?.Definition.MaxCountPerTurn;
-                    if (!context.OnceFlags.TryActivate(enriched, maxCountPerTurn))
-                    {
-                        continue;
-                    }
-
-                    if (enriched.Context.Values.TryGetValue(AutoProcessingTriggerCollector.DelayedOneShotKey, out object? oneShot)
-                        && oneShot is true)
-                    {
-                        oneShotFired.Add(enriched.EffectId);
-                    }
-
-                    batch.Add(ReclassifyKind(context, new TimingWindowTrigger(
-                        enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)));
-
-                    // (P0-2/RD-11) claim the once-per-batch slot only AFTER a successful gate+cap fire, so an
-                    // earlier non-matching deleted card in the same batch does not consume it.
-                    if (isDeletionTiming)
-                    {
-                        firedDeletionEffects.Add(trigger.Request.EffectId);
-                    }
-                }
-            }
-
-            collected = EnqueueOrdered(context, batch);
+            // No triggers this pass — still drain any pre-enqueued scheduler request (one enqueued outside the
+            // window pipeline) so nothing is stranded, matching the legacy ResolveAllAsync drain.
+            IReadOnlyList<EffectResult> drained = await context.EffectScheduler
+                .ResolveAllAsync(cancellationToken).ConfigureAwait(false);
+            return (drained.Count(result => result.Resolved), 0);
         }
 
-        IReadOnlyList<EffectResult> results = await context.EffectScheduler
-            .ResolveAllAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var run = new Effects.WindowResolverWiring.LiveWindowRun();
+        Effects.WindowResolverDeps deps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context, run);
+        Effects.WindowContinuation continuation = Effects.WindowResolver.CreateContinuation(seed);
+        Effects.WindowRunResult result = await new Effects.WindowResolver()
+            .DriveAsync(continuation, deps, cancellationToken).ConfigureAwait(false);
 
-        // (PRIM-P0 B.O.5) fire-then-clear: remove the delayed one-shot bindings that just resolved so they never
-        // fire again (AS-IS AddEffectToPlayer clears its list after firing).
-        if (oneShotFired.Count > 0)
+        if (result == Effects.WindowRunResult.Suspended)
         {
-            context.EffectRegistry.RemoveWhere(binding => oneShotFired.Contains(binding.Request.EffectId));
+            context.WindowResolution.Suspend(continuation);
+        }
+        else
+        {
+            context.WindowResolution.Clear();
         }
 
-        // (PRIM triggered-activated bridge) the scheduler above only resolves IHeadlessCardEffect (mutation)
-        // triggers (memory/DP/…). A card's ACTIVATED effects (draw/trash/delete/select) at a general trigger
-        // timing are otherwise dropped — resolve them here via ActivatedEffectResolver (the same seam the action
-        // handlers use). No-op unless the subject has activated effects at that timing; non-activated effects are
-        // skipped by the resolver, so there is no double-resolution.
-        int activatedProgress = await BridgeActivatedTriggersAsync(context, pendingEvents, cancellationToken).ConfigureAwait(false);
-
-        // #2: after mandatory effects resolve, surface the next queued optional-trigger prompt to the
-        // agent. Counts as progress so the loop re-iterates and pauses on the now-pending choice.
-        bool openedPrompt = RequestNextOptionalPrompt(context);
-
-        return (results.Count(result => result.Resolved) + activatedProgress, collected + (openedPrompt ? 1 : 0));
+        // `collected` = seed size: a non-empty seed IS work (even a pass that fully fizzles registers progress so
+        // RunToStable re-iterates once and then settles when the drained queue yields an empty seed).
+        return (run.Progress, seed.Count);
     }
 
     // The four activated-bridge timing category sets now live in the shared
@@ -765,7 +666,8 @@ public sealed class GameFlowProcessor
         return any;
     }
 
-    private static EffectRequest EnrichWithEventSubject(EffectRequest request, GameEvent gameEvent)
+    // (Stage 5, 3b-iii) internal so the window wiring's unified seed collect can enrich identically to the batch.
+    internal static EffectRequest EnrichWithEventSubject(EffectRequest request, GameEvent gameEvent)
     {
         HeadlessEntityId? triggerId = request.Context.TriggerEntityId;
 
@@ -832,7 +734,7 @@ public sealed class GameFlowProcessor
         return false;
     }
 
-    private static TimingWindowTrigger ReclassifyKind(EngineContext context, TimingWindowTrigger trigger)
+    internal static TimingWindowTrigger ReclassifyKind(EngineContext context, TimingWindowTrigger trigger)
     {
         if (context.EffectRegistry.Find(trigger.Request.EffectId)?.Effect is { } effect)
         {
