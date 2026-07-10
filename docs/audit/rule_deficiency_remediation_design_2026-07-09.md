@@ -2,6 +2,11 @@
 
 입력: `rule_deficiency_2026-07-09.md`(룰 결손 명세) · `fidelity_todo_2026-07-09.md`(TODO 113). 원칙: [[check-asis-before-implementing]](착수 시 AS-IS 지점 재확인 후 미러), [[result-equivalence-not-completion]](구조 1:1, substrate 번역만 허용), 게이트=green+동작단언+RuleAudit 0. 각 항목은 독립 커밋 단위로 설계했고, 단계 간 의존성은 §7에 집약.
 
+## 📍 세션 핸드오프 (2026-07-10 종료, branch=worktree-sattack-3tier-seq, HEAD=a2add1ba)
+**완료**: 1·2단계(RD-1/2/3/5/10~13) · 3단계 RD-4(부분)/RD-6(이연) · 적대점검 P0 전량+재검수2회 상환 · 4단계 RD-9(공격 chokepoint)+RD-7 Part A(CardDP/TODO-71) · **5단계 Phase 0~2**(WindowResolver 코어+적대검수 상환+동기 창 3종 라이브 컷오버, 회귀 388/388·RuleAudit 0).
+**다음 = 5단계 Phase 3**(메인 루프 `AutoProcessAsync` 컷오버, 태스크 #36): Collect 통합(scheduler+activated bridge)·실 ChoicePort(agent 순서/optional)·WindowResolutionController(pause/resume 지속=F6 최난)·pick-간 RuleProcess(F3)·테스트 AS-IS 갱신(G2F-002/G1F-004/G11-004). **적대 검수 필수.** 이후 Phase 4(RD-12/13→RD-6→RD-7B(VR-6)→RD-8 흡수). 그 외 이연=RD-4 Decode/Partition PRE(TODO-96)·카드포팅 시점 P1군.
+**핵심 파일**: `Effects/WindowResolver.cs`(코어)·`Effects/WindowResolverWiring.cs`(배선)·설계 §5.5(구조맵·컷오버). **함정**: 엔진 파일 주석에 리터럴 "TODO" 금지(G2F-002/003·G2E-004·G2G-001·G2G-004가 소스 스캔, 이번 세션 4회 피해 — "design item RDx-NN" 사용).
+
 ## ⚠️ 스코프 한계·이연 목록 (1~3단계(RD-4 부분) 구현 완료분 기준, 2026-07-10 / 적대 점검 반영 최신화)
 
 구현 중 의도적으로 **보류/부분 처리**한 항목. 각 이연은 근거·의존 선행조건·트리거(어느 카드/단계 착수 시 승격)를 명시. ~~전부 현재 회귀·RuleAudit 무영향(latent 또는 구조-등가)~~ **[정정 2026-07-10 적대 점검]** 이 무영향 주장은 과장이었음: L8(RD-6)은 **라이브 결손**(BT1_021 EoTLose3Memory가 새-턴 프레임에서 오해소 — 테스트 미고정이라 회귀에 안 보일 뿐), L4·L6도 라이브 발산 포함(아래 ⚔️ 레지스터 참조). "회귀 green"은 무영향의 증거가 아님.
