@@ -22,6 +22,16 @@ public sealed class WindowResolutionController : IHeadlessMatchStateResettable
 
     public bool HasPending => Pending is not null;
 
+    /// <summary>(A-2 RD-6, task 6) The turn number whose pre-flip [End of Your Turn] window EndTurnAsync has already
+    /// EMITTED (and begun draining). When the drain suspends for an interactive body or a multi-trigger order choice,
+    /// EndTurnAsync returns without flipping; the agent resolves the choice (which resumes THIS window via the normal
+    /// WindowChoice path) and re-applies EndTurn — this marker makes that re-application skip re-emitting OnEndTurn
+    /// (a double-fire) and proceed straight to the threshold re-check + flip. Deliberately INDEPENDENT of
+    /// <see cref="Pending"/>/<see cref="Clear"/> (the window's own lifecycle clears Pending when it exhausts, but the
+    /// re-applied EndTurn still must not re-emit): EndTurnAsync sets it before the emit and clears it at the turn
+    /// boundary (flip) or when the turn continues (so the next end-turn attempt re-fires the window, AS-IS).</summary>
+    public int? EndOfTurnDrainedTurn { get; set; }
+
     // The agent's recorded answers for this window's choice points, keyed by the choice's stable identity (the
     // ordered effect-ids of the offered side / the confirmed effect-id). Because a CHOICE suspend re-runs the whole
     // pass on resume, the port re-asks every earlier choice; these recorded answers let it REPLAY them idempotently
@@ -54,5 +64,9 @@ public sealed class WindowResolutionController : IHeadlessMatchStateResettable
         _answers.Clear();
     }
 
-    public void ResetMatchState() => Clear();
+    public void ResetMatchState()
+    {
+        Clear();
+        EndOfTurnDrainedTurn = null;
+    }
 }

@@ -829,16 +829,10 @@ public sealed class MetadataActionProcessor : IActionProcessor
     {
         HeadlessTurnState previousTurn = context.TurnController.Current;
 
-        // (GR-006) End-of-turn <Vortex>/<Overclock> effect-driven attack window — opened on the ENDING
-        // player's turn BEFORE handover. If a window opens (pending choice), the turn does NOT end yet; the
-        // agent resolves the attack, then re-applies EndTurn (the Digimon is now used/suspended, so no
-        // further window opens and the turn proceeds).
-        if (EndOfTurnEffectAttack.TryOpen(context, previousTurn.TurnPlayerId))
-        {
-            Dictionary<string, object?> windowMetadata = MetadataWithTurn(action, previousTurn);
-            windowMetadata["endOfTurnEffectAttackWindow"] = true;
-            return ActionProcessResult.Success("End-of-turn effect-driven attack window opened.", windowMetadata);
-        }
+        // (A-2 / RD-6, task 7) AS-IS resolves the [End of your turn] EFFECT window (AutoProcessing.cs:699) BEFORE the
+        // attack loop (:705), so the end-of-turn effect-driven attack offer (<Vortex>/<Overclock>/<Execute>) is
+        // opened AFTER the OnEndTurn drain below — its EndOfTurnEffectAttack.TryOpen block now follows the window,
+        // matching AS-IS's window-then-attack order (a memory [End of Your Turn] effect resolves before the attack).
 
         // (A-2 / RD-6) The [End of Your Turn] effect window (AutoProcessing.cs:699 "step 3") — resolve it in the
         // ENDING player's STILL-LIVE frame, BEFORE cleanup and the turn flip. Emitting OnEndTurn and draining it
@@ -848,25 +842,46 @@ public sealed class MetadataActionProcessor : IActionProcessor
         // fires it against the correct owner/memory-coordinate.
         if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayerForWindow)
         {
-            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayerForWindow);
-            bool suspended = await DrainEndOfTurnWindowAsync(context, cancellationToken).ConfigureAwait(false);
-            if (suspended)
+            // (task 6) emit + drain the window ONCE per turn-end. On the first EndTurn it drains in the old frame; if
+            // a resolution SUSPENDS — an interactive [End of Your Turn] body, OR an order choice among two-or-more
+            // mandatory activated [End of Your Turn] effects (WindowResolver offers order when a side has >1 active
+            // trigger) — park it (WindowResolution already holds the continuation) and return WITHOUT flipping. The
+            // agent resolves the choice (the normal WindowChoice resume drives THIS same window, still in the old
+            // frame), then re-applies EndTurn. The per-turn drained marker makes that re-application skip re-emitting
+            // OnEndTurn (a double-fire) and fall through to the threshold re-check + flip — the attack-window pattern.
+            if (context.WindowResolution.EndOfTurnDrainedTurn != previousTurn.TurnNumber)
             {
-                // (latent guard, mirrors the A-4 / scheduler-suspend policy) the pre-flip [End of Your Turn] window
-                // parked for an agent choice — EITHER an interactive [End of Your Turn] effect body, OR an order
-                // choice among two-or-more mandatory activated [End of Your Turn] effects the ending player controls
-                // (WindowResolver offers order when a side has >1 active trigger). Pre-flip drain does not yet own
-                // the re-apply / idempotency path either needs (emit-once per turn-end + resume-then-flip), and no
-                // ported [End of Your Turn] effect is interactive OR produces a multi-trigger order choice today
-                // (the only real activated EoT effects are non-interactive / single). Fail LOUDLY rather than let a
-                // resumed window re-emit OnEndTurn on the re-applied EndTurn (double-fire) or flip with a window
-                // pending. When such a card is added, wire the attack-window-style early-return + a fired marker.
-                throw new NotSupportedException(
-                    "The pre-flip end-of-turn window suspended for an agent choice (an interactive [End of Your Turn] " +
-                    "effect, or an order choice among multiple mandatory ones). Pre-flip drain currently supports only " +
-                    "non-interactive, single-trigger [End of Your Turn] resolution; wire the re-apply + fired-marker " +
-                    "path (A-2 RD-6 follow-up) before adding a card that suspends this window.");
+                context.WindowResolution.EndOfTurnDrainedTurn = previousTurn.TurnNumber;
+                TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayerForWindow);
+                if (await DrainEndOfTurnWindowAsync(context, cancellationToken).ConfigureAwait(false))
+                {
+                    Dictionary<string, object?> pendingMetadata = MetadataWithTurn(action, previousTurn);
+                    pendingMetadata["endOfTurnEffectWindow"] = true;
+                    return ActionProcessResult.Success(
+                        "End-of-turn effect window opened; resolve the pending choice, then re-apply EndTurn.", pendingMetadata);
+                }
             }
+            else if (context.WindowResolution.HasPending)
+            {
+                // Re-applied while the resumed window is STILL resolving (defensive — a pending choice normally
+                // blocks EndTurn from being offered). Leave the turn un-ended until the window exhausts.
+                Dictionary<string, object?> pendingMetadata = MetadataWithTurn(action, previousTurn);
+                pendingMetadata["endOfTurnEffectWindow"] = true;
+                return ActionProcessResult.Success(
+                    "End-of-turn effect window still resolving; re-apply EndTurn once it completes.", pendingMetadata);
+            }
+            // else: already drained (synchronously, or resumed-and-completed) → fall through to the re-check + flip.
+        }
+
+        // (GR-006 / A-2 task 7) End-of-turn <Vortex>/<Overclock>/<Execute> effect-driven attack offer — AFTER the
+        // [End of Your Turn] effect window (AS-IS attack loop :705 follows the window :699). If it opens (pending
+        // choice), the turn does NOT end yet; the agent resolves the attack, then re-applies EndTurn (the Digimon is
+        // now used/suspended, and the OnEndTurn window is already drained, so it proceeds to the flip).
+        if (EndOfTurnEffectAttack.TryOpen(context, previousTurn.TurnPlayerId))
+        {
+            Dictionary<string, object?> windowMetadata = MetadataWithTurn(action, previousTurn);
+            windowMetadata["endOfTurnEffectAttackWindow"] = true;
+            return ActionProcessResult.Success("End-of-turn effect-driven attack window opened.", windowMetadata);
         }
 
         // (A-2 part2 / RD-6) threshold RE-CHECK (AS-IS EndTurnProcess:714): the [End of Your Turn] effects just
@@ -878,6 +893,9 @@ public sealed class MetadataActionProcessor : IActionProcessor
         if (previousTurn.Phase == HeadlessPhase.MemoryPass
             && !new HeadlessMainPhaseFlow().ShouldTurnEndAfterEndOfTurnWindow(context, previousTurn.TurnPlayerId))
         {
+            // (task 6) the turn continues — allow the [End of Your Turn] window to re-fire the NEXT time this player
+            // ends the turn (AS-IS re-runs it each EndTurnProcess), so clear the drained marker for this turn number.
+            context.WindowResolution.EndOfTurnDrainedTurn = null;
             HeadlessTurnState continuedTurn = context.TurnController.SetPhase(HeadlessPhase.Main);
             Dictionary<string, object?> continueMetadata = MetadataWithTurn(action, continuedTurn);
             continueMetadata["turnContinued"] = true;
@@ -885,6 +903,8 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 "End-of-turn effects lifted the opponent below the turn-end threshold; the turn continues.", continueMetadata);
         }
 
+        // (task 6) the turn actually ends — clear the pre-flip [End of Your Turn] drained marker at the boundary.
+        context.WindowResolution.EndOfTurnDrainedTurn = null;
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         EndOfTurnEffectAttack.ClearForPlayer(context, previousTurn.TurnPlayerId);
         OnPlayReactivation.ClearAll(context); // LA-3: reset the [All Turns] once-per-turn guard for both players.

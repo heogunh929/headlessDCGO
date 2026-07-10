@@ -1,8 +1,10 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -20,6 +22,8 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("[End of Your Turn] lose-3-memory fires in the ENDING player's frame (pre-flip), not no-op post-flip", EoTFiresPreFlip),
     ("[End of Your Turn] gain memory that lifts the opponent below the threshold CONTINUES the turn (no flip)", EoTGainContinuesTurn),
+    ("two activated [End of Your Turn] effects OPEN an order choice (pre-flip drain suspends), then re-applied EndTurn flips", MultiActivatedEoTSuspendsThenReapplies),
+    ("the [End of Your Turn] effect window resolves BEFORE the end-of-turn attack offer (AS-IS window-then-attack order)", EoTWindowResolvesBeforeAttack),
 };
 
 var failures = new List<string>();
@@ -130,7 +134,128 @@ async Task EoTGainContinuesTurn()
     AssertEqual(2, context.MemoryController.Current.Current, "the EoT +3 lifted memory from -1 to +2 (above the turn-end threshold)");
 }
 
+async Task MultiActivatedEoTSuspendsThenReapplies()
+{
+    var match = new DcgoMatch(EngineContext.CreateDefault(), new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    var env = new HeadlessRlEnvironment(match);
+    await env.InitializeAsync(BuildMatchConfig());
+    await AdvanceToMainAsync(match, P1);
+
+    EngineContext context = match.Context;
+    var cards = (CardDatabase)context.CardRepository;
+
+    // Two "[End of Your Turn] draw 1" activated fixtures in P1's battle area — at OnEndTurn the window collects TWO
+    // mandatory activated markers, so the ending player must ORDER them (a choice that suspends the pre-flip drain).
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxEndTurnDraw"), "TfxEndTurnDraw", "EoTDraw",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 4 }, CardType: "Digimon"));
+    for (int i = 0; i < 2; i++)
+    {
+        var id = new HeadlessEntityId($"p1:field:EOTDRAW{i}");
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("TfxEndTurnDraw"), P1,
+            Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = false }));
+        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    }
+
+    // A cost-3 play crosses memory 0 -> -3, ending P1's turn (MemoryPass).
+    cards.Upsert(new CardRecord(new HeadlessEntityId("VAN3"), "VAN3", "Vanilla3",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon", PlayCost: 3));
+    var hand = new HeadlessEntityId("p1:hand:VAN3");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(hand, new HeadlessEntityId("VAN3"), P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, hand, ChoiceZone.None, ChoiceZone.Hand));
+
+    context.MemoryController.Set(0);
+    LegalAction play = match.GetLegalActions(P1)
+        .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
+    await env.StepAsync(play);
+    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "P1 crossed into MemoryPass");
+
+    // EndTurn opens the [End of Your Turn] order choice instead of ending the turn (the pre-flip drain suspended).
+    LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
+    await match.ApplyActionAsync(endTurn);
+    await match.StepAsync();
+    AssertEqual(P1.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn did NOT hand over — an EoT order choice is pending");
+    AssertTrue(context.ChoiceController.Current.IsPending, "the two activated [End of Your Turn] effects opened a pending order choice");
+
+    // Resolve every pending window choice (order pick + any follow-up), then re-apply EndTurn until it flips.
+    for (int guard = 0; guard < 8 && context.ChoiceController.Current.IsPending; guard++)
+    {
+        LegalAction resolve = match.GetLegalActions(P1).First(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+        await match.ApplyActionAsync(resolve);
+        await match.StepAsync();
+    }
+    for (int guard = 0; guard < 4 && (match.GetObservation().Turn.TurnPlayerId?.Value ?? 0) == P1.Value; guard++)
+    {
+        LegalAction endTurn2 = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
+        await env.StepAsync(endTurn2);
+    }
+
+    AssertEqual(P2.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0,
+        "after the order choice resolved, re-applied EndTurn flips the turn to P2 (no double-fire, no crash)");
+}
+
+async Task EoTWindowResolvesBeforeAttack()
+{
+    var match = new DcgoMatch(EngineContext.CreateDefault(), new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    var env = new HeadlessRlEnvironment(match);
+    await env.InitializeAsync(BuildMatchConfig());
+    await AdvanceToMainAsync(match, P1);
+
+    EngineContext context = match.Context;
+    var cards = (CardDatabase)context.CardRepository;
+
+    // BT1_021: "[End of Your Turn] lose 3 memory" — a memory effect that resolves in the OnEndTurn window.
+    cards.Upsert(new CardRecord(new HeadlessEntityId("BT1_021"), "BT1_021", "EoTLoser",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon"));
+    var eot = new HeadlessEntityId("p1:field:BT1_021");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(eot, new HeadlessEntityId("BT1_021"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = false }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, eot, ChoiceZone.None, ChoiceZone.BattleArea));
+    context.RegisterEnteredCardEffects(eot, P1);
+
+    // A <Vortex> Digimon (P1, unsuspended) whose end-of-turn attack offer opens AFTER the OnEndTurn window (task 7);
+    // + an opponent Digimon (P2) so Vortex has a legal target.
+    var vortex = await PlaceBareDigimon(context, P1, "VTX", dp: 5000, suspended: false);
+    var vfx = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Vortex, vortex, targetEntityId: null, isInherited: false, isLinked: false);
+    context.EffectRegistry.Register(KeywordBaseBatch2Factory.ToBinding(vfx, P1, new EffectContext(P1, vortex)));
+    await PlaceBareDigimon(context, P2, "FOE", dp: 3000, suspended: false);
+
+    // A cost-3 play crosses memory 0 -> -3 (MemoryPass).
+    cards.Upsert(new CardRecord(new HeadlessEntityId("VANv"), "VANv", "VanillaV",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon", PlayCost: 3));
+    var hand = new HeadlessEntityId("p1:hand:VANv");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(hand, new HeadlessEntityId("VANv"), P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, hand, ChoiceZone.None, ChoiceZone.Hand));
+    context.MemoryController.Set(0);
+    LegalAction play = match.GetLegalActions(P1)
+        .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
+    await env.StepAsync(play);
+    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "P1 crossed into MemoryPass");
+
+    // EndTurn: the OnEndTurn window drains BT1_021 (memory -3 -> -6) FIRST, THEN the Vortex attack offer opens.
+    LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
+    await match.ApplyActionAsync(endTurn);
+    await match.StepAsync();
+
+    AssertEqual(P1.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn did NOT hand over — the Vortex attack offer is pending");
+    AssertTrue(context.ChoiceController.Current.IsPending, "the end-of-turn Vortex attack offer opened (a pending choice)");
+    AssertEqual(-6, context.MemoryController.Current.Current,
+        "BT1_021's [End of Your Turn] -3 already fired in the OnEndTurn window BEFORE the attack offer (task 7: window-then-attack); pre-fix order would leave -3");
+}
+
 // --- Helpers -------------------------------------------------------------
+
+static async Task<HeadlessEntityId> PlaceBareDigimon(EngineContext context, HeadlessPlayerId owner, string tag, int dp, bool suspended)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var def = new HeadlessEntityId($"DEF:{tag}");
+    cards.Upsert(new CardRecord(def, def.Value, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["isSuspended"] = suspended }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    return id;
+}
 
 static MatchConfig BuildMatchConfig()
 {
@@ -156,6 +281,7 @@ static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
     }
 }
 
+static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
