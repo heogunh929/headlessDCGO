@@ -614,9 +614,17 @@ public static class ActivatedEffectResolver
                         break;
                     }
 
-                    // (RD-12) register the per-turn use NOW (after the optional yes), then run the body.
-                    context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
+                    // (RD-12 / B-1 P1-3) run the body, THEN register the per-turn use — AFTER the body completes, not
+                    // before. An INTERACTIVE capped body suspends mid-choice (DeferredChoicePendingException) and the
+                    // resolver is RE-INVOKED on resume, re-running this uniform case: consuming BEFORE the body made
+                    // the resumed CanActivate re-check (OnceFlags.CanActivate above) read the already-consumed cap as
+                    // false → the effect BREAK-vanished with its use spent (latent P0). Consuming after completion
+                    // leaves a suspend's cap untouched (the un-flushed sink is discarded too), so the resumed
+                    // re-invocation passes CanActivate, replays the body to completion, and consumes EXACTLY ONCE.
+                    // (The window path's own commit — SchedulerCommit — is unaffected: it consumes the trigger/caller
+                    // cap before the body via the idempotent InFlightPick replay, F5/RD-12.)
                     await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
+                    context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
                     resolved++;
                     break;
                 }

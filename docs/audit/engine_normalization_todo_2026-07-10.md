@@ -4,7 +4,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 출처: `rule_deficiency_remediation_design_2026-07-09.md`(이연 L1~L8 · P1 레지스터 · VR 재검수) + Stage 5 3b-iii 적대검수 신규 발견.
 원칙: [[check-asis-before-implementing]] · [[result-equivalence-not-completion]] · [[adversarial-review-before-cutover]] · [[fidelity-over-coverage]].
 
-**현행 상태(2026-07-10 갱신, main `b0569133`)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅ 완료**(회귀 392/392·RuleAudit 0, 커밋 1525b2e6·ceb7a118·ee1c255b·e93205e9·533cc12c·b0569133). **다음 최우선 = B-1(P1-3)**. B~F는 미착수. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
+**현행 상태(2026-07-10 갱신)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅ 완료**(main `b0569133`) · **B-1(P1-3) ✅ 완료**(residual-debt-cleanup, 회귀 392/392·RuleAudit 0). **다음 = B-2**. C~F는 미착수. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
 
 ---
 
@@ -44,8 +44,8 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 ## B. RD-12/13 소모 정합 잔여 (선언형 / 재-스택 / 환불)
 
-- [ ] **B-1 · P1-3** Consume 재실행 계약 위반(latent P0)
-  - `ActivatedEffectResolver` Consume가 sink 밖 비-스테이징 변이 → capped **인터랙티브** body가 1회차 소모→suspend→재실행 시 CanActivate=false로 효과 증발+use 소진. **첫 "[Once Per Turn] choose…" 인터랙티브 카드 포팅 前 필수**(Consume을 body 완주 後로 이동 또는 staged화).
+- [x] ~~**B-1 · P1-3** Consume 재실행 계약 위반(latent P0)~~ — **✅ 완료**(residual-debt-cleanup)
+  - `ActivatedEffectResolver` uniform case가 `OnceFlags.Consume`를 body **前**에 실행 → capped **인터랙티브** body가 suspend 시 cap 소모됐는데 resume(ResolveAsync 재invoke)서 CanActivate 재검이 소모된 cap을 false로 읽어 효과 증발+use 소진. **fix: Consume을 body 完走 後로 이동**(window의 SchedulerCommit=F5와 별개; suspend 시 미소모+un-flushed sink 폐기, resume 완주서 1회 소모). 테스트 B1-OncePerTurnInteractiveResume(suspend 미소모→resume 트래시→재-resolve no-op) + 픽스처 TfxOncePerTurnInteractiveTrash. 회귀 392/392·RuleAudit 0.
 - [ ] **B-2 · P1-5** 선언형 메인 활성화 = 선언 시점 소모
   - AS-IS 3 소모지점 중 ②(TurnStateMachine.cs:1183-1186, optional·코스트보다 先) 미러. 선언형 메인-액션(UseCardEffect 상당) 포팅 時.
 - [ ] **B-3 · P1-6** 재-스택 use 리셋 부재
