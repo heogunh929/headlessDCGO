@@ -192,12 +192,10 @@ public sealed class SecurityResolver
             Subject = checkedCardId,
             Cause = TriggerTimings.OnSecurityCheck,
         };
-        TriggerCollectionResult collected = new AutoProcessingTriggerCollector(context.EffectRegistry)
-            .CollectAndEnqueueAll(gameEvent, context.EffectScheduler);
-        if (collected.EnqueuedCount > 0)
-        {
-            await context.EffectScheduler.ResolveAllAsync(cancellationToken).ConfigureAwait(false);
-        }
+        // (Stage 5, Phase 2) resolve through the WindowResolver — equivalent to the legacy sync path.
+        await Effects.WindowResolverWiring.RunSyncWindowAsync(
+            context, gameEvent, () => new AutoProcessingTriggerCollector(context.EffectRegistry), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static string? ValidateSecurityCheck(
