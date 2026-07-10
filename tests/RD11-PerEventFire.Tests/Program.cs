@@ -6,10 +6,13 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// (RD-11) AS-IS stacks a SEPARATE SkillInfo per driving event (AutoProcessing.cs:984-989): a "when an
-// opponent's Digimon is deleted, gain 1 memory" (UNCAPPED) fires once PER deletion. The headless collector
-// previously deduped by EffectId across the WHOLE pass, so two deletions in one pass fired the effect only
-// once (+1). With per-(EffectId, event) dedup it fires per deletion (+2).
+// (RD-11 / P0-2) AS-IS stacks a SEPARATE SkillInfo per driving PROCESS, not per deleted card: a delete-PROCESS
+// (DestroyPermanentsClass) packs ALL simultaneously-deleted permanents into ONE OnDestroyedAnyone stack whose
+// gate is an any-match over the batch (CardController.cs:3736 / CanUseEffects/OnDeletion.cs). So a "when an
+// opponent's Digimon is deleted, gain 1 memory" (UNCAPPED) fires ONCE for N simultaneous 0-DP deletions, not N
+// times. The headless collector groups a pass as one batch: an OnDestroyedAnyone effect fires at most once per
+// pass. (An earlier RD-11 revision over-fired per-card, +2 — corrected by P0-2.) A genuinely SEPARATE delete-
+// process falls in a later pass and fires again.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -32,7 +35,8 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
     return id;
 }
 
-// --- Uncapped: TWO opponent 0-DP deletes in one pass -> gain memory TWICE (once per deletion). ---
+// --- (P0-2) TWO opponent 0-DP deletes in ONE batch (same sweep/pass) -> gain memory ONCE (AS-IS any-match
+//     over the delete-process batch fires the effect a single time, not per card). ---
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 1104);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
@@ -45,11 +49,11 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
     await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    Check(context.MemoryController.Current.Current == 2,
-        $"an uncapped 'on opponent delete: +1 memory' fires ONCE PER deletion (2 deletes -> +2, got {context.MemoryController.Current.Current})");
+    Check(context.MemoryController.Current.Current == 1,
+        $"an uncapped 'on opponent delete: +1 memory' fires ONCE for a 2-card simultaneous batch (+1, got {context.MemoryController.Current.Current})");
 }
 
-// --- Control: ONE deletion -> +1 (per-event dedup still collapses a single event's duplicate matches). ---
+// --- Control: ONE deletion -> +1 (single-card batch). ---
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 1105);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
@@ -62,6 +66,27 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
     await new GameFlowProcessor().RunToStableAsync(context);
 
     Check(context.MemoryController.Current.Current == 1, $"a single deletion fires it exactly once (+1, got {context.MemoryController.Current.Current})");
+}
+
+// --- (P0-2) Two SEPARATE delete-processes (separate passes) fire the effect once EACH (+2 total) — the
+//     once-per-pass batch dedup must NOT collapse genuinely sequential deletions across passes. ---
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 1106);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var self = await PlaceDigimon(context, P1, "SELF", dp: 4000);
+    await PlaceDigimon(context, P2, "FOE1", dp: 0);
+    CardEffectRegistrar.RegisterOnEnterPlay(context, new TfxOnDeleteGainMemory(), "TfxOnDeleteGainMemory", new CardSource(context, self, P1));
+    context.MemoryController.Set(0);
+
+    await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
+    await new GameFlowProcessor().RunToStableAsync(context);   // batch/pass 1 -> +1
+
+    await PlaceDigimon(context, P2, "FOE2", dp: 0);
+    await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
+    await new GameFlowProcessor().RunToStableAsync(context);   // separate process/pass 2 -> +1
+
+    Check(context.MemoryController.Current.Current == 2,
+        $"two separate delete-processes each fire it once (+2 total, got {context.MemoryController.Current.Current})");
 }
 
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }
