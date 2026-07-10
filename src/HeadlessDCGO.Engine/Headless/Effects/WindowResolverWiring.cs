@@ -130,9 +130,26 @@ public static class WindowResolverWiring
         EngineContext context, TimingWindowTrigger trigger, CancellationToken cancellationToken)
     {
         WindowResolveOutcome outcome = await ResolveBodyAsync(context, trigger, cancellationToken).ConfigureAwait(false);
+
+        // (adversarial review P1, 2026-07-10) a SCHEDULER (bound-mutation) body that suspends returns Suspended,
+        // which would make the window record an InFlightPick — but the LIVE loop has no path that re-drives a
+        // window parked by a scheduler suspend (only the WindowChoice and DeferredActivations resumes exist), so
+        // the remaining stack would be silently DROPPED, and the InFlightPick replay would re-enqueue the parked
+        // scheduler head (double-resolve). Bound trigger reactors are non-interactive today; an interactive
+        // reactor at a trigger timing MUST be an activated effect (which suspends as SuspendedExternally and
+        // resumes via the activated-effect bridge / DeferredActivations). Enforce that invariant LOUDLY rather
+        // than let it become a silent live divergence if a future card breaks it.
+        if (outcome == WindowResolveOutcome.Suspended)
+        {
+            throw new NotSupportedException(
+                "A scheduler-path trigger body suspended inside the trigger window. A bound mutation reactor must " +
+                "be non-interactive; an interactive reactor at a trigger timing must be an activated effect " +
+                "(resumed via the activated-effect bridge / DeferredActivations, not the window's in-flight pick).");
+        }
+
         if (outcome != WindowResolveOutcome.Resolved)
         {
-            return outcome;
+            return outcome; // SuspendedExternally — an activated body, resumed outside the window.
         }
 
         if (!IsActivatedBridge(trigger, out _, out _, out _, out _)
@@ -143,6 +160,11 @@ public static class WindowResolverWiring
             context.EffectRegistry.RemoveWhere(binding => binding.Request.EffectId == oneShotId);
         }
 
+        // (F3) state-based rule processing between picks. INVARIANT: this is non-interactive — it sweeps
+        // state-based deletions and end-game; would-be-deleted REPLACEMENT windows open at the RunToStable level
+        // (DeletionReplacementTiming), not inside RuleProcessAsync (IsPreAwaiting cards are skipped). If it ever
+        // raised a choice-pending, DriveAsync (which catches only WindowChoicePendingException) would drop the
+        // window; that invariant is relied upon here.
         await GameFlowProcessor.RuleProcessAsync(context, cancellationToken).ConfigureAwait(false);
         return WindowResolveOutcome.Resolved;
     }
@@ -590,6 +612,11 @@ public static class WindowResolverWiring
             // battle-area card and let the resolver no-op, but in the ONE window a no-op marker would spuriously
             // compete with a real effect for the player's order choice (RD-14). This preserves the batch's
             // resolution outcome (no-effect cards did nothing) while removing the phantom stack entries.
+            // KNOWN ASYMMETRY (adversarial P1/P2, latent): unlike the scheduler half (whose gate re-evaluates
+            // every pass — P1-1), this filter runs once at COLLECT. A card whose CardEffects(timing) list is
+            // board-state-dependent AND turns non-empty only after an earlier pick (with no new event about it)
+            // would be dropped. Latent because ported CardEffects(timing) lists are static factories, not
+            // board-composed; revisit if a board-dependent effect-list card is added.
             if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasEffectsAt(context, card, instance.OwnerId, timing))
             {
                 continue;
