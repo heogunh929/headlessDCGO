@@ -31,5 +31,10 @@ public enum ChoiceType
     // (PRIM-P0-flow) the mandatory "choose one of the following modes" menu (AS-IS UserSelectionManager
     // SetBool/IntSelection). Candidates are synthetic labeled options; the selected branch is dispatched
     // by ActivatedEffectResolver. See docs/porting/mode_choice_primitive_design.md.
-    ModeChoice
+    ModeChoice,
+    // (Stage 5, Phase 3) a trigger-window decision — either "which of these simultaneous effects resolves
+    // first" (AS-IS MultipleSkills OpenSelectCardPanel, _MaxCount:1) or "activate this optional effect? yes/no"
+    // (AS-IS Activate_Optional). Candidate Id == the trigger's effect id; skip == "don't activate". Resolved by
+    // WindowResolutionController resume in ResolveChoiceAsync, NOT by the OptionalPromptQueue.
+    WindowChoice
 }

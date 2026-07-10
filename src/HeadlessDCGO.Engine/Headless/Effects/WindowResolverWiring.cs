@@ -42,27 +42,47 @@ public static class WindowResolverWiring
             return Task.CompletedTask;
         }
 
-        IReadOnlyList<TimingWindowTrigger> DrainEvents()
+        WindowResolverDeps deps = BuildSchedulerDeps(
+            context, new FifoWindowChoicePort(), () => DrainSchedulerCutIns(context, collectorFactory));
+        return new WindowResolver().RunWindowAsync(seed, deps, depth: 0, cancellationToken);
+    }
+
+    /// <summary>Re-collect the scheduler-path triggers emitted since the last pick (the cut-in drain): sync the
+    /// zone-mover events into the queue, drain the pending game events, and collect each into triggers. Shared by
+    /// the sync-window path and the main-loop deps so both drain cut-ins identically.</summary>
+    private static IReadOnlyList<TimingWindowTrigger> DrainSchedulerCutIns(
+        EngineContext context, Func<AutoProcessingTriggerCollector> collectorFactory)
+    {
+        context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
+        IReadOnlyList<GameEvent> pending = context.GameEventQueue.DrainPending();
+        if (pending.Count == 0)
         {
-            context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
-            IReadOnlyList<GameEvent> pending = context.GameEventQueue.DrainPending();
-            if (pending.Count == 0)
-            {
-                return Array.Empty<TimingWindowTrigger>();
-            }
-
-            var collector = collectorFactory();
-            var next = new List<TimingWindowTrigger>();
-            foreach (GameEvent ev in pending)
-            {
-                next.AddRange(collector.CollectAllTriggers(ev));
-            }
-
-            return next;
+            return Array.Empty<TimingWindowTrigger>();
         }
 
-        WindowResolverDeps deps = BuildSchedulerDeps(context, new FifoWindowChoicePort(), DrainEvents);
-        return new WindowResolver().RunWindowAsync(seed, deps, depth: 0, cancellationToken);
+        var collector = collectorFactory();
+        var next = new List<TimingWindowTrigger>();
+        foreach (GameEvent ev in pending)
+        {
+            next.AddRange(collector.CollectAllTriggers(ev));
+        }
+
+        return next;
+    }
+
+    /// <summary>(Stage 5, Phase 3) Build the deps used to drive AND resume a MAIN-LOOP window: the production
+    /// scheduler-path Gate / Commit / ResolveBody (as the sync windows), the live agent-driven
+    /// <see cref="AgentWindowChoicePort"/> (order / optional choices routed through the choice controller), and the
+    /// shared scheduler cut-in drain. The SAME builder is used by the main loop's initial drive and by the
+    /// ResolveChoice resume, so a resumed window is driven with identical deps.
+    /// (Phase 3b-ii will extend ResolveBody + the collect/drain to also dispatch the activated-effect bridge.)</summary>
+    public static WindowResolverDeps BuildMainLoopDeps(EngineContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var port = new AgentWindowChoicePort(context.ChoiceController, context.WindowResolution);
+        return BuildSchedulerDeps(
+            context, port,
+            () => DrainSchedulerCutIns(context, () => new AutoProcessingTriggerCollector(context.EffectRegistry)));
     }
 
     /// <summary>Build the scheduler-path deps for a window. <paramref name="choicePort"/> drives order/optional

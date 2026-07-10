@@ -160,6 +160,7 @@ Task ChoiceEnumsCoverAsIsSelectionCategories()
             "OverclockTarget", // C-16 Overclock: OverclockEffect — optional delete-a-trait-ally choice
             "RevealSelect", // B-7: RevealAndSelect — select from revealed deck-top cards
             "ModeChoice", // PRIM-P0-flow: mode-choice menu (AS-IS UserSelectionManager SetBool/IntSelection)
+            "WindowChoice", // Stage 5 Phase 3: trigger-window order / optional decision (AS-IS MultipleSkills OpenSelectCardPanel / Activate_Optional)
         },
         Enum.GetNames<ChoiceType>(),
         "choice type names");
