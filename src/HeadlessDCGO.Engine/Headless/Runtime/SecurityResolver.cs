@@ -393,10 +393,13 @@ public sealed class SecurityResolver
         };
         context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
 
-        // (P0-4/RD-4) a security-battle loss deletes the attacker through the SAME AS-IS deletion flow as any
-        // battle loss (CardController.cs:4705 → DestroyPermanentsClass): leave-play cleanup (snapshot keywords +
-        // drop bindings), trash the digivolution sources BEFORE the top (DiscardEvoRoots), then the mandatory
-        // post-deletion Fortitude replay. The previous raw top-only move skipped all three.
+        // (P0-4/RD-4) the PROCESSED-DELETION half of the security-battle loss — leave-play cleanup (snapshot
+        // keywords + drop bindings), trash the digivolution sources BEFORE the top (AS-IS DiscardEvoRoots), then
+        // the mandatory post-deletion Fortitude replay. The previous raw top-only move skipped all three.
+        // NOTE: this is NOT yet the full AS-IS DestroyPermanentsClass flow (CardController.cs:4705) — the PRE
+        // would-be-deleted window (Evade/Barrier/Fragment/Scapegoat) is still not opened here, so an Evade
+        // attacker dies in a security battle while surviving a field battle. That PRE gap is resolved when the
+        // security battle is unified onto BattleResolver (RD-7 / design-doc VR-6).
         CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, attackerId);
         await DeletionSourceTrash.TrashEvoSourcesAsync(
             context.CardInstanceRepository, context.ZoneMover, attackerId, gameEventQueue: null, cancellationToken).ConfigureAwait(false);

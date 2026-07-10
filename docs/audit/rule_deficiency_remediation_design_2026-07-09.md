@@ -72,7 +72,7 @@
 - **VR-3(저순위)**: EffectScheduler skip 분기가 Resolved 분기의 head-identity(`ReferenceEquals`) 재확인 없음 — 단일소비자라 저위험.
 
 **P0-3/P0-4**: 핵심 메커니즘 4경로 전부 정합(스냅샷-前-트래시·소스-前-톱·Fortitude-後·이중트래시 없음)·AS-IS 미러 확인. ✅재검수-후속 상환:
-- ✅**VR-4(F7)**: `SourceCountAtDeletionKey`를 Fortitude 재생·Save 성공 시 소거(stale-count 누수 방어). 테스트 가드 추가.
+- ✅**VR-4(F7, defense-in-depth)**: `SourceCountAtDeletionKey`를 Fortitude 재생·Save 성공 시 소거. **주의(재검수2)**: 실제 라이브 누수는 없음 — 모든 삭제 경로가 Fortitude 판독 前 `SnapshotPostReplacementKeywords`로 무조건 재-스탬프하므로 stale 값이 게이트에 도달 불가. 소거는 revived 인스턴스에 명백-stale 값을 안 남기는 방어일 뿐이며 Ascension·Decode/Partition 재배치 경로는 여전히 미소거(재-스탬프 의존, 무해). 테스트 가드(==0) 추가.
 - ✅**VR-5(F8)**: 허위 주석 2건(`MatchStateMutationSink`·`BattleResolver` "Save/Decode/Partition/Fortitude 스킵"→"Decode/Partition만") 정정. 미배선 2경로 테스트 커버(RD4-DeletionWiring에 RuleProcessAsync finisher; G3.5-W5에 SecurityResolver 소스트래시). tautology `>=0`→실측 스냅샷(==2)·F7 가드(==0).
 - **VR-6(이연, RD-7 결합)**: SecurityResolver는 POST Fortitude만 배선, PRE would-be-deleted 창(Evade/Barrier/Fragment/Scapegoat) 여전히 미개방 — Evade 공격자가 시큐리티-배틀선 죽고 필드-배틀선 생존(기존 비대칭). RD-7 시큐리티 배틀 공용화 시 해소. 커밋 주석의 "동일 AS-IS 삭제 플로우"는 과장이었음.
 

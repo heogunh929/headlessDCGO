@@ -225,9 +225,11 @@ public static class DeletionReplacementGate
         var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
         metadata.Remove(SourceIdsKey);
         // (F7) drop the deletion-time source-count snapshot too — the card re-enters as a fresh sourceless
-        // permanent, so a stale count must not leak into a SUBSEQUENT deletion's Fortitude gate (SourceCountAt
-        // Deletion falls back to this key when present). Each new deletion re-stamps it, but clearing here keeps
-        // the "eligibility off the CURRENT deletion" invariant from depending on that re-stamp.
+        // permanent. DEFENSE-IN-DEPTH only: every deletion path re-stamps the snapshot via
+        // SnapshotPostReplacementKeywords BEFORE Fortitude reads it, so no live leak exists today; this just
+        // avoids carrying an obviously-stale value on the revived instance. (Other relocation paths — Ascension,
+        // Decode/Partition PlaySourceForFreeAsync — do NOT clear it and still rely on the re-stamp; harmless
+        // because the snapshot is the sole thing overwritten at each deletion.)
         metadata.Remove(SourceCountAtDeletionKey);
         metadata.Remove(DeletedByBattleKey);
         metadata.Remove(DeletedByEffectKey);
