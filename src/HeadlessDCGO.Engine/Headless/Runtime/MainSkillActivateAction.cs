@@ -1,0 +1,280 @@
+namespace HeadlessDCGO.Engine.Headless.Runtime;
+
+using System.Diagnostics.CodeAnalysis;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Services;
+using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
+
+/// <summary>
+/// (B-2 / P1-5) The main-phase "declare a battle-area permanent's [Main] activated skill" action — AS-IS
+/// <c>TurnStateMachine.SetActSkill</c> (TurnStateMachine.cs:3061, permanent + skill index) feeding the
+/// declarative branch of the main loop (TurnStateMachine.cs:1174-1195): a usable <c>OnDeclaration</c>
+/// <c>ActivateICardEffect</c> chosen by the ACTIVE player is resolved. Legal moves are gated by
+/// <see cref="ActivatedEffectResolver.CanDeclareAt"/> (AS-IS <c>Permanent.CanDeclareSkillList</c> → <c>CanUse</c>,
+/// cap included), and the effect is resolved through the shared <see cref="ActivatedEffectResolver.ResolveAsync"/>.
+///
+/// Per-turn accounting: AS-IS registers the use BEFORE the body (<c>RegisterUseEffectThisTurn</c>) and the body
+/// refunds on a skipped selection (<c>if (!executed) RemoveUse()</c>). The resolver's consume-AFTER-body /
+/// only-if-executed (B-1 + B-4) is result-equivalent, so this action does NOT special-case the cap — it reuses
+/// the same resolution path as the triggered bridge. Consuming after the body is also what makes an INTERACTIVE
+/// [Main] skill's suspend/resume work (a mid-choice suspend leaves the cap untouched until the resumed body
+/// completes; see the B-1 note in the resolver).
+///
+/// Before this action existed, <c>OnDeclaration</c> was resolved only through the attack-declaration proxy
+/// stopgap in <see cref="AttackPermanentAction"/> (now removed) — this is its real home.
+///
+/// Scope note (design item B2-05): one action is offered per permanent, resolving that permanent's OnDeclaration
+/// skill(s). No ported card carries more than one OnDeclaration skill, so a per-skill-index selector (AS-IS
+/// SetActSkill's skillIndex) is unnecessary for the current pool; it becomes needed only when a multi-[Main]-skill
+/// card is ported, which also needs per-index resolution the resolver does not yet expose.
+/// </summary>
+public sealed class MainSkillActivateAction
+{
+    public IReadOnlyList<LegalAction> GetLegalActions(EngineContext context, HeadlessPlayerId playerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (playerId.IsEmpty || context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return Array.Empty<LegalAction>();
+        }
+
+        return zoneReader
+            .GetCards(playerId, ChoiceZone.BattleArea)
+            .Where(permanentId => ActivatedEffectResolver.CanDeclareAt(context, permanentId, playerId, EffectTiming.OnDeclaration))
+            .Select(permanentId => HeadlessActionFactory.ActivateMain(playerId, permanentId, ResolveEffectId(context, permanentId)))
+            .OrderBy(action => action.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public async Task<ActionProcessResult> ProcessAsync(
+        LegalAction action,
+        EngineContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!MainSkillActivateActionPayload.TryRead(action, out MainSkillActivateActionPayload? payload, out string? error))
+        {
+            return ActionProcessResult.Failure(error ?? "Invalid ActivateMain payload.", BaseMetadata(action));
+        }
+
+        MainSkillActivateValidation validation = Validate(context, action.PlayerId, payload);
+        if (!validation.IsLegal)
+        {
+            return ActionProcessResult.Illegal(action, validation.Reason, Metadata(action, payload, validation));
+        }
+
+        try
+        {
+            int resolved = await ActivatedEffectResolver
+                .ResolveAsync(context, payload.PermanentId, action.PlayerId, EffectTiming.OnDeclaration, cancellationToken)
+                .ConfigureAwait(false);
+
+            Dictionary<string, object?> metadata = Metadata(action, payload, validation);
+            metadata["resolvedEffectCount"] = resolved;
+            return ActionProcessResult.Success("Main skill declared.", metadata);
+        }
+        catch (DeferredChoicePendingException ex)
+        {
+            // The [Main] skill's body asked the agent for a choice (interactive provider). The originating action
+            // has committed (nothing to re-pay — the cost lives in the body), so record the suspended activation
+            // and let the next ResolveChoice resume it via the generic re-resolve path
+            // (MetadataActionProcessor.ResolveChoiceAsync → ResolveAsync with this timing), WITHOUT re-running here.
+            context.DeferredActivations.Suspend(payload.PermanentId, EffectTiming.OnDeclaration, action.PlayerId);
+            Dictionary<string, object?> pending = Metadata(action, payload, validation);
+            pending["pendingChoice"] = true;
+            pending["pendingChoiceMessage"] = ex.Message;
+            return ActionProcessResult.Success("Main skill declared; awaiting choice.", pending);
+        }
+    }
+
+    private static MainSkillActivateValidation Validate(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        MainSkillActivateActionPayload payload)
+    {
+        if (playerId.IsEmpty)
+        {
+            return MainSkillActivateValidation.Illegal("Player id must not be empty.");
+        }
+
+        if (payload.SkillIndex < 0)
+        {
+            return MainSkillActivateValidation.Illegal("Main skill index must not be negative.");
+        }
+
+        if (!context.CardInstanceRepository.TryGetInstance(payload.PermanentId, out CardInstanceRecord? instance) ||
+            instance is null)
+        {
+            return MainSkillActivateValidation.Illegal($"Card instance '{payload.PermanentId}' was not found.");
+        }
+
+        if (instance.OwnerId != playerId)
+        {
+            return MainSkillActivateValidation.Illegal(
+                $"Card instance '{payload.PermanentId}' is owned by player '{instance.OwnerId}', not player '{playerId}'.",
+                instance.DefinitionId);
+        }
+
+        if (context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return MainSkillActivateValidation.Illegal("Zone mover does not expose readable zone state.", instance.DefinitionId);
+        }
+
+        if (!zoneReader.GetCards(playerId, ChoiceZone.BattleArea).Contains(payload.PermanentId))
+        {
+            return MainSkillActivateValidation.Illegal(
+                $"Permanent '{payload.PermanentId}' is not in player '{playerId}' battle area.",
+                instance.DefinitionId);
+        }
+
+        // Re-check the declare gate (AS-IS main loop re-tests CanUse before running) — keeps a capped-out or
+        // no-longer-usable [Main] skill inside the legality boundary rather than deferring to a silent no-op.
+        if (!ActivatedEffectResolver.CanDeclareAt(context, payload.PermanentId, playerId, EffectTiming.OnDeclaration))
+        {
+            return MainSkillActivateValidation.Illegal(
+                $"Permanent '{payload.PermanentId}' has no usable [Main] declared skill.",
+                instance.DefinitionId,
+                payload.EffectId);
+        }
+
+        return MainSkillActivateValidation.Legal(instance.DefinitionId, payload.EffectId);
+    }
+
+    private static HeadlessEntityId ResolveEffectId(EngineContext context, HeadlessEntityId permanentId)
+    {
+        if (context.CardInstanceRepository.TryGetInstance(permanentId, out CardInstanceRecord? instance) && instance is not null)
+        {
+            return new HeadlessEntityId($"{instance.DefinitionId.Value}:declaration");
+        }
+
+        return new HeadlessEntityId($"{permanentId.Value}:declaration");
+    }
+
+    private static Dictionary<string, object?> Metadata(
+        LegalAction action,
+        MainSkillActivateActionPayload payload,
+        MainSkillActivateValidation validation)
+    {
+        Dictionary<string, object?> metadata = BaseMetadata(action);
+        metadata[HeadlessActionParameterKeys.CardId] = payload.PermanentId.Value;
+        metadata[HeadlessActionParameterKeys.EffectId] = payload.EffectId.Value;
+        metadata[HeadlessActionParameterKeys.SkillIndex] = payload.SkillIndex;
+        metadata["cardDefinitionId"] = validation.CardDefinitionId?.Value;
+        return metadata;
+    }
+
+    private static Dictionary<string, object?> BaseMetadata(LegalAction action)
+    {
+        return new Dictionary<string, object?>
+        {
+            [HeadlessActionParameterKeys.ActionId] = action.Id.Value,
+            [HeadlessActionParameterKeys.PlayerId] = action.PlayerId.Value,
+            [HeadlessActionParameterKeys.ActionType] = action.ActionType
+        };
+    }
+}
+
+public sealed record MainSkillActivateActionPayload(
+    HeadlessEntityId PermanentId,
+    HeadlessEntityId EffectId,
+    int SkillIndex)
+{
+    public IReadOnlyDictionary<string, object?> ToParameters()
+    {
+        return new Dictionary<string, object?>
+        {
+            [HeadlessActionParameterKeys.CardId] = PermanentId,
+            [HeadlessActionParameterKeys.EffectId] = EffectId,
+            [HeadlessActionParameterKeys.SkillIndex] = SkillIndex
+        };
+    }
+
+    public static bool TryRead(
+        LegalAction action,
+        [NotNullWhen(true)] out MainSkillActivateActionPayload? payload,
+        out string? error)
+    {
+        if (!HeadlessActionPayloadReader.TryReadEntityId(
+                action,
+                HeadlessActionParameterKeys.CardId,
+                out HeadlessEntityId permanentId,
+                out error))
+        {
+            payload = null;
+            return false;
+        }
+
+        if (!HeadlessActionPayloadReader.TryReadEntityId(
+                action,
+                HeadlessActionParameterKeys.EffectId,
+                out HeadlessEntityId effectId,
+                out error))
+        {
+            payload = null;
+            return false;
+        }
+
+        int skillIndex = TryReadInt(action.Parameters, HeadlessActionParameterKeys.SkillIndex, out int parsedSkillIndex)
+            ? parsedSkillIndex
+            : 0;
+
+        payload = new MainSkillActivateActionPayload(permanentId, effectId, skillIndex);
+        error = null;
+        return true;
+    }
+
+    private static bool TryReadInt(
+        IReadOnlyDictionary<string, object?> parameters,
+        string key,
+        out int value)
+    {
+        if (!parameters.TryGetValue(key, out object? rawValue) || rawValue is null)
+        {
+            value = default;
+            return false;
+        }
+
+        switch (rawValue)
+        {
+            case int intValue:
+                value = intValue;
+                return true;
+            case long longValue when longValue >= int.MinValue && longValue <= int.MaxValue:
+                value = (int)longValue;
+                return true;
+            case string stringValue when int.TryParse(stringValue, out int parsedValue):
+                value = parsedValue;
+                return true;
+            default:
+                value = default;
+                return false;
+        }
+    }
+}
+
+public sealed record MainSkillActivateValidation(
+    bool IsLegal,
+    string Reason,
+    HeadlessEntityId? CardDefinitionId,
+    HeadlessEntityId? EffectId)
+{
+    public static MainSkillActivateValidation Legal(
+        HeadlessEntityId cardDefinitionId,
+        HeadlessEntityId effectId)
+    {
+        return new MainSkillActivateValidation(true, string.Empty, cardDefinitionId, effectId);
+    }
+
+    public static MainSkillActivateValidation Illegal(
+        string reason,
+        HeadlessEntityId? cardDefinitionId = null,
+        HeadlessEntityId? effectId = null)
+    {
+        return new MainSkillActivateValidation(false, reason ?? string.Empty, cardDefinitionId, effectId);
+    }
+}

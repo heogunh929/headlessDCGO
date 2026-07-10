@@ -28,6 +28,8 @@ public sealed class LegalActionSetValidator : IActionLegality
         // the Main phase, so it must be inside the legality boundary, not deferred to per-handler validation.
         HeadlessActionTypes.NormalizedSpecialPlay,
         HeadlessActionTypes.NormalizedActivateOption,
+        // (B-2 / P1-5) [Main] skill declaration is an agent action offered in the Main phase.
+        HeadlessActionTypes.NormalizedActivateMain,
         HeadlessActionTypes.NormalizedDeclareAttack,
         HeadlessActionTypes.NormalizedAdvancePhase,
         HeadlessActionTypes.NormalizedEndTurn,

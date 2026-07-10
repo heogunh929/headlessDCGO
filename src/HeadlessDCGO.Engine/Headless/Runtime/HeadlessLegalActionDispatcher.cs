@@ -58,6 +58,8 @@ public sealed class HeadlessLegalActionDispatcher
                 .Concat(new DigivolveAction().GetLegalActions(context, playerId))
                 .Concat(new SpecialPlayAction().GetLegalActions(context, playerId))
                 .Concat(new OptionActivateAction().GetLegalActions(context, playerId))
+                // (B-2 / P1-5) declare a battle-area permanent's [Main] activated skill (AS-IS CanDeclareSkillList).
+                .Concat(new MainSkillActivateAction().GetLegalActions(context, playerId))
                 .Concat(new AttackPermanentAction().GetLegalActions(context, playerId))
                 .ToArray(),
             // (C-2 Blitz) The memory-pass window normally only offers EndTurn, but a <Blitz> Digimon may

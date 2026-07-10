@@ -33,6 +33,9 @@ public sealed class MetadataActionProcessor : IActionProcessor
             HeadlessActionTypes.NormalizedActivateOption => await new OptionActivateAction()
                 .ProcessAsync(action, context, cancellationToken)
                 .ConfigureAwait(false),
+            HeadlessActionTypes.NormalizedActivateMain => await new MainSkillActivateAction()
+                .ProcessAsync(action, context, cancellationToken)
+                .ConfigureAwait(false),
             HeadlessActionTypes.NormalizedSetTerminal => SetTerminal(action, context, isTerminal: true),
             HeadlessActionTypes.NormalizedClearTerminal => SetTerminal(action, context, isTerminal: false),
             HeadlessActionTypes.NormalizedMoveCard => await MoveCardAsync(action, context, cancellationToken).ConfigureAwait(false),

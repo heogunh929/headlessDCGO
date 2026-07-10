@@ -1,9 +1,14 @@
-// PRIM-P0-timing: the new card-facing EffectTiming members (OnDeclaration, OnEndBattle, OnStartMainPhase)
-// fire LIVE. A tiny probe effect returns AddMemoryTriggerEffect(+1) on the timing under test; the test drives
-// the REAL game action that emits the timing and asserts the probe resolved (memory gained). This covers both
-// change shapes: OnDeclaration = a NEW TriggerEventEmitter.Emit call added in AttackPermanentAction; OnEndBattle
-// = a new enum member bound against an ALREADY-emitted engine timing (BattleResolver). OnStartMainPhase shares
-// OnEndBattle's mechanism (enum member + AllTimings vs an existing emit at MetadataActionProcessor).
+// PRIM-P0-timing: the new card-facing EffectTiming members fire LIVE. A tiny probe effect returns
+// AddMemoryTriggerEffect(+1) on the timing under test; the test drives the REAL game action that emits the timing
+// and asserts the probe resolved (memory gained). OnEndBattle = a new enum member bound against an ALREADY-emitted
+// engine timing (BattleResolver); OnStartMainPhase shares its mechanism (enum member + AllTimings vs an existing
+// emit at MetadataActionProcessor).
+//
+// (B-2 / P1-5) OnDeclaration NOTE: attack declaration NO LONGER emits OnDeclaration. That attack-time emit was a
+// stopgap for the missing "[Main] skill declaration" action; AS-IS OnDeclaration is a permanent's own [Main]
+// declared-skill timing (TurnStateMachine.cs:1174-1195), not an attack broadcast. The real action now exists
+// (MainSkillActivateAction), so OnDeclaration_NotFiredByAttack guards that the proxy stays removed; the POSITIVE
+// [Main]-declaration coverage (offer → resolve → cap → reset) lives in B2-MainSkillDeclare.Tests.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -21,7 +26,7 @@ HeadlessEntityId BlockerId = new("p2:main:002:P2-M02");
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("CONTROL OnAllyAttack (known-good timing) fires in this harness", OnAllyAttack_Control),
-    ("OnDeclaration fires: declaring an attack resolves the attacker's OnDeclaration effect", OnDeclaration_Fires),
+    ("OnDeclaration NOT fired by attack (B-2 proxy removed); it is the [Main]-declaration action's timing", OnDeclaration_NotFiredByAttack),
     ("OnEndBattle fires: resolving a battle resolves the attacker's OnEndBattle effect", OnEndBattle_Fires),
     ("batch-2 enum members register a binding under their emitted timing string", Batch2_RegistersUnderEmittedString),
     ("WhenRemoveField (derived) fires: a field card leaving the battle area resolves its effect", WhenRemoveField_Fires),
@@ -63,11 +68,15 @@ async Task OnAllyAttack_Control()
     AssertEqual(1, context.MemoryController.Current.Current, "CONTROL: known-good OnAllyAttack probe gained 1 memory");
 }
 
-async Task OnDeclaration_Fires()
+async Task OnDeclaration_NotFiredByAttack()
 {
+    // (B-2 / P1-5) Regression guard: attack declaration MUST NOT fire OnDeclaration. The attack-time proxy emit
+    // (a stopgap for the then-missing [Main]-declaration action) was removed — AS-IS OnDeclaration is a
+    // permanent's own [Main] declared-skill timing, never triggered by attacking. The POSITIVE path (a [Main]
+    // skill declared via MainSkillActivateAction resolves + consumes its OnDeclaration effect) is covered by
+    // B2-MainSkillDeclare.Tests; here we only prove attacking no longer leaks into that timing.
     (DcgoMatch match, EngineContext context) = await BuildMatchInMain();
 
-    // Register the probe ON the attacker (OnDeclaration is subject-scoped to the declaring card).
     Register(context, new TimingProbe(EffectTiming.OnDeclaration), "PROBE", AttackerId);
     context.MemoryController.Set(0);
 
@@ -78,7 +87,7 @@ async Task OnDeclaration_Fires()
     await match.StepAsync();
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnDeclaration effect gained 1 memory when the attack was declared");
+    AssertEqual(0, context.MemoryController.Current.Current, "attacking does NOT fire the attacker's OnDeclaration effect (proxy removed)");
 }
 
 async Task OnEndBattle_Fires()

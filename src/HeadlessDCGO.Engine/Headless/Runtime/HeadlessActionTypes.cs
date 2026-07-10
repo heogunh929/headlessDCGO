@@ -9,6 +9,7 @@ public static class HeadlessActionTypes
     public const string Digivolve = "Digivolve";
     public const string SpecialPlay = "SpecialPlay";
     public const string ActivateOption = "ActivateOption";
+    public const string ActivateMain = "ActivateMain";
     public const string SetTerminal = "SetTerminal";
     public const string ClearTerminal = "ClearTerminal";
     public const string MoveCard = "MoveCard";
@@ -43,6 +44,7 @@ public static class HeadlessActionTypes
     public const string NormalizedDigivolve = "DIGIVOLVE";
     public const string NormalizedSpecialPlay = "SPECIALPLAY";
     public const string NormalizedActivateOption = "ACTIVATEOPTION";
+    public const string NormalizedActivateMain = "ACTIVATEMAIN";
     public const string NormalizedSetTerminal = "SETTERMINAL";
     public const string NormalizedClearTerminal = "CLEARTERMINAL";
     public const string NormalizedMoveCard = "MOVECARD";

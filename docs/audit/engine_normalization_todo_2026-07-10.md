@@ -4,7 +4,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 출처: `rule_deficiency_remediation_design_2026-07-09.md`(이연 L1~L8 · P1 레지스터 · VR 재검수) + Stage 5 3b-iii 적대검수 신규 발견.
 원칙: [[check-asis-before-implementing]] · [[result-equivalence-not-completion]] · [[adversarial-review-before-cutover]] · [[fidelity-over-coverage]].
 
-**현행 상태(2026-07-11 갱신, main `6dff06f2`)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅** · **B-1(P1-3)·B-3(P1-6)·B-4(P1-7) ✅ 완료**(회귀 394/394·RuleAudit 0). **잔여 B**: B-2=포팅 時(선언형 메인 활성화 액션 부재), **B-5=대형 uniform 이관(별도 집중 세션, 설계 `uniform_activated_primitive_design.md`)**. **다음 = C군 또는 B-5(별도)**. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
+**현행 상태(2026-07-11 갱신, main FF)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅** · **B-1(P1-3)·B-2(P1-5)·B-3(P1-6)·B-4(P1-7) ✅ 완료**(회귀 395/395·RuleAudit 0). **잔여 B**: **B-5=대형 uniform 이관(별도 집중 세션, 설계 `uniform_activated_primitive_design.md`)**. **다음 = C군 또는 B-5(별도)**. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
 > **BT24_049 실 카드 witness 보류(2026-07-11 지시)**: B-3 회귀는 fixture(`TfxOncePerTurnInteractiveTrash`)로 완결. 실 카드 witness로 BT24_049(②Fortitude+⑤[Once Per Turn] security-trash) 포팅을 시도했으나, 효과 ①(`AddSelfDigivolutionRequirementStaticEffect`)은 포팅된 caller 0개→미러 부재, ③④(compound suspend+min-DP 조건부 bounce)는 compound 프리미티브 자체 부재. "프리미티브 미러가 다 없으면 실 카드 테스트 보류" 지시로 **BT24_049 스켈레톤 유지**. 재개 조건=①의 alt-digivolve 미러 확보 + ③④ compound 프리미티브 구축.
 
 ---
@@ -47,9 +47,15 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 - [x] ~~**B-1 · P1-3** Consume 재실행 계약 위반(latent P0)~~ — **✅ 완료**(residual-debt-cleanup)
   - `ActivatedEffectResolver` uniform case가 `OnceFlags.Consume`를 body **前**에 실행 → capped **인터랙티브** body가 suspend 시 cap 소모됐는데 resume(ResolveAsync 재invoke)서 CanActivate 재검이 소모된 cap을 false로 읽어 효과 증발+use 소진. **fix: Consume을 body 完走 後로 이동**(window의 SchedulerCommit=F5와 별개; suspend 시 미소모+un-flushed sink 폐기, resume 완주서 1회 소모). 테스트 B1-OncePerTurnInteractiveResume(suspend 미소모→resume 트래시→재-resolve no-op) + 픽스처 TfxOncePerTurnInteractiveTrash. 회귀 392/392·RuleAudit 0.
-- [ ] **B-2 · P1-5** 선언형 메인 활성화 = 선언 시점 소모 — **진짜 포팅 時**(경로 부재 확정 2026-07-10)
-  - AS-IS 소모지점 ②(TurnStateMachine.cs:1178-1189): `UseCardEffect`(선언형 메인 어빌리티 사용)가 `SetIsDeclarative(true)` 後 **body 실행 前** `RegisterUseEffectThisTurn`(MaxCountPerTurn<100). 즉 선언 시점·optional/코스트보다 先 소모.
-  - **헤드리스엔 대응 경로가 없음**: permanent의 [Main] once-per-turn 어빌리티를 능동 사용하는 액션 부재(ActivateOption=옵션 카드뿐, NormalizedUseCardEffect/ActivateMain 없음). → pre-build 대상 없음. 해당 액션 구축 시 ② 소모(선언 시점, body 前) 포함할 것. (activated resolver의 consume-after-body[B-1]와 달리 **선언형은 body 前 소모**임에 주의.)
+- [x] ~~**B-2 · P1-5** 선언형 메인 활성화 = 선언 시점 소모~~ — **✅ 완료(선행구축, 2026-07-11)**: [Main] 스킬 선언 ACTION 서브시스템 신규 구축
+  - AS-IS: `Permanent.CanDeclareSkillList`(Permanent.cs:1618) → 각 배틀 퍼머넌트 `EffectList(OnDeclaration)`를 `ActivateICardEffect`·`CanUse` 필터(295 카드 사용). `SetActSkill`(TurnStateMachine.cs:3061)로 1개 선택 → 메인루프(1174-1195): `SetIsDeclarative(true)` 後 `MaxCountPerTurn<100`이면 body 前 `RegisterUseEffectThisTurn`. `CanUse=CanTrigger&&CanActivate`, CanActivate가 cap(isOverMaxCountPerTurn) 포함.
+  - **선행구축 사유**: 이미 포팅된 BT1_088/089가 이 액션 부재로 [Main] 효과 미등록(STOP). [[no-callsite-not-skip-reason]]/[[strong-model-prebuild-latent-infra]] 원칙 → 사용자 지시로 지금 구축.
+  - **구현**: 신규 `ActivateMain` 액션(타입/팩토리/`MainSkillActivateActionPayload`/`MainSkillActivateValidation`) + `MainSkillActivateAction`(GetLegalActions=배틀 퍼머넌트별 `ActivatedEffectResolver.CanDeclareAt(OnDeclaration)` 게이트; ProcessAsync=`ResolveAsync(OnDeclaration)` + interactive suspend/resume via `DeferredActivations.Suspend`). 배선: `HeadlessLegalActionDispatcher`(Main 페이즈) + `MetadataActionProcessor` 디스패치 + `LegalActionSetValidator` 허용집합.
+  - **소모 로직 = 변경 불필요(result-equivalent)**: AS-IS register-before-body + body의 `if(!executed)RemoveUse()`는 resolver의 consume-after-if-executed(B-1+B-4)와 등가. consume-after가 헤드리스 resume 모델에서 유일하게 안전(consume-before는 재개 시 RD-12 게이트가 소모된 cap을 capped-out으로 읽어 body 스킵 = B-1 버그 재유발).
+  - **legal-move 게이트 = 새 `CanDeclareAt`**: AS-IS `CanUse`(cap 포함) 미러 — uniform은 `CanResolve`+`OnceFlags.CanActivate`(cap), **DigiBurst는 `TrashableDigivolutionCount≥Count`**(AS-IS CanDigiBurst, 지불불가 phantom offer 방지, 적대리뷰 Finding 2).
+  - **attack-proxy 제거**: `AttackPermanentAction`의 OnDeclaration emit(공격선언 stopgap) 삭제 — AS-IS 공격은 OnDeclaration 미emit, 이제 실 액션 존재 → ST4_13 [Main] Digi-Burst 이중발화 방지. OnDeclaration 브릿지 분류는 유지(직접 emit 경로).
+  - **테스트**: `B2-MainSkillDeclare.Tests`(offer→resolve+consume→capped-out+illegal재처리→reset→own-scope→unpayable-DigiBurst 미offer, 4/4) + `TfxMainDeclareDraw`/`TfxMainDigiBurstDraw` fixture + `PRIM-P0.NewTimingsFire` 회귀가드(공격≠OnDeclaration). 회귀 395/395·RuleAudit 0. 적대리뷰 2건(회귀·DigiBurst게이트) 상환.
+  - **잔여(design item B2-05)**: per-skill-index 선택 미구현(퍼머넌트당 1 액션, OnDeclaration 스킬 전부 resolve) — 다중 [Main] 스킬 카드 포팅 시 필요(resolver의 per-index resolve도 함께). 현 포팅 풀 전량 단일 스킬이라 무영향.
 - [x] ~~**B-3 · P1-6** 재-스택 use 리셋 부재~~ — **✅ 완료**(residual-debt-cleanup)
   - AS-IS `CardSource.Init()`(CardSource.cs:345-347)이 `InitUseCountThisTurn`(UseEffectsThisTurn 클리어)를 새 CardSource(=enter-play/이동) 시 호출. 헤드리스는 카드 use를 인스턴스로 키잉해 재-진입서 stale use 잔존. fix: enter-play 훅 `CardEffectRegistrar.RegisterCard`가 `OnceFlags.ResetForCard(owner, instanceId)` 호출(재-플레이/de-digivolve/re-stack 포괄, 첫 플레이는 0 제거=no-op). `OnceFlagHelpers.ResetForCard`(키 `{owner}:{source}:` prefix 매칭, per-card). 테스트 B3-RestackUseReset(re-enter→해당 카드만 리셋). 회귀 검증 중.
 - [x] ~~**B-4 · P1-7** RemoveUse 환불 프리미티브 부재~~ — **✅ 완료**(residual-debt-cleanup)

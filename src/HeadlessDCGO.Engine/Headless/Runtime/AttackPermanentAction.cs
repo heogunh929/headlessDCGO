@@ -144,12 +144,13 @@ public sealed class AttackPermanentAction
             payload.TargetId,
             payload.IsDirectAttack);
 
-        // (PRIM-P0-timing / design item RD9-90) attack-declaration proxy for original OnDeclaration effects — a
-        // STOPGAP for the not-yet-ported main-phase "[Main] skill declaration" action (AS-IS TurnStateMachine.cs
-        // :3061). Kept on the PLAYER-action path only (never emitted for effect-driven attacks, which must not
-        // fire a [Main] skill). Moves to the real declaration action when that lands; ST4_13 / TfxWhenDeclareDraw
-        // rely on it.
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnDeclaration, actor: action.PlayerId, subject: payload.AttackerId);
+        // (B-2 / P1-5) The attack-declaration proxy for OnDeclaration effects has been REMOVED. It was a stopgap
+        // (design item RD9-90) that fired a permanent's [Main] declared skill at ATTACK because no main-phase
+        // "[Main] skill declaration" action existed; AS-IS attack (OnUseAttack) never emits OnDeclaration
+        // (TurnStateMachine.cs:3061 vs the attack path). That action now exists — MainSkillActivateAction resolves
+        // OnDeclaration directly in the Main phase — so emitting it here as well would DOUBLE-fire a [Main] skill
+        // (e.g. ST4_13's Digi-Burst usable at both attack and declaration). OnDeclaration stays a subject-scoped
+        // bridge timing (ActivatedBridgeTimings) so a direct emit still resolves; only this attack-time emit is gone.
 
         Dictionary<string, object?> metadata = Metadata(action, payload, validation, attack);
         metadata["attackIntent"] = "AttackPermanentAction";

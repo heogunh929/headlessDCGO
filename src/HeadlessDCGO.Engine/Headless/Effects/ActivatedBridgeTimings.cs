@@ -33,9 +33,10 @@ public static class ActivatedBridgeTimings
         // OnTappedAnyone lives in EventBroadcast: "[Your Turn] when an OPPONENT'S Digimon is suspended, …" lives
         // on a DIFFERENT card (e.g. a Tamer, ST4_14) than the suspended subject, so it needs the cross-card
         // broadcast, not the subject-scoped path.
-        // (v4) attack-declaration window — emitted with subject = attacker alongside OnAttack/OnAllyAttack
-        // (AttackPermanentAction:151), so "[When Attacking]" activated effects (incl. Digi-Burst bodies declared
-        // at OnDeclaration) resolve at declaration. Once per declaration event; a card gates itself.
+        // (B-2 / P1-5) [Main] skill-declaration timing. Resolved directly by MainSkillActivateAction
+        // (ActivatedEffectResolver.ResolveAsync) in the Main phase — the attack-time proxy emit was removed. Kept
+        // subject-scoped here so a direct TriggerEventEmitter.Emit(OnDeclaration) still bridges (a card gates
+        // itself); no production path emits it after proxy removal, but the classification stays for that path.
         EffectTiming.OnDeclaration,
     };
 

@@ -151,6 +151,73 @@ public static class ActivatedEffectResolver
         return false;
     }
 
+    /// <summary>(B-2 / P1-5) The legal-move gate for the declarative [Main] skill-declaration action
+    /// (<see cref="Headless.Runtime.MainSkillActivateAction"/>) — AS-IS <c>Permanent.CanDeclareSkillList</c>
+    /// (Permanent.cs:1618): each battle-area permanent's <c>EffectList(OnDeclaration)</c> filtered to
+    /// <c>ActivateICardEffect</c> where <c>CanUse(null)</c> holds. AS-IS <c>CanUse = CanTrigger &amp;&amp; CanActivate</c>,
+    /// and <c>CanActivate</c> INCLUDES the once-per-turn cap (<c>isOverMaxCountPerTurn</c>, ICardEffect.cs:363).
+    /// So this mirrors <see cref="CanActivateAt"/> (CanResolve = scope + precondition) but ADDITIONALLY excludes a
+    /// capped-out uniform effect via the <see cref="OnceFlagController.CanActivate"/> gate, keeping a spent [Main]
+    /// skill out of the offered set for the rest of the turn — exactly as CanUse's cap check keeps it out of
+    /// CanDeclareSkillList.</summary>
+    public static bool CanDeclareAt(
+        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
+        GameEvent? drivingEvent = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardInstanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(cardInstanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return false;
+        }
+
+        var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
+        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        for (int i = 0; i < effects.Count; i++)
+        {
+            if (effects[i] is not IActivatedCardEffect)
+            {
+                continue;
+            }
+
+            if (effects[i] is ActivatedEffect uniform)
+            {
+                CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
+                if (uniform.CanResolve(resolveCtx)
+                    && context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
+                {
+                    return true;
+                }
+            }
+            else if (effects[i] is DigiBurstActivatedEffect burst)
+            {
+                // (B-2) Mirror AS-IS IDigiBurst.CanDigiBurst / ST4_13's CanUseCondition (ST4_13.cs:37-48): a [Main]
+                // Digi-Burst is declarable only when the card's own permanent holds >= Count TRASHABLE digivolution
+                // sources — the SAME gate the resolver's DigiBurst case applies before paying. Without it the skill
+                // is offered even when it cannot pay, a phantom legal move AS-IS's CanDeclareSkillList never
+                // surfaces (CanUse = CanTrigger && CanActivate evaluates CanUseCondition → CanDigiBurst).
+                if (CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                // Other non-uniform IActivatedCardEffect: no ported OnDeclaration witness exists today. Mirror
+                // CanActivateAt and offer it (its resolution self-gates); add a declare-gate here when such a card
+                // is ported so an unpayable [Main] skill is not surfaced.
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>(RDx-A3) Build the resolve-context for a uniform <see cref="ActivatedEffect"/> EXACTLY as the
     /// resolution loop does — TriggerEntityId is the driving event's subject (broadcast bridge) or the card itself
     /// (subject-scoped), and the event's primitive metadata is threaded as "event.&lt;key&gt;" values. Shared by the

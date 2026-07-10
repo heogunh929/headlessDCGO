@@ -97,6 +97,26 @@ public static class HeadlessActionFactory
             new OptionActivateActionPayload(cardId, effectId, memoryCost, skillIndex).ToParameters());
     }
 
+    // (B-2 / P1-5) declare a battle-area permanent's [Main] activated skill — AS-IS SetActSkill (permanent + skill
+    // index). permanentId reuses the CardId parameter key (a permanent IS a card instance).
+    public static LegalAction ActivateMain(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId permanentId,
+        HeadlessEntityId effectId,
+        int skillIndex = 0,
+        string? actionId = null)
+    {
+        return Create(
+            HeadlessActionTypes.ActivateMain,
+            playerId,
+            actionId ?? BuildActionId(
+                playerId,
+                HeadlessActionTypes.ActivateMain,
+                actionId,
+                $"{permanentId.Value}:{skillIndex}").Value,
+            new MainSkillActivateActionPayload(permanentId, effectId, skillIndex).ToParameters());
+    }
+
     public static LegalAction SetTerminal(HeadlessPlayerId playerId, string? actionId = null)
     {
         return Create(HeadlessActionTypes.SetTerminal, playerId, actionId);
