@@ -1,5 +1,6 @@
 namespace HeadlessDCGO.Engine.Headless.Effects;
 
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
@@ -21,6 +22,13 @@ public sealed class WindowResolutionController : IHeadlessMatchStateResettable
 
     public bool HasPending => Pending is not null;
 
+    // The agent's recorded answers for this window's choice points, keyed by the choice's stable identity (the
+    // ordered effect-ids of the offered side / the confirmed effect-id). Because a CHOICE suspend re-runs the whole
+    // pass on resume, the port re-asks every earlier choice; these recorded answers let it REPLAY them idempotently
+    // (adversarial finding P1-a — the replay must be key-based, not positional, so a resolved pick whose choice
+    // point vanishes simply never recurs). Accumulates across a window's suspends, cleared with the window.
+    private readonly Dictionary<string, ChoiceResult> _answers = new(StringComparer.Ordinal);
+
     /// <summary>Park a suspended window's continuation to be resumed on the next ResolveChoice.</summary>
     public void Suspend(WindowContinuation continuation)
     {
@@ -28,7 +36,23 @@ public sealed class WindowResolutionController : IHeadlessMatchStateResettable
         Pending = continuation;
     }
 
-    public void Clear() => Pending = null;
+    /// <summary>Record the agent's answer for a window choice, keyed by its stable identity, so the port replays it
+    /// when the resumed pass re-offers that same choice.</summary>
+    public void RecordAnswer(string key, ChoiceResult result)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(result);
+        _answers[key] = result;
+    }
 
-    public void ResetMatchState() => Pending = null;
+    /// <summary>Look up a previously recorded answer for a choice key. True when the agent has already answered it.</summary>
+    public bool TryGetAnswer(string key, out ChoiceResult? result) => _answers.TryGetValue(key, out result);
+
+    public void Clear()
+    {
+        Pending = null;
+        _answers.Clear();
+    }
+
+    public void ResetMatchState() => Clear();
 }

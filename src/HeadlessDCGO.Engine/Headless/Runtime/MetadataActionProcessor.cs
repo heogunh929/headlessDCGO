@@ -485,6 +485,33 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 return ActionProcessResult.Success("Optional effect choice resolved.", MetadataWithChoice(action, optional.ChoiceState));
             }
 
+            // (Stage 5, Phase 3) a trigger-window order / optional decision resumes the SUSPENDED window: record the
+            // agent's answer keyed by the choice identity, resolve the pending choice, then re-drive the window's
+            // continuation — the AgentWindowChoicePort replays the recorded answer at that same choice point, so the
+            // loop advances past it. A further window choice re-suspends (a new choice is pending; RunToStable
+            // re-pauses on the next iteration); running the stack to exhaustion clears the parked window.
+            if (pendingRequest.Type == ChoiceType.WindowChoice)
+            {
+                string windowKey = context.ChoiceController.Current.RequestId?.Value ?? string.Empty;
+                context.WindowResolution.RecordAnswer(windowKey, result);
+                HeadlessChoiceState windowChoice = context.ChoiceController.ResolveChoice(result);
+
+                if (context.WindowResolution.Pending is { } windowContinuation)
+                {
+                    Effects.WindowResolverDeps windowDeps = Effects.WindowResolverWiring.BuildMainLoopDeps(context);
+                    Effects.WindowRunResult windowRun = await new Effects.WindowResolver()
+                        .DriveAsync(windowContinuation, windowDeps, cancellationToken).ConfigureAwait(false);
+                    if (windowRun == Effects.WindowRunResult.Completed)
+                    {
+                        context.WindowResolution.Clear();
+                    }
+                }
+
+                Dictionary<string, object?> windowMetadata = MetadataWithChoice(action, windowChoice);
+                windowMetadata["windowResolved"] = !context.WindowResolution.HasPending;
+                return ActionProcessResult.Success("Window choice resolved.", windowMetadata);
+            }
+
             // C-3 Raid (F-6.8): the optional attack-switch choice flows through RaidAttackSwitch so the
             // selected defender is applied (SwitchDefender); a plain ResolveChoice would not retarget.
             if (pendingRequest.Type == ChoiceType.AttackTarget)

@@ -51,6 +51,7 @@ public sealed class EngineContext
         OnceFlags = new OnceFlagController();
         PlayerTurnCounters = new HeadlessDCGO.Engine.Headless.Runtime.PlayerTurnCounterController();
         DeferredActivations = new HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController();
+        WindowResolution = new HeadlessDCGO.Engine.Headless.Effects.WindowResolutionController();
         PlayerStatusController = playerStatusController ?? new InMemoryHeadlessPlayerStatusController();
         ContinuousContext = continuousContext ?? ContinuousContext.Create(
             Array.Empty<HeadlessPlayerId>(),
@@ -106,6 +107,12 @@ public sealed class EngineContext
     /// <summary>(G11-002) Holds an activation suspended mid-resolution waiting for an agent choice, so the
     /// next ResolveChoice resumes it without re-running the originating action (no re-pay).</summary>
     public HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController DeferredActivations { get; }
+
+    /// <summary>(Stage 5, Phase 3) Holds the trigger WINDOW suspended mid-resolution waiting for an agent order /
+    /// optional choice — the whole re-entrant window (cut-in frame stack + in-flight pick + recorded choice
+    /// answers), so the next ResolveChoice resumes it via <c>WindowResolver.DriveAsync</c>. Analogue of
+    /// <see cref="DeferredActivations"/> for a whole window rather than one activation.</summary>
+    public HeadlessDCGO.Engine.Headless.Effects.WindowResolutionController WindowResolution { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
 
@@ -226,6 +233,7 @@ public sealed class EngineContext
         OnceFlags.ResetMatchState();
         PlayerTurnCounters.ResetMatchState();
         DeferredActivations.ResetMatchState();
+        WindowResolution.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
         CurrentState = ObservationSnapshot.Empty;
     }
@@ -322,6 +330,7 @@ public sealed class EngineContext
         RegisterService(MulliganCoordinator);
         RegisterService(OnceFlags);
         RegisterService(DeferredActivations);
+        RegisterService(WindowResolution);
         RegisterService<IHeadlessPlayerStatusController>(PlayerStatusController);
         RegisterService(ContinuousContext);
     }
