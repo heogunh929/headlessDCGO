@@ -69,6 +69,9 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
         "BOTH digivolution sources reach the trash through the sink wiring (not stranded in None)");
     Check(!InZone(ctx, src0, ChoiceZone.None) && !InZone(ctx, src1, ChoiceZone.None),
         "no source is left orphaned in ChoiceZone.None");
+    ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? rec1);
+    Check(rec1 is not null && DeletionReplacementGate.SourceCountAtDeletion(rec1!.Metadata) == 2,
+        "the deletion-time source-count snapshot recorded the actual count (2), not a fallback");
 }
 
 // --- 2. Fortitude: sources are trashed unconditionally, yet the count snapshot lets the top replay back to
@@ -80,9 +83,11 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
         "a Fortitude card's sources ARE trashed on deletion (unconditional, like AS-IS)");
     Check(InZone(ctx, host, ChoiceZone.BattleArea),
         "Fortitude still replays the top back to the battle area (count snapshot survived the source-trash)");
+    // (F7) the replay resolved the deletion → the snapshot must be CLEARED so it can't leak into a later
+    // deletion of the now-sourceless card (SourceCountAtDeletion then falls back to the live count = 0).
     ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? rec);
-    Check(rec is not null && DeletionReplacementGate.SourceCountAtDeletion(rec!.Metadata) >= 0,
-        "the deletion-time source-count snapshot is readable on the record");
+    Check(rec is not null && DeletionReplacementGate.SourceCountAtDeletion(rec!.Metadata) == 0,
+        "the source-count snapshot is cleared after a Fortitude replay (no stale-count leak)");
 }
 
 // --- 3. Decode: the POST play window still needs a source in None, so a Decode card's sources are held. ---
@@ -92,6 +97,29 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
     Check(InZone(ctx, host, ChoiceZone.Trash), "a Decode card's top still reaches the trash");
     Check(!InZone(ctx, src0, ChoiceZone.Trash),
         "a Decode card's sources are HELD (not trashed) for the POST play window (PRE move = TODO-96)");
+}
+
+// --- 4. (P0-4) The PRE-declined deferred-deletion FINISHER path (GameFlowProcessor.RuleProcessAsync) — a
+//        different code path from the sink — must also trash the sources, not just the top. A card marked
+//        pending-deletion (no PRE window awaiting) is finished by RuleProcessAsync on the next RunToStable. ---
+{
+    var (ctx, host, src0, src1) = await Setup();
+    // Mark the host pending-deletion WITHOUT any PRE replacement window (so IsPreAwaiting is false and the
+    // finisher runs) — mirrors a would-be-deleted window that was declined and now completes.
+    ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? pre);
+    ctx.CardInstanceRepository.Upsert(pre! with
+    {
+        Metadata = new Dictionary<string, object?>(pre!.Metadata, StringComparer.Ordinal)
+        {
+            [GameFlowProcessor.PendingDeletionKey] = true,
+        }
+    });
+
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    Check(InZone(ctx, host, ChoiceZone.Trash), "the finisher path moves the top card to the trash");
+    Check(InZone(ctx, src0, ChoiceZone.Trash) && InZone(ctx, src1, ChoiceZone.Trash),
+        "the RuleProcessAsync finisher also trashes the sources (P0-4 wiring, not sink-only)");
 }
 
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }

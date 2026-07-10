@@ -191,7 +191,7 @@ public sealed class BattleResolver
             CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, participant.InstanceId);
             // (RD-4) trash the loser's digivolution sources before its top card leaves (AS-IS DiscardEvoRoots
             // at CardController.cs:3846 precedes the top's AddTrashCard). No trigger fires (direct trash-add);
-            // skipped for Save/Decode/Partition/Fortitude cards (their POST window / replay reads the sources).
+            // unconditional like AS-IS except Decode/Partition (their POST window plays a source from None).
             await DeletionSourceTrash.TrashEvoSourcesAsync(
                 context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
             movementResults.Add(await context.ZoneMover.MoveAsync(

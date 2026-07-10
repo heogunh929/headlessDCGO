@@ -463,9 +463,22 @@ public sealed class GameFlowProcessor
             // "when a Digimon is deleted, +1 memory" effect fires ONCE for N simultaneous 0-DP/battle deletions,
             // not N times. Simultaneous deletions all drain in one AutoProcessAsync pass (RuleProcessAsync deletes
             // every lethal-DP card before the pass; BattleResolver trashes both losers before the pass), so this
-            // pass IS the batch. Fire an OnDestroyedAnyone effect at most once per pass — claimed on-fire (after
-            // gate+cap), so a subject-specific gate matching only the 2nd deleted card is NOT suppressed by the
-            // 1st. Sequential delete-processes fall in separate passes → separate fires, matching AS-IS.
+            // pass approximates the batch. Fire an OnDestroyedAnyone effect at most once per pass — claimed on-fire
+            // (after gate+cap), so a subject-specific gate matching only the 2nd deleted card is NOT suppressed by
+            // the 1st. A truly-sequential delete-process (A deletes → its OnDeletion deletes B) emits B during a
+            // LATER pass → separate fire, matching AS-IS.
+            // SCOPE / known limits (verified 2026-07-10):
+            //  - Covers the board-wide MUTATION reactors on the scheduler path (memory/DP: ST3_01/04, BT2_073, …).
+            //    Board-wide ACTIVATED reactors (e.g. BT1_049 "opp deleted → draw") route through the separate
+            //    activated bridge (BridgeActivatedTriggersAsync), which this guard does NOT touch — and are not
+            //    board-wide-wired today, so no live over-fire, but the bridge would need the same guard when they
+            //    are. Self-scope activated ([On Deletion] on the deleted card) are per-subject-correct already.
+            //  - "pass = batch" UNDER-fires the rare case of two INDEPENDENT delete-processes whose events happen
+            //    to drain in one pass (AS-IS = 2 StackSkillInfos = 2 fires; here = 1). The precise fix is a
+            //    per-delete-process batch-id stamped at emission; deferred (the common 0-DP-sweep/board-wipe case
+            //    IS one process and is correct). See design doc P0-2 / D-RD11 limits.
+            //  - Keyed only to OnDestroyedAnyone; AS-IS batches OnLeaveFieldAnyone identically (CardController:3746)
+            //    but no board-wide leave-field reactor is collected today (absent from BroadcastTimings).
             var firedDeletionEffects = new HashSet<HeadlessEntityId>();
             for (int eventIndex = 0; eventIndex < pendingEvents.Count; eventIndex++)
             {
