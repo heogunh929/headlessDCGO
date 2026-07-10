@@ -582,87 +582,9 @@ public sealed class GameFlowProcessor
         return (results.Count(result => result.Resolved) + activatedProgress, collected + (openedPrompt ? 1 : 0));
     }
 
-    /// <summary>(PRIM triggered-activated bridge) SUBJECT-scoped timings — the ACTIVATED effects of the card the
-    /// event is about (the attacker / the deleted card) resolve. These fire once per event (per attack / per
-    /// deletion), so no per-turn cap is needed. ALLOW-LIST excludes action-wired timings (OnEnterFieldAnyone →
-    /// PlayCardAction, WhenDigivolving → DigivolveAction, OptionSkill/SecuritySkill) so nothing double-fires.</summary>
-    private static readonly IReadOnlySet<EffectTiming> SubjectScopedActivatedTimings = new HashSet<EffectTiming>
-    {
-        EffectTiming.OnAllyAttack,
-        EffectTiming.OnDestroyedAnyone,
-        EffectTiming.OnUnTappedAnyone,
-        // OnTappedAnyone moved to EventBroadcastActivatedTimings: "[Your Turn] when an OPPONENT'S Digimon is
-        // suspended, …" lives on a DIFFERENT card (e.g. a Tamer, ST4_14) than the suspended subject, so it
-        // needs the cross-card broadcast, not the subject-scoped path. The suspend event carries subject =
-        // the tapped card, which the broadcast threads for each listener's CanTriggerWhenPermanentSuspends.
-        // (v4) attack-declaration window — emitted with subject = attacker alongside OnAttack/OnAllyAttack
-        // (AttackPermanentAction:151), so "[When Attacking]" activated effects (incl. Digi-Burst bodies declared
-        // at OnDeclaration) resolve at declaration. Once per declaration event; a card gates itself.
-        EffectTiming.OnDeclaration,
-    };
-
-    /// <summary>(v3) Subject-scoped timings that can fire MULTIPLE times per turn (a card can be re-suspended and
-    /// unsuspended). Their activated triggers are capped ONCE PER TURN via <see cref="OnceFlagController"/> — the
-    /// AS-IS default for on-unsuspend triggers is "[Once Per Turn]", and under-firing a re-unsuspend is safer than
-    /// over-firing (illegal repeat advantage). memory/DP on-unsuspend triggers keep using their IHeadlessCardEffect
-    /// forms (scheduler-capped) and are not bridged here.</summary>
-    private static readonly IReadOnlySet<EffectTiming> OncePerTurnBridgeTimings = new HashSet<EffectTiming>
-    {
-        EffectTiming.OnUnTappedAnyone,
-    };
-
-    /// <summary>(v2) BOUNDARY timings — carry no card subject (a turn boundary emitted with only an actor). The
-    /// ACTIVATED effects of EVERY battle-area card resolve (each card gates "[End of YOUR turn]" itself). These
-    /// fire exactly ONCE per turn (one such event per turn), so the per-turn cap is natural — no OnceFlags needed.</summary>
-    private static readonly IReadOnlySet<EffectTiming> BoundaryActivatedTimings = new HashSet<EffectTiming>
-    {
-        EffectTiming.OnEndTurn,
-        EffectTiming.OnStartTurn,
-        EffectTiming.OnStartMainPhase,
-        // (Other emitted windows use TriggerTimings names with no matching EffectTiming enum member yet —
-        // OnEndAttackPhase/OnEndMainPhase/OnDraw — so they need enum + name reconciliation first.)
-        // NOTE: OnEndBattle moved to EventBroadcastActivatedTimings below — it carries battle-result metadata
-        // (winnerIds/loserIds) that "[End of Battle] when this deletes an opponent in battle" gates need, and
-        // the boundary branch discards the driving event. Broadcast per-battle-event is also more correct than
-        // the boundary's once-per-pass model when a turn has multiple battles.
-    };
-
-    /// <summary>(Phase D broadcast) EVENT-BROADCAST timings — the AS-IS fires these via a global
-    /// StackSkillInfos(hashtable, timing) that offers the event to EVERY field card; each card's OWN gate
-    /// (e.g. <c>CanTriggerOnTrashDigivolutionCard</c>) decides scope (self / ally / opponent host). The
-    /// bridge scans every battle-area card and passes the DRIVING EVENT through to the resolver, so gates
-    /// read the event subject (TriggerEntityId = the host permanent, NOT the listener) and the event's
-    /// metadata ("event.discardedCardIds" …) — mirror of the scheduler path's <see cref="TriggerTimingMap"/>
-    /// broadcast allow-list, for ACTIVATED effects. Fires once per event (a second trash that turn fires
-    /// again, as AS-IS), so no per-turn cap here; a card caps itself via MaxCountPerTurn.
-    /// KNOWN BOUNDARY: AS-IS GetSkillInfos also offers the timing to trash / hand / face-up security
-    /// cards; this scan covers the battle area only (same model as the boundary scan) — every current
-    /// listener at these timings lives on the field. Extend the scan zones when a trash/hand listener
-    /// is actually ported.</summary>
-    private static readonly IReadOnlySet<EffectTiming> EventBroadcastActivatedTimings = new HashSet<EffectTiming>
-    {
-        EffectTiming.OnDigivolutionCardDiscarded,
-        // (c-remediation) digivolution cards returned to deck bottom — cross-card reactors thread the driving event.
-        EffectTiming.OnDigivolutionCardReturnToDeckBottom,
-        // (Phase D) [End of Battle] — emitted actor-only with battle-result metadata (winnerIds/loserIds/…,
-        // BattleResolver). Broadcast to every field card, threading the driving event so gates like
-        // CanTriggerWhenDeleteOpponentDigimonByBattle read "event.winnerIds"/"event.loserIds"; each card
-        // self-gates. One resolve per battle event (a turn with N battles opens N windows, as AS-IS); a
-        // "[Once Per Turn]" card caps itself via MaxCountPerTurn.
-        EffectTiming.OnEndBattle,
-        // (Phase D) [Your Turn] "when an opponent's Digimon is suspended, …" — the reacting effect lives on a
-        // different card (Tamer, ST4_14) than the suspended subject, so it broadcasts. The event carries
-        // subject = the suspended card; each listener's CanTriggerWhenPermanentSuspends self-gates on it.
-        EffectTiming.OnTappedAnyone,
-        // (G2) [Your Turn]/[All Turns] "when an Option is used, …" — the reacting effect lives on a DIFFERENT
-        // card (a Tamer/Digimon on the field) than the option card being used. The OnUseOption window IS emitted
-        // (OptionActivateAction.cs:94, subject = the option card, which is already in trash by then so it does
-        // NOT self-fire), but was in none of the dispatch sets, so the event was dropped. Broadcast it to every
-        // battle-area card, threading the driving event so each listener's CanTriggerWhenUseOption /
-        // CanTriggerWhenOwnerUseOption self-gates on the used option (subject) + its cost. Fires once per option
-        // use; a "[Once Per Turn]" reactor caps itself via MaxCountPerTurn.
-        EffectTiming.OnUseOption,
-    };
+    // The four activated-bridge timing category sets now live in the shared
+    // Effects.ActivatedBridgeTimings (single source of truth for this classification, referenced by both this
+    // batch bridge and the Stage-5 window wiring). Referenced below as ActivatedBridgeTimings.SubjectScoped etc.
 
     private static async Task<int> BridgeActivatedTriggersAsync(
         EngineContext context, IReadOnlyList<GameEvent> pendingEvents, CancellationToken cancellationToken)
@@ -688,14 +610,14 @@ public sealed class GameFlowProcessor
                     continue;
                 }
 
-                if (SubjectScopedActivatedTimings.Contains(timing))
+                if (Effects.ActivatedBridgeTimings.SubjectScoped.Contains(timing))
                 {
                     if (gameEvent.Subject is { IsEmpty: false } subject && seen.Add((subject, timing)))
                     {
                         toResolve.Add((subject, timing, null));
                     }
                 }
-                else if (BoundaryActivatedTimings.Contains(timing) && zones is not null)
+                else if (Effects.ActivatedBridgeTimings.Boundary.Contains(timing) && zones is not null)
                 {
                     foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
                     {
@@ -708,7 +630,7 @@ public sealed class GameFlowProcessor
                         }
                     }
                 }
-                else if (EventBroadcastActivatedTimings.Contains(timing) && zones is not null)
+                else if (Effects.ActivatedBridgeTimings.EventBroadcast.Contains(timing) && zones is not null)
                 {
                     // No cross-event de-dup on purpose: each event is its own window. Within one event the
                     // battle-area scan visits a card exactly once.
@@ -734,7 +656,7 @@ public sealed class GameFlowProcessor
 
             // (v3) once-per-turn cap for multi-fire timings (on-unsuspend): the turn-scoped OnceFlagController
             // (reset at turn end) gates one activation per (card, timing) per turn.
-            if (OncePerTurnBridgeTimings.Contains(timing))
+            if (Effects.ActivatedBridgeTimings.OncePerTurn.Contains(timing))
             {
                 var onceRequest = new EffectRequest(
                     new HeadlessEntityId($"{card.Value}:bridgeOnce:{timing}"),
