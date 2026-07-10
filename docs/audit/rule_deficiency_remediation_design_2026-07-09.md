@@ -324,6 +324,27 @@ ChooseAsync/YesNo는 기존 ChoiceRequest 프로토콜 재사용(Type=EffectOrde
 - **최대 회귀 표면**: 기존 375+ 테스트 중 트리거 순서를 암묵 전제한 것들 — 단계적 랜딩: ①WindowResolver를 기존 배치와 결과 비교하는 shadow 모드(순서 결정이 1개뿐인 창은 동작 동일) ②단일-트리거 창부터 전환 ③다중-트리거 창 전환+테스트 갱신.
 - once-키 정밀도(TODO-14)·수집 population(TODO-10)·lapse 스냅샷(TODO-12)은 창-루프 위에 얹는 후속 — 본 설계의 Gate/Collect 심에 삽입 지점을 남겨둠.
 
+### 5.5 Phase 0 구조맵·컷오버 계획 (2026-07-10, 조사 a982222 + AS-IS MultipleSkills 직접 대조)
+**AS-IS 근거 확정**(DCGO MultipleSkills.cs:67-423 = 실 코드; `src/…/MultipleSkills.cs`는 헤더-only 스텁): `while(true)` 매 반복 `StackedSkillInfos` 전부 `CanActivate` 재필터(:122·164)=P1-1; active>1이면 `OpenSelectCardPanel`로 플레이어 순서 선택(`_MaxCount:1`, `_CanNoSelect:()=>all IsSkippable`, skillIndex=-1→StackedSkillInfos 소거)(:266-334)=RD-14/15; `Activate`서 `StackedSkillInfos.Remove(picked)` 後 `SetOnProcessCallbuck(()=>RegisterUseEffectThisTurn)`(:356-362)=**once 소모=실행 시점 콜백**(VR-1 근거); skipCondition(HasExecutedSameEffect)·ChainActivations(:128·138)=P1-4 컷인. 턴P 전부→비턴P는 AutoProcessing이 MultipleSkills를 플레이어별로 호출(TurnPlayerSkillInfos→NonTurnPlayerSkillInfos).
+
+**헤드리스 대체 표면**(WindowResolver가 흡수):
+- `GameFlowProcessor.AutoProcessAsync`(:438-583) = 유일 트리거 심. drain→collect(AutoProcessingTriggerCollector)→per-event dedup(`seen`)·삭제-배치 dedup(`firedDeletionEffects`)→disable게이트→enrich→**CanResolve 게이트→OnceFlags.TryActivate(수집-시점 소모)**→ReclassifyKind→EnqueueOrdered(MandatoryEffectOrdering)→EffectScheduler.ResolveAllAsync→fire-then-clear→**BridgeActivatedTriggersAsync**(2번째 디스패치)→RequestNextOptionalPrompt.
+- `MandatoryEffectOrdering`(고정 정렬: PlayerOrder→Priority→Sequence→InputIndex)·`OptionalPromptQueue`(controller당 1프롬프트, maxCount:1, 캡 이미 소진) = ChooseAsync가 두 역할 통합 → **dead-path**.
+- `EffectScheduler`/`EffectResolutionQueue` = **순수 FIFO**(Mode는 명목 태그, 레인 없음) → §5.2대로 단일-효과 해소기로 유지(ResolveOne 하부). Status(Skipped=dequeue+continue/Suspended=park/Resolved) 그대로 판독.
+- **2개 디스패치**: scheduler(IHeadlessCardEffect mutation=memory/DP) vs BridgeActivatedTriggersAsync(IActivatedCardEffect=draw/trash/select). ResolveOne이 **둘 다** 디스패치(ActivatedEffectResolver 포함)해 통합.
+- 재진입 선례: DeferredChoiceProvider(replay+DeferredChoicePendingException→Suspended)·DeferredActivations(SecurityResolver [Security] suspend/resume via ResolveChoiceAsync:604)·AttackPipeline Deferred→DeletionReplacement→FinalizeDeferredAsync. WindowResolver의 컷인 재귀·choice-pause가 재사용.
+- 동기 창 호출부(RunWindowAsync로 일원화): BattleResolver.ResolveKnockOut/StartBattleWindowAsync·SecurityResolver.ResolveSecurityCheckWindowAsync·AttackPipeline EndAttackTriggerHook.
+
+**컷오버 계획(커밋 단위)**:
+- **P0-리스크(先-확정)**: OnceFlag 소모 **수집→해소-성공 이동 + 환불**. 유일하게 shadow-**불일치**(캡 소진 시점 의도적 변경)이며 라이브 동작(G11-004·G3.5-F4가 현 수집-소모를 pin)·optional-decline(OptionalPromptQueue 환불 없음)·fizzle(RD10) 재작성. AS-IS 근거=OnProcess 콜백. **창 루프 착수 前 이 시맨틱스 락.**
+- **2위 리스크**: **stack 지속** — 현 파이프라인은 pass마다 무상태 re-drain이나 WindowResolver는 라이브 stack을 보유 → RunToStableAsync의 choice-pause를 넘어 살아남아야 함. `WindowResolutionController`(DeferredActivations 유형: suspended stack+depth+pending pick, match-reset) 신설, ResolveChoiceAsync:604 옆에서 resume.
+- **Phase 1**: WindowResolver+TriggerWindow 신규(미배선). Collect=기존 CollectAllTriggers 재사용. 루프 단위 테스트(재평가·순서선택·optional 전량소거·컷인 재귀·실행-시 소모, AS-IS MultipleSkills 대조 기대값+출처 주석).
+- **Phase 2 shadow**: WindowResolver를 배치 파이프라인과 병행 실행, decision-diff(EffectId·resolved/skipped/suspended·controller·once-consumed) 로깅. 단일-order 창(동기 knock-out/start-battle/security = order 결정 0-1개)은 byte-동일 → 그것부터 컷오버.
+- **Phase 3**: 다중-트리거 event 창 컷오버 + RD-14/15 순서선택 활성 → 순서-전제 테스트(G2F-002·G1F-004) AS-IS 기준 갱신(기대값 출처 주석).
+- **Phase 4 흡수 상환**(각 독립 커밋+적대 검수): RD-12/13 트리거 경로 → RD-6 pre-flip(EndTurn in-action 드레인+attack-vs-EoT 순서) → RD-7B(시큐리티 Evade 재진입) → RD-8(창 순서).
+
+**테스트 표면 분류**: must-stay-green(AS-IS 근거)=RD11-PerEventFire·RD10-FizzleSkip(test1)·G11-004 게이트-先-캡·OPT2 의무/optional 분리; AS-IS 기준 갱신 필요=G2F-002/G1F-004 고정-순서(플레이어 선택 대체)·OnceFlag 수집-소모 타이밍(F-4/G11-004)·RD10-FizzleSkipLive test2(VR-2 "永久 park"=헤드리스 발명). **주의: G2F-002/003이 MultipleSkills/AutoProcessing 소스 문자열을 스캔(source-scan lint)** — AS-IS 참조 재배치 시 파손, 엔진 주석의 "TODO" 리터럴 금지(RD-6/9/7A서 3회 반복 피해).
+
 ---
 
 ## 6. 테스트·검증 전략
