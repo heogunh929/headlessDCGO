@@ -38,10 +38,12 @@ public sealed class WindowResolver
     /// bounded by per-effect cut-in caps in the Gate, not by depth.</summary>
     public const int DefaultChainLimit = 64;
 
-    /// <summary>Resolve the window seeded by <paramref name="seed"/>. Returns <see cref="WindowRunResult.Suspended"/>
-    /// the moment a resolution suspends for an agent choice (the caller parks and resumes the in-flight body);
-    /// otherwise runs the stack to exhaustion and returns <see cref="WindowRunResult.Completed"/>.</summary>
-    public async Task<WindowRunResult> RunWindowAsync(
+    /// <summary>Resolve the window seeded by <paramref name="seed"/> to exhaustion (fresh, non-resumable path used
+    /// by the synchronous windows). Returns <see cref="WindowRunResult.Suspended"/> the moment a resolution
+    /// suspends; otherwise <see cref="WindowRunResult.Completed"/>. To PERSIST and later resume a suspended window,
+    /// build a <see cref="WindowContinuation"/> with <see cref="CreateContinuation"/> and drive it with
+    /// <see cref="DriveAsync"/> instead — that hands the frame stack to the caller (a WindowResolutionController).</summary>
+    public Task<WindowRunResult> RunWindowAsync(
         IReadOnlyList<TimingWindowTrigger> seed,
         WindowResolverDeps deps,
         int depth = 0,
@@ -49,21 +51,100 @@ public sealed class WindowResolver
     {
         ArgumentNullException.ThrowIfNull(seed);
         ArgumentNullException.ThrowIfNull(deps);
+        return DriveAsync(CreateContinuation(seed, depth), deps, cancellationToken);
+    }
 
-        // The mutable stack (AS-IS StackedSkillInfos): a trigger stays here until it is picked+committed, its
-        // whole owning side is skipped, or its optional is declined. A gate-false trigger is NOT removed — it may
-        // re-activate on a later pass.
-        var stack = new List<TimingWindowTrigger>(seed);
+    /// <summary>Build a fresh, resumable continuation seeded by <paramref name="seed"/>. The caller owns it across
+    /// a suspend/resume — the C# call stack does not survive the agent-choice pause, so the nested window state
+    /// (the cut-in frame stack + any in-flight pick) lives in this object instead.</summary>
+    public static WindowContinuation CreateContinuation(IReadOnlyList<TimingWindowTrigger> seed, int depth = 0)
+    {
+        ArgumentNullException.ThrowIfNull(seed);
+        var frames = new Stack<WindowFrame>();
+        frames.Push(new WindowFrame(seed, depth));
+        return new WindowContinuation(frames);
+    }
 
-        while (true)
+    /// <summary>Drive a continuation — fresh or resumed — until it exhausts (<see cref="WindowRunResult.Completed"/>)
+    /// or suspends for an agent choice (<see cref="WindowRunResult.Suspended"/>). On a suspend the caller must hold
+    /// this same <paramref name="continuation"/> and call <see cref="DriveAsync"/> again once the pending choice is
+    /// resolved: a BODY suspend records the in-flight pick (its body is replayed on resume — the once-use is already
+    /// consumed, so it is NOT re-picked or re-committed); a CHOICE suspend (order / optional yes-no) leaves the frame
+    /// stack unmutated and the loop re-offers the same choice, which the resumed port answers from the recorded
+    /// selection. Either way the frame stack — including deeper cut-in frames — persists intact.</summary>
+    public async Task<WindowRunResult> DriveAsync(
+        WindowContinuation continuation, WindowResolverDeps deps, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(continuation);
+        ArgumentNullException.ThrowIfNull(deps);
+
+        Stack<WindowFrame> frames = continuation.Frames;
+
+        // (resume of a BODY suspend) the picked effect's body parked mid-resolution for an agent choice. Replay it
+        // (the scheduler / DeferredChoiceProvider resumes the in-flight body) BEFORE re-entering the loop — never
+        // re-pick or re-commit (the once-use was consumed at the original commit). If it re-suspends, stay parked.
+        if (continuation.InFlightPick is { } resumePick)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            WindowResolveOutcome resumeOutcome = await deps.ResolveBody(resumePick, cancellationToken).ConfigureAwait(false);
+            if (resumeOutcome == WindowResolveOutcome.Suspended)
+            {
+                return WindowRunResult.Suspended;
+            }
+
+            continuation.InFlightPick = null;
+
+            // (RD-17) the resumed body may have emitted cut-ins — drain them into a child of the frame that owned
+            // the pick (still the top frame; the suspend removed only the pick, never popped its frame), matching
+            // the in-line post-body draining below.
+            DrainCutInInto(frames, deps);
+        }
+
+        try
+        {
+            return await RunFrameLoopAsync(continuation, deps, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WindowChoicePendingException)
+        {
+            // (CHOICE suspend) the port opened an agent choice for the order / optional decision and unwound the
+            // loop. Nothing was picked or committed this pass, so the frame stack is consistent; the caller resumes
+            // by calling DriveAsync again (the port then answers from the recorded selection). No in-flight pick.
+            return WindowRunResult.Suspended;
+        }
+    }
+
+    /// <summary>(RD-17) drain triggers emitted by the just-resolved body into a new cut-in frame, one level below
+    /// the current top frame, bounded by the runaway limit. No-op when nothing was emitted or the limit is hit.</summary>
+    private static void DrainCutInInto(Stack<WindowFrame> frames, WindowResolverDeps deps)
+    {
+        IReadOnlyList<TimingWindowTrigger> cutIn = deps.DrainNewTriggers();
+        if (cutIn.Count > 0 && frames.Count > 0 && frames.Peek().Depth < deps.ChainLimit)
+        {
+            frames.Push(new WindowFrame(cutIn, frames.Peek().Depth + 1));
+        }
+    }
+
+    private static async Task<WindowRunResult> RunFrameLoopAsync(
+        WindowContinuation continuation, WindowResolverDeps deps, CancellationToken cancellationToken)
+    {
+        Stack<WindowFrame> frames = continuation.Frames;
+        while (frames.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Process the TOP frame (deepest cut-in). Its mutable stack IS the AS-IS StackedSkillInfos: a trigger
+            // stays until it is picked+committed, its whole owning side is skipped, or its optional is declined. A
+            // gate-false trigger is NOT removed — it may re-activate on a later pass.
+            WindowFrame frame = frames.Peek();
+            List<TimingWindowTrigger> stack = frame.Stack;
 
             // (P1-1) re-evaluate the gate of EVERY stacked trigger every pass.
             var active = stack.Where(t => deps.Gate(t)).ToList();
             if (active.Count == 0)
             {
-                return WindowRunResult.Completed;
+                // This frame is exhausted; pop back to its parent (whose loop head re-evaluates next), or finish.
+                frames.Pop();
+                continue;
             }
 
             // (RD-15) AS-IS resolves ALL of the turn player's windows before the non-turn player's. Offer the
@@ -141,19 +222,36 @@ public sealed class WindowResolver
             WindowResolveOutcome outcome = await deps.ResolveBody(pick, cancellationToken).ConfigureAwait(false);
             if (outcome == WindowResolveOutcome.Suspended)
             {
-                // The body paused for an agent choice; the use is already consumed. The caller resumes the
-                // IN-FLIGHT body (never re-picks) — see the Phase-2 wiring contract above.
+                // The body paused for an agent choice; the use is already consumed. Record the in-flight pick so a
+                // resumable caller replays THIS body (never re-picks/re-commits) on the next DriveAsync. The whole
+                // frame stack is still intact — this pick was removed from its (still-top) frame, so on resume the
+                // resumed body's cut-ins drain into a child of that same frame.
+                continuation.InFlightPick = pick;
                 return WindowRunResult.Suspended;
             }
 
             // (RD-17) resolving may have emitted new events — resolve them as a cut-in BEFORE continuing the
-            // remaining stack (new triggers first), bounded by the runaway safety limit.
-            IReadOnlyList<TimingWindowTrigger> cutIn = deps.DrainNewTriggers();
-            if (cutIn.Count > 0 && depth < deps.ChainLimit)
-            {
-                await RunWindowAsync(cutIn, deps, depth + 1, cancellationToken).ConfigureAwait(false);
-            }
+            // remaining stack (new triggers first), bounded by the runaway safety limit. Pushing a frame makes the
+            // next loop pass process the cut-in depth-first; when it exhausts, the pop returns here to this frame.
+            DrainCutInInto(frames, deps);
         }
+
+        return WindowRunResult.Completed;
+    }
+
+    /// <summary>One level of the cut-in recursion, made explicit so the nested window state survives a suspend.
+    /// <see cref="Stack"/> is the frame's live AS-IS StackedSkillInfos; <see cref="Depth"/> bounds further cut-ins.</summary>
+    internal sealed class WindowFrame
+    {
+        public WindowFrame(IReadOnlyList<TimingWindowTrigger> seed, int depth)
+        {
+            Stack = new List<TimingWindowTrigger>(seed);
+            Depth = depth;
+        }
+
+        public List<TimingWindowTrigger> Stack { get; }
+
+        public int Depth { get; }
     }
 
     private static bool IsTurnSide(TimingWindowTrigger trigger, HeadlessPlayerId? turnPlayerId) =>
@@ -179,6 +277,45 @@ public enum WindowRunResult
 
     /// <summary>A resolution suspended for an agent choice; the caller must park and resume the in-flight body.</summary>
     Suspended,
+}
+
+/// <summary>The persistable state of a suspended (or fresh, not-yet-run) window: the cut-in frame stack plus the
+/// pick whose body parked mid-resolution, if any. Held by a WindowResolutionController across the agent-choice
+/// pause (the C# call stack does not survive it), then handed back to <see cref="WindowResolver.DriveAsync"/> to
+/// resume. Opaque to callers — only the resolver reads its innards.</summary>
+public sealed class WindowContinuation
+{
+    internal WindowContinuation(Stack<WindowResolver.WindowFrame> frames)
+    {
+        Frames = frames;
+    }
+
+    /// <summary>The cut-in frame stack (top = deepest cut-in). Non-empty while the window has unresolved triggers.</summary>
+    internal Stack<WindowResolver.WindowFrame> Frames { get; }
+
+    /// <summary>The pick whose body suspended mid-resolution (its once-use is ALREADY consumed). Replayed — never
+    /// re-picked or re-committed — on the next <see cref="WindowResolver.DriveAsync"/>; null when the suspend was a
+    /// pre-commit CHOICE (order / optional yes-no) rather than a body. Read-only to callers; only the resolver sets it.</summary>
+    public TimingWindowTrigger? InFlightPick { get; internal set; }
+
+    /// <summary>True once the window is fully resolved (no frames left and no in-flight body) — the caller clears it.</summary>
+    public bool IsExhausted => Frames.Count == 0 && InFlightPick is null;
+}
+
+/// <summary>Thrown by a real <see cref="IWindowChoicePort"/> to SUSPEND the window at an order / optional decision:
+/// the port has opened an agent choice on the choice controller and cannot answer synchronously. Unwinds the loop
+/// leaving the frame stack unmutated (nothing was picked or committed this pass); <see cref="WindowResolver.DriveAsync"/>
+/// catches it and reports <see cref="WindowRunResult.Suspended"/>. Mirrors the engine's existing
+/// <c>DeferredChoicePendingException</c> for activated-effect bodies. Scripted test ports never throw it.</summary>
+public sealed class WindowChoicePendingException : Exception
+{
+    public WindowChoicePendingException(string message) : base(message)
+    {
+    }
+
+    public WindowChoicePendingException() : base("Window suspended for an agent choice.")
+    {
+    }
 }
 
 /// <summary>The window's interaction port — order choice among simultaneous triggers and the optional yes/no.
