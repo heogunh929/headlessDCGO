@@ -161,6 +161,35 @@ Func<TimingWindowTrigger, CancellationToken, Task<WindowResolveOutcome>> RecordB
     Check(threw, "a null pick on a non-skippable side throws instead of silently dropping the mandatory (F4)");
 }
 
+// --- 9. (A-1 / P1-4) same-effect skip: a cut-in RE-EMITTING an already-committed effect is SUPPRESSED when the
+//        window carries HasExecutedSameEffect (AS-IS cut-in skipCondition applied in the per-pass filter,
+//        MultipleSkills.cs:128-136 / AutoProcessing.cs:623-627). Contrast test 6, where a DIFFERENT cut-in fires. ---
+{
+    var order = new List<string>();
+    bool emitted = false;
+    var deps = new WindowResolverDeps(P1, _ => true, _ => { }, RecordBody(order),
+        new ScriptPort(orderPicks: new[] { "A" }),
+        drainNewTriggers: () => { if (!emitted && order.LastOrDefault() == "A") { emitted = true; return new[] { Trigger("A", P1) }; } return None(); },
+        skipCondition: WindowResolverWiring.HasExecutedSameEffect);
+    await new WindowResolver().RunWindowAsync(new[] { Trigger("A", P1), Trigger("B", P1) }, deps);
+    Check(order.SequenceEqual(new[] { "A", "B" }),
+        $"a cut-in re-emitting an already-committed effect is suppressed by HasExecutedSameEffect (A-1); got [{string.Join(",", order)}]");
+}
+
+// --- 10. (A-1) main-loop faithfulness: with NO skipCondition (AS-IS AutoProcessing.cs:137 passes null), the SAME
+//         re-emitted effect fires AGAIN — the general trigger process applies no same-effect dedup, so a blanket
+//         main-loop dedup would DIVERGE. This pins that the skip is opt-in, not a default. ---
+{
+    var order = new List<string>();
+    bool emitted = false;
+    var deps = new WindowResolverDeps(P1, _ => true, _ => { }, RecordBody(order),
+        new ScriptPort(orderPicks: new[] { "A" }),
+        drainNewTriggers: () => { if (!emitted && order.LastOrDefault() == "A") { emitted = true; return new[] { Trigger("A", P1) }; } return None(); });
+    await new WindowResolver().RunWindowAsync(new[] { Trigger("A", P1), Trigger("B", P1) }, deps);
+    Check(order.SequenceEqual(new[] { "A", "A", "B" }),
+        $"with no skipCondition the main loop lets a re-emitted effect fire again (AS-IS null dedup); got [{string.Join(",", order)}]");
+}
+
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine("\nall Stage-5 WindowResolver loop-semantics checks passed.");
 

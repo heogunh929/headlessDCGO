@@ -118,6 +118,9 @@ public static class WindowResolverWiring
             resolveBody: (trigger, ct) => ResolveBodyLiveAsync(context, trigger, ct),
             choicePort: port,
             drainNewTriggers: () => DrainUnifiedCutIns(context));
+        // NOTE (A-1 / P1-4): NO skipCondition here — the main loop is AS-IS's general trigger process
+        // (AutoProcessing.cs:137 passes skipCondition=null), which applies no same-effect dedup. Only the specific
+        // cut-in windows pass HasExecutedSameEffect (via BuildSchedulerDeps). Do not "helpfully" add it here.
     }
 
     /// <summary>(3b-iii) Resolve a body for the LIVE loop: the shared dispatch (<see cref="ResolveBodyAsync"/>)
@@ -260,7 +263,8 @@ public static class WindowResolverWiring
     public static WindowResolverDeps BuildSchedulerDeps(
         EngineContext context,
         IWindowChoicePort choicePort,
-        Func<IReadOnlyList<TimingWindowTrigger>> drainNewTriggers)
+        Func<IReadOnlyList<TimingWindowTrigger>> drainNewTriggers,
+        Func<IReadOnlyList<TimingWindowTrigger>, TimingWindowTrigger, bool>? skipCondition = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(choicePort);
@@ -272,7 +276,34 @@ public static class WindowResolverWiring
             commit: trigger => Commit(context, trigger),
             resolveBody: (trigger, ct) => ResolveBodyAsync(context, trigger, ct),
             choicePort: choicePort,
-            drainNewTriggers: drainNewTriggers);
+            drainNewTriggers: drainNewTriggers,
+            skipCondition: skipCondition);
+    }
+
+    /// <summary>(A-1 / P1-4) The AS-IS cut-in <c>HasExecutedSameEffect</c> skip predicate (AutoProcessing.cs:623-627):
+    /// suppress a candidate whose effect a prior commit in THIS window already resolved. AS-IS <c>IsSameEffect</c>
+    /// (ICardEffect.cs:860) is "same effect instance OR same <c>EffectSourceCard</c> + same <c>HashString</c> + same
+    /// root effect"; in the headless binding model that identity is the effect binding id (<c>Request.EffectId</c> —
+    /// one binding per source-instance-and-effect), so same-EffectId is the faithful key. Pass this as
+    /// <see cref="BuildSchedulerDeps"/>'s <c>skipCondition</c> ONLY for the specific cut-in windows AS-IS applies it
+    /// to (TrashDigivolutionCards / TrashLinkCards / Unsuspend / SelectCount, CardController.cs:5189/5301/5709/727/
+    /// 990) — NEVER the main-loop window (AS-IS AutoProcessing.cs:137 passes skipCondition=null, so the general
+    /// trigger process dedups nothing; a blanket main-loop dedup would over-suppress and diverge from AS-IS).</summary>
+    public static bool HasExecutedSameEffect(
+        IReadOnlyList<TimingWindowTrigger> resolved, TimingWindowTrigger candidate)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        for (int i = 0; i < resolved.Count; i++)
+        {
+            if (resolved[i].Request.EffectId == candidate.Request.EffectId)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Whether a trigger can activate right now — the batch pipeline's collect-time predicate

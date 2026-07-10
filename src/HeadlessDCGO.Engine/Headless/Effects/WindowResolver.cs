@@ -138,8 +138,12 @@ public sealed class WindowResolver
             WindowFrame frame = frames.Peek();
             List<TimingWindowTrigger> stack = frame.Stack;
 
-            // (P1-1) re-evaluate the gate of EVERY stacked trigger every pass.
-            var active = stack.Where(t => deps.Gate(t)).ToList();
+            // (P1-1) re-evaluate the gate of EVERY stacked trigger every pass. (A-1 / P1-4) a cut-in window
+            // additionally SUPPRESSES a trigger whose effect a prior commit in THIS run already resolved (AS-IS
+            // HasExecutedSameEffect, applied in the per-pass filter at MultipleSkills.cs:128-136) — treated like
+            // gate-false (stays in the stack, never active). The main loop supplies no SkipCondition (AS-IS null),
+            // so IsSuppressed is a no-op there.
+            var active = stack.Where(t => deps.Gate(t) && !IsSuppressed(deps, continuation, t)).ToList();
             if (active.Count == 0)
             {
                 // This frame is exhausted; pop back to its parent (whose loop head re-evaluates next), or finish.
@@ -219,6 +223,13 @@ public sealed class WindowResolver
             // above consumed nothing; a body that later suspends or soft-fizzles keeps the use spent (AS-IS).
             deps.Commit(pick);
 
+            // (A-1 / P1-4) record the commit in the run's used-list at the SAME point AS-IS adds to SkillInfos_used —
+            // inside OnProcessCallbuck alongside the once-consume (MultipleSkills.cs:358-360), i.e. after the
+            // commit-gate re-check, before the body. A fizzled / declined pick above added nothing (AS-IS: the
+            // callback only fires from Activate_Execute). A resumed in-flight body (above) is NOT re-committed, so it
+            // is not re-recorded. A cut-in window's SkipCondition reads this on the next pass.
+            continuation.Resolved.Add(pick);
+
             WindowResolveOutcome outcome = await deps.ResolveBody(pick, cancellationToken).ConfigureAwait(false);
             if (outcome == WindowResolveOutcome.Suspended)
             {
@@ -266,6 +277,13 @@ public sealed class WindowResolver
 
     private static bool IsTurnSide(TimingWindowTrigger trigger, HeadlessPlayerId? turnPlayerId) =>
         turnPlayerId is HeadlessPlayerId tp && trigger.Request.ControllerId == tp;
+
+    /// <summary>(A-1 / P1-4) Whether a cut-in window's injected <see cref="WindowResolverDeps.SkipCondition"/>
+    /// suppresses this trigger given the run's committed triggers (<see cref="WindowContinuation.Resolved"/>). No
+    /// condition (main-loop window) means never suppressed — AS-IS applies HasExecutedSameEffect only in cut-in
+    /// windows, so the general trigger process dedups nothing.</summary>
+    private static bool IsSuppressed(WindowResolverDeps deps, WindowContinuation continuation, TimingWindowTrigger trigger) =>
+        deps.SkipCondition?.Invoke(continuation.Resolved, trigger) ?? false;
 }
 
 /// <summary>Outcome of running one effect's BODY through the window loop (the once-use is already consumed at
@@ -304,10 +322,20 @@ public sealed class WindowContinuation
     internal WindowContinuation(Stack<WindowResolver.WindowFrame> frames)
     {
         Frames = frames;
+        Resolved = new List<TimingWindowTrigger>();
     }
 
     /// <summary>The cut-in frame stack (top = deepest cut-in). Non-empty while the window has unresolved triggers.</summary>
     internal Stack<WindowResolver.WindowFrame> Frames { get; }
+
+    /// <summary>(A-1 / P1-4) The AS-IS <c>skillInfos_used</c> mirror (AutoProcessing.cs:604-620): the running list of
+    /// triggers COMMITTED in this window run, spanning every cut-in frame — appended at commit, the same point AS-IS
+    /// adds to <c>SkillInfos_used</c> inside <c>OnProcessCallbuck</c> alongside the once-consume
+    /// (MultipleSkills.cs:358-360), i.e. after the commit-gate re-check, before the body. A cut-in window's injected
+    /// <see cref="WindowResolverDeps.SkipCondition"/> reads it to suppress a re-fire of the same effect (AS-IS
+    /// <c>HasExecutedSameEffect</c>). Populated unconditionally (as AS-IS does), but only read when a SkipCondition
+    /// is supplied — the main-loop window supplies none.</summary>
+    internal List<TimingWindowTrigger> Resolved { get; }
 
     /// <summary>The pick whose body suspended mid-resolution (its once-use is ALREADY consumed). Replayed — never
     /// re-picked or re-committed — on the next <see cref="WindowResolver.DriveAsync"/>; null when the suspend was a
@@ -358,7 +386,8 @@ public sealed record WindowResolverDeps
         Func<TimingWindowTrigger, CancellationToken, Task<WindowResolveOutcome>> resolveBody,
         IWindowChoicePort choicePort,
         Func<IReadOnlyList<TimingWindowTrigger>> drainNewTriggers,
-        int chainLimit = WindowResolver.DefaultChainLimit)
+        int chainLimit = WindowResolver.DefaultChainLimit,
+        Func<IReadOnlyList<TimingWindowTrigger>, TimingWindowTrigger, bool>? skipCondition = null)
     {
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(commit);
@@ -373,6 +402,7 @@ public sealed record WindowResolverDeps
         ChoicePort = choicePort;
         DrainNewTriggers = drainNewTriggers;
         ChainLimit = chainLimit;
+        SkipCondition = skipCondition;
     }
 
     /// <summary>The current turn player — their active triggers are offered before the non-turn player's.</summary>
@@ -398,4 +428,18 @@ public sealed record WindowResolverDeps
 
     /// <summary>Runaway-recursion safety bound (not an AS-IS cap).</summary>
     public int ChainLimit { get; }
+
+    /// <summary>(A-1 / P1-4) OPTIONAL same-effect skip predicate — the AS-IS cut-in <c>skipCondition</c>
+    /// (<c>HasExecutedSameEffect</c>, AutoProcessing.cs:623-627), applied in the per-pass active filter (mirroring
+    /// MultipleSkills.cs:128-136): given the run's committed triggers (<see cref="WindowContinuation.Resolved"/>) and
+    /// a candidate, return true to SUPPRESS the candidate this window — it is treated like gate-false (stays in the
+    /// stack, never becomes active). NULL for the main-loop window: AS-IS passes <c>skipCondition=null</c> to the
+    /// general trigger process (AutoProcessing.cs:137), so the main window applies NO same-effect dedup; only the
+    /// specific cut-in windows (TrashDigivolutionCards/TrashLinkCards/Unsuspend/SelectCount, CardController.cs:727/
+    /// 990/5189/5301/5709) pass it. Wiring a blanket dedup onto the main loop would DIVERGE from AS-IS
+    /// (over-suppression). The separate AS-IS ChainActivations cut-in cap (<c>IsCutInEffectUsedMaxCount</c>,
+    /// AutoProcessing.cs:1095-1098) is an inverted-sign dead path — it skips a ChainActivations>0 effect while its
+    /// used-count is BELOW the cap, so such an effect never cut-in activates — and is deliberately NOT mirrored; the
+    /// runaway <see cref="ChainLimit"/> is the only depth bound.</summary>
+    public Func<IReadOnlyList<TimingWindowTrigger>, TimingWindowTrigger, bool>? SkipCondition { get; }
 }
