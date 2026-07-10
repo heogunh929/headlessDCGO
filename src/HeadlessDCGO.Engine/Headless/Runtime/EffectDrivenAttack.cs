@@ -205,8 +205,11 @@ public static class EffectDrivenAttack
             });
         }
 
-        context.AttackController.DeclareAttack(
-            target.PlayerId, attackerId, target.DefendingPlayerId, target.TargetId, target.IsDirectAttack);
+        // (RD-9) declare through the shared chokepoint so an effect-driven (Vortex/Overclock/Execute) attack
+        // fires the SAME "[When Attacking]" (OnAllyAttack) window as a player-declared attack. Previously this
+        // called DeclareAttack directly and emitted no window, so those triggers never fired.
+        AttackDeclarationCommons.Declare(
+            context, target.PlayerId, attackerId, target.DefendingPlayerId, target.TargetId, target.IsDirectAttack);
         return true;
     }
 
