@@ -134,18 +134,21 @@ public sealed class AttackPermanentAction
         }
 
         SuspendAttacker(context, payload.AttackerId);
-        HeadlessAttackState attack = context.AttackController.DeclareAttack(
+        // (RD-9) declare + attack-declaration windows (OnAttack + OnAllyAttack) via the shared chokepoint so the
+        // effect-driven attack path fires the identical "[When Attacking]" window.
+        HeadlessAttackState attack = AttackDeclarationCommons.Declare(
+            context,
             action.PlayerId,
             payload.AttackerId,
             payload.DefendingPlayerId,
             payload.TargetId,
             payload.IsDirectAttack);
 
-        // G6-005: open the attack-declaration windows (subject = the attacker) so "[When Attacking]"
-        // triggers (OnAttack) and ally-attack triggers (OnAllyAttack, e.g. ST1_06) fire in a live match.
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnAttack, actor: action.PlayerId, subject: payload.AttackerId);
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnAllyAttack, actor: action.PlayerId, subject: payload.AttackerId);
-        // (PRIM-P0-timing) attack-declaration window (subject = attacker) for original OnDeclaration effects.
+        // (PRIM-P0-timing / design item RD9-90) attack-declaration proxy for original OnDeclaration effects — a
+        // STOPGAP for the not-yet-ported main-phase "[Main] skill declaration" action (AS-IS TurnStateMachine.cs
+        // :3061). Kept on the PLAYER-action path only (never emitted for effect-driven attacks, which must not
+        // fire a [Main] skill). Moves to the real declaration action when that lands; ST4_13 / TfxWhenDeclareDraw
+        // rely on it.
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnDeclaration, actor: action.PlayerId, subject: payload.AttackerId);
 
         Dictionary<string, object?> metadata = Metadata(action, payload, validation, attack);

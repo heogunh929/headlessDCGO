@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -22,6 +23,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Agent choice: selecting a target declares the attack", ChoiceSelectsTarget),
     ("Agent choice: declining initiates no attack", ChoiceDeclineNoAttack),
     ("Vortex options expose Digimon and player targets (unsuspended allowed)", VortexOptionsTargets),
+    ("(RD-9) an effect-driven attack fires the attacker's [When Attacking] window", EffectDrivenFiresWhenAttacking),
+    ("(RD-9) an effect-driven attack does NOT fire the main-skill OnDeclaration window", EffectDrivenSkipsOnDeclaration),
 };
 
 var failures = new List<string>();
@@ -157,6 +160,48 @@ async Task VortexOptionsTargets()
     var targets = EffectDrivenAttack.GetTargets(s.Match.Context, attacker, vortex);
     AssertTrue(targets.Any(t => t.IsDirectAttack), "player target available");
     AssertTrue(targets.Any(t => t.TargetId == unsus), "unsuspended Digimon target available");
+}
+
+// (RD-9) Before the chokepoint, EffectDrivenAttack.Initiate declared the attack but emitted NO windows, so a
+// Vortex/Execute attacker's "[When Attacking]" (OnAllyAttack) effect never fired. Now both attack paths go
+// through AttackDeclarationCommons.Declare which opens OnAllyAttack (subject = attacker). Asserted at the event
+// layer (the window emit is the RD-9 change; the activated-bridge resolution of it is covered elsewhere).
+async Task EffectDrivenFiresWhenAttacking()
+{
+    Setup s = await NewMatch();
+    HeadlessEntityId attacker = await Establish(s, P1, dp: 4000, suspended: false);
+    _ = await Establish(s, P2, dp: 3000, suspended: true);
+    s.Match.Context.GameEventQueue.DrainPending();   // discard setup events
+
+    AttackTargetCandidate pick = EffectDrivenAttack.GetTargets(s.Match.Context, attacker, new EffectAttackOptions())
+        .Single(t => t.IsDirectAttack);
+    AssertTrue(EffectDrivenAttack.Initiate(s.Match.Context, attacker, pick, new EffectAttackOptions()), "initiate succeeds");
+
+    var events = s.Match.Context.GameEventQueue.DrainPending();
+    AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAllyAttack && e.Subject == attacker),
+        "effect-driven Initiate opens the attacker's [When Attacking] (OnAllyAttack) window");
+    // OnDeclaration is a MAIN-skill-declaration timing, not an attack window — the effect-driven path must not
+    // emit it (only the player-action path does, as a stopgap for the not-yet-ported main-skill action).
+    AssertFalse(events.Any(e => e.Cause == TriggerTimings.OnDeclaration),
+        "effect-driven Initiate does NOT emit the main-skill OnDeclaration window");
+}
+
+// (RD-9) The shared chokepoint opens the attack-declaration windows (OnAttack + OnAllyAttack) — the same set
+// the player-action path emitted, now reused by the effect-driven path.
+async Task EffectDrivenSkipsOnDeclaration()
+{
+    Setup s = await NewMatch();
+    HeadlessEntityId attacker = await Establish(s, P1, dp: 4000, suspended: false);
+    _ = await Establish(s, P2, dp: 3000, suspended: true);
+    s.Match.Context.GameEventQueue.DrainPending();
+
+    HeadlessAttackState attack = AttackDeclarationCommons.Declare(
+        s.Match.Context, P1, attacker, P2, targetId: null, isDirectAttack: true);
+    AssertTrue(attack.IsPending, "Declare puts an attack in flight");
+
+    var events = s.Match.Context.GameEventQueue.DrainPending();
+    AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAttack && e.Subject == attacker), "Declare emits OnAttack");
+    AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAllyAttack && e.Subject == attacker), "Declare emits OnAllyAttack");
 }
 
 // --- Harness (mirrors G3.5-C3 / C18) -------------------------------------
