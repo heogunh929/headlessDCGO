@@ -240,7 +240,7 @@ async Task ST3_13_Buff()
     EngineContext context = Context(P1);
     var mine = new HeadlessEntityId("p1:battle:MINE");
     await PlaceDigimon(context, P1, mine, level: 4, sources: 0, dp: 4000);
-    var main = (ActivatedTargetBuffEffect)Activated(new ST3_13(), context, EffectTiming.OptionSkill);
+    var main = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(new ST3_13(), context, EffectTiming.OptionSkill)).Body;
     main.ApplyBuff(new[] { mine });
     AssertEqual(7000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 4000), "[Main] +3000 to my Digimon");
 
@@ -256,7 +256,8 @@ async Task ST3_13_Buff()
     // option card to hand. (The buffs are registered while the card resolves; once the card leaves play the
     // engine unregisters its bindings — so the buff is asserted before the self-bounce, matching the turn's
     // observable state.)
-    foreach (ActivatedPlayerScopeBuffEffect ps in effects.OfType<ActivatedPlayerScopeBuffEffect>())
+    foreach (ActivatedPlayerScopeBuffEffect ps in effects
+        .Select(e => (e as ActivatedEffect)?.Body).OfType<ActivatedPlayerScopeBuffEffect>())
     {
         ps.ApplyBuff();
     }
@@ -292,7 +293,7 @@ async Task ST3_15_SecurityAttack()
     EngineContext context = Context(P1);
     var foe = new HeadlessEntityId("p2:battle:FOE15");
     await PlaceDigimon(context, P2, foe, level: 4, sources: 0, dp: 4000);
-    var main = (ActivatedTargetBuffEffect)Activated(new ST3_15(), context, EffectTiming.OptionSkill);
+    var main = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(new ST3_15(), context, EffectTiming.OptionSkill)).Body;
     main.ApplyBuff(new[] { foe });
     AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, foe, baseSecurityAttack: 4), "[Main] SA 4 - 3 = 1");
 
@@ -301,7 +302,7 @@ async Task ST3_15_SecurityAttack()
     var foe2 = new HeadlessEntityId("p2:battle:FOE15b");
     await PlaceDigimon(sec, P2, foe2, level: 4, sources: 0, dp: 4000);
     var opt = new HeadlessEntityId("p1:security:OPT15");
-    var ps = (ActivatedPlayerScopeBuffEffect)new ST3_15().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1)).Single();
+    var ps = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)new ST3_15().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1)).Single()).Body;
     ps.ApplyBuff();
     AssertEqual(3, ContinuousModifierGate.ResolveSecurityAttack(sec, foe2, baseSecurityAttack: 4), "[Security] all opponents SA 4 - 1 = 3");
 }
@@ -330,7 +331,7 @@ async Task DebuffOn(EngineContext context, CEntity_Effect card, EffectTiming tim
 {
     var foe = new HeadlessEntityId($"p2:battle:FOE{delta}");
     await PlaceDigimon(context, P2, foe, level: 4, sources: 0, dp: 8000);
-    var effect = (ActivatedTargetBuffEffect)Activated(card, context, timing);
+    var effect = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(card, context, timing)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is the candidate");
     effect.ApplyBuff(new[] { foe });

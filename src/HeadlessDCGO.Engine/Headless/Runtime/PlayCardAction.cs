@@ -420,7 +420,12 @@ public sealed class PlayCardAction
         {
             foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.BeforePayCost, card))
             {
-                if (cardEffect is SuspendCostReductionEffect suspendReduce)
+                // (B-5) the reduction is now a body of a uniform ActivatedEffect (shared cap/optional gate) —
+                // unwrap it; the pre-migration bare form is kept for safety though every site now wraps.
+                SuspendCostReductionEffect? suspendReduce =
+                    (cardEffect as ActivatedEffect)?.Body as SuspendCostReductionEffect
+                    ?? cardEffect as SuspendCostReductionEffect;
+                if (suspendReduce is not null)
                 {
                     reduction += suspendReduce.CostReduction;
                 }

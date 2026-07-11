@@ -39,7 +39,7 @@ async Task SelfStackOnly()
     SetSources(ctx, otherTop, otherTamer);
 
     var eff = CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(new CardSource(ctx, ownTop, P1), "MindTamer", "");
-    var req = ((ActivatedPlayFromUnderEffect)eff).BuildRequest(new[] { P1, P2 });
+    var req = ((ActivatedPlayFromUnderEffect)((ActivatedEffect)eff).Body).BuildRequest(new[] { P1, P2 });
     var ids = req.Candidates.Select(c => c.Id.Value).ToHashSet();
 
     AssertTrue(ids.Contains(ownTamer.Value), "own-stack Tamer is a candidate");
@@ -56,7 +56,7 @@ async Task OptionalSelect()
     SetSources(ctx, ownTop, ownTamer);
 
     var eff = CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(new CardSource(ctx, ownTop, P1), "MindTamer", "");
-    var req = ((ActivatedPlayFromUnderEffect)eff).BuildRequest(new[] { P1, P2 });
+    var req = ((ActivatedPlayFromUnderEffect)((ActivatedEffect)eff).Body).BuildRequest(new[] { P1, P2 });
 
     AssertEqual(0, req.MinCount, "optional -> MinCount 0");
     AssertTrue(req.CanSkip, "optional -> CanSkip true");

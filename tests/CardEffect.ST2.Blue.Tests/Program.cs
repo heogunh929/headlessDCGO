@@ -115,7 +115,7 @@ async Task ST2_03_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_03(), context, EffectTiming.OnAllyAttack);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)((ActivatedEffect)Activated(new ST2_03(), context, EffectTiming.OnAllyAttack)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "only the lvl<=5 Digimon with a trashable source is a candidate (protected/no-source/lvl6 excluded)");
 
@@ -130,7 +130,7 @@ async Task ST2_06_Trash()
     EngineContext context = Context();
     var target = new HeadlessEntityId("p2:battle:T06");
     await PlaceDigimon(context, P2, target, level: 6, sources: 1); // no level gate on ST2_06
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_06(), context, EffectTiming.OnAllyAttack);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)((ActivatedEffect)Activated(new ST2_06(), context, EffectTiming.OnAllyAttack)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is a candidate regardless of level");
 
@@ -149,7 +149,7 @@ async Task ST2_09_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_09(), context, EffectTiming.WhenDigivolving);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)((ActivatedEffect)Activated(new ST2_09(), context, EffectTiming.WhenDigivolving)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "only the Digimon with a trashable source is a candidate");
 
@@ -304,7 +304,7 @@ async Task ST2_15_PlayFromUnder()
     await PlaceDigimon(context, P1, host, level: 4, sources: 1);
     var under = new HeadlessEntityId($"{host.Value}:src0");
 
-    var main = (ActivatedPlayFromUnderEffect)new ST2_15().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single();
+    var main = (ActivatedPlayFromUnderEffect)((ActivatedEffect)new ST2_15().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single()).Body;
     ChoiceRequest request = main.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the Digimon under-card is a candidate");
 
@@ -326,7 +326,7 @@ async Task ST2_16_Bounce()
     var target = new HeadlessEntityId("p2:battle:T16");
     await PlaceDigimon(context, P2, target, level: 4, sources: 0);
 
-    var effect = (ActivatedSelectEffect)Activated(new ST2_16(), context, EffectTiming.OptionSkill);
+    var effect = (ActivatedSelectEffect)((ActivatedEffect)Activated(new ST2_16(), context, EffectTiming.OptionSkill)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is a candidate");
 

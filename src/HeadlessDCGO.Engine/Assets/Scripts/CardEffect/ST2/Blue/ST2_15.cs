@@ -17,8 +17,11 @@ public sealed class ST2_15 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
-            cardEffects.Add(new ActivatedPlayFromUnderEffect(card,
-                "[Main] Choose a Digimon digivolution card placed under 1 of your Digimon and play it as another Digimon without paying its memory cost."));
+            const string desc = "[Main] Choose a Digimon digivolution card placed under 1 of your Digimon and play it as another Digimon without paying its memory cost.";
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedPlayFromUnderEffect(card, desc),
+                maxCountPerTurn: null, isOptional: false, desc));
         }
 
         if (timing == EffectTiming.SecuritySkill)

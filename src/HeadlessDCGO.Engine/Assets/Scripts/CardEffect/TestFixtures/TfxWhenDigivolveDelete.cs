@@ -22,9 +22,11 @@ public sealed class TfxWhenDigivolveDelete : CEntity_Effect
         {
             // ① You may suspend 1 Digimon (any owner).
             bool CanSuspend(HeadlessEntityId id) => CardEffectCommons.IsBattleAreaDigimon(card, id);
-            cardEffects.Add(new ActivatedSelectEffect(
-                card, CanSuspend, maxCount: 1, canNoSelect: true, canEndNotMax: false,
-                SelectPermanentEffect.Mode.Tap, "Suspend 1 Digimon."));
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedSelectEffect(card, CanSuspend, maxCount: 1, canNoSelect: true, canEndNotMax: false,
+                    SelectPermanentEffect.Mode.Tap, "Suspend 1 Digimon."),
+                maxCountPerTurn: null, isOptional: false, "Suspend 1 Digimon."));
 
             // ② You may delete 1 of your opponent's Digimon with DP <= the dynamic threshold.
             int DeletionMaxDp() => CardEffectCommons.MaxDpDeleteThreshold(card,
@@ -34,9 +36,11 @@ public sealed class TfxWhenDigivolveDelete : CEntity_Effect
                         && id != card.InstanceId));
             bool CanDelete(HeadlessEntityId id) =>
                 CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDp();
-            cardEffects.Add(new ActivatedSelectEffect(
-                card, CanDelete, maxCount: 1, canNoSelect: true, canEndNotMax: false,
-                SelectPermanentEffect.Mode.Destroy, "Delete 1 of your opponent's Digimon (DP threshold scales with suspended Digimon)."));
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedSelectEffect(card, CanDelete, maxCount: 1, canNoSelect: true, canEndNotMax: false,
+                    SelectPermanentEffect.Mode.Destroy, "Delete 1 of your opponent's Digimon (DP threshold scales with suspended Digimon)."),
+                maxCountPerTurn: null, isOptional: false, "Delete 1 of your opponent's Digimon (DP threshold scales with suspended Digimon)."));
         }
 
         // (EX8-2 brick) An entry point that re-activates the above [When Digivolving] effects, exercising

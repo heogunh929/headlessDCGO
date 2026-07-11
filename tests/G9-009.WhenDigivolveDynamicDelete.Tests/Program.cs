@@ -119,7 +119,7 @@ ChoiceRequest DeleteRequest(EngineContext context, HeadlessEntityId selfId)
     var card = new CardSource(context, selfId, P1);
     // effects[0] = suspend, effects[1] = delete (the dynamic-threshold one).
     var effects = new TfxWhenDigivolveDelete().CardEffects(EffectTiming.WhenDigivolving, card);
-    return ((ActivatedSelectEffect)effects[1]).BuildRequest(new[] { P1, P2 });
+    return ((ActivatedSelectEffect)((ActivatedEffect)effects[1]).Body).BuildRequest(new[] { P1, P2 });
 }
 
 static bool Offered(ChoiceRequest req, HeadlessEntityId id) =>

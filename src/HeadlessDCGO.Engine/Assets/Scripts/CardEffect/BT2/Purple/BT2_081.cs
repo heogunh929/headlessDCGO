@@ -40,13 +40,17 @@ public sealed class BT2_081 : CEntity_Effect
 
             // STOP: activateETB:false (suppress [On Play] effects on played Digimon) —
             //   ActivatedSelectAndPlayFromZonesEffect exposes no activateETB parameter in the reference signature.
-            cardEffects.Add(new ActivatedSelectAndPlayFromZonesEffect(
-                card,
-                fromZones: new[] { ChoiceZone.Trash },
-                canTarget: CanTarget,
-                maxCount: 1,
-                canEndNotMax: true,
-                description: "[When Attacking] You may play 1 purple level 3 Digimon card from your trash without paying its memory cost. Any [On Play] effects on Digimon played with this effect don't activate."));
+            const string desc = "[When Attacking] You may play 1 purple level 3 Digimon card from your trash without paying its memory cost. Any [On Play] effects on Digimon played with this effect don't activate.";
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedSelectAndPlayFromZonesEffect(
+                    card,
+                    fromZones: new[] { ChoiceZone.Trash },
+                    canTarget: CanTarget,
+                    maxCount: 1,
+                    canEndNotMax: true,
+                    description: desc),
+                maxCountPerTurn: null, isOptional: false, desc)); // (B-5) AS-IS isOptional=true is folded into the body canNoSelect (canEndNotMax:true) — result-equivalent; a true 2-decision restore needs the optional-prompt protocol (deferred).
         }
 
         return cardEffects;

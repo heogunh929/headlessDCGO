@@ -37,8 +37,8 @@ async Task PlayFrom(ChoiceZone zone)
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var card = await Place(ctx, P1, "PLAYME", zone);
-    var eff = (ActivatedSelectAndPlayEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
-        new CardSource(ctx, src, P1), zone, _ => true, 1, false, $"play from {zone}");
+    var eff = (ActivatedSelectAndPlayEffect)((ActivatedEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
+        new CardSource(ctx, src, P1), zone, _ => true, 1, false, $"play from {zone}")).Body;
     var sink = Sink(ctx);
     eff.Apply(sink, new[] { card });
     await sink.FlushAsync();
@@ -53,8 +53,8 @@ async Task CandidateFilter()
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var match = await Place(ctx, P1, "MATCH", ChoiceZone.Trash);
     var nomatch = await Place(ctx, P1, "OTHER", ChoiceZone.Trash);
-    var eff = (ActivatedSelectAndPlayEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
-        new CardSource(ctx, src, P1), ChoiceZone.Trash, id => id.Value.Contains("MATCH"), 1, false, "play match");
+    var eff = (ActivatedSelectAndPlayEffect)((ActivatedEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
+        new CardSource(ctx, src, P1), ChoiceZone.Trash, id => id.Value.Contains("MATCH"), 1, false, "play match")).Body;
     var req = eff.BuildRequest(new[] { P1, P2 });
     // Only the MATCH trash card passes the canTarget filter (NOMATCH is excluded).
     AssertTrue(req.Candidates.Count == 1, $"exactly one candidate offered (got {req.Candidates.Count})");

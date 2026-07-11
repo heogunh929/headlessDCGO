@@ -30,7 +30,7 @@ internal static class TimedBuffTests
         (EngineContext context, HeadlessEntityId mine) = await OwnDigimon();
         context.TurnController.Initialize(new[] { P1, P2 }, P1);
 
-        var effect = (ActivatedTargetBuffEffect)Effect(new ST1_13(), EffectTiming.OptionSkill, context);
+        var effect = (ActivatedTargetBuffEffect)((ActivatedEffect)Effect(new ST1_13(), EffectTiming.OptionSkill, context)).Body;
         ChoiceRequest request = effect.BuildRequest(new[] { P1, P2 });
         AssertEqual(1, request.Candidates.Count, "only the owner's Digimon is a candidate");
 
@@ -49,7 +49,7 @@ internal static class TimedBuffTests
         (EngineContext context, HeadlessEntityId mine) = await OwnDigimon();
         context.TurnController.Initialize(new[] { P1, P2 }, P1);
 
-        var effect = (ActivatedPlayerScopeBuffEffect)Effect(new ST1_13(), EffectTiming.SecuritySkill, context);
+        var effect = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)Effect(new ST1_13(), EffectTiming.SecuritySkill, context)).Body;
         effect.ApplyBuff();
 
         AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, mine, baseSecurityAttack: 1), "SA +1 while active");
@@ -62,7 +62,7 @@ internal static class TimedBuffTests
         (EngineContext context, HeadlessEntityId security, HeadlessEntityId battle) = await SecurityAndBattleDigimon();
         context.TurnController.Initialize(new[] { P1, P2 }, P1);
 
-        var effect = (ActivatedPlayerScopeBuffEffect)Effect(new ST1_14(), EffectTiming.OptionSkill, context);
+        var effect = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)Effect(new ST1_14(), EffectTiming.OptionSkill, context)).Body;
         effect.ApplyBuff();
 
         AssertEqual(8000, ContinuousDpGate.ResolveDp(context, security, baseDp: 1000), "Security Digimon +7000");
@@ -74,7 +74,7 @@ internal static class TimedBuffTests
         (EngineContext context, HeadlessEntityId security, _) = await SecurityAndBattleDigimon();
         context.TurnController.Initialize(new[] { P1, P2 }, P1);
 
-        var effect = (ActivatedPlayerScopeBuffEffect)Effect(new ST1_14(), EffectTiming.SecuritySkill, context);
+        var effect = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)Effect(new ST1_14(), EffectTiming.SecuritySkill, context)).Body;
         effect.ApplyBuff();
 
         AssertEqual(8000, ContinuousDpGate.ResolveDp(context, security, baseDp: 1000), "+7000 while active");
@@ -91,7 +91,7 @@ internal static class TimedBuffTests
         var registered = CardEffectRegistrar.RegisterOnEnterPlay(context, new ST1_08(), "ST1_08", source);
         AssertEqual(0, registered.Count, "ST1_08's WhenDigivolving select effect is not auto-registered");
 
-        var effect = (ActivatedTargetBuffEffect)new ST1_08().CardEffects(EffectTiming.WhenDigivolving, source).Single();
+        var effect = (ActivatedTargetBuffEffect)((ActivatedEffect)new ST1_08().CardEffects(EffectTiming.WhenDigivolving, source).Single()).Body;
         ChoiceRequest request = effect.BuildRequest(new[] { P1, P2 });
         var provider = new ScriptedChoiceProvider();
         provider.Enqueue(ChoiceResult.Select(mine));
