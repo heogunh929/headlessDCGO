@@ -10,8 +10,11 @@ public sealed class BT1_044 : CEntity_Effect
 
         if (timing == EffectTiming.OnAllyAttack)
         {
-            cardEffects.Add(new ActivatedPlayFromUnderEffect(card,
-                "[When Attacking] Play 1 level 4 or lower digivolution card under this card as another Digimon without paying its memory cost."));
+            const string desc = "[When Attacking] Play 1 level 4 or lower digivolution card under this card as another Digimon without paying its memory cost.";
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedPlayFromUnderEffect(card, desc),
+                maxCountPerTurn: null, isOptional: false, desc));
         }
 
         return cardEffects;

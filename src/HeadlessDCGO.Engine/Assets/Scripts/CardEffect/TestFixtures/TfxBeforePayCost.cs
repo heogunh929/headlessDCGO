@@ -25,9 +25,11 @@ public sealed class TfxBeforePayCost : CEntity_Effect
             // Mirror EX8_074's CanActivate gate: only offer the effect when >= 2 Digimon are suspendable.
             if (CardEffectCommons.MatchConditionPermanentCount(card, CanSuspendTarget) >= 2)
             {
-                cardEffects.Add(new SuspendCostReductionEffect(
-                    card, CanSuspendTarget, suspendCount: 2, costReduction: 4,
-                    description: "Suspend 2 Digimon to get Play Cost -4."));
+                const string desc = "Suspend 2 Digimon to get Play Cost -4.";
+                cardEffects.Add(new ActivatedEffect(
+                    card, EffectTiming.None, canUse: null, canActivate: null,
+                    body: new SuspendCostReductionEffect(card, CanSuspendTarget, suspendCount: 2, costReduction: 4, description: desc),
+                    maxCountPerTurn: null, isOptional: false, desc));
             }
         }
 

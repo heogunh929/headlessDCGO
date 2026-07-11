@@ -37,7 +37,7 @@ internal static class ActivatedTests
             keywords: null, EffectQueryRole.Continuous, new[] { "DeleteThreshold" }, effect: null, duration: null);
         context.EffectRegistry.Register(raise);
 
-        var effect = (ActivatedSelectEffect)Main(new ST1_15(), context);
+        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_15(), context)).Body;
         ChoiceRequest request = effect.BuildRequest(Both);
         AssertEqual(3, request.Candidates.Count, "with +2000 threshold, the 5000-DP Digimon is now a candidate");
     }
@@ -68,7 +68,7 @@ internal static class ActivatedTests
         await Place(context, P2, b1, dp: 3000);
         await Place(context, P2, b2, dp: 3000);
 
-        var effect = (ActivatedSelectEffect)Main(new ST1_16(), context);
+        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_16(), context)).Body;
         ChoiceRequest request = effect.BuildRequest(Both);
         AssertEqual(2, request.Candidates.Count, "both opponent Digimon are candidates");
 
@@ -86,7 +86,7 @@ internal static class ActivatedTests
     private static async Task ST1_15_Candidates()
     {
         (EngineContext context, _, _, _) = await ThreeOpponents();
-        var effect = (ActivatedSelectEffect)Main(new ST1_15(), context);
+        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_15(), context)).Body;
         ChoiceRequest request = effect.BuildRequest(Both);
         AssertEqual(2, request.Candidates.Count, "only the two <=4000 DP Digimon are candidates");
         AssertEqual(2, request.MaxCount, "up to 2");
@@ -96,7 +96,7 @@ internal static class ActivatedTests
     private static async Task ST1_15_Delete()
     {
         (EngineContext context, HeadlessEntityId low1, HeadlessEntityId high, HeadlessEntityId low2) = await ThreeOpponents();
-        var effect = (ActivatedSelectEffect)Main(new ST1_15(), context);
+        var effect = (ActivatedSelectEffect)((ActivatedEffect)Main(new ST1_15(), context)).Body;
         ChoiceRequest request = effect.BuildRequest(Both);
 
         var sink = Sink(context);

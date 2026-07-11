@@ -37,13 +37,17 @@ public sealed class BT1_056 : CEntity_Effect
                     && CardEffectCommons.CanPlayAsNewPermanent(candidate, payCost: false, cardEffect: null);
             }
 
-            cardEffects.Add(new ActivatedSelectAndPlayFromZonesEffect(
-                card,
-                fromZones: new[] { ChoiceZone.Hand, ChoiceZone.Trash },
-                canTarget: CanTarget,
-                maxCount: 1,
-                canEndNotMax: true, // ISOPTIONAL=true ("you may") + AS-IS canNoSelect:true.
-                description: "[On Play] You may play 1 [Tinkermon] from your hand or recycle bin without paying its memory cost."));
+            const string desc = "[On Play] You may play 1 [Tinkermon] from your hand or recycle bin without paying its memory cost.";
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedSelectAndPlayFromZonesEffect(
+                    card,
+                    fromZones: new[] { ChoiceZone.Hand, ChoiceZone.Trash },
+                    canTarget: CanTarget,
+                    maxCount: 1,
+                    canEndNotMax: true, // AS-IS canNoSelect:true (skippable pick).
+                    description: desc),
+                maxCountPerTurn: null, isOptional: false, desc)); // (B-5) AS-IS isOptional=true is folded into the body canNoSelect (canEndNotMax:true) — result-equivalent; a true 2-decision restore needs the optional-prompt protocol (deferred).
         }
 
         return cardEffects;

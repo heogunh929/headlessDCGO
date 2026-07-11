@@ -4,7 +4,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 출처: `rule_deficiency_remediation_design_2026-07-09.md`(이연 L1~L8 · P1 레지스터 · VR 재검수) + Stage 5 3b-iii 적대검수 신규 발견.
 원칙: [[check-asis-before-implementing]] · [[result-equivalence-not-completion]] · [[adversarial-review-before-cutover]] · [[fidelity-over-coverage]].
 
-**현행 상태(2026-07-11 갱신, main `812d7966`)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅** · **B-1(P1-3)·B-2(P1-5)·B-3(P1-6)·B-4(P1-7) ✅ 완료**(회귀 395/395·RuleAudit 0). **잔여 B**: **B-5=대형 uniform 이관(별도 집중 세션, 설계 `uniform_activated_primitive_design.md`)**. **다음 = C군 또는 B-5(별도)**. A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재).
+**현행 상태(2026-07-11 갱신)**: **A군 전량(A-1~A-4) + 정밀 debt(RDx-A3·A-2 task6/7) ✅** · **B군 전량 B-1(P1-3)·B-2(P1-5)·B-3(P1-6)·B-4(P1-7)·B-5(P1-8) ✅ 완료**. **B-5**=per-shape 활성효과를 uniform `ActivatedEffect`+`IEffectBody`로 이관(팩토리·카드 래핑 + resolver per-shape 케이스 10개 삭제 = 전 per-shape가 cap/optional 게이트 강제 경유), 회귀 396/396·RuleAudit 0. **다음 = C군**(권장 C-5). A-1의 5개 컷인 창 배선은 debt 아닌 별도 포팅 태스크(창 미존재). optional-3 구조복원·`ActivatedTargetRestrictionEffect` case 부재는 B-5 항목의 이연/별건 참조.
 > **C/D/E 재검증(2026-07-11)**: "포팅 時/인프라 대기/blocked"로 미룬 C-1·C-2·C-5·D-2·E-1·E-2·E-3 전량 AS-IS 조사 결과 **genuinely blocked 0건** — 정의·호출부·witness 실재 + 헤드리스 부분 scaffolding. E-1(reveal peek)·E-2(AddTrashTopCardAtTurnEnd)는 **원 전제가 거짓**(발산 없음/정의 실재)이라 패리티 테스트로 재분류. 착수 우선순위(가치·명확발산): **C-5(시큐리티 PRE, witness ~86장) > C-2 TODO-98(라우팅 2건) > E-3(producer 2장)**.
 > **BT24_049 실 카드 witness 보류(2026-07-11 지시)**: B-3 회귀는 fixture(`TfxOncePerTurnInteractiveTrash`)로 완결. 실 카드 witness로 BT24_049(②Fortitude+⑤[Once Per Turn] security-trash) 포팅을 시도했으나, 효과 ①(`AddSelfDigivolutionRequirementStaticEffect`)은 포팅된 caller 0개→미러 부재, ③④(compound suspend+min-DP 조건부 bounce)는 compound 프리미티브 자체 부재. "프리미티브 미러가 다 없으면 실 카드 테스트 보류" 지시로 **BT24_049 스켈레톤 유지**. 재개 조건=①의 alt-digivolve 미러 확보 + ③④ compound 프리미티브 구축.
 
@@ -61,8 +61,13 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
   - AS-IS `CardSource.Init()`(CardSource.cs:345-347)이 `InitUseCountThisTurn`(UseEffectsThisTurn 클리어)를 새 CardSource(=enter-play/이동) 시 호출. 헤드리스는 카드 use를 인스턴스로 키잉해 재-진입서 stale use 잔존. fix: enter-play 훅 `CardEffectRegistrar.RegisterCard`가 `OnceFlags.ResetForCard(owner, instanceId)` 호출(재-플레이/de-digivolve/re-stack 포괄, 첫 플레이는 0 제거=no-op). `OnceFlagHelpers.ResetForCard`(키 `{owner}:{source}:` prefix 매칭, per-card). 테스트 B3-RestackUseReset(re-enter→해당 카드만 리셋). 회귀 검증 중.
 - [x] ~~**B-4 · P1-7** RemoveUse 환불 프리미티브 부재~~ — **✅ 완료**(residual-debt-cleanup)
   - AS-IS 10+장(AD1_024:265·BT14_029:114)이 `if (!executed) RemoveUse()`로 body 미실행 시 캡 환불. fix: `ActivatedEffect.ResolveBodyAsync`가 `bool executed` 반환(인터랙티브 선택 IsSkipped→false), resolver uniform case가 **executed일 때만 Consume**(B-1 consume-after-body와 결합). 현 헤드리스 body는 전부 canSkip:false라 latent이나 skippable body 포팅 시 발화. 테스트 B1-OncePerTurnInteractiveResume(#2: skip→환불→재발화) + 픽스처 TfxOncePerTurnOptionalTrash(canSkip:true).
-- [ ] **B-5 · P1-8** per-shape optional/cap 우회 — **별도 집중 세션 예정**(대형)
-  - IsOptional/MaxCountPerTurn이 uniform ActivatedEffect 전용 — resolver ~12 per-shape 케이스(ActivatedSelect·TargetBuff·SelectFromZone …)는 캡·yes/no 없음(IActivatedCardEffect 인터페이스 비어있음). uniform 프리미티브(`ActivatedEffect`)는 이미 존재 → **각 per-shape를 IEffectBody로 이관 + 그 shape 사용 카드 갱신**(다-shape·다-카드 마이그레이션). 설계 `uniform_activated_primitive_design.md`, [[asis-uniform-activateclass]].
+- [x] ~~**B-5 · P1-8** per-shape optional/cap 우회~~ — **✅ 완료**(uniform 이관, 회귀 396/396·RuleAudit 0)
+  - **문제**: IsOptional/MaxCountPerTurn이 uniform ActivatedEffect 전용 — resolver의 per-shape 케이스(ActivatedSelect·TargetBuff·SelectFromZone·TrashDigivolution·PlayerScopeBuff·PlayFromUnder·SuspendCostReduction·SelectAndPlay·SelectAndPlayFromZones·BounceDiscard)는 캡·yes/no 없음.
+  - **해법(수렴)**: 각 per-shape 클래스가 **`IEffectBody`를 명시적 구현**(기존 BuildRequest/Apply/ApplyBuff에 위임 → 로직 중복 0) → 팩토리(~21)·직접 카드/픽스처 사이트가 `ActivatedEffect`(+body)로 래핑(헬퍼 `CardEffectFactory.AsUniformActivated`). resolver의 **10개 per-shape 케이스 삭제** — 이제 모든 per-shape가 uniform 게이트(CanResolve+cap+optional)를 **강제 경유**. async body(BounceDiscard=DiscardEvoRoots→bounce)는 `IEffectBody.ApplyAsync`(기본=sync Apply) 추가로 흡수.
+  - **숨은 커플링**: `PlayCardAction.BeforePayCostAvailabilityReduction`가 `is SuspendCostReductionEffect`로 타입-체크 → `(ae as ActivatedEffect)?.Body as ...`로 언랩.
+  - **단언테스트**: `B5-UniformMigration.Tests`(per-shape select 바디가 cap 1회/턴 + optional yes/no 게이트 경유; 픽스처 TfxCappedSelectSuspend/TfxOptionalSelectSuspend). 케이스 제거 상태에서 396/396 그린 = 전 migrated 바디가 uniform 게이트 경유 증명.
+  - **잔여 debt(이연)**: (1) **optional-3**(BT1_056·BT2_080·BT2_081, AS-IS `SetUpActivateClass(-1,true)`=isOptional) — 현재 body의 canNoSelect(canEndNotMax:true)로 접음(**result-equivalent**). 진짜 2-decision 복원은 `ConfirmOptionalAsync`가 EffectId 후보를 요구해 테스트/RL 드라이버가 EffectId로 답해야 함(프로토콜/action-space 변화)→ 이연. (2) **`PlayOptionCardEffect`**(재귀 per-selected resolve)·**self-driving 케이스**(Reveal/Dna/ModeChoice…)는 body 형태 부적합 → resolver 케이스 유지(carve-out). 설계 `uniform_activated_primitive_design.md`, [[asis-uniform-activateclass]].
+  - **별건 발견(pre-existing, B-5 밖)**: `ActivatedTargetRestrictionEffect`(ST2_14, `SelectAndRestrictEffect`)는 resolver에 case가 없음 — 별도 검증 필요(이번 이관서 미변경).
 
 ---
 
@@ -124,7 +129,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 ## 권고 착수 순서
 
-1. ~~**A군**(Stage 5 직후 마무리)~~ — **✅ 완료**(A-1~A-4 + 정밀 debt RDx-A3·task6/7, main b0569133; 라이브 버그 A-2/BT1_021 상환).
-2. **B-1(P1-3)** ← **현 최우선** — 첫 인터랙티브 capped 카드가 이걸 밟기 前 필수(latent P0).
-3. 나머지 B~E는 각 명시된 카드/기능 착수 前 선행 구축([[strong-model-prebuild-latent-infra]], OPUS-only).
+1. ~~**A군**(Stage 5 직후 마무리)~~ — **✅ 완료**(A-1~A-4 + 정밀 debt RDx-A3·task6/7, main b0569133).
+2. ~~**B군**(B-1~B-5)~~ — **✅ 완료**(B-5 uniform 이관까지, 회귀 396/396·RuleAudit 0).
+3. **C군** ← **현 최우선**(가치·명확발산순): **C-5**(시큐리티 PRE 창, witness ~86장) > **C-2**(TODO-98 라우팅 2건) > **E-3**(producer 2장). 각 명시 카드/기능 착수 前 선행 구축([[strong-model-prebuild-latent-infra]], OPUS-only).
 4. **F-1/F-2** 대형 골은 별도 트랙.

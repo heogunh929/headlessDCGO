@@ -353,51 +353,6 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedSelectEffect select:
-                {
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(select.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        select.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectBounceAndDiscardSourcesEffect bounceDiscard:
-                {
-                    // (ST4_16) select + bounce, where the bounce ALSO discards all of the target's
-                    // digivolution cards — AS-IS HandBounceClaass.Bounce() runs DiscardEvoRoots()
-                    // unconditionally BEFORE the permanent leaves the field, so the discard is awaited
-                    // here first, then the bounce mutation is queued through the SAME sink.
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(bounceDiscard.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        await bounceDiscard.DiscardSourcesAsync(result.SelectedIds, cancellationToken).ConfigureAwait(false);
-                        bounceDiscard.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectFromZoneEffect selectZone:
-                {
-                    // (PRIM-P0-flow B.O.3) zone-card select-follow-up (add-to-hand / trash-from-zone).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(selectZone.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        selectZone.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
                 case DigiBurstActivatedEffect burst:
                 {
                     // (PRIM special-play) AS-IS IDigiBurst.CanDigiBurst: gate on the card's own permanent holding
@@ -501,36 +456,6 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedSelectAndPlayEffect selectPlay:
-                {
-                    // (B.O.3) wire the zone-select play into the activation flow (was previously only driven by
-                    // direct BuildRequest/Apply in tests).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(selectPlay.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        selectPlay.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectAndPlayFromZonesEffect selectPlayZones:
-                {
-                    // (BT1_056) multi-zone (Hand ∪ Trash) select-and-play — same choose -> Apply shape as
-                    // ActivatedSelectAndPlayEffect, but candidates span several zones (each tagged with its origin).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(selectPlayZones.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        selectPlayZones.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
                 case RevealSelectThenPlaySelectedEffect revealPlay:
                 {
                     // (BT1_078 / BT3_063 / BT3_070 / BT3_073) reveal top N -> optional select 1 -> remaining to
@@ -607,42 +532,6 @@ public static class ActivatedEffectResolver
                     // (BT1_087) select 1 security card -> hand, color-gated Recovery+1, then shuffle security.
                     // Drives the ChoiceProvider; the add-to-hand / recovery / shuffle stage on the sink in order.
                     await securitySelect.ResolveAsync(sink, cancellationToken).ConfigureAwait(false);
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedTargetBuffEffect targetBuff:
-                {
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(targetBuff.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        targetBuff.ApplyBuff(result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectTrashDigivolutionEffect trashDigivolution:
-                {
-                    // (ST2_03/06/09) trash-digivolution select — same BuildRequest -> answer -> Apply shape as the
-                    // other selects. Without this case the bridge reaches the effect but the switch silently drops
-                    // it, so nothing is trashed in live play (only the unit-test's direct Apply worked).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(trashDigivolution.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        trashDigivolution.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedPlayerScopeBuffEffect playerScopeBuff:
-                {
-                    playerScopeBuff.ApplyBuff();
                     resolved++;
                     break;
                 }
@@ -816,40 +705,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedPlayFromUnderEffect playFromUnder:
-                {
-                    // (G10-007) "Choose a Digimon digivolution card under your Digimon and play it as another
-                    // Digimon" — select an under-card, then move it onto the battle area cost-free.
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(playFromUnder.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        playFromUnder.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
                 case BeforePayCostReductionEffect beforePayReduce:
                 {
                     // (PRIM-P0 B.O.4) non-interactive one-shot before-pay reduction of this play's own cost.
                     beforePayReduce.Apply();
-                    resolved++;
-                    break;
-                }
-
-                case SuspendCostReductionEffect suspendReduce:
-                {
-                    // (EX8_074 Stage 3 brick) "Suspend N of your Digimon to reduce this card's play cost by M":
-                    // select exactly N own Digimon, suspend them, and register the one-shot cost reduction.
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(suspendReduce.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        suspendReduce.Apply(sink, result.SelectedIds);
-                    }
-
                     resolved++;
                     break;
                 }

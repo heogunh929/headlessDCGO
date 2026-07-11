@@ -19,6 +19,17 @@ public interface IEffectBody
     ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players);
 
     void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected);
+
+    /// <summary>(B-5) Apply the body, allowing awaited work. The default just runs the synchronous
+    /// <see cref="Apply"/> — almost every body is synchronous. A body whose AS-IS coroutine has an awaited
+    /// step BEFORE/around its sink mutation (e.g. <c>DiscardEvoRoots</c> before a bounce, a ZoneMover move)
+    /// overrides this; the resolver always drives the body through <see cref="ApplyAsync"/>.</summary>
+    ValueTask ApplyAsync(
+        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
+    {
+        Apply(card, sink, selected);
+        return ValueTask.CompletedTask;
+    }
 }
 
 /// <summary>&lt;Draw N&gt; (AS-IS DrawClass.Draw). Non-interactive.</summary>
@@ -585,12 +596,12 @@ public sealed class ActivatedEffect : IActivatedCardEffect
                     return false; // (B-4) skipped selection = not executed → the resolver refunds the per-turn cap.
                 }
 
-                Body.Apply(Card, sink, result.SelectedIds);
+                await Body.ApplyAsync(Card, sink, result.SelectedIds, cancellationToken).ConfigureAwait(false);
                 return true;
             }
         }
 
-        Body.Apply(Card, sink, Array.Empty<HeadlessEntityId>());
+        await Body.ApplyAsync(Card, sink, Array.Empty<HeadlessEntityId>(), cancellationToken).ConfigureAwait(false);
         return true;
     }
 

@@ -49,13 +49,17 @@ public sealed class BT2_080 : CEntity_Effect
 
             // STOP: activateETB=false (AS-IS suppresses [On Play] effects on Digimon played by this effect)
             //   — ActivatedSelectAndPlayFromZonesEffect has no activateETB param; ETB effects will fire (partial port).
-            cardEffects.Add(new ActivatedSelectAndPlayFromZonesEffect(
-                card,
-                fromZones: new[] { ChoiceZone.Trash },
-                canTarget: CanTarget,
-                maxCount: 2,
-                canEndNotMax: true,
-                description: "[On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their memory costs. Any [On Play] effects on Digimon played with this effect don't activate."));
+            const string desc = "[On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their memory costs. Any [On Play] effects on Digimon played with this effect don't activate.";
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedSelectAndPlayFromZonesEffect(
+                    card,
+                    fromZones: new[] { ChoiceZone.Trash },
+                    canTarget: CanTarget,
+                    maxCount: 2,
+                    canEndNotMax: true,
+                    description: desc),
+                maxCountPerTurn: null, isOptional: false, desc)); // (B-5) AS-IS isOptional=true is folded into the body canNoSelect (canEndNotMax:true) — result-equivalent; a true 2-decision restore needs the optional-prompt protocol (deferred).
         }
 
         return cardEffects;
