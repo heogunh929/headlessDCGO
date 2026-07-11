@@ -45,6 +45,21 @@ public sealed class HeadlessEarlyPhaseFlow
             if (unsuspendedCards.Count > 0)
             {
                 operations.Add("Unsuspend");
+
+                // (E3-P1-2 / AS-IS IUnsuspendPermanents.Unsuspend, CardController.cs:5754) after the natural
+                // unsuspend step, StackSkillInfos(EffectTiming.OnUnTappedAnyone) fires the "when this becomes
+                // unsuspended" window over every permanent that just unsuspended. The sink-driven path already
+                // emits OnUntapped (MatchStateMutationSink UnsuspendKind); the phase-flow unsuspend bypasses the
+                // sink (direct Upsert), so mirror the emission here — one subject-scoped window per permanent
+                // (the timing is SubjectScoped, ActivatedBridgeTimings). It resolves while the phase is still
+                // Unsuspend, so a [Your Turn] unsuspend gate (BT8_057) reads the correct phase.
+                foreach (HeadlessEntityId unsuspendedId in unsuspendedCards)
+                {
+                    HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(unsuspendedId, out CardInstanceRecord? rec) && rec is not null
+                        ? rec.OwnerId
+                        : currentTurnPlayerId;
+                    TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUntapped, actor: owner, subject: unsuspendedId);
+                }
             }
 
             // N-1 (summoning sickness): a permanent is sick only on the turn it entered the field. At the

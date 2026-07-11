@@ -221,6 +221,17 @@ public sealed class OptionActivateAction
                 payload.EffectId);
         }
 
+        // (E-3 / AS-IS CardSource.CanNotPlayThisOption regions ①②③, CardSource.cs:184-238) an active
+        // ICanNotPlayCardEffect (player-bucket / field static / the option's own) forbids the play. AS-IS scans
+        // the effect regions BEFORE the color requirement, so this precedes OptionColorRequirement.
+        if (CanNotPlayOptionScan.CanNotPlay(context, playerId, payload.CardId))
+        {
+            return OptionActivateValidation.Illegal(
+                $"Option card '{payload.CardId}' cannot be played (a 'cannot play Option' effect is active).",
+                instance.DefinitionId,
+                payload.EffectId);
+        }
+
         // (RD-2 / AS-IS CardSource.CanNotPlayThisOption -> !MatchColorRequirement, CardSource.cs:239-245) an
         // option is playable only if every one of its colors is present on a field/breeding permanent the owner
         // controls (or an ignore-color effect applies). Checked after the CanNotPlay flag, mirroring AS-IS order.

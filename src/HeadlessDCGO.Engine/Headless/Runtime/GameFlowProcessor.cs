@@ -619,13 +619,38 @@ public sealed class GameFlowProcessor
                     continue;
                 }
 
-                // (RD-3) a burst-digivolved permanent trashes ONLY its top card (the burst card) and reverts to
-                // the prior form — NOT a full deletion. Handle it before the full-deletion path.
-                if (record.Metadata.TryGetValue(BurstTrashAtTurnEndDueKey, out object? burstDue) && burstDue is true)
+                // (RD-3 / E2-01) a burst-digivolved permanent trashes ONLY its top card and reverts to the prior form
+                // — NOT a full deletion. AS-IS (SelectBurstDigivolutionEffect.cs:315) reads permanent.TopCard LIVE, so
+                // the trash target is the CURRENT top, even if a same-turn re-digivolve buried the burst card. The DUE
+                // marker sits on the burst instance (top or now-buried source); locate it anywhere in the permanent's
+                // stack and trash this permanent's live top. Handle it before the full-deletion path.
+                HeadlessEntityId? burstMarkedId = null;
+                if (record.Metadata.TryGetValue(BurstTrashAtTurnEndDueKey, out object? topBurstDue) && topBurstDue is true)
                 {
-                    var burstMeta = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-                    burstMeta.Remove(BurstTrashAtTurnEndDueKey);
-                    context.CardInstanceRepository.Upsert(record with { Metadata = burstMeta });
+                    burstMarkedId = id;
+                }
+                else
+                {
+                    foreach (HeadlessEntityId burstSourceId in DeletionReplacementGate.ReadSourceIds(record.Metadata))
+                    {
+                        if (context.CardInstanceRepository.TryGetInstance(burstSourceId, out CardInstanceRecord? source) && source is not null
+                            && source.Metadata.TryGetValue(BurstTrashAtTurnEndDueKey, out object? srcBurstDue) && srcBurstDue is true)
+                        {
+                            burstMarkedId = burstSourceId;
+                            break;
+                        }
+                    }
+                }
+
+                if (burstMarkedId is HeadlessEntityId markedId)
+                {
+                    if (context.CardInstanceRepository.TryGetInstance(markedId, out CardInstanceRecord? marked) && marked is not null)
+                    {
+                        var burstMeta = new Dictionary<string, object?>(marked.Metadata, StringComparer.Ordinal);
+                        burstMeta.Remove(BurstTrashAtTurnEndDueKey);
+                        context.CardInstanceRepository.Upsert(marked with { Metadata = burstMeta });
+                    }
+
                     await DeDigivolveHelpers.ArmorPurgeTopAsync(
                         context.CardInstanceRepository, context.ZoneMover, id, context.GameEventQueue, cancellationToken).ConfigureAwait(false);
                     any = true;

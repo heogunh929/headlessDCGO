@@ -76,16 +76,6 @@ public sealed class HeadlessEndTurnCleanupFlow
                 }
             }
 
-            // (RD-3 / AS-IS CardController.cs:1537) a burst-digivolved permanent's top card is trashed at the end
-            // of the burst PLAYER's (owner's) turn — promote the marker to DUE for the async top-trash sweep.
-            if (turnPlayerId.HasValue && record.OwnerId == turnPlayerId.Value
-                && metadata.TryGetValue(GameFlowProcessor.BurstTrashAtTurnEndKey, out object? burst) && burst is true)
-            {
-                metadata[GameFlowProcessor.BurstTrashAtTurnEndDueKey] = true;
-                metadata.Remove(GameFlowProcessor.BurstTrashAtTurnEndKey);
-                removedForCard.Add(GameFlowProcessor.BurstTrashAtTurnEndKey);
-            }
-
             RemoveKeys(metadata, removedForCard, SharedTurnEndKeys);
 
             if (turnPlayerId.HasValue && record.OwnerId == turnPlayerId.Value)
@@ -108,12 +98,63 @@ public sealed class HeadlessEndTurnCleanupFlow
             removedKeys.AddRange(removedForCard.Select(key => $"{record.InstanceId.Value}:{key}"));
         }
 
+        PromoteBurstMarkers(context, turnPlayerId, cleanedCardIds, removedKeys);
+
         return new EndTurnCleanupResult(
             Applied: true,
             Reason: "EndTurnCleanup",
             ResetAttackCount: resetAttackCount,
             CleanedCardIds: cleanedCardIds.ToArray(),
             RemovedKeys: removedKeys.ToArray());
+    }
+
+    /// <summary>(E2-01 / AS-IS SelectBurstDigivolutionEffect.cs:249-344) The burst end-turn trash is registered on
+    /// the <em>permanent</em> (<c>permanent.UntilEachTurnEndEffects</c>), and its <c>ActivateCoroutine1</c> reads
+    /// <c>permanent.TopCard</c> LIVE (:315). Headless anchors the marker on the burst-card <em>instance</em>, which a
+    /// same-turn re-digivolve buries under a new top — so promotion must reach the marker wherever it now sits in the
+    /// permanent's stack (top or buried), not only when it is the battle-area top. The sweep then trashes the stack's
+    /// current live top (<see cref="GameFlowProcessor.SweepDueTurnEndDeletionsAsync"/>), mirroring the live TopCard read.</summary>
+    private static void PromoteBurstMarkers(
+        EngineContext context,
+        HeadlessPlayerId? turnPlayerId,
+        List<string> cleanedCardIds,
+        List<string> removedKeys)
+    {
+        if (!turnPlayerId.HasValue || context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return;
+        }
+
+        foreach (HeadlessEntityId topId in zoneReader.GetCards(turnPlayerId.Value, ChoiceZone.BattleArea).ToArray())
+        {
+            if (!context.CardInstanceRepository.TryGetInstance(topId, out CardInstanceRecord? top) || top is null)
+            {
+                continue;
+            }
+
+            // Walk the permanent's stack (top first, then buried sources) and promote the burst marker on whichever
+            // instance carries it — the permanent, not the card instance, owns the AS-IS effect.
+            List<HeadlessEntityId> stack = new() { topId };
+            stack.AddRange(DeletionReplacementGate.ReadSourceIds(top.Metadata));
+            foreach (HeadlessEntityId stackId in stack)
+            {
+                if (!context.CardInstanceRepository.TryGetInstance(stackId, out CardInstanceRecord? member) || member is null
+                    || member.OwnerId != turnPlayerId.Value
+                    || !member.Metadata.TryGetValue(GameFlowProcessor.BurstTrashAtTurnEndKey, out object? burst) || burst is not true)
+                {
+                    continue;
+                }
+
+                Dictionary<string, object?> memberMeta = new(member.Metadata, StringComparer.Ordinal)
+                {
+                    [GameFlowProcessor.BurstTrashAtTurnEndDueKey] = true,
+                };
+                memberMeta.Remove(GameFlowProcessor.BurstTrashAtTurnEndKey);
+                context.CardInstanceRepository.Upsert(member with { Metadata = memberMeta });
+                cleanedCardIds.Add(member.InstanceId.Value);
+                removedKeys.Add($"{member.InstanceId.Value}:{GameFlowProcessor.BurstTrashAtTurnEndKey}");
+            }
+        }
     }
 
     private static IReadOnlyList<CardInstanceRecord> FieldCardInstances(EngineContext context)

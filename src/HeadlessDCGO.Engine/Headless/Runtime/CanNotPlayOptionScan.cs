@@ -1,0 +1,141 @@
+namespace HeadlessDCGO.Engine.Headless.Runtime;
+
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Services;
+
+/// <summary>
+/// (E-3 / RD-2) AS-IS <c>CardSource.CanNotPlayThisOption</c> (CardSource.cs:184-248): an Option cannot be
+/// played while ANY active <c>ICanNotPlayCardEffect</c> forbids it. AS-IS scans THREE effect-list populations
+/// — for each it takes <c>cardEffect is ICanNotPlayCardEffect &amp;&amp; cardEffect.CanUse(null) &amp;&amp;
+/// ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)</c> against the option being played (<c>this</c>):
+/// <list type="number">
+/// <item>every player's <c>player.EffectList(None)</c> — PLAYER-scope grants (e.g. EX1_072's duration-bound
+/// "opponent can't use Option" registered via AddEffectToPlayer);</item>
+/// <item>every field permanent's <c>EffectList(None)</c> — FIELD-scope statics (e.g. BT8_057 "[All Turns]
+/// while all your Digimon are suspended on the opponent's turn, they can't use Option");</item>
+/// <item>when the option is not itself a permanent (<c>PermanentOfThisCard() == null</c>) — the option's OWN
+/// <c>EffectList(None)</c> (an option that forbids its own play).</item>
+/// </list>
+/// AS-IS then also returns true when <c>!MatchColorRequirement</c>; that half is the separately-wired
+/// <see cref="OptionColorRequirement"/> gate (kept distinct so both surface their own reason), so THIS scan
+/// covers only regions ①②③. Mirrors the <see cref="TrashProtectionScan"/> joint-scan substrate: producers embed
+/// the AS-IS <c>CanNotPlay</c> = <c>CardCondition(option)</c> into a single
+/// <c>Func&lt;CardSource /*option being played*/, bool&gt;</c>, gated by the effect's own CanUse
+/// (<see cref="ContinuousSelfModifierEffect.ConditionKey"/>). Field-scope bindings honour the AS-IS stack-position
+/// membership (<see cref="ContinuousFieldMembership"/>); a player-scope binding carries
+/// <see cref="PlayerScopeKey"/> and bypasses it (AS-IS region ① is a player bucket, not a field permanent).
+/// The stub <c>CanNotPlayClass</c> had no such scan, so every option was playable regardless of these effects.
+/// </summary>
+public static class CanNotPlayOptionScan
+{
+    public const string Scope = "CanNotPlayOption";
+
+    // (joint-migration) canonical joint predicate — the AS-IS ICanNotPlayCardEffect.CanNotPlay(cardSource) shape:
+    // a single Func<CardSource /*option being played*/, bool> evaluated by SCANNING every player/field/self
+    // CanNotPlay effect (mirrors CardSource.CanNotPlayThisOption). Producers embed the AS-IS CanNotPlayClass
+    // CardCondition(option) into it.
+    public const string JointPredicateKey = "joint.canNotPlayOption";
+
+    // A binding registered at PLAYER scope (AS-IS region ① player.EffectList) — its granter card is NOT a field
+    // permanent (e.g. an option played to trash that registered a duration-bound player effect), so it bypasses
+    // the field stack-position membership check.
+    public const string PlayerScopeKey = "canNotPlayOption.playerScope";
+
+    /// <summary>True when <paramref name="optionCardId"/> (owned by <paramref name="owner"/>) is currently
+    /// forbidden from being played by an active <c>ICanNotPlayCardEffect</c> — AS-IS regions ①②③ of
+    /// <c>CanNotPlayThisOption</c> (the color-requirement half is <see cref="OptionColorRequirement"/>).</summary>
+    public static bool CanNotPlay(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId optionCardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (owner.IsEmpty || optionCardId.IsEmpty)
+        {
+            return false;
+        }
+
+        // AS-IS `this` — the option being played (the joint's argument).
+        var option = new CardSource(context, optionCardId, owner, owner);
+        ICardInstanceRepository repository = context.CardInstanceRepository;
+
+        // Regions ① (player-scope) + ② (field permanents): registered continuous CanNotPlay bindings.
+        foreach (EffectRequest request in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = request.Context.Values;
+            if (!values.TryGetValue(JointPredicateKey, out object? jointRaw)
+                || jointRaw is not Func<CardSource, bool> joint)
+            {
+                continue;
+            }
+
+            // Region ①: a player-scope grant bypasses the field stack-position membership (its granter card is
+            // not a field permanent). Region ②: a field granter is exposed only under the AS-IS EffectList_ForCard
+            // membership (top/tucked/flipped/inherited).
+            bool playerScope = values.TryGetValue(PlayerScopeKey, out object? psRaw) && psRaw is true;
+            if (!playerScope && !ContinuousFieldMembership.GranterMembershipHolds(repository, context, request))
+            {
+                continue;
+            }
+
+            // AS-IS cardEffect.CanUse(null): the CanNotPlay effect's own condition gate (BT8_057 = host on field
+            // && all my Digimon suspended && opponent turn; EX1_072 = always true).
+            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            if (joint(option))
+            {
+                return true;
+            }
+        }
+
+        // Region ③: the option's OWN [None] CanNotPlay effects — AS-IS `if (PermanentOfThisCard() == null)`. An
+        // option being played from hand is not a permanent, so its own continuous effects are dispatch-built
+        // (unregistered, like the face-up-security source scan and OptionColorRequirement's self ignore-color
+        // scan) and evaluated with their CanUse gate (CardSource.EffectConditionPasses).
+        if (!IsPermanentOfThisCard(context, owner, optionCardId))
+        {
+            foreach (EffectRequest request in CardEffectRegistrar.BuildContinuousRequests(context, optionCardId, owner, Scope))
+            {
+                IReadOnlyDictionary<string, object?> values = request.Context.Values;
+                if (values.TryGetValue(JointPredicateKey, out object? jointRaw)
+                    && jointRaw is Func<CardSource, bool> joint
+                    && CardSource.EffectConditionPasses(request)
+                    && joint(option))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS CardSource.PermanentOfThisCard() != null iff this card is (the top of) a field permanent. An option
+    // in hand / trash is not — mirrored by "is this instance in a field zone".
+    private static bool IsPermanentOfThisCard(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId cardId)
+    {
+        if (context.ZoneMover is not IZoneStateReader zones)
+        {
+            return false;
+        }
+
+        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+        {
+            if (player.IsEmpty)
+            {
+                continue;
+            }
+
+            if (zones.GetCards(player, Choices.ChoiceZone.BattleArea).Contains(cardId)
+                || zones.GetCards(player, Choices.ChoiceZone.BreedingArea).Contains(cardId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

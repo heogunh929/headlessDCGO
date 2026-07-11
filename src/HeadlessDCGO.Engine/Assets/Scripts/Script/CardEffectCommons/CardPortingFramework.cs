@@ -4294,6 +4294,83 @@ public sealed class ContinuousTrashProtectionEffect : ICardEffect
         && inst is not null && inst.Metadata.TryGetValue("isFlipped", out object? raw) && raw is true;
 }
 
+/// <summary>(E-3) A continuous "an Option matching <see cref="CardCondition"/> cannot be played" effect
+/// registered under <see cref="HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan"/> (AS-IS
+/// <c>CanNotPlayClass</c> — <c>ICanNotPlayCardEffect.CanNotPlay(cardSource) = cardCondition(cardSource)</c>).
+/// The option-play legality gate scans every such active effect (<see cref="CanNotPlayThisOption"/> regions
+/// ①②③). <paramref name="playerScope"/> distinguishes a PLAYER-bucket grant (AS-IS <c>AddEffectToPlayer</c>
+/// region ①, granter not a field permanent — bypasses the field membership check) from a FIELD static (region
+/// ②, e.g. BT8_057, subject to the AS-IS EffectList_ForCard stack-position membership).</summary>
+public sealed class ContinuousCanNotPlayOptionEffect : ICardEffect
+{
+    public ContinuousCanNotPlayOptionEffect(
+        CardSource card,
+        Func<CardSource, bool> cardCondition,
+        bool isInheritedEffect,
+        Func<bool>? condition,
+        bool playerScope = false)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(cardCondition);
+        Card = card;
+        CardCondition = cardCondition;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+        PlayerScope = playerScope;
+    }
+
+    public CardSource Card { get; }
+
+    /// <summary>AS-IS <c>CanNotPlayClass._cardCondition</c> — WHICH option (owner / IsOption / …) this forbids,
+    /// evaluated against the option being played.</summary>
+    public Func<CardSource, bool> CardCondition { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    /// <summary>AS-IS <c>cardEffect.CanUse(null)</c> gate — the effect's live usability condition.</summary>
+    public Func<bool>? Condition { get; }
+
+    /// <summary>True for an AS-IS region-① player-bucket grant (bypasses the field stack-position membership).</summary>
+    public bool PlayerScope { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        Func<CardSource, bool> cardCondition = CardCondition;
+        // AS-IS CanNotPlay(option) = cardCondition(option). Single-arg joint (no causing-effect arg — the AS-IS
+        // interface takes only the CardSource being played).
+        values[HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.JointPredicateKey] =
+            (Func<CardSource, bool>)(option => cardCondition(option));
+
+        if (PlayerScope)
+        {
+            values[HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.PlayerScopeKey] = true;
+        }
+
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
+            // Registered field-wide (no target): the option-play scan enumerates the scope, not a per-card target.
+            targetEntityIds: Array.Empty<HeadlessEntityId>(),
+            values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous,
+            new[] { HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan.Scope }, effect: null, duration: null);
+    }
+}
+
 /// <summary>(FR-P3) A defender-conditional "cannot attack" restriction (AS-IS
 /// <c>CanNotAttackTargetDefendingPermanentClass</c> with a <c>defenderCondition</c>): the attacker may not
 /// attack defenders matching <see cref="DefenderPredicate"/>, but MAY attack others. Registers a self
@@ -4636,8 +4713,14 @@ public sealed class PlayOptionCardEffect : IActivatedCardEffect
     /// <summary>The zone-card select for the Option(s) to play (from <see cref="SourceZone"/>).</summary>
     public ChoiceRequest BuildRequest(IEnumerable<HeadlessPlayerId> players)
     {
+        // (E3-P1-1 / AS-IS CardEffectCommons.PlayOptionCards, CardEffectCommons.cs:65-68) the effect-driven option
+        // play path filters candidates by `!cardSource.CanNotPlayThisOption` BEFORE the select — the same legality
+        // gate the hand-play path uses (TurnStateMachine 2076/2533). CanNotPlayThisOption spans regions ①②③
+        // (CanNotPlayOptionScan) AND `!MatchColorRequirement` (OptionColorRequirement), so BOTH halves apply here.
         var candidates = ((IZoneStateReader)Card.Context.ZoneMover).GetCards(Card.Owner, SourceZone)
             .Where(OptionPredicate)
+            .Where(id => !CanNotPlayOptionScan.CanNotPlay(Card.Context, Card.Owner, id)
+                && OptionColorRequirement.Matches(Card.Context, Card.Owner, id))
             .Select(id => EffectChoiceHelpers.Candidate(id, id.Value, SourceZone, isSelectable: true, Card.Owner))
             .ToList();
         int max = Math.Min(MaxCount, candidates.Count);
@@ -5716,13 +5799,15 @@ public sealed class RevealSelectThenPlaySelectedEffect : IActivatedCardEffect
                 if (digivolved)
                 {
                     CardEffectRegistrar.RegisterCard(context, selected, owner);
-                    // (RD-1 follow-up) AS-IS this effect-driven free digivolve IS isEvolution and draws 1
-                    // (CardController.cs:1526-1529 via PlayCard). BUT it runs inside a library REVEAL whose
-                    // headless model only PEEKS the library (RevealAndSelect) — the revealed cards are still in
-                    // the library when a draw would fire, so drawing here would pull a revealed-but-unplaced card
-                    // instead of the card below them (AS-IS pulls the 3 revealed into an execution limbo FIRST,
-                    // then the isEvolution draw hits the remaining deck). Deferred until the Executing-zone /
-                    // reveal-removal model lands (TODO-68/83); wiring the draw before that would be incorrect.
+                    // (RD-1 / AS-IS CardController.cs:1526-1529) this effect-driven free digivolve IS isEvolution
+                    // (PlayCardClass with targetPermanent, root:Library) -> DigivolveCount_ThisTurn++ AND draw 1.
+                    // AS-IS reveal is PEEK-ONLY (RevealLibrary.cs:749-790 only sets IsBeingRevealed; the revealed
+                    // cards stay physically on the library top). By this point the non-selected revealed cards have
+                    // already been sent to the deck BOTTOM (loop above) and the selected card has left the library
+                    // via the digivolve, so the isEvolution draw hits the card BELOW the revealed batch -- exactly
+                    // as AS-IS. (The earlier deferral premised a card-REMOVAL reveal model that AS-IS never uses;
+                    // design item E1-01.)
+                    await DigivolveCommons.OnDigivolveCompletedAsync(context, owner, cancellationToken).ConfigureAwait(false);
                 }
 
                 break;
@@ -7607,6 +7692,17 @@ public static partial class CardEffectFactory
         Func<CardSource, bool> cardCondition, Func<CardSource, bool> cardEffectCondition,
         bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousTrashProtectionEffect(card, cardCondition, cardEffectCondition, isInheritedEffect, condition);
+
+    /// <summary>(E-3) <c>CanNotPlayOptionStaticEffect</c> — AS-IS <c>CanNotPlayClass</c>: a continuous
+    /// "an Option matching <paramref name="cardCondition"/> cannot be played" effect scanned by the option-play
+    /// legality gate (<see cref="HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan"/>).
+    /// <paramref name="cardCondition"/> = AS-IS <c>CanNotPlay</c> (WHICH option — owner / IsOption);
+    /// <paramref name="condition"/> = the effect's own CanUse gate. Registered as a FIELD static (subject to the
+    /// AS-IS stack-position membership); use <see cref="AddCanNotPlayOptionToPlayer"/> for the AS-IS
+    /// player-bucket (region ①) duration-bound form.</summary>
+    public static ICardEffect CanNotPlayOptionStaticEffect(
+        Func<CardSource, bool> cardCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousCanNotPlayOptionEffect(card, cardCondition, isInheritedEffect, condition);
 
     /// <summary>(PRIM-W5) <c>ChangeCardNamesClass</c> — grants this card an additional name
     /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>.</summary>
@@ -10705,6 +10801,50 @@ public static class CardEffectCommons
             oneShotRequest, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, duration: null));
     }
 
+    /// <summary>(E-3) AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing)</c> for a CONTINUOUS
+    /// (non-fire-once) player-bucket effect — the shape <see cref="AddEffectToPlayer"/> does NOT cover (that
+    /// overload registers a fire-then-clear delayed trigger via DelayedOneShotKey). Here the effect is a
+    /// continuous binding that lives in the registry and is consulted live (e.g. EX1_072's CanNotPlay grant,
+    /// scanned by <see cref="HeadlessDCGO.Engine.Headless.Runtime.CanNotPlayOptionScan"/>). The AS-IS
+    /// <c>player.Until*Effects</c> bucket is mirrored by tagging the binding with <paramref name="effectDuration"/>
+    /// so <see cref="HeadlessDCGO.Engine.Headless.Effects.EffectDurationExpiry"/> removes it at the matching
+    /// turn/battle end (controller = the caster, so UntilOpponentTurnEnd expires at the opponent's turn end and
+    /// UntilEachTurnEnd at the next turn end — 1:1 with the AS-IS bucket clears). The effect's own ToBinding
+    /// carries the scope + joint + CanUse; this just overrides its (null) duration.</summary>
+    public static void AddContinuousEffectToPlayer(
+        EffectDuration effectDuration, CardSource card, ICardEffect cardEffect)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(cardEffect);
+        EffectBinding binding = cardEffect.ToBinding(
+            $"{card.InstanceId.Value}:addPlayerContEffect:{Guid.NewGuid():N}");
+        EffectContext ctx = binding.Request.Context;
+
+        // (E-3) AS-IS AddEffectToPlayer stores the effect in the PLAYER's Until*Effects bucket — it is
+        // card-INDEPENDENT: the granting card leaving the field (EX1_072 goes to trash / back to hand) does NOT
+        // clear it; only the duration bucket clear does. The headless leave-field cleanup drops every binding
+        // whose SourceEntityId is the leaving card (MatchStateMutationSink / UnregisterCard), so re-source the
+        // player-bucket binding to a synthetic per-owner id (not a card instance) so ONLY EffectDurationExpiry
+        // removes it. ControllerId stays the caster, so UntilOpponentTurnEnd/UntilOwnerTurnEnd expiry is correct.
+        var playerSource = new HeadlessEntityId($"player:{ctx.OwnerPlayerId.Value}:contEffect:{Guid.NewGuid():N}");
+        var reSourced = new EffectRequest(
+            binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing,
+            new EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, playerSource, ctx.TriggerEntityId, ctx.TargetEntityIds, ctx.Values));
+        card.Context.EffectRegistry.Register(new EffectBinding(
+            reSourced, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect,
+            duration: effectDuration));
+    }
+
+    /// <summary>(E-3) Convenience for the AS-IS EX1_072 shape: register a player-bucket
+    /// <see cref="ContinuousCanNotPlayOptionEffect"/> (region ①, <c>playerScope: true</c>) that forbids the
+    /// options matching <paramref name="cardCondition"/> for <paramref name="effectDuration"/>. CanUse is always
+    /// true (AS-IS <c>(hashtable) =&gt; true</c>).</summary>
+    public static void AddCanNotPlayOptionToPlayer(
+        EffectDuration effectDuration, CardSource card, Func<CardSource, bool> cardCondition) =>
+        AddContinuousEffectToPlayer(
+            effectDuration, card,
+            new ContinuousCanNotPlayOptionEffect(card, cardCondition, isInheritedEffect: false, condition: null, playerScope: true));
+
     /// <summary>(W6-G) shared restriction-grant core — AS-IS GiveEffectToPermanent shape: target-locked,
     /// duration-tagged restriction binding with the LIVE CanUse (on field && !CanNotBeAffected) plus an
     /// optional counterpart predicate (attackerCondition / defenderCondition) evaluated by the gates.</summary>
@@ -11190,6 +11330,18 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         return TurnOwnershipHelpers.IsOwnerTurn(card.Context.TurnController.Current.TurnPlayerId, card.Owner);
+    }
+
+    /// <summary>AS-IS <c>GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Active</c>
+    /// (the unsuspend step of the turn). The AS-IS phase enum folds active+unsuspend into a single
+    /// <c>phase.Active</c>; the headless splits them, and the natural unsuspend runs in
+    /// <see cref="Headless.Runtime.HeadlessPhase.Unsuspend"/> — so the "unsuspend phase" gate reads that phase.
+    /// Distinguishes a natural unsuspend (a [Your Turn] OnUnTappedAnyone effect fires, BT8_057) from an
+    /// effect-driven mid-turn unsuspend during the Main phase (it does not).</summary>
+    public static bool IsUnsuspendPhase(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return card.Context.TurnController.Current.Phase == Headless.Runtime.HeadlessPhase.Unsuspend;
     }
 
     /// <summary>AS-IS <c>Player.DigivolveCount_ThisTurn</c>: how many times this card's owner has digivolved
@@ -12495,6 +12647,15 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         return ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Security).Count;
+    }
+
+    /// <summary>Mirror of the original <c>card.Owner.Enemy.SecurityCards.Count</c>: the number of cards in the
+    /// OPPONENT's security stack (BT8_057 "[Your Turn] … trash the top card of your opponent's security"
+    /// activate gate = opponent has >= 1 security).</summary>
+    public static int OpponentSecurityCount(CardSource card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return ((IZoneStateReader)card.Context.ZoneMover).GetCards(OpponentOf(card), ChoiceZone.Security).Count;
     }
 
     /// <summary>Mirror of the original <c>IsDPZeroDelete(hashtable)</c>: the just-deleted permanent (the

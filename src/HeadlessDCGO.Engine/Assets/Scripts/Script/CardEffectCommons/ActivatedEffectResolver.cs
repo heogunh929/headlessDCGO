@@ -712,6 +712,17 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
+                case AddThisCardToHandEffect addHand:
+                {
+                    // (E-3) "Then, add this card to its owner's hand" (AS-IS AddThisCardToHand) — no choice; stage
+                    // the ReturnToHand mutation on the shared sink. Formerly missing from this switch: the effect
+                    // fell through to the silent default (same missing-case class as ActivatedMemoryEffect above),
+                    // so EX1_072's [Security] add-to-hand and BT9_109's [Security] add-to-hand were both no-ops.
+                    addHand.Apply(sink);
+                    resolved++;
+                    break;
+                }
+
                 case ActivatedSelectAndDeDigivolveEffect selectDeDigivolve:
                 {
                     // Select up to maxCount matching permanents, then de-digivolve each by `count` — same

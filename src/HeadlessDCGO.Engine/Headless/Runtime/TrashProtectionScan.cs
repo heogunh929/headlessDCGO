@@ -78,8 +78,8 @@ public static class TrashProtectionScan
             // the field scan sees a card's effect only under the AS-IS stack-position rules — an INHERITED effect
             // only from a NON-TOP (tucked) source of a Digimon permanent, a non-inherited effect only from the TOP
             // card, and nothing at all from a flipped source or an off-field granter. Without this, a top-card
-            // BT9_109 wrongly grants its (inherited-only) protection.
-            if (!GranterMembershipHolds(repository, context, request))
+            // BT9_109 wrongly grants its (inherited-only) protection. (E-3) shared with CanNotPlayOptionScan.
+            if (!ContinuousFieldMembership.GranterMembershipHolds(repository, context, request))
             {
                 continue;
             }
@@ -101,78 +101,9 @@ public static class TrashProtectionScan
         return false;
     }
 
-    // AS-IS Permanent.EffectList(timing) = EffectList_ForCard(timing, TopCard) (Permanent.cs:1373-1376), whose
-    // per-cardSource membership (Permanent.cs:1497-1546) is:
-    //   ① a FLIPPED source contributes nothing (`if (!cardSource.IsFlipped)`);
-    //   ② a NON-TOP source contributes only when the permanent IsDigimon;
-    //   ③ an effect marked IsInheritedEffect is taken only from a NON-TOP source; the TOP card contributes only
-    //     its non-inherited (and, when linked, linked) effects. No linked-effect producer exists for this scope,
-    //     so the IsLinkedEffect branch has no headless mirror here (add it with its first witness).
-    // The AS-IS scan population is player.GetFieldPermanents() (battle + breeding, Player.cs:665) — a granter
-    // that is part of NO field permanent is never enumerated (the AS-IS "effects of itself" region applies to
-    // the card BEING TRASHED, which as a stack source always has a permanent, so it never fires there). The
-    // AS-IS PLAYER-effect region (player.EffectList, CardSource.cs:2500-2510) has no headless producer for this
-    // scope; a future player-granted protection binding must carry a membership-bypass marker (add with its
-    // first witness).
-    private static bool GranterMembershipHolds(
-        ICardInstanceRepository repository,
-        Bridge.EngineContext context,
-        EffectRequest request)
-    {
-        HeadlessEntityId granterId = request.Context.SourceEntityId;
-        if (granterId.IsEmpty
-            || !repository.TryGetInstance(granterId, out CardInstanceRecord? granter) || granter is null)
-        {
-            return false;
-        }
-
-        // ① AS-IS `!cardSource.IsFlipped` — a flipped granter's effects are skipped wholesale.
-        if (granter.Metadata.TryGetValue("isFlipped", out object? flippedRaw) && flippedRaw is true)
-        {
-            return false;
-        }
-
-        bool isInherited =
-            request.Context.Values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.InheritedEffectKey, out object? inheritedRaw)
-            && inheritedRaw is true;
-
-        var zones = (IZoneStateReader)context.ZoneMover;
-        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
-        {
-            if (player.IsEmpty)
-            {
-                continue;
-            }
-
-            foreach (ChoiceZone zone in FieldZones)
-            {
-                foreach (HeadlessEntityId top in zones.GetCards(player, zone))
-                {
-                    if (top == granterId)
-                    {
-                        // ③ TOP card: only NON-inherited effects reach the scan.
-                        return !isInherited;
-                    }
-
-                    if (repository.TryGetInstance(top, out CardInstanceRecord? host) && host is not null
-                        && ReadSourceIds(host.Metadata).Contains(granterId.Value, StringComparer.Ordinal))
-                    {
-                        // ②+③ tucked (non-top) source: only INHERITED effects, and only under a Digimon permanent.
-                        return isInherited
-                            && new Assets.Scripts.Script.CardEffectCommons.Permanent(context, top, player).IsDigimon;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
-
-    // AS-IS GetFieldPermanents = battle area + breeding area frames (Player.cs:665-681).
-    private static readonly ChoiceZone[] FieldZones = { ChoiceZone.BattleArea, ChoiceZone.BreedingArea };
-
-    private static IReadOnlyList<string> ReadSourceIds(IReadOnlyDictionary<string, object?> metadata) =>
-        metadata.TryGetValue(DigivolutionStackHelpers.SourceIdsKey, out object? raw) && raw is IEnumerable<string> ids
-            ? ids.Where(value => !string.IsNullOrWhiteSpace(value)).ToArray()
-            : Array.Empty<string>();
+    // (E-3) The AS-IS field effect-list MEMBERSHIP rule (Permanent.EffectList_ForCard, Permanent.cs:1497-1546) is
+    // shared with CanNotPlayOptionScan — see ContinuousFieldMembership. For THIS scope the AS-IS "effects of
+    // itself" region applies to the card BEING TRASHED (always a stack source, so it never fires there) and the
+    // AS-IS PLAYER-effect region (player.EffectList) has no headless producer, so every trash-protection binding
+    // is a field granter subject to the shared check.
 }

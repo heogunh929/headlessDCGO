@@ -53,6 +53,10 @@ async Task Bt1_078_RevealDigivolve()
     var good = Library(ctx, "g6", "G6", level: 6, colors: new[] { "Green" }, evolutionCost: 3);
     var bad1 = Library(ctx, "b4a", "B4", level: 4, colors: new[] { "Green" });
     var bad2 = Library(ctx, "b4b", "B4", level: 4, colors: new[] { "Green" });
+    // (E1-01) A 4th card sits BELOW the revealed batch — after the 2 non-selected cards go to the deck bottom and
+    // the selected card leaves via the free digivolve, the AS-IS isEvolution +1 draw (CardController.cs:1529)
+    // pulls THIS card (the one below the revealed 3), never a revealed card.
+    var deep = Library(ctx, "deep", "Deep", level: 3, colors: new[] { "Green" });
 
     Script(ctx, ChoiceResult.Select(good));
     await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
@@ -62,6 +66,8 @@ async Task Bt1_078_RevealDigivolve()
     AssertTrue(SourcesOf(ctx, good).Contains(self.Value), "BT1_078 is now a digivolution source under the level-6");
     AssertTrue(InZone(ctx, ChoiceZone.Library, bad1) && InZone(ctx, ChoiceZone.Library, bad2), "the 2 non-selected revealed cards went to the deck");
     AssertEqual(5, ctx.MemoryController.Current.Current, "no memory paid (free digivolve)");
+    // (E1-01 / RD-1) the free digivolve draws 1: the card below the revealed batch enters hand.
+    AssertTrue(InZone(ctx, ChoiceZone.Hand, deep), "the isEvolution +1 draw pulled the card below the revealed 3 into hand");
 }
 
 async Task Bt1_078_SkipNoDigivolve()

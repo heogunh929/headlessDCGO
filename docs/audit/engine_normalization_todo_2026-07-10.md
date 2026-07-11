@@ -10,7 +10,9 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 - **D군(삭제 배치 정밀화) ✅ D-2·D-1 완료**(goal+witness, 회귀 405/405·RuleAudit 0): **D-2** OnLeaveFieldAnyone 배치 collapse(witness AD1_025, SnapshotZone 갭 수정, uncapped 픽스처로 collapse 실증), **D-1** delete-process batch-id(독립 2 process=리액터 2회 정밀화, cross-batch order-choice 발산 P1 상환=batch-id 순차).
 - **C-3 ✅ 완료**(보호필터 분리+TrashProtectionScan, witness BT9_109) · **C-4 ✅ 종결**(원 전제 거짓=갭 부재 실증, witness BT9_081). **C군(C-1~C-5) 전량 완료.**
 - **C군 2차 적대 리뷰(2026-07-12, 렌즈 교체 3종: 합성·신선한 눈·witness fidelity) → P1 8건 적발·같은 날 전량 상환(408/408·RuleAudit 0)**. 1차 골별 리뷰 "P0/P1 0"의 한계 실증(골 스코프는 골이 만진 경로만 봄). 상환: ①sink 삭제 **배치 원자성**(1장이라도 PRE 옵션 시 전원 park→배치-메이트 게이트로 일괄 finalize=리액터 이중발화 -2→-1 교정) ②삭제-파생 **마커 필수화**(OnDeletion=DeletionBatchIdKey 필수, Armor Purge/no-DP top-swap 오발화 차단; 기존 테스트 5종 스탬프 정합화+역방향 단언) ③시큐리티 batch-id 스탬프 ④record-parameters 미러(DP실효/Level/Cost/Names JustBeforeRemoveField, 4경로 동일 seam+reader, latent infra) ⑤바운스 보호 역주입 제거(honorProtection:false) ⑥보호 스캔 자격/선택 표면 배선(IsTrashProtectedSource=스탬프 OR 스캔, SourceQualifies 배제) ⑦**TrashProtectionScan 효과-멤버십 규칙**(상속=비-톱만·톱=비-상속만·flipped 스킵·비-톱은 Digimon 호스트만) + **witness 재토폴로지**(기존 톱카드 토폴로지=AS-IS-거짓 인증이었음→tuck 재구성 10/10+역방향 단언) ⑧BT9_081 OR-게이트 per-pass 복귀(from-trash만 latch) ⑨효과-트래시 ACE overflow·직호출 면역 게이트·링크 overflow ⑩과대-STOP 2건 실포팅(BT9_109 C3-01/C3-02)+주석/문서 정정 5건. 이연 design item: C3-05(would-discard 컷인)·C3-06(바운스 DiscardEvoRoots overflow)·R2-P2-2/3/4(WhenRemoveField PRE컷인·stage-시점 바인딩 드랍·DP-zero 스윕 인터리브).
-- **다음 후보 = E-3**(ICanNotPlay 연속스캔, producer BT8_057/EX1_072) → A-2 P1-1(Vortex EoT-창) → E-1/E-2(패리티 종결) → F군/프리미티브 부채. (기록: C-4 "producer 부재 이연" 오판 정정 — `OnKnockOut`은 헤드리스 자체 타이밍명, AS-IS 대응=`OnDestroyedAnyone` 623장.)
+- **E군 ✅ 완료**(411/411): E-3(ICanNotPlay 연속스캔, witness BT8_057/EX1_072, 적대리뷰 P1 2건 상환)·E-1(free-digivolve reveal peek+진화후 드로우 상환)·E-2(버스트 재진화 permanent live-top 상환). E-1/E-2는 "종결 테스트"가 각각 P1 발산 적발→상환(전제는 거짓이었으나 인접 실갭 실재).
+- **A-2 P1-1**(Vortex EoT-창 멤버십) — **이연 확정(2026-07-12, 사용자 승인)**: 재도출 결과 **배틀 순서는 이미 AS-IS 정합**(헤드리스도 배틀 스텝을 창 종료 後 실행), 잔여 발산=선언 order-choice만(Vortex 선언이 OnEndTurn 창 멤버 아님, drain 後 고정 offer). narrow P1(키워드 어택자+다른 OnEndTurn 효과 공존 시). 충실 상환=글로벌 `<Vortex/Overclock/Execute>` 키워드 표현 재설계+창-drain 중 어택 선언 suspend/resume 인터리빙(가장 회귀-민감 seam)이라 F-1/창-루프 후속과 동행. design item A2-P1-1 주석(`MetadataActionProcessor.cs:884`). RD6-EndTurnSequence는 현 debt(고정 순서) 인코딩 유지.
+- **정상화 트랙(A~E) 실질 완료.** 그 후 대형 트랙 = F군(브릿지 확산~660장)·프리미티브 감사 부채(진짜 1:1 50/182)·B-5 fold 복원·잔여 P2 풀(포팅 witness 등장 시 조건부).
 > **운영 방침(2026-07-11 확정, [[goal-witness-operating-mode]])**: 본격 세트 포팅 중단. 작업 단위=엔진 골 1개+witness 2~3장(적대적 선정). 골 완료=witness 행동테스트 그린+회귀+독립 적대 리뷰 상환. 재개조건=이연 소진+C~F군 완료.
 > **C/D/E 재검증(2026-07-11)**: 미룬 C-1·C-2·C-5·D-2·E-1·E-2·E-3 전량 AS-IS 조사 **genuinely blocked 0건**. E-1(reveal peek)·E-2(AddTrashTopCardAtTurnEnd)는 **원 전제 거짓**(발산 없음/정의 실재)→패리티 테스트로 재분류. **grep 함정**([[grep-binary-skip-pitfall]]): 비-UTF8 파일 스킵으로 witness/호출부 과소집계(Fragment 7→2, E-2 오판)—AS-IS grep은 항상 `--binary-files=text`.
 > **BT24_049 실 카드 witness 보류(2026-07-11 지시)**: B-3 회귀는 fixture(`TfxOncePerTurnInteractiveTrash`)로 완결. 실 카드 witness로 BT24_049(②Fortitude+⑤[Once Per Turn] security-trash) 포팅을 시도했으나, 효과 ①(`AddSelfDigivolutionRequirementStaticEffect`)은 포팅된 caller 0개→미러 부재, ③④(compound suspend+min-DP 조건부 bounce)는 compound 프리미티브 자체 부재. "프리미티브 미러가 다 없으면 실 카드 테스트 보류" 지시로 **BT24_049 스켈레톤 유지**. 재개 조건=①의 alt-digivolve 미러 확보 + ③④ compound 프리미티브 구축.
@@ -131,18 +133,20 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 
 ## E. 트리거 잔여 (2026-07-11 AS-IS 검증 — 대부분 전제 정정됨)
 
-- [ ] **E-1 · L1 / RD-1** 효과-구동 free-digivolve reveal — ⚠️**원 전제 거짓, 발산 없을 가능성**(패리티 테스트로 종결)
-  - ~~"AS-IS는 revealed 카드를 executing-존으로 이동"~~ = **거짓**. AS-IS도 **peek만**: `RevealLibrary.RevealLibrary()`(`RevealLibrary.cs:749-790`)가 top-N을 읽되 카드는 물리적으로 라이브러리 top 유지, `IsBeingRevealed=true` 플래그만 세팅(`:789`). 선택 카드는 `PlayCardClass(root:Library)`로 라이브러리서 직접 플레이(BT1_078.cs:101-108).
-  - 헤드리스: **이미 동일 peek 모델**(`RevealAndSelect.cs:74-75/137` "reveal only peeks; cards move when choice resolves"). Executing-존/TODO-68·83 대기 불필요. → BT1_078로 reveal→free-digivolve 순서 + 진화후 +1드로우(`CardController.cs:1529`) 패리티 확인 테스트, 통과 시 종결.
-  - witness: BT1_078 등 ≈385(SimplifiedReveal…: BT9_020·BT9_064).
-- [ ] **E-2 · L2 / RD-3** 버스트 재-진화 엣지 — ⚠️**"정의 export 부재" 거짓, 정의·구현 실재**(엣지 테스트만)
-  - ~~"AS-IS `AddTrashTopCardAtTurnEnd` 정의 부재"~~ = **거짓**(이전 grep의 일본어 주석 mojibake 오판). 실제 정의 `SelectBurstDigivolutionEffect.cs:249-344`(hash "TrashBurstDigivolution", `UntilEachTurnEndEffects`, OnEndTurn 발화). 호출부 **단일** `CardController.cs:1537`(`isEvolution && _burstDigivolved && TopCard!=null` 시 버스트 top 턴종료 자가트래시). 진화 +1드로우는 `:1529`.
-  - 헤드리스: **이미 구현** — `SpecialPlayAction.cs:390`(BurstTrashAtTurnEndKey), `HeadlessEndTurnCleanupFlow.cs:82-86`(due 스윕), `GameFlowProcessor.cs:289-295`(RD-3 미러 문서화).
-  - 잔여 = **재-진화 엣지 테스트**(버스트 후 턴 내 재진화 시 어느 top이 스탬프/트래시되는지). witness: BT13_033·BT13_020·BT13_060(≈5장 burst).
-- [ ] **E-3 · L3 / RD-2** ICanNotPlayCardEffect 연속 스캔 — **지금 구축가능**(producer 2장 실재)
-  - AS-IS: 인터페이스 `CardEffectInterfaces.cs:20-23`, 구현 `CanNotPlayClass.cs:6-28`, 연속 스캔 `CardSource.CanNotPlayThisOption`(`CardSource.cs:184-248`: 전 플레이어·전 필드·자기 효과의 ICanNotPlayCardEffect 순회). 호출부 `CardSource.cs:158`(CanBePlayed)·`TurnStateMachine.cs:2076/2533`.
-  - 헤드리스: **스켈레톤 스텁**(`CanNotPlayClass.cs` 본문 없음), 보드-스캔 부재. 삽입점(`OptionActivateAction`/IsOptionLocked=정적 메타플래그만) + 색요구 절반은 포팅됨(`OptionColorRequirement`). → CanNotPlayClass 구현 + 옵션/플레이 legality에 보드-스캔 + 2장 포팅.
-  - producer: **BT8_057**(상대 옵션 사용불가), **EX1_072**(상대 옵션 플레이불가). 헤드리스 "producer 0"은 미포팅 탓, AS-IS엔 2장.
+- [x] **E-1 · L1 / RD-1** 효과-구동 free-digivolve reveal — **✅완료(2026-07-12, 워킹트리, 411/411·RuleAudit 0): peek 모델 확인 + P1 상환**
+  - **원 전제("AS-IS는 revealed 카드를 executing-존으로 이동")=거짓 확정**: AS-IS도 peek만(`RevealLibrary.cs:749-790`, IsBeingRevealed 플래그만). 헤드리스도 동일 peek 모델(`RevealAndSelect.cs`).
+  - **테스트가 P1 발산 적발→상환**: 헤드리스 `RevealSelectThenPlaySelectedEffect`(DigivolveOntoSelf)가 **진화후 +1드로우 누락**(AS-IS CardController.cs:1528-1529, 거짓 전제 "draw가 revealed 카드를 뽑는다" 기반 이연 주석으로 deferred). peek 확정으로 draw는 배치 아래 카드를 뽑음이 명확 → `DigivolveCommons.OnDigivolveCompletedAsync`(counter+++draw) 배선. 기존 `BT1.StopRemainder` 테스트가 draw 누락을 인코딩하고 있어 정정.
+  - **witness=BT1_078** [When Attacking] reveal 3→lv6 free-digivolve. `tests/E1-Parity.Tests`(peek 불변·라이브러리 직접 free-digivolve·+1드로우·비선택 DeckBottom 순서·skip 원위치).
+- [x] **E-2 · L2 / RD-3** 버스트 재-진화 엣지 — **✅완료(2026-07-12, 워킹트리, 411/411·RuleAudit 0): 정의 실재 확인 + P1 상환**
+  - **원 전제("AddTrashTopCardAtTurnEnd 정의 부재")=거짓**(mojibake 오판). 정의 `SelectBurstDigivolutionEffect.cs:249-344`, 호출부 `CardController.cs:1531-1537`.
+  - **재진화 엣지 테스트가 P1 발산 적발→상환**: AS-IS는 `AddTrashTopCardAtTurnEnd(permanent)`를 **permanent**에 등록, `ActivateCoroutine1`이 턴종료 시 `permanent.TopCard`를 **live read**(:315)해 트래시 → 재진화로 새 top 얹히면 **새 top** 트래시. 헤드리스는 스탬프를 버스트 카드 **인스턴스**에 걸고 스윕이 배틀에어리어 top만 스캔 → 재진화 시 버스트 카드 파묻히면 마커 **고아**=아무것도 트래시 안 됨(발산). **상환(저위험, 진화 경로 미변경)**: `HeadlessEndTurnCleanupFlow.PromoteBurstMarkers`가 각 top의 **스택(top+sourceIds)**을 워크해 마커 승격 + `GameFlowProcessor.SweepDueTurnEndDeletionsAsync`가 마커를 id+sourceIds서 탐색→`ArmorPurgeTopAsync(id)`로 permanent live top 트래시(AS-IS permanent.TopCard 미러). path-agnostic이라 fusion/DNA per-path 배선 불요.
+  - **witness=BT13_033/020/060**(burst 진화). `tests/E2-BurstEdge.Tests`(버스트 자가트래시+revert·재진화 시 새 top 트래시·비-버스트 무스탬프·+1드로우).
+- [x] **E-3 · L3 / RD-2** ICanNotPlayCardEffect 연속 스캔 — **✅완료(2026-07-12, 워킹트리, 409/409·RuleAudit 0)**
+  - **완료**: `CanNotPlayOptionScan`(신규, TrashProtectionScan/ContinuousImmunityGate 미러 — AS-IS CardSource.cs:184-248의 3영역 순회 ①전 플레이어 player ②전 필드 permanent ③self(PermanentOfThisCard==null=필드존 부재) → GetContinuousEffects collapse+BuildContinuousRequests, CanUse 게이트 라이브 평가) + `ContinuousCanNotPlayOptionEffect`+`CanNotPlayOptionStaticEffect` 팩토리(멤버십은 TrashProtectionScan서 공유 추출한 `ContinuousFieldMembership`). 색요구(`!MatchColorRequirement`)는 기존 `OptionColorRequirement` 분리 유지(AS-IS 순서=효과영역 먼저). **삽입점 2곳(전수 확인)**: `OptionActivateAction.Validate`(손-플레이)+`PlayOptionCardEffect.BuildRequest`(효과-구동, 리뷰 P1-1 상환). PlayCardAction은 옵션 명시 거부(ActivateOption 라우팅). `AddContinuousEffectToPlayer`+`AddCanNotPlayOptionToPlayer` 신규(duration-bound player 효과, granter-독립 수명=합성 per-owner id 재소싱).
+  - **witness 2장**: **BT8_057**([None] static: CanUse=IsExistOnBattleArea∧내 배틀 디지몬 전원 suspended∧상대 턴, CardCondition=상대 옵션) + **[Your Turn]** OnUnTappedAnyone 상대 시큐리티 트래시(리뷰 P1-2=부당 STOP 제거 후 포팅, ST4_11 패턴). **EX1_072**([Main]=UntilOpponentTurnEnd·[Security]=UntilEachTurnEnd+add-to-hand). `tests/E3-Witness.Tests` 28체크.
+  - **부수 픽스**: ①`AddThisCardToHandEffect` resolver case 누락(silent no-op, BT9_109·ST3_13/14·BT1 6장·EX1_072 add-to-hand 복구) ②헤드리스 자연 언서스펜드 페이즈가 `OnUnTappedAnyone` 미emit(AS-IS CardController.cs:5754는 매 언서스펜드 발화) → per-permanent subject-scoped emission 추가(BT2_002 등 정합 개선).
+  - **적대 리뷰(2026-07-12)→P1 2건 상환**: P1-1(효과-구동 옵션 플레이 스캔 우회→BuildRequest 필터)·P1-2(부당 STOP E3-01→[Your Turn] 포팅). duration 구분(UntilOpponentTurnEnd vs UntilEachTurnEnd=ExpireTurnEnd controller 기준)·삽입점 완전성·스캔 3영역·witness fidelity 정합 확인. P2 2건(테스트 격리·resolver 커버리지) 상환. 이연 없음.
+  - AS-IS: 인터페이스 `CardEffectInterfaces.cs:20-23`, 구현 `CanNotPlayClass.cs`, 스캔 `CanNotPlayThisOption`(CardSource.cs:184-248), 호출부 CardSource.cs:160(CanBePlayed)·PlayOptionCards(CardEffectCommons.cs:60-68)·TurnStateMachine.cs:2076/2533.
 
 ---
 
@@ -161,7 +165,7 @@ Stage 5 창-루프 컷오버 **전체 완료**(PR#9, 391/391·RuleAudit 0) 시�
 3. ~~**C군 전체(C-1~C-5)**~~ — **✅ 완료**(goal+witness; C-4는 원 전제 거짓=갭 부재 실증으로 종결).
 4. ~~**D군(D-1·D-2)**~~ — **✅ 완료**(배치 collapse+batch-id, cross-batch 순차 상환 포함).
 5. ~~**C군 2차 적대 리뷰(렌즈 3종)+상환**~~ — **✅ 완료**(2026-07-12, P1 8건→전량 상환, 408/408·RuleAudit 0. 상세=상단 현행 상태).
-6. **다음 후보**(goal+witness 방식 지속): **E-3**(ICanNotPlay 연속스캔, producer BT8_057/EX1_072 — 유일하게 남은 구축 골) → **A-2 P1-1**(Vortex EoT-창 멤버십, EX8_074+BT1_021 공존 시 라이브) → **E-1/E-2**(패리티/엣지 테스트만으로 종결). 각 골 착수 前 선행 구축([[strong-model-prebuild-latent-infra]], OPUS-only).
-7. 그 후 대형 트랙: **F-1**(브릿지 확산 ~660장) · **F-2**(프리미티브 잔여) · **프리미티브 감사 부채**([[primitive-transverse-audit-2026-07-08]] P0, 진짜 1:1 50/182) · B-5 isOptional fold 복원 백로그(resolver IsOptional 지원 확인됨 — BT9_081·BT22_035×3·EX8_061×2 등).
+6. ~~**E-3·E-1·E-2**~~ ✅ (411/411, E-1/E-2 종결 테스트가 각 P1 발산 적발→상환) · ~~**A-2 P1-1**(Vortex EoT-창)~~ — **이연 확정**(사용자 승인, narrow P1, 배틀 순서 이미 정합, 충실 상환=글로벌 키워드 재설계라 F-1 동행). **정상화 트랙(A~E) 실질 완료.**
+7. **다음 대형 트랙**: F-1(브릿지 확산~660장) · F-2(프리미티브 잔여) · 프리미티브 감사 부채([[primitive-transverse-audit-2026-07-08]] 50/182) · B-5 fold 복원.
 
 > **미커밋 주의**: A/B/C군 전 상환·골 변경분이 로컬 main 워킹트리에 **미커밋** 상태(RL 학습환경 구축 전 커밋 금지 방침, [[no-commit-until-training-env]]).
