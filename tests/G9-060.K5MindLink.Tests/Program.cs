@@ -122,8 +122,8 @@ async Task PlaysTamerBack()
     var digimon = await Place(ctx, P1, "DIGIMON", level: 4);
     AssertTrue(await new MindLinkClass(new Permanent(ctx, tamer, P1), null, null).MindLink(digimon), "MindLink applied");
 
-    var playBack = (ActivatedPlayFromUnderEffect)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(
-        new CardSource(ctx, tamer, P1), cardName: "TAMER", effectDescription: "");
+    var playBack = (ActivatedPlayFromUnderEffect)((ActivatedEffect)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(
+        new CardSource(ctx, tamer, P1), cardName: "TAMER", effectDescription: "")).Body;
     ChoiceRequest request = playBack.BuildRequest(new[] { P1 });
     AssertTrue(request.Candidates.Any(c => c.Id == tamer), "the linked TAMER under-card is a candidate (Digimon-only filter fixed)");
 

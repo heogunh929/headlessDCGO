@@ -55,10 +55,10 @@ async Task EoTFiresPreFlip()
 
     // BT1_021 (Red) carries "[End of Your Turn] Lose 3 memory." — place it in P1's battle area and register its
     // effects (the enter-play hook binds the OnEndTurn TriggeredGainMemoryEffect into the scheduler registry).
-    cards.Upsert(new CardRecord(new HeadlessEntityId("BT1_021"), "BT1_021", "EoTLoser",
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxEndTurnLose3Memory"), "TfxEndTurnLose3Memory", "EoTLoser",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon"));
-    var eot = new HeadlessEntityId("p1:field:BT1_021");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(eot, new HeadlessEntityId("BT1_021"), P1,
+    var eot = new HeadlessEntityId("p1:field:TfxEoTLose3");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(eot, new HeadlessEntityId("TfxEndTurnLose3Memory"), P1,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = false }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, eot, ChoiceZone.None, ChoiceZone.BattleArea));
     context.RegisterEnteredCardEffects(eot, P1);
@@ -204,10 +204,10 @@ async Task EoTWindowResolvesBeforeAttack()
     var cards = (CardDatabase)context.CardRepository;
 
     // BT1_021: "[End of Your Turn] lose 3 memory" — a memory effect that resolves in the OnEndTurn window.
-    cards.Upsert(new CardRecord(new HeadlessEntityId("BT1_021"), "BT1_021", "EoTLoser",
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxEndTurnLose3Memory"), "TfxEndTurnLose3Memory", "EoTLoser",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon"));
-    var eot = new HeadlessEntityId("p1:field:BT1_021");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(eot, new HeadlessEntityId("BT1_021"), P1,
+    var eot = new HeadlessEntityId("p1:field:TfxEoTLose3");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(eot, new HeadlessEntityId("TfxEndTurnLose3Memory"), P1,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = false }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, eot, ChoiceZone.None, ChoiceZone.BattleArea));
     context.RegisterEnteredCardEffects(eot, P1);

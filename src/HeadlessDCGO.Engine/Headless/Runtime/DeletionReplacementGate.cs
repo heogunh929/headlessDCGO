@@ -196,7 +196,8 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null)
+        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null,
+        Bridge.EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -236,6 +237,15 @@ public static class DeletionReplacementGate
         metadata[EnteredThisTurnKey] = true;
         metadata[FortitudeReplayedKey] = true;
         repository.Upsert(record with { Metadata = metadata });
+
+        // (B-3 / 2026-07-11 re-review) AS-IS FortitudeProcess replays via PlayPermanentCards → card.Init()
+        // (CardController.cs:1361) — the revived card gets FRESH per-turn uses AND its ported effects
+        // re-registered (the deletion's leave-play cleanup removed the bindings). The enter-play hook covers both.
+        if (context is not null)
+        {
+            Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, cardId, record.OwnerId);
+        }
+
         return true;
     }
 
@@ -580,30 +590,32 @@ public static class DeletionReplacementGate
     }
 
     /// <summary>
-    /// (C-13 Decode) AFTER a Digimon left the field by an effect (not battle), its controller may play one
-    /// of its digivolution sources as a new permanent for free. Mirrors AS-IS <c>DecodeProcess</c>
+    /// (C-13 Decode / C-1 PRE) When a Digimon WOULD leave the field by an effect (not battle), its controller
+    /// may play one of its digivolution sources as a new permanent for free. Mirrors AS-IS <c>DecodeProcess</c>
     /// (select 1 matching source from the leaving card's stack → <c>PlayPermanentCards(payCost:false,
-    /// activateETB:true)</c>) gated by <c>CanActivateDecode</c>. The sources remain in <c>ChoiceZone.None</c>
-    /// referenced by the trashed card's <c>sourceIds</c> (same as ArmorPurge/Save), so this runs once the
-    /// card is in the trash. The chosen source enters anew (summoning sick, no stack of its own); it is
-    /// detached from the dead card's <c>sourceIds</c> and the dead card is marked <c>decoded</c> so the
-    /// window does not re-offer. The source's Digimon/colour eligibility is enforced by the caller's
-    /// candidate filter (the free play needs no cost gate).
+    /// activateETB:true)</c>) gated by <c>CanActivateDecode</c>, fired in the WhenRemoveField cut-in while the
+    /// card is still on the field. The sources sit in <c>ChoiceZone.None</c> referenced by the card's
+    /// <c>sourceIds</c> whether the card is in play (PRE) or already trashed, so this is zone-agnostic. The
+    /// chosen source enters anew (summoning sick, no stack of its own); it is detached from the dead card's
+    /// <c>sourceIds</c> and the card is marked <c>decoded</c> so the window does not re-offer. Decode does NOT
+    /// cancel the deletion — the caller leaves <c>pendingDeletion</c> set so the finalize still trashes the
+    /// remaining sources and the card. Digimon/colour eligibility is enforced by the caller's candidate filter.
     /// </summary>
     public static Task<bool> TryDecodePlaySourceAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId deadCardId,
         HeadlessEntityId chosenSourceId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Bridge.EngineContext? context = null)
     {
-        // Decode marks the dead card 'decoded' so its single-use POST window does not re-offer.
-        return PlaySourceForFreeAsync(repository, zoneMover, deadCardId, chosenSourceId, DecodedKey, cancellationToken);
+        // Decode marks the dead card 'decoded' so its single-use window does not re-offer.
+        return PlaySourceForFreeAsync(repository, zoneMover, deadCardId, chosenSourceId, DecodedKey, cancellationToken, context);
     }
 
     /// <summary>
-    /// (C-14 Partition) AFTER a Digimon left the field by an effect (not battle, >= 2 sources), its
-    /// controller plays two of its digivolution sources as new permanents for free. Mirrors AS-IS
+    /// (C-14 Partition / C-1 PRE) When a Digimon WOULD leave the field by an effect (not battle, >= 2 sources),
+    /// its controller plays two of its digivolution sources as new permanents for free. Mirrors AS-IS
     /// <c>PartitionClass.Partition</c> (select one source per colour group → PlayPermanentCards payCost:false).
     /// Shares the Decode play-for-free primitive; the two picks are driven as a repeated single-select by
     /// <see cref="DeletionReplacementTiming"/> (the 'partitioned' completion marker is stamped there).
@@ -613,9 +625,10 @@ public static class DeletionReplacementGate
         IZoneMover zoneMover,
         HeadlessEntityId deadCardId,
         HeadlessEntityId chosenSourceId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Bridge.EngineContext? context = null)
     {
-        return PlaySourceForFreeAsync(repository, zoneMover, deadCardId, chosenSourceId, markKey: null, cancellationToken);
+        return PlaySourceForFreeAsync(repository, zoneMover, deadCardId, chosenSourceId, markKey: null, cancellationToken, context);
     }
 
     /// <summary>Plays one of a (trashed) card's digivolution sources as a fresh free permanent: moves it
@@ -628,7 +641,8 @@ public static class DeletionReplacementGate
         HeadlessEntityId deadCardId,
         HeadlessEntityId chosenSourceId,
         string? markKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Bridge.EngineContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -656,6 +670,14 @@ public static class DeletionReplacementGate
             sourceMetadata.Remove(DeletedByEffectKey);
             sourceMetadata[EnteredThisTurnKey] = true;
             repository.Upsert(source with { Metadata = sourceMetadata });
+
+            // (B-3 / 2026-07-11 re-review) AS-IS Decode/Partition play via PlayPermanentCards -> card.Init()
+            // (CardController.cs:1361): the freshly-played source gets FRESH per-turn uses and its ported
+            // effects registered — the enter-play hook covers both.
+            if (context is not null)
+            {
+                Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, chosenSourceId, source.OwnerId);
+            }
         }
 
         var deadMetadata = new Dictionary<string, object?>(deadCard.Metadata, StringComparer.Ordinal);
@@ -687,7 +709,8 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null)
+        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null,
+        Effects.OnceFlagController? onceFlags = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -717,7 +740,8 @@ public static class DeletionReplacementGate
         }
 
         await DigivolutionStackHelpers.AddSourcesBottomAsync(
-            repository, zoneMover, targetId, new[] { cardId }, ChoiceZone.Trash, cancellationToken).ConfigureAwait(false);
+            repository, zoneMover, targetId, new[] { cardId }, ChoiceZone.Trash, cancellationToken,
+            onceFlags: onceFlags).ConfigureAwait(false);
 
         if (repository.TryGetInstance(cardId, out CardInstanceRecord? moved) && moved is not null)
         {

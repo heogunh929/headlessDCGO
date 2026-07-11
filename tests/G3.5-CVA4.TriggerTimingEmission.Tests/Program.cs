@@ -59,7 +59,14 @@ void OnMoveNotForPlay()
 
 void OnDeletionForFieldTrash()
 {
-    IReadOnlyList<string> timings = TriggerTimingMap.Derive(Moved(ChoiceZone.BattleArea, ChoiceZone.Trash));
+    // (R2-P1-4) the effect-Delete path stamps the delete-batch id on the move; the marker is what makes a
+    // field→Trash move a DELETION (an unmarked one is a top-swap / no-trigger trash).
+    GameEvent deletion = new(1, GameEventType.CardMoved, "del", new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [MatchStateMutationSink.DeletionBatchIdKey] = 1L,
+    })
+    { ZoneFrom = ChoiceZone.BattleArea, ZoneTo = ChoiceZone.Trash };
+    IReadOnlyList<string> timings = TriggerTimingMap.Derive(deletion);
     AssertTrue(timings.Contains(TriggerTimings.OnDeletion), "field→Trash opens OnDeletion");
 }
 

@@ -13,6 +13,15 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 public static class Decode
 {
+    /// <summary>(C-1 witness) Binding-values key carrying the AS-IS <c>DecodeSelfEffect</c> per-card
+    /// <c>sourceCondition</c> (<c>Func&lt;CardSource,bool&gt;</c>): the predicate that a leaving card's
+    /// digivolution source must pass to be a free-play candidate (BT19_024: Blue &amp;&amp; Lv.4). Stored
+    /// VERBATIM on the Decode grant and snapshotted onto the leaving card's metadata
+    /// (<see cref="HeadlessDCGO.Engine.Headless.Runtime.CardLeavePlayCleanup"/>) so the PRE candidate filter
+    /// (<see cref="HeadlessDCGO.Engine.Headless.Runtime.DeletionReplacementTiming"/>) evaluates it live —
+    /// AS-IS <c>decodeStrings</c> is display-only, the real filter is this predicate. Null = any Digimon source.</summary>
+    public const string DecodeSourceConditionKey = "decode.sourceCondition";
+
     public static KeywordBaseBatch2Effect Create(
         HeadlessEntityId sourceEntityId,
         HeadlessEntityId? targetEntityId = null)

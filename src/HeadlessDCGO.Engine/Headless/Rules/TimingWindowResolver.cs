@@ -110,15 +110,25 @@ public sealed record TimingWindowTrigger
         Sequence = sequence;
     }
 
-    public EffectRequest Request { get; }
+    public EffectRequest Request { get; init; }
 
-    public EffectResolutionMode Mode { get; }
+    public EffectResolutionMode Mode { get; init; }
 
-    public TimingWindowTriggerKind Kind { get; }
+    public TimingWindowTriggerKind Kind { get; init; }
 
-    public int Priority { get; }
+    public int Priority { get; init; }
 
-    public long Sequence { get; }
+    public long Sequence { get; init; }
+
+    /// <summary>(D-1 order) The DELETE-BATCH id of the deletion (<c>DestroyPermanentsClass.Destroy()</c>) that
+    /// drives this trigger — set ONLY on deletion-derived triggers (OnDestroyedAnyone / OnLeaveFieldAnyone) by the
+    /// window wiring, from the driving CardMoved event's <c>MatchStateMutationSink.DeletionBatchIdKey</c>. NULL for
+    /// every other trigger (non-deletion) and for an unstamped deletion (sentinel batch 0). The window loop uses it
+    /// to process CROSS-batch deletion triggers in ASCENDING batch order — one batch fully resolves before the next
+    /// becomes active — so two INDEPENDENT delete-processes that happen to co-drain in one seed do NOT open a
+    /// spurious cross-batch order choice (AS-IS resolves each <c>Destroy()</c> in its own StackSkillInfos window).
+    /// Same-batch (equal id) triggers keep the intra-window order choice.</summary>
+    public long? BatchId { get; init; }
 }
 
 public enum TimingWindowTriggerKind

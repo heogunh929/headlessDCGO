@@ -1,5 +1,6 @@
 namespace HeadlessDCGO.Engine.Headless.Runtime;
 
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
@@ -53,6 +54,43 @@ public static class AceOverflowGate
         }
 
         return turnPlayer is { } tp && tp != owner ? overflow : -overflow;
+    }
+
+    /// <summary>(C-2 adversarial review P1) Apply the TOP card's own overflow when a permanent leaves the field
+    /// by DELETION on a path that does NOT route through <c>MatchStateMutationSink.ApplyDelete</c> — the battle /
+    /// security / deferred-finalize deletion finishers move the top with a raw <c>MoveAsync</c>. AS-IS
+    /// <c>DestroyPermanentsClass</c> always charges the top's overflow via <c>RemoveField</c>
+    /// (CardController.cs:4885/5062), AFTER <c>DiscardEvoRoots</c> charges the sources — so this must be called
+    /// AFTER <see cref="DeletionSourceTrash.TrashEvoSourcesAsync"/> and BEFORE the top's trash move (the card is
+    /// still on the battle area for the on-field guard). The sink path keeps its own <c>ApplyAceOverflowOnLeave</c>
+    /// (it also honours a per-move IgnoreOverflow flag); this covers the three raw-move finishers so a
+    /// battle-deleted un-flipped ACE loses its OWN overflow too, not just its sources'.</summary>
+    public static void ApplyTopOverflowOnDelete(
+        Bridge.EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record)
+            || record is null)
+        {
+            return;
+        }
+
+        int overflow = OverflowFor(record);
+        if (overflow <= 0 || context.ZoneMover is not IZoneStateReader reader)
+        {
+            return;
+        }
+
+        bool onField = reader.GetCards(record.OwnerId, ChoiceZone.BattleArea).Contains(cardId)
+            || reader.GetCards(record.OwnerId, ChoiceZone.BreedingArea).Contains(cardId);
+        if (!onField)
+        {
+            return;
+        }
+
+        context.MemoryController.Add(
+            MemoryDelta(overflow, record.OwnerId, context.TurnController.Current.TurnPlayerId));
     }
 
     private static bool ReadBool(IReadOnlyDictionary<string, object?> metadata, string key) =>

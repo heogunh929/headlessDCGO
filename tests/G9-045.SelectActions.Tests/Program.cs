@@ -38,9 +38,10 @@ async Task Act(Func<CardSource, ICardEffect> build, bool suspendedStart, bool ex
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P1, "SRC", suspended: false);
     var target = await Place(ctx, P1, "TGT", suspended: suspendedStart);
-    var eff = (ActivatedSelectEffect)build(new CardSource(ctx, src, P1));
+    var card = new CardSource(ctx, src, P1);
+    var eff = (ActivatedEffect)build(card);
     var sink = Sink(ctx);
-    eff.Apply(sink, new[] { target });
+    eff.Body.Apply(card, sink, new[] { target });
     await sink.FlushAsync();
     AssertTrue(ReadBool(ctx, target, "isSuspended") == expectSuspended, $"isSuspended == {expectSuspended}");
 }
@@ -50,9 +51,10 @@ async Task BounceTest()
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P1, "SRC", suspended: false);
     var target = await Place(ctx, P1, "TGT", suspended: false);
-    var eff = (ActivatedSelectEffect)CardEffectFactory.SelectAndBounceEffect(new CardSource(ctx, src, P1), _ => true, 1, false, "bounce");
+    var card = new CardSource(ctx, src, P1);
+    var eff = (ActivatedEffect)CardEffectFactory.SelectAndBounceEffect(card, _ => true, 1, false, "bounce");
     var sink = Sink(ctx);
-    eff.Apply(sink, new[] { target });
+    eff.Body.Apply(card, sink, new[] { target });
     await sink.FlushAsync();
     var reader = (IZoneStateReader)ctx.ZoneMover;
     AssertTrue(reader.GetCards(P1, ChoiceZone.Hand).Contains(target), "target in hand");

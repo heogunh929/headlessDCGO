@@ -1,8 +1,10 @@
-// C-14 Partition (S4): when this Digimon leaves the field by an effect (not battle, >= 2 sources), its
+// C-14 Partition (S4): when this Digimon WOULD leave the field by an effect (not battle, >= 2 sources), its
 // controller plays TWO of its digivolution sources as new permanents for free (AS-IS PartitionProcess: one
-// source per colour group). Ported onto the F-6.8 POST window as a repeated single-select (2 picks) reusing
-// the Decode play-for-free primitive. Engine: DeletionReplacementTiming PartitionOption +
-// DeletionReplacementGate.TryPartitionPlaySourceAsync; grant GrantPartition -> hasPartition.
+// source per colour group). (C-1/TODO-96) Ported onto the F-6.8 PRE (would-be-deleted) window — the same
+// cut-in as Evade/Barrier, fired while the card is still on the field — as a repeated single-select (2 picks)
+// reusing the Decode play-for-free primitive. Partition does NOT cancel the deletion: the card still leaves
+// and DiscardEvoRoots trashes any remaining sources. Engine: DeletionReplacementTiming PartitionOption
+// (PreOptions) + DeletionReplacementGate.TryPartitionPlaySourceAsync; grant GrantPartition -> hasPartition.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
@@ -18,7 +20,7 @@ HeadlessEntityId DigimonDef = new("def:partition-digimon");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Partition opens a post-removal choice with >= 2 sources", PartitionOpensChoice),
+    ("Partition opens a would-be-deleted choice with >= 2 sources", PartitionOpensChoice),
     ("Partition is not offered with a single source", PartitionNeedsTwoSources),
     ("Partition plays two chosen sources to the battle area for free", PartitionPlaysTwoSources),
     ("Battle removal does not trigger Partition", PartitionNotOnBattleRemoval),
@@ -46,8 +48,8 @@ async Task PartitionOpensChoice()
 {
     (DcgoMatch match, HeadlessEntityId holder, _) = await EffectDeletePartitioner(sourceCount: 3);
 
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, holder), "the holder is in the trash");
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "a post-removal Partition choice is open");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, holder), "the holder is still on the field (PRE window, deletion deferred)");
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "a would-be-deleted Partition choice is open");
     AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
     AssertTrue(ResolveActions(match, P1).Any(a => a.Id.Value.Contains("#partition", StringComparison.Ordinal)), "partition option offered");
 }
@@ -89,6 +91,10 @@ async Task PartitionPlaysTwoSources()
     string[] remaining = SourceIds(match, holder);
     AssertFalse(remaining.Contains(first.Value), "first source detached from the dead card");
     AssertFalse(remaining.Contains(second.Value), "second source detached from the dead card");
+    // (C-1) PRE does not cancel the deletion: the holder still leaves and the 3rd (unplayed) source is trashed.
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, holder), "the deletion proceeded — the holder is in the trash");
+    HeadlessEntityId leftover = sources.Single(src => src != first && src != second);
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, leftover), "the unplayed 3rd source was trashed with the stack");
 }
 
 async Task PartitionNotOnBattleRemoval()

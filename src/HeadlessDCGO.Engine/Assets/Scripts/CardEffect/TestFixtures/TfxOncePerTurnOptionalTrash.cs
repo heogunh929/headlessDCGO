@@ -1,7 +1,9 @@
 // TEST FIXTURE (not a real card). A CAPPED ([Once Per Turn]) UNIFORM activated effect whose interactive body is
-// SKIPPABLE ("you MAY trash up to 1 hand card"). Exercises B-4 (P1-7): when the agent SKIPS the selection the body
-// does nothing (ResolveBodyAsync returns executed=false), so the resolver REFUNDS the per-turn use instead of
-// consuming it — AS-IS `if (!executed) activateClass.RemoveUse()`. Inert in actual play.
+// SKIPPABLE ("you MAY trash up to 1 hand card"), modelled as an AS-IS REFUND card — one of the ~38 whose body
+// explicitly runs `if (!executed) RemoveUse()` (AD1_024-style), mirrored by refundWhenNotExecuted: true. When the
+// agent SKIPS the selection the body does nothing (executed=false) and the registered per-turn use is refunded.
+// NOTE the refund is PER-CARD OPT-IN: the AS-IS default (a card without RemoveUse, e.g. BT2_078) keeps the use
+// consumed on a skipped selection — see TfxOncePerTurnOptionalTrashNoRefund for that default. Inert in actual play.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
@@ -24,7 +26,8 @@ public sealed class TfxOncePerTurnOptionalTrash : CEntity_Effect
                 body: new OptionalTrashBody(),
                 maxCountPerTurn: 1,
                 isOptional: false,
-                description: "[Once Per Turn] You may trash up to 1 card in your hand."));
+                description: "[Once Per Turn] You may trash up to 1 card in your hand.",
+                refundWhenNotExecuted: true));
         }
 
         return effects;

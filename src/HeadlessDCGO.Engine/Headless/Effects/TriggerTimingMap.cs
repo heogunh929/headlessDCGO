@@ -25,7 +25,13 @@ public static class TriggerTimingMap
         switch (gameEvent.Type)
         {
             case GameEventType.CardMoved:
-                DeriveZoneTransition(gameEvent.ZoneFrom, gameEvent.ZoneTo, timings);
+                // (R2-P1-4) a field→Trash move is a DELETION only when the deleting path stamped the
+                // delete-batch id (all four deletion finishers do — sink / battle / sweep / security). An
+                // unstamped field→Trash move is a TOP-SWAP (Armor Purge / Burst / De-Digivolve trash the top
+                // while the permanent survives) or the no-DP direct trash — none of which stacks
+                // OnDestroyedAnyone / OnLeaveFieldAnyone in AS-IS.
+                bool isDeletionMove = gameEvent.Metadata.ContainsKey(MatchStateMutationSink.DeletionBatchIdKey);
+                DeriveZoneTransition(gameEvent.ZoneFrom, gameEvent.ZoneTo, isDeletionMove, timings);
                 break;
             case GameEventType.AttackDeclared:
                 timings.Add(TriggerTimings.OnAttack);
@@ -46,7 +52,7 @@ public static class TriggerTimingMap
         return Distinct(timings);
     }
 
-    private static void DeriveZoneTransition(ChoiceZone? from, ChoiceZone? to, List<string> timings)
+    private static void DeriveZoneTransition(ChoiceZone? from, ChoiceZone? to, bool isDeletionMove, List<string> timings)
     {
         bool fromField = IsField(from);
         bool toField = IsField(to);
@@ -61,18 +67,38 @@ public static class TriggerTimingMap
             timings.Add(TriggerTimings.OnEnterField);
         }
 
-        if (fromField && !toField)
+        // D-5: "deletion" (AS-IS OnDestroyedAnyone) is a FIELD card being destroyed to the trash. A hand
+        // discard, deck mill, or security check trashing a card is NOT a deletion, so OnDeletion only opens
+        // when leaving a field zone.
+        // (R2-P1-4) AND only when the move carries the deletion marker (DeletionBatchIdKey). A marker-less
+        // field→Trash move is a TOP-SWAP (AS-IS ArmorPurge.cs:63 sets willBeRemoveField=false — only
+        // WhenTopCardTrashed fires; same for Burst / De-Digivolve top trashes) or the no-DP direct trash
+        // (AS-IS TrashNoDPPermanentProcess, AutoProcessing.cs:439-465 — no StackSkillInfos at all); neither
+        // stacks OnDestroyedAnyone in AS-IS, and pre-fix both spuriously fired the deleted-card reactors.
+        bool isDeletion = fromField && to == ChoiceZone.Trash && isDeletionMove;
+
+        // (R2-P1-4) OnLeaveFieldAnyone / the RemoveField cut-ins fire only on a PERMANENT-DEPARTURE move.
+        // AS-IS stacks OnLeaveFieldAnyone in exactly: DestroyPermanentsClass (deletion, CardController.cs:3756),
+        // the hand/deck bounces (:2546/:2711), IPutSecurityPermanent (:3605) and the battle→breeding move
+        // (CardObjectController.cs:1124 — field→field headless-side, not derived here). A top-swap trash is
+        // NOT a departure (the permanent survives with a new top): derive the leave timings only for
+        // field→Hand/Library/Security and a MARKED field→Trash deletion; field→Trash without the marker and
+        // field→None (token removal) derive nothing.
+        if (fromField && !toField
+            && (isDeletion || to is ChoiceZone.Hand or ChoiceZone.Library or ChoiceZone.Security))
         {
             timings.Add(TriggerTimings.OnLeaveField);
+            // (design item R2-P2-2) AS-IS WhenRemoveField is a PRE cut-in (stacked BEFORE the move fixes the
+            // list); headless derives it POST-move — latent until a WhenRemoveField registrant is ported.
+            // AS-IS also stacks the OnRemovedField cut-in inside CardObjectController.RemoveField itself
+            // (:512-524), which the no-trigger no-DP trash still routes through — a nuance folded into the
+            // same design item.
             timings.Add(TriggerTimings.WhenRemoveField);
             // F-6.5: OnRemovedField is the original's field-leave synonym alongside WhenRemoveField.
             timings.Add(TriggerTimings.OnRemovedField);
         }
 
-        // D-5: "deletion" (AS-IS OnDestroyedAnyone) is a FIELD card being destroyed to the trash. A
-        // hand discard, deck mill, or security check trashing a card is NOT a deletion (the original
-        // routes those through distinct timings), so OnDeletion only opens when leaving a field zone.
-        if (fromField && to == ChoiceZone.Trash)
+        if (isDeletion)
         {
             timings.Add(TriggerTimings.OnDeletion);
         }

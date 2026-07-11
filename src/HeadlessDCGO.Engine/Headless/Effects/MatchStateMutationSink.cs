@@ -57,6 +57,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string DeletedBySourceEntityIdKey = "deletedBySourceEntityId";
     public const string DeletionPreventedKey = "deletionPrevented";
 
+    /// <summary>(D-1 / VR-8) The delete-BATCH id stamped onto a deleted card's CardMoved (field-&gt;trash) event
+    /// metadata — one id per AS-IS <c>DestroyPermanentsClass.Destroy()</c> call. The window collapse keys its
+    /// OnDeletion / OnLeaveFieldAnyone dedup by (reactor, this id), so N cards in ONE batch fire the reactor once
+    /// while an independent second delete-process (a distinct id) fires it again. Also stashed on a DEFERRED
+    /// deletion's instance metadata so the deferred-finalize move re-stamps the ORIGINATING batch's id.</summary>
+    public const string DeletionBatchIdKey = "deletionBatchId";
+
     // W2-follow: async / controller-backed kinds (applied on flush or via the memory controller).
     public const string TrashCardKind = "TrashCard";
     public const string ReturnToHandKind = "ReturnToHand";
@@ -94,6 +101,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string HostEntityIdKey = "hostEntityId";
     public const string FromBottomKey = "fromBottom";
     public const string ToDeckKey = "toDeck";
+    // (B-2 DigiBurst rework) explicit selected source ids (csv) for TrashDigivolutionCardsKind — the AS-IS
+    // ITrashDigivolutionCards(permanent, selectedCards, …) shape; absent = positional count/fromBottom.
+    public const string SelectedCardIdsKey = "selectedCardIds";
 
     // Value keys.
     public const string DpValueKey = "value";
@@ -192,6 +202,31 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // card's own self restriction. Null in contexts without a full EngineContext (falls back to self-only).
     private readonly EngineContext? _context;
 
+    // (D-1 / VR-8) delete-batch id for THIS sink. When an explicit id is supplied (the DP-zero rule sweep passes
+    // ONE id for all lack-DP deaths — AS-IS DigimonLackDPProcess is a SINGLE DestroyPermanentsClass(LackPowerPermanents)),
+    // every Delete this sink emits stamps it. Otherwise a fresh id is allocated LAZILY on the first Delete and reused
+    // for the rest of the sink's flush — mirroring "one effect resolution's sink flush == one Destroy() == one batch".
+    private readonly long? _explicitDeletionBatchId;
+    private long? _cachedDeletionBatchId;
+
+    // (R2-P1-1) the CURRENT delete batch: every Delete staged before the next flush belongs to ONE batch (one
+    // AS-IS DestroyPermanentsClass.Destroy() over the whole target list). The defer decision is BATCH-ATOMIC —
+    // resolved once, at the first delete thunk's execution (all targets staged, none moved yet — the AS-IS
+    // "willBeRemoveField on ALL, then one cut-in over the LIST" moment). Reset at flush so a reused sink
+    // starts a fresh batch.
+    private DeleteBatch? _currentDeleteBatch;
+
+    private sealed class DeleteBatch
+    {
+        public List<StagedDelete> Entries { get; } = new();
+
+        /// <summary>null until the first delete thunk resolves it; then: true = EVERY entry parks as a
+        /// pending deletion (some entry has a PRE option), false = every entry moves immediately.</summary>
+        public bool? DeferAll;
+    }
+
+    private sealed record StagedDelete(EffectMutation Mutation, HeadlessEntityId TargetId);
+
     public MatchStateMutationSink(
         ICardInstanceRepository repository,
         ILogSink? log = null,
@@ -201,7 +236,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         GameEventQueue? gameEventQueue = null,
         Action<HeadlessEntityId, HeadlessPlayerId>? onCardEnteredPlay = null,
         Func<HeadlessPlayerId?>? currentTurnPlayer = null,
-        EngineContext? context = null)
+        EngineContext? context = null,
+        long? explicitDeletionBatchId = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _log = log;
@@ -219,6 +255,22 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             ?? (context is null ? null : context.RegisterEnteredCardEffects);
         _currentTurnPlayer = currentTurnPlayer;
         _context = context;
+        _explicitDeletionBatchId = explicitDeletionBatchId;
+    }
+
+    // (D-1 / VR-8) Resolve THIS sink's delete-batch id: an explicit id (DP-zero sweep) always wins; otherwise a
+    // fresh context id is allocated ONCE (lazily, on the first Delete) and cached for every later Delete in this
+    // flush. A context-less sink (bare unit test) has no counter — batch id 0 (unstamped) collapses all-together,
+    // preserving the pre-D1 whole-pass dedup for such paths.
+    private long ResolveDeletionBatchId()
+    {
+        if (_explicitDeletionBatchId is long fixedId)
+        {
+            return fixedId;
+        }
+
+        _cachedDeletionBatchId ??= _context?.NextDeletionBatchId() ?? 0L;
+        return _cachedDeletionBatchId.Value;
     }
 
     public int AppliedCount => _applied.Count;
@@ -237,6 +289,29 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     {
         ArgumentNullException.ThrowIfNull(mutation);
 
+        // (B-1 rework, mutation replay journal) During a uniform-cycle REPLAY (a suspended resolution re-invoked
+        // after an agent answer), an Apply call the original run performed PURELY IMMEDIATELY (no pending thunk)
+        // already mutated game state and must NOT re-apply (double memory / double DP / double timing events); a
+        // call that staged pending work must re-execute so this FRESH sink re-stages the thunks the suspend
+        // discarded. Fresh calls beyond the journal execute and record their classification.
+        OnceFlagController.MutationReplay replay =
+            _context?.OnceFlags.BeginMutationApply() ?? OnceFlagController.MutationReplay.None;
+        if (replay == OnceFlagController.MutationReplay.Skip)
+        {
+            _applied.Add(new AppliedMutation(mutation.Kind, ResolveTargetId(mutation), "replayed"));
+            return;
+        }
+
+        int pendingBefore = _pendingAsync.Count;
+        ApplyCore(mutation);
+        if (replay == OnceFlagController.MutationReplay.Fresh)
+        {
+            _context!.OnceFlags.RecordFreshMutation(purelyImmediate: _pendingAsync.Count == pendingBefore);
+        }
+    }
+
+    private void ApplyCore(EffectMutation mutation)
+    {
         // Unknown kinds are reported as unsupported BEFORE the target is checked, so an effect that
         // emits a mutation this sink does not understand is surfaced regardless of its target.
         if (!IsKnownKind(mutation.Kind))
@@ -479,6 +554,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         Func<CancellationToken, Task>[] operations = _pendingAsync.ToArray();
         _pendingAsync.Clear();
+        // (R2-P1-1) the staged delete thunks hold their batch by reference; detach it so a post-flush Apply
+        // opens a NEW batch (a reused sink = a new resolution step) instead of extending the executed one.
+        _currentDeleteBatch = null;
         foreach (Func<CancellationToken, Task> operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -699,6 +777,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // the continuous/trigger bindings it auto-registered while in play. Critical for player-scope
         // effects (e.g. a Tamer's "your Digimon +1000 DP"), which CollectApplicable matches by owner only
         // and would otherwise keep applying after the source has left. No-op for cards that had none.
+        // (design item R2-P2-3) this drop runs at STAGE time while the move is a flush thunk — a later
+        // mutation staged in the SAME batch evaluates restrictions with this card's protections already gone.
         _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
     }
@@ -715,43 +795,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             return;
         }
 
-        // F-6.8: an OPTIONAL would-be-deleted replacement (Evade / Scapegoat / Fragment / Decoy) is the
-        // owner's decision, not an auto-apply (auto would change game rules). DEFER the deletion (flag
-        // pendingDeletion) so the common loop surfaces the replacement window; the state-based sweep
-        // finishes it only if declined. Decoy is by-ENEMY-effect, checked here while the deleter is known
-        // and recorded as a marker the window reads.
-        if (_zoneMover is IZoneStateReader preZones)
-        {
-            bool hasPre = DeletionReplacementTiming.HasPreOption(_repository, preZones, record, byBattle: false, _effectRegistry);
-            bool decoyEligible = DeletionReplacementGate
-                .FindDecoyRedirect(_repository, preZones, record, mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null;
-            if (hasPre || decoyEligible)
-            {
-                var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
-                {
-                    [GameFlowProcessor.PendingDeletionKey] = true,
-                    [DeletedByEffectKey] = true,
-                    [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(mutation.SourceEntityId, record.OwnerId),
-                    [DeletedBySourceEntityIdKey] = mutation.SourceEntityId.Value,
-                };
-                if (ReadBool(mutation.Values, IsDpZeroKey))
-                {
-                    deferMetadata[IsDpZeroKey] = true;   // (B3) AS-IS DPZero flag travels with the deletion
-                }
-                if (decoyEligible)
-                {
-                    deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
-                }
-
-                _repository.Upsert(record with { Metadata = deferMetadata });
-                _skipped.Add(mutation);
-                _applied.Add(new AppliedMutation(mutation.Kind, targetId, GameFlowProcessor.PendingDeletionKey));
-                return;
-            }
-        }
-
-        // (Fragment / Scapegoat / Decoy auto-resolve removed — all are F-6.8 agent choices via the window.)
-
         if (_zoneMover is not { } zoneMover)
         {
             _unsupported.Add(mutation);
@@ -759,9 +802,106 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             return;
         }
 
-        // (PRIM-W4 AceOverflow) an un-flipped ACE leaving the field (here: deleted to trash) costs its owner
-        // the printed Overflow memory. Applied before the marker/move while the card is still on the field.
-        ApplyAceOverflowOnLeave(record, targetId, mutation);
+        // (R2-P1-1) BATCH-ATOMIC defer. AS-IS DestroyPermanentsClass.Destroy() (CardController.cs:3684-3852)
+        // processes the WHOLE target list through ONE sequence: willBeRemoveField on ALL → ONE PRE cut-in
+        // (WhenPermanentWouldBeDeleted / WhenRemoveField) over the LIST → fix survivors → OnDestroyedAnyone /
+        // OnLeaveFieldAnyone stacked ONCE for the fixed list → per-permanent trash. So when card A of a 2-card
+        // delete carries a PRE option, card B is NOT trashed until A's cut-in decision resolved — B waits with A.
+        // The former per-card defer decision split one Destroy() into two drains: B's [On Deletion] completed
+        // BEFORE A's replacement decision, and the split drains double-fired anyone-scoped reactors
+        // (call-local firedDeletion/firedLeaveBatch cannot dedup across drains). Mirror the battle path
+        // (BattleResolver.ResolveRoundAsync: any loser needing a window parks EVERY loser; a single batch
+        // finalize once all are decided): each Delete stages ONE thunk; the FIRST thunk to execute decides the
+        // whole batch (all targets staged, none moved — the AS-IS all-marked-then-one-cut-in moment); a batch
+        // with ANY PRE option parks EVERY member as pendingDeletion (the sweep's batch-mate gate finalizes them
+        // together), else every member moves immediately.
+        _currentDeleteBatch ??= new DeleteBatch();
+        DeleteBatch batch = _currentDeleteBatch;
+        var entry = new StagedDelete(mutation, targetId);
+        batch.Entries.Add(entry);
+        _pendingAsync.Add(ct => ExecuteStagedDeleteAsync(batch, entry, zoneMover, ct));
+    }
+
+    /// <summary>(R2-P1-1) One staged Delete's flush-time execution — the per-permanent half of the AS-IS
+    /// <c>Destroy()</c> sequence, running after the batch-level defer decision.</summary>
+    private async Task ExecuteStagedDeleteAsync(
+        DeleteBatch batch, StagedDelete entry, IZoneMover zoneMover, CancellationToken ct)
+    {
+        EffectMutation mutation = entry.Mutation;
+        HeadlessEntityId targetId = entry.TargetId;
+
+        // Batch decision — once, at the FIRST delete thunk (every Delete of this flush is staged, none has
+        // moved yet; earlier non-delete thunks have already run, matching the AS-IS sequencing where Destroy()
+        // starts after the effect's prior steps completed).
+        if (batch.DeferAll is null)
+        {
+            bool defer = false;
+            if (_zoneMover is IZoneStateReader preZones)
+            {
+                foreach (StagedDelete staged in batch.Entries)
+                {
+                    if (!_repository.TryGetInstance(staged.TargetId, out CardInstanceRecord? candidate) || candidate is null)
+                    {
+                        continue;
+                    }
+
+                    // F-6.8: an OPTIONAL would-be-deleted replacement (Evade / Scapegoat / Fragment / Decoy) is
+                    // the owner's decision, not an auto-apply. Decoy is by-ENEMY-effect, checked while the
+                    // deleter is known.
+                    if (DeletionReplacementTiming.HasPreOption(_repository, preZones, candidate, byBattle: false, _effectRegistry)
+                        || DeletionReplacementGate.FindDecoyRedirect(
+                            _repository, preZones, candidate, staged.Mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null)
+                    {
+                        defer = true;
+                        break;
+                    }
+                }
+            }
+
+            batch.DeferAll = defer;
+        }
+
+        if (!_repository.TryGetInstance(targetId, out CardInstanceRecord? record) || record is null)
+        {
+            _skipped.Add(mutation);
+            return;
+        }
+
+        if (batch.DeferAll is true)
+        {
+            // DEFER the whole batch member (flag pendingDeletion) so the common loop surfaces the replacement
+            // window for the option holders; the state-based sweep finishes the batch together once every
+            // member's decision settled (GameFlowProcessor batch-mate gate).
+            bool decoyEligible = _zoneMover is IZoneStateReader decoyZones
+                && DeletionReplacementGate.FindDecoyRedirect(
+                    _repository, decoyZones, record, mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null;
+            var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+            {
+                [GameFlowProcessor.PendingDeletionKey] = true,
+                [DeletedByEffectKey] = true,
+                [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(mutation.SourceEntityId, record.OwnerId),
+                [DeletedBySourceEntityIdKey] = mutation.SourceEntityId.Value,
+                // (D-1 / VR-8) remember THIS effect resolution's batch id so the deferred-finalize move
+                // (GameFlowProcessor) re-stamps it — a decline finishes the ORIGINATING Destroy()'s batch,
+                // and the sweep's batch-mate gate groups co-deferred members by this id.
+                [DeletionBatchIdKey] = ResolveDeletionBatchId(),
+            };
+            if (ReadBool(mutation.Values, IsDpZeroKey))
+            {
+                deferMetadata[IsDpZeroKey] = true;   // (B3) AS-IS DPZero flag travels with the deletion
+            }
+            if (decoyEligible)
+            {
+                deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
+            }
+
+            _repository.Upsert(record with { Metadata = deferMetadata });
+            _skipped.Add(mutation);
+            _applied.Add(new AppliedMutation(mutation.Kind, targetId, GameFlowProcessor.PendingDeletionKey));
+            return;
+        }
+
+        // (Fragment / Scapegoat / Decoy auto-resolve removed — all are F-6.8 agent choices via the window.)
 
         // Stamp the deletion marker before the move so OnDeletion-scoped triggers can read it.
         var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
@@ -778,32 +918,70 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (A4/P1) the card's own keyword grants are dropped below (it left play), but its POST deletion
         // responses are judged AT deletion time (AS-IS reads the dead card's effects during its own
         // deletion processing). Snapshot the live keyword state — and Partition's stored condition list —
-        // into the per-instance flags the POST window / Fortitude replay read.
+        // into the per-instance flags the POST window / Fortitude replay read. (R2-P1-3) the snapshot now
+        // also records the AS-IS "record parameters just before deletion" block (CardController.cs:3762-3783).
         if (_effectRegistry is not null)
         {
-            Runtime.CardLeavePlayCleanup.SnapshotPostReplacementKeywords(_effectRegistry, _context, targetId, metadata);
+            Runtime.CardLeavePlayCleanup.SnapshotPostReplacementKeywords(_effectRegistry, _context, targetId, metadata, _repository);
         }
 
         _repository.Upsert(record with { Metadata = metadata });
 
         HeadlessPlayerId owner = record.OwnerId;
-        // (RD-4) AS-IS Permanent.DiscardEvoRoots (CardController.cs:3846) trashes the deleted permanent's
-        // digivolution sources BEFORE the top card (:3852) — a direct trash-add, so NO OnDigivolutionCardDiscarded
-        // trigger fires (gameEventQueue omitted). Unconditional like AS-IS, EXCEPT Decode/Partition, whose POST
-        // window still plays a source from ChoiceZone.None (Save/Fortitude no longer skip — Save moves only the
-        // top, Fortitude reads a deletion-time count snapshot). See DeletionSourceTrash.
-        _pendingAsync.Add(ct => Runtime.DeletionSourceTrash.TrashEvoSourcesAsync(_repository, zoneMover, targetId, gameEventQueue: null, ct));
-        _pendingAsync.Add(ct => zoneMover.AddToTrashAsync(owner, targetId, ct));
         // G6-001: the card left play — drop the continuous/trigger bindings it had auto-registered. (B.O.5-tail)
         // EXCEPT a self-[On Deletion] grant marked SurviveOwnLeave, which must fire ON this deletion; it is
         // removed after it resolves (DelayedOneShot) or at its duration boundary.
         _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId
             && !ReadBool(binding.Request.Context.Values, AutoProcessingTriggerCollector.SurviveOwnLeaveKey));
+
+        // (RD-4) AS-IS Permanent.DiscardEvoRoots (CardController.cs:3846) trashes the deleted permanent's
+        // digivolution sources BEFORE the top card (:3852) — a direct trash-add, so NO OnDigivolutionCardDiscarded
+        // trigger fires (gameEventQueue omitted). Unconditional like AS-IS. (This IMMEDIATE path runs only when
+        // the deletion was NOT deferred; Decode/Partition (design item C-1) now defer into the PRE window above and
+        // play/detach their source(s) before the deferred finalize trashes the remainder.) See DeletionSourceTrash.
+        // (design item C-2) the sources/link cards ride the same DiscardEvoRoots overflow pass as the top card: an
+        // un-flipped ACE source leaving costs its owner memory. Same memory sink + turn player as the top-card
+        // ApplyAceOverflowOnLeave below; ignoreOverflow follows the top card's move (AS-IS DiscardEvoRoots takes
+        // one ignoreOverflow governing both).
+        bool ignoreSourceOverflow = ReadBool(mutation.Values, AceOverflowGate.IgnoreOverflowKey);
+        await Runtime.DeletionSourceTrash.TrashEvoSourcesAsync(
+            _repository, zoneMover, targetId, gameEventQueue: null, ct, _memory, _currentTurnPlayer?.Invoke(), ignoreSourceOverflow)
+            .ConfigureAwait(false);
+
+        // (PRIM-W4 AceOverflow + R2-P2-1) an un-flipped ACE leaving the field (here: deleted to trash) costs its
+        // owner the printed Overflow memory — AFTER the sources' overflow, mirroring the AS-IS order
+        // DiscardEvoRoots (source+link overflow, Permanent.cs:113-114) → RemoveField (top overflow,
+        // CardObjectController.cs:528). Formerly charged at staging (top-first), inverting the AS-IS
+        // source→top observation order; the sums matched but mid-sequence memory reads did not.
+        ApplyAceOverflowOnLeave(record, targetId, mutation);
+
+        // (C5-witness) move with the REAL from-zone so the CardMoved event derives OnDeletion/OnLeaveField —
+        // AS-IS DestroyPermanentsClass.Destroy always opens the OnDestroyedAnyone window for an effect
+        // deletion. The previous AddToTrashAsync recorded FromZone=None ("Insert"), so an IMMEDIATE (non-
+        // deferred) effect deletion never fired the dead card's [On Deletion]; the deferred-finalize path
+        // (GameFlowProcessor.RuleProcessAsync) and the battle path already move field->trash.
+        // (D-1 / VR-8) the CardMoved event carries THIS effect resolution's batch id (shared by every card this
+        // sink deletes: N-card single delete-process == one batch == one reactor fire) for the window collapse.
+        long deletionBatchId = ResolveDeletionBatchId();
+        ChoiceZone from = zoneMover is IZoneStateReader deadZones
+            ? new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea }
+                .FirstOrDefault(zone => deadZones.GetCards(owner, zone).Contains(targetId))
+            : ChoiceZone.None;
+        if (from == ChoiceZone.None)
+        {
+            await zoneMover.AddToTrashAsync(owner, targetId, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, targetId, from, ChoiceZone.Trash,
+                Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionBatchIdKey] = deletionBatchId }), ct)
+                .ConfigureAwait(false);
+        }
+
         // C-6 Fortitude: after the deletion completes (card now in trash), a Digimon that had >= 1
-        // digivolution source replays itself from the trash for free (OnDestroyed). Enqueued after the
-        // trash move so it runs once the card has actually arrived there.
-        _pendingAsync.Add(async ct =>
-            await DeletionReplacementGate.TryFortitudeReplayAsync(_repository, zoneMover, targetId, ct, _effectRegistry).ConfigureAwait(false));
+        // digivolution source replays itself from the trash for free (OnDestroyed). Runs once the card has
+        // actually arrived there.
+        await DeletionReplacementGate.TryFortitudeReplayAsync(_repository, zoneMover, targetId, ct, _effectRegistry, _context).ConfigureAwait(false);
         // C-21 Armor Purge is now an OPTIONAL post-deletion agent choice (F-6.8 DeletionReplacementTiming),
         // opened by the common loop once the top is in the trash — no longer auto-applied here.
         // C-17 Ascension / C-22 Save are now OPTIONAL post-deletion agent choices (F-6.8
@@ -1188,14 +1366,38 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             // (PRIM-W4/FR2 ImmuneStackTrashingClass / CanNotBeTrashedBySkill) a continuous "immune from
             // digivolution-stack trashing" flag on the host prevents effect-driven source trashing — honouring
             // any cardEffectCondition against the causing effect's source.
-            if (IsRestrictedFromCause(hostId, ImmuneStackTrashingKey, mutation.SourceEntityId))
+            // (C-5 adversarial review P1-2) AS-IS ITrashDigivolutionCards ALSO yield-breaks on the host top
+            // card's GENERAL effect immunity (`TopCard.CanNotBeAffected(cardEffect)`, CardController.cs:5154-5155)
+            // — the same gate the return-to-hand/deck branch above already mirrors via BlocksOpponentEffect.
+            if (IsRestrictedFromCause(hostId, ImmuneStackTrashingKey, mutation.SourceEntityId)
+                || Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, hostId, mutation.SourceEntityId, _context))
             {
                 _skipped.Add(mutation);
                 _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));
                 return;
             }
 
-            _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(_repository, zoneMover, hostId, count, fromBottom, ct, _gameEventQueue));
+            // (B-2 DigiBurst rework) an explicit selected-card list (the AS-IS ITrashDigivolutionCards(permanent,
+            // selectedCards, …) shape) trashes exactly those sources; otherwise the positional count/fromBottom form.
+            if (mutation.Values.TryGetValue(SelectedCardIdsKey, out object? rawSelected) && rawSelected is string selectedCsv
+                && !string.IsNullOrWhiteSpace(selectedCsv))
+            {
+                HeadlessEntityId[] selectedIds = selectedCsv
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(value => new HeadlessEntityId(value))
+                    .ToArray();
+                _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSpecificSourcesAsync(
+                    _repository, zoneMover, hostId, selectedIds, ct, _gameEventQueue,
+                    // (C-3) effect-trash: honour CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
+                    _effectRegistry, _context, mutation.SourceEntityId));
+            }
+            else
+            {
+                _pendingAsync.Add(ct => DigivolutionStackHelpers.TrashSourcesAsync(
+                    _repository, zoneMover, hostId, count, fromBottom, ct, _gameEventQueue,
+                    // (C-3) effect-trash path honours trash protection (deletion bypasses it — DeletionSourceTrash).
+                    honorProtection: true, _effectRegistry, _context, mutation.SourceEntityId));
+            }
         }
 
         _applied.Add(new AppliedMutation(mutation.Kind, hostId, "sourceRemoval"));
@@ -1221,7 +1423,20 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             }
 
             // Newest-first list; trash from the front up to count.
-            foreach (HeadlessEntityId linkCardId in LinkHelpers.ReadLinkedCardIds(host.Metadata).Take(count).ToArray())
+            HeadlessEntityId[] trashTargets = LinkHelpers.ReadLinkedCardIds(host.Metadata).Take(count).ToArray();
+
+            // (R3-P1-5) AS-IS ITrashLinkCards (CardController.cs:5331): `new AceOverflowClass(_trashTargetCards)
+            // .Overflow()` runs IMMEDIATELY BEFORE the link cards move — an un-flipped ACE link card leaving the
+            // field costs its owner the printed Overflow memory. Same shared pass as DiscardEvoRoots' link-root
+            // overflow (host still on the field, so the AS-IS on-field existence test holds).
+            if (_memory is not null && _zoneMover is IZoneStateReader linkZones
+                && (linkZones.GetCards(host.OwnerId, ChoiceZone.BattleArea).Contains(hostId)
+                    || linkZones.GetCards(host.OwnerId, ChoiceZone.BreedingArea).Contains(hostId)))
+            {
+                Runtime.DeletionSourceTrash.ApplyAceOverflow(_repository, trashTargets, _memory, _currentTurnPlayer?.Invoke());
+            }
+
+            foreach (HeadlessEntityId linkCardId in trashTargets)
             {
                 await LinkHelpers.RemoveLinkCardAsync(_repository, zoneMover, hostId, linkCardId, trash: true, queue, ct).ConfigureAwait(false);
             }

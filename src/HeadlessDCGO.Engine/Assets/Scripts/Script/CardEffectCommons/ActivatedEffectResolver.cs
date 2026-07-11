@@ -99,18 +99,80 @@ public static class ActivatedEffectResolver
         return false;
     }
 
-    /// <summary>(RDx-A3) Whether the card has an ACTIVATED effect at <paramref name="timing"/> that can activate
-    /// RIGHT NOW — the per-pass CanActivate re-check AS-IS runs every window pass on already-stacked skills
-    /// (MultipleSkills.cs:122/164-165, mirrored by the scheduler half's <c>SchedulerGate</c>), which
-    /// <see cref="HasActivatedEffectsAt"/> (collect-time EXISTENCE) does not. For a uniform <see cref="ActivatedEffect"/>
-    /// this is its own <c>CanResolve</c> gate — the SAME one the resolver applies (uniform case), evaluated against the
-    /// SHARED <see cref="BuildUniformResolveContext"/> so a divergent reconstruction cannot over/under-gate. A
-    /// non-uniform activated effect has no CanResolve gate in the resolver (it self-no-ops via an empty selection), so
-    /// it counts as potentially-active. Returns false only when EVERY activated effect at the timing is a uniform whose
-    /// CanResolve is currently false, so the window's <c>MarkerGate</c> skips the marker this pass (not offered for the
-    /// order choice) yet keeps it stacked to re-test — instead of offering a no-op marker that consumes the AS-IS
-    /// per-pass deferral. Pure (builds the effect list + CanResolve, runs no body).</summary>
+    /// <summary>(RDx-A3, predicate SPLIT per the 2026-07-11 adversarial review) The window's PER-PASS re-check on
+    /// an already-stacked activated marker. AS-IS re-checks ONLY <c>CanActivate</c> every pass
+    /// (MultipleSkills.cs:122/164-165, pick :366, execution entry AutoProcessing.cs:1068) = the once-per-turn cap
+    /// (ICardEffect.cs:366-372) + CanActivateCondition (:377) — it NEVER re-evaluates the collect gate
+    /// (CanTrigger / CanUseCondition) on a stacked skill (the execution path ICardEffect.cs:1116-1286 has no
+    /// CanTrigger call). So for a uniform <see cref="ActivatedEffect"/> this evaluates the CanActivate HALF
+    /// (<see cref="ActivatedEffect.CanResolveActivateHalf"/>) plus the cap — NOT <c>CanResolve</c>: conflating the
+    /// CanUse half here suppressed effects AS-IS resolves (an event-scoped CanUseCondition whose subject died
+    /// mid-window — ST4_14 — stays resolvable in AS-IS because only CanActivateCondition is re-checked) and the
+    /// missing cap offered a spent effect for the order choice AS-IS's per-pass CanActivate excludes. The collect
+    /// gate lives in <see cref="CanCollectAt"/>, evaluated ONCE when the marker is synthesised. A non-uniform
+    /// activated effect has no split gate (it self-no-ops in the resolver), so it counts as potentially-active
+    /// (a known under-gate versus AS-IS per-pass CanActivateCondition — shrinking with the B-5 uniform
+    /// migration). Pure (builds the effect list + gates, runs no body).</summary>
     public static bool CanActivateAt(
+        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
+        GameEvent? drivingEvent = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardInstanceId.IsEmpty
+            || !context.CardInstanceRepository.TryGetInstance(cardInstanceId, out CardInstanceRecord? instance)
+            || instance is null
+            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            || def is null
+            || !CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            || effect is null)
+        {
+            return false;
+        }
+
+        // AS-IS CanActivate also gates on effect INVALIDATION (IsDisabled, ICardEffect.cs:421) — a card whose
+        // effects are currently nullified is per-pass excluded (2026-07-11 re-review: this was missing from the
+        // marker path while the scheduler half checked it in SchedulerGate).
+        if (EffectInvalidation.IsEffectsDisabled(context, cardInstanceId))
+        {
+            return false;
+        }
+
+        var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
+        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        for (int i = 0; i < effects.Count; i++)
+        {
+            if (effects[i] is not IActivatedCardEffect)
+            {
+                continue;
+            }
+
+            if (effects[i] is ActivatedEffect uniform)
+            {
+                if (uniform.CanResolveActivateHalf()
+                    && context.OnceFlags.CanActivate(
+                        BuildUniformResolveContext(uniform, drivingEvent).Request, uniform.MaxCountPerTurn))
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>(RDx-A3 split) The COLLECT-time gate for synthesising an activated-bridge marker — the AS-IS
+    /// collect filter <c>CanTrigger</c> (ICardEffect.cs:319-358: the once-per-turn cap :339 + CanUseCondition
+    /// :350), which AS-IS evaluates ONCE when GetSkillInfos/EffectList stacks the skill and never again. A
+    /// uniform effect whose CanUse half (or cap) is false at collect is NOT stacked (AS-IS never collects it —
+    /// even if the condition would become true later in the window); one whose CanUse half is true at collect
+    /// STAYS stacked even if the condition later turns false (only the CanActivate half re-checks per pass —
+    /// <see cref="CanActivateAt"/>). Non-uniform effects count by existence (their gates live in their own
+    /// resolution). Pure.</summary>
+    public static bool CanCollectAt(
         EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
         GameEvent? drivingEvent = null)
     {
@@ -137,7 +199,9 @@ public static class ActivatedEffectResolver
 
             if (effects[i] is ActivatedEffect uniform)
             {
-                if (uniform.CanResolve(BuildUniformResolveContext(uniform, drivingEvent)))
+                CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
+                if (uniform.CanResolveUseHalf(resolveCtx)
+                    && context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
                 {
                     return true;
                 }
@@ -197,11 +261,14 @@ public static class ActivatedEffectResolver
             else if (effects[i] is DigiBurstActivatedEffect burst)
             {
                 // (B-2) Mirror AS-IS IDigiBurst.CanDigiBurst / ST4_13's CanUseCondition (ST4_13.cs:37-48): a [Main]
-                // Digi-Burst is declarable only when the card's own permanent holds >= Count TRASHABLE digivolution
-                // sources — the SAME gate the resolver's DigiBurst case applies before paying. Without it the skill
-                // is offered even when it cannot pay, a phantom legal move AS-IS's CanDeclareSkillList never
-                // surfaces (CanUse = CanTrigger && CanActivate evaluates CanUseCondition → CanDigiBurst).
-                if (CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
+                // Digi-Burst is declarable only when (a) the card's own permanent is NOT stack-trash-immune
+                // (CanDigiBurst's FIRST check, CardController.cs:2141 — the immunity blocks the whole burst, not
+                // just the trash) and (b) it holds >= Count TRASHABLE digivolution sources — the SAME gate the
+                // resolver's DigiBurst case applies before paying. Without these the skill is offered even when it
+                // cannot pay, a phantom legal move AS-IS's CanDeclareSkillList never surfaces.
+                if (!RestrictionScan.IsRestricted(
+                        context, MatchStateMutationSink.ImmuneStackTrashingKey, burst.Card.InstanceId, burst.Card.InstanceId)
+                    && CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
                 {
                     return true;
                 }
@@ -262,7 +329,9 @@ public static class ActivatedEffectResolver
         CancellationToken cancellationToken = default,
         bool skipReactivationHolder = false,
         GameEvent? drivingEvent = null,
-        Func<ICardEffect, bool>? effectFilter = null)
+        Func<ICardEffect, bool>? effectFilter = null,
+        bool declarative = false,
+        bool windowDispatched = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -291,9 +360,17 @@ public static class ActivatedEffectResolver
         // a ChooseAsync below throws DeferredChoicePendingException to SUSPEND — we then do NOT flush the
         // (fresh, unflushed) sink or complete the cycle, so nothing is partially applied; the caller treats
         // it as pending and re-invokes once the agent answers, when BeginResolution replays the answer.
-        var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
-        coordinator?.BeginResolution();
-
+        //
+        // (B-1 rework) the OnceFlags uniform-cycle transaction runs the SAME lifecycle: consumes staged during
+        // the run are kept across a suspend (replayed on the re-invocation, alongside the replayed answers) and
+        // committed exactly once on completion — BEFORE the flush, so windows opened by the flushed events read
+        // committed caps. This is what lets the uniform case register a use BEFORE the body (AS-IS
+        // register-before-body) without the resumed re-run reading its own consume as capped-out (the original
+        // B-1 bug) and without an earlier effect's consume outliving its discarded sink when a LATER effect in
+        // the same list suspends (both replay together).
+        // Build the effect list BEFORE opening the cycle: a throw here (e.g. a runtime-STOP in a card's
+        // CardEffects) must not leak an open cycle (the leak would make every later resolution a non-owner —
+        // no commits — and desync the journal; 2026-07-11 re-review P2-3).
         IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
         if (effectFilter is not null)
         {
@@ -310,9 +387,29 @@ public static class ActivatedEffectResolver
             effects = effects.Where(e => e is not ReuseWhenDigivolvingEffect).ToList();
         }
 
-        int resolved = await ResolveListAsync(
-            context, effect, card, players, sink, effects, cancellationToken, drivingEvent).ConfigureAwait(false);
+        var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
+        coordinator?.BeginResolution();
+        bool cycleOwner = context.OnceFlags.BeginUniformCycle();
 
+        int resolved;
+        try
+        {
+            resolved = await ResolveListAsync(
+                context, effect, card, players, sink, effects, cancellationToken, drivingEvent,
+                declarative: declarative, windowDispatched: windowDispatched).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DeferredChoicePendingException or WindowChoicePendingException)
+        {
+            context.OnceFlags.SuspendUniformCycle(cycleOwner);
+            throw;
+        }
+        catch
+        {
+            context.OnceFlags.AbortUniformCycle(cycleOwner);
+            throw;
+        }
+
+        context.OnceFlags.CompleteUniformCycle(cycleOwner);
         await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
         coordinator?.CompleteResolution();
         return resolved;
@@ -326,7 +423,9 @@ public static class ActivatedEffectResolver
         MatchStateMutationSink sink,
         IReadOnlyList<ICardEffect> cardEffects,
         CancellationToken cancellationToken,
-        GameEvent? drivingEvent = null)
+        GameEvent? drivingEvent = null,
+        bool declarative = false,
+        bool windowDispatched = false)
     {
         int resolved = 0;
         foreach (ICardEffect cardEffect in cardEffects)
@@ -353,78 +452,61 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedSelectEffect select:
-                {
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(select.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        select.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectBounceAndDiscardSourcesEffect bounceDiscard:
-                {
-                    // (ST4_16) select + bounce, where the bounce ALSO discards all of the target's
-                    // digivolution cards — AS-IS HandBounceClaass.Bounce() runs DiscardEvoRoots()
-                    // unconditionally BEFORE the permanent leaves the field, so the discard is awaited
-                    // here first, then the bounce mutation is queued through the SAME sink.
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(bounceDiscard.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        await bounceDiscard.DiscardSourcesAsync(result.SelectedIds, cancellationToken).ConfigureAwait(false);
-                        bounceDiscard.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectFromZoneEffect selectZone:
-                {
-                    // (PRIM-P0-flow B.O.3) zone-card select-follow-up (add-to-hand / trash-from-zone).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(selectZone.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        selectZone.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
                 case DigiBurstActivatedEffect burst:
                 {
-                    // (PRIM special-play) AS-IS IDigiBurst.CanDigiBurst: gate on the card's own permanent holding
-                    // >= Count TRASHABLE digivolution sources (per-source trash-protection honoured, mirroring
-                    // !CanNotTrashFromDigivolutionCards). Pay by trashing Count from the bottom (face-down), then
-                    // resolve/register the inner effect through the SAME sink / choice cycle.
-                    if (CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
+                    // (B-2 rework, AS-IS IDigiBurst.DigiBurst — CardController.cs:2135-2233) the full sequence:
+                    //   1. CanDigiBurst gate (:2135-2160): FIRST the permanent-scope
+                    //      `ImmuneFromStackTrashing(_cardEffect)` (:2141 — blocks the ENTIRE burst, not just the
+                    //      trash), THEN the permanent holds >= Count TRASHABLE sources (per-source
+                    //      !CanNotTrashFromDigivolutionCards).
+                    //   2. The CONTROLLER SELECTS which sources to discard (SelectCardEffect over
+                    //      _permanent.DigivolutionCards, exactly Count, canNoSelect:false, face-down :2171-2195)
+                    //      — NOT an automatic bottom-N.
+                    //   3. When >= 1 selected: the OnUseDigiburst window opens BEFORE the trash (:2228) — here the
+                    //      emit precedes the staged trash, so the queue drains them in the AS-IS relative order.
+                    //   4. ITrashDigivolutionCards trashes exactly the SELECTED cards (:2233).
+                    //   5. The body resolves after the pay.
+                    // Design item B2-UPTO: the AS-IS _upToMaxCount ("Digi-Burst up to N") variant — a
+                    // canEndNotMax select + `Some` gate — lands with its first ported witness; every current
+                    // witness (ST4_13) is a fixed count.
+                    IReadOnlyList<HeadlessEntityId> pool = CardEffectCommons.TrashableDigivolutionSourceIds(burst.Card, burst.Card.InstanceId);
+                    if (!RestrictionScan.IsRestricted(
+                            context, MatchStateMutationSink.ImmuneStackTrashingKey, burst.Card.InstanceId, burst.Card.InstanceId)
+                        && pool.Count >= burst.Count)
                     {
-                        sink.Apply(new EffectMutation(
-                            MatchStateMutationSink.TrashDigivolutionCardsKind, burst.Card.InstanceId,
-                            new Dictionary<string, object?>(StringComparer.Ordinal)
-                            {
-                                [MatchStateMutationSink.CountKey] = burst.Count,
-                                [MatchStateMutationSink.FromBottomKey] = true,
-                            }));
+                        var candidates = pool
+                            .Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: burst.Card.Controller))
+                            .ToList();
+                        var request = new ChoiceRequest(
+                            ChoiceType.Card, burst.Card.Controller, "Select digivolution cards to discard.",
+                            minCount: burst.Count, maxCount: burst.Count, canSkip: false, ChoiceZone.DigivolutionCards, candidates);
+                        ChoiceResult selection = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
 
-                        // The Digi-Burst body is either an ACTIVATED effect (draw/delete/trash — resolve it) or a
-                        // CONTINUOUS grant (e.g. "your Digimon gain <keyword>" — register it, as at enter-play).
-                        if (burst.InnerEffect is IActivatedCardEffect)
+                        if (!selection.IsSkipped && selection.SelectedIds.Count >= 1)
                         {
-                            resolved += await ResolveListAsync(
-                                context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            context.EffectRegistry.Register(burst.InnerEffect.ToBinding(
-                                $"{burst.Card.InstanceId.Value}:digiburst:{Guid.NewGuid():N}"));
+                            EmitJournaled(context, TriggerTimings.OnUseDigiburst, burst.Card.Controller, burst.Card.InstanceId);
+
+                            sink.Apply(new EffectMutation(
+                                MatchStateMutationSink.TrashDigivolutionCardsKind, burst.Card.InstanceId,
+                                new Dictionary<string, object?>(StringComparer.Ordinal)
+                                {
+                                    [MatchStateMutationSink.SelectedCardIdsKey] = string.Join(",", selection.SelectedIds.Select(id => id.Value)),
+                                }));
+
+                            // The Digi-Burst body is either an ACTIVATED effect (draw/delete/trash — resolve it) or
+                            // a CONTINUOUS grant (e.g. "your Digimon gain <keyword>" — register it, as at enter-play).
+                            if (burst.InnerEffect is IActivatedCardEffect)
+                            {
+                                resolved += await ResolveListAsync(
+                                    context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                // Journaled + deterministic id: a resumed replay of this already-performed
+                                // registration must not register a second binding.
+                                RunJournaledImmediate(context, () => context.EffectRegistry.Register(burst.InnerEffect.ToBinding(
+                                    $"{burst.Card.InstanceId.Value}:digiburst:{burst.InnerEffect.GetType().Name}")));
+                            }
                         }
                     }
 
@@ -451,11 +533,19 @@ public static class ActivatedEffectResolver
 
                     if (into is HeadlessEntityId topId && permanent is HeadlessEntityId permId && material is HeadlessEntityId matId)
                     {
-                        IReadOnlyList<HeadlessEntityId> merged = await FusionDigivolveHelpers.FuseAsync(
-                            context.CardInstanceRepository, context.ZoneMover, topId, intoZone,
-                            new[] { permId, matId }, gameEventQueue: context.GameEventQueue,
-                            kind: FusionKind.DnaDigivolve, cancellationToken: cancellationToken).ConfigureAwait(false);
-                        if (merged.Count > 0)
+                        // (B-3 tuck reset) DNA/Jogress resets every source of the fused stack (CardController.cs:1509-1512).
+                        // Journaled: the fuse performs DIRECT zone moves — a resumed replay must not re-fuse.
+                        int fusedCount = 0;
+                        await RunJournaledImmediateAsync(context, async () =>
+                        {
+                            IReadOnlyList<HeadlessEntityId> merged = await FusionDigivolveHelpers.FuseAsync(
+                                context.CardInstanceRepository, context.ZoneMover, topId, intoZone,
+                                new[] { permId, matId }, gameEventQueue: context.GameEventQueue,
+                                kind: FusionKind.DnaDigivolve, cancellationToken: cancellationToken,
+                                onceFlags: context.OnceFlags).ConfigureAwait(false);
+                            fusedCount = merged.Count;
+                        }).ConfigureAwait(false);
+                        if (fusedCount > 0)
                         {
                             resolved++;
                         }
@@ -485,46 +575,22 @@ public static class ActivatedEffectResolver
                                 continue;
                             }
 
-                            await context.ZoneMover.MoveAsync(
-                                new ZoneMoveRequest(optInstance.OwnerId, optionId, playOption.SourceZone, ChoiceZone.Trash),
-                                cancellationToken).ConfigureAwait(false);
-                            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: card.Controller, subject: optionId);
+                            // Journaled AS ONE ENTRY: the trash move is a DIRECT (immediately-applied) zone
+                            // mutation — a resumed replay re-running it would throw (the card already left the
+                            // source zone) — and the OnUseOption emit must not re-queue either.
+                            await RunJournaledImmediateAsync(context, async () =>
+                            {
+                                await context.ZoneMover.MoveAsync(
+                                    new ZoneMoveRequest(optInstance.OwnerId, optionId, playOption.SourceZone, ChoiceZone.Trash),
+                                    cancellationToken).ConfigureAwait(false);
+                                TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUseOption, actor: card.Controller, subject: optionId);
+                            }).ConfigureAwait(false);
 
                             var optCard = new CardSource(context, optionId, card.Controller, optInstance.OwnerId);
                             resolved += await ResolveListAsync(
                                 context, optEffect, optCard, players, sink,
                                 optEffect.CardEffects(EffectTiming.OptionSkill, optCard), cancellationToken).ConfigureAwait(false);
                         }
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectAndPlayEffect selectPlay:
-                {
-                    // (B.O.3) wire the zone-select play into the activation flow (was previously only driven by
-                    // direct BuildRequest/Apply in tests).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(selectPlay.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        selectPlay.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
-                case ActivatedSelectAndPlayFromZonesEffect selectPlayZones:
-                {
-                    // (BT1_056) multi-zone (Hand ∪ Trash) select-and-play — same choose -> Apply shape as
-                    // ActivatedSelectAndPlayEffect, but candidates span several zones (each tagged with its origin).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(selectPlayZones.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        selectPlayZones.Apply(sink, result.SelectedIds);
                     }
 
                     resolved++;
@@ -611,94 +677,133 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedTargetBuffEffect targetBuff:
+                case ActivatedTargetRestrictionEffect restrict:
                 {
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(targetBuff.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
+                    // (ST2_14 / ST4_12 / BT1_113) select up to maxCount matching permanents, then register the
+                    // duration-tagged can't-attack / can't-block restriction binding(s) on the pick(s) — the
+                    // AS-IS SelectPermanentEffect(Mode.Custom) whose SelectPermanentCoroutine runs
+                    // GainCanNotAttack + GainCanNotBlock per selected permanent (ST2_14.cs:44-86). Same shape as
+                    // the other interactive cases: BuildRequest -> ChoiceProvider -> apply. The AS-IS
+                    // ActivateCoroutine is guarded by HasMatchConditionPermanent (ST2_14.cs:46) — no select (and
+                    // no registration) when nothing matches.
+                    ChoiceRequest request = restrict.BuildRequest(players);
+                    if (request.Candidates.Count > 0)
                     {
-                        targetBuff.ApplyBuff(result.SelectedIds);
+                        ChoiceResult result = await context.ChoiceProvider.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+                        if (!result.IsSkipped && result.SelectedIds.Count > 0)
+                        {
+                            // Journaled: a registry registration is an immediately-applied side effect — a
+                            // resumed replay must not register the restriction twice.
+                            RunJournaledImmediate(context, () => restrict.ApplyRestriction(result.SelectedIds));
+                        }
                     }
 
                     resolved++;
                     break;
                 }
 
-                case ActivatedSelectTrashDigivolutionEffect trashDigivolution:
+                case ActivatedMemoryEffect memory:
                 {
-                    // (ST2_03/06/09) trash-digivolution select — same BuildRequest -> answer -> Apply shape as the
-                    // other selects. Without this case the bridge reaches the effect but the switch silently drops
-                    // it, so nothing is trashed in live play (only the unit-test's direct Apply worked).
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(trashDigivolution.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        trashDigivolution.Apply(sink, result.SelectedIds);
-                    }
-
+                    // (BT2_087) direct memory gain/loss — no choice; stage on the shared sink. Formerly missing
+                    // from this switch: the effect fell through to the silent default and BT2_087's
+                    // [Start of Your Turn] +1 memory was a NO-OP (2026-07-11 re-review finding).
+                    memory.Apply(sink);
                     resolved++;
                     break;
                 }
 
-                case ActivatedPlayerScopeBuffEffect playerScopeBuff:
+                case ActivatedSelectAndDeDigivolveEffect selectDeDigivolve:
                 {
-                    playerScopeBuff.ApplyBuff();
+                    // Select up to maxCount matching permanents, then de-digivolve each by `count` — same
+                    // BuildRequest -> ChoiceProvider -> Apply shape as the other interactive cases. No ported
+                    // caller today; wired so the factory (CardEffectFactory.SelectAndDeDigivolveEffect) is not a
+                    // silent no-op when one lands (same missing-case class as ActivatedMemoryEffect above).
+                    ChoiceRequest ddRequest = selectDeDigivolve.BuildRequest(players);
+                    if (ddRequest.Candidates.Count > 0)
+                    {
+                        ChoiceResult ddResult = await context.ChoiceProvider.ChooseAsync(ddRequest, cancellationToken).ConfigureAwait(false);
+                        if (!ddResult.IsSkipped && ddResult.SelectedIds.Count > 0)
+                        {
+                            selectDeDigivolve.Apply(sink, ddResult.SelectedIds);
+                        }
+                    }
+
                     resolved++;
                     break;
                 }
 
                 case ActivatedEffect uniform:
                 {
-                    // Uniform activated effect (mirror of AS-IS ActivateClass): honour the CanUse gate (subject
-                    // scope) + CanActivate precondition BEFORE the once-per-turn cap is consumed, then drive the
-                    // composable body (interactive choice or direct mutation). Without a driving event the card
+                    // Uniform activated effect (mirror of AS-IS ActivateClass). Without a driving event the card
                     // being resolved IS the event subject (subject-scoped bridge/onplay/digivolve route by
                     // subject), so TriggerEntityId falls back to the card itself. A BROADCAST bridge timing
                     // (AS-IS StackSkillInfos offers the event to every field card) passes the driving event:
                     // TriggerEntityId is then the event's subject (e.g. the Digimon whose sources were trashed,
                     // not this listener) and the event's primitive metadata is threaded as "event.<key>" values
                     // so gates (CanTriggerOnTrashDigivolutionCard …) read the AS-IS hashtable mirror.
-                    // (RDx-A3) build the resolve-context via the SHARED helper so the window's per-pass CanActivate
-                    // gate (CanActivateAt → MarkerGate) reads the IDENTICAL context this resolver will.
+                    // (RDx-A3) build the resolve-context via the SHARED helper so the window's per-pass gate
+                    // (CanActivateAt → MarkerGate) reads the IDENTICAL context this resolver will.
                     CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
-                    if (!uniform.CanResolve(resolveCtx))
+
+                    // Gate: a WINDOW-dispatched marker re-checks only the CanActivate half at execution entry —
+                    // AS-IS AutoProcessing.cs:1068 runs `CanActivate(hashtable)` on the stacked skill and NEVER
+                    // re-evaluates CanTrigger/CanUseCondition after collect (the collect gate already ran in
+                    // CanCollectAt when the marker was synthesised). A DIRECT path (option play / on-play /
+                    // declaration) collects-and-resolves inline, so it evaluates BOTH halves here, mirroring the
+                    // AS-IS collect filter + execution gate run back-to-back.
+                    bool gate = windowDispatched ? uniform.CanResolveActivateHalf() : uniform.CanResolve(resolveCtx);
+                    if (!gate)
                     {
                         break;
                     }
 
-                    // (RD-12) capped-out effects are not offered — a NON-consuming check so the use is registered
-                    // only at execution below (AS-IS registers use in the effect's OnProcess, not at the gate).
+                    // AS-IS CanActivate includes the once-per-turn cap (ICardEffect.cs:366-372) — re-checked with
+                    // the condition half above at every gate site. Cycle-aware: a resumed re-run sees the same
+                    // view its original run saw (staged consumes replay).
                     if (!context.OnceFlags.CanActivate(resolveCtx.Request, uniform.MaxCountPerTurn))
                     {
                         break;
                     }
 
+                    // (B-1 rework) register the per-turn use BEFORE the body — AS-IS register-before-body. The
+                    // register point differs by path, and both are mirrored:
+                    //   - DECLARATIVE ([Main] skill declaration, TurnStateMachine.cs:1183-1186): register fires
+                    //     BEFORE the optional prompt — declining a declared capped skill leaves the cap consumed
+                    //     (that path has no RemoveUse). AS-IS then bypasses its own consumed cap with the
+                    //     IsDeclarative flag (AutoProcessing.cs:1068 `CanActivate || IsDeclarative`); here the cap
+                    //     was checked above, before the register, so no bypass flag is needed — same net gate.
+                    //   - WINDOW / standard (ICardEffect.cs:1117-1124 Activate_Execute): the OnProcessCallbuck
+                    //     register fires AFTER the optional gate (`UseOptional || !IsOptional`) and BEFORE the
+                    //     body coroutine — declining registers nothing.
+                    // Suspend safety is the OnceFlags uniform-cycle transaction (see ResolveAsync), NOT a consume
+                    // re-order: a suspend keeps the staged use and the resumed replay neither double-consumes nor
+                    // reads itself as capped-out.
+                    if (declarative)
+                    {
+                        context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
+                    }
+
                     // (RD-13) an optional effect ("you may ...") asks the controller yes/no before it runs (AS-IS
-                    // OptionalSkill / Activate_Optional_Effect_Execute). Declining consumes no per-turn use and
-                    // does nothing — a non-interactive optional body was previously force-resolved.
+                    // OptionalSkill / Activate_Optional_Effect_Execute).
                     if (uniform.IsOptional && !await ConfirmOptionalAsync(context, uniform, cancellationToken).ConfigureAwait(false))
                     {
                         break;
                     }
 
-                    // (RD-12 / B-1 P1-3) run the body, THEN register the per-turn use — AFTER the body completes, not
-                    // before. An INTERACTIVE capped body suspends mid-choice (DeferredChoicePendingException) and the
-                    // resolver is RE-INVOKED on resume, re-running this uniform case: consuming BEFORE the body made
-                    // the resumed CanActivate re-check (OnceFlags.CanActivate above) read the already-consumed cap as
-                    // false → the effect BREAK-vanished with its use spent (latent P0). Consuming after completion
-                    // leaves a suspend's cap untouched (the un-flushed sink is discarded too), so the resumed
-                    // re-invocation passes CanActivate, replays the body to completion, and consumes EXACTLY ONCE.
-                    // (The window path's own commit — SchedulerCommit — is unaffected: it consumes the trigger/caller
-                    // cap before the body via the idempotent InFlightPick replay, F5/RD-12.)
-                    //
-                    // (B-4 / P1-7) consume ONLY if the body EXECUTED — a skipped interactive selection (ResolveBodyAsync
-                    // returns false) does nothing, so the per-turn use is refunded (AS-IS `if (!executed) RemoveUse()`,
-                    // AD1_024:265 / BT14_029:114 …). Combined with the consume-after-body move above, the cap is spent
-                    // exactly once and only when the effect actually acted.
-                    bool executed = await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
-                    if (executed)
+                    if (!declarative)
                     {
                         context.OnceFlags.Consume(resolveCtx.Request, uniform.MaxCountPerTurn);
+                    }
+
+                    // (B-4 rework) run the body; the use stays consumed even when the body does nothing — the
+                    // AS-IS DEFAULT (~1,170 [Once Per Turn] cards never call RemoveUse). ONLY a card whose AS-IS
+                    // body explicitly runs `if (!executed) RemoveUse()` opts in via RefundWhenNotExecuted
+                    // (executed defaults to "selection not skipped", overridable per card via ExecutedPredicate —
+                    // AS-IS executed is card-defined: AD1_024's 3-branch OR, BT14_029's board predicate).
+                    bool executed = await uniform.ResolveBodyAsync(sink, context.ChoiceProvider, players, cancellationToken).ConfigureAwait(false);
+                    if (!executed && uniform.RefundWhenNotExecuted)
+                    {
+                        context.OnceFlags.Refund(resolveCtx.Request, uniform.MaxCountPerTurn);
                     }
 
                     resolved++;
@@ -816,40 +921,10 @@ public static class ActivatedEffectResolver
                     break;
                 }
 
-                case ActivatedPlayFromUnderEffect playFromUnder:
-                {
-                    // (G10-007) "Choose a Digimon digivolution card under your Digimon and play it as another
-                    // Digimon" — select an under-card, then move it onto the battle area cost-free.
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(playFromUnder.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        playFromUnder.Apply(sink, result.SelectedIds);
-                    }
-
-                    resolved++;
-                    break;
-                }
-
                 case BeforePayCostReductionEffect beforePayReduce:
                 {
                     // (PRIM-P0 B.O.4) non-interactive one-shot before-pay reduction of this play's own cost.
                     beforePayReduce.Apply();
-                    resolved++;
-                    break;
-                }
-
-                case SuspendCostReductionEffect suspendReduce:
-                {
-                    // (EX8_074 Stage 3 brick) "Suspend N of your Digimon to reduce this card's play cost by M":
-                    // select exactly N own Digimon, suspend them, and register the one-shot cost reduction.
-                    ChoiceResult result = await context.ChoiceProvider
-                        .ChooseAsync(suspendReduce.BuildRequest(players), cancellationToken).ConfigureAwait(false);
-                    if (!result.IsSkipped)
-                    {
-                        suspendReduce.Apply(sink, result.SelectedIds);
-                    }
-
                     resolved++;
                     break;
                 }
@@ -882,6 +957,49 @@ public static class ActivatedEffectResolver
         }
 
         return resolved;
+    }
+
+    /// <summary>(B-1 rework) Emit a trigger-timing event through the uniform-cycle MUTATION JOURNAL so a
+    /// suspended resolution's REPLAY does not re-queue it (a bare queue push is an immediately-applied side
+    /// effect the fresh re-run would double). Outside a cycle this is a plain emit.</summary>
+    private static void EmitJournaled(EngineContext context, string timing, HeadlessPlayerId actor, HeadlessEntityId subject) =>
+        RunJournaledImmediate(context, () => TriggerEventEmitter.Emit(context.GameEventQueue, timing, actor: actor, subject: subject));
+
+    /// <summary>(B-1 rework) Run an IMMEDIATELY-APPLIED side effect (direct zone move / registry registration /
+    /// event emit — anything not staged on the sink) through the uniform-cycle mutation journal: a resumed
+    /// replay SKIPS it (its effect already persists in game state) instead of doubling it. Outside a cycle it
+    /// just runs. The action must be synchronous-in-effect by the time it returns (an awaited direct move is
+    /// wrapped by the async overload below).</summary>
+    private static void RunJournaledImmediate(EngineContext context, Action action)
+    {
+        OnceFlagController.MutationReplay replay = context.OnceFlags.BeginMutationApply();
+        if (replay == OnceFlagController.MutationReplay.Skip)
+        {
+            return;
+        }
+
+        action();
+        if (replay == OnceFlagController.MutationReplay.Fresh)
+        {
+            context.OnceFlags.RecordFreshMutation(purelyImmediate: true);
+        }
+    }
+
+    /// <summary>Async twin of <see cref="RunJournaledImmediate(EngineContext, Action)"/> for awaited direct
+    /// mutations (ZoneMover moves, FuseAsync).</summary>
+    private static async Task RunJournaledImmediateAsync(EngineContext context, Func<Task> action)
+    {
+        OnceFlagController.MutationReplay replay = context.OnceFlags.BeginMutationApply();
+        if (replay == OnceFlagController.MutationReplay.Skip)
+        {
+            return;
+        }
+
+        await action().ConfigureAwait(false);
+        if (replay == OnceFlagController.MutationReplay.Fresh)
+        {
+            context.OnceFlags.RecordFreshMutation(purelyImmediate: true);
+        }
     }
 
     /// <summary>(RD-13) Ask the effect's controller whether to use an OPTIONAL effect (AS-IS OptionalSkill

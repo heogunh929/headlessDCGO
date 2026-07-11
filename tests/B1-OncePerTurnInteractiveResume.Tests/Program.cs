@@ -5,13 +5,14 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// B-1 (P1-3): a CAPPED ([Once Per Turn]) uniform activated effect with an INTERACTIVE body must survive a
-// suspend/resume. ActivatedEffectResolver consumes the per-turn cap AFTER the body completes (not before): the
-// interactive body suspends mid-choice (DeferredChoicePendingException) and the resolver is RE-INVOKED on resume,
-// re-running its uniform case incl. the CanActivate re-check. Consuming before the body made that re-check read the
-// already-spent cap as false → the effect BREAK-vanished with its use wasted (latent P0). This proves: (a) the cap
-// is NOT consumed while suspended, (b) the effect COMPLETES on resume, and (c) the cap is consumed exactly once
-// (a same-turn re-resolve no longer fires).
+// B-1 (P1-3, reworked per the 2026-07-11 adversarial review): a CAPPED ([Once Per Turn]) uniform activated effect
+// with an INTERACTIVE body must survive a suspend/resume. The resolver registers the use BEFORE the body (AS-IS
+// register-before-body) but STAGES it in the OnceFlags uniform-cycle transaction: a suspend keeps it staged, and
+// the resumed re-invocation's own gate reads its replay-cursor view (not capped-out — the original B-1 bug), while
+// the staged use commits exactly once on completion. This proves: (a) no game mutation lands while suspended,
+// (b) the effect COMPLETES on resume, (c) the cap is consumed exactly once (a same-turn re-resolve no longer
+// fires). Also covers B-4 (refund = PER-CARD OPT-IN, AS-IS default consumes on a skipped body) and the
+// multi-effect suspend replay (P0-3: an earlier effect's immediate mutation must not double-apply).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -19,7 +20,9 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("a capped interactive activated effect suspends, resumes to completion, and consumes its cap exactly once", CappedInteractiveSurvivesResume),
-    ("(B-4) a SKIPPED interactive selection does nothing and REFUNDS the per-turn cap (re-resolve fires again)", SkippedInteractiveRefundsCap),
+    ("(B-4) an OPT-IN refund card's SKIPPED selection does nothing and REFUNDS the per-turn cap (re-resolve fires again)", SkippedInteractiveRefundsCap),
+    ("(B-4 default) a NON-refund card's SKIPPED selection keeps the use CONSUMED (AS-IS default — no RemoveUse)", SkippedInteractiveDefaultConsumes),
+    ("(P0-3) multi-effect suspend: an earlier capped effect's immediate mutation applies EXACTLY once across the replay", MultiEffectSuspendRepaysOnce),
 };
 
 var failures = new List<string>();
@@ -64,7 +67,7 @@ async Task CappedInteractiveSurvivesResume()
     AssertTrue(suspended, "the interactive body suspended (DeferredChoicePendingException)");
     AssertTrue(context.ChoiceController.Current.IsPending, "a hand-select choice is pending");
     AssertTrue(InZone(context, hand1, ChoiceZone.Hand) && InZone(context, hand2, ChoiceZone.Hand),
-        "nothing trashed while suspended (the cap is NOT consumed before the body — B-1)");
+        "nothing trashed while suspended (pending mutations are discarded; the staged use commits only on completion — B-1)");
 
     // (2) Answer + resume: the resolver is re-invoked; the effect must COMPLETE (not vanish on the CanActivate re-check).
     context.ChoiceController.ResolveChoice(ChoiceResult.Select(hand1));
@@ -112,7 +115,82 @@ async Task SkippedInteractiveRefundsCap()
     try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
     catch (DeferredChoicePendingException) { reSuspended = true; }
     AssertTrue(reSuspended && context.ChoiceController.Current.IsPending,
-        "a same-turn re-resolve fires again — the [Once Per Turn] use was REFUNDED on the skip (B-4)");
+        "a same-turn re-resolve fires again — the [Once Per Turn] use was REFUNDED on the skip (B-4 opt-in card)");
+}
+
+async Task SkippedInteractiveDefaultConsumes()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 34, deferredChoice: true);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)context.CardRepository;
+
+    // The DEFAULT (no-refund) fixture — like AS-IS BT2_078 (canNoSelect body, no RemoveUse): selecting nothing
+    // still spends the [Once Per Turn] use.
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOncePerTurnOptionalTrashNoRefund"), "TfxOncePerTurnOptionalTrashNoRefund", "OPTN",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 4 }, CardType: "Digimon"));
+    var self = new HeadlessEntityId("p1:battle:OPTN");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(self, new HeadlessEntityId("TfxOncePerTurnOptionalTrashNoRefund"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = true }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, self, ChoiceZone.None, ChoiceZone.BattleArea));
+    var hand1 = await PlaceHand(context, "H1");
+
+    // (1) Resolve suspends at the (skippable) hand-select choice.
+    bool suspended = false;
+    try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
+    catch (DeferredChoicePendingException) { suspended = true; }
+    AssertTrue(suspended && context.ChoiceController.Current.IsPending, "the interactive body suspended at its choice");
+
+    // (2) SKIP the selection: the body does nothing, but the registered use STAYS consumed — the AS-IS default
+    // (only ~38 cards call RemoveUse; this card does not).
+    context.ChoiceController.ResolveChoice(ChoiceResult.Skip());
+    await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone);
+    AssertTrue(InZone(context, hand1, ChoiceZone.Hand), "the skipped selection trashed nothing");
+
+    // (3) The use was CONSUMED: a same-turn re-resolve does NOT fire again.
+    bool reSuspended = false;
+    try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
+    catch (DeferredChoicePendingException) { reSuspended = true; }
+    AssertTrue(!reSuspended && !context.ChoiceController.Current.IsPending,
+        "a same-turn re-resolve does NOT fire — a skipped body on a non-refund card keeps its use consumed (AS-IS default)");
+}
+
+async Task MultiEffectSuspendRepaysOnce()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 55, deferredChoice: true);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.MemoryController.Set(0);
+    var cards = (CardDatabase)context.CardRepository;
+
+    // TWO capped effects at the same timing: [0] +2 memory (immediate mutation), [1] interactive hand-trash.
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxCappedMemoryThenSelectTrash"), "TfxCappedMemoryThenSelectTrash", "CMST",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 4 }, CardType: "Digimon"));
+    var self = new HeadlessEntityId("p1:battle:CMST");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(self, new HeadlessEntityId("TfxCappedMemoryThenSelectTrash"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, self, ChoiceZone.None, ChoiceZone.BattleArea));
+    var hand1 = await PlaceHand(context, "H1");
+
+    // (1) First resolve: effect [0] applies +2 memory (immediately) and stages its use; effect [1] suspends.
+    bool suspended = false;
+    try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
+    catch (DeferredChoicePendingException) { suspended = true; }
+    AssertTrue(suspended && context.ChoiceController.Current.IsPending, "effect [1] suspended at its hand-select choice");
+    AssertEqual(2, context.MemoryController.Current.Current, "effect [0]'s +2 memory applied before the suspend (AS-IS mid-resolution view)");
+
+    // (2) Answer + resume: the replay must NOT re-apply [0]'s memory (mutation journal) nor cap [0] out against
+    // its own staged use (replay cursor); [1] completes with the chosen trash.
+    context.ChoiceController.ResolveChoice(ChoiceResult.Select(hand1));
+    await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone);
+    AssertEqual(2, context.MemoryController.Current.Current,
+        "memory is +2 exactly once across the suspend/replay (P0-3: the immediate mutation must not double-apply)");
+    AssertTrue(InZone(context, hand1, ChoiceZone.Trash), "effect [1]'s chosen hand card was trashed on resume");
+
+    // (3) Both uses committed exactly once: a same-turn re-resolve neither gains memory nor opens a choice.
+    bool reSuspended = false;
+    try { await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OnEnterFieldAnyone); }
+    catch (DeferredChoicePendingException) { reSuspended = true; }
+    AssertTrue(!reSuspended && !context.ChoiceController.Current.IsPending, "no effect re-fires — both caps committed");
+    AssertEqual(2, context.MemoryController.Current.Current, "memory unchanged on the capped-out re-resolve");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -132,3 +210,8 @@ bool InZone(EngineContext context, HeadlessEntityId id, ChoiceZone zone) =>
     ((IZoneStateReader)context.ZoneMover).GetCards(P1, zone).Contains(id);
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+static void AssertEqual(int expected, int actual, string label)
+{
+    if (expected != actual) { throw new InvalidOperationException($"{label}: expected {expected}, got {actual}."); }
+}

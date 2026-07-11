@@ -48,10 +48,17 @@ void PlayDerivesOnPlay()
 
 void DeletionDerivesTimings()
 {
-    var timings = TriggerTimingMap.Derive(Moved(ChoiceZone.BattleArea, ChoiceZone.Trash));
+    // (R2-P1-4) a field->Trash move is a DELETION only when the deleting path stamped the delete-batch id;
+    // an unmarked field->Trash move is a top-swap / no-trigger trash (AS-IS ArmorPurge willBeRemoveField=false,
+    // TrashNoDPPermanentProcess) and derives NONE of the deletion/leave timings.
+    var timings = TriggerTimingMap.Derive(Deleted(ChoiceZone.BattleArea));
     AssertContains(timings, TriggerTimings.OnDeletion, "OnDeletion");
     AssertContains(timings, TriggerTimings.WhenRemoveField, "WhenRemoveField");
     AssertContains(timings, TriggerTimings.OnLeaveField, "OnLeaveField");
+
+    var unmarked = TriggerTimingMap.Derive(Moved(ChoiceZone.BattleArea, ChoiceZone.Trash));
+    AssertDoesNotContain(unmarked, TriggerTimings.OnDeletion, "unmarked field->Trash (top-swap) is not a deletion");
+    AssertDoesNotContain(unmarked, TriggerTimings.OnLeaveField, "unmarked field->Trash derives no leave timing");
 }
 
 void ReturnToHandDerivesTimings()
@@ -102,7 +109,7 @@ void EffectFiresOnDeletion()
     var collector = new AutoProcessingTriggerCollector(query);
 
     TriggerCollectionResult result = collector.CollectAndEnqueueAll(
-        Moved(ChoiceZone.BattleArea, ChoiceZone.Trash), scheduler);
+        Deleted(ChoiceZone.BattleArea), scheduler);
 
     AssertEqual(1, result.EnqueuedCount, "OnDeletion effect enqueued when a card is trashed");
     AssertEqual(1, scheduler.PendingCount, "scheduler holds the trigger");
@@ -119,7 +126,7 @@ void MultiTimingDedup()
     var collector = new AutoProcessingTriggerCollector(query);
 
     TriggerCollectionResult result = collector.CollectAndEnqueueAll(
-        Moved(ChoiceZone.BattleArea, ChoiceZone.Trash), scheduler);
+        Deleted(ChoiceZone.BattleArea), scheduler);
 
     AssertEqual(1, result.EnqueuedCount, "effect matching two timings is enqueued once");
 }
@@ -128,6 +135,14 @@ void MultiTimingDedup()
 
 GameEvent Moved(ChoiceZone from, ChoiceZone to) =>
     new(1, GameEventType.CardMoved, $"{from}->{to}", Empty()) { ZoneFrom = from, ZoneTo = to };
+
+// (R2-P1-4) a DELETION move carries the delete-batch id marker every deletion finisher stamps.
+GameEvent Deleted(ChoiceZone from) =>
+    new(1, GameEventType.CardMoved, $"{from}->Trash", new Dictionary<string, object?>
+    {
+        [MatchStateMutationSink.DeletionBatchIdKey] = 1L,
+    })
+    { ZoneFrom = from, ZoneTo = ChoiceZone.Trash };
 
 EffectRequest EffectFor(string effectId, string timing) =>
     new(new HeadlessEntityId(effectId), P1, timing,

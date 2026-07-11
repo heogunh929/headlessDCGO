@@ -90,13 +90,20 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
         "the source-count snapshot is cleared after a Fortitude replay (no stale-count leak)");
 }
 
-// --- 3. Decode: the POST play window still needs a source in None, so a Decode card's sources are held. ---
+// --- 3. (design item C-1) Decode now DEFERS in the sink for the PRE (would-be-deleted) window instead of
+//        trashing immediately: the card stays on the field pending the decision and nothing is trashed yet.
+//        The play + remainder-trash happen once the window resolves (covered end-to-end by
+//        C1-DecodePartitionPre + G3.5-C13.Decode). ---
 {
     var (ctx, host, src0, _) = await Setup((DeletionReplacementGate.HasDecodeKey, true));
     await DeleteViaSink(ctx, host);
-    Check(InZone(ctx, host, ChoiceZone.Trash), "a Decode card's top still reaches the trash");
-    Check(!InZone(ctx, src0, ChoiceZone.Trash),
-        "a Decode card's sources are HELD (not trashed) for the POST play window (PRE move = TODO-96)");
+    Check(InZone(ctx, host, ChoiceZone.BattleArea),
+        "a Decode deletion is DEFERRED — the card stays on the field for the PRE window");
+    Check(!InZone(ctx, host, ChoiceZone.Trash), "the Decode card's top is NOT trashed yet (deletion deferred)");
+    Check(!InZone(ctx, src0, ChoiceZone.Trash), "no source is trashed while the PRE decision is pending");
+    ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? rec3);
+    Check(rec3 is not null && rec3!.Metadata.TryGetValue(GameFlowProcessor.PendingDeletionKey, out object? pd) && pd is true,
+        "the Decode card is flagged pendingDeletion (PRE defer)");
 }
 
 // --- 4. (P0-4) The PRE-declined deferred-deletion FINISHER path (GameFlowProcessor.RuleProcessAsync) — a

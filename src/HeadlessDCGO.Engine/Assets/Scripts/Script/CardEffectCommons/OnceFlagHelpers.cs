@@ -363,9 +363,16 @@ public static class OnceFlagHelpers
             Values(nextState, key: null, useCount: 0, maxCount: 1, canUse: true));
     }
 
-    /// <summary>(B-3 / P1-6) Reset the per-turn use counts of a SINGLE card (all its effects) — the AS-IS
-    /// <c>CardSource.Init()</c> → <c>InitUseCountThisTurn()</c> that runs whenever a card gets a fresh play context
-    /// (played, replayed from trash, de-digivolved back to top, re-stacked as a source). Removes only the
+    /// <summary>(B-3 / P1-6, coverage corrected per the 2026-07-11 adversarial review) Reset the per-turn use
+    /// counts of a SINGLE card (all its effects) — the AS-IS <c>InitUseCountThisTurn()</c>. AS-IS reset sites and
+    /// their headless mirrors: PLAY / re-play (CardController.cs:1361 → the enter-play RegisterCard hook), TUCK
+    /// under another permanent (RemoveField stack Init CardObjectController.cs:546-553 + PlacePermanent :3093 →
+    /// AddSourcesBottom/TopAsync onceFlags), LINK attach (:3393 → LinkHelpers.AddLinkCardAsync), Jogress/DigiXros
+    /// merged sources (:1509-1512 / SelectDigiXrosClass.cs:923 → FuseAsync onceFlags), turn boundary
+    /// (TurnStateMachine.cs:3207 → ResetForTurn). NOT yet mirrored (fidelity debt, latent until their consumers
+    /// port): ZONE-ENTRY resets (hand/trash/deck/executing, CardObjectController.cs:627-969 — headless has no
+    /// trash/hand-firing cap listeners yet) and UseOption (CardController.cs:1739 — no ported dual-use capped
+    /// card). De-digivolve promotion is NOT a reset in AS-IS either (no Init site) — do not add one. Removes only the
     /// <see cref="OnceFlagState.UseCounts"/> entries this owner+source card owns — matched by the
     /// <c>"{owner}:{source}:"</c> prefix of <see cref="OnceFlagKey.Value"/> (owner = <c>OwnerPlayerId</c>, source =
     /// <c>SourceEntityId</c>); every other card's counts are untouched. Returns the state unchanged when the card

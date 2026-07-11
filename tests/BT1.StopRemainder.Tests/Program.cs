@@ -25,6 +25,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT1_109: [Main] green level-5->6 digivolution cost is reduced by 4", Bt1_109_ReducesMatching),
     ("BT1_109: a NON-matching digivolution (level-4 target) is NOT reduced", Bt1_109_IgnoresNonMatching),
     ("BT1_109: with no BT1_109 active, cost is unchanged (baseline)", Bt1_109_BaselineNoReduction),
+    ("BT1_088: [Main] suspend self -> reveal top; a Digimon goes to hand", Bt1_088_RevealDigimonToHand),
+    ("BT1_088: [Main] a non-Digimon reveal goes to the deck bottom; gate needs a level-5+ green", Bt1_088_NonDigimonToBottomAndGate),
+    ("BT1_089: [Main] suspend self -> hatch when the breeding area is empty (hatch precedes move)", Bt1_089_HatchBranch),
+    ("BT1_089: [Main] with a level-3+ breeding Digimon (no hatch possible), move it to the battle area", Bt1_089_MoveBranch),
+    ("BT1_021: [When Attacking] gains 3 NOW and registers the EoT -3 PER ACTIVATION (no static every-turn loss)", Bt1_021_AttackRegisteredReversal),
 };
 
 var failures = new List<string>();
@@ -200,6 +205,93 @@ async Task Bt1_109_BaselineNoReduction()
 }
 
 // ---- Harness ----------------------------------------------------------------
+
+// ---- BT1_088 / BT1_089 [Main] (formerly STOP; unblocked by the B-2 declaration action) ----------------
+
+async Task Bt1_088_RevealDigimonToHand()
+{
+    EngineContext ctx = NewContext();
+    var self = Battle(ctx, "BT1_088", "BT1_088");
+    Battle(ctx, "g5", "G5Green", level: 5, colors: new[] { "Green" }); // the level-5+ green gate witness
+    var top = Library(ctx, "topD", "TopDigimon", level: 3);
+
+    Script(ctx, ChoiceResult.Select(top));
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
+
+    AssertTrue(IsSuspended(ctx, self), "BT1_088 suspended itself (the cost)");
+    AssertTrue(InZone(ctx, ChoiceZone.Hand, top), "the revealed Digimon card went to the hand (AS-IS AddHand route)");
+}
+
+async Task Bt1_088_NonDigimonToBottomAndGate()
+{
+    EngineContext ctx = NewContext();
+    var self = Battle(ctx, "BT1_088", "BT1_088");
+    var top = Place(ctx, "topO", "topO", "TopOption", ChoiceZone.Library, "Option", null, null, null, null, false);
+
+    // Gate: WITHOUT a level-5+ green Digimon the [Main] cannot be used at all (AS-IS CanUseCondition).
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
+    AssertFalse(IsSuspended(ctx, self), "without the level-5+ green gate the skill did not fire (no self-suspend)");
+    AssertTrue(InZone(ctx, ChoiceZone.Library, top), "the library is untouched");
+
+    // With the gate satisfied, a NON-Digimon reveal routes to the deck bottom.
+    Battle(ctx, "g5", "G5Green", level: 5, colors: new[] { "Green" });
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
+    AssertTrue(IsSuspended(ctx, self), "BT1_088 suspended itself (the cost)");
+    AssertTrue(InZone(ctx, ChoiceZone.Library, top), "the revealed non-Digimon card returned to the deck (bottom)");
+    AssertFalse(InZone(ctx, ChoiceZone.Hand, top), "the non-Digimon card did NOT go to hand");
+}
+
+async Task Bt1_089_HatchBranch()
+{
+    EngineContext ctx = NewContext();
+    var self = Battle(ctx, "BT1_089", "BT1_089");
+    Battle(ctx, "g5", "G5Green", level: 5, colors: new[] { "Green" });
+    var egg = Place(ctx, "egg", "egg", "Egg", ChoiceZone.DigitamaLibrary, "Digi-Egg", 2, null, null, null, false);
+
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
+
+    AssertTrue(IsSuspended(ctx, self), "BT1_089 suspended itself (the cost)");
+    AssertTrue(InZone(ctx, ChoiceZone.BreedingArea, egg), "the digi-egg hatched into the empty breeding area (AS-IS CanHatch branch wins)");
+}
+
+async Task Bt1_089_MoveBranch()
+{
+    EngineContext ctx = NewContext();
+    var self = Battle(ctx, "BT1_089", "BT1_089");
+    Battle(ctx, "g5", "G5Green", level: 5, colors: new[] { "Green" });
+    // Breeding occupied by a level-3 Digimon (CanHatch false: breeding not empty), no digitama needed.
+    var grown = Place(ctx, "grown", "grown", "Grown", ChoiceZone.BreedingArea, "Digimon", 3, null, null, null, false);
+
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnDeclaration, declarative: true);
+
+    AssertTrue(IsSuspended(ctx, self), "BT1_089 suspended itself (the cost)");
+    AssertTrue(InZone(ctx, ChoiceZone.BattleArea, grown), "the level-3 breeding Digimon moved to the battle area (AS-IS else-branch)");
+    AssertEqual(0, ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BreedingArea).Count, "the breeding area is now empty");
+}
+
+async Task Bt1_021_AttackRegisteredReversal()
+{
+    // AS-IS BT1_021: the "-3 at end of turn" exists ONLY per [When Attacking] activation
+    // (card.Owner.UntilEachTurnEndEffects.Add inside the ActivateCoroutine, :36-46) — never as a static
+    // OnEndTurn effect of the card. Two attacks stack two reversals; no attack registers none.
+    EngineContext ctx = NewContext();
+    ctx.MemoryController.Set(0);
+    var self = Battle(ctx, "BT1_021", "BT1_021", level: 4, colors: new[] { "Red" });
+    ctx.RegisterEnteredCardEffects(self, P1);
+
+    AssertEqual(0, ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn").Count,
+        "no attack yet: NO end-of-turn loss is registered (the old static declaration was the divergence)");
+
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
+    AssertEqual(3, ctx.MemoryController.Current.Current, "first activation gains +3 immediately");
+    AssertEqual(1, ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn").Count,
+        "first activation registered exactly ONE one-shot EoT -3 (AS-IS UntilEachTurnEndEffects entry)");
+
+    await ActivatedEffectResolver.ResolveAsync(ctx, self, P1, EffectTiming.OnAllyAttack);
+    AssertEqual(6, ctx.MemoryController.Current.Current, "second activation gains +3 again (uncapped)");
+    AssertEqual(2, ctx.EffectRegistry.GetEffectsForTiming("OnEndTurn").Count,
+        "second activation stacks a SECOND reversal (AS-IS: attack twice → lose 6 at end of turn)");
+}
 
 EngineContext NewContext()
 {

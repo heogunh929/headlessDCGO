@@ -103,7 +103,7 @@ Phase 3 컷오버의 최난제 F6(suspend/resume 지속)를 라이브 컷오버 
 **P0-3/P0-4**: 핵심 메커니즘 4경로 전부 정합(스냅샷-前-트래시·소스-前-톱·Fortitude-後·이중트래시 없음)·AS-IS 미러 확인. ✅재검수-후속 상환:
 - ✅**VR-4(F7, defense-in-depth)**: `SourceCountAtDeletionKey`를 Fortitude 재생·Save 성공 시 소거. **주의(재검수2)**: 실제 라이브 누수는 없음 — 모든 삭제 경로가 Fortitude 판독 前 `SnapshotPostReplacementKeywords`로 무조건 재-스탬프하므로 stale 값이 게이트에 도달 불가. 소거는 revived 인스턴스에 명백-stale 값을 안 남기는 방어일 뿐이며 Ascension·Decode/Partition 재배치 경로는 여전히 미소거(재-스탬프 의존, 무해). 테스트 가드(==0) 추가.
 - ✅**VR-5(F8)**: 허위 주석 2건(`MatchStateMutationSink`·`BattleResolver` "Save/Decode/Partition/Fortitude 스킵"→"Decode/Partition만") 정정. 미배선 2경로 테스트 커버(RD4-DeletionWiring에 RuleProcessAsync finisher; G3.5-W5에 SecurityResolver 소스트래시). tautology `>=0`→실측 스냅샷(==2)·F7 가드(==0).
-- **VR-6(이연, RD-7 결합)**: SecurityResolver는 POST Fortitude만 배선, PRE would-be-deleted 창(Evade/Barrier/Fragment/Scapegoat) 여전히 미개방 — Evade 공격자가 시큐리티-배틀선 죽고 필드-배틀선 생존(기존 비대칭). RD-7 시큐리티 배틀 공용화 시 해소. 커밋 주석의 "동일 AS-IS 삭제 플로우"는 과장이었음.
+- ✅**VR-6(2026-07-11 상환, C-5=RD-7 Part B)**: 시큐리티-배틀 loss가 field 배틀과 같은 pending/defer/finalize 기계(FlagPendingBattleDeletion→NeedsWindow→DeletionReplacement 파킹→FinalizeDeferredSecurityCheckAsync)로 PRE would-be-deleted 창 개방. Evade/Barrier(by-battle) 비대칭 해소, 생존 시 남은 체크 재개(AS-IS StopSecurityCheck 미러). 테스트 `C5-SecurityPreWindow.Tests` 5종. 상세=engine_normalization_todo C-5 항목.
 
 **P0-2**: mutation 경로 board-wide 리스터엔 정확·on-fire 클레임·EffectId 인스턴스별·캡 무해. ✅근거 정정+한계 명시(코드 주석):
 - ✅**VR-7(근거 정정)**: "15개 전부 1회라 안전"은 과장 — 수정은 **scheduler(mutation) 경로만** 커버. board-wide **activated bridge** 리스터(BT1_049)는 별 경로라 미커버(현재 board-wide 미배선이라 무발화=기존 under-fire; 배선 시 bridge에도 동일 가드 필요). self-scope activated는 per-subject 정합.
@@ -285,7 +285,7 @@ would-be-deleted 확정(치환 전부 거절/소진) 시:
 
 ## 4단계 — 파이프라인 통합
 
-### D-RD7. 시큐리티 디지몬 배틀 → BattleResolver 공용화 — ✅Part A(CardDP/TODO-71) 완료; Part B(VR-6 재진입) 이연
+### D-RD7. 시큐리티 디지몬 배틀 → BattleResolver 공용화 — ✅Part A(CardDP/TODO-71) 완료; ✅Part B(VR-6 재진입, C-5로 2026-07-11 상환 — defender-as-card 모드 신설 대신 SecurityResolver가 BattleResolver의 pending/defer/finalize 기계를 공유하는 형태로 통합, 상세=engine_normalization_todo C-5)
 **Part A 상환(2026-07-10)**: 시큐리티 DP를 CardDP 의미론으로 교정. `TryReadSecurityDigimonDp`에서 `ContinuousDpGate.ResolveDp`(permanent-DP fold=D-A2 발명) 제거 → static dp + dpModifiers + `securityCardDpDelta` 폴드만. AS-IS 확인: `CardSource.CardDP`(CardSource.cs:2383)는 **유일한 `IChangeCardDPEffect` 구현자 `ChangeCardDPClass`**(=헤드리스 securityCardDpDelta, BT2_003/ST1_14/ST3_12)만 스캔하고 permanent-DP 파이프라인·감소면역·LinkedDP 미적용. 즉 일반 연속 DP 효과는 시큐리티 디지몬 CardDP에 미반영. 테스트 G3.5-N2 교정(일반 debuff는 시큐리티 CardDP 무영향=공격자 사망; 공격자 buff는 permanent 경로라 유지). 회귀 386/386·RuleAudit 0(승패분포 이동=시큐리티 디지몬이 일반 DP약화 면역이라 강해진 정상 변화). **잔여=Part B(아래)**.
 
 **원 설계(Part B 포함)**:

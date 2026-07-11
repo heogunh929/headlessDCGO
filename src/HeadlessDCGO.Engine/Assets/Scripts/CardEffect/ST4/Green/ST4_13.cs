@@ -46,9 +46,11 @@ public sealed class ST4_13 : CEntity_Effect
             // canEndNotMax: false, mode: Tap. SelectPermanentEffect.BuildRequest already clamps maxCount to
             // the number of live matching candidates, so passing maxCount: 1 here is a faithful mirror (see
             // EX8_074's identically-shaped ActivatedSelectEffect(..., Mode.Tap, ...) usage).
-            ICardEffect suspendOneOpponentDigimon = new ActivatedSelectEffect(
-                card, CanSelectPermanentCondition, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-                SelectPermanentEffect.Mode.Tap, "Suspend 1 of your opponent's Digimon.");
+            ICardEffect suspendOneOpponentDigimon = new ActivatedEffect(
+                card, EffectTiming.None, canUse: null, canActivate: null,
+                body: new ActivatedSelectEffect(card, CanSelectPermanentCondition, maxCount: 1, canNoSelect: false, canEndNotMax: false,
+                    SelectPermanentEffect.Mode.Tap, "Suspend 1 of your opponent's Digimon."),
+                maxCountPerTurn: null, isOptional: false, "Suspend 1 of your opponent's Digimon.");
 
             cardEffects.Add(CardEffectFactory.DigiBurstEffect(
                 card, count: 2, suspendOneOpponentDigimon,

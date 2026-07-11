@@ -367,9 +367,13 @@ public sealed class SpecialPlayAction
         else
         {
             FusionKind fusion = kind == SpecialPlayKind.DnaDigivolve ? FusionKind.DnaDigivolve : FusionKind.DigiXros;
+            // (B-3 tuck reset) Jogress resets every source of the fused stack (CardController.cs:1509-1512),
+            // DigiXros resets each tucked material (SelectDigiXrosClass.cs:923). A plain free digivolve
+            // (Blast/Arts above) does NOT — AS-IS resets only the newly-played top on a normal digivolve.
             IReadOnlyList<HeadlessEntityId> merged = await FusionDigivolveHelpers.FuseAsync(
                 context.CardInstanceRepository, context.ZoneMover, topCardId, ChoiceZone.Hand, materials,
-                materialFromZone: ChoiceZone.BattleArea, gameEventQueue: context.GameEventQueue, kind: fusion, cancellationToken: cancellationToken).ConfigureAwait(false);
+                materialFromZone: ChoiceZone.BattleArea, gameEventQueue: context.GameEventQueue, kind: fusion, cancellationToken: cancellationToken,
+                onceFlags: context.OnceFlags).ConfigureAwait(false);
             performed = merged.Count > 0;
         }
 

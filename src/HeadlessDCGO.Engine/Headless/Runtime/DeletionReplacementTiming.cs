@@ -98,6 +98,28 @@ public sealed class DeletionReplacementTiming
             options.Add(FragmentOption);
         }
 
+        // (C-1/TODO-96) Decode/Partition are PRE (would-be-deleted) replacements — AS-IS registers them at
+        // EffectTiming.WhenRemoveField (Decode.cs:54 CanUseCondition / Partition CanTriggerPartition), inside the
+        // SAME would-be-deleted cut-in window as Evade/Barrier (CardController.cs:3690-3705). Unlike survival
+        // replacements they do NOT cancel the deletion (no willBeRemoveField=false): a source is pulled out and
+        // played, then DiscardEvoRoots trashes the remainder and the card itself still leaves. Effect-deletion
+        // only (AS-IS !IsByBattle -> !byBattle). This static (context-less) overload is the safe superset used by
+        // the sink's defer decision — it gates on keyword + remaining source count; the context overload below
+        // applies the exact Digimon / colour-group candidate check.
+        if (!byBattle &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasDecodeKey, ContinuousKeywordGate.Decode, effectRegistry) &&
+            SourceIds(record.Metadata).Count >= 1)
+        {
+            options.Add(DecodeOption);
+        }
+
+        if (!byBattle &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasPartitionKey, ContinuousKeywordGate.Partition, effectRegistry) &&
+            SourceIds(record.Metadata).Count >= 2)
+        {
+            options.Add(PartitionOption);
+        }
+
         // Decoy: offered only when the deferring deletion marked it enemy-eligible AND a Decoy ally exists.
         // (D1) thread the registry so a keyword-only (production) Decoy grant is visible on this static
         // superset path too — previously only the metadata-flag holder counted here.
@@ -168,6 +190,30 @@ public sealed class DeletionReplacementTiming
             options.Add(FragmentOption);
         }
 
+        // (C-1/TODO-96) Decode PRE: effect-deletion only (AS-IS !IsByBattle), once per removal (decoded guard),
+        // offered only when a playable Digimon source (colour-condition-filtered) remains. Activating it plays a
+        // source WITHOUT cancelling the deletion — the card still leaves and DiscardEvoRoots trashes the
+        // remainder (see ApplyWithTarget: no ClearDeletion, unlike Evade/Barrier).
+        if (!byBattle &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasDecodeKey, ContinuousKeywordGate.Decode, context.EffectRegistry) &&
+            !ReadFlag(record.Metadata, DeletionReplacementGate.DecodedKey) &&
+            FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, DecodeOption)).Count > 0)
+        {
+            options.Add(DecodeOption);
+        }
+
+        // (C-1/TODO-96) Partition PRE: effect-deletion only and NOT by the owner's OWN effect (S6 /
+        // CanTriggerPartition IsByEffect+IsOwnerEffect), once per removal, EACH colour group non-empty (AS-IS
+        // CanActivateCondition). Plays two sources without cancelling the deletion.
+        if (!byBattle &&
+            DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasPartitionKey, ContinuousKeywordGate.Partition, context.EffectRegistry) &&
+            !ReadOwnEffectDeletion(record) &&
+            !ReadFlag(record.Metadata, DeletionReplacementGate.PartitionedKey) &&
+            PartitionActivatable(context, record))
+        {
+            options.Add(PartitionOption);
+        }
+
         if (ReadFlag(record.Metadata, DecoyEligibleKey) &&
             DeletionReplacementGate.FindDecoyRedirectCandidates(
                 context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry, context).Count > 0)
@@ -233,31 +279,10 @@ public sealed class DeletionReplacementTiming
             options.Add(SaveOption);
         }
 
-        // C-13 Decode: effect-deletion only (AS-IS !IsByBattle), once per removal (decoded guard), offered
-        // only when a playable Digimon source remains.
-        if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasDecodeKey)
-                || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.Decode)) && // GR-005 C-group seal
-            !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey) &&
-            !ReadFlag(record.Metadata, DeletionReplacementGate.DecodedKey) &&
-            FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, DecodeOption)).Count > 0)
-        {
-            options.Add(DecodeOption);
-        }
-
-        // C-14 Partition: effect-deletion only, once per removal, offered with >= 2 playable Digimon sources
-        // (AS-IS DigivolutionCards.Count >= 2). Plays two sources free as new permanents.
-        // (A4) with stored PartitionConditions the AS-IS activation gate applies instead: EACH colour group
-        // must be non-empty (CanActivateCondition, Partition.cs:145-159).
-        if ((ReadFlag(record.Metadata, DeletionReplacementGate.HasPartitionKey)
-                || ContinuousKeywordGate.HasKeyword(context, record.InstanceId, ContinuousKeywordGate.Partition)) && // GR-005 C-group seal
-            !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey) &&
-            // (S6) AS-IS: "leave other than by one of YOUR effects or in battle" — exclude own-effect leaves.
-            !ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByOwnEffectKey) &&
-            !ReadFlag(record.Metadata, DeletionReplacementGate.PartitionedKey) &&
-            PartitionActivatable(context, record))
-        {
-            options.Add(PartitionOption);
-        }
+        // (C-1/TODO-96) Decode/Partition MOVED to the PRE (would-be-deleted) window — see PreOptions. AS-IS
+        // registers them at EffectTiming.WhenRemoveField (before the card leaves), not on-deletion; the POST
+        // model played their sources from ChoiceZone.None AFTER the card was already trashed. They now fire in
+        // the same cut-in window as Evade/Barrier and let the deletion proceed (no ClearDeletion).
 
         return options;
     }
@@ -273,6 +298,11 @@ public sealed class DeletionReplacementTiming
     private static IReadOnlyList<HeadlessEntityId> FindDecodeSourceCandidates(
         EngineContext context, CardInstanceRecord record, Func<CardInstanceRecord, bool>? condition)
     {
+        // (C-1 witness) the AS-IS per-card sourceCondition (DecodeSelfEffect's Func<CardSource,bool> — e.g.
+        // BT19_024 "Blue Lv.4") evaluated LIVE on each source via the folded CardSource view. Null (no Decode
+        // grant / no condition, or a Partition-fallback caller) = any Digimon source. This is the real filter;
+        // AS-IS decodeStrings is display-only.
+        Func<CardSourceView, bool>? sourceCondition = DecodeSourceConditionOf(context, record);
         var candidates = new List<HeadlessEntityId>();
         foreach (HeadlessEntityId sourceId in SourceIds(record.Metadata))
         {
@@ -288,13 +318,41 @@ public sealed class DeletionReplacementTiming
                 continue;
             }
 
-            if (condition is null || condition(source))
+            if ((condition is null || condition(source)) &&
+                (sourceCondition is null || sourceCondition(new CardSourceView(context, sourceId, record.OwnerId))))
             {
                 candidates.Add(sourceId);
             }
         }
 
         return candidates;
+    }
+
+    /// <summary>(C-1 witness) The holder's stored AS-IS Decode <c>sourceCondition</c> — from the leave-play
+    /// metadata snapshot (grant binding dropped when the card leaves) or the live grant binding. Null = none.</summary>
+    private static Func<CardSourceView, bool>? DecodeSourceConditionOf(EngineContext context, CardInstanceRecord record)
+    {
+        string key = Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Decode.DecodeSourceConditionKey;
+        if (record.Metadata.TryGetValue(key, out object? snap) && snap is Func<CardSourceView, bool> snapshot)
+        {
+            return snapshot;
+        }
+
+        foreach (EffectBinding binding in context.EffectRegistry.GetKeywordEffects(ContinuousKeywordGate.Decode))
+        {
+            EffectContext effectContext = binding.Request.Context;
+            if (effectContext.SourceEntityId != record.InstanceId && !effectContext.TargetEntityIds.Contains(record.InstanceId))
+            {
+                continue;
+            }
+
+            if (effectContext.Values.TryGetValue(key, out object? raw) && raw is Func<CardSourceView, bool> condition)
+            {
+                return condition;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>(C-22 Save) Permanents the deleted card may be placed under — the owner's battle-area cards,
@@ -825,12 +883,15 @@ public sealed class DeletionReplacementTiming
             case SaveOption:
                 // POST: place the deleted card under the chosen permanent (AS-IS AddDigivolutionCardsBottom).
                 await DigivolutionStackHelpers.AddSourcesBottomAsync(
-                    context.CardInstanceRepository, context.ZoneMover, target, new[] { cardId }, ChoiceZone.Trash).ConfigureAwait(false);
+                    context.CardInstanceRepository, context.ZoneMover, target, new[] { cardId }, ChoiceZone.Trash,
+                    onceFlags: context.OnceFlags).ConfigureAwait(false);
                 return (true, true);
             case DecodeOption:
-                // POST: play the chosen digivolution source as a new permanent for free (AS-IS DecodeProcess).
+                // (C-1/TODO-96) PRE: play the chosen digivolution source as a new permanent for free (AS-IS
+                // DecodeProcess). Deliberately does NOT ClearDeletion — the deletion still proceeds; the
+                // finalize sweep trashes the remaining sources (now short one) and the card itself.
                 return (await DeletionReplacementGate.TryDecodePlaySourceAsync(
-                    context.CardInstanceRepository, context.ZoneMover, cardId, target).ConfigureAwait(false), true);
+                    context.CardInstanceRepository, context.ZoneMover, cardId, target, context: context).ConfigureAwait(false), true);
             case PartitionOption:
                 return await ApplyPartitionSource(context, cardId, target).ConfigureAwait(false);
             default:
@@ -844,7 +905,7 @@ public sealed class DeletionReplacementTiming
     private async Task<(bool Success, bool Complete)> ApplyPartitionSource(EngineContext context, HeadlessEntityId cardId, HeadlessEntityId source)
     {
         if (!await DeletionReplacementGate.TryPartitionPlaySourceAsync(
-                context.CardInstanceRepository, context.ZoneMover, cardId, source).ConfigureAwait(false))
+                context.CardInstanceRepository, context.ZoneMover, cardId, source, context: context).ConfigureAwait(false))
         {
             return (false, false);
         }

@@ -98,7 +98,7 @@ public sealed partial class KeywordBaseBatch2Effect : IHeadlessCardEffect
         TriggerReason = string.IsNullOrWhiteSpace(triggerReason) ? null : triggerReason.Trim();
         Keyword = KeywordBaseBatch2Factory.KeywordName(kind);
         Definition = new CardEffectDefinition(
-            KeywordBaseBatch2Factory.EffectId(kind, sourceEntityId),
+            KeywordBaseBatch2Factory.EffectId(kind, sourceEntityId, isInherited),
             sourceEntityId,
             Keyword,
             KeywordBaseBatch2Factory.Timing(kind),
@@ -371,9 +371,13 @@ public static class KeywordBaseBatch2Factory
         return Array.AsReadOnly(bindings);
     }
 
-    public static HeadlessEntityId EffectId(KeywordBaseBatch2Kind kind, HeadlessEntityId sourceEntityId)
+    // (C1w) The inherited/non-inherited pair of the SAME Batch2 keyword on the SAME source (AS-IS BT16_025's two
+    // PartitionSelfEffect grants) are DISTINCT effects and must coexist in the registry. Give the inherited grant a
+    // suffixed id; the non-inherited id is byte-identical to before (zero regression for single-grant cards).
+    public static HeadlessEntityId EffectId(KeywordBaseBatch2Kind kind, HeadlessEntityId sourceEntityId, bool isInherited = false)
     {
-        return new HeadlessEntityId($"{sourceEntityId.Value}:{KeywordName(kind).Replace(" ", string.Empty, StringComparison.Ordinal)}:base2");
+        string suffix = isInherited ? ":inherited" : string.Empty;
+        return new HeadlessEntityId($"{sourceEntityId.Value}:{KeywordName(kind).Replace(" ", string.Empty, StringComparison.Ordinal)}:base2{suffix}");
     }
 
     public static string KeywordName(KeywordBaseBatch2Kind kind)

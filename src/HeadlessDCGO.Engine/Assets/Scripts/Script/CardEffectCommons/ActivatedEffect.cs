@@ -19,6 +19,17 @@ public interface IEffectBody
     ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players);
 
     void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected);
+
+    /// <summary>(B-5) Apply the body, allowing awaited work. The default just runs the synchronous
+    /// <see cref="Apply"/> — almost every body is synchronous. A body whose AS-IS coroutine has an awaited
+    /// step BEFORE/around its sink mutation (e.g. <c>DiscardEvoRoots</c> before a bounce, a ZoneMover move)
+    /// overrides this; the resolver always drives the body through <see cref="ApplyAsync"/>.</summary>
+    ValueTask ApplyAsync(
+        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
+    {
+        Apply(card, sink, selected);
+        return ValueTask.CompletedTask;
+    }
 }
 
 /// <summary>&lt;Draw N&gt; (AS-IS DrawClass.Draw). Non-interactive.</summary>
@@ -367,7 +378,10 @@ public sealed class MemoryGainThenScheduledReversalBody : IEffectBody
             isInheritedEffect: false,
             card: card,
             condition: null,
-            description: $"At end of turn, lose {_amount} memory.");
+            description: $"At end of turn, lose {_amount} memory.",
+            // Unique per registration: AS-IS UntilEachTurnEndEffects is a LIST — activating twice the same
+            // turn stacks TWO reversals (BT1_021 attacks twice → lose 6), so the ids must not collide.
+            effectIdSuffix: Guid.NewGuid().ToString("N"));
         CardEffectCommons.AddEffectToPlayer(EffectDuration.UntilEachTurnEnd, card, reversal, EffectTiming.OnEndTurn);
     }
 }
@@ -512,7 +526,10 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         IEffectBody body,
         int? maxCountPerTurn,
         bool isOptional,
-        string description)
+        string description,
+        bool refundWhenNotExecuted = false,
+        Func<CardSource, IReadOnlyList<HeadlessEntityId>, bool>? executedPredicate = null,
+        string? capHash = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(body);
@@ -525,8 +542,19 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         MaxCountPerTurn = maxCountPerTurn;
         IsOptional = isOptional;
         Description = description;
-        // Stable per (card, timing, body-kind) so a once-per-turn cap keys the same flag across firings.
-        EffectId = new HeadlessEntityId($"{card.InstanceId.Value}:ae:{timing}:{body.GetType().Name}");
+        RefundWhenNotExecuted = refundWhenNotExecuted;
+        ExecutedPredicate = executedPredicate;
+        // (2026-07-11 re-review) The once-per-turn cap PARTITION mirrors AS-IS IsSameEffect
+        // (ICardEffect.cs:860-933): with NO HashString, every effect of the SAME SOURCE CARD counts as "the
+        // same effect" for GetUseCountThisTurn — timing- and body-blind (a card whose two capped effects must
+        // count separately sets SetHashString, e.g. ST16_11 "Unsuspend_ST16_11"/"Delete_ST16_11"). So the
+        // default id collapses to the card ("{card}:ae"); a card mirroring an AS-IS SetHashString passes
+        // capHash to split its partition. (A per-(timing,body) id was a NARROWER partition that let same-card
+        // sibling caps count independently where AS-IS shares one count.)
+        EffectId = new HeadlessEntityId(
+            string.IsNullOrWhiteSpace(capHash)
+                ? $"{card.InstanceId.Value}:ae"
+                : $"{card.InstanceId.Value}:ae:{capHash}");
     }
 
     public CardSource Card { get; }
@@ -548,25 +576,49 @@ public sealed class ActivatedEffect : IActivatedCardEffect
 
     public string Description { get; }
 
-    /// <summary>The gate consulted before the once-per-turn cap is consumed (AS-IS CanUseCondition +
-    /// CanActivateCondition). The event subject reaches <see cref="CanUse"/> through the enriched context.</summary>
+    /// <summary>(B-4 rework) PER-CARD opt-in mirror of the AS-IS body's explicit <c>if (!executed) RemoveUse()</c>
+    /// (~38 cards, e.g. AD1_024:265 / BT14_029:114). The AS-IS DEFAULT (the other ~1,170 [Once Per Turn] cards) is
+    /// that a registered use stays consumed even when the body does nothing — so this is <c>false</c> unless the
+    /// AS-IS card calls RemoveUse.</summary>
+    public bool RefundWhenNotExecuted { get; }
+
+    /// <summary>(B-4 rework) The card-authored <c>executed</c> predicate, evaluated after the body ran (or was
+    /// skipped) with the selection the player made. AS-IS <c>executed</c> is a card-defined composite (a board
+    /// predicate for BT14_029, a 3-branch OR for AD1_024) — a bare "selection was skipped" only matches the
+    /// simplest refund cards, so a refund card whose executed condition is not that must supply this.</summary>
+    public Func<CardSource, IReadOnlyList<HeadlessEntityId>, bool>? ExecutedPredicate { get; }
+
+    /// <summary>The full gate — AS-IS CanUseCondition (collect-time CanTrigger half) AND CanActivateCondition
+    /// (per-pass CanActivate half). Used where AS-IS evaluates both: direct (collect-and-resolve-inline) paths and
+    /// the declaration legal-move gate (CanUse = CanTrigger &amp;&amp; CanActivate). The event subject reaches
+    /// <see cref="CanUse"/> through the enriched context.</summary>
     public bool CanResolve(CardEffectResolveContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (CanUse is not null && !CanUse(context))
-        {
-            return false;
-        }
-
-        return CanActivate is null || CanActivate();
+        return CanResolveUseHalf(context) && CanResolveActivateHalf();
     }
 
-    /// <summary>Resolve the body and report whether it EXECUTED. Interactive bodies surface a choice; a SKIPPED
-    /// selection (no cards chosen) is NOT an execution. Non-interactive bodies emit their mutation directly and
-    /// always execute. Returns false only for a skipped interactive selection — the caller
-    /// (<c>ActivatedEffectResolver</c>) then does NOT consume the once-per-turn cap, mirroring AS-IS
-    /// <c>if (!executed) activateClass.RemoveUse()</c> (B-4 / P1-7: refund a per-turn use whose body did nothing).
-    /// The caller has already passed <see cref="CanResolve"/>; the cap is consumed AFTER this returns true (B-1).</summary>
+    /// <summary>The COLLECT-time half — AS-IS CanUseCondition inside CanTrigger (ICardEffect.cs:319-358).
+    /// AS-IS evaluates this ONCE at collect (GetSkillInfos / EffectList) and NEVER again on the stacked skill
+    /// (the execution path re-checks only CanActivate — ICardEffect.cs:1116-1286 has no CanTrigger re-check),
+    /// so the window's per-pass gate must NOT include it.</summary>
+    public bool CanResolveUseHalf(CardEffectResolveContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return CanUse is null || CanUse(context);
+    }
+
+    /// <summary>The PER-PASS half — AS-IS CanActivateCondition inside CanActivate (ICardEffect.cs:364-457),
+    /// re-checked every window pass on the already-stacked skill (MultipleSkills.cs:122/164-165), at pick (:366)
+    /// and at execution entry (AutoProcessing.cs:1068). The once-per-turn cap also lives in AS-IS CanActivate —
+    /// the caller pairs this with <c>OnceFlags.CanActivate</c>.</summary>
+    public bool CanResolveActivateHalf() => CanActivate is null || CanActivate();
+
+    /// <summary>Resolve the body and report whether it EXECUTED. Interactive bodies surface a choice; the default
+    /// executed signal is "the selection was not skipped" (non-interactive bodies always execute), overridden by
+    /// <see cref="ExecutedPredicate"/> when the card defines its own executed condition. The caller consumes the
+    /// per-turn use BEFORE this runs (AS-IS register-before-body) and refunds it afterwards ONLY when
+    /// <see cref="RefundWhenNotExecuted"/> is set and this returns false (the AS-IS per-card RemoveUse opt-in).</summary>
     public async ValueTask<bool> ResolveBodyAsync(
         MatchStateMutationSink sink,
         IChoiceProvider choices,
@@ -574,24 +626,29 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sink);
-        if (Body.IsInteractive)
+        bool executed;
+        IReadOnlyList<HeadlessEntityId> selected = Array.Empty<HeadlessEntityId>();
+        if (Body.IsInteractive && Body.BuildRequest(Card, players) is ChoiceRequest request)
         {
-            ChoiceRequest? request = Body.BuildRequest(Card, players);
-            if (request is not null)
+            ChoiceResult result = await choices.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+            if (result.IsSkipped)
             {
-                ChoiceResult result = await choices.ChooseAsync(request, cancellationToken).ConfigureAwait(false);
-                if (result.IsSkipped)
-                {
-                    return false; // (B-4) skipped selection = not executed → the resolver refunds the per-turn cap.
-                }
-
-                Body.Apply(Card, sink, result.SelectedIds);
-                return true;
+                executed = false;
+            }
+            else
+            {
+                selected = result.SelectedIds;
+                await Body.ApplyAsync(Card, sink, selected, cancellationToken).ConfigureAwait(false);
+                executed = true;
             }
         }
+        else
+        {
+            await Body.ApplyAsync(Card, sink, selected, cancellationToken).ConfigureAwait(false);
+            executed = true;
+        }
 
-        Body.Apply(Card, sink, Array.Empty<HeadlessEntityId>());
-        return true;
+        return ExecutedPredicate is null ? executed : ExecutedPredicate(Card, selected);
     }
 
     public EffectBinding ToBinding(string effectId) =>

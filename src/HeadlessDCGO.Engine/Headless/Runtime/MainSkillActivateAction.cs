@@ -15,12 +15,14 @@ using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 /// <see cref="ActivatedEffectResolver.CanDeclareAt"/> (AS-IS <c>Permanent.CanDeclareSkillList</c> → <c>CanUse</c>,
 /// cap included), and the effect is resolved through the shared <see cref="ActivatedEffectResolver.ResolveAsync"/>.
 ///
-/// Per-turn accounting: AS-IS registers the use BEFORE the body (<c>RegisterUseEffectThisTurn</c>) and the body
-/// refunds on a skipped selection (<c>if (!executed) RemoveUse()</c>). The resolver's consume-AFTER-body /
-/// only-if-executed (B-1 + B-4) is result-equivalent, so this action does NOT special-case the cap — it reuses
-/// the same resolution path as the triggered bridge. Consuming after the body is also what makes an INTERACTIVE
-/// [Main] skill's suspend/resume work (a mid-choice suspend leaves the cap untouched until the resumed body
-/// completes; see the B-1 note in the resolver).
+/// Per-turn accounting (B-1 rework, 2026-07-11): AS-IS registers the use BEFORE anything else in the
+/// declaration branch — before even the optional prompt (TurnStateMachine.cs:1183-1186), so DECLINING a
+/// declared capped optional skill leaves its use consumed. This action passes <c>declarative: true</c> to the
+/// resolver, whose uniform case then consumes before the optional prompt (a non-declarative resolution
+/// consumes after the optional accept, mirroring ICardEffect.cs:1117-1124). Refund is a PER-CARD opt-in
+/// (<c>ActivatedEffect.RefundWhenNotExecuted</c>, the AS-IS explicit <c>if (!executed) RemoveUse()</c> cards) —
+/// never a default. Suspend/resume safety comes from the OnceFlags uniform-cycle transaction (staged consumes
+/// replay across the resume), NOT from any consume re-ordering.
 ///
 /// Before this action existed, <c>OnDeclaration</c> was resolved only through the attack-declaration proxy
 /// stopgap in <see cref="AttackPermanentAction"/> (now removed) — this is its real home.
@@ -70,8 +72,10 @@ public sealed class MainSkillActivateAction
 
         try
         {
+            // declarative: the AS-IS main-loop declaration registers the per-turn use BEFORE the optional prompt
+            // (TurnStateMachine.cs:1183-1186) — declining a declared capped skill leaves the cap consumed.
             int resolved = await ActivatedEffectResolver
-                .ResolveAsync(context, payload.PermanentId, action.PlayerId, EffectTiming.OnDeclaration, cancellationToken)
+                .ResolveAsync(context, payload.PermanentId, action.PlayerId, EffectTiming.OnDeclaration, cancellationToken, declarative: true)
                 .ConfigureAwait(false);
 
             Dictionary<string, object?> metadata = Metadata(action, payload, validation);
@@ -84,7 +88,7 @@ public sealed class MainSkillActivateAction
             // has committed (nothing to re-pay — the cost lives in the body), so record the suspended activation
             // and let the next ResolveChoice resume it via the generic re-resolve path
             // (MetadataActionProcessor.ResolveChoiceAsync → ResolveAsync with this timing), WITHOUT re-running here.
-            context.DeferredActivations.Suspend(payload.PermanentId, EffectTiming.OnDeclaration, action.PlayerId);
+            context.DeferredActivations.Suspend(payload.PermanentId, EffectTiming.OnDeclaration, action.PlayerId, declarative: true);
             Dictionary<string, object?> pending = Metadata(action, payload, validation);
             pending["pendingChoice"] = true;
             pending["pendingChoiceMessage"] = ex.Message;

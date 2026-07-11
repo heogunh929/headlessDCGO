@@ -14,7 +14,210 @@ public sealed class OnceFlagController : IHeadlessMatchStateResettable
 {
     private OnceFlagState _state = OnceFlagState.Empty;
 
+    // (B-1 rework) Resolution-cycle TRANSACTION for the uniform activated path. AS-IS registers a use BEFORE the
+    // body runs (register-before-body: TurnStateMachine.cs:1183-1186 / ICardEffect.cs:1119-1121 /
+    // AutoProcessing.cs:902...). The headless resume model re-invokes the WHOLE resolution from the top after a
+    // suspend, replaying recorded answers (DeferredChoiceProvider) — so a use consumed before the body must be
+    // REPLAYED on the re-run, not double-registered, and must not be read back as capped-out by the re-run's own
+    // gate (that mis-read was the original B-1 bug; flipping to consume-AFTER-body "fixed" it but inverted the
+    // AS-IS order and broke the multi-effect suspend case, where an earlier effect's committed consume outlived
+    // its discarded sink mutations). The transaction mirrors the window path's InFlightPick idempotent-replay:
+    //   - Consume STAGES a use in _pending (per key) instead of committing;
+    //   - a re-invocation resets the per-key _replayCursor; a Consume whose cursor lags the staged count is a
+    //     REPLAY of an earlier consume (cursor advances, nothing staged);
+    //   - CanActivate reads state + cursor while an invocation is executing (the gate sees exactly what it saw
+    //     the first time) and state + pending while SUSPENDED (an outside observer — legal actions, other gates —
+    //     sees the cap consumed, matching the AS-IS mid-body view);
+    //   - the owning invocation COMMITS all staged uses on completion (before the sink flush emits events) or
+    //     keeps them staged across a suspend; a non-choice failure aborts the stage (nothing consumed).
+    private readonly Dictionary<string, StagedUse> _pending = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _replayCursor = new(StringComparer.Ordinal);
+    private bool _cycleOpen;
+    private bool _cycleSuspended;
+    private bool _invocationActive;
+
+    // (B-1 rework, mutation half) The MUTATION replay journal for the same cycle. The sink applies most
+    // non-zone-move mutations IMMEDIATELY (metadata flags, memory, DP) and defers zone moves to FlushAsync — so
+    // across a suspend the deferred half is discarded-and-restaged by the replay (correct), but the immediate
+    // half is ALREADY in game state and a naive replay re-applies it (double memory / double DP / double timing
+    // events). The journal records, per Apply call of the original run, whether the call was PURELY IMMEDIATE
+    // (true → the replay SKIPS the whole call: its effects persist in state) or staged pending work (false → the
+    // replay re-executes it so the fresh sink re-stages the discarded thunks; any immediate side-effects of such
+    // a MIXED call still replay — a known residual, status quo ante). Fresh calls beyond the journal execute and
+    // record. Journal entries are deterministic across replays because the answer replay is.
+    private readonly List<bool> _mutationJournal = new();
+    private int _mutationCursor;
+
+    private sealed class StagedUse
+    {
+        public StagedUse(OnceFlagKey key, int maxCount)
+        {
+            Key = key;
+            MaxCount = maxCount;
+        }
+
+        public OnceFlagKey Key { get; }
+
+        public int MaxCount { get; }
+
+        public int Count { get; set; }
+    }
+
     public OnceFlagState State => _state;
+
+    /// <summary>Open (or resume) the uniform-resolution transaction. Returns <c>true</c> when this invocation
+    /// OWNS the cycle — a fresh open, or the re-invocation resuming a suspended cycle (per-key replay cursors are
+    /// reset so staged consumes replay in order, like the answer cursor in
+    /// <see cref="Runtime.DeferredChoiceProvider.BeginResolution"/>). Returns <c>false</c> for a nested
+    /// resolution inside an already-executing cycle (it shares the open transaction).</summary>
+    public bool BeginUniformCycle()
+    {
+        if (!_cycleOpen)
+        {
+            _cycleOpen = true;
+            _cycleSuspended = false;
+            _pending.Clear();
+            _replayCursor.Clear();
+            _invocationActive = true;
+            return true;
+        }
+
+        if (_cycleSuspended)
+        {
+            _cycleSuspended = false;
+            _replayCursor.Clear();
+            _mutationCursor = 0;
+            _invocationActive = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Sink-side replay decision for one <c>Apply</c> call (see the mutation-journal remarks).</summary>
+    public enum MutationReplay
+    {
+        /// <summary>No open cycle — apply normally, no journaling.</summary>
+        None,
+
+        /// <summary>Replaying a purely-immediate call — SKIP it (its effects already persist in game state).</summary>
+        Skip,
+
+        /// <summary>Replaying a call that staged pending work — re-execute it (the fresh sink must re-stage).</summary>
+        Execute,
+
+        /// <summary>Beyond the journal — execute and report back via <see cref="RecordFreshMutation"/>.</summary>
+        Fresh,
+    }
+
+    /// <summary>Consulted by the sink at the top of each <c>Apply</c> call while a uniform cycle is executing.</summary>
+    public MutationReplay BeginMutationApply()
+    {
+        if (!_cycleOpen || !_invocationActive)
+        {
+            return MutationReplay.None;
+        }
+
+        if (_mutationCursor < _mutationJournal.Count)
+        {
+            bool purelyImmediate = _mutationJournal[_mutationCursor];
+            _mutationCursor++;
+            return purelyImmediate ? MutationReplay.Skip : MutationReplay.Execute;
+        }
+
+        return MutationReplay.Fresh;
+    }
+
+    /// <summary>Record a FRESH <c>Apply</c> call's classification (<paramref name="purelyImmediate"/> = it staged
+    /// no pending thunk, so a replay can skip it wholesale).</summary>
+    public void RecordFreshMutation(bool purelyImmediate)
+    {
+        if (!_cycleOpen || !_invocationActive)
+        {
+            return;
+        }
+
+        _mutationJournal.Add(purelyImmediate);
+        _mutationCursor = _mutationJournal.Count;
+    }
+
+    /// <summary>Mark the owning invocation suspended (an agent choice is pending). Staged consumes stay staged;
+    /// outside observers now read them as consumed (<see cref="CanActivate"/>'s suspended view).</summary>
+    public void SuspendUniformCycle(bool owner)
+    {
+        if (!owner)
+        {
+            return;
+        }
+
+        _cycleSuspended = true;
+        _invocationActive = false;
+    }
+
+    /// <summary>Commit every staged use to the real per-turn counts and close the transaction. Call before the
+    /// sink flush so any window the flushed events open reads committed caps.</summary>
+    public void CompleteUniformCycle(bool owner)
+    {
+        if (!owner)
+        {
+            return;
+        }
+
+        foreach (StagedUse staged in _pending.Values)
+        {
+            for (int i = 0; i < staged.Count; i++)
+            {
+                OnceFlagResult registered = OnceFlagHelpers.RegisterUse(_state, staged.Key, staged.MaxCount);
+                if (registered.IsSuccess)
+                {
+                    _state = registered.State;
+                }
+            }
+        }
+
+        CloseCycle();
+    }
+
+    /// <summary>Abandon the transaction WITHOUT committing (a non-choice failure aborted the resolution — nothing
+    /// was applied, so nothing is consumed).</summary>
+    public void AbortUniformCycle(bool owner)
+    {
+        if (!owner)
+        {
+            return;
+        }
+
+        CloseCycle();
+    }
+
+    private void CloseCycle()
+    {
+        _pending.Clear();
+        _replayCursor.Clear();
+        _mutationJournal.Clear();
+        _mutationCursor = 0;
+        _cycleOpen = false;
+        _cycleSuspended = false;
+        _invocationActive = false;
+    }
+
+    /// <summary>Uses of <paramref name="key"/> this open cycle that the current view should count on top of the
+    /// committed state: the replay cursor while executing (what the gate saw at this point of the original run),
+    /// the full staged count while suspended or for outside observers.</summary>
+    private int CycleExtra(string key)
+    {
+        if (!_cycleOpen)
+        {
+            return 0;
+        }
+
+        if (_invocationActive)
+        {
+            return _replayCursor.TryGetValue(key, out int cursor) ? cursor : 0;
+        }
+
+        return _pending.TryGetValue(key, out StagedUse? staged) ? staged.Count : 0;
+    }
 
     /// <summary>Reset the per-turn use counts for a new turn (original <c>InitUseCountThisTurn</c>).</summary>
     public void ResetForTurn(long turnSequence, HeadlessPlayerId? turnPlayerId)
@@ -63,12 +266,14 @@ public sealed class OnceFlagController : IHeadlessMatchStateResettable
             return true;
         }
 
-        OnceFlagResult canUse = OnceFlagHelpers.CanUse(_state, OnceFlagHelpers.ForRequest(request), max);
-        return canUse.IsSuccess && canUse.CanUse;
+        OnceFlagKey key = OnceFlagHelpers.ForRequest(request);
+        return _state.GetUseCount(key) + CycleExtra(key.Value) < max;
     }
 
-    /// <summary>(RD-12/13) Register one use of the effect's per-turn cap (the AS-IS "register use" step). Call
-    /// only after the effect actually resolves (and, for an optional, after the player accepts).</summary>
+    /// <summary>(RD-12, B-1 rework) Register one use of the effect's per-turn cap (the AS-IS
+    /// <c>RegisterUseEffectThisTurn</c> step) — BEFORE the body, mirroring AS-IS register-before-body. Inside an
+    /// open uniform cycle the use is STAGED (transaction, replay-aware); outside a cycle (the window path's
+    /// commit) it commits directly, as before.</summary>
     public void Consume(EffectRequest request, int? maxCountPerTurn)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -77,12 +282,71 @@ public sealed class OnceFlagController : IHeadlessMatchStateResettable
             return;
         }
 
-        OnceFlagResult registered = OnceFlagHelpers.RegisterUse(_state, OnceFlagHelpers.ForRequest(request), max);
-        if (registered.IsSuccess)
+        OnceFlagKey key = OnceFlagHelpers.ForRequest(request);
+        if (!_cycleOpen || !_invocationActive)
         {
-            _state = registered.State;
+            OnceFlagResult registered = OnceFlagHelpers.RegisterUse(_state, key, max);
+            if (registered.IsSuccess)
+            {
+                _state = registered.State;
+            }
+
+            return;
+        }
+
+        int cursor = _replayCursor.TryGetValue(key.Value, out int c) ? c : 0;
+        int staged = _pending.TryGetValue(key.Value, out StagedUse? use) ? use.Count : 0;
+        if (cursor < staged)
+        {
+            // Replay of a consume the suspended run already staged — advance the cursor, stage nothing.
+            _replayCursor[key.Value] = cursor + 1;
+            return;
+        }
+
+        if (use is null)
+        {
+            use = new StagedUse(key, max);
+            _pending[key.Value] = use;
+        }
+
+        use.Count++;
+        _replayCursor[key.Value] = cursor + 1;
+    }
+
+    /// <summary>(B-4 rework) AS-IS <c>RemoveUse()</c> — refund ONE registered use. PER-CARD OPT-IN (an AS-IS card
+    /// body's explicit <c>if (!executed) RemoveUse()</c>, ~38 cards), never a default: an unmarked effect keeps
+    /// its use consumed even when the body does nothing. Cycle-aware: a refund inside the open cycle removes the
+    /// most recent staged use for the key (so a suspended run's consume+refund pair replays to the same net).</summary>
+    public void Refund(EffectRequest request, int? maxCountPerTurn)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (maxCountPerTurn is null)
+        {
+            return;
+        }
+
+        OnceFlagKey key = OnceFlagHelpers.ForRequest(request);
+        if (_cycleOpen && _invocationActive && _pending.TryGetValue(key.Value, out StagedUse? use) && use.Count > 0)
+        {
+            use.Count--;
+            if (_replayCursor.TryGetValue(key.Value, out int cursor) && cursor > use.Count)
+            {
+                _replayCursor[key.Value] = use.Count;
+            }
+
+            return;
+        }
+
+        OnceFlagResult removed = OnceFlagHelpers.RemoveUse(_state, key);
+        if (removed.IsSuccess)
+        {
+            _state = removed.State;
         }
     }
 
-    public void ResetMatchState() => _state = OnceFlagState.Empty;
+    public void ResetMatchState()
+    {
+        _state = OnceFlagState.Empty;
+        CloseCycle();
+    }
 }

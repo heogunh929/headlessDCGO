@@ -120,6 +120,18 @@ public sealed class EngineContext
 
     public DcgoMatch? CurrentMatch { get; private set; }
 
+    private long _deletionBatchSequence;
+
+    /// <summary>(D-1 / VR-8 / F1(b)) Allocate a fresh monotonic delete-BATCH id. One id == one AS-IS
+    /// <c>DestroyPermanentsClass.Destroy()</c> call == one logical simultaneous-deletion batch == one
+    /// <c>StackSkillInfos(OnDeletion / OnLeaveFieldAnyone)</c>. Stamped (via <c>MatchStateMutationSink.DeletionBatchIdKey</c>)
+    /// onto the CardMoved event of every card leaving in the same batch so the window collapse
+    /// (<c>WindowResolverWiring.CollectUnifiedSeed</c> / <c>CollectActivatedBridgeTriggers</c>) fires the reactor once
+    /// per batch yet fires an INDEPENDENT delete-process (a distinct id) separately. Ids start at 1; the sentinel 0
+    /// (an unstamped CardMoved, e.g. a raw zone move) collapses all-together, preserving the pre-D1 whole-pass
+    /// behaviour for paths that never carried a batch.</summary>
+    public long NextDeletionBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
+
     /// <summary>(PRIM-P0 B.O.4 #1) The action whose cost is currently being paid, set by the play / digivolve /
     /// option action around its BeforePayCost window so a card's [BeforePayCost] effect can gate on WHICH cost
     /// it is (AS-IS ChangeCostClass rootCondition). <see cref="PayCostRoot.None"/> outside a pay window.</summary>
@@ -235,6 +247,7 @@ public sealed class EngineContext
         DeferredActivations.ResetMatchState();
         WindowResolution.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
+        Interlocked.Exchange(ref _deletionBatchSequence, 0);
         CurrentState = ObservationSnapshot.Empty;
     }
 

@@ -27,10 +27,12 @@ using HeadlessDCGO.Engine.Headless.Services;
 ///    DeferredChoiceProvider replays), it must NOT re-pick or re-commit the same trigger — else double-consume
 ///    and double-mutation. The loop signals this by returning <see cref="WindowRunResult.Suspended"/> after the
 ///    commit; the caller (a WindowResolutionController) owns persisting the remaining stack + the in-flight pick.
-///  - <b>Per-effect cut-in caps</b>: AS-IS caps cut-ins PER EFFECT USE (ChainActivations / IsCutInEffectUsedMaxCount,
-///    AutoProcessing.cs:1090-1104), tracked in the collection Gate — NOT a global recursion depth. The
-///    <see cref="WindowResolverDeps.ChainLimit"/> here is only a runaway-recursion SAFETY bound; per-effect caps
-///    belong in <c>Gate</c>.
+///  - <b>Per-effect cut-in caps</b>: deliberately NOT mirrored (A-1 decision — do not wire these into Gate).
+///    AS-IS <c>IsCutInEffectUsedMaxCount</c> (AutoProcessing.cs:1095-1098) is an inverted-sign DEAD path: it
+///    skips while the used-count is BELOW <c>ChainActivations</c>, and no card ever sets
+///    <c>ChainActivations&gt;0</c> (the only SetChainActivationCount call is the constructor's -1), so the
+///    guard never runs in AS-IS. <c>IsCutInEffectHasUsed</c> is a constant-false stub. The
+///    <see cref="WindowResolverDeps.ChainLimit"/> here is only a runaway-recursion SAFETY bound.
 /// </summary>
 public sealed class WindowResolver
 {
@@ -99,6 +101,18 @@ public sealed class WindowResolver
             // the in-line post-body draining below.
             DrainCutInInto(frames, deps);
         }
+        else if (continuation.ExternallySuspended)
+        {
+            // (2026-07-11 re-review) an EXTERNALLY-resumed body (SuspendedExternally — the action processor
+            // re-invoked the activated resolver directly, outside this loop) has already completed and FLUSHED by
+            // the time the caller re-drives this window, so its emitted events sit in the queue with no in-flight
+            // pick to hang the drain on. Drain them into a cut-in frame BEFORE the loop — AS-IS resolves a
+            // resolution's new triggers as a nested window before the remaining stack (RD-17), not after the next
+            // pick. Flag-gated so a FRESH window (or a choice-suspend resume) never siphons unrelated pending
+            // events into its frames.
+            continuation.ExternallySuspended = false;
+            DrainCutInInto(frames, deps);
+        }
 
         try
         {
@@ -150,6 +164,20 @@ public sealed class WindowResolver
                 frames.Pop();
                 continue;
             }
+
+            // (D-1 order) CROSS-batch deletion sequencing. AS-IS resolves each DestroyPermanentsClass.Destroy() in
+            // its OWN StackSkillInfos window, fully, before the next Destroy's window — so two INDEPENDENT
+            // delete-processes never co-stack into one order choice. The headless can co-drain their CardMoved events
+            // into ONE seed (a RuleProcess sweep that finalizes a declined would-be-deleted AND the DP-zero deaths,
+            // or two sink flushes queued before a drain), which WOULD offer the player a spurious cross-batch order
+            // choice. Restore the AS-IS sequencing here: among the active triggers that carry a BatchId (deletion-
+            // derived), expose ONLY the minimum-batch group this pass; higher batches stay stacked and become active
+            // only after the lower batch is fully resolved. Batch-less triggers (non-deletion, or unstamped) are
+            // unaffected — always eligible. SAME-batch (equal id) deletion triggers keep the intra-window order
+            // choice (AS-IS: one Destroy stacking several reacting cards is one MultipleSkills window). Applied
+            // BEFORE the turn-side split because batch (temporal Destroy) order dominates turn-side order — turn-side
+            // only orders effects WITHIN a single Destroy's window.
+            active = FilterToMinimumBatch(active);
 
             // (RD-15) AS-IS resolves ALL of the turn player's windows before the non-turn player's. Offer the
             // turn player's active triggers first; only when none remain, offer the rest. `side` is therefore
@@ -223,12 +251,17 @@ public sealed class WindowResolver
             // above consumed nothing; a body that later suspends or soft-fizzles keeps the use spent (AS-IS).
             deps.Commit(pick);
 
-            // (A-1 / P1-4) record the commit in the run's used-list at the SAME point AS-IS adds to SkillInfos_used —
-            // inside OnProcessCallbuck alongside the once-consume (MultipleSkills.cs:358-360), i.e. after the
-            // commit-gate re-check, before the body. A fizzled / declined pick above added nothing (AS-IS: the
-            // callback only fires from Activate_Execute). A resumed in-flight body (above) is NOT re-committed, so it
-            // is not re-recorded. A cut-in window's SkipCondition reads this on the next pass.
-            continuation.Resolved.Add(pick);
+            // (A-1 / P1-4, lifetime fixed per the 2026-07-11 adversarial review) record the commit in the OWNING
+            // FRAME's used-list at the SAME point AS-IS adds to SkillInfos_used — inside OnProcessCallbuck
+            // alongside the once-consume (MultipleSkills.cs:358-360), i.e. after the commit-gate re-check, before
+            // the body. The list is PER FRAME because the AS-IS aggregate (skillInfos_used, AutoProcessing.cs:
+            // 604-620) sums only the LIVE MultipleSkills instances — each instance clears its SkillInfos_used when
+            // its window ENDS (MultipleSkills.cs:58), so a NESTED window's commits are FORGOTTEN once it completes
+            // (its instance is released): the outer window then re-fires an effect the nested one resolved. A
+            // run-lifetime list diverged (the popped cut-in's commit permanently suppressed the outer candidate).
+            // A fizzled / declined pick above records nothing (AS-IS: the callback only fires from
+            // Activate_Execute). A resumed in-flight body is NOT re-committed, so it is not re-recorded.
+            frame.Resolved.Add(pick);
 
             WindowResolveOutcome outcome = await deps.ResolveBody(pick, cancellationToken).ConfigureAwait(false);
             if (outcome == WindowResolveOutcome.Suspended)
@@ -247,7 +280,10 @@ public sealed class WindowResolver
                 // bridge body suspends via DeferredActivations, which the action-processor re-invokes directly (not
                 // by replaying this window's ResolveBody). So DON'T record an in-flight pick: the pick is already
                 // removed from its frame, its use consumed, and on the re-drive (after the external body finishes)
-                // the loop simply continues the remaining stack. Suspending the window still pauses the main loop.
+                // the loop simply continues the remaining stack — after draining the finished body's emitted
+                // events as a cut-in (the ExternallySuspended flag, consumed at the next DriveAsync head).
+                // Suspending the window still pauses the main loop.
+                continuation.ExternallySuspended = true;
                 return WindowRunResult.Suspended;
             }
 
@@ -261,7 +297,10 @@ public sealed class WindowResolver
     }
 
     /// <summary>One level of the cut-in recursion, made explicit so the nested window state survives a suspend.
-    /// <see cref="Stack"/> is the frame's live AS-IS StackedSkillInfos; <see cref="Depth"/> bounds further cut-ins.</summary>
+    /// <see cref="Stack"/> is the frame's live AS-IS StackedSkillInfos; <see cref="Depth"/> bounds further cut-ins.
+    /// <see cref="Resolved"/> is the frame's AS-IS <c>SkillInfos_used</c> — commits recorded while this frame is
+    /// live, discarded with the frame (AS-IS clears the instance's used-list at window end, MultipleSkills.cs:58,
+    /// and the cut-in aggregate sums only LIVE instances, AutoProcessing.cs:604-620).</summary>
     internal sealed class WindowFrame
     {
         public WindowFrame(IReadOnlyList<TimingWindowTrigger> seed, int depth)
@@ -273,17 +312,61 @@ public sealed class WindowResolver
         public List<TimingWindowTrigger> Stack { get; }
 
         public int Depth { get; }
+
+        public List<TimingWindowTrigger> Resolved { get; } = new();
+    }
+
+    /// <summary>(D-1 order) Restrict a pass's active set to the LOWEST delete-batch among the batch-bearing
+    /// (deletion-derived) triggers, keeping every batch-less trigger. Returns <paramref name="active"/> unchanged
+    /// when no trigger carries a BatchId (the common case — no divergence surface). A higher-batch deletion trigger
+    /// stays in the frame's stack; it re-enters the active set only once the lower batch has fully resolved and no
+    /// longer contributes an active trigger — mirroring AS-IS resolving each Destroy()'s window before the next.</summary>
+    private static List<TimingWindowTrigger> FilterToMinimumBatch(List<TimingWindowTrigger> active)
+    {
+        long? minBatch = null;
+        foreach (TimingWindowTrigger t in active)
+        {
+            if (t.BatchId is long b && (minBatch is null || b < minBatch.Value))
+            {
+                minBatch = b;
+            }
+        }
+
+        if (minBatch is null)
+        {
+            return active; // no deletion-derived trigger this pass — nothing to sequence.
+        }
+
+        long floor = minBatch.Value;
+        return active.Where(t => t.BatchId is not long b || b == floor).ToList();
     }
 
     private static bool IsTurnSide(TimingWindowTrigger trigger, HeadlessPlayerId? turnPlayerId) =>
         turnPlayerId is HeadlessPlayerId tp && trigger.Request.ControllerId == tp;
 
     /// <summary>(A-1 / P1-4) Whether a cut-in window's injected <see cref="WindowResolverDeps.SkipCondition"/>
-    /// suppresses this trigger given the run's committed triggers (<see cref="WindowContinuation.Resolved"/>). No
-    /// condition (main-loop window) means never suppressed — AS-IS applies HasExecutedSameEffect only in cut-in
-    /// windows, so the general trigger process dedups nothing.</summary>
-    private static bool IsSuppressed(WindowResolverDeps deps, WindowContinuation continuation, TimingWindowTrigger trigger) =>
-        deps.SkipCondition?.Invoke(continuation.Resolved, trigger) ?? false;
+    /// suppresses this trigger given the LIVE frames' committed triggers. No condition (main-loop window) means
+    /// never suppressed — AS-IS applies HasExecutedSameEffect only in cut-in windows, so the general trigger
+    /// process dedups nothing. The aggregate spans exactly the frames still on the stack (AS-IS sums the live
+    /// MultipleSkills instances' used-lists) — a completed (popped) cut-in's commits are forgotten. Boundary: an
+    /// AS-IS used-set also spans a SEPARATE concurrently-live window run on the same AutoProcessing (a window
+    /// opened by a resolving body outside this continuation); that cross-run liveness is not modelled — none of
+    /// the A-1 target cut-in windows nests that way today.</summary>
+    private static bool IsSuppressed(WindowResolverDeps deps, WindowContinuation continuation, TimingWindowTrigger trigger)
+    {
+        if (deps.SkipCondition is null)
+        {
+            return false;
+        }
+
+        var live = new List<TimingWindowTrigger>();
+        foreach (WindowFrame frame in continuation.Frames)
+        {
+            live.AddRange(frame.Resolved);
+        }
+
+        return deps.SkipCondition(live, trigger);
+    }
 }
 
 /// <summary>Outcome of running one effect's BODY through the window loop (the once-use is already consumed at
@@ -322,25 +405,22 @@ public sealed class WindowContinuation
     internal WindowContinuation(Stack<WindowResolver.WindowFrame> frames)
     {
         Frames = frames;
-        Resolved = new List<TimingWindowTrigger>();
     }
 
-    /// <summary>The cut-in frame stack (top = deepest cut-in). Non-empty while the window has unresolved triggers.</summary>
+    /// <summary>The cut-in frame stack (top = deepest cut-in). Non-empty while the window has unresolved triggers.
+    /// Each frame carries its own <c>Resolved</c> used-list (AS-IS SkillInfos_used, per live MultipleSkills
+    /// instance) — the skip aggregate spans the live frames and forgets a popped frame's commits (A-1 lifetime).</summary>
     internal Stack<WindowResolver.WindowFrame> Frames { get; }
-
-    /// <summary>(A-1 / P1-4) The AS-IS <c>skillInfos_used</c> mirror (AutoProcessing.cs:604-620): the running list of
-    /// triggers COMMITTED in this window run, spanning every cut-in frame — appended at commit, the same point AS-IS
-    /// adds to <c>SkillInfos_used</c> inside <c>OnProcessCallbuck</c> alongside the once-consume
-    /// (MultipleSkills.cs:358-360), i.e. after the commit-gate re-check, before the body. A cut-in window's injected
-    /// <see cref="WindowResolverDeps.SkipCondition"/> reads it to suppress a re-fire of the same effect (AS-IS
-    /// <c>HasExecutedSameEffect</c>). Populated unconditionally (as AS-IS does), but only read when a SkipCondition
-    /// is supplied — the main-loop window supplies none.</summary>
-    internal List<TimingWindowTrigger> Resolved { get; }
 
     /// <summary>The pick whose body suspended mid-resolution (its once-use is ALREADY consumed). Replayed — never
     /// re-picked or re-committed — on the next <see cref="WindowResolver.DriveAsync"/>; null when the suspend was a
     /// pre-commit CHOICE (order / optional yes-no) rather than a body. Read-only to callers; only the resolver sets it.</summary>
     public TimingWindowTrigger? InFlightPick { get; internal set; }
+
+    /// <summary>Set when the window suspended for an EXTERNALLY-resumed body (SuspendedExternally): the next
+    /// <see cref="WindowResolver.DriveAsync"/> drains that body's emitted events as a cut-in frame BEFORE
+    /// continuing the remaining stack (RD-17 order), then clears this.</summary>
+    internal bool ExternallySuspended { get; set; }
 
     /// <summary>True once the window is fully resolved (no frames left and no in-flight body) — the caller clears it.</summary>
     public bool IsExhausted => Frames.Count == 0 && InFlightPick is null;

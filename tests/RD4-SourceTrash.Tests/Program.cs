@@ -7,8 +7,9 @@ using HeadlessDCGO.Engine.Headless.Services;
 // (RD-4) AS-IS Permanent.DiscardEvoRoots (CardController.cs:3846, before the top's AddTrashCard at :3852): a
 // deleted permanent's digivolution sources are trashed alongside its top card — not just the top. The headless
 // port trashed only the top and left the sources dead in ChoiceZone.None. DeletionSourceTrash mirrors the
-// source-trash, but is SKIPPED when a source-consuming replacement/replay keyword (Save/Decode/Partition/
-// Fortitude) is pending, since the headless POST window / Fortitude replay reads those sources after deletion.
+// source-trash UNCONDITIONALLY (AS-IS has no keyword check). (C-1/TODO-96 done) Decode/Partition no longer hold
+// sources back here — they now fire in the PRE window and detach the source(s) they PLAY from sourceIds BEFORE
+// the finalize reaches this trash, so the remainder is trashed with no special-case, exactly AS-IS.
 
 HeadlessPlayerId P1 = new(1);
 
@@ -66,20 +67,20 @@ int HostSourceCount(EngineContext ctx, HeadlessEntityId host) =>
     Check(HostSourceCount(ctx, host) == 0, "the host's source stack is emptied after the trash");
 }
 
-// --- 2. Decode pending: sources are STILL held back — the headless POST window plays one from
-//        ChoiceZone.None (full AS-IS parity = PRE move, TODO-96). ---
+// --- 2. (C-1/TODO-96) Decode NO LONGER holds its sources back at this finalize — it plays in the PRE window
+//        and detaches the played source earlier; any REMAINING sources are trashed unconditionally (AS-IS). ---
 {
     var (ctx, host, src0, src1) = await Setup((DeletionReplacementGate.HasDecodeKey, true));
     await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
-    Check(!InTrash(ctx, src0) && !InTrash(ctx, src1), "a Decode card's sources are held for the POST play window");
-    Check(HostSourceCount(ctx, host) == 2, "the Decode host keeps both sources");
+    Check(InTrash(ctx, src0) && InTrash(ctx, src1), "a Decode card's remaining sources ARE trashed (PRE play detached any played source already)");
+    Check(HostSourceCount(ctx, host) == 0, "the Decode host's remaining stack is emptied");
 }
 
-// --- 3. Partition pending: still held (same POST reason as Decode). ---
+// --- 3. (C-1/TODO-96) Partition likewise: remaining sources trashed unconditionally. ---
 {
     var (ctx, host, src0, _) = await Setup((DeletionReplacementGate.HasPartitionKey, true));
     await DeletionSourceTrash.TrashEvoSourcesAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host);
-    Check(!InTrash(ctx, src0), "a Partition card's sources are held for the POST play window");
+    Check(InTrash(ctx, src0), "a Partition card's remaining sources ARE trashed (AS-IS DiscardEvoRoots)");
 }
 
 // --- 4. (P0-3) Save NO LONGER holds its sources back — AS-IS DiscardEvoRoots trashes them unconditionally;

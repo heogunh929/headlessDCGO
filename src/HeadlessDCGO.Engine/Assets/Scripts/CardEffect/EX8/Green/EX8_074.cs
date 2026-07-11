@@ -57,9 +57,11 @@ public sealed class EX8_074 : CEntity_Effect
 
             if (CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition) >= 2)
             {
-                cardEffects.Add(new SuspendCostReductionEffect(
-                    card, CanSelectPermanentCondition, suspendCount: 2, costReduction: 4,
-                    description: "When this card would be played, by suspending 2 Digimon, reduce the play cost by 4."));
+                const string desc = "When this card would be played, by suspending 2 Digimon, reduce the play cost by 4.";
+                cardEffects.Add(new ActivatedEffect(
+                    card, EffectTiming.None, canUse: null, canActivate: null,
+                    body: new SuspendCostReductionEffect(card, CanSelectPermanentCondition, suspendCount: 2, costReduction: 4, description: desc),
+                    maxCountPerTurn: null, isOptional: false, desc));
             }
         }
 
@@ -92,9 +94,19 @@ public sealed class EX8_074 : CEntity_Effect
             bool CanSelectSuspendPermanentCondition(HeadlessEntityId id) =>
                 CardEffectCommons.IsBattleAreaDigimon(card, id);
 
-            cardEffects.Add(new ActivatedSelectEffect(
-                card, CanSelectSuspendPermanentCondition, maxCount: 1, canNoSelect: true, canEndNotMax: false,
-                SelectPermanentEffect.Mode.Tap, "[When Digivolving] You may suspend 1 Digimon."));
+            // Both effects below carry the ONE AS-IS ActivateClass's gates (original EX8_074.cs:243-245):
+            //   CanUseCondition (:254-257) = CanTriggerWhenDigivolving — subsumed by the dedicated
+            //   WhenDigivolving timing dispatch (DigivolveAction emits exactly this trigger; same convention as
+            //   ST4_10 / BT1_074), so canUse stays null here.
+            //   CanActivateCondition (:275-278) = IsExistOnBattleAreaDigimon(card) — the per-pass half, mirrored
+            //   on canActivate.
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.WhenDigivolving,
+                canUse: null,
+                canActivate: () => CardEffectCommons.IsExistOnBattleAreaDigimon(card),
+                body: new ActivatedSelectEffect(card, CanSelectSuspendPermanentCondition, maxCount: 1, canNoSelect: true, canEndNotMax: false,
+                    SelectPermanentEffect.Mode.Tap, "[When Digivolving] You may suspend 1 Digimon."),
+                maxCountPerTurn: null, isOptional: false, "[When Digivolving] You may suspend 1 Digimon."));
 
             int DeletionMaxDP() => CardEffectCommons.MaxDpDeleteThreshold(card,
                 8000 + 3000 * CardEffectCommons.MatchConditionPermanentCount(card,
@@ -105,9 +117,14 @@ public sealed class EX8_074 : CEntity_Effect
             bool CanSelectDeletePermanentCondition(HeadlessEntityId id) =>
                 CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDP();
 
-            cardEffects.Add(new ActivatedSelectEffect(
-                card, CanSelectDeletePermanentCondition, maxCount: 1, canNoSelect: true, canEndNotMax: false,
-                SelectPermanentEffect.Mode.Destroy,
+            cardEffects.Add(new ActivatedEffect(
+                card, EffectTiming.WhenDigivolving,
+                canUse: null,
+                canActivate: () => CardEffectCommons.IsExistOnBattleAreaDigimon(card), // AS-IS CanActivateCondition (:275-278)
+                body: new ActivatedSelectEffect(card, CanSelectDeletePermanentCondition, maxCount: 1, canNoSelect: true, canEndNotMax: false,
+                    SelectPermanentEffect.Mode.Destroy,
+                    "Then, you may delete 1 of your opponent's 8000 DP or lower Digimon (+3000 per other suspended Digimon)."),
+                maxCountPerTurn: null, isOptional: false,
                 "Then, you may delete 1 of your opponent's 8000 DP or lower Digimon (+3000 per other suspended Digimon)."));
         }
 

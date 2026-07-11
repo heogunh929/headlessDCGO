@@ -29,6 +29,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ST2_12: [Start of Your Turn] gains 1 memory when opponent has a no-evo Digimon", ST2_12_Memory),
     ("ST2_13: [Main] +1 memory / [Security] +2 memory", ST2_13_Memory),
     ("ST2_14: [Main] makes the chosen opponent Digimon unable to attack/block", ST2_14_Restrict),
+    ("ST2_14: [Main] via ActivatedEffectResolver registers the restriction (resolver case, not a silent drop)", ST2_14_ResolverCase),
     ("ST2_15: [Main] plays a Digimon under-card as a new Digimon; [Security] reuses Main", ST2_15_PlayFromUnder),
     ("ST2_16: [Main] returns the chosen opponent Digimon to its owner's hand", ST2_16_Bounce),
 };
@@ -115,7 +116,7 @@ async Task ST2_03_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_03(), context, EffectTiming.OnAllyAttack);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)((ActivatedEffect)Activated(new ST2_03(), context, EffectTiming.OnAllyAttack)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "only the lvl<=5 Digimon with a trashable source is a candidate (protected/no-source/lvl6 excluded)");
 
@@ -130,7 +131,7 @@ async Task ST2_06_Trash()
     EngineContext context = Context();
     var target = new HeadlessEntityId("p2:battle:T06");
     await PlaceDigimon(context, P2, target, level: 6, sources: 1); // no level gate on ST2_06
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_06(), context, EffectTiming.OnAllyAttack);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)((ActivatedEffect)Activated(new ST2_06(), context, EffectTiming.OnAllyAttack)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is a candidate regardless of level");
 
@@ -149,7 +150,7 @@ async Task ST2_09_Trash()
     await PlaceDigimon(context, P2, prot, level: 4, sources: 1);
     ProtectSource(context, P2, prot, 0);
 
-    var effect = (ActivatedSelectTrashDigivolutionEffect)Activated(new ST2_09(), context, EffectTiming.WhenDigivolving);
+    var effect = (ActivatedSelectTrashDigivolutionEffect)((ActivatedEffect)Activated(new ST2_09(), context, EffectTiming.WhenDigivolving)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "only the Digimon with a trashable source is a candidate");
 
@@ -295,6 +296,32 @@ async Task ST2_14_Restrict()
     await Task.CompletedTask;
 }
 
+// (P1 remediation) ActivatedTargetRestrictionEffect previously had NO ActivatedEffectResolver case, so an
+// ST2_14 [Main] driven through the resolver was SILENTLY DROPPED (cost paid, no restriction registered).
+// This pins the end-to-end path: dispatch by card number -> the resolver's restriction case -> select ->
+// duration-tagged can't-attack/can't-block bindings, mirroring the AS-IS ActivateCoroutine (ST2_14.cs:44-86).
+async Task ST2_14_ResolverCase()
+{
+    EngineContext context = Context();
+    var target = new HeadlessEntityId("p2:battle:T14R");
+    await PlaceDigimon(context, P2, target, level: 4, sources: 0); // no-evo -> a candidate
+
+    CardDatabase cards = (CardDatabase)context.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("ST2_14def"), "ST2_14", "Hammer Spark",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Option"));
+    var self = new HeadlessEntityId("p1:trash:ST2_14");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(self, new HeadlessEntityId("ST2_14def"), P1));
+
+    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(target));
+    await ActivatedEffectResolver.ResolveAsync(context, self, P1, EffectTiming.OptionSkill);
+
+    IReadOnlyList<EffectRequest> requests = context.EffectRegistry.GetRestrictionEffects(
+        new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: target));
+    var restrictions = RestrictionHelpers.ReadRestrictions(effectRequests: requests);
+    AssertTrue(RestrictionHelpers.CannotAttack(target, restrictions).IsRestricted, "resolver-driven [Main]: target can't attack");
+    AssertTrue(RestrictionHelpers.CannotBlock(target, restrictions).IsRestricted, "resolver-driven [Main]: target can't block");
+}
+
 async Task ST2_15_PlayFromUnder()
 {
     EngineContext context = Context();
@@ -304,7 +331,7 @@ async Task ST2_15_PlayFromUnder()
     await PlaceDigimon(context, P1, host, level: 4, sources: 1);
     var under = new HeadlessEntityId($"{host.Value}:src0");
 
-    var main = (ActivatedPlayFromUnderEffect)new ST2_15().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single();
+    var main = (ActivatedPlayFromUnderEffect)((ActivatedEffect)new ST2_15().CardEffects(EffectTiming.OptionSkill, Source(context, opt)).Single()).Body;
     ChoiceRequest request = main.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the Digimon under-card is a candidate");
 
@@ -326,7 +353,7 @@ async Task ST2_16_Bounce()
     var target = new HeadlessEntityId("p2:battle:T16");
     await PlaceDigimon(context, P2, target, level: 4, sources: 0);
 
-    var effect = (ActivatedSelectEffect)Activated(new ST2_16(), context, EffectTiming.OptionSkill);
+    var effect = (ActivatedSelectEffect)((ActivatedEffect)Activated(new ST2_16(), context, EffectTiming.OptionSkill)).Body;
     ChoiceRequest request = effect.BuildRequest(Both);
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is a candidate");
 

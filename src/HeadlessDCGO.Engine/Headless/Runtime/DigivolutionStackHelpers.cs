@@ -23,14 +23,21 @@ public static class DigivolutionStackHelpers
     public const string CanSuspendKey = "canSuspend";
 
     /// <summary>Moves <paramref name="cards"/> from <paramref name="fromZone"/> off-field and appends them
-    /// (in order) to the BOTTOM of <paramref name="targetId"/>'s digivolution stack.</summary>
+    /// (in order) to the BOTTOM of <paramref name="targetId"/>'s digivolution stack.
+    /// (B-3 tuck reset) When <paramref name="onceFlags"/> is supplied, each tucked card's per-turn use counts are
+    /// cleared — AS-IS clears them on EVERY path that puts a card under another permanent:
+    /// PlacePermanentToDigivolutionCards runs InitUseCountThisTurn on the tucked card (CardController.cs:3093)
+    /// after RemoveField already Init()-reset the whole leaving stack (CardObjectController.cs:546-553); DigiXros
+    /// materials reset per card (SelectDigiXrosClass.cs:923); hand/deck/trash-origin cards were reset when they
+    /// entered that zone, so the uniform reset is a no-op for them.</summary>
     public static async Task AddSourcesBottomAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId targetId,
         IReadOnlyList<HeadlessEntityId> cards,
         ChoiceZone fromZone,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Effects.OnceFlagController? onceFlags = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -53,6 +60,7 @@ public static class DigivolutionStackHelpers
                 new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
                 cancellationToken).ConfigureAwait(false);
             appended.Add(cardId.Value);
+            onceFlags?.ResetForCard(card.OwnerId, cardId);
         }
 
         AppendSources(repository, target, appended);
@@ -68,7 +76,8 @@ public static class DigivolutionStackHelpers
         HeadlessEntityId targetId,
         IReadOnlyList<HeadlessEntityId> cards,
         ChoiceZone fromZone,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Effects.OnceFlagController? onceFlags = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -91,6 +100,8 @@ public static class DigivolutionStackHelpers
                 new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
                 cancellationToken).ConfigureAwait(false);
             moved.Add(cardId.Value);
+            // (B-3 tuck reset) same AS-IS InitUseCountThisTurn mirror as AddSourcesBottomAsync.
+            onceFlags?.ResetForCard(card.OwnerId, cardId);
         }
 
         PrependSources(repository, target, moved);
@@ -98,12 +109,16 @@ public static class DigivolutionStackHelpers
 
     /// <summary>(C-23 Material Save) Moves the first <paramref name="count"/> digivolution sources of
     /// <paramref name="fromId"/> to the bottom of <paramref name="toId"/>'s stack (pure re-parent — the
-    /// source cards already live off-field). Returns true when at least one source moved.</summary>
+    /// source cards already live off-field). Returns true when at least one source moved.
+    /// (B-3) Pass <paramref name="onceFlags"/> ONLY when the AS-IS analog resets the moved cards — e.g. MindLink,
+    /// where the whole leaving Tamer stack rode a RemoveField Init() reset. Material Save's AS-IS path has no
+    /// witnessed InitUseCountThisTurn, so its sink call leaves this null.</summary>
     public static bool MoveSourcesBottom(
         ICardInstanceRepository repository,
         HeadlessEntityId fromId,
         HeadlessEntityId toId,
-        int count)
+        int count,
+        Effects.OnceFlagController? onceFlags = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         if (count < 1 ||
@@ -125,6 +140,18 @@ public static class DigivolutionStackHelpers
 
         repository.Upsert(source with { Metadata = WithSources(source.Metadata, remaining) });
         AppendSources(repository, destination, moved);
+        if (onceFlags is not null)
+        {
+            foreach (string movedValue in moved)
+            {
+                var movedId = new HeadlessEntityId(movedValue);
+                HeadlessPlayerId owner = repository.TryGetInstance(movedId, out CardInstanceRecord? movedCard) && movedCard is not null
+                    ? movedCard.OwnerId
+                    : destination.OwnerId;
+                onceFlags.ResetForCard(owner, movedId);
+            }
+        }
+
         return true;
     }
 
@@ -170,6 +197,12 @@ public static class DigivolutionStackHelpers
     /// <summary>(B-10) Trash <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
     /// (from the bottom/DigiEgg end by default) — move them off-field to the trash and drop them from the
     /// host's stack. Returns the number trashed.</summary>
+    /// <param name="honorProtection">(C-3) AS-IS effect-trash (<c>ITrashDigivolutionCards</c>) filters
+    /// <c>CanNotTrashFromDigivolutionCards</c>-protected sources OUT of the window; the DELETION path
+    /// (<c>DiscardEvoRoots</c>) does NOT (no keyword check) and passes false. The scan args
+    /// (<paramref name="effectRegistry"/>/<paramref name="context"/>/<paramref name="causingEffectSourceId"/>)
+    /// are the AS-IS <c>CanNotTrashFromDigivolutionCards(source, _cardEffect)</c> inputs; supplied only on the
+    /// effect-trash path.</param>
     public static Task<int> TrashSourcesAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
@@ -177,8 +210,12 @@ public static class DigivolutionStackHelpers
         int count,
         bool fromBottom = true,
         CancellationToken cancellationToken = default,
-        GameEventQueue? gameEventQueue = null) =>
-        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken, gameEventQueue);
+        GameEventQueue? gameEventQueue = null,
+        bool honorProtection = true,
+        IEffectQueryService? effectRegistry = null,
+        Bridge.EngineContext? context = null,
+        HeadlessEntityId causingEffectSourceId = default) =>
+        RemoveSourcesAsync(repository, zoneMover, hostId, count, fromBottom, ChoiceZone.Trash, cancellationToken, gameEventQueue, honorProtection, effectRegistry, context, causingEffectSourceId);
 
     /// <summary>(W6 process) Trash SPECIFIC digivolution sources of <paramref name="hostId"/> (AS-IS
     /// <c>ITrashDigivolutionCards(permanent, selectedCards, …)</c>). Returns the count trashed.</summary>
@@ -188,7 +225,10 @@ public static class DigivolutionStackHelpers
         HeadlessEntityId hostId,
         IReadOnlyList<HeadlessEntityId> cardIds,
         CancellationToken cancellationToken = default,
-        GameEventQueue? gameEventQueue = null)
+        GameEventQueue? gameEventQueue = null,
+        IEffectQueryService? effectRegistry = null,
+        Bridge.EngineContext? context = null,
+        HeadlessEntityId causingEffectSourceId = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -205,6 +245,14 @@ public static class DigivolutionStackHelpers
         var discarded = new List<(HeadlessEntityId Id, HeadlessPlayerId Owner)>();
         foreach (HeadlessEntityId cardId in cardIds)
         {
+            // (C-3) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards() re-filters CanNotTrashFromDigivolutionCards-
+            // protected sources (CardController.cs:5158-5160) — a defensive second filter over the already-narrowed
+            // DigiBurst candidate pool. This is an EFFECT-trash path (no deletion caller), so protection is honoured.
+            if (IsTrashProtected(repository, cardId.Value, effectRegistry, context, causingEffectSourceId))
+            {
+                continue;
+            }
+
             if (!sources.Remove(cardId.Value))
             {
                 continue;
@@ -238,6 +286,11 @@ public static class DigivolutionStackHelpers
                 subject: hostId,
                 extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["discardedCardIds"] = string.Join(",", discarded.Select(d => d.Id.Value)) });
         }
+
+        // (C-3 재상환 P2-1) AS-IS ITrashDigivolutionCards runs `new AceOverflowClass(_trashTargetCards).Overflow()`
+        // IMMEDIATELY BEFORE the removal loop (CardController.cs:5219) — an un-flipped ACE source leaving by an
+        // effect-trash costs its owner the printed Overflow memory. Same shared pass as the sink's link-card trash.
+        ApplyEffectTrashAceOverflow(repository, zoneMover, context, hostId, host.OwnerId, discarded.Select(d => d.Id).ToArray());
 
         foreach ((HeadlessEntityId id, HeadlessPlayerId owner) in discarded)
         {
@@ -289,7 +342,14 @@ public static class DigivolutionStackHelpers
         HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
             ? src.OwnerId
             : host.OwnerId;
-        await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        // (BT22_035) destination == None ⇒ DETACH-only: the source is already off-field (ChoiceZone.None as a
+        // digivolution source); removing it from sourceIds leaves it off-field for an immediate re-attach (e.g.
+        // as a LINK card). A None → None ZoneMoveRequest is rejected (both zones abstract), so skip the move.
+        if (destination != ChoiceZone.None)
+        {
+            await zoneMover.MoveAsync(new ZoneMoveRequest(owner, sourceId, ChoiceZone.None, destination), cancellationToken).ConfigureAwait(false);
+        }
+
         return true;
     }
 
@@ -301,7 +361,11 @@ public static class DigivolutionStackHelpers
         bool fromBottom,
         ChoiceZone destination,
         CancellationToken cancellationToken,
-        GameEventQueue? gameEventQueue = null)
+        GameEventQueue? gameEventQueue = null,
+        bool honorProtection = true,
+        IEffectQueryService? effectRegistry = null,
+        Bridge.EngineContext? context = null,
+        HeadlessEntityId causingEffectSourceId = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -325,8 +389,8 @@ public static class DigivolutionStackHelpers
         // protected sources OUT of the selected window before trashing — the protection applies to TRASH only, NOT
         // return-to-hand/deck. A protected source in the window is skipped and stays in the stack; the trash does
         // NOT reach deeper to make up the count (AS-IS collects the window by position, then filters).
-        List<string> removed = destination == ChoiceZone.Trash
-            ? window.Where(value => !IsTrashProtected(repository, value)).ToList()
+        List<string> removed = destination == ChoiceZone.Trash && honorProtection
+            ? window.Where(value => !IsTrashProtected(repository, value, effectRegistry, context, causingEffectSourceId)).ToList()
             : window;
         List<string> remaining = sources.Where(value => !removed.Contains(value)).ToList();
 
@@ -358,6 +422,17 @@ public static class DigivolutionStackHelpers
                 extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["deckBottomCardIds"] = string.Join(",", removed) });
         }
 
+        // (C-3 재상환 P2-1) AS-IS ITrashDigivolutionCards applies the ACE-Overflow pass to the trash targets just
+        // before moving them (CardController.cs:5219) — TRASH destination only (return-to-hand/deck is not this
+        // AS-IS path). The deletion path (DeletionSourceTrash) applies its own DiscardEvoRoots overflow pass and
+        // calls in with context:null, so it never double-charges here.
+        if (destination == ChoiceZone.Trash && removed.Count > 0)
+        {
+            ApplyEffectTrashAceOverflow(
+                repository, zoneMover, context, hostId, host.OwnerId,
+                removed.Select(value => new HeadlessEntityId(value)).ToArray());
+        }
+
         foreach (string sourceValue in removed)
         {
             var sourceId = new HeadlessEntityId(sourceValue);
@@ -370,13 +445,58 @@ public static class DigivolutionStackHelpers
         return removed.Count;
     }
 
-    // (fidelity) A digivolution source stamped CanNotTrashFromDigivolutionCards (mirror of AS-IS
-    // CardSource.CanNotTrashFromDigivolutionCards). Currently no card stamps it (the granting class is a stub),
-    // so this is inert today, but the trash path filters it so it is faithful the moment the keyword lands.
-    private static bool IsTrashProtected(ICardInstanceRepository repository, string sourceValue) =>
-        !string.IsNullOrEmpty(sourceValue)
-        && repository.TryGetInstance(new HeadlessEntityId(sourceValue), out CardInstanceRecord? source) && source is not null
-        && source.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true;
+    // (C-3 재상환 P2-1) AS-IS ITrashDigivolutionCards' `new AceOverflowClass(trashTargets).Overflow()`
+    // (CardController.cs:5219): the effect-trash counterpart of DeletionSourceTrash's DiscardEvoRoots overflow.
+    // Reuses DeletionSourceTrash.ApplyAceOverflow with the EngineContext's memory/turn services; context is
+    // supplied only on effect-trash paths (the deletion path applies its own pass and calls with context:null,
+    // and gameEventQueue-less bare/unit callers carry no memory model). The host-on-field guard mirrors the AS-IS
+    // AceOverflowClass existence test (each source's permanent IsExistOnBattleArea/IsExistOnBreedingAreaDigimon),
+    // which for a source-trash is its still-fielded host — same guard as the sink's link-card trash.
+    private static void ApplyEffectTrashAceOverflow(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        Bridge.EngineContext? context,
+        HeadlessEntityId hostId,
+        HeadlessPlayerId hostOwner,
+        IReadOnlyList<HeadlessEntityId> trashTargets)
+    {
+        if (context is null || trashTargets.Count == 0 || zoneMover is not IZoneStateReader zones
+            || !(zones.GetCards(hostOwner, ChoiceZone.BattleArea).Contains(hostId)
+                || zones.GetCards(hostOwner, ChoiceZone.BreedingArea).Contains(hostId)))
+        {
+            return;
+        }
+
+        DeletionSourceTrash.ApplyAceOverflow(
+            repository, trashTargets, context.MemoryController, context.TurnController.Current.TurnPlayerId);
+    }
+
+    // (C-3, fidelity) AS-IS CardSource.CanNotTrashFromDigivolutionCards = the legacy per-source stamp
+    // (willBeRemoveSources-style flag) OR a field-effect SCAN (ICanNotTrashFromDigivolutionCardsEffect). The
+    // EFFECT-trash path passes the registry/context/causing-source so BT9_109's conditional continuous protection
+    // (X-Antibody sources under a live host) is honoured via TrashProtectionScan; the DELETION path passes
+    // honorProtection: false and never reaches here, exactly AS-IS DiscardEvoRoots (no keyword check).
+    private static bool IsTrashProtected(
+        ICardInstanceRepository repository,
+        string sourceValue,
+        IEffectQueryService? effectRegistry,
+        Bridge.EngineContext? context,
+        HeadlessEntityId causingEffectSourceId)
+    {
+        if (string.IsNullOrEmpty(sourceValue))
+        {
+            return false;
+        }
+
+        var sourceId = new HeadlessEntityId(sourceValue);
+        if (repository.TryGetInstance(sourceId, out CardInstanceRecord? source) && source is not null
+            && source.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true)
+        {
+            return true;
+        }
+
+        return TrashProtectionScan.IsProtected(effectRegistry, repository, context, sourceId, causingEffectSourceId);
+    }
 
     private static void AppendSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)
     {

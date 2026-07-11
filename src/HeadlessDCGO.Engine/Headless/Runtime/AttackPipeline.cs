@@ -160,6 +160,17 @@ public class AttackPipeline
             SecurityResolutionResult security = await _securityResolver
                 .ResolveAsync(context, cancellationToken)
                 .ConfigureAwait(false);
+
+            // (C-5/VR-6) a security-battle loss deferred for the attacker's would-be-deleted replacement
+            // window (Evade / by-battle Barrier / …) — park exactly like the field-battle defer; the common
+            // loop opens the window, then the DeletionReplacement phase settles the attacker and resumes
+            // the remaining checks (AS-IS: the PRE cut-in suspends the coroutine chain mid-SecurityCheck).
+            if (security.RequiresDeletionReplacement)
+            {
+                context.AttackController.AdvancePhase(AttackPhase.DeletionReplacement, "Security battle deletion replacement window.");
+                return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.DeletionReplacement);
+            }
+
             if (!security.IsSuccess && context.AttackController.Current.IsPending)
             {
                 // (X-02) AS-IS AttackProcess: a direct attack against an empty security stack hits the
@@ -224,7 +235,15 @@ public class AttackPipeline
             zones.GetCards(attackingPlayer, ChoiceZone.BattleArea).Contains(attackerId);
         if (attackerAlive)
         {
-            await ApplyPiercingSecurityAsync(context, attack, cancellationToken).ConfigureAwait(false);
+            SecurityCheckLoopResult? piercing = await ApplyPiercingSecurityAsync(context, attack, cancellationToken).ConfigureAwait(false);
+
+            // (C-5/VR-6) the piercing check's security battle deferred for the attacker's would-be-deleted
+            // window — park at DeletionReplacement (same seam as the direct check / the field battle).
+            if (piercing is { DeferredForDeletionReplacement: true })
+            {
+                context.AttackController.AdvancePhase(AttackPhase.DeletionReplacement, "Piercing security battle deletion replacement window.");
+                return AttackAdvanceResult.Transitioned(AttackPhase.PiercingSecurity, AttackPhase.DeletionReplacement);
+            }
         }
 
         // Always leave the parked phase (AdvancePhase self-guards on a cleared attack) — staying in
@@ -243,6 +262,36 @@ public class AttackPipeline
         HeadlessAttackState attack,
         CancellationToken cancellationToken)
     {
+        // (C-5/VR-6) a SECURITY-battle loss parked here (deferred-remaining marker on the attacker): settle
+        // it via the SecurityResolver sibling of FinalizeDeferredAsync — decline finalizes the deletion and
+        // ends the check (AS-IS StopSecurityCheck); survival (Evade/Barrier) resumes the remaining checks.
+        // The battle finalize below owns only field-battle parks (it requires a non-direct target).
+        if (attack.AttackerId is HeadlessEntityId parkedAttackerId &&
+            SecurityResolver.HasDeferredSecurityCheck(context, parkedAttackerId))
+        {
+            SecurityDeferredCheckResult security = await _securityResolver
+                .FinalizeDeferredSecurityCheckAsync(context, cancellationToken)
+                .ConfigureAwait(false);
+            if (security.IsDeferred)
+            {
+                // Stay parked: the common loop opens/settles the next replacement window before re-entry.
+                return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.DeletionReplacement);
+            }
+
+            if (attack.IsDirectAttack)
+            {
+                // The direct check's deferred tail — the ResolveAttack the un-deferred path performs.
+                context.AttackController.ResolveAttack("Security check resolved.");
+            }
+            else
+            {
+                // The piercing follow-up check's deferred tail (the attack was already resolved by the battle).
+                context.AttackController.AdvancePhase(AttackPhase.Resolved, "Deferred piercing security check resolved.");
+            }
+
+            return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.Resolved, securityResolved: true);
+        }
+
         BattleResolutionResult battle = await _battleResolver
             .FinalizeDeferredAsync(context, cancellationToken)
             .ConfigureAwait(false);
@@ -266,7 +315,7 @@ public class AttackPipeline
     // SecurityResolver's shared per-card loop so it is IDENTICAL to a direct attack's check — including
     // the OnSecurityCheck window (W4) and the security-Digimon battle (W5), which the old stripped loop
     // skipped.
-    private async Task ApplyPiercingSecurityAsync(
+    private async Task<SecurityCheckLoopResult?> ApplyPiercingSecurityAsync(
         EngineContext context,
         HeadlessAttackState attack,
         CancellationToken cancellationToken)
@@ -276,13 +325,13 @@ public class AttackPipeline
             attack.AttackerId is not HeadlessEntityId attackerId ||
             context.ZoneMover is not IZoneStateReader zoneReader)
         {
-            return;
+            return null;
         }
 
         int strike = ReadStrike(context, attack.AttackerId);
         if (strike <= 0)
         {
-            return;
+            return null;
         }
 
         // (A1) AS-IS CanActivatePierce (Pierce.cs:20-42): Pierce fires only while the defending player has
@@ -291,10 +340,10 @@ public class AttackPipeline
         // MarkLose here was an invented rule that ended games a turn early.
         if (zoneReader.GetCards(defender, ChoiceZone.Security).Count == 0)
         {
-            return;
+            return null;
         }
 
-        await _securityResolver.RunSecurityCheckLoopAsync(
+        return await _securityResolver.RunSecurityCheckLoopAsync(
             context,
             zoneReader,
             attackingPlayer,
@@ -475,6 +524,8 @@ public class AttackPipeline
             // (P5) counter-pass markers reset for the attacker's next attack.
             ClearInstanceFlag(context, attackerId, CounterPass1DoneKey);
             ClearInstanceFlag(context, attackerId, CounterPass2DoneKey);
+            // (C-5/VR-6) drop any stale deferred-security-check park marker with the attack.
+            SecurityResolver.ClearDeferredRemaining(context, attackerId);
         }
 
         context.AttackController.ClearAttack();

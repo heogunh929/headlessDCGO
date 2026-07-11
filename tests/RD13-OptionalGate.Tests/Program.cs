@@ -24,7 +24,7 @@ void Check(bool cond, string label)
 
 // The activated effect id the fixture produces (ActivatedEffect.EffectId = "{instanceId}:ae:{timing}:{body}").
 HeadlessEntityId Card = new("p1:OPT");
-HeadlessEntityId EffectId = new($"{Card.Value}:ae:OnEnterFieldAnyone:MemoryBody");
+HeadlessEntityId EffectId = new($"{Card.Value}:ae");   // unhashed cap partition = per card (AS-IS IsSameEffect)
 
 async Task<EngineContext> Setup()
 {

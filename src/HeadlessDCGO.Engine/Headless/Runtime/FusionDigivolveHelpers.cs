@@ -51,7 +51,8 @@ public static class FusionDigivolveHelpers
         GameEventQueue? gameEventQueue = null,
         bool? enteredThisTurnOverride = null,
         FusionKind kind = FusionKind.None,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Effects.OnceFlagController? onceFlags = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -123,6 +124,21 @@ public static class FusionDigivolveHelpers
             [EnteredThisTurnKey] = enteredThisTurnOverride ?? false,
         };
         repository.Upsert(current with { Metadata = metadata });
+
+        // (B-3 tuck reset) AS-IS resets the per-turn use counts of the fused stack's cards: Jogress resets EVERY
+        // DigivolutionCard of the new permanent (CardController.cs:1509-1512), DigiXros resets each tucked
+        // material (SelectDigiXrosClass.cs:923); the new top's own reset rides its play path (RegisterCard).
+        if (onceFlags is not null)
+        {
+            foreach (string sourceValue in merged)
+            {
+                var sourceId = new HeadlessEntityId(sourceValue);
+                HeadlessPlayerId owner = repository.TryGetInstance(sourceId, out CardInstanceRecord? src) && src is not null
+                    ? src.OwnerId
+                    : current.OwnerId;
+                onceFlags.ResetForCard(owner, sourceId);
+            }
+        }
 
         if (gameEventQueue is not null)
         {

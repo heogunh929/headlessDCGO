@@ -35,27 +35,36 @@ public sealed class BT2_080 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            // AS-IS CanSelectCardCondition: IsDigimon && HasCardColor(Purple) && HasLevel && Level<=4 &&
-            // CanPlayAsNewPermanent(payCost:false).
-            bool CanTarget(HeadlessEntityId id)
-            {
-                var candidate = new CardSource(card.Context, id, card.Owner);
-                return candidate.IsDigimon
-                    && candidate.HasCardColor("Purple")
-                    && candidate.HasLevel
-                    && candidate.Level <= 4
-                    && CardEffectCommons.CanPlayAsNewPermanent(candidate, payCost: false, cardEffect: null);
-            }
+            // AS-IS CanSelectCardCondition (BT2_080.cs:31-51): IsDigimon -> HasCardColor(Purple) -> Level<=4 ->
+            // CanPlayAsNewPermanent(payCost:false) -> HasLevel.
+            bool CanSelectCardCondition(CardSource cardSource) =>
+                cardSource.IsDigimon
+                && cardSource.HasCardColor("Purple")
+                && cardSource.Level <= 4
+                && CardEffectCommons.CanPlayAsNewPermanent(cardSource, payCost: false, cardEffect: null)
+                && cardSource.HasLevel;
+
+            bool CanTarget(HeadlessEntityId id) => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner));
 
             // STOP: activateETB=false (AS-IS suppresses [On Play] effects on Digimon played by this effect)
             //   — ActivatedSelectAndPlayFromZonesEffect has no activateETB param; ETB effects will fire (partial port).
-            cardEffects.Add(new ActivatedSelectAndPlayFromZonesEffect(
+            const string desc = "[On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their memory costs. Any [On Play] effects on Digimon played with this effect don't activate.";
+            cardEffects.Add(new ActivatedEffect(
                 card,
-                fromZones: new[] { ChoiceZone.Trash },
-                canTarget: CanTarget,
-                maxCount: 2,
-                canEndNotMax: true,
-                description: "[On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their memory costs. Any [On Play] effects on Digimon played with this effect don't activate."));
+                timing: EffectTiming.OnEnterFieldAnyone,
+                // AS-IS CanUseCondition (BT2_080.cs:53-56).
+                canUse: ctx => CardEffectCommons.CanTriggerOnPlay(ctx, card),
+                // AS-IS CanActivateCondition (BT2_080.cs:58-69).
+                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition),
+                body: new ActivatedSelectAndPlayFromZonesEffect(
+                    card,
+                    fromZones: new[] { ChoiceZone.Trash },
+                    canTarget: CanTarget,
+                    maxCount: 2,
+                    canEndNotMax: true,
+                    description: desc),
+                maxCountPerTurn: null, isOptional: false, desc)); // (B-5) AS-IS isOptional=true is folded into the body canNoSelect (canEndNotMax:true) — result-equivalent; a true 2-decision restore needs the optional-prompt protocol (deferred).
         }
 
         return cardEffects;

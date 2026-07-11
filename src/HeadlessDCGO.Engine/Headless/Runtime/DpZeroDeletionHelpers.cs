@@ -32,6 +32,10 @@ public static class DpZeroDeletionHelpers
         }
 
         var deleted = new List<HeadlessEntityId>();
+        // (R2-P1-4 / D-1) one sweep == one AS-IS DestroyPermanentsClass(LackPowerPermanents) == ONE delete
+        // batch: stamp a single batch id (lazily) on every deletion move — the deletion marker is what
+        // derives OnDeletion/OnLeaveField from the move, and one id keeps the reactor collapse per-batch.
+        long? batchId = null;
         foreach (HeadlessPlayerId player in players)
         {
             // Snapshot — the battle-area list mutates as we delete.
@@ -60,8 +64,13 @@ public static class DpZeroDeletionHelpers
                     [DeletedByEffectKey] = true,
                 };
                 context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
+                batchId ??= context.NextDeletionBatchId();
                 await context.ZoneMover.MoveAsync(
-                    new ZoneMoveRequest(instance.OwnerId, cardId, ChoiceZone.BattleArea, ChoiceZone.Trash),
+                    new ZoneMoveRequest(instance.OwnerId, cardId, ChoiceZone.BattleArea, ChoiceZone.Trash,
+                        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                        {
+                            [Effects.MatchStateMutationSink.DeletionBatchIdKey] = batchId.Value,
+                        }),
                     cancellationToken).ConfigureAwait(false);
                 deleted.Add(cardId);
             }

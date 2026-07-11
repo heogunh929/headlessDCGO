@@ -95,5 +95,14 @@ public static class ActivatedBridgeTimings
         // (subject) + its cost. Fires once per option use; a "[Once Per Turn]" reactor caps itself via
         // MaxCountPerTurn.
         EffectTiming.OnUseOption,
+        // (D-2 / VR-9) [All Turns] "when any of your opponent's Digimon LEAVE the battle area, …" (AD1_025) — the
+        // reacting effect lives on a DIFFERENT card than the leaving one. AS-IS stacks the WHOLE leave batch as
+        // ONE StackSkillInfos(OnLeaveFieldAnyone) payload whose gate any-matches the list (CardController.cs:3748),
+        // so N simultaneous leaves fire the reactor ONCE. Headless emits ONE CardMoved (leave) per card, so the
+        // batch is collapsed at collect: WindowResolverWiring.CollectActivatedBridgeTriggers dedups this timing to
+        // the FIRST gate-passing leave subject per reactor (mirrors the AS-IS any-match). Each listener's
+        // CanTriggerOnPermanentLeave self-gates on the leave subject (its pre-removal zone — Permanent.SnapshotZone).
+        // Self-scoped WhenRemoveField/OnRemovedField are NOT here (they stay per-card via the scheduler half).
+        EffectTiming.OnLeaveFieldAnyone,
     };
 }

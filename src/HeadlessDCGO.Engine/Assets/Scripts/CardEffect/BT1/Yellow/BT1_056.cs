@@ -29,21 +29,34 @@ public sealed class BT1_056 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            // AS-IS CanSelectCardCondition: CardNames.Contains("Tinkermon") && CanPlayAsNewPermanent(payCost:false).
-            bool CanTarget(HeadlessEntityId id)
-            {
-                var candidate = new CardSource(card.Context, id, card.Owner);
-                return candidate.EqualsCardName("Tinkermon")
-                    && CardEffectCommons.CanPlayAsNewPermanent(candidate, payCost: false, cardEffect: null);
-            }
+            // AS-IS CanSelectCardCondition (BT1_056.cs:27-38): CardNames.Contains("Tinkermon") &&
+            // CanPlayAsNewPermanent(payCost:false).
+            bool CanSelectCardCondition(CardSource cardSource) =>
+                cardSource.EqualsCardName("Tinkermon")
+                && CardEffectCommons.CanPlayAsNewPermanent(cardSource, payCost: false, cardEffect: null);
 
-            cardEffects.Add(new ActivatedSelectAndPlayFromZonesEffect(
+            bool CanTarget(HeadlessEntityId id) => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner));
+
+            const string desc = "[On Play] You may play 1 [Tinkermon] from your hand or recycle bin without paying its memory cost.";
+            cardEffects.Add(new ActivatedEffect(
                 card,
-                fromZones: new[] { ChoiceZone.Hand, ChoiceZone.Trash },
-                canTarget: CanTarget,
-                maxCount: 1,
-                canEndNotMax: true, // ISOPTIONAL=true ("you may") + AS-IS canNoSelect:true.
-                description: "[On Play] You may play 1 [Tinkermon] from your hand or recycle bin without paying its memory cost."));
+                timing: EffectTiming.OnEnterFieldAnyone,
+                // AS-IS CanUseCondition (BT1_056.cs:40-43).
+                canUse: ctx => CardEffectCommons.CanTriggerOnPlay(ctx, card),
+                // AS-IS CanActivateCondition (BT1_056.cs:45-61): on the battle area AND (owner's HAND has >= 1
+                // card — a RAW count, NOT filtered by CanSelectCardCondition — OR a matching card is in the
+                // owner's trash).
+                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card)
+                    && (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Hand).Count >= 1
+                        || CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition)),
+                body: new ActivatedSelectAndPlayFromZonesEffect(
+                    card,
+                    fromZones: new[] { ChoiceZone.Hand, ChoiceZone.Trash },
+                    canTarget: CanTarget,
+                    maxCount: 1,
+                    canEndNotMax: true, // AS-IS canNoSelect:true (skippable pick).
+                    description: desc),
+                maxCountPerTurn: null, isOptional: false, desc)); // (B-5) AS-IS isOptional=true is folded into the body canNoSelect (canEndNotMax:true) — result-equivalent; a true 2-decision restore needs the optional-prompt protocol (deferred).
         }
 
         return cardEffects;

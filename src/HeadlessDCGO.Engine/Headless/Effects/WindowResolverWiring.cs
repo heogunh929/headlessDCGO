@@ -179,11 +179,21 @@ public static class WindowResolverWiring
         }
         catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException)
         {
+            // (A-4 F3, scope corrected per the 2026-07-11 adversarial review) this loud guard enforces a HEADLESS
+            // design constraint, NOT an AS-IS invariant: AS-IS RuleProcess IS interactive on at least two paths —
+            // the link-overflow trim opens a mandatory select (AutoProcessing.cs:526-541 →
+            // Permanent.RemoveLinkedCard → SelectCardEffect canNoSelect:false, Permanent.cs:1321-1344), and the
+            // DP-lack deletion runs the would-be-deleted cut-in INLINE (AutoProcessing.cs:469-484 →
+            // DestroyPermanentsClass.Destroy → autoProcessing_CutIn.TriggeredSkillProcess, CardController.cs:
+            // ~3690-3718). Neither path is ported yet (headless has no link trimming; would-be-deleted defers to
+            // RunToStable), so this throw is currently unreachable — but the moment either is ported 1:1, the
+            // ported path must suspend/resume through the window machinery instead of tripping this guard.
             throw new NotSupportedException(
-                "State-based RuleProcessAsync raised an agent choice between window picks. Mid-window rule " +
-                "processing MUST be non-interactive (it sweeps state-based deletions and end-game; replacement " +
-                "windows open at RunToStable, not here). An interactive rule-process would be silently dropped by " +
-                "the window driver — wire the reactor through the window / activated-effect bridge instead.", ex);
+                "State-based RuleProcessAsync raised an agent choice between window picks. The HEADLESS rule " +
+                "sweep is modeled non-interactive (replacement windows open at RunToStable, not here) — an " +
+                "interactive rule-process would be silently dropped by the window driver. AS-IS RuleProcess IS " +
+                "interactive on the link-trim / DP-lack cut-in paths; porting those requires window-driven " +
+                "suspend/resume here, not this guard.", ex);
         }
 
         return WindowResolveOutcome.Resolved;
@@ -229,7 +239,10 @@ public static class WindowResolverWiring
             // card is not lost. This is the one collect-time gate the window keeps (the deletion condition is
             // stable within the pass — P1-1 re-evaluation does not apply); every other trigger stays ungated here
             // and is re-evaluated per pass by the window.
-            var firedDeletion = new HashSet<HeadlessEntityId>();
+            // (D-1 / VR-8) key the collapse by (EffectId, delete-BATCH id): N cards of ONE delete-process (one
+            // Destroy(), one batch id) still collapse to one fire, but an INDEPENDENT delete-process in the same
+            // drain (a distinct batch id) fires the reactor again (AS-IS stacks each Destroy() separately).
+            var firedDeletion = new HashSet<(HeadlessEntityId EffectId, long BatchId)>();
             for (int eventIndex = 0; eventIndex < pendingEvents.Count; eventIndex++)
             {
                 GameEvent gameEvent = pendingEvents[eventIndex];
@@ -238,6 +251,7 @@ public static class WindowResolverWiring
                     continue;
                 }
 
+                long deletionBatchId = ReadDeletionBatchId(gameEvent);
                 foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
                 {
                     if (!seen.Add((trigger.Request.EffectId, eventIndex)))
@@ -249,7 +263,7 @@ public static class WindowResolverWiring
 
                     if (IsOnDeletion(trigger))
                     {
-                        if (firedDeletion.Contains(trigger.Request.EffectId)
+                        if (firedDeletion.Contains((trigger.Request.EffectId, deletionBatchId))
                             || EffectInvalidation.IsEffectsDisabled(context, trigger.Request.Context.SourceEntityId))
                         {
                             continue;
@@ -261,12 +275,18 @@ public static class WindowResolverWiring
                             continue; // this deleted card's subject does not satisfy the gate — try the next copy.
                         }
 
-                        firedDeletion.Add(trigger.Request.EffectId);
+                        firedDeletion.Add((trigger.Request.EffectId, deletionBatchId));
                     }
 
+                    // (D-1 order) stamp the delete-batch id onto a deletion-derived trigger so the window loop
+                    // sequences CROSS-batch deletions (ascending batch order) instead of opening a spurious
+                    // cross-batch order choice. Only OnDestroyedAnyone (the collapsed bystander OnDeletion) and only
+                    // a REAL id (non-zero) — an unstamped move (sentinel 0) stays batch-less (unaffected).
+                    long? orderBatch = IsOnDeletion(trigger) && deletionBatchId != 0 ? deletionBatchId : null;
                     seed.Add(GameFlowProcessor.ReclassifyKind(
                         context,
-                        new TimingWindowTrigger(enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)));
+                        new TimingWindowTrigger(enriched, trigger.Mode, trigger.Kind, trigger.Priority, trigger.Sequence)
+                            { BatchId = orderBatch }));
                 }
             }
         }
@@ -297,15 +317,22 @@ public static class WindowResolverWiring
             skipCondition: skipCondition);
     }
 
-    /// <summary>(A-1 / P1-4) The AS-IS cut-in <c>HasExecutedSameEffect</c> skip predicate (AutoProcessing.cs:623-627):
-    /// suppress a candidate whose effect a prior commit in THIS window already resolved. AS-IS <c>IsSameEffect</c>
-    /// (ICardEffect.cs:860) is "same effect instance OR same <c>EffectSourceCard</c> + same <c>HashString</c> + same
-    /// root effect"; in the headless binding model that identity is the effect binding id (<c>Request.EffectId</c> —
-    /// one binding per source-instance-and-effect), so same-EffectId is the faithful key. Pass this as
-    /// <see cref="BuildSchedulerDeps"/>'s <c>skipCondition</c> ONLY for the specific cut-in windows AS-IS applies it
-    /// to (TrashDigivolutionCards / TrashLinkCards / Unsuspend / SelectCount, CardController.cs:5189/5301/5709/727/
-    /// 990) — NEVER the main-loop window (AS-IS AutoProcessing.cs:137 passes skipCondition=null, so the general
-    /// trigger process dedups nothing; a blanket main-loop dedup would over-suppress and diverge from AS-IS).</summary>
+    /// <summary>(A-1 / P1-4, equivalence fixed per the 2026-07-11 adversarial review) The AS-IS cut-in
+    /// <c>HasExecutedSameEffect</c> skip predicate (AutoProcessing.cs:623-627): suppress a candidate whose effect a
+    /// prior commit in the LIVE frames already resolved. AS-IS <c>IsSameEffect</c> (ICardEffect.cs:860-933) is
+    /// "same instance OR (same <c>EffectSourceCard</c> ∧ same <c>HashString</c> ∧ same root)" — and because effect
+    /// instances are recreated per query (Player.cs:830-880), the reference branch is dead and the fallback rules:
+    /// <c>HashString</c> defaults to "" and BOTH-EMPTY compares EQUAL (:880-902), so the REAL AS-IS partition is
+    /// per SOURCE CARD — two different unhashed effects of the same card count as "the same effect" (cards like
+    /// ST16_11 SetHashString precisely to split that collapse; only dozens of cards do). A binding-id (EffectId)
+    /// key was a NARROWER partition (per effect) that let a same-card sibling effect fire where AS-IS skips it —
+    /// so the faithful key is the SOURCE CARD INSTANCE. Design item RDx-A1-HASH: when a SetHashString card is
+    /// ported, mirror its hash onto the binding and refine this to (source card + hash); no such card is in the
+    /// ported pool. Pass this as <see cref="BuildSchedulerDeps"/>'s <c>skipCondition</c> ONLY for cut-in windows
+    /// AS-IS passes it to — the 5 CardController sites (727/990/5189/5301/5709) AND the per-card WhenDigisorption
+    /// windows (BT2_045.cs:158-pattern, ~10 green cards) — NEVER the main-loop window (AS-IS AutoProcessing.cs:137
+    /// passes null; a blanket main-loop dedup would over-suppress). AttackProcess.cs:296 passes a DIFFERENT
+    /// skipCondition (HasCounterEffect) with mainStack=true — not this predicate.</summary>
     public static bool HasExecutedSameEffect(
         IReadOnlyList<TimingWindowTrigger> resolved, TimingWindowTrigger candidate)
     {
@@ -314,7 +341,7 @@ public static class WindowResolverWiring
 
         for (int i = 0; i < resolved.Count; i++)
         {
-            if (resolved[i].Request.EffectId == candidate.Request.EffectId)
+            if (resolved[i].Request.Context.SourceEntityId == candidate.Request.Context.SourceEntityId)
             {
                 return true;
             }
@@ -413,6 +440,21 @@ public static class WindowResolverWiring
     private static bool IsOnDeletion(TimingWindowTrigger trigger) =>
         string.Equals(trigger.Request.Timing, TriggerTimings.OnDeletion, StringComparison.Ordinal);
 
+    /// <summary>(D-1 / VR-8) Read the delete-BATCH id stamped on a card's CardMoved (field-&gt;trash) event by the
+    /// deleting path (sink / battle / DP-zero sweep / deferred finalize / security battle) — one id per AS-IS
+    /// <c>DestroyPermanentsClass.Destroy()</c>. The OnDeletion / OnLeaveFieldAnyone collapse keys off (reactor, this
+    /// id): same id = one batch = one fire; a distinct id = an independent delete-process = a separate fire.
+    /// (R2-P1-4) the deletion marker is now REQUIRED for a CardMoved to derive OnDeletion at all
+    /// (TriggerTimingMap), so a move-driven deletion trigger always carries a real id; the sentinel 0 remains
+    /// only for EXPLICIT-timing events (a synthetic window opened via the timing-override metadata, no move) —
+    /// those collapse all-together, preserving the pre-D1 whole-pass dedup for synthetic windows.</summary>
+    private static long ReadDeletionBatchId(GameEvent? gameEvent) =>
+        gameEvent is not null
+            && gameEvent.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? raw)
+            && raw is long id
+                ? id
+                : 0L;
+
     /// <summary>Consume the once-per-turn use at commit (before the body — RD-12/F5). For an ACTIVATED-bridge
     /// marker only the OnUnTappedAnyone caller-cap is consumed here (its synthetic key); every other activated
     /// timing is uncapped at the caller (the resolver's own MaxCountPerTurn caps it).</summary>
@@ -468,8 +510,11 @@ public static class WindowResolverWiring
         {
             try
             {
+                // windowDispatched: the marker's collect gate (CanCollectAt = AS-IS CanTrigger) already ran when
+                // it was synthesised; execution entry re-checks ONLY the CanActivate half (AS-IS
+                // AutoProcessing.cs:1068 — CanTrigger is never re-evaluated on a stacked skill).
                 await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver
-                    .ResolveAsync(context, card, owner, timing, cancellationToken, drivingEvent: drivingEvent)
+                    .ResolveAsync(context, card, owner, timing, cancellationToken, drivingEvent: drivingEvent, windowDispatched: true)
                     .ConfigureAwait(false);
                 return WindowResolveOutcome.Resolved;
             }
@@ -480,7 +525,7 @@ public static class WindowResolverWiring
                 // .ResolveChoiceAsync -> DeferredActivations.Pending) advances it — the body resumes OUTSIDE the
                 // window (SuspendedExternally), so the window records no in-flight pick and, once the action
                 // processor finishes the activation, re-drives to continue the remaining stack (3b-iii).
-                context.DeferredActivations.Suspend(card, timing, owner, drivingEvent);
+                context.DeferredActivations.Suspend(card, timing, owner, drivingEvent, windowDispatched: true);
                 return WindowResolveOutcome.SuspendedExternally;
             }
         }
@@ -640,7 +685,7 @@ public static class WindowResolverWiring
                 {
                     foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
                     {
-                        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+                        foreach (HeadlessEntityId cardId in ScanZones(zones, player))
                         {
                             if (seen.Add((cardId, timing)))
                             {
@@ -652,10 +697,10 @@ public static class WindowResolverWiring
                 else if (ActivatedBridgeTimings.EventBroadcast.Contains(timing) && zones is not null)
                 {
                     // No cross-event de-dup on purpose: each event is its own window. Within one event the
-                    // battle-area scan visits a card exactly once.
+                    // zone scan visits a card exactly once.
                     foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
                     {
-                        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+                        foreach (HeadlessEntityId cardId in ScanZones(zones, player))
                         {
                             toResolve.Add((cardId, timing, gameEvent, ActivatedBridgeCategory.Broadcast));
                         }
@@ -666,6 +711,18 @@ public static class WindowResolverWiring
 
         var triggers = new List<TimingWindowTrigger>(toResolve.Count);
         long sequence = 0;
+        // (D-2 / VR-9) OnLeaveFieldAnyone batch collapse — the ACTIVATED-half mirror of the scheduler half's
+        // firedDeletion (CollectUnifiedSeed). AS-IS stacks the WHOLE simultaneous-leave list as ONE
+        // StackSkillInfos(OnLeaveFieldAnyone) whose gate any-matches (CardController.cs:3748), so an OnLeaveFieldAnyone
+        // reactor fires ONCE per batch. Headless emits one CardMoved (leave) per card, so toResolve holds one
+        // (reactor, event) pair per leave event; collapse to the FIRST that GATE-passes (CanCollectAt below) per
+        // reactor card — claimed on-fire so a subject-specific gate matching only a LATER leaver is not lost.
+        // Scoped to OnLeaveFieldAnyone: every other EventBroadcast timing (OnUseOption/OnTappedAnyone/…) opens one
+        // window per event (no collapse), and self-scoped WhenRemoveField rides the scheduler half (per-card).
+        // (D-1 / VR-8) key by (reactor, delete-BATCH id): the driving CardMoved (leave) event carries the batch id
+        // of the Destroy() that removed it, so a reactor fires once per batch yet an INDEPENDENT leave-batch in the
+        // same drain (a distinct id) fires it again.
+        var firedLeaveBatch = new HashSet<(HeadlessEntityId Card, long BatchId)>();
         foreach ((HeadlessEntityId card, EffectTiming timing, GameEvent? drivingEvent, ActivatedBridgeCategory category) in toResolve)
         {
             if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
@@ -692,17 +749,79 @@ public static class WindowResolverWiring
             // is AS-IS-FAITHFUL: AS-IS collects effect existence once too (GetSkillInfos / EffectList(timing),
             // AutoProcessing.cs:770-857); its window loop re-checks only CanActivate on ALREADY-stacked entries
             // (MultipleSkills.cs:122/164-165) and NEVER re-collects existence for the original timing. Moving it
-            // per-pass would DIVERGE (admit an entry AS-IS never collects). The genuine per-pass gap is a DIFFERENT
-            // thing — the marker's CanActivate/CanResolve is not re-tested per pass in MarkerGate (RDx-A3 debt).
+            // per-pass would DIVERGE (admit an entry AS-IS never collects).
             if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasActivatedEffectsAt(context, card, instance.OwnerId, timing))
             {
                 continue;
             }
 
-            triggers.Add(MakeActivatedBridgeTrigger(card, timing, instance.OwnerId, drivingEvent, category, sequence++));
+            // (RDx-A3 split) the AS-IS collect FILTER on top of existence: CanTrigger = once-per-turn cap +
+            // CanUseCondition (ICardEffect.cs:319-358), evaluated ONCE here — a uniform effect whose CanUse half
+            // is false at collect is never stacked (AS-IS GetSkillInfos filters it out), and one collected here
+            // is NOT canUse-re-checked per pass (MarkerGate re-checks only the CanActivate half, mirroring
+            // MultipleSkills.cs:122/164-165).
+            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.CanCollectAt(context, card, instance.OwnerId, timing, drivingEvent))
+            {
+                continue;
+            }
+
+            // (D-2 / VR-9) batch collapse: an OnLeaveFieldAnyone reactor fires ONCE per simultaneous-leave batch —
+            // the first leave subject that gate-passes (CanCollectAt above) claims the reactor; later leave events
+            // in the same seed drain are skipped. Placed AFTER the gate so a reactor whose gate matches only a
+            // later leaver (any-match) still fires on that leaver.
+            if (timing == EffectTiming.OnLeaveFieldAnyone
+                && !firedLeaveBatch.Add((card, ReadDeletionBatchId(drivingEvent))))
+            {
+                continue;
+            }
+
+            TimingWindowTrigger bridgeTrigger = MakeActivatedBridgeTrigger(card, timing, instance.OwnerId, drivingEvent, category, sequence++);
+
+            // (D-1 order) stamp the delete-batch id onto a deletion-derived activated trigger (OnLeaveFieldAnyone —
+            // the cross-card bystander leave reactor, e.g. AD1_025) so the window loop sequences CROSS-batch leaves
+            // in ascending batch order rather than opening a spurious cross-batch order choice. Only a REAL id
+            // (non-zero); an unstamped leave (sentinel 0) stays batch-less. Subject-scoped OnDestroyedAnyone carries
+            // no driving event here (self-reactor), so it is left batch-less.
+            if (timing == EffectTiming.OnLeaveFieldAnyone)
+            {
+                long leaveBatch = ReadDeletionBatchId(drivingEvent);
+                if (leaveBatch != 0)
+                {
+                    bridgeTrigger = bridgeTrigger with { BatchId = leaveBatch };
+                }
+            }
+
+            triggers.Add(bridgeTrigger);
         }
 
         return triggers;
+    }
+
+    /// <summary>(C5-witness) The Boundary/EventBroadcast bridge's per-player collection scope. AS-IS
+    /// GetSkillInfos (AutoProcessing.cs:770-857) scans, for EVERY timing: field permanents, TRASH cards and
+    /// HAND cards (plus player effects and face-up security, which the headless models separately) — a
+    /// trash-resident inherited trigger like EX8_051's "when effects trash this card from digivolution cards
+    /// of a [Mineral]/[Rock] Digimon" (OnDigivolutionCardDiscarded, CanActivate = IsExistOnTrash) is
+    /// collected from the TRASH region. Previously only the battle area was scanned, so such effects never
+    /// fired. Behavior-neutral for battle-area effects: every mirrored card guards its own zone
+    /// (IsExistOnBattleArea / IsExistOnTrash) exactly like AS-IS, and non-reactive cards are filtered by
+    /// HasActivatedEffectsAt below.</summary>
+    private static IEnumerable<HeadlessEntityId> ScanZones(IZoneStateReader zones, HeadlessPlayerId player)
+    {
+        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+        {
+            yield return cardId;
+        }
+
+        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.Trash))
+        {
+            yield return cardId;
+        }
+
+        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.Hand))
+        {
+            yield return cardId;
+        }
     }
 }
 

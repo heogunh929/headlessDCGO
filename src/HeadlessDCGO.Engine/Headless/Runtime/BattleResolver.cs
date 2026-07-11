@@ -12,6 +12,12 @@ public sealed class BattleResolver
     public const string DpKey = "dp";
     public const string DpModifiersKey = "dpModifiers";
     public const string DeletedByBattleKey = "deletedByBattle";
+
+    /// <summary>HEADLESS defer-time value: the DP used in the battle comparison, stamped when the loss is
+    /// FLAGGED (<see cref="FlagPendingBattleDeletion(EngineContext, CardInstanceRecord, int)"/>). Distinct from
+    /// (R2-P1-3) <see cref="CardLeavePlayCleanup.DpJustBeforeRemoveFieldKey"/> — the AS-IS record-parameters
+    /// block records THAT one later, after the PRE cut-in fixed the target list (CardController.cs:3762-3783);
+    /// both keys are kept because their record moments differ (a cut-in DP change is visible only in the latter).</summary>
     public const string DpBeforeBattleKey = "dpBeforeBattle";
     public const string PreventBattleDeletionKey = "preventBattleDeletion";
     public const string HasPiercingKey = "hasPiercing";
@@ -183,6 +189,10 @@ public sealed class BattleResolver
             await ResolveKnockOutWindowAsync(context, participant, cancellationToken).ConfigureAwait(false);
         }
 
+        // (D-1 / VR-8) AS-IS deletes EVERY battle loser in ONE DestroyPermanentsClass(LoserPermanents) call
+        // (CardController.cs:4705) — a SINGLE StackSkillInfos(OnDeletion / OnLeaveFieldAnyone). Allocate ONE batch
+        // id for all losers so an OnLeaveFieldAnyone / OnDeletion reactor fires ONCE for a two-loser battle.
+        long battleBatchId = context.NextDeletionBatchId();
         foreach (BattleParticipant participant in deleted)
         {
             // (P1) leave-play cleanup BEFORE the move (and before Fortitude reads the keyword state):
@@ -193,9 +203,14 @@ public sealed class BattleResolver
             // at CardController.cs:3846 precedes the top's AddTrashCard). No trigger fires (direct trash-add);
             // unconditional like AS-IS except Decode/Partition (their POST window plays a source from None).
             await DeletionSourceTrash.TrashEvoSourcesAsync(
-                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, gameEventQueue: null, cancellationToken,
+                context.MemoryController, context.TurnController.Current.TurnPlayerId).ConfigureAwait(false);
+            // (C-2 review P1) charge the leaving ACE's OWN top overflow — AS-IS RemoveField does so after
+            // DiscardEvoRoots; the raw MoveAsync below skips the sink's ApplyAceOverflowOnLeave.
+            AceOverflowGate.ApplyTopOverflowOnDelete(context, participant.InstanceId);
             movementResults.Add(await context.ZoneMover.MoveAsync(
-                new ZoneMoveRequest(participant.OwnerId, participant.InstanceId, ChoiceZone.BattleArea, ChoiceZone.Trash),
+                new ZoneMoveRequest(participant.OwnerId, participant.InstanceId, ChoiceZone.BattleArea, ChoiceZone.Trash,
+                    Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.DeletionBatchIdKey] = battleBatchId }),
                 cancellationToken).ConfigureAwait(false));
         }
 
@@ -204,7 +219,7 @@ public sealed class BattleResolver
         foreach (BattleParticipant participant in deleted)
         {
             await DeletionReplacementGate.TryFortitudeReplayAsync(
-                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, cancellationToken, context.EffectRegistry).ConfigureAwait(false);
+                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, cancellationToken, context.EffectRegistry, context).ConfigureAwait(false);
         }
 
         // Piercing: a surviving attacker that deleted the defender also checks the defending player's
@@ -243,15 +258,21 @@ public sealed class BattleResolver
             triggersPiercingSecurityCheck: piercing);
     }
 
-    private static void FlagPendingBattleDeletion(EngineContext context, BattleParticipant participant)
+    private static void FlagPendingBattleDeletion(EngineContext context, BattleParticipant participant) =>
+        FlagPendingBattleDeletion(context, participant.Instance, participant.Dp);
+
+    /// <summary>(C-5/VR-6) Record-based flagging shared with the SECURITY battle loss (SecurityResolver) —
+    /// both battle kinds run the SAME pending/defer/finalize machine (AS-IS: a security battle exits through
+    /// the same IBattle.Battle → DestroyPermanentsClass.Destroy as a field battle).</summary>
+    internal static void FlagPendingBattleDeletion(EngineContext context, CardInstanceRecord instance, int dp)
     {
-        var metadata = new Dictionary<string, object?>(participant.Instance.Metadata, StringComparer.Ordinal)
+        var metadata = new Dictionary<string, object?>(instance.Metadata, StringComparer.Ordinal)
         {
             [GameFlowProcessor.PendingDeletionKey] = true,
             [DeletedByBattleKey] = true,
-            [DpBeforeBattleKey] = participant.Dp,
+            [DpBeforeBattleKey] = dp,
         };
-        context.CardInstanceRepository.Upsert(participant.Instance with { Metadata = metadata });
+        context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
     }
 
     private static bool IsStillPendingDeletion(EngineContext context, HeadlessEntityId cardId) =>
@@ -260,8 +281,9 @@ public sealed class BattleResolver
     public const string RetaliationFiredKey = "retaliationFired";
 
     /// <summary>A pending battle deletion that still has an UNDECLINED would-be-deleted replacement — the
-    /// owner has not yet decided, so a window must open before finalizing.</summary>
-    private static bool NeedsWindow(EngineContext context, IZoneStateReader zones, HeadlessEntityId cardId)
+    /// owner has not yet decided, so a window must open before finalizing. (C-5/VR-6) internal: the
+    /// security-battle loss defers/parks on exactly the same predicate.</summary>
+    internal static bool NeedsWindow(EngineContext context, IZoneStateReader zones, HeadlessEntityId cardId)
     {
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null ||
             !ReadFlag(record.Metadata, GameFlowProcessor.PendingDeletionKey) ||
@@ -270,7 +292,11 @@ public sealed class BattleResolver
             return false;
         }
 
-        return DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true);
+        // (C5-witness) thread the registry so a KEYWORD-GRANTED replacement (BarrierSelfEffect /
+        // EvadeSelfEffect / FragmentSelfEffect — the production path, registered via ContinuousKeywordGate)
+        // defers the battle deletion like a metadata-flagged one. Previously only the test-set metadata
+        // flags were visible here, so a real card's grant never opened the battle-loss PRE window.
+        return DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true, context.EffectRegistry);
     }
 
     /// <summary>A pending battle deletion whose death is FINAL — no undeclined replacement remains.</summary>
@@ -547,6 +573,26 @@ public sealed class BattleResolver
             default:
                 return false;
         }
+    }
+
+    /// <summary>(C-5/VR-6) Finalize-time marker settle for a SECURITY-battle loser — same as the field-battle
+    /// <see cref="MarkDeletedByBattle(EngineContext, BattleParticipant)"/> (the DP-before-battle was already
+    /// stamped by <see cref="FlagPendingBattleDeletion(EngineContext, CardInstanceRecord, int)"/> at defer time).</summary>
+    internal static void MarkDeletedByBattle(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
+        {
+            return;
+        }
+
+        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+        {
+            [DeletedByBattleKey] = true,
+            [GameFlowProcessor.PendingDeletionKey] = false,
+        };
+        metadata.Remove(RetaliationFiredKey);
+        metadata.Remove(DeletionReplacementTiming.ReplacementDeclinedKey);
+        context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 
     private static void MarkDeletedByBattle(

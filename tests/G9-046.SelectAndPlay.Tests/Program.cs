@@ -19,6 +19,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BuildRequest offers only matching candidates in the zone", CandidateFilter),
     ("AddThisCardToHandEffect -> self returns to hand", SelfReturn),
     ("SelectAndDeDigivolveEffect -> target's top digivolution card removed", DeDigivolve),
+    ("BT1_044: candidates = own-stack under-cards with Level <= 4 ONLY (Lv5 / other-stack excluded)", Bt1044Candidates),
+    ("BT1_044: canActivate false when the own stack has no Lv<=4 under-card", Bt1044NoCandidateGate),
 };
 
 var failures = new List<string>();
@@ -37,8 +39,8 @@ async Task PlayFrom(ChoiceZone zone)
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var card = await Place(ctx, P1, "PLAYME", zone);
-    var eff = (ActivatedSelectAndPlayEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
-        new CardSource(ctx, src, P1), zone, _ => true, 1, false, $"play from {zone}");
+    var eff = (ActivatedSelectAndPlayEffect)((ActivatedEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
+        new CardSource(ctx, src, P1), zone, _ => true, 1, false, $"play from {zone}")).Body;
     var sink = Sink(ctx);
     eff.Apply(sink, new[] { card });
     await sink.FlushAsync();
@@ -53,8 +55,8 @@ async Task CandidateFilter()
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var match = await Place(ctx, P1, "MATCH", ChoiceZone.Trash);
     var nomatch = await Place(ctx, P1, "OTHER", ChoiceZone.Trash);
-    var eff = (ActivatedSelectAndPlayEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
-        new CardSource(ctx, src, P1), ChoiceZone.Trash, id => id.Value.Contains("MATCH"), 1, false, "play match");
+    var eff = (ActivatedSelectAndPlayEffect)((ActivatedEffect)CardEffectFactory.SelectAndPlayFromZoneEffect(
+        new CardSource(ctx, src, P1), ChoiceZone.Trash, id => id.Value.Contains("MATCH"), 1, false, "play match")).Body;
     var req = eff.BuildRequest(new[] { P1, P2 });
     // Only the MATCH trash card passes the canTarget filter (NOMATCH is excluded).
     AssertTrue(req.Candidates.Count == 1, $"exactly one candidate offered (got {req.Candidates.Count})");
@@ -97,7 +99,82 @@ async Task DeDigivolve()
     AssertTrue(targetPeeled || underSurfaced, "top card removed / under-card surfaced (de-digivolved)");
 }
 
+// (P1 remediation) AS-IS BT1_044.cs:27-44/55/89 — the [When Attacking] play-from-under candidates are the
+// digivolution cards of THIS card's own permanent ONLY (card.PermanentOfThisCard().DigivolutionCards), each
+// gated by IsDigimon + CanPlayAsNewPermanent(payCost:false) + Level <= 4 + HasLevel. A prior port wrapped a
+// 2-arg default ActivatedPlayFromUnderEffect (all-owner-Digimon scope, no level filter) — these tests pin the
+// corrected candidate set.
+async Task Bt1044Candidates()
+{
+    EngineContext ctx = Ctx();
+    // BT1_044's own permanent: under-cards LV3 (candidate) and LV5 (excluded by Level <= 4).
+    var self = await PlaceLeveled(ctx, P1, "BT44", ChoiceZone.BattleArea, level: 6);
+    var lv3 = await PlaceLeveled(ctx, P1, "LV3", ChoiceZone.None, level: 3);
+    var lv5 = await PlaceLeveled(ctx, P1, "LV5", ChoiceZone.None, level: 5);
+    SetSources(ctx, self, lv3, lv5);
+    // ANOTHER of the owner's battle-area Digimon with its own Lv3 under-card — NOT a candidate (self-stack only).
+    var other = await PlaceLeveled(ctx, P1, "OTHER", ChoiceZone.BattleArea, level: 4);
+    var otherUnder = await PlaceLeveled(ctx, P1, "OU3", ChoiceZone.None, level: 3);
+    SetSources(ctx, other, otherUnder);
+
+    var uniform = (ActivatedEffect)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue.BT1_044()
+        .CardEffects(EffectTiming.OnAllyAttack, new CardSource(ctx, self, P1)).Single();
+    AssertTrue(uniform.CanResolveActivateHalf(), "canActivate: on battle area with a Lv<=4 own-stack under-card");
+
+    var body = (ActivatedPlayFromUnderEffect)uniform.Body;
+    var req = body.BuildRequest(new[] { P1, P2 });
+    AssertTrue(req.Candidates.Count == 1, $"exactly ONE candidate (got {req.Candidates.Count})");
+    AssertTrue(req.Candidates[0].Id == lv3, "the candidate is the own-stack Lv3 under-card (Lv5 and other-stack Lv3 excluded)");
+    AssertTrue(req.MinCount == 1 && !req.CanSkip, "mandatory pick (AS-IS canNoSelect: () => false)");
+    _ = (lv5, otherUnder);
+}
+
+async Task Bt1044NoCandidateGate()
+{
+    EngineContext ctx = Ctx();
+    // Own stack holds only a Lv5 under-card -> AS-IS CanActivateCondition (BT1_044.cs:51-62) is false.
+    var self = await PlaceLeveled(ctx, P1, "BT44", ChoiceZone.BattleArea, level: 6);
+    var lv5 = await PlaceLeveled(ctx, P1, "LV5", ChoiceZone.None, level: 5);
+    SetSources(ctx, self, lv5);
+
+    var uniform = (ActivatedEffect)new HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue.BT1_044()
+        .CardEffects(EffectTiming.OnAllyAttack, new CardSource(ctx, self, P1)).Single();
+    AssertTrue(!uniform.CanResolveActivateHalf(), "canActivate rejects: no Lv<=4 own-stack under-card");
+
+    var body = (ActivatedPlayFromUnderEffect)uniform.Body;
+    AssertTrue(body.BuildRequest(new[] { P1, P2 }).Candidates.Count == 0, "and the body offers no candidate");
+}
+
 // --- Helpers -------------------------------------------------------------
+
+async Task<HeadlessEntityId> PlaceLeveled(EngineContext ctx, HeadlessPlayerId owner, string tag, ChoiceZone zone, int level)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"DEF:{owner.Value}:{tag}");
+    cards.Upsert(new CardRecord(defId, defId.Value, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = level }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:{zone}:{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));
+    if (zone != ChoiceZone.None)
+    {
+        await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone));
+    }
+
+    return id;
+}
+
+void SetSources(EngineContext ctx, HeadlessEntityId host, params HeadlessEntityId[] sources)
+{
+    ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? r);
+    ctx.CardInstanceRepository.Upsert(r! with
+    {
+        Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal)
+        {
+            ["sourceIds"] = sources.Select(s => s.Value).ToArray(),
+        },
+    });
+}
 
 MatchStateMutationSink Sink(EngineContext ctx) => new(
     ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue);

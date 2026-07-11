@@ -442,8 +442,13 @@ public sealed class CardSource
     /// <summary>(W6 tail) AS-IS <c>HasPlayCost</c> — the card defines a play cost.</summary>
     public bool HasPlayCost => Definition?.PlayCost is not null;
 
-    /// <summary>(W6 tail) AS-IS <c>GetCostItself</c> — the card's own play cost (printed; per-card cost
-    /// modifiers fold in the play pipeline, not here — the Min/MaxCost comparisons use the printed value).</summary>
+    /// <summary>(W6 tail) The card's PRINTED play cost — behaviourally this mirrors AS-IS
+    /// <c>BasePlayCostFromEntity</c> (CardSource.cs:757), NOT the AS-IS <c>GetCostItself</c> (CardSource.cs:769),
+    /// which is modifier-FOLDED: <c>Max(0, GetChangedCostItselef(BasePlayCostFromEntity, Root.None,
+    /// [PermanentOfThisCard()]))</c>. The name is kept for the existing call sites; a caller whose AS-IS analog
+    /// reads the folded <c>GetCostItself</c> (Min/MaxCost comparisons, CostJustBeforeRemoveField) carries a
+    /// documented reduction here (no per-card cost-change effects fold in); a caller whose AS-IS analog reads
+    /// <c>BasePlayCostFromEntity</c> (e.g. BT22_035's "play cost 4 or less") is exact.</summary>
     public int GetCostItself => Definition?.PlayCost ?? 0;
 
     /// <summary>(C9) mirror of AS-IS <c>CardSource.IsLinked</c> (CardSource.cs:2947):
@@ -517,6 +522,53 @@ public sealed class CardSource
         }
 
         return null;
+    }
+
+    /// <summary>(C-2 witness / BT22_035) 1:1 mirror of AS-IS <c>CardSource.CanLinkToTargetPermanent(target,
+    /// PayCost:false, allowBreeding:false)</c> (CardSource.cs:3337) folded with <c>CanLink(false)</c>
+    /// (CardSource.cs:3140): whether THIS card may be attached as a LINK card onto
+    /// <paramref name="targetPermanent"/>. The host must be a real (non-token) battle-area — not breeding-area
+    /// — permanent, and THIS card must carry a declared <see cref="LinkCondition"/> whose <c>digimonCondition</c>
+    /// matches BOTH the host AND (CanLink) at least one owner battle-area Digimon (a battle-area host trivially
+    /// satisfies that second clause). PayCost=false skips the memory check; the PayCost / allowBreeding variants
+    /// land with their first witness (design item C2-02).</summary>
+    public bool CanLinkToTargetPermanent(Permanent? targetPermanent)
+    {
+        if (targetPermanent is null)
+        {
+            return false;
+        }
+
+        // AS-IS: target.TopCard != null && !target.TopCard.IsToken.
+        if (targetPermanent.TopCard.IsToken)
+        {
+            return false;
+        }
+
+        var zones = (IZoneStateReader)Context.ZoneMover;
+        // AS-IS allowBreeding:false: a breeding-area permanent is not a valid link host.
+        if (zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BreedingArea).Contains(targetPermanent.InstanceId))
+        {
+            return false;
+        }
+
+        // AS-IS this.CanLink(false): THIS card declares a link condition matched by >= 1 owner battle-area Digimon.
+        LinkCondition? link = LinkConditionOf();
+        if (link is null)
+        {
+            return false;
+        }
+
+        bool canLinkSomewhere = zones.GetCards(Owner, ChoiceZone.BattleArea)
+            .Any(id => CardEffectCommons.IsOwnerBattleAreaDigimon(this, id)
+                && link.digimonCondition(new Permanent(Context, id, Owner)));
+        if (!canLinkSomewhere)
+        {
+            return false;
+        }
+
+        // AS-IS linkCondition.digimonCondition(target).
+        return link.digimonCondition(targetPermanent);
     }
 
     /// <summary>(W6-F) Mirror of AS-IS <c>CardSource.appFusionCondition</c>: the first usable declared
@@ -1348,6 +1400,111 @@ public sealed class LinkSelfEffect : IActivatedCardEffect
         throw new NotSupportedException($"Link effect is resolved via the activation flow, not registered: {Description}");
 }
 
+/// <summary>(C-2 witness / BT22_035 [On Play] / [When Digivolving]) "you may link 1 level 4 or lower [Appmon]
+/// Digimon card from your HAND or THIS Digimon's DIGIVOLUTION CARDS to this Digimon without paying the cost".
+/// THIS card is the HOST; the chosen card is attached as a LINK card via
+/// <see cref="Runtime.LinkHelpers.AddLinkCardAsync"/> (which opens the WhenLinked window and trims the host's
+/// link max), so a subsequent deletion of the host routes the link card to the trash (C-2 DeletionSourceTrash).
+/// Composable body of a uniform <see cref="ActivatedEffect"/> (the timing gate / optional prompt / cap live on
+/// the wrapper).
+///
+/// AS-IS (BT22_035.cs:83-179 SharedActivateCoroutine) presents an AREA sub-choice (hand vs sources) THEN a card
+/// select within the chosen area. The linkable-card RESULT set is identical whether the areas are chosen first
+/// or pooled, so — matching the established <see cref="ActivatedSelectAndPlayFromZonesEffect"/> multi-zone idiom
+/// — this pools the hand + own-source candidates into ONE optional (canNoSelect ⇒ canSkip) selection. AS-IS
+/// isOptional=true is folded into that canSkip (B-5 convention). A source-origin pick is first DETACHED from the
+/// host stack (<see cref="Runtime.DigivolutionStackHelpers.PlaySpecificSourceAsync"/> to
+/// <see cref="ChoiceZone.None"/>) so it is not counted as both a digivolution source AND a link, then attached
+/// from None. Like <see cref="LinkSelfEffect"/>, the attach is a direct (unjournaled) ZoneMover mutation — the
+/// live deferred-choice replay path for links is a shared, later concern; the choice itself precedes the
+/// attach.</summary>
+public sealed class LinkFromHandOrSourcesToSelfBody : IEffectBody
+{
+    private readonly CardSource _card;
+    private readonly Func<CardSource, bool> _canLink;
+    private readonly string _description;
+
+    public LinkFromHandOrSourcesToSelfBody(CardSource card, Func<CardSource, bool> canLink, string description)
+    {
+        _card = card ?? throw new ArgumentNullException(nameof(card));
+        _canLink = canLink ?? throw new ArgumentNullException(nameof(canLink));
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        _description = description;
+    }
+
+    public bool IsInteractive => true;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players)
+    {
+        var zones = (IZoneStateReader)_card.Context.ZoneMover;
+        var candidates = new List<ChoiceCandidate>();
+
+        // AS-IS canUseHand: HasMatchConditionOwnersHand(card, SharedIsAppMon).
+        foreach (HeadlessEntityId id in zones.GetCards(_card.Owner, ChoiceZone.Hand))
+        {
+            if (_canLink(new CardSource(_card.Context, id, _card.Owner)))
+            {
+                candidates.Add(new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true, ownerId: _card.Owner));
+            }
+        }
+
+        // AS-IS canUseSources: card.PermanentOfThisCard().DigivolutionCards.Filter(SharedIsAppMon).
+        foreach (CardSource source in new Permanent(_card.Context, _card.InstanceId, _card.Owner).DigivolutionCards)
+        {
+            if (_canLink(source))
+            {
+                candidates.Add(new ChoiceCandidate(
+                    source.InstanceId, source.InstanceId.Value, ChoiceZone.DigivolutionCards, IsSelectable: true, ownerId: _card.Owner));
+            }
+        }
+
+        int max = Math.Min(1, candidates.Count);
+        // AS-IS maxCount:1, canNoSelect:true ⇒ optional ("you may"): min 0, canSkip.
+        return new ChoiceRequest(
+            ChoiceType.Card, _card.Owner, _description, minCount: 0, maxCount: max, canSkip: true, ChoiceZone.Custom, candidates);
+    }
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        ApplyAsync(card, sink, selected, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+    public async ValueTask ApplyAsync(
+        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
+    {
+        if (selected.Count == 0)
+        {
+            return; // AS-IS: cardForLinking == null ⇒ no attach.
+        }
+
+        HeadlessEntityId linkId = selected[0];
+        if (linkId.IsEmpty)
+        {
+            return;
+        }
+
+        EngineContext context = _card.Context;
+        var zones = (IZoneStateReader)context.ZoneMover;
+        ChoiceZone from;
+        if (zones.GetCards(_card.Owner, ChoiceZone.Hand).Contains(linkId))
+        {
+            from = ChoiceZone.Hand;
+        }
+        else
+        {
+            // Own-source pick: detach it from THIS card's stack (to off-field) before attaching it as a link, so
+            // it is not tracked as both a source and a link. AS-IS Permanent.AddLinkCard performs the equivalent
+            // move off the stack.
+            await DigivolutionStackHelpers.PlaySpecificSourceAsync(
+                context.CardInstanceRepository, context.ZoneMover, _card.InstanceId, linkId, ChoiceZone.None, cancellationToken).ConfigureAwait(false);
+            from = ChoiceZone.None;
+        }
+
+        // AS-IS card.PermanentOfThisCard().AddLinkCard(cardForLinking): THIS card is the host.
+        await LinkHelpers.AddLinkCardAsync(
+            context.CardInstanceRepository, context.ZoneMover, _card.InstanceId, linkId, from,
+            context.GameEventQueue, cancellationToken, context).ConfigureAwait(false);
+    }
+}
+
 /// <summary>(PRIM-W1-6/9) A continuous "added digivolution requirement" on self — grants this card an
 /// ADDITIONAL "Color@Level" from-condition (AS-IS AddDigivolutionRequirementStaticEffect /
 /// AddDigivolutionRequirementClass). Registered under <see cref="ContinuousRestrictionGate.Scope"/> carrying
@@ -1794,16 +1951,29 @@ public sealed class Permanent
 {
     private readonly EngineContext _context;
 
-    public Permanent(EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId ownerId)
+    public Permanent(EngineContext context, HeadlessEntityId instanceId, HeadlessPlayerId ownerId, ChoiceZone? snapshotZone = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         InstanceId = instanceId;
         OwnerId = ownerId;
+        SnapshotZone = snapshotZone;
     }
 
     public HeadlessEntityId InstanceId { get; }
 
     public HeadlessPlayerId OwnerId { get; }
+
+    /// <summary>(D-2) The PRE-removal field zone of a card that has ALREADY left the field, captured from the
+    /// driving leave event's <c>ZoneFrom</c>. Non-null only on the transient subject view an OnLeaveFieldAnyone
+    /// gate builds (<see cref="CardEffectCommons.CanTriggerOnPermanentLeave"/>): the AS-IS leave batch is stacked
+    /// while the leaving permanent is STILL on the battle area (CardController.cs:3748, before RemoveField), so its
+    /// <c>IsPermanentExistsOnOpponentBattleAreaDigimon</c> gate reads TRUE — but headless has already moved the
+    /// card to the trash by collect time, so a LIVE zone read would read FALSE. When set, the field-membership
+    /// checks (<see cref="CardEffectCommons.IsPermanentExistsOnBattleArea"/> /
+    /// <see cref="CardEffectCommons.IsPermanentExistsOnBreedingArea"/>) answer from this snapshot instead of the
+    /// live zone, reproducing the AS-IS pre-removal truth. Null for every normally-constructed permanent, so no
+    /// other gate is affected.</summary>
+    public ChoiceZone? SnapshotZone { get; }
 
     /// <summary>The top (battling) card of this permanent as a <see cref="CardSource"/>.</summary>
     public CardSource TopCard => new(_context, InstanceId, OwnerId);
@@ -1965,7 +2135,8 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
 
     public TriggeredMemoryEffect(
         CardSource card, EffectTiming timing, int amount, bool isInheritedEffect, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null)
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null,
+        string? effectIdSuffix = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
@@ -1975,7 +2146,13 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
         _condition = condition;
         _triggerGate = triggerGate;
         string trigger = EffectTimings.ToTriggerName(timing);
-        var effectId = new HeadlessEntityId($"{card.InstanceId.Value}:mem:{trigger}:{amount}");
+        // The default id is DETERMINISTIC (RegisterCard idempotency). A DELAYED ONE-SHOT registration
+        // (AddEffectToPlayer — AS-IS UntilEachTurnEndEffects is a LIST that stacks per activation, e.g.
+        // BT1_021 attacking twice loses 6 at end of turn) passes a unique suffix so two registrations of the
+        // same shape coexist.
+        var effectId = new HeadlessEntityId(string.IsNullOrWhiteSpace(effectIdSuffix)
+            ? $"{card.InstanceId.Value}:mem:{trigger}:{amount}"
+            : $"{card.InstanceId.Value}:mem:{trigger}:{amount}:{effectIdSuffix}");
         // Gaining memory defaults to an optional "you may" prompt; a card whose trigger is mandatory passes
         // isOptional: false explicitly (e.g. ST3_04 "gain 1 memory").
         Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger, isOptional: isOptional ?? (amount > 0), maxCountPerTurn: maxCountPerTurn, hash: hash);
@@ -2171,7 +2348,7 @@ public sealed class ModeChoiceEffect : IActivatedCardEffect
 /// SelectPermanentEffect tests do, until that integration lands. They are not auto-registered (their
 /// OptionSkill / SecuritySkill timing is excluded from <see cref="CardEffectRegistrar.AllTimings"/>).
 /// </summary>
-public sealed class ActivatedSelectEffect : IActivatedCardEffect
+public sealed class ActivatedSelectEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
 
@@ -2205,9 +2382,91 @@ public sealed class ActivatedSelectEffect : IActivatedCardEffect
     public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected) =>
         _select.Apply(sink, selected);
 
+    // (B-5) IEffectBody — so this select can be a composable body of a uniform ActivatedEffect, gaining the
+    // shared once-per-turn cap + optional gate. Delegates to the existing BuildRequest/Apply (internal Card).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
+
     // Activated effects are not auto-registered; lowering one to a binding is a wiring error.
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated select effect is resolved via the activation flow, not registered: {Description}");
+}
+
+/// <summary>(AD1_025 [All Turns]) Composite body: (conditionally) select 1 target to DESTROY, then trash the
+/// enemy's top security card. 1:1 mirror of AS-IS AD1_025.cs:172-211 <c>ActivateCoroutine</c>:
+/// <c>if (HasMatchConditionOpponentsPermanent(IsEnemyOptionPermanent)) SelectPermanentEffect(Mode.Destroy,
+/// maxCount 1, canNoSelect false); yield IDestroySecurity(enemy, 1, fromTop:true)</c>. The select runs ONLY when
+/// a matching target exists (the AS-IS guard); the security trash runs UNCONDITIONALLY afterwards. Because the
+/// AS-IS coroutine sequences select-then-security, the whole body is driven through <see cref="IEffectBody.ApplyAsync"/>:
+/// <see cref="BuildRequest"/> returns the select request only when the guard holds (else null → the resolver takes
+/// the non-interactive branch and still runs ApplyAsync), and ApplyAsync applies the destroy (if any) then the
+/// security trash. No selectable target = no select prompt, still trashes security.</summary>
+public sealed class SelectDestroyThenTrashSecurityBody : IEffectBody
+{
+    private readonly CardSource _card;
+    private readonly Func<HeadlessEntityId, bool> _canTarget;
+    private readonly ActivatedSelectEffect _select;
+    private readonly HeadlessPlayerId _securityPlayer;
+    private readonly int _securityCount;
+    private readonly bool _fromTop;
+
+    public SelectDestroyThenTrashSecurityBody(
+        CardSource card, Func<HeadlessEntityId, bool> canTarget,
+        HeadlessPlayerId securityPlayer, int securityCount, bool fromTop, string selectMessage)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(canTarget);
+        _card = card;
+        _canTarget = canTarget;
+        _securityPlayer = securityPlayer;
+        _securityCount = securityCount;
+        _fromTop = fromTop;
+        _select = new ActivatedSelectEffect(
+            card, canTarget, maxCount: 1, canNoSelect: false, canEndNotMax: false,
+            SelectPermanentEffect.Mode.Destroy, selectMessage);
+    }
+
+    public bool IsInteractive => true;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players)
+    {
+        // AS-IS guard: HasMatchConditionOpponentsPermanent(IsEnemyOptionPermanent) — no target ⇒ skip the select
+        // (returning null routes the resolver to the non-interactive branch, which still runs ApplyAsync).
+        return CardEffectCommons.HasMatchConditionPermanent(_card, _canTarget)
+            ? ((IEffectBody)_select).BuildRequest(card, players)
+            : null;
+    }
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        throw new NotSupportedException("SelectDestroyThenTrashSecurityBody must be applied via ApplyAsync (select then security).");
+
+    public ValueTask ApplyAsync(
+        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        if (selected.Count > 0)
+        {
+            ((IEffectBody)_select).Apply(card, sink, selected);
+        }
+
+        // AS-IS IDestroySecurity(player: enemy, destroySecurityCount: 1, fromTop: true) — same mutation the
+        // shared TrashSecurityBody emits.
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.TrashSecurityKind,
+            _card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.PlayerIdKey] = _securityPlayer.Value,
+                [MatchStateMutationSink.CountKey] = _securityCount,
+                [MatchStateMutationSink.FromTopKey] = _fromTop,
+            }));
+
+        return ValueTask.CompletedTask;
+    }
 }
 
 /// <summary>(ST4_16) Composite "select 1 (or up to <c>maxCount</c>) Digimon → bounce to hand" activated
@@ -2222,7 +2481,7 @@ public sealed class ActivatedSelectEffect : IActivatedCardEffect
 /// bounce mutation — the shared Mode→mutation contract stays 1:1 (locked by the G3.5-CVA2 ModeMapping
 /// test's "one mutation per mode" assertion); the resolver calls <see cref="DiscardSourcesAsync"/>
 /// separately and unconditionally, BEFORE <see cref="Apply"/>, mirroring the AS-IS ordering.</para></summary>
-public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCardEffect
+public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
 
@@ -2246,9 +2505,12 @@ public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCar
         _select.BuildRequest((IZoneStateReader)Card.Context.ZoneMover, players);
 
     /// <summary>AS-IS <c>DiscardEvoRoots</c>: unconditionally trash ALL of each selected target's
-    /// digivolution sources (deepest DigiEgg included), bypassing the skill-trash immune gate and the
-    /// OnDigivolutionCardDiscarded trigger (both <c>ITrashDigivolutionCards</c>-specific — a different
-    /// AS-IS subsystem). Call BEFORE <see cref="Apply"/>, matching the AS-IS coroutine order.</summary>
+    /// digivolution sources (deepest DigiEgg included), bypassing the skill-trash immune gate, the
+    /// OnDigivolutionCardDiscarded trigger AND the <c>CanNotTrashFromDigivolutionCards</c> protection (all
+    /// <c>ITrashDigivolutionCards</c>-specific — a different AS-IS subsystem; <c>DiscardEvoRoots</c>,
+    /// Permanent.cs:106-142, has no keyword check). Call BEFORE <see cref="Apply"/>, matching the AS-IS
+    /// coroutine order. (Design item C3-06: the AS-IS DiscardEvoRoots ACE-Overflow pass over the leaving
+    /// sources — Permanent.cs:111-115 — is not yet mirrored on this bounce path.)</summary>
     public async Task DiscardSourcesAsync(IEnumerable<HeadlessEntityId> selected, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(selected);
@@ -2258,13 +2520,35 @@ public sealed class ActivatedSelectBounceAndDiscardSourcesEffect : IActivatedCar
             // gameEventQueue: null intentionally suppresses OnDigivolutionCardDiscarded (see summary above).
             await DigivolutionStackHelpers.TrashSourcesAsync(
                 Card.Context.CardInstanceRepository, Card.Context.ZoneMover, target,
-                int.MaxValue, true, cancellationToken, null).ConfigureAwait(false);
+                int.MaxValue, true, cancellationToken, null,
+                // (C-3 재상환 P1-A) AS-IS HandBounceClaass.Bounce (CardController.cs:2603/2793) runs
+                // permanent.DiscardEvoRoots() UNCONDITIONALLY — no CanNotTrashFromDigivolutionCards check —
+                // so the bounce-driven source discard must NOT honour the effect-trash protection.
+                honorProtection: false).ConfigureAwait(false);
         }
     }
 
     /// <summary>The bounce itself — the same <see cref="MatchStateMutationSink.ReturnToHandKind"/> mutation
     /// the shared Mode.Bounce mapping emits.</summary>
     public void Apply(MatchStateMutationSink sink, IEnumerable<HeadlessEntityId> selected) => _select.Apply(sink, selected);
+
+    // (B-5) IEffectBody — the AS-IS HandBounceClaass.Bounce() runs DiscardEvoRoots() (awaited) BEFORE the
+    // bounce mutation, so this body is driven through ApplyAsync (discard-then-bounce). The synchronous Apply
+    // cannot honour the awaited discard, so it is a wiring guard.
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        throw new NotSupportedException("ActivatedSelectBounceAndDiscardSourcesEffect must be applied via ApplyAsync (awaited DiscardEvoRoots).");
+
+    async ValueTask IEffectBody.ApplyAsync(
+        CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken)
+    {
+        // AS-IS order: DiscardEvoRoots() (await) BEFORE the top card leaves the field, then the bounce.
+        await DiscardSourcesAsync(selected, cancellationToken).ConfigureAwait(false);
+        Apply(sink, selected);
+    }
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated bounce+source-discard effect is resolved via the activation flow, not registered: {Description}");
@@ -2345,7 +2629,7 @@ public sealed class BeforePayCostReductionEffect : IActivatedCardEffect
 /// not auto-registered. This brick is engine-side only; wiring it into the BeforePayCost pre-payment window
 /// of PlayCardAction is a later stage.
 /// </summary>
-public sealed class SuspendCostReductionEffect : IActivatedCardEffect
+public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
 
@@ -2459,6 +2743,14 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect
             duration: EffectDuration.UntilCalculateFixedCost);
     }
 
+    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
+
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Suspend-cost-reduction effect is resolved via the activation flow, not registered: {Description}");
 }
@@ -2469,7 +2761,7 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect
 /// <see cref="ApplyBuff"/> registers a duration-tagged continuous binding per chosen target, so the
 /// existing gate folds it in and <see cref="EffectDurationExpiry"/> removes it on expiry.
 /// </summary>
-public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect
+public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
 
@@ -2519,6 +2811,14 @@ public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect
         }
     }
 
+    // (B-5) IEffectBody — interactive select whose per-target follow-up registers continuous modifiers.
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        ApplyBuff(selected);
+
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated buff effect is resolved via the activation flow, not registered: {Description}");
 }
@@ -2528,7 +2828,7 @@ public sealed class ActivatedTargetBuffEffect : IActivatedCardEffect
 /// "all your Digimon gain Security Attack +1 until your next turn end"). <see cref="ApplyBuff"/> registers
 /// one duration-tagged player-scope continuous binding.
 /// </summary>
-public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
+public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly HeadlessPlayerId _scopePlayerId;
 
@@ -2586,6 +2886,14 @@ public sealed class ActivatedPlayerScopeBuffEffect : IActivatedCardEffect
             keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }, effect: null, duration: Duration);
         Card.Context.EffectRegistry.Register(binding);
     }
+
+    // (B-5) IEffectBody — non-interactive player-scope grant (no selection; registers one binding).
+    bool IEffectBody.IsInteractive => false;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        ApplyBuff();
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated player-scope buff is resolved via the activation flow, not registered: {Description}");
@@ -2780,7 +3088,7 @@ public sealed class TriggeredGainMemoryEffect : ICardEffect, IHeadlessCardEffect
 /// Resolved imperatively (BuildRequest → answer → Apply); Apply emits a TrashDigivolutionCards mutation
 /// (host = selected target) for each chosen host.
 /// </summary>
-public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect
+public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly SelectPermanentEffect _select = new();
     private readonly int _trashCount;
@@ -2824,6 +3132,14 @@ public sealed class ActivatedSelectTrashDigivolutionEffect : IActivatedCardEffec
                 }));
         }
     }
+
+    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Activated trash-digivolution effect is resolved via the activation flow, not registered: {Description}");
@@ -3132,6 +3448,24 @@ public sealed class SimplifiedRevealAndSelectEffect : IActivatedCardEffect
             if (candidates.Count == 0)
             {
                 continue; // no match for this condition -> skip it (AS-IS surfaces an empty/auto selection).
+            }
+
+            // (2026-07-11 re-review, BT1_088) AS-IS maxCount == -1 is the RevealDeckTopCardsAndProcessForAll
+            // shape: EVERY matching revealed card routes to SelectedTo AUTOMATICALLY — no player selection at
+            // all (the maxCount is never read). Offering a skippable prompt here invented a decision point
+            // ("send the matched Digimon to the deck bottom instead") that AS-IS does not have, polluting the
+            // RL action space. Only a POSITIVE maxCount is a real select.
+            if (condition.MaxCount < 0)
+            {
+                foreach (ChoiceCandidate candidate in candidates)
+                {
+                    if (picked.Add(candidate.Id))
+                    {
+                        StageMove(sink, candidate.Id, condition.SelectedTo);
+                    }
+                }
+
+                continue;
             }
 
             int max = Math.Min(condition.MaxCount, candidates.Count);
@@ -3878,6 +4212,88 @@ public sealed class ContinuousImmunityEffect : ICardEffect
     }
 }
 
+/// <summary>(C-3) A continuous digivolution-source trash protection registered under
+/// <see cref="HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan"/> (AS-IS
+/// <c>CanNotTrashFromDigivolutionCardsClass</c>). Mirrors the class 1:1:
+/// <c>CanNotTrashFromDigivolutionCards(source, effect) = CardCondition(source) &amp;&amp; CardEffectCondition(effect)
+/// &amp;&amp; !source.IsFlipped</c>. Registered field-wide (no target) so the effect-trash scan finds it via
+/// <c>GetContinuousEffects(Scope)</c>, exactly like AS-IS scans every field permanent's
+/// <c>EffectList(EffectTiming.None)</c>. The DELETION path never consults this (AS-IS DiscardEvoRoots).</summary>
+public sealed class ContinuousTrashProtectionEffect : ICardEffect
+{
+    public ContinuousTrashProtectionEffect(
+        CardSource card,
+        Func<CardSource, bool> cardCondition,
+        Func<CardSource, bool> cardEffectCondition,
+        bool isInheritedEffect,
+        Func<bool>? condition)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(cardCondition);
+        ArgumentNullException.ThrowIfNull(cardEffectCondition);
+        Card = card;
+        CardCondition = cardCondition;
+        CardEffectCondition = cardEffectCondition;
+        IsInheritedEffect = isInheritedEffect;
+        Condition = condition;
+    }
+
+    public CardSource Card { get; }
+
+    /// <summary>AS-IS <c>CanNotTrashFromDigivolutionCardsClass.CardCondition</c> — WHICH source (by name etc.)
+    /// this protection covers, evaluated against the source being trashed.</summary>
+    public Func<CardSource, bool> CardCondition { get; }
+
+    /// <summary>AS-IS <c>CanNotTrashFromDigivolutionCardsClass.CardEffectCondition</c> — WHICH trashing effect the
+    /// protection applies to. AS-IS takes the <c>ICardEffect</c>; the headless scan has only the effect's source
+    /// card, so this is evaluated over the CAUSING effect's source (BT9_109 = <c>effect != null</c> ⇒ always).</summary>
+    public Func<CardSource, bool> CardEffectCondition { get; }
+
+    public bool IsInheritedEffect { get; }
+
+    public Func<bool>? Condition { get; }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        Func<CardSource, bool> cardCondition = CardCondition;
+        Func<CardSource, bool> cardEffectCondition = CardEffectCondition;
+        // (joint-migration) AS-IS CanNotTrashFromDigivolutionCards(source, effect) = CardCondition(source)
+        // && CardEffectCondition(effect) && !source.IsFlipped, collapsed to f(source, cause).
+        values[HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan.JointPredicateKey] =
+            (Func<CardSource, CardSource, bool>)((sourceBeingTrashed, causeSource) =>
+                cardCondition(sourceBeingTrashed)
+                && cardEffectCondition(causeSource)
+                && !IsSourceFlipped(sourceBeingTrashed));
+
+        if (IsInheritedEffect)
+        {
+            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+        }
+
+        if (Condition is not null)
+        {
+            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
+        }
+
+        var context = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
+            // Registered field-wide (no target): the effect-trash scan enumerates the scope, not a per-card target.
+            targetEntityIds: Array.Empty<HeadlessEntityId>(),
+            values: values);
+        return new EffectBinding(
+            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
+            keywords: null, EffectQueryRole.Continuous, new[] { HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan.Scope }, effect: null, duration: null);
+    }
+
+    // AS-IS `!cardSource.IsFlipped` — headless face state is the source instance's `isFlipped` metadata flag.
+    private static bool IsSourceFlipped(CardSource source) =>
+        source.Context.CardInstanceRepository.TryGetInstance(source.InstanceId, out CardInstanceRecord? inst)
+        && inst is not null && inst.Metadata.TryGetValue("isFlipped", out object? raw) && raw is true;
+}
+
 /// <summary>(FR-P3) A defender-conditional "cannot attack" restriction (AS-IS
 /// <c>CanNotAttackTargetDefendingPermanentClass</c> with a <c>defenderCondition</c>): the attacker may not
 /// attack defenders matching <see cref="DefenderPredicate"/>, but MAY attack others. Registers a self
@@ -4114,7 +4530,7 @@ public sealed class ActivatedSelectAndDeDigivolveEffect : IActivatedCardEffect
 /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.PlayPermanentCards(..., root)</c>
 /// coroutine: select up to <paramref name="maxCount"/> of the owner's cards in <paramref name="fromZone"/>
 /// (Trash / Hand) matching <paramref name="canTarget"/>, then play each onto the battle area (cost-free).</summary>
-public sealed class ActivatedSelectAndPlayEffect : IActivatedCardEffect
+public sealed class ActivatedSelectAndPlayEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly ChoiceZone _fromZone;
     private readonly Func<HeadlessEntityId, bool> _canTarget;
@@ -4171,6 +4587,14 @@ public sealed class ActivatedSelectAndPlayEffect : IActivatedCardEffect
                 }));
         }
     }
+
+    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Select-and-play effect is resolved via the activation flow, not registered: {Description}");
@@ -4229,7 +4653,7 @@ public sealed class PlayOptionCardEffect : IActivatedCardEffect
 /// mutation to each" — the zone-card select-follow-up wrapper (AS-IS SelectCardEffect Mode AddHand / Discard).
 /// The mutation kind picks the follow-up (ReturnToHand = add-to-hand, TrashCard = trash-from-zone); the sink
 /// moves each target from its current zone, so no from-zone payload is needed.</summary>
-public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
+public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly ChoiceZone _fromZone;
     private readonly Func<HeadlessEntityId, bool> _canTarget;
@@ -4298,6 +4722,14 @@ public sealed class ActivatedSelectFromZoneEffect : IActivatedCardEffect
             _onSelectedAny?.Invoke(Card, sink);
         }
     }
+
+    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Select-from-zone effect is resolved via the activation flow, not registered: {Description}");
@@ -5030,7 +5462,7 @@ public sealed class DontBattleSecurityDigimonEffect : ICardEffect
 /// PlayDigivolutionAsDigimon mutation that moves the chosen under-card out of its host onto the battle area
 /// (cost-free) and auto-registers it.
 /// </summary>
-public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
+public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly string _cardType;
     private readonly string? _cardName;
@@ -5144,6 +5576,14 @@ public sealed class ActivatedPlayFromUnderEffect : IActivatedCardEffect
             // (AS-IS CanSelectCardCondition) the under-card must be playable as a new permanent (cost-free).
             && CardEffectCommons.CanPlayAsNewPermanent(new CardSource(Card.Context, id, Card.Owner), payCost: false, null);
     }
+
+    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Play-from-under effect is resolved via the activation flow, not registered: {Description}");
@@ -5429,7 +5869,8 @@ public sealed class SelectHandAttachToOwnStackThenMemoryEffect : IActivatedCardE
 
         await DigivolutionStackHelpers.AddSourcesTopAsync(
             context.CardInstanceRepository, context.ZoneMover, Card.InstanceId,
-            new[] { result.SelectedIds[0] }, ChoiceZone.Hand, cancellationToken).ConfigureAwait(false);
+            new[] { result.SelectedIds[0] }, ChoiceZone.Hand, cancellationToken,
+            onceFlags: context.OnceFlags).ConfigureAwait(false);
 
         if (_memoryGain != 0)
         {
@@ -5767,7 +6208,7 @@ public sealed class OpponentBinaryChoiceEffect : IActivatedCardEffect
 /// select over a combined candidate pool where each candidate carries its own source zone into the play
 /// mutation (the AS-IS "from hand / from trash" zone prompt is UI sugar; the outcome set is identical).
 /// Generalises <see cref="ActivatedSelectAndPlayEffect"/> (a single fixed fromZone) to a multi-zone pool.</summary>
-public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
+public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect, IEffectBody
 {
     private readonly IReadOnlyList<ChoiceZone> _fromZones;
     private readonly Func<HeadlessEntityId, bool> _canTarget;
@@ -5846,6 +6287,14 @@ public sealed class ActivatedSelectAndPlayFromZonesEffect : IActivatedCardEffect
                 }));
         }
     }
+
+    // (B-5) IEffectBody — composable body of a uniform ActivatedEffect (shared cap + optional gate).
+    bool IEffectBody.IsInteractive => true;
+
+    ChoiceRequest? IEffectBody.BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => BuildRequest(players);
+
+    void IEffectBody.Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
+        Apply(sink, selected);
 
     public EffectBinding ToBinding(string effectId) =>
         throw new NotSupportedException($"Multi-zone select-and-play effect is resolved via the activation flow, not registered: {Description}");
@@ -5981,6 +6430,25 @@ public sealed class ActivatedDrawThenDiscardEffect : IActivatedCardEffect
 /// </summary>
 public static partial class CardEffectFactory
 {
+    /// <summary>(B-5 uniform migration) Wrap a composable <see cref="IEffectBody"/> as a uniform
+    /// <see cref="ActivatedEffect"/> so the activated-effect resolver applies the SHARED once-per-turn cap
+    /// (<paramref name="maxCountPerTurn"/>) + optional yes/no gate (<paramref name="isOptional"/>) that the
+    /// per-shape resolver cases could not express. For a plain activated skill (Option / [Main] / Security)
+    /// <paramref name="timing"/> is <see cref="EffectTiming.None"/> and <paramref name="canUse"/> is null —
+    /// the timing block the card registers the effect under carries the AS-IS timing; a broadcast trigger
+    /// passes its own timing/gate. 1:1 mirror of the AS-IS <c>ActivateClass</c>
+    /// (SetUpActivateClass(canActivate, coroutine, maxCountPerTurn, isOptional, description)).</summary>
+    internal static ActivatedEffect AsUniformActivated(
+        CardSource card,
+        IEffectBody body,
+        string description,
+        bool isOptional = false,
+        int? maxCountPerTurn = null,
+        EffectTiming timing = EffectTiming.None,
+        Func<CardEffectResolveContext, bool>? canUse = null,
+        Func<bool>? canActivate = null) =>
+        new ActivatedEffect(card, timing, canUse, canActivate, body, maxCountPerTurn, isOptional, description);
+
     /// <summary>Original: <c>ChangeSelfSAttackStaticEffect</c> — continuous ±security attack on self.</summary>
     public static ICardEffect ChangeSelfSAttackStaticEffect(int changeValue, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new ContinuousSelfModifierEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, isInheritedEffect, condition);
@@ -6162,9 +6630,21 @@ public static partial class CardEffectFactory
     public static ICardEffect BlitzSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Blitz, isInheritedEffect, condition);
 
-    /// <summary>(PRIM-W3) <c>DecodeSelfEffect</c> — grants Decode to self (Batch2).</summary>
-    public static ICardEffect DecodeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Decode, isInheritedEffect, condition);
+    /// <summary>(PRIM-W3) <c>DecodeSelfEffect</c> — grants Decode to self (Batch2).
+    /// (C-1 witness) <paramref name="sourceCondition"/> = the AS-IS per-card predicate a leaving card's
+    /// digivolution source must pass to be a free-play candidate (BT19_024: Blue Lv.4) — stored on the grant
+    /// and consumed by the PRE candidate filter (previously accepted only the bare keyword, letting any Digimon
+    /// source be decoded). <paramref name="decodeStrings"/> is the AS-IS display text (colour/level label),
+    /// carried for source fidelity; the real filter is the predicate.</summary>
+    public static ICardEffect DecodeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition,
+        string[]? decodeStrings = null, Func<CardSource, bool>? sourceCondition = null) =>
+        new SelfKeywordBatch2Effect(card, KeywordBaseBatch2Kind.Decode, isInheritedEffect, condition,
+            sourceCondition is null
+                ? null
+                : new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Decode.DecodeSourceConditionKey] = sourceCondition,
+                });
 
     /// <summary>(PRIM-W3) <c>ProgressSelfStaticEffect</c> — grants Progress to self (Batch2).</summary>
     public static ICardEffect ProgressSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
@@ -6714,14 +7194,17 @@ public static partial class CardEffectFactory
     /// (cost-free). AS-IS 1:1: candidates are TAMER under-cards of <c>card.PermanentOfThisCard()</c> (own stack,
     /// via <c>selfStackOnly</c> — NOT every owner Digimon), narrowed to the card name AND playable
     /// (CanPlayAsNewPermanent, in the candidate filter); the select is OPTIONAL (AS-IS canNoSelect:true).</summary>
-    public static IActivatedCardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription) =>
-        new ActivatedPlayFromUnderEffect(
+    public static IActivatedCardEffect PlayMindLinkTamerFromDigivolutionCards(CardSource card, string cardName, string effectDescription)
+    {
+        string description = string.IsNullOrWhiteSpace(effectDescription) ? $"Play {cardName} from under this Digimon." : effectDescription;
+        return AsUniformActivated(card, new ActivatedPlayFromUnderEffect(
             card,
-            string.IsNullOrWhiteSpace(effectDescription) ? $"Play {cardName} from under this Digimon." : effectDescription,
+            description,
             cardType: "Tamer",
             cardName: string.IsNullOrWhiteSpace(cardName) ? null : cardName,
             isOptional: true,
-            selfStackOnly: true);
+            selfStackOnly: true), description);
+    }
 
     /// <summary>(PRIM-W4) <c>CanNotBeAttackedSelfStaticEffect</c> — this Digimon cannot be attacked (self
     /// CannotBeAttacked restriction consulted on the defender by AttackPermanentAction).</summary>
@@ -6951,8 +7434,9 @@ public static partial class CardEffectFactory
     /// <paramref name="timing"/> is the branch timing the card declared it under.</summary>
     public static ICardEffect AddMemoryTriggerEffect(
         EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null) =>
-        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description, triggerGate, maxCountPerTurn, hash, isOptional);
+        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null,
+        string? effectIdSuffix = null) =>
+        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description, triggerGate, maxCountPerTurn, hash, isOptional, effectIdSuffix);
 
     /// <summary>Original: <c>PlaySelfTamerSecurityEffect</c> — a Tamer's [Security] "play this Tamer". Plays
     /// the revealed Tamer onto the battle area (cost-free), auto-registering its effects (G10-003).</summary>
@@ -6967,7 +7451,7 @@ public static partial class CardEffectFactory
         int maxCount,
         bool canEndNotMax,
         string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Destroy, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Destroy, description), description);
 
     /// <summary>(PRIM-P0-flow) An activated "choose one of the following modes" menu (AS-IS UserSelectionManager
     /// SetBool/IntSelection). Each mode is a labeled branch effect; a mode with an availability predicate that
@@ -6979,33 +7463,33 @@ public static partial class CardEffectFactory
     /// coroutine: select up to <paramref name="maxCount"/> matching permanents and suspend them.</summary>
     public static ICardEffect SelectAndSuspendEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Tap, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Tap, description), description);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS unsuspend coroutine: select up to
     /// <paramref name="maxCount"/> matching permanents and unsuspend them.</summary>
     public static ICardEffect SelectAndUnsuspendEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.UnTap, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.UnTap, description), description);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS bounce coroutine: select up to
     /// <paramref name="maxCount"/> matching permanents and return them to hand.</summary>
     public static ICardEffect SelectAndBounceEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Bounce, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax, SelectPermanentEffect.Mode.Bounce, description), description);
 
     /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> matching permanents and return
     /// them to the owner's deck (top or bottom). AS-IS SelectPermanentEffect.Mode PutLibraryTop/Bottom.</summary>
     public static ICardEffect SelectAndReturnToDeckEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool toTop, bool canEndNotMax, string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax,
-            toTop ? SelectPermanentEffect.Mode.PutLibraryTop : SelectPermanentEffect.Mode.PutLibraryBottom, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax,
+            toTop ? SelectPermanentEffect.Mode.PutLibraryTop : SelectPermanentEffect.Mode.PutLibraryBottom, description), description);
 
     /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> matching permanents and place
     /// them into the owner's security (top or bottom). AS-IS SelectPermanentEffect.Mode PutSecurityTop/Bottom.</summary>
     public static ICardEffect SelectAndPutSecurityEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool toTop, bool canEndNotMax, string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax,
-            toTop ? SelectPermanentEffect.Mode.PutSecurityTop : SelectPermanentEffect.Mode.PutSecurityBottom, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax,
+            toTop ? SelectPermanentEffect.Mode.PutSecurityTop : SelectPermanentEffect.Mode.PutSecurityBottom, description), description);
 
     /// <summary>(PRIM-W5) Declarative form of the AS-IS <c>CardEffectCommons.PlayPermanentCards(.., root)</c>
     /// coroutine: select up to <paramref name="maxCount"/> of the owner's cards in <paramref name="fromZone"/>
@@ -7013,7 +7497,7 @@ public static partial class CardEffectFactory
     /// The AS-IS <c>SelectCardEffect.Root</c> maps to <paramref name="fromZone"/>.</summary>
     public static ICardEffect SelectAndPlayFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectAndPlayEffect(card, fromZone, canTarget, maxCount, canEndNotMax, description);
+        AsUniformActivated(card, new ActivatedSelectAndPlayEffect(card, fromZone, canTarget, maxCount, canEndNotMax, description), description);
 
     /// <summary>(PRIM-P0 B.O.5) AS-IS <c>CardEffectCommons.PlayOptionCards</c>: select up to
     /// <paramref name="maxCount"/> of the owner's Option cards in <paramref name="sourceZone"/> and play each as a
@@ -7028,14 +7512,14 @@ public static partial class CardEffectFactory
     public static ICardEffect SelectAndAddToHandFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description,
         Action<CardSource, MatchStateMutationSink>? onSelectedAny = null) =>
-        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.ReturnToHandKind, description, onSelectedAny);
+        AsUniformActivated(card, new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.ReturnToHandKind, description, onSelectedAny), description);
 
     /// <summary>(PRIM-P0-flow B.O.3) Select up to <paramref name="maxCount"/> of the owner's cards in
     /// <paramref name="fromZone"/> matching <paramref name="canTarget"/> and trash each. AS-IS
     /// SelectCardEffect.Mode Discard.</summary>
     public static ICardEffect SelectAndTrashFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.TrashCardKind, description);
+        AsUniformActivated(card, new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.TrashCardKind, description), description);
 
     /// <summary>(G16) Select up to <paramref name="maxCount"/> of the owner's CARDS in <paramref name="fromZone"/>
     /// (e.g. Trash) matching <paramref name="canTarget"/> and place each on TOP of the owner's security stack,
@@ -7045,7 +7529,7 @@ public static partial class CardEffectFactory
     /// face-down + top, matching the AS-IS).</summary>
     public static ICardEffect SelectAndPutSecurityFromZoneEffect(
         CardSource card, ChoiceZone fromZone, Func<HeadlessEntityId, bool> canTarget, int maxCount, bool canEndNotMax, string description) =>
-        new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.AddToSecurityKind, description);
+        AsUniformActivated(card, new ActivatedSelectFromZoneEffect(card, fromZone, canTarget, maxCount, canEndNotMax, MatchStateMutationSink.AddToSecurityKind, description), description);
 
     /// <summary>(PRIM-P0-flow B.O.3) AS-IS <c>DigivolveIntoHandOrTrashCard</c>: select 1 of the owner's Digimon
     /// (<paramref name="targetPredicate"/>) and a source card in <paramref name="sourceZone"/> (Hand / Trash,
@@ -7109,6 +7593,20 @@ public static partial class CardEffectFactory
         // (C2) permanentCondition = AS-IS CardCondition (WHICH permanents are protected) — evaluated live
         // against the protected target (previously accepted and dropped; null keeps the self-only grant).
         new ContinuousImmunityEffect(card, skillCondition, isInheritedEffect, condition, targetPredicate: ScopePred(permanentCondition));
+
+    /// <summary>(C-3) <c>CanNotTrashFromDigivolutionCardsStaticEffect</c> — AS-IS
+    /// <c>CanNotTrashFromDigivolutionCardsClass</c>: <c>CanNotTrashFromDigivolutionCards(source, effect) =
+    /// CardCondition(source) &amp;&amp; CardEffectCondition(effect) &amp;&amp; !source.IsFlipped</c>. Registers a
+    /// continuous protection under <see cref="HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan"/> — the
+    /// EFFECT-trash filter consults it, the deletion path bypasses it (AS-IS DiscardEvoRoots).
+    /// <paramref name="cardCondition"/> = WHICH source (e.g. name contains "X Antibody");
+    /// <paramref name="cardEffectCondition"/> = WHICH effect (evaluated over the causing effect's source; BT9_109
+    /// = <c>effect != null</c> ⇒ always). <paramref name="condition"/> = the effect's own CanUse gate
+    /// (BT9_109 = host <c>IsExistOnBattleArea</c>) — protection lapses when the granting host leaves the field.</summary>
+    public static ICardEffect CanNotTrashFromDigivolutionCardsStaticEffect(
+        Func<CardSource, bool> cardCondition, Func<CardSource, bool> cardEffectCondition,
+        bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
+        new ContinuousTrashProtectionEffect(card, cardCondition, cardEffectCondition, isInheritedEffect, condition);
 
     /// <summary>(PRIM-W5) <c>ChangeCardNamesClass</c> — grants this card an additional name
     /// (<paramref name="addedName"/>), folded into <c>CardSource.CardNames</c>.</summary>
@@ -7269,27 +7767,27 @@ public static partial class CardEffectFactory
     /// +<paramref name="changeValue"/> DP for <paramref name="duration"/>" effect (e.g. ST1_13 [Main]).</summary>
     public static ICardEffect SelectAndBuffDpEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description) =>
-        new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.DpDeltaKey, changeValue, duration, description);
+        AsUniformActivated(card, new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.DpDeltaKey, changeValue, duration, description), description);
 
     /// <summary>An activated "all your Digimon gain +<paramref name="changeValue"/> Security Attack for
     /// <paramref name="duration"/>" player-scope effect (e.g. ST1_13 [Security]).</summary>
     public static ICardEffect PlayerScopeBuffSAttackEffect(
         CardSource card, int changeValue, EffectDuration duration, string description) =>
-        new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description);
+        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description), description);
 
     /// <summary>An activated "all your Security Digimon get +<paramref name="changeValue"/> DP for
     /// <paramref name="duration"/>" player-scope effect, scoped to the owner's Security-zone Digimon
     /// (e.g. ST1_14).</summary>
     public static ICardEffect PlayerScopeBuffSecurityDpEffect(
         CardSource card, int changeValue, EffectDuration duration, string description) =>
-        new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopeZone: "Security");
+        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopeZone: "Security"), description);
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> opponent Digimon and trash
     /// <paramref name="trashCount"/> of each host's digivolution cards from the bottom/top" effect
     /// (e.g. ST2_03 / ST2_06 / ST2_09).</summary>
     public static ICardEffect SelectAndTrashDigivolutionEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int trashCount, bool fromBottom, string description) =>
-        new ActivatedSelectTrashDigivolutionEffect(card, canTarget, maxCount, trashCount, fromBottom, description);
+        AsUniformActivated(card, new ActivatedSelectTrashDigivolutionEffect(card, canTarget, maxCount, trashCount, fromBottom, description), description);
 
     /// <summary>(PRIM special-play) AS-IS <c>IDigiBurst</c> — <c>[Digi-Burst N] &lt;effect&gt;</c>: trash N of this
     /// card's own digivolution sources as a cost, then resolve <paramref name="innerEffect"/>. Offered only when
@@ -7313,7 +7811,7 @@ public static partial class CardEffectFactory
     /// hand" effect (Option [Main] bounce, e.g. ST2_16).</summary>
     public static ICardEffect SelectAndBounceEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
-        new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, description);
+        AsUniformActivated(card, new ActivatedSelectEffect(card, canTarget, maxCount, canNoSelect: false, canEndNotMax: maxCount > 1, SelectPermanentEffect.Mode.Bounce, description), description);
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon, return each to its owner's
     /// hand, AND trash all of that Digimon's digivolution cards" effect (Option [Main] bounce, e.g. ST4_16).
@@ -7322,7 +7820,7 @@ public static partial class CardEffectFactory
     /// <see cref="ActivatedSelectBounceAndDiscardSourcesEffect"/>.</summary>
     public static ICardEffect SelectAndBounceWithSourceDiscardEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, string description) =>
-        new ActivatedSelectBounceAndDiscardSourcesEffect(card, canTarget, maxCount, description);
+        AsUniformActivated(card, new ActivatedSelectBounceAndDiscardSourcesEffect(card, canTarget, maxCount, description), description);
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and make each unable to attack
     /// and/or block for <paramref name="duration"/>" effect (e.g. ST2_14).</summary>
@@ -7346,20 +7844,20 @@ public static partial class CardEffectFactory
     /// +<paramref name="changeValue"/> Security Attack for <paramref name="duration"/>" effect (e.g. ST3_15 [Main]).</summary>
     public static ICardEffect SelectAndBuffSAttackEffect(
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, int changeValue, EffectDuration duration, string description) =>
-        new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, description);
+        AsUniformActivated(card, new ActivatedTargetBuffEffect(card, canTarget, maxCount, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, description), description);
 
     /// <summary>An activated "all your Digimon get +<paramref name="changeValue"/> DP for
     /// <paramref name="duration"/>" player-scope effect (e.g. ST3_13 [Security]).</summary>
     public static ICardEffect PlayerScopeBuffDpEffect(
         CardSource card, int changeValue, EffectDuration duration, string description) =>
-        new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description);
+        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.DpDeltaKey, changeValue, duration, scopeCardType: "Digimon", description), description);
 
     /// <summary>An activated "all of your opponent's Digimon get +<paramref name="changeValue"/> Security
     /// Attack for <paramref name="duration"/>" player-scope effect, scoped to <paramref name="opponentId"/>
     /// (e.g. ST3_15 [Security] "all opponent Digimon gain Security Attack -1").</summary>
     public static ICardEffect OpponentScopeBuffSAttackEffect(
         CardSource card, int changeValue, EffectDuration duration, HeadlessPlayerId opponentId, string description) =>
-        new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopePlayerId: opponentId);
+        AsUniformActivated(card, new ActivatedPlayerScopeBuffEffect(card, ModifierHelpers.SecurityAttackDeltaKey, changeValue, duration, scopeCardType: "Digimon", description, scopePlayerId: opponentId), description);
 
     /// <summary>Original: <c>ChangeSecurityDigimonCardDPStaticEffect</c> — continuous ±DP on the owner's
     /// Security-zone Digimon matching <paramref name="cardCondition"/> (evaluated 1:1). The condition decides the
@@ -7627,11 +8125,19 @@ public static class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
         int trashed = targetPermanent is null || targetPermanent.InstanceId.IsEmpty
+            // (C-3 재상환 P2-2) AS-IS routes through ITrashDigivolutionCards.TrashDigivolutionCards, which
+            // yield-breaks on the host's ImmuneFromStackTrashing AND the top card's general CanNotBeAffected
+            // (CardController.cs:5154-5156) — the same gates the sink path applies; this direct-call mirror
+            // must not bypass them.
+            || IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard)
             ? 0
             : await Headless.Runtime.DigivolutionStackHelpers.TrashSourcesAsync(
                 sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
                 targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
-                gameEventQueue: sourceCard.Context.GameEventQueue).ConfigureAwait(false);
+                gameEventQueue: sourceCard.Context.GameEventQueue,
+                // (C-3) effect-trash honours CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
+                effectRegistry: sourceCard.Context.EffectRegistry, context: sourceCard.Context,
+                causingEffectSourceId: sourceCard.InstanceId).ConfigureAwait(false);
         if (trashed > 0)
         {
             if (successProcess is not null)
@@ -7650,11 +8156,30 @@ public static class CardEffectCommons
     public static Task<int> TrashDigivolutionCardsFromTopOrBottom(
         Permanent? targetPermanent, int trashCount, bool isFromTop, CardSource sourceCard) =>
         targetPermanent is null || targetPermanent.InstanceId.IsEmpty
+            // (C-3 재상환 P2-2) AS-IS TrashDigivolutionCardsFromTopOrBottom pre-gates on the top card's
+            // CanNotBeAffected (CardEffectCommons.cs:681) and then ITrashDigivolutionCards re-gates
+            // ImmuneFromStackTrashing + CanNotBeAffected (CardController.cs:5154-5156). (Its trashable-count==0
+            // pre-gate, :680, is result-equivalent to the helper's protection-filtered window trashing nothing.)
+            || IsHostStackTrashGated(targetPermanent.InstanceId, sourceCard)
             ? Task.FromResult(0)
             : Headless.Runtime.DigivolutionStackHelpers.TrashSourcesAsync(
                 sourceCard.Context.CardInstanceRepository, sourceCard.Context.ZoneMover,
                 targetPermanent.InstanceId, trashCount, fromBottom: !isFromTop,
-                gameEventQueue: sourceCard.Context.GameEventQueue);
+                gameEventQueue: sourceCard.Context.GameEventQueue,
+                // (C-3) effect-trash honours CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
+                effectRegistry: sourceCard.Context.EffectRegistry, context: sourceCard.Context,
+                causingEffectSourceId: sourceCard.InstanceId);
+
+    // (C-3 재상환 P2-2) The stack-trash gates of the sink path (MatchStateMutationSink, TrashDigivolutionCardsKind):
+    // ImmuneFromStackTrashing (continuous ImmuneStackTrashingKey restriction honouring cardEffectCondition) OR the
+    // host top card's general effect immunity (CanNotBeAffected). Mirrors AS-IS ITrashDigivolutionCards
+    // (CardController.cs:5154-5156) for the helpers-direct mirrors that skip the sink.
+    private static bool IsHostStackTrashGated(HeadlessEntityId hostId, CardSource sourceCard) =>
+        Headless.Runtime.RestrictionScan.IsRestricted(
+            sourceCard.Context, MatchStateMutationSink.ImmuneStackTrashingKey, hostId, sourceCard.InstanceId)
+        || Headless.Runtime.ContinuousImmunityGate.BlocksOpponentEffect(
+            sourceCard.Context.EffectRegistry, sourceCard.Context.CardInstanceRepository,
+            hostId, sourceCard.InstanceId, sourceCard.Context);
 
     /// <summary>AS-IS <c>TrashLinkCardsAndProcessAccordingToResult</c> (CardEffectCommons.cs:567): trash the
     /// given link cards off their host; success = any actually trashed.</summary>
@@ -8387,9 +8912,25 @@ public static class CardEffectCommons
         return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
     }
 
-    /// <summary>AS-IS <c>CanTriggerOnTrashSelfDigivolutionCard</c> (OnTrashDigivolutionCard.cs:10).</summary>
+    /// <summary>AS-IS <c>CanTriggerOnTrashSelfDigivolutionCard</c> (OnTrashDigivolutionCard.cs:10-31). The AS-IS
+    /// self shape fixes BOTH conditions: PermanentCondition = the trashing host permanent exists on the battle
+    /// area AND its <c>DigivolutionCards</c> contain THIS card (:12-23); CardCondition = the discarded card IS
+    /// this card (:25-28). NOTE the AS-IS window fires while the discarded cards are still listed in the host's
+    /// stack (the trigger stacks BEFORE the physical move), so <c>DigivolutionCards.Contains(card)</c> holds; the
+    /// headless emit (DigivolutionStackHelpers) drops the ids from <c>sourceIds</c> before emitting, so the
+    /// membership half is satisfied vacuously-false — mirror it as "host still on battle area" + the discarded
+    /// list containing this card (the CardCondition half), which is the same decidable set.</summary>
     public static bool CanTriggerOnTrashSelfDigivolutionCard(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
-        CanTriggerOnTrashDigivolutionCard(ctx, card, permanentCondition: null, cardEffectSourceCondition, cs => cs.InstanceId == card.InstanceId);
+        CanTriggerOnTrashDigivolutionCard(
+            ctx, card,
+            // (C-3 재상환 P2-4④) AS-IS PermanentCondition restored: the host permanent is on the battle area.
+            // The AS-IS `DigivolutionCards.Contains(card)` half is evaluated over the PRE-move stack; headless
+            // emits post-drop, so the equivalent discriminator is the event's discarded-cards list containing
+            // this card — exactly the CardCondition below (AS-IS evaluates both; on this event ordering they
+            // coincide: the discarded list containing the card ⇒ it was one of that host's sources).
+            permanentCondition: host => IsPermanentExistsOnBattleArea(host),
+            cardEffectSourceCondition,
+            cs => cs.InstanceId == card.InstanceId);
 
     /// <summary>AS-IS <c>CanTriggerOnTrashLinkedCard</c> (OnTrashLinkedCard.cs:35) — same shape over the
     /// link-discard window.</summary>
@@ -8518,9 +9059,34 @@ public static class CardEffectCommons
         return EventCards(ctx, card).Any(cardCondition);
     }
 
-    /// <summary>AS-IS <c>CanTriggerOnPermanentLeave</c> (OnDeletion.cs:51).</summary>
+    /// <summary>AS-IS <c>CanTriggerOnPermanentLeave</c> (OnDeletion.cs:51). (D-2) The leaving subject has already
+    /// moved to the trash by headless collect time, but AS-IS evaluates this gate while it is STILL on the field
+    /// (the leave batch is stacked before RemoveField — CardController.cs:3748), so the subject view answers its
+    /// field-membership from the driving event's PRE-removal <c>ZoneFrom</c> (Permanent.SnapshotZone) — reproducing
+    /// the AS-IS truth for a battle-area gate like <c>IsPermanentExistsOnOpponentBattleAreaDigimon</c>.</summary>
     public static bool CanTriggerOnPermanentLeave(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool> permanentCondition) =>
-        SubjectPermanentPasses(ctx, card, permanentCondition);
+        LeaveSubjectPermanentPasses(ctx, card, permanentCondition);
+
+    /// <summary>(D-2) Evaluate <paramref name="permanentCondition"/> against a LEAVE subject view carrying the
+    /// event's pre-removal field zone (see <see cref="Permanent.SnapshotZone"/>).</summary>
+    private static bool LeaveSubjectPermanentPasses(
+        Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool> permanentCondition)
+    {
+        if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
+        {
+            return false;
+        }
+
+        ChoiceZone? snapshot = null;
+        if (ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}fromZone", out object? raw)
+            && raw is string zoneName && Enum.TryParse(zoneName, out ChoiceZone fromZone))
+        {
+            snapshot = fromZone;
+        }
+
+        var view = new Permanent(card.Context, subject, OwnerOfId(card.Context, subject), snapshot);
+        return permanentCondition is null || permanentCondition(view);
+    }
 
     /// <summary>AS-IS <c>CanTriggerOnFaceUpSecurityIncreases</c> (OnFaceUpSecurityIncrease.cs:11).</summary>
     public static bool CanTriggerOnFaceUpSecurityIncreases(Headless.Effects.CardEffectResolveContext ctx, CardSource card, HeadlessPlayerId? player = null, Func<CardSource, bool>? cardCondition = null)
@@ -9354,6 +9920,15 @@ public static class CardEffectCommons
 
         bool SourceQualifies(HeadlessEntityId sid, HeadlessPlayerId owner)
         {
+            // (C-3 재상환 P1-B) AS-IS CanSelectCardCondition (TrashDigivolutionCards.cs:33) embeds
+            // `!cardSource.CanNotTrashFromDigivolutionCards(activateClass)` BEFORE the card condition — a
+            // protected source is excluded from the candidate pool (and the availability counts), not merely
+            // filtered at execution.
+            if (IsTrashProtectedSource(sourceCard, sid))
+            {
+                return false;
+            }
+
             var view = new CardSource(context, sid, owner, owner);
             return cardCondition is null || cardCondition(view);
         }
@@ -9417,7 +9992,9 @@ public static class CardEffectCommons
             ChoiceResult sourceResult = await context.ChoiceProvider.ChooseAsync(sourceRequest, cancellationToken).ConfigureAwait(false);
             IReadOnlyList<HeadlessEntityId> picks = sourceResult.SelectedIds;
             int trashed = await Headless.Runtime.DigivolutionStackHelpers.TrashSpecificSourcesAsync(
-                context.CardInstanceRepository, context.ZoneMover, hostId, picks, cancellationToken, context.GameEventQueue).ConfigureAwait(false);
+                context.CardInstanceRepository, context.ZoneMover, hostId, picks, cancellationToken, context.GameEventQueue,
+                // (C-3) effect-trash (DigiBurst) honours CanNotTrashFromDigivolutionCards (BT9_109) via TrashProtectionScan.
+                context.EffectRegistry, context, sourceCard.InstanceId).ConfigureAwait(false);
             trashedTotal += trashed;
 
             if (afterSelectionCoroutine is not null)
@@ -9768,7 +10345,8 @@ public static class CardEffectCommons
 
         await Headless.Runtime.DigivolutionStackHelpers.AddSourcesBottomAsync(
             context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0],
-            new[] { card.InstanceId }, ChoiceZone.Trash, cancellationToken).ConfigureAwait(false);
+            new[] { card.InstanceId }, ChoiceZone.Trash, cancellationToken,
+            onceFlags: context.OnceFlags).ConfigureAwait(false);
     }
 
     /// <summary>AS-IS <c>CanActivateBlitz</c> (KeyWordEffects/Blitz.cs:10, verbatim): on the battle area,
@@ -10107,6 +10685,12 @@ public static class CardEffectCommons
         // GameFlowProcessor removes the binding after it resolves — giving the single-fire AS-IS semantics.
         _ = effectDuration;
         _ = timing;
+        // STACKING NOTE: AS-IS UntilEachTurnEndEffects is a LIST — a second activation the same turn ADDS a
+        // second delegate (BT1_021 attacking twice loses 6 at end of turn). Some effect types' ToBinding use
+        // their own DETERMINISTIC Definition.EffectId (ignoring the id passed here — deliberate, for
+        // RegisterCard idempotency), so a caller that can register the SAME shape twice in one turn must make
+        // the effect's own id unique at construction (e.g. AddMemoryTriggerEffect's effectIdSuffix, used by
+        // MemoryGainThenScheduledReversalBody) — the registry rejects a colliding second registration loudly.
         EffectBinding binding = cardEffect.ToBinding(
             $"{card.InstanceId.Value}:addPlayerEffect:{Guid.NewGuid():N}");
         EffectContext ctx = binding.Request.Context;
@@ -10724,8 +11308,12 @@ public static class CardEffectCommons
     /// <summary>AS-IS <c>CanPlayAsNewPermanent</c> (:303): the card could be played as a NEW permanent —
     /// (Option cards only with <paramref name="isPlayOption"/>) + cost affordable when
     /// <paramref name="payCost"/>. Headless notes (documented reductions): the empty-frame check has no
-    /// port model (no field-size limit is modeled anywhere) and the DigiXros/Assembly in-flight-selection
-    /// locks don't apply (material choices are action parameters, not persistent state).</summary>
+    /// port model (no field-size limit is modeled anywhere); the DigiXros/Assembly in-flight-selection
+    /// locks don't apply (material choices are action parameters, not persistent state); and the
+    /// <paramref name="cardEffect"/> argument is DISCARDED — AS-IS threads it into
+    /// <c>CanPlayCardTargetFrame</c>, whose CanEnterField gate ("cannot be played by effects" restrictions)
+    /// is therefore not evaluated here (callers pass <c>null</c>, e.g. BT9_081's [On Deletion] candidate
+    /// filter; wire the gate when its first restriction producer is ported).</summary>
     public static bool CanPlayAsNewPermanent(CardSource cardSource, bool payCost, ICardEffect? cardEffect, bool isPlayOption = false, int fixedCost = -1)
     {
         _ = cardEffect;
@@ -10750,9 +11338,19 @@ public static class CardEffectCommons
     /// <summary>AS-IS <c>IsPermanentExistsOnBattleArea</c> (:348).</summary>
     public static bool IsPermanentExistsOnBattleArea(Permanent? permanent)
     {
-        return permanent is not null && !permanent.InstanceId.IsEmpty
-            && ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
-                .GetCards(permanent.OwnerId, ChoiceZone.BattleArea).Contains(permanent.InstanceId);
+        if (permanent is null || permanent.InstanceId.IsEmpty)
+        {
+            return false;
+        }
+
+        // (D-2) a leave-gate subject view answers from its PRE-removal snapshot (see Permanent.SnapshotZone).
+        if (permanent.SnapshotZone is ChoiceZone snapshot)
+        {
+            return snapshot == ChoiceZone.BattleArea;
+        }
+
+        return ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
+            .GetCards(permanent.OwnerId, ChoiceZone.BattleArea).Contains(permanent.InstanceId);
     }
 
     /// <summary>AS-IS <c>IsOwnerPermanent</c> (:388).</summary>
@@ -10939,9 +11537,19 @@ public static class CardEffectCommons
     /// <summary>AS-IS <c>IsPermanentExistsOnBreedingArea</c> (:368) — the unary form.</summary>
     public static bool IsPermanentExistsOnBreedingArea(Permanent? permanent)
     {
-        return permanent is not null && !permanent.InstanceId.IsEmpty
-            && ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
-                .GetCards(permanent.OwnerId, ChoiceZone.BreedingArea).Contains(permanent.InstanceId);
+        if (permanent is null || permanent.InstanceId.IsEmpty)
+        {
+            return false;
+        }
+
+        // (D-2) a leave-gate subject view answers from its PRE-removal snapshot (see Permanent.SnapshotZone).
+        if (permanent.SnapshotZone is ChoiceZone snapshot)
+        {
+            return snapshot == ChoiceZone.BreedingArea;
+        }
+
+        return ((IZoneStateReader)permanent.TopCard.Context.ZoneMover)
+            .GetCards(permanent.OwnerId, ChoiceZone.BreedingArea).Contains(permanent.InstanceId);
     }
 
     /// <summary>AS-IS <c>HasMatchConditionOwnersBreedingPermanent</c> (:693).</summary>
@@ -11545,6 +12153,25 @@ public static class CardEffectCommons
             }));
     }
 
+    /// <summary>(C5-witness) Stage a De-Digivolve of <paramref name="count"/> on <paramref name="host"/> (AS-IS
+    /// <c>new IDegeneration(permanent, count, activateClass).Degeneration()</c>) via the sink — the per-target
+    /// follow-up for select bodies (e.g. EX8_051 ESS "&lt;De-Digivolve 1&gt; 1 of your opponent's Digimon").
+    /// The sink's DeDigivolve consumer clamps to the host's stack and honours de-digivolve immunity, mirroring
+    /// <see cref="ActivatedSelectAndDeDigivolveEffect"/>'s mutation.</summary>
+    public static void DeDigivolvePermanent(MatchStateMutationSink sink, CardSource card, HeadlessEntityId host, int count)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        ArgumentNullException.ThrowIfNull(card);
+        sink.Apply(new EffectMutation(
+            MatchStateMutationSink.DeDigivolveKind,
+            card.InstanceId,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [MatchStateMutationSink.TargetEntityIdKey] = host.Value,
+                [MatchStateMutationSink.CountKey] = count,
+            }));
+    }
+
     /// <summary>(EX8_074 Stage 1) Mirror of the original <c>HasMatchConditionPermanent</c>: at least one
     /// matching permanent exists (count &gt;= 1).</summary>
     public static bool HasMatchConditionPermanent(CardSource card, Func<HeadlessEntityId, bool> condition, bool isContainBreedingArea = false) =>
@@ -11583,6 +12210,25 @@ public static class CardEffectCommons
     /// <summary><paramref name="id"/> is one of the card owner's battle-area Digimon.</summary>
     public static bool IsOwnerBattleAreaDigimon(CardSource card, HeadlessEntityId id) =>
         IsBattleAreaDigimon(card, id, opponent: false);
+
+    /// <summary>(AD1_025) Entity-id predicate form of AS-IS <c>IsPermanentExistsOnOpponentBattleArea(p) &amp;&amp;
+    /// p.IsOption</c>: <paramref name="id"/> is an OPPONENT-owned battle-area Option permanent.</summary>
+    public static bool IsOpponentBattleAreaOption(CardSource card, HeadlessEntityId id)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (id.IsEmpty || !card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) || instance is null)
+        {
+            return false;
+        }
+
+        if (instance.OwnerId == card.Owner || instance.OwnerId.IsEmpty)
+        {
+            return false;
+        }
+
+        return IsPermanentExistsOnBattleArea(new Permanent(card.Context, id, instance.OwnerId))
+            && new CardSource(card.Context, id, instance.OwnerId, instance.OwnerId).IsOption;
+    }
 
     /// <summary>(EX8-1) Mirror of the original <c>IsPermanentExistsOnBattleAreaDigimon(permanent)</c>:
     /// <paramref name="id"/> is a battle-area Digimon owned by EITHER player (used by "suspend 1 Digimon"
@@ -11742,12 +12388,53 @@ public static class CardEffectCommons
     public static bool HasTrashableDigivolutionCards(CardSource card, HeadlessEntityId hostId) =>
         TrashableDigivolutionCount(card, hostId) >= 1;
 
-    private static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId)
+    /// <summary>(B-2 DigiBurst rework) The host's trashable (non-protected) digivolution source ids in stack
+    /// order — the AS-IS Digi-Burst select pool (<c>SelectCardEffect</c> over <c>_permanent.DigivolutionCards</c>
+    /// with <c>canTargetCondition = !CanNotTrashFromDigivolutionCards</c>, CardController.cs:2171-2189).</summary>
+    public static IReadOnlyList<HeadlessEntityId> TrashableDigivolutionSourceIds(CardSource card, HeadlessEntityId hostId)
     {
-        return !sourceId.IsEmpty
-            && card.Context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
+        ArgumentNullException.ThrowIfNull(card);
+        if (hostId.IsEmpty)
+        {
+            return Array.Empty<HeadlessEntityId>();
+        }
+
+        DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, hostId);
+        var ids = new List<HeadlessEntityId>();
+        foreach (StackedCard under in stack.UnderCards)
+        {
+            if (!IsTrashProtectedSource(card, under.InstanceId))
+            {
+                ids.Add(under.InstanceId);
+            }
+        }
+
+        return ids;
+    }
+
+    // (C-3 재상환 P1-B) AS-IS CanNotTrashFromDigivolutionCards(source, _cardEffect) = the legacy per-source stamp
+    // (willBeRemoveSources) OR the field-effect SCAN (ICanNotTrashFromDigivolutionCardsEffect, e.g. BT9_109). The
+    // eligibility/selection surfaces (CanDigiBurst's trashable count — CardController.cs:2145/2152 — and the
+    // DigiBurst select pool) evaluate the FULL predicate, so the scan half must be consulted here too, not only
+    // in the execution filter (DigivolutionStackHelpers). The causing effect is the surface's own activate class,
+    // whose EffectSourceCard is <paramref name="card"/> — exactly the AS-IS `_cardEffect` argument collapsed.
+    internal static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId)
+    {
+        if (sourceId.IsEmpty)
+        {
+            return false;
+        }
+
+        if (card.Context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
             && instance is not null
-            && instance.Metadata.TryGetValue(TrashProtectedKey, out object? raw) && raw is true;
+            && instance.Metadata.TryGetValue(TrashProtectedKey, out object? raw) && raw is true)
+        {
+            return true;
+        }
+
+        return Headless.Runtime.TrashProtectionScan.IsProtected(
+            card.Context.EffectRegistry, card.Context.CardInstanceRepository, card.Context,
+            sourceId, card.InstanceId);
     }
 
     /// <summary>Mirror of the original <c>permanent.TopCard.HasLevel</c>: the host's top card carries a

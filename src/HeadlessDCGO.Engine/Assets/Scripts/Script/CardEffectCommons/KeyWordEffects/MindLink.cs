@@ -105,11 +105,14 @@ public sealed class MindLinkClass
             return false;
         }
 
+        // (B-3 tuck reset) the tucked Tamer AND its carried sources reset their per-turn use counts — AS-IS
+        // RemoveField Init()-resets the WHOLE leaving stack (CardObjectController.cs:546-553) before the tuck
+        // (PlacePermanentToDigivolutionCards, CardController.cs:3093).
         await DigivolutionStackHelpers.AddSourcesBottomAsync(
             _context.CardInstanceRepository, _context.ZoneMover, selectedDigimonId, new[] { tamerId },
-            ChoiceZone.BattleArea, cancellationToken).ConfigureAwait(false);
+            ChoiceZone.BattleArea, cancellationToken, onceFlags: _context.OnceFlags).ConfigureAwait(false);
         DigivolutionStackHelpers.MoveSourcesBottom(
-            _context.CardInstanceRepository, tamerId, selectedDigimonId, int.MaxValue);
+            _context.CardInstanceRepository, tamerId, selectedDigimonId, int.MaxValue, onceFlags: _context.OnceFlags);
         _context.EffectRegistry.RemoveWhere(binding => binding.Request.Context.SourceEntityId == tamerId);
         return true;
     }

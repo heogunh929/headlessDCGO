@@ -190,8 +190,47 @@ Func<TimingWindowTrigger, CancellationToken, Task<WindowResolveOutcome>> RecordB
         $"with no skipCondition the main loop lets a re-emitted effect fire again (AS-IS null dedup); got [{string.Join(",", order)}]");
 }
 
+// --- 11. (A-1 equivalence) AS-IS IsSameEffect collapses UNHASHED effects PER SOURCE CARD (HashString defaults ""
+//         and both-empty compares EQUAL, ICardEffect.cs:880-902) — two DIFFERENT effects of the SAME card count as
+//         "the same effect" for the cut-in skip. An EffectId key (narrower) wrongly let the sibling fire. ---
+{
+    var order = new List<string>();
+    var deps = new WindowResolverDeps(P1, _ => true, _ => { }, RecordBody(order),
+        new ScriptPort(orderPicks: new[] { "A1" }), None,
+        skipCondition: WindowResolverWiring.HasExecutedSameEffect);
+    await new WindowResolver().RunWindowAsync(
+        new[] { TriggerWithSource("A1", "cardA", P1), TriggerWithSource("A2", "cardA", P1) }, deps);
+    Check(order.SequenceEqual(new[] { "A1" }),
+        $"a SAME-CARD sibling effect is suppressed after the first commit (AS-IS card-level IsSameEffect collapse); got [{string.Join(",", order)}]");
+}
+
+// --- 12. (A-1 lifetime) the used-set spans LIVE frames only: a commit made INSIDE a completed (popped) cut-in
+//         frame is FORGOTTEN (AS-IS clears the nested MultipleSkills instance's SkillInfos_used at its window end,
+//         MultipleSkills.cs:58; the aggregate sums live instances only, AutoProcessing.cs:604-620) — the OUTER
+//         window's candidate for that card still fires. A run-lifetime list wrongly suppressed it forever. ---
+{
+    var order = new List<string>();
+    bool emitted = false;
+    var deps = new WindowResolverDeps(P1, _ => true, _ => { }, RecordBody(order),
+        new ScriptPort(orderPicks: new[] { "A", "Xprime" }),
+        drainNewTriggers: () => { if (!emitted && order.LastOrDefault() == "A") { emitted = true; return new[] { TriggerWithSource("Xprime", "cardX", P1) }; } return None(); },
+        skipCondition: WindowResolverWiring.HasExecutedSameEffect);
+    await new WindowResolver().RunWindowAsync(
+        new[] { Trigger("A", P1), TriggerWithSource("X", "cardX", P1) }, deps);
+    Check(order.SequenceEqual(new[] { "A", "Xprime", "X" }),
+        $"a nested cut-in's commit is forgotten once its frame pops — the outer same-card candidate still fires (AS-IS live-instance aggregate); got [{string.Join(",", order)}]");
+}
+
 if (failures > 0) { Console.Error.WriteLine($"\n{failures} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine("\nall Stage-5 WindowResolver loop-semantics checks passed.");
+
+TimingWindowTrigger TriggerWithSource(string id, string source, HeadlessPlayerId controller, TimingWindowTriggerKind kind = TimingWindowTriggerKind.Mandatory)
+{
+    var ctx = new EffectContext(controller, controller, new HeadlessEntityId(source), triggerEntityId: null,
+        targetEntityIds: Array.Empty<HeadlessEntityId>());
+    var request = new EffectRequest(new HeadlessEntityId(id), controller, "OnTest", ctx);
+    return new TimingWindowTrigger(request, EffectResolutionMode.MainStack, kind, priority: 0, sequence: 0);
+}
 
 // A scripted choice port: order picks by a queue of effectIds (or "skip"); optional answers by a set.
 sealed class ScriptPort : IWindowChoicePort

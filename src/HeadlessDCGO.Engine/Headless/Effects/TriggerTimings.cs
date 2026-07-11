@@ -54,6 +54,10 @@ public static class TriggerTimings
     // original "[When Attacking]" attack-declaration effects use. Emitted alongside OnAttack/OnAllyAttack in
     // AttackPermanentAction. Distinct from OnAttack: the original enum separates OnUseAttack from OnDeclaration.
     public const string OnDeclaration = "OnDeclaration";
+    // (B-2 DigiBurst rework) Fired when a Digi-Burst is used, AFTER the controller selected which digivolution
+    // sources to discard and BEFORE they are trashed — AS-IS IDigiBurst.DigiBurst() stacks OnUseDigiburst
+    // between the select and ITrashDigivolutionCards (CardController.cs:2228→2233). subject = the bursting card.
+    public const string OnUseDigiburst = "OnUseDigiburst";
     // (PRIM-P0-timing batch 3b) The attack's defending target changed after declaration — raid retarget or
     // block redirect (AS-IS AttackProcess.SwitchDefender fires this for both). subject = the attacker.
     public const string OnAttackTargetChanged = "OnAttackTargetChanged";

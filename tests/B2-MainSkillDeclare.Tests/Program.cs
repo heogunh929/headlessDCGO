@@ -23,6 +23,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("a fresh turn (ResetForTurn) restores the spent [Main] skill", ResetRestoresDeclaration),
     ("[Main] skill enumeration is scoped to the acting player's own battle area", ScopedToOwnBattleArea),
     ("a non-uniform [Main] Digi-Burst that cannot pay its source cost is NOT offered (AS-IS CanDigiBurst gate)", UnpayableDigiBurstNotOffered),
+    ("declining a DECLARED capped optional [Main] skill leaves its use CONSUMED (AS-IS register-before-optional)", DeclinedDeclarationConsumesCap),
+    ("Digi-Burst pays with the CONTROLLER-SELECTED sources, not an automatic bottom-N (AS-IS DigiBurst select)", DigiBurstPaysWithSelectedSources),
 };
 
 var failures = new List<string>();
@@ -115,6 +117,97 @@ async Task UnpayableDigiBurstNotOffered()
     var action = new MainSkillActivateAction();
     AssertTrue(FindActivateMain(action, context, P1, permanent) is null,
         "an unpayable [Main] Digi-Burst (0 sources < 2) is NOT offered as an ActivateMain legal move");
+}
+
+async Task DigiBurstPaysWithSelectedSources()
+{
+    // AS-IS IDigiBurst.DigiBurst() (CardController.cs:2163-2233): the controller SELECTS which digivolution
+    // sources to discard (SelectCardEffect over _permanent.DigivolutionCards, exactly Count), OnUseDigiburst
+    // opens, THEN exactly the selected cards are trashed. The pre-rework headless auto-trashed bottom-N,
+    // erasing the player's choice over which inherited effects / levels survive in the stack.
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 23);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)context.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainDigiBurstDraw"), "TfxMainDigiBurstDraw", "DB",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var permanent = new HeadlessEntityId("1:battle:DB2");
+
+    // Three sources, top→bottom s1,s2,s3 (bottom-N would take s2+s3; the player instead picks s1+s2).
+    var s1 = new HeadlessEntityId("1:src:s1");
+    var s2 = new HeadlessEntityId("1:src:s2");
+    var s3 = new HeadlessEntityId("1:src:s3");
+    foreach (HeadlessEntityId src in new[] { s1, s2, s3 })
+    {
+        cards.Upsert(new CardRecord(new HeadlessEntityId($"DEF:{src.Value}"), src.Value, src.Value, new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(src, new HeadlessEntityId($"DEF:{src.Value}"), P1, Metadata: new Dictionary<string, object?>()));
+    }
+
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(permanent, new HeadlessEntityId("TfxMainDigiBurstDraw"), P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["sourceIds"] = new[] { s1.Value, s2.Value, s3.Value } }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, permanent, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:DBL"), "DBL", "DBL", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var lib = new HeadlessEntityId("1:lib:DB");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(lib, new HeadlessEntityId("DEF:DBL"), P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, lib, ChoiceZone.None, ChoiceZone.Library));
+
+    // The player picks s1 + s2 (top two) — NOT the bottom two the old auto-pay took.
+    ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(s1, s2));
+
+    var action = new MainSkillActivateAction();
+    LegalAction? offered = FindActivateMain(action, context, P1, permanent);
+    AssertTrue(offered is not null, "the payable [Main] Digi-Burst is offered");
+    ActionProcessResult result = await action.ProcessAsync(offered!, context);
+    AssertTrue(result.IsSuccess, "the Digi-Burst declaration resolved");
+
+    var zones = (IZoneStateReader)context.ZoneMover;
+    AssertTrue(zones.GetCards(P1, ChoiceZone.Trash).Contains(s1) && zones.GetCards(P1, ChoiceZone.Trash).Contains(s2),
+        "exactly the SELECTED sources (s1, s2) were trashed as the Digi-Burst pay");
+    AssertTrue(!zones.GetCards(P1, ChoiceZone.Trash).Contains(s3), "the unselected bottom source (s3) survived");
+    context.CardInstanceRepository.TryGetInstance(permanent, out CardInstanceRecord? after);
+    var remaining = (after!.Metadata["sourceIds"] as IEnumerable<string>)!.ToList();
+    AssertTrue(remaining.Count == 1 && remaining[0] == s3.Value, "the stack keeps only s3 (selection order preserved)");
+    AssertEqual(1, HandCount(context, P1), "the Digi-Burst body (draw 1) resolved after the pay");
+}
+
+async Task DeclinedDeclarationConsumesCap()
+{
+    // AS-IS declaration order (TurnStateMachine.cs:1183-1186): CanUse → SetIsDeclarative → REGISTER the per-turn
+    // use → ActivateEffectProcess (optional yes/no → body). Declining after the register leaves the cap consumed
+    // (no RemoveUse on that path) — unlike the window path, where the register fires only after the optional
+    // accept (ICardEffect.cs:1117-1121). The resolver's `declarative` flavor mirrors this exactly.
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 17, deferredChoice: true);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    var cards = (CardDatabase)context.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainOptionalDraw"), "TfxMainOptionalDraw", "MO",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var permanent = new HeadlessEntityId("1:battle:MO");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(permanent, new HeadlessEntityId("TfxMainOptionalDraw"), P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, permanent, ChoiceZone.None, ChoiceZone.BattleArea));
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:MO-L"), "MO-L", "MO-L", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var lib = new HeadlessEntityId("1:lib:MO");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(lib, new HeadlessEntityId("DEF:MO-L"), P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, lib, ChoiceZone.None, ChoiceZone.Library));
+
+    var action = new MainSkillActivateAction();
+    LegalAction? offered = FindActivateMain(action, context, P1, permanent);
+    AssertTrue(offered is not null, "the optional capped [Main] skill is offered");
+
+    // Declare: the optional yes/no suspends for the agent (deferred provider).
+    int before = HandCount(context, P1);
+    ActionProcessResult declared = await action.ProcessAsync(offered!, context);
+    AssertTrue(declared.IsSuccess && context.ChoiceController.Current.IsPending, "the declaration suspended at the optional yes/no");
+
+    // DECLINE. Resume the suspended activation the way MetadataActionProcessor does (declarative flavor).
+    context.ChoiceController.ResolveChoice(ChoiceResult.Skip());
+    await ActivatedEffectResolver.ResolveAsync(
+        context, permanent, P1, EffectTiming.OnDeclaration, declarative: true);
+    context.DeferredActivations.Clear();
+    AssertEqual(before, HandCount(context, P1), "declining drew nothing");
+
+    // AS-IS: the use was registered BEFORE the prompt — the declined skill is NOT re-offered this turn.
+    AssertTrue(FindActivateMain(action, context, P1, permanent) is null,
+        "the declined [Main] skill stays capped out this turn (register-before-optional, no refund)");
 }
 
 // --- Helpers -------------------------------------------------------------

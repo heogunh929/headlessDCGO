@@ -1,10 +1,11 @@
-// C-13 Decode — AS-IS: when THIS Digimon leaves the field by an effect (NOT by battle), the controller
+// C-13 Decode — AS-IS: when THIS Digimon WOULD leave the field by an effect (NOT by battle), the controller
 // MAY play one of its digivolution sources (matching a colour condition; default any Digimon) as a new
-// permanent for free. Ported 1:1 onto the F-6.8 POST deletion-replacement window (sibling of Ascension/
-// Save/ArmorPurge): sources stay in ChoiceZone.None referenced by the trashed card's sourceIds, so the
-// "play a source for free" reads cleanly post-deletion. Optionality + the which-source sub-selection are
-// agent choices (rules-faithful). Engine: DeletionReplacementTiming DecodeOption + Gate.TryDecodePlaySourceAsync;
-// grant GrantDecode -> hasDecode.
+// permanent for free. (C-1/TODO-96) Ported 1:1 onto the F-6.8 PRE (would-be-deleted) window — the same cut-in
+// as Evade/Barrier (CardController.cs:3690-3705), fired at WhenRemoveField while the card is STILL on the
+// field. Unlike Evade it does NOT cancel the deletion: the card still leaves and DiscardEvoRoots trashes the
+// remaining sources. Optionality + the which-source sub-selection are agent choices (rules-faithful).
+// Engine: DeletionReplacementTiming DecodeOption (PreOptions) + Gate.TryDecodePlaySourceAsync; grant
+// GrantDecode -> hasDecode.
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -19,8 +20,8 @@ HeadlessEntityId NonDigimonDef = new("def:decode-tamer");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Decode opens an optional post-removal choice with a source candidate", DecodeOpensPostChoice),
-    ("Declining Decode leaves the source unplayed in None", DecodeDeclineLeavesSourceUnplayed),
+    ("Decode opens an optional would-be-deleted choice with a source candidate", DecodeOpensPostChoice),
+    ("Declining Decode plays nothing; the deletion proceeds and all sources trash", DecodeDeclineLeavesSourceUnplayed),
     ("Selecting a source plays it to the battle area for free", DecodePlaysChosenSourceForFree),
     ("Battle removal does not trigger Decode", DecodeNotOfferedOnBattleRemoval),
     ("A non-Digimon-only stack offers no Decode choice", DecodeNotOfferedWithoutDigimonSource),
@@ -41,20 +42,21 @@ foreach (var test in tests)
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
-// Effect-deletes a hasDecode holder with a Digimon source + a non-Digimon source. The POST window must
-// open and offer Decode (the Digimon source is playable).
+// Effect-deletes a hasDecode holder with a Digimon source + a non-Digimon source. The PRE (would-be-deleted)
+// window must open (holder STILL on the field) and offer Decode (the Digimon source is playable).
 async Task DecodeOpensPostChoice()
 {
     (DcgoMatch match, HeadlessEntityId holder, HeadlessEntityId digimonSrc, _) = await EffectDeleteDecoder();
 
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the holder is in the trash");
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "a post-removal Decode choice is open");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "the holder is still on the field (PRE window, deletion deferred)");
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "a would-be-deleted Decode choice is open");
     AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
     AssertTrue(ResolveActions(match, P2).Any(a => a.Id.Value.Contains("#decode", StringComparison.Ordinal)), "decode option offered");
     AssertFalse(InZone(match, P2, ChoiceZone.BattleArea, digimonSrc), "the source is still off-field at decision time");
 }
 
-// Skipping the optional step-1 leaves the source where it was.
+// Skipping the optional step-1 plays nothing and lets the deletion proceed: the card leaves and DiscardEvoRoots
+// trashes ALL its sources (AS-IS willBeRemoveField unchanged — Decode never cancels the deletion).
 async Task DecodeDeclineLeavesSourceUnplayed()
 {
     (DcgoMatch match, HeadlessEntityId holder, HeadlessEntityId digimonSrc, _) = await EffectDeleteDecoder();
@@ -65,7 +67,8 @@ async Task DecodeDeclineLeavesSourceUnplayed()
 
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "no choice remains after declining");
     AssertFalse(InZone(match, P2, ChoiceZone.BattleArea, digimonSrc), "the source did not enter the battle area");
-    AssertTrue(SourceIds(match, holder).Contains(digimonSrc.Value), "the source stays attached to the dead card (not played)");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the deletion proceeded — the holder is in the trash");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, digimonSrc), "the unplayed source was trashed with the stack");
     AssertFalse(ReadFlag(match, holder, DeletionReplacementGate.DecodedKey), "no decoded marker when declined");
 }
 

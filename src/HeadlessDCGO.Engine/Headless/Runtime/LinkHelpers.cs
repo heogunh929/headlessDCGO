@@ -112,9 +112,20 @@ public static class LinkHelpers
             return false;
         }
 
-        await zoneMover.MoveAsync(
-            new ZoneMoveRequest(linkCard.OwnerId, linkCardId, fromZone, ChoiceZone.None),
-            cancellationToken).ConfigureAwait(false);
+        // (BT22_035) fromZone == None ⇒ the link card is ALREADY off-field (e.g. a just-detached digivolution
+        // source): there is no physical move to make, and a None → None ZoneMoveRequest is rejected (both zones
+        // abstract). Link cards are stored off-field (ChoiceZone.None) anyway, so skip the move.
+        if (fromZone != ChoiceZone.None)
+        {
+            await zoneMover.MoveAsync(
+                new ZoneMoveRequest(linkCard.OwnerId, linkCardId, fromZone, ChoiceZone.None),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        // (B-3 tuck reset) AS-IS AddLinkCard resets the attached card's per-turn use counts
+        // (cardSource.cEntity_EffectController.InitUseCountThisTurn(), CardController.cs:3393 — after the
+        // RemoveField that already Init()-reset a field-origin permanent's stack).
+        context?.OnceFlags.ResetForCard(linkCard.OwnerId, linkCardId);
 
         // Re-read host (the move may have touched state) and prepend (AS-IS insert at index 0).
         CardInstanceRecord current = repository.TryGetInstance(hostId, out CardInstanceRecord? latest) && latest is not null ? latest : host;

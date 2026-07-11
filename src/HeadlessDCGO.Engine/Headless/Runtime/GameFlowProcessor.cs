@@ -172,6 +172,13 @@ public sealed class GameFlowProcessor
 
         bool progressed = false;
         var deletionReplacement = new DeletionReplacementTiming();
+        // (D-1 / VR-8) AS-IS DigimonLackDPProcess destroys ALL lack-DP permanents in ONE
+        // DestroyPermanentsClass(LackPowerPermanents) (AutoProcessing.cs:471-482) = a SINGLE
+        // StackSkillInfos(OnDeletion / OnLeaveFieldAnyone). Allocate ONE batch id for every DP-zero death in this
+        // sweep (lazily, on the first) so an anyone-scoped reactor fires ONCE — not per card (over-fire).
+        // (design item R2-P2-4) the DP-zero deletes interleave per-card with the pendingDeletion finalizes in
+        // this one scan; AS-IS runs TrashNoDPPermanent / DigimonLackDP as separate whole-board passes.
+        long? dpZeroBatchId = null;
         foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
         {
             if (playerId.IsEmpty)
@@ -191,7 +198,14 @@ public sealed class GameFlowProcessor
                     // (deletedByBattle) is finalized by BattleResolver.FinalizeDeferredAsync, never swept here.
                     if (pending && (deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)
                         // (P6) a holder waiting on its sacrifice's fate is settled by SettleAwaitingSacrifices.
-                        || IsSacrificeAwaiting(context, cardId)))
+                        || IsSacrificeAwaiting(context, cardId)
+                        // (R2-P1-1) BATCH-MATE gate: a decided member of a deferred delete batch holds until
+                        // EVERY member of the same batch id has decided — AS-IS Destroy() trashes the fixed
+                        // list in ONE post-cut-in pass (all targets' cut-ins resolve, THEN the per-permanent
+                        // trash loop), so no member's [On Deletion] fires before another member's replacement
+                        // decision. Once all are decided, the whole batch finalizes in THIS single sweep pass
+                        // (one drain), so the (reactor, batch-id) collapse sees one batch, not split drains.
+                        || HasUndecidedBatchMate(context, deletionReplacement, cardId)))
                     {
                         continue;
                     }
@@ -218,6 +232,18 @@ public sealed class GameFlowProcessor
 
                     if (pending)
                     {
+                        // (D-1 / VR-8) capture the ORIGINATING batch id the sink stashed at defer time BEFORE the
+                        // cleanup below mutates the record's metadata, so the finalize move re-stamps it.
+                        // (R2-P1-4) a deferred finalize IS a deletion and the deletion marker now DERIVES the
+                        // OnDeletion/OnLeaveField timings — a park with no stashed id (a manually-flagged
+                        // pendingDeletion, e.g. a bare-registry sink) gets a fresh batch id instead of moving
+                        // unmarked (which would silently drop the dead card's [On Deletion]).
+                        IReadOnlyDictionary<string, object?> deferredBatchMetadata =
+                            ReadDeferredDeletionBatchMetadata(context, cardId)
+                            ?? new Dictionary<string, object?>(StringComparer.Ordinal)
+                            {
+                                [Effects.MatchStateMutationSink.DeletionBatchIdKey] = context.NextDeletionBatchId(),
+                            };
                         // The deletion markers/windows were processed when the deletion was deferred —
                         // finishing it is the removal. (P1) leave-play cleanup before the move: snapshot the
                         // post-deletion keywords, then drop the dead card's bindings (previously leaked).
@@ -227,13 +253,18 @@ public sealed class GameFlowProcessor
                         // stranding the dead permanent's digivolution sources in ChoiceZone.None. Mirror
                         // AS-IS DiscardEvoRoots (sources → trash, before the top) here too.
                         await DeletionSourceTrash.TrashEvoSourcesAsync(
-                            context.CardInstanceRepository, context.ZoneMover, cardId, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+                            context.CardInstanceRepository, context.ZoneMover, cardId, gameEventQueue: null, cancellationToken,
+                            context.MemoryController, context.TurnController.Current.TurnPlayerId).ConfigureAwait(false);
+                        // (C-2 review P1) charge the leaving ACE's OWN top overflow (raw move skips the sink gate).
+                        AceOverflowGate.ApplyTopOverflowOnDelete(context, cardId);
+                        // (D-1 / VR-8) re-stamp the ORIGINATING batch id the sink stored when it deferred this
+                        // deletion, so a declined would-be-deleted finishes the same batch its Destroy() opened.
                         await context.ZoneMover.MoveAsync(
-                            new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash),
+                            new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash, Metadata: deferredBatchMetadata),
                             cancellationToken).ConfigureAwait(false);
                         // (P0-4) mandatory post-deletion Fortitude replay, as the sink/battle paths do.
                         await DeletionReplacementGate.TryFortitudeReplayAsync(
-                            context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken, context.EffectRegistry).ConfigureAwait(false);
+                            context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken, context.EffectRegistry, context).ConfigureAwait(false);
                         progressed = true;
                         continue;
                     }
@@ -241,9 +272,11 @@ public sealed class GameFlowProcessor
                     // (B3) AS-IS DigimonLackDPProcess routes DP<=0 deaths through DestroyPermanentsClass —
                     // the SAME path as effect deletions (would-be-deleted windows, OnDeletion triggers,
                     // Fortitude, the DPZero flag). The previous raw zone move skipped all of it.
+                    dpZeroBatchId ??= context.NextDeletionBatchId();
                     var sink = new MatchStateMutationSink(
                         context.CardInstanceRepository, log: null, context.ZoneMover, memory: null,
-                        context.EffectRegistry, context.GameEventQueue, context: context);
+                        context.EffectRegistry, context.GameEventQueue, context: context,
+                        explicitDeletionBatchId: dpZeroBatchId);
                     sink.Apply(new EffectMutation(
                         MatchStateMutationSink.DeleteKind,
                         new HeadlessEntityId("rule:dp-zero"),
@@ -271,6 +304,52 @@ public sealed class GameFlowProcessor
     private static bool IsSacrificeAwaiting(EngineContext context, HeadlessEntityId cardId) =>
         context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
             && record.Metadata.ContainsKey(DeletionReplacementTiming.SacrificeAwaitingKey);
+
+    /// <summary>(R2-P1-1) Whether another pending-deletion field card of the SAME delete batch (the batch id
+    /// the sink stashed at defer time) is still awaiting a decision (PRE window / sacrifice sub-choice).
+    /// While true, this (already-decided) member is NOT finalized — the batch finalizes together in one pass.
+    /// Batch id 0 / absent (a context-less sink or a pre-batch defer) is never grouped.</summary>
+    private static bool HasUndecidedBatchMate(
+        EngineContext context, DeletionReplacementTiming deletionReplacement, HeadlessEntityId cardId)
+    {
+        if (context.ZoneMover is not IZoneStateReader zones ||
+            !context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null ||
+            !record.Metadata.TryGetValue(Effects.MatchStateMutationSink.DeletionBatchIdKey, out object? raw) ||
+            raw is not long batchId || batchId == 0)
+        {
+            return false;
+        }
+
+        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+        {
+            if (player.IsEmpty)
+            {
+                continue;
+            }
+
+            foreach (ChoiceZone zone in FieldZones)
+            {
+                foreach (HeadlessEntityId mateId in zones.GetCards(player, zone))
+                {
+                    if (mateId == cardId ||
+                        !context.CardInstanceRepository.TryGetInstance(mateId, out CardInstanceRecord? mate) || mate is null ||
+                        !mate.Metadata.TryGetValue(Effects.MatchStateMutationSink.DeletionBatchIdKey, out object? mateRaw) ||
+                        mateRaw is not long mateBatchId || mateBatchId != batchId ||
+                        !IsPendingDeletion(context, mateId))
+                    {
+                        continue;
+                    }
+
+                    if (deletionReplacement.IsPreAwaiting(context, mateId) || IsSacrificeAwaiting(context, mateId))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>(P7) mirror of AS-IS <c>IsPlaceToTrashDueToNotHavingDP</c> (default true; effects may clear).</summary>
     public const string PlaceToTrashDueToNoDpKey = "isPlaceToTrashDueToNotHavingDP";
@@ -408,6 +487,24 @@ public sealed class GameFlowProcessor
             instance.Metadata.TryGetValue(PendingDeletionKey, out object? raw) &&
             raw is bool flag &&
             flag;
+    }
+
+    /// <summary>(D-1 / VR-8) Read the delete-batch id the sink stashed on a DEFERRED deletion (a would-be-deleted
+    /// replacement it parked) so the deferred-finalize move re-stamps the ORIGINATING <c>Destroy()</c>'s batch.
+    /// Null when absent (no batch was recorded — the CardMoved then carries no id and collapses with other
+    /// unstamped moves, the pre-D1 behaviour).</summary>
+    private static IReadOnlyDictionary<string, object?>? ReadDeferredDeletionBatchMetadata(
+        EngineContext context, HeadlessEntityId cardId)
+    {
+        if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) &&
+            instance is not null &&
+            instance.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? raw) &&
+            raw is long batchId)
+        {
+            return new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.DeletionBatchIdKey] = batchId };
+        }
+
+        return null;
     }
 
     private static void ClearPendingDeletion(EngineContext context, HeadlessEntityId cardId)
@@ -642,7 +739,9 @@ public sealed class GameFlowProcessor
                 : TimingWindowTriggerKind.Mandatory;
             if (trigger.Kind != kind)
             {
-                return new TimingWindowTrigger(trigger.Request, trigger.Mode, kind, trigger.Priority, trigger.Sequence);
+                // `with` (not a fresh construction) so a BatchId already stamped on the trigger survives the
+                // Kind reclassification (D-1 order sequencing).
+                return trigger with { Kind = kind };
             }
         }
 
