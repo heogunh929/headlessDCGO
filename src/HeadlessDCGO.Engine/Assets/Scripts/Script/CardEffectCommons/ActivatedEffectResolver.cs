@@ -38,6 +38,19 @@ public static class ActivatedEffectResolver
         return description is not null && description.Contains("[Main]", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>(F1-M1-INHERITSCAN) The AS-IS <c>Permanent.EffectList_ForCard</c> membership split
+    /// (Permanent.cs:1526-1541) applied to ONE scanned card's effect list: a SOURCE scan
+    /// (<paramref name="inheritedScan"/> == true) keeps only INHERITED activated effects (AS-IS a NON-TOP source
+    /// contributes only its <c>IsInheritedEffect</c> effects), a TOP scan (false — the default for every
+    /// non-bridge caller: option / security / declaration / on-play / digivolve) keeps only NON-inherited effects
+    /// (AS-IS the top card contributes only its non-inherited effects). Inherited-ness lives on the uniform
+    /// <see cref="ActivatedEffect.IsInheritedEffect"/> flag; a non-uniform <see cref="IActivatedCardEffect"/>
+    /// carries no inherited flag, so it counts as NON-inherited (a top/main effect) — matching the accepted
+    /// uniform-migration gap (no non-uniform inherited activated effect is ported). Behaviour-neutral for the
+    /// default (false) path: no effect ported before this flag is inherited, so the top scan keeps them all.</summary>
+    private static bool MembershipKeeps(ICardEffect effect, bool inheritedScan) =>
+        (effect is ActivatedEffect ae && ae.IsInheritedEffect) == inheritedScan;
+
     /// <summary>(Stage 5, 3b-iii) Whether the card has ANY activated effects registered at <paramref name="timing"/>.
     /// The window's unified-seed collect uses this so an activated-effect BRIDGE marker is only synthesised for a
     /// card that actually reacts at that timing — the batch bridge scanned every battle-area card and let the
@@ -72,7 +85,8 @@ public static class ActivatedEffectResolver
     /// yet still competes for the window's order choice (spurious). The activated bridge must mark a card ONLY when
     /// it has a genuine activated effect the resolver will handle. Pure (builds the effect list, runs nothing).</summary>
     public static bool HasActivatedEffectsAt(
-        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing)
+        EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
+        bool inheritedScan = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -90,7 +104,7 @@ public static class ActivatedEffectResolver
         IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is IActivatedCardEffect)
+            if (effects[i] is IActivatedCardEffect && MembershipKeeps(effects[i], inheritedScan))
             {
                 return true;
             }
@@ -115,7 +129,7 @@ public static class ActivatedEffectResolver
     /// migration). Pure (builds the effect list + gates, runs no body).</summary>
     public static bool CanActivateAt(
         EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
-        GameEvent? drivingEvent = null)
+        GameEvent? drivingEvent = null, bool inheritedScan = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -141,7 +155,7 @@ public static class ActivatedEffectResolver
         IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is not IActivatedCardEffect)
+            if (effects[i] is not IActivatedCardEffect || !MembershipKeeps(effects[i], inheritedScan))
             {
                 continue;
             }
@@ -174,7 +188,7 @@ public static class ActivatedEffectResolver
     /// resolution). Pure.</summary>
     public static bool CanCollectAt(
         EngineContext context, HeadlessEntityId cardInstanceId, HeadlessPlayerId controller, EffectTiming timing,
-        GameEvent? drivingEvent = null)
+        GameEvent? drivingEvent = null, bool inheritedScan = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -192,7 +206,7 @@ public static class ActivatedEffectResolver
         IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is not IActivatedCardEffect)
+            if (effects[i] is not IActivatedCardEffect || !MembershipKeeps(effects[i], inheritedScan))
             {
                 continue;
             }
@@ -331,7 +345,8 @@ public static class ActivatedEffectResolver
         GameEvent? drivingEvent = null,
         Func<ICardEffect, bool>? effectFilter = null,
         bool declarative = false,
-        bool windowDispatched = false)
+        bool windowDispatched = false,
+        bool inheritedScan = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardInstanceId.IsEmpty
@@ -377,6 +392,12 @@ public static class ActivatedEffectResolver
             // (#13) e.g. re-run only the [Main] option effect, not every OptionSkill effect.
             effects = effects.Where(effectFilter).ToList();
         }
+
+        // (F1-M1-INHERITSCAN) apply the AS-IS EffectList_ForCard membership split: a SOURCE-scan resolution
+        // (inheritedScan, the digivolution-source activated bridge) runs ONLY the inherited activated effects;
+        // every other (default) path runs only the non-inherited ones. Behaviour-neutral for the default path
+        // (no ported effect is inherited yet, so the non-inherited filter keeps them all).
+        effects = effects.Where(e => MembershipKeeps(e, inheritedScan)).ToList();
 
         if (skipReactivationHolder)
         {

@@ -195,7 +195,7 @@ public static class WindowResolverWiring
             return outcome; // SuspendedExternally — an activated body, resumed outside the window.
         }
 
-        if (!IsActivatedBridge(trigger, out _, out _, out _, out _)
+        if (!IsActivatedBridge(trigger, out _, out _, out _, out _, out _)
             && trigger.Request.Context.Values.TryGetValue(AutoProcessingTriggerCollector.DelayedOneShotKey, out object? oneShot)
             && oneShot is true)
         {
@@ -396,9 +396,9 @@ public static class WindowResolverWiring
     /// case checks CanResolve + MaxCountPerTurn), so it passes here EXCEPT the OnUnTappedAnyone caller-cap.</summary>
     private static bool Gate(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner, out bool inherited))
         {
-            return MarkerGate(context, card, timing, owner, drivingEvent);
+            return MarkerGate(context, card, timing, owner, drivingEvent, inherited);
         }
 
         return SchedulerGate(context, trigger);
@@ -416,9 +416,9 @@ public static class WindowResolverWiring
             return false;
         }
 
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner, out bool inherited))
         {
-            return MarkerGate(context, card, timing, owner, drivingEvent);
+            return MarkerGate(context, card, timing, owner, drivingEvent, inherited);
         }
 
         return SchedulerGate(context, trigger);
@@ -438,11 +438,12 @@ public static class WindowResolverWiring
     /// un-resolvable is gate-false this pass (not offered for the order choice) but stays stacked to re-test —
     /// instead of being offered and no-opping in the resolver, which would consume the AS-IS per-pass deferral.</summary>
     private static bool MarkerGate(
-        EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner, GameEvent? drivingEvent)
+        EngineContext context, HeadlessEntityId card, EffectTiming timing, HeadlessPlayerId owner, GameEvent? drivingEvent, bool inherited)
     {
         // (RDx-A3) per-pass board-condition gate — the activated analogue of SchedulerGate's per-pass CanResolve,
         // reusing the resolver's own uniform CanResolve via the shared resolve-context (no reconstruction drift).
-        if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.CanActivateAt(context, card, owner, timing, drivingEvent))
+        // (F1-M1-INHERITSCAN) inherited-scan for a source reactor so only its IsInheritedEffect effects are gated.
+        if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.CanActivateAt(context, card, owner, timing, drivingEvent, inheritedScan: inherited))
         {
             return false;
         }
@@ -560,7 +561,7 @@ public static class WindowResolverWiring
     /// timing is uncapped at the caller (the resolver's own MaxCountPerTurn caps it).</summary>
     private static void Commit(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner, out _))
         {
             MarkerCommit(context, card, timing, owner);
             return;
@@ -573,7 +574,7 @@ public static class WindowResolverWiring
     /// batch dedup is handled at collect, not here); kept distinct so live-only commit concerns have a home.</summary>
     private static void CommitLive(EngineContext context, TimingWindowTrigger trigger)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out _, out HeadlessPlayerId owner, out _))
         {
             MarkerCommit(context, card, timing, owner);
             return;
@@ -606,15 +607,16 @@ public static class WindowResolverWiring
     private static async Task<WindowResolveOutcome> ResolveBodyAsync(
         EngineContext context, TimingWindowTrigger trigger, CancellationToken cancellationToken)
     {
-        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner))
+        if (IsActivatedBridge(trigger, out HeadlessEntityId card, out EffectTiming timing, out GameEvent? drivingEvent, out HeadlessPlayerId owner, out bool inherited))
         {
             try
             {
                 // windowDispatched: the marker's collect gate (CanCollectAt = AS-IS CanTrigger) already ran when
                 // it was synthesised; execution entry re-checks ONLY the CanActivate half (AS-IS
                 // AutoProcessing.cs:1068 — CanTrigger is never re-evaluated on a stacked skill).
+                // (F1-M1-INHERITSCAN) inheritedScan for a source reactor so only its inherited effects resolve.
                 await Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver
-                    .ResolveAsync(context, card, owner, timing, cancellationToken, drivingEvent: drivingEvent, windowDispatched: true)
+                    .ResolveAsync(context, card, owner, timing, cancellationToken, drivingEvent: drivingEvent, windowDispatched: true, inheritedScan: inherited)
                     .ConfigureAwait(false);
                 return WindowResolveOutcome.Resolved;
             }
@@ -656,6 +658,13 @@ public static class WindowResolverWiring
     /// per-card gates read the event subject + metadata; absent for subject/boundary timings.</summary>
     public const string ActivatedBridgeDrivingEventKey = "activatedBridge.drivingEvent";
 
+    /// <summary>(F1-M1-INHERITSCAN) Marks an activated-bridge trigger whose reacting card is a DIGIVOLUTION SOURCE
+    /// (an inherited effect) rather than a top permanent. Gate / ResolveBody then run the resolver in
+    /// INHERITED-scan mode (only the source's <c>IsInheritedEffect</c> activated effects are considered — the
+    /// AS-IS <c>Permanent.EffectList_ForCard</c> non-top membership). Absent (false) for a top-card reactor
+    /// (which contributes only its non-inherited effects).</summary>
+    public const string ActivatedBridgeInheritedKey = "activatedBridge.inherited";
+
     /// <summary>How the reacting card was found for an activated-bridge trigger (mirrors the batch scan's three
     /// branches). Carried on the marker for diagnosis; the actual cap model keys off the timing.</summary>
     public enum ActivatedBridgeCategory
@@ -679,12 +688,14 @@ public static class WindowResolverWiring
         out HeadlessEntityId card,
         out EffectTiming timing,
         out GameEvent? drivingEvent,
-        out HeadlessPlayerId owner)
+        out HeadlessPlayerId owner,
+        out bool inherited)
     {
         card = default;
         timing = default;
         drivingEvent = null;
         owner = default;
+        inherited = false;
 
         IReadOnlyDictionary<string, object?> values = trigger.Request.Context.Values;
         if (!values.TryGetValue(ActivatedBridgeKey, out object? marker) || marker is not true)
@@ -704,6 +715,10 @@ public static class WindowResolverWiring
             drivingEvent = ev as GameEvent;
         }
 
+        // (F1-M1-INHERITSCAN) a source (inherited) reactor carries this flag so Gate/ResolveBody run the resolver
+        // in inherited-scan mode (only its IsInheritedEffect activated effects); a top reactor has it absent.
+        inherited = values.TryGetValue(ActivatedBridgeInheritedKey, out object? inh) && inh is true;
+
         return true;
     }
 
@@ -721,7 +736,8 @@ public static class WindowResolverWiring
         HeadlessPlayerId owner,
         GameEvent? drivingEvent,
         ActivatedBridgeCategory category,
-        long sequence)
+        long sequence,
+        bool inherited = false)
     {
         var values = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -731,6 +747,11 @@ public static class WindowResolverWiring
         if (drivingEvent is not null)
         {
             values[ActivatedBridgeDrivingEventKey] = drivingEvent;
+        }
+
+        if (inherited)
+        {
+            values[ActivatedBridgeInheritedKey] = true;
         }
 
         var request = new EffectRequest(
@@ -762,7 +783,10 @@ public static class WindowResolverWiring
             return Array.Empty<TimingWindowTrigger>();
         }
 
-        var toResolve = new List<(HeadlessEntityId Card, EffectTiming Timing, GameEvent? Event, ActivatedBridgeCategory Category)>();
+        // (F1-M1-INHERITSCAN) each entry carries whether the reacting card is a digivolution SOURCE (Inherited) so
+        // the resolver runs in inherited-scan mode for it; a subject-scoped reactor is never a source (the event
+        // subject is a top card), so it is always Inherited=false.
+        var toResolve = new List<(HeadlessEntityId Card, EffectTiming Timing, GameEvent? Event, ActivatedBridgeCategory Category, bool Inherited)>();
         var seen = new HashSet<(HeadlessEntityId, EffectTiming)>();
         IZoneStateReader? zones = context.ZoneMover as IZoneStateReader;
         foreach (GameEvent gameEvent in pendingEvents)
@@ -778,18 +802,18 @@ public static class WindowResolverWiring
                 {
                     if (gameEvent.Subject is { IsEmpty: false } subject && seen.Add((subject, timing)))
                     {
-                        toResolve.Add((subject, timing, null, ActivatedBridgeCategory.Subject));
+                        toResolve.Add((subject, timing, null, ActivatedBridgeCategory.Subject, false));
                     }
                 }
                 else if (ActivatedBridgeTimings.Boundary.Contains(timing) && zones is not null)
                 {
                     foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
                     {
-                        foreach (HeadlessEntityId cardId in ScanZones(zones, player))
+                        foreach (BridgeScanEntry entry in ScanZones(context, zones, player))
                         {
-                            if (seen.Add((cardId, timing)))
+                            if (seen.Add((entry.Card, timing)))
                             {
-                                toResolve.Add((cardId, timing, null, ActivatedBridgeCategory.Boundary));
+                                toResolve.Add((entry.Card, timing, null, ActivatedBridgeCategory.Boundary, entry.Inherited));
                             }
                         }
                     }
@@ -800,9 +824,9 @@ public static class WindowResolverWiring
                     // zone scan visits a card exactly once.
                     foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
                     {
-                        foreach (HeadlessEntityId cardId in ScanZones(zones, player))
+                        foreach (BridgeScanEntry entry in ScanZones(context, zones, player))
                         {
-                            toResolve.Add((cardId, timing, gameEvent, ActivatedBridgeCategory.Broadcast));
+                            toResolve.Add((entry.Card, timing, gameEvent, ActivatedBridgeCategory.Broadcast, entry.Inherited));
                         }
                     }
                 }
@@ -847,7 +871,7 @@ public static class WindowResolverWiring
         // any-match over CardSources. OnAddSecurity is NOT collapsed: AS-IS fires it PER SINGLE card (per IAddSecurity),
         // so its per-CardMoved derivation already matches AS-IS (a batch collapse would WRONGLY under-fire it).
         var firedAddHandBatch = new HashSet<(HeadlessEntityId Card, long BatchId)>();
-        foreach ((HeadlessEntityId card, EffectTiming timing, GameEvent? drivingEvent, ActivatedBridgeCategory category) in toResolve)
+        foreach ((HeadlessEntityId card, EffectTiming timing, GameEvent? drivingEvent, ActivatedBridgeCategory category, bool inherited) in toResolve)
         {
             if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
                 || instance is null || instance.OwnerId.IsEmpty)
@@ -874,7 +898,7 @@ public static class WindowResolverWiring
             // AutoProcessing.cs:770-857); its window loop re-checks only CanActivate on ALREADY-stacked entries
             // (MultipleSkills.cs:122/164-165) and NEVER re-collects existence for the original timing. Moving it
             // per-pass would DIVERGE (admit an entry AS-IS never collects).
-            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasActivatedEffectsAt(context, card, instance.OwnerId, timing))
+            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.HasActivatedEffectsAt(context, card, instance.OwnerId, timing, inheritedScan: inherited))
             {
                 continue;
             }
@@ -884,7 +908,7 @@ public static class WindowResolverWiring
             // is false at collect is never stacked (AS-IS GetSkillInfos filters it out), and one collected here
             // is NOT canUse-re-checked per pass (MarkerGate re-checks only the CanActivate half, mirroring
             // MultipleSkills.cs:122/164-165).
-            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.CanCollectAt(context, card, instance.OwnerId, timing, drivingEvent))
+            if (!Assets.Scripts.Script.CardEffectCommons.ActivatedEffectResolver.CanCollectAt(context, card, instance.OwnerId, timing, drivingEvent, inheritedScan: inherited))
             {
                 continue;
             }
@@ -928,7 +952,7 @@ public static class WindowResolverWiring
                 continue;
             }
 
-            TimingWindowTrigger bridgeTrigger = MakeActivatedBridgeTrigger(card, timing, instance.OwnerId, drivingEvent, category, sequence++);
+            TimingWindowTrigger bridgeTrigger = MakeActivatedBridgeTrigger(card, timing, instance.OwnerId, drivingEvent, category, sequence++, inherited);
 
             // (D-1 order) stamp the delete-batch id onto a deletion-derived activated trigger (OnLeaveFieldAnyone —
             // the cross-card bystander leave reactor, e.g. AD1_025) so the window loop sequences CROSS-batch leaves
@@ -1009,23 +1033,59 @@ public static class WindowResolverWiring
     /// fired. Behavior-neutral for battle-area effects: every mirrored card guards its own zone
     /// (IsExistOnBattleArea / IsExistOnTrash) exactly like AS-IS, and non-reactive cards are filtered by
     /// HasActivatedEffectsAt below.</summary>
-    private static IEnumerable<HeadlessEntityId> ScanZones(IZoneStateReader zones, HeadlessPlayerId player)
+    private static IEnumerable<BridgeScanEntry> ScanZones(EngineContext context, IZoneStateReader zones, HeadlessPlayerId player)
     {
-        foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.BattleArea))
+        foreach (HeadlessEntityId topId in zones.GetCards(player, ChoiceZone.BattleArea))
         {
-            yield return cardId;
+            // The top permanent's OWN (non-inherited) effects.
+            yield return new BridgeScanEntry(topId, Inherited: false);
+
+            // (F1-M1-INHERITSCAN) also visit the top permanent's DIGIVOLUTION SOURCES — AS-IS
+            // Permanent.EffectList_ForCard (Permanent.cs:1503-1546) iterates the WHOLE stack and exposes each
+            // NON-TOP source's INHERITED effects while the source is non-flipped and the permanent is a Digimon.
+            // The former top-only scan missed every inherited activated reactor sitting under another Digimon
+            // (design item F1-M1-INHERITSCAN — affects every activated bridge timing). Reuse the same stack read
+            // (DigivolutionStackReader) + the AS-IS membership gate (InheritedEffectHelpers.ActiveInheritedSources:
+            // non-flipped sources of a Digimon permanent) that the C-3 CONTINUOUS inherited scan uses, so the
+            // source-vs-top split is byte-identical across the continuous and activated halves. Trash/hand cards
+            // have no digivolution stack (a trashed permanent's sources are separate top-level trash cards), so
+            // only the battle area yields sources.
+            HeadlessDCGO.Engine.Headless.State.DigivolutionStack stack =
+                HeadlessDCGO.Engine.Headless.State.DigivolutionStackReader.Read(
+                    context.CardInstanceRepository, context.CardRepository, topId);
+            if (!stack.IsEmpty && stack.UnderCards.Count > 0)
+            {
+                bool hostIsDigimon =
+                    new Assets.Scripts.Script.CardEffectCommons.Permanent(context, topId, player).IsDigimon;
+                foreach (HeadlessEntityId source in
+                         Assets.Scripts.Script.CardEffectCommons.InheritedEffectHelpers.ActiveInheritedSources(
+                             stack, id => IsSourceFlipped(context, id), permanentIsDigimon: hostIsDigimon))
+                {
+                    yield return new BridgeScanEntry(source, Inherited: true);
+                }
+            }
         }
 
         foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.Trash))
         {
-            yield return cardId;
+            yield return new BridgeScanEntry(cardId, Inherited: false);
         }
 
         foreach (HeadlessEntityId cardId in zones.GetCards(player, ChoiceZone.Hand))
         {
-            yield return cardId;
+            yield return new BridgeScanEntry(cardId, Inherited: false);
         }
     }
+
+    /// <summary>AS-IS <c>cardSource.IsFlipped</c> — a face-down (flipped) digivolution source contributes no
+    /// inherited effect (Permanent.cs:1508). Mirrors the flip predicate ContinuousFieldMembership reads.</summary>
+    private static bool IsSourceFlipped(EngineContext context, HeadlessEntityId id) =>
+        context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+        && rec.Metadata.TryGetValue("isFlipped", out object? raw) && raw is true;
+
+    /// <summary>(F1-M1-INHERITSCAN) One scanned bridge candidate: a card that may react at a timing, plus whether
+    /// it is a digivolution SOURCE (inherited effect) rather than a top permanent.</summary>
+    private readonly record struct BridgeScanEntry(HeadlessEntityId Card, bool Inherited);
 }
 
 /// <summary>(Phase 2) The equivalence port for a sync-window cut-over: reproduce the legacy

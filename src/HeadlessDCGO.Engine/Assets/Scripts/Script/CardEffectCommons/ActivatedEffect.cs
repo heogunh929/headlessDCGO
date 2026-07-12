@@ -574,7 +574,8 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         string description,
         bool refundWhenNotExecuted = false,
         Func<CardSource, IReadOnlyList<HeadlessEntityId>, bool>? executedPredicate = null,
-        string? capHash = null)
+        string? capHash = null,
+        bool isInheritedEffect = false)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(body);
@@ -589,6 +590,7 @@ public sealed class ActivatedEffect : IActivatedCardEffect
         Description = description;
         RefundWhenNotExecuted = refundWhenNotExecuted;
         ExecutedPredicate = executedPredicate;
+        IsInheritedEffect = isInheritedEffect;
         // (2026-07-11 re-review) The once-per-turn cap PARTITION mirrors AS-IS IsSameEffect
         // (ICardEffect.cs:860-933): with NO HashString, every effect of the SAME SOURCE CARD counts as "the
         // same effect" for GetUseCountThisTurn — timing- and body-blind (a card whose two capped effects must
@@ -620,6 +622,16 @@ public sealed class ActivatedEffect : IActivatedCardEffect
     public bool IsOptional { get; }
 
     public string Description { get; }
+
+    /// <summary>(F1-M1-INHERITSCAN) Mirror of the AS-IS <c>ActivateClass.SetIsInheritedEffect(true)</c> flag — an
+    /// INHERITED (digivolution-source) activated skill. AS-IS <c>Permanent.EffectList_ForCard</c>
+    /// (Permanent.cs:1526) exposes an inherited effect ONLY from a NON-TOP source of a Digimon permanent (never
+    /// from the top card), and a top card contributes only its NON-inherited effects. The activated bridge
+    /// (<c>WindowResolverWiring</c>) reads this to route the source-vs-top membership: a source-scan collects
+    /// only inherited activated effects; a top-scan only non-inherited ones. Default <c>false</c> (a plain
+    /// top-card [Main]/trigger activated skill) — every effect ported before this flag stays non-inherited, so
+    /// the top-scan keeps it exactly as before (behaviour-neutral).</summary>
+    public bool IsInheritedEffect { get; }
 
     /// <summary>(B-4 rework) PER-CARD opt-in mirror of the AS-IS body's explicit <c>if (!executed) RemoveUse()</c>
     /// (~38 cards, e.g. AD1_024:265 / BT14_029:114). The AS-IS DEFAULT (the other ~1,170 [Once Per Turn] cards) is

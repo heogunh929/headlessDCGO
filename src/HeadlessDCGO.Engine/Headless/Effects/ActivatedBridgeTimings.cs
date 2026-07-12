@@ -153,17 +153,18 @@ public static class ActivatedBridgeTimings
         //   in EX4_050/BT25_088/BT25_040/BT15_037/BT15_084/BT21_093/BT24_016 all belong to OTHER effects/timings in
         //   those files, not the OnLoseSecurity block), so there are ZERO hand/trash/security-resident listeners and
         //   ScanZones (battle+trash+hand) covers them — no zone extension needed.
-        //   INHERITED (design item F1-M1-INHERITSCAN): ~28 of the 73 register OnLoseSecurity as an INHERITED (진화원)
-        //   effect (SetIsInheritedEffect(true) — e.g. BT13_003/BT24_016/BT25_040/BT6_034…). AS-IS collects these from a
-        //   permanent's DigivolutionCards; the headless activated bridge (ScanZones → HasActivatedEffectsAt) dispatches
-        //   only the TOP battle-area instance's OWN effect class and NEVER iterates the digivolution-source cards under
-        //   it, so an inherited activated reactor on a SOURCE is missed — a GENUINE structural gap (it affects EVERY
-        //   activated bridge timing, not just OnLoseSecurity: there is no inherited-source activated scan anywhere in
-        //   the bridge), NOT a topology error to dismiss. It is currently LATENT: only 2 of the 73 are genuinely ported
-        //   (BT15_037 self-scope, BT24_018 enemy-scope — both NON-inherited top-permanent reactors); all ~28 inherited
-        //   cards are skeleton stubs (no live effect class), so 0 ported reactors need it today. Close this when the
-        //   first inherited activated reactor is ported: add a digivolution-source scan to the bridge (mirror AS-IS
-        //   GetSkillInfos iterating permanent.DigivolutionCards' inherited effects).
+        //   INHERITED (F1-M1-INHERITSCAN — RESOLVED 2026-07-12 for uniform ActivatedEffect reactors): ScanZones now
+        //   also yields each battle-area top's active digivolution-SOURCE ids (InheritedEffectHelpers.ActiveInheritedSources,
+        //   the C-3 membership: inherited=non-top only · flipped skipped · non-top requires Digimon host), and the
+        //   resolver's MembershipKeeps splits inherited-source scan (ActivatedEffect.IsInheritedEffect=true only) from
+        //   the top scan (non-inherited only). So an inherited `ActivatedEffect` reactor on a source now fires.
+        //   SCOPE (not over-claim): this covers ONLY uniform `ActivatedEffect` bridge reactors. Two adjacencies stay
+        //   uncovered and are SEPARATE pre-existing items, NOT this scan: (a) inherited TRIGGER reactors that are
+        //   `IHeadlessCardEffect` not `IActivatedCardEffect` (TriggeredMemoryEffect/UnsuspendSelfTriggerEffect — e.g.
+        //   OnDestroyedAnyone memory on a source) ride the scheduler half, which has no inherited-source iteration; and
+        //   (b) LINKED-effect sources (AS-IS EffectList_ForCard IsLinkedEffect at Permanent.cs:1532) — ScanZones yields
+        //   inherited sources only, not linked; 0 linked-activated reactors ported (latent). Witness = BT9_021 (inherited
+        //   OnAddHand). Remaining ~28 inherited OnLoseSecurity cards are skeleton stubs → picked up unchanged when ported.
         //   SCHEDULER-HALF SYMMETRY: TriggerTimings.BroadcastTimings (the scheduler/memory-DP half) is intentionally
         //   NOT updated — all 73 AS-IS OnLoseSecurity effects are uniform `new ActivateClass()` (activated-half), so
         //   there are ZERO memory/DP (IHeadlessCardEffect) OnLoseSecurity reactors that the scheduler half would
@@ -276,10 +277,13 @@ public static class ActivatedBridgeTimings
         //     (WhendAddSecurity.cs) delegates to the lose-security shape (player-scope over the gaining player, NO
         //     cause). Headless derives OnAddSecurity from a ->Security CardMoved (TriggerTimingMap.cs:159), one per
         //     added card, so it naturally fires PER CARD — NO batch collapse (matching AS-IS's per-IAddSecurity fire).
-        //   INHERITED (design item F1-M1-INHERITSCAN, latent, shared): the bridge dispatches only the TOP instance's
-        //   own effect class and never iterates digivolution-source inherited effects; an inherited OnAddHand/
-        //   OnAddSecurity reactor under another Digimon would be missed. All ported witnesses are NON-inherited
-        //   top-permanent reactors, so 0 ported reactors need it today; close with the shared inherited-source scan.
+        //   INHERITED (design item F1-M1-INHERITSCAN, RESOLVED): the shared digivolution-source scan is now wired
+        //   (WindowResolverWiring.ScanZones yields each battle-area permanent's active inherited sources; the
+        //   resolver's HasActivatedEffectsAt/CanCollectAt/CanActivateAt/ResolveAsync apply the AS-IS
+        //   EffectList_ForCard membership split via ActivatedEffect.IsInheritedEffect). BT9_021 (OnAddHand,
+        //   SetIsInheritedEffect(true)) is the ported witness — it fires as a non-flipped source under a Digimon
+        //   host and NOT as a top permanent. OnAddSecurity's inherited card (BT9_003) is still a skeleton stub, so
+        //   its inherited reactor stays latent until ported (the scan will pick it up unchanged).
         //   REVEAL-TO-HAND (design item F1-ADDHAND-REVEAL, latent): AS-IS RevealLibrary routes its selected/remainder
         //   to hand via AddHandCards(list, false, activateClass) — a NON-null cause, so it DOES fire OnAddHand. The
         //   headless reveal state machine (RevealAndSelect.MoveAsync → AddToHandAsync) does not thread the reveal's
