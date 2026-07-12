@@ -317,6 +317,16 @@ public static class DigivolutionStackHelpers
 
         foreach ((HeadlessEntityId id, HeadlessPlayerId owner) in discarded)
         {
+            // (MIG3 review P2-2) AS-IS ITrashDigivolutionCards skips AddTrashCard for a TOKEN source
+            // (CardController.cs:5227-5230 `if (!cardSource.IsToken)`) — a trashed token vanishes instead of
+            // becoming a real trash card. Same isToken handling as DeDigivolveHelpers.ArmorPurgeTopAsync.
+            bool isToken = repository.TryGetInstance(id, out CardInstanceRecord? tokenRecord) && tokenRecord is not null
+                && tokenRecord.Metadata.TryGetValue("isToken", out object? tokenRaw) && tokenRaw is true;
+            if (isToken)
+            {
+                continue; // already off-stack (ChoiceZone.None) — vanishes, no trash move.
+            }
+
             await zoneMover.MoveAsync(
                 new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.Trash), cancellationToken).ConfigureAwait(false);
         }

@@ -451,6 +451,15 @@ public sealed class CardSource
     public bool IsDigimon => Definition?.IsCardType("Digimon") == true;
     public bool IsTamer => Definition?.IsCardType("Tamer") == true;
     public bool IsOption => Definition?.IsCardType("Option") == true;
+    /// <summary>(MIG2) AS-IS <c>CardSource.IsDigiEgg</c> (CardSource.cs:3466) — both fixture spellings.</summary>
+    public bool IsDigiEgg => Definition?.IsCardType("DigiEgg") == true || Definition?.IsCardType("Digitama") == true;
+    /// <summary>(MIG2 substrate) Whether a card DEFINITION is registered at all. AS-IS every CardSource carries
+    /// a CEntity — a definition-less instance exists only in abstract test fixtures; rule predicates that would
+    /// trash a card for its TYPE gate on this (fixture guard, same family as the D-2 defined-DP guard).</summary>
+    public bool HasDefinition => Definition is not null;
+    /// <summary>(MIG2) AS-IS <c>CardSource.IsFlipped</c> — the shared face-down instance flag.</summary>
+    public bool IsFlipped => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? f) && f is not null
+        && f.Metadata.TryGetValue("isFlipped", out object? flip) && flip is true;
     /// <summary>(joint-migration) public card-type check for scope synthesis in restriction producers.</summary>
     public bool IsCardType(string cardType) => Definition?.IsCardType(cardType) == true;
     public bool IsToken => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
@@ -578,7 +587,7 @@ public sealed class CardSource
     /// matches BOTH the host AND (CanLink) at least one owner battle-area Digimon (a battle-area host trivially
     /// satisfies that second clause). PayCost=false skips the memory check; the PayCost / allowBreeding variants
     /// land with their first witness (design item C2-02).</summary>
-    public bool CanLinkToTargetPermanent(Permanent? targetPermanent)
+    public bool CanLinkToTargetPermanent(Permanent? targetPermanent, bool PayCost = false, bool allowBreeding = false)
     {
         if (targetPermanent is null)
         {
@@ -592,27 +601,36 @@ public sealed class CardSource
         }
 
         var zones = (IZoneStateReader)Context.ZoneMover;
-        // AS-IS allowBreeding:false: a breeding-area permanent is not a valid link host.
-        if (zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BreedingArea).Contains(targetPermanent.InstanceId))
+        // AS-IS (CardSource.cs:3343): `allowBreeding || !target.Owner.GetBreedingAreaPermanents().Contains(target)`
+        // — a breeding-area permanent is a valid link host ONLY when the caller allows breeding (the rule
+        // predicate IsDigimonLackLinkCondition passes true; its trash-list re-filter passes false).
+        if (!allowBreeding && zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BreedingArea).Contains(targetPermanent.InstanceId))
         {
             return false;
         }
 
-        // AS-IS this.CanLink(false): THIS card declares a link condition matched by >= 1 owner battle-area Digimon.
+        // AS-IS this.CanLink(false, allowBreeding) (CardSource.cs:3140): THIS card declares a link condition
+        // matched by >= 1 owner permanent — GetBattleAreaDigimons normally, GetFieldPermanents (battle +
+        // breeding, NO Digimon filter) when allowBreeding — the AS-IS branch asymmetry, preserved.
         LinkCondition? link = LinkConditionOf();
         if (link is null)
         {
             return false;
         }
 
-        bool canLinkSomewhere = zones.GetCards(Owner, ChoiceZone.BattleArea)
-            .Any(id => CardEffectCommons.IsOwnerBattleAreaDigimon(this, id)
-                && link.digimonCondition(new Permanent(Context, id, Owner)));
+        bool canLinkSomewhere = allowBreeding
+            ? zones.GetCards(Owner, ChoiceZone.BattleArea).Concat(zones.GetCards(Owner, ChoiceZone.BreedingArea))
+                .Any(id => link.digimonCondition(new Permanent(Context, id, Owner)))
+            : zones.GetCards(Owner, ChoiceZone.BattleArea)
+                .Any(id => CardEffectCommons.IsOwnerBattleAreaDigimon(this, id)
+                    && link.digimonCondition(new Permanent(Context, id, Owner)));
         if (!canLinkSomewhere)
         {
             return false;
         }
 
+        // AS-IS PayCost branch (GetChangedLinkCost vs Owner.MaxMemoryCost) = design item C2-02 (lands with its
+        // first witness; every in-scope caller passes false, matching the AS-IS rule-process call sites).
         // AS-IS linkCondition.digimonCondition(target).
         return link.digimonCondition(targetPermanent);
     }
@@ -2024,8 +2042,52 @@ public sealed class Permanent
     /// <summary>The top (battling) card of this permanent as a <see cref="CardSource"/>.</summary>
     public CardSource TopCard => new(_context, InstanceId, OwnerId);
 
-    /// <summary>Effective DP (base + continuous modifiers), or 0.</summary>
-    public int DP => ContinuousDpGate.ResolveDp(_context, InstanceId, BaseDp());
+    /// <summary>(MIG2) AS-IS <c>Permanent.HasDP</c> (Permanent.cs:146-189): only a (treated-as) Digimon has DP,
+    /// and a Digi-Egg without printed DP has none. The <c>IDontHaveDPEffect</c> scan (:166-185) has no headless
+    /// producer yet — design item MIG2-DONTHAVEDP.</summary>
+    public bool HasDP
+    {
+        get
+        {
+            if (!IsDigimon)
+            {
+                return false;
+            }
+
+            if (!TopCard.HasDP && TopCard.IsDigiEgg)
+            {
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>(MIG2 substrate guard) Whether ANY dp value is defined for this permanent (instance or printed).
+    /// AS-IS real Digimon always print DP, so its DP-rule predicates never meet a DP-less Digimon; headless
+    /// abstract fixtures do — the D-2 sweep decision ("only when DP is actually DEFINED") is preserved by
+    /// gating the rule predicates on this.</summary>
+    public bool IsDpDefined =>
+        (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+            && i.Metadata.TryGetValue("dp", out object? raw) && raw is int)
+        || TopCard.HasDP;
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.DP</c> (Permanent.cs:499-692): -1 when the permanent has no DP at all
+    /// (<see cref="HasDP"/> false — the <c>IsNotHavingDP</c> rule marker); a defined DP folds continuous
+    /// modifiers and clamps at 0 (:686-689).</summary>
+    public int DP
+    {
+        get
+        {
+            if (!HasDP)
+            {
+                return -1;
+            }
+
+            int resolved = ContinuousDpGate.ResolveDp(_context, InstanceId, BaseDp());
+            return resolved < 0 ? 0 : resolved;
+        }
+    }
 
     /// <summary>(A3) Mirror of <c>Permanent.Level</c> (Permanent.cs:48-102): seeds from the top card's
     /// (already card-level-folded) level, then EVERY active <see cref="CardEffects.ChangePermanentLevelClass"/>
@@ -2052,8 +2114,15 @@ public sealed class Permanent
     }
 
     public bool HasNoDigivolutionCards => DigivolutionCards.Count == 0;
-    public bool IsDigimon => TopCard.IsDigimon;
-    public bool IsTamer => TopCard.IsTamer;
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.IsDigimon</c> (Permanent.cs:3438-3511) via the K4 chokepoint:
+    /// face-down is never a Digimon; printed Digimon OR Digi-Egg is; else the live TreatAsDigimon
+    /// (<c>ITreatAsDigimonEffect</c>) keyword scan decides.</summary>
+    public bool IsDigimon => ContinuousKeywordGate.IsDigimon(_context, InstanceId);
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.IsTamer</c> (Permanent.cs:3515-3532): a face-down top is not a Tamer.</summary>
+    public bool IsTamer => !TopCard.IsFlipped && TopCard.IsTamer;
+
     public bool IsToken => TopCard.IsToken;
 
     public bool IsSuspended =>
@@ -2076,6 +2145,111 @@ public sealed class Permanent
 
     /// <summary>(W6-P) mirror of AS-IS <c>Permanent.BaseDP</c> — the unmodified DP (IsMinDP/IsMaxDP read it).</summary>
     public int BaseDP => BaseDp();
+
+    // ===== (MIG2) link / rule-process members (AS-IS Permanent.cs) =============================================
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.LinkedCards</c> (Permanent.cs:1041) as live views (newest first —
+    /// the substrate list mirrors the AS-IS insert-at-0 ordering).</summary>
+    public List<CardSource> LinkedCards
+    {
+        get
+        {
+            if (!_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? host) || host is null)
+            {
+                return new List<CardSource>();
+            }
+
+            return LinkHelpers.ReadLinkedCardIds(host.Metadata)
+                .Select(id => new CardSource(
+                    _context,
+                    id,
+                    _context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? link) && link is not null
+                        ? link.OwnerId
+                        : OwnerId))
+                .ToList();
+        }
+    }
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.LinkedMax</c> (Permanent.cs:896): base 1 folded with active
+    /// <c>IChangeLinkMaxEffect</c>s (the M-4 continuous linkedMaxDelta fold).</summary>
+    public int LinkedMax => LinkHelpers.ResolveLinkedMax(_context, InstanceId);
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.HasNoLinkCards</c> (Permanent.cs:3958).</summary>
+    public bool HasNoLinkCards => LinkedCards.Count == 0;
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.IsPlaceToTrashDueToNotHavingDP</c> (Permanent.cs:3694, default true;
+    /// effects may clear the flag).</summary>
+    public bool IsPlaceToTrashDueToNotHavingDP =>
+        !(_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+            && i.Metadata.TryGetValue(GameFlowProcessor.PlaceToTrashDueToNoDpKey, out object? optOut) && optOut is false);
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.IsPlayedOptionPermanent</c> (Permanent.cs:3946, default false — an
+    /// Option a card effect legitimately keeps on the battle area).</summary>
+    public bool IsPlayedOptionPermanent =>
+        _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? p) && p is not null
+            && p.Metadata.TryGetValue(GameFlowProcessor.IsPlayedOptionPermanentKey, out object? played) && played is true;
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.CanBeDestroyed()</c> (Permanent.cs:3186-3229): no active
+    /// <c>ICanNotBeDestroyedEffect</c> protects this permanent — the same Delete/Prevent replacement set the
+    /// mutation sink consults (<c>IsDeletionPreventedByContinuous</c>), evaluated predicate-side so the DP-0
+    /// rule never re-selects a protected Digimon.</summary>
+    public bool CanBeDestroyed()
+    {
+        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(
+            _context, ContinuousRestrictionGate.Scope, InstanceId);
+        foreach (ReplacementEffect replacement in result.Replacements)
+        {
+            if (replacement.EventKind == ReplacementEventKind.Delete && replacement.ActionKind == ReplacementActionKind.Prevent)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>(MIG2) AS-IS <c>Permanent.RemoveLinkedCard(cardSource, removeCount, trashCard)</c>
+    /// (Permanent.cs:1306-1348). A direct removal does NOT open the OnLinkCardDiscarded window — the batch
+    /// window is <see cref="ITrashLinkCards"/>' job (CardController.cs:5314). With <paramref name="removeCount"/>
+    /// &gt; 0 the OWNER SELECTS which link cards to trash (AS-IS SelectCardEffect, mode Discard, root Custom =
+    /// LinkedCards, canEndNotMax:false): the substrate opens the card choice and parks (request-id prefix
+    /// <see cref="AutoProcessing.LinkTrimRequestIdPrefix"/>); MetadataActionProcessor routes each pick through
+    /// ITrashLinkCards — the AS-IS Mode.Discard linked-card branch (SelectCardEffect.cs:715-724).</summary>
+    public async Task RemoveLinkedCard(CardSource? cardSource, int removeCount = 0, bool trashCard = true, CancellationToken cancellationToken = default)
+    {
+        if (cardSource is not null && LinkedCards.Any(linked => linked.InstanceId == cardSource.InstanceId))
+        {
+            await LinkHelpers.RemoveLinkCardAsync(
+                _context.CardInstanceRepository, _context.ZoneMover, InstanceId, cardSource.InstanceId,
+                trash: trashCard, gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (removeCount > 0)
+        {
+            List<CardSource> linked = LinkedCards;
+            int maxCount = Math.Min(removeCount, linked.Count);
+            if (maxCount <= 0)
+            {
+                return;
+            }
+
+            ChoiceCandidate[] candidates = linked
+                .Select(card => EffectChoiceHelpers.Candidate(
+                    card.InstanceId, card.InstanceId.Value, Headless.Choices.ChoiceZone.LinkedCards, isSelectable: true, OwnerId))
+                .ToArray();
+            ChoiceRequest request = EffectChoiceHelpers.CreateCardRequest(
+                OwnerId,
+                $"Select {maxCount} card to trash.",
+                maxCount,
+                maxCount,
+                canSkip: false,
+                Headless.Choices.ChoiceZone.LinkedCards,
+                candidates);
+            _context.ChoiceController.RequestChoice(
+                request,
+                new HeadlessEntityId($"{Assets.Scripts.Script.AutoProcessing.LinkTrimRequestIdPrefix}{InstanceId.Value}"));
+        }
+    }
 }
 
 /// <summary>

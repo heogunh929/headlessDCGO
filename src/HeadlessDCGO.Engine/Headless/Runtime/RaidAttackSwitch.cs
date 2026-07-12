@@ -137,18 +137,15 @@ public static class RaidAttackSwitch
 
         if (!result.IsSkipped && result.SelectedIds.Count > 0)
         {
-            context.AttackController.SwitchDefender(result.SelectedIds[0], "Raid switched the attack.");
-            // (PRIM-P0-timing) AS-IS AttackProcess.SwitchDefender fires OnAttackTargetChanged when the defender
-            // changes. RaidAttackSwitch excludes the current TargetId from candidates, so this is always a real
-            // change (satisfies the AS-IS newDefender != oldDefender guard). subject = the attacker.
-            if (context.AttackController.Current.AttackerId is HeadlessEntityId switchedAttacker)
-            {
-                TriggerEventEmitter.Emit(
-                    context.GameEventQueue,
-                    TriggerTimings.OnAttackTargetChanged,
-                    actor: context.AttackController.Current.AttackingPlayerId,
-                    subject: switchedAttacker);
-            }
+            // (MIG1) AS-IS Raid retargets via the FULL attackProcess.SwitchDefender sequence (guards -> retarget ->
+            // OnAttackTargetChanged) — the mirror AttackProcess owns it (F1-ATC-EMIT-CENTRALIZE: the emit lives in
+            // SwitchDefender, so card-driven redirects share it). RaidAttackSwitch excludes the current TargetId
+            // from candidates, so the AS-IS newDefender != oldDefender guard always passes here.
+            Assets.Scripts.Script.AttackProcess
+                .For(context)
+                .SwitchDefender(causeEffectSourceId: null, isBlock: false, newDefendingPermanentId: result.SelectedIds[0])
+                .GetAwaiter()
+                .GetResult();
         }
 
         return true;

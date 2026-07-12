@@ -138,6 +138,14 @@ public static class TriggerTimingMap
             }
         }
 
+        // (MIG3 review NOTE-5) OnLoseSecurity derives BEFORE the discard windows: AS-IS fires it
+        // (IReduceSecurity, CardController.cs:4360) before OnDiscardSecurity (:4377), so same-event windows
+        // must list in that order for AS-IS-first resolution.
+        if (from == ChoiceZone.Security && to != ChoiceZone.Security)
+        {
+            timings.Add(TriggerTimings.OnLoseSecurity);
+        }
+
         // F-6.5: discards — a card sent to the trash from a NON-field zone is a discard, not a deletion
         // (OnDeletion above only opens for field→Trash). Each source zone has its own discard window.
         if (to == ChoiceZone.Trash)
@@ -159,11 +167,6 @@ public static class TriggerTimingMap
         if (to == ChoiceZone.Security && from != ChoiceZone.Security)
         {
             timings.Add(TriggerTimings.OnAddToSecurity);
-        }
-
-        if (from == ChoiceZone.Security && to != ChoiceZone.Security)
-        {
-            timings.Add(TriggerTimings.OnLoseSecurity);
         }
     }
 

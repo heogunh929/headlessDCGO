@@ -63,6 +63,10 @@ async Task TfxSelfFiresOnce()
     EngineContext ctx = Setup(seed: 70);
     ctx.MemoryController.Set(0);
     var attacker = await Place(ctx, P1, "TfxOnEndAttackCounter", "TFX", "Digimon");
+    // (MIG2) the defender needs a security stack: a direct attack into 0 security marks the defender LOST, and
+    // the AS-IS rule pass (EndGameProcess, AutoProcessing.cs:386) now consolidates that terminal BEFORE any
+    // pending window resolves — the old fixture asserted a fire in a game-over state.
+    await Security(ctx, P2, 1);
 
     await Attack(ctx, attacker);
 
@@ -113,6 +117,7 @@ async Task Bt9043OptionalFires()
     var attacker = await Place(ctx, P1, "BT9_043", "BT9_043", "Digimon");
     SetSuspended(ctx, attacker, true);                       // as it would be after attacking
     await Security(ctx, P1, 2);
+    await Security(ctx, P2, 1);                              // (MIG2) no game-over mid-attack — see TfxSelfFiresOnce
     var secTop = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Security)[0];
 
     // Answer the "You may" yes (the effect's stable EffectId with capHash). The body is non-interactive, so no
@@ -148,6 +153,7 @@ async Task Bt9043OncePerTurnCap()
     var attacker = await Place(ctx, P1, "BT9_043", "BT9_043", "Digimon");
     SetSuspended(ctx, attacker, true);
     await Security(ctx, P1, 2);
+    await Security(ctx, P2, 2);                              // (MIG2) two attacks — no game-over mid-attack
 
     // First attack this turn: accept the optional → one security card goes to hand (2 -> 1).
     Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{attacker.Value}:ae:Unsuspend_BT9_043")));
@@ -184,6 +190,7 @@ async Task Bt9062InheritedFires()
     EngineContext ctx = Setup(seed: 75);
     var (host, _) = await Tuck(ctx, hostDispatch: "HOSTA", hostName: "Alphamon", hostIsDigimon: true, sourceFlipped: false);
     var foe = await Foe(ctx, "FOE", playCost: 5);
+    await Security(ctx, P2, 1);                             // (MIG2) no game-over mid-attack — see TfxSelfFiresOnce
 
     Enqueue(ctx, ChoiceResult.Select(foe));                 // the cost<=5 opponent Digimon to delete (mandatory select)
 

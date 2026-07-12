@@ -220,20 +220,28 @@ public static class WindowResolverWiring
         catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException)
         {
             // (A-4 F3, scope corrected per the 2026-07-11 adversarial review) this loud guard enforces a HEADLESS
-            // design constraint, NOT an AS-IS invariant: AS-IS RuleProcess IS interactive on at least two paths —
-            // the link-overflow trim opens a mandatory select (AutoProcessing.cs:526-541 →
-            // Permanent.RemoveLinkedCard → SelectCardEffect canNoSelect:false, Permanent.cs:1321-1344), and the
-            // DP-lack deletion runs the would-be-deleted cut-in INLINE (AutoProcessing.cs:469-484 →
-            // DestroyPermanentsClass.Destroy → autoProcessing_CutIn.TriggeredSkillProcess, CardController.cs:
-            // ~3690-3718). Neither path is ported yet (headless has no link trimming; would-be-deleted defers to
-            // RunToStable), so this throw is currently unreachable — but the moment either is ported 1:1, the
-            // ported path must suspend/resume through the window machinery instead of tripping this guard.
+            // design constraint, NOT an AS-IS invariant: an exception-raised agent choice from inside the rule
+            // sweep would be silently dropped by the window driver. The PORTED interactive rule path (the MIG2
+            // link-max trim) does NOT throw — it parks its selection and returns; the pending-choice check below
+            // suspends the window for it. The DP-lack would-be-deleted cut-in still defers to RunToStable
+            // (DeletionReplacementTiming), so an exception here remains a design error, not a legal suspend.
             throw new NotSupportedException(
                 "State-based RuleProcessAsync raised an agent choice between window picks. The HEADLESS rule " +
                 "sweep is modeled non-interactive (replacement windows open at RunToStable, not here) — an " +
-                "interactive rule-process would be silently dropped by the window driver. AS-IS RuleProcess IS " +
-                "interactive on the link-trim / DP-lack cut-in paths; porting those requires window-driven " +
-                "suspend/resume here, not this guard.", ex);
+                "interactive rule-process would be silently dropped by the window driver. A ported interactive " +
+                "rule path must PARK its choice (pending-choice suspend below), not throw through the sweep.", ex);
+        }
+
+        // (MIG2 review P1-2) AS-IS RuleProcess IS interactive on the link-max trim path (AutoProcessing.cs:
+        // 524-537 → Permanent.RemoveLinkedCard(null, count) → SelectCardEffect, a mandatory owner selection) —
+        // the mirror parks that choice and returns. Mid-window, that park must SUSPEND the window through the
+        // standard machinery (AS-IS: the MultipleSkills window coroutine blocks inside the select); the
+        // ResolveChoice handler applies the trim and re-drives the parked window.
+        if (context.ChoiceController.Current.IsPending)
+        {
+            throw new WindowChoicePendingException(
+                "Between-picks rule processing parked an interactive rule choice (link-max trim); the window " +
+                "suspends and resumes after the selection resolves.");
         }
 
         return WindowResolveOutcome.Resolved;

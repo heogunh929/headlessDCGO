@@ -125,11 +125,36 @@ async Task SkippedBlockResolvesAgainstOriginalTarget()
 
 async Task AttackPipelineAdvancesPhaseByPhase()
 {
+    // (MIG1) AS-IS-faithful setup: the attacker must be a LIVE battle-area Digimon — the AS-IS post-counter
+    // boundary (AttackProcess.cs:301 `TopCard == null || !IsDigimon`) force-ends an attack whose attacker is
+    // not a live Digimon, so the old bare-context (no card records) setup asserted an impossible state. With a
+    // live attacker, the counter stage runs its AS-IS TWO passes (each parks one iteration for the cut-in drain).
     EngineContext context = EngineContext.CreateDefault(randomSeed: 11);
+    CardDatabase cards = (CardDatabase)context.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:ATK"), "ATK", "Attacker",
+        new Dictionary<string, object?> { ["dp"] = 5000 }, CardType: "Digimon"));
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:TGT"), "TGT", "Target",
+        new Dictionary<string, object?> { ["dp"] = 3000 }, CardType: "Digimon"));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(AttackerId, new HeadlessEntityId("DEF:ATK"), Player,
+        Metadata: new Dictionary<string, object?> { [BattleResolver.DpKey] = 5000 }));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(TargetId, new HeadlessEntityId("DEF:TGT"), Opponent,
+        Metadata: new Dictionary<string, object?> { [BattleResolver.DpKey] = 3000 }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.None, ChoiceZone.BattleArea));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, TargetId, ChoiceZone.None, ChoiceZone.BattleArea));
+
     context.AttackController.DeclareAttack(Player, AttackerId, Opponent, TargetId, isDirectAttack: false);
     AssertEqual(AttackPhase.Declared, context.AttackController.Current.Phase, "declared phase");
 
     var pipeline = new AttackPipeline();
+
+    // AS-IS CounterTiming two-pass (AttackProcess.cs:266-296): each pass emits and parks one iteration.
+    AttackAdvanceResult pass1 = await pipeline.AdvanceAsync(context);
+    AssertTrue(pass1.Progressed, "counter pass 1 progressed");
+    AssertEqual(AttackPhase.Declared, context.AttackController.Current.Phase, "counter pass 1 parks at Declared");
+
+    AttackAdvanceResult pass2 = await pipeline.AdvanceAsync(context);
+    AssertTrue(pass2.Progressed, "counter pass 2 progressed");
+    AssertEqual(AttackPhase.Declared, context.AttackController.Current.Phase, "counter pass 2 parks at Declared");
 
     AttackAdvanceResult step1 = await pipeline.AdvanceAsync(context);
     AssertTrue(step1.Progressed, "step 1 progressed");

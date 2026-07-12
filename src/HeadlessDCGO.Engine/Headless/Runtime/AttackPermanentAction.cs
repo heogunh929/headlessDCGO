@@ -133,9 +133,9 @@ public sealed class AttackPermanentAction
             return ActionProcessResult.Illegal(action, validation.Reason, Metadata(action, payload, validation, context.AttackController.Current));
         }
 
-        SuspendAttacker(context, payload.AttackerId);
-        // (RD-9) declare + attack-declaration windows (OnAttack + OnAllyAttack) via the shared chokepoint so the
-        // effect-driven attack path fires the identical "[When Attacking]" window.
+        // (RD-9 / MIG1) declare via the shared chokepoint — the AS-IS Attack() sequence (suspend, snapshot,
+        // OnAttack + OnAllyAttack windows, gates) lives in the mirror AttackProcess; the attacker suspend happens
+        // there (a player attack never passes withoutTap).
         HeadlessAttackState attack = AttackDeclarationCommons.Declare(
             context,
             action.PlayerId,
@@ -348,21 +348,6 @@ public sealed class AttackPermanentAction
     private static bool IsDigimon(CardRecord card)
     {
         return card.IsCardType("Digimon");
-    }
-
-    private static void SuspendAttacker(EngineContext context, HeadlessEntityId attackerId)
-    {
-        if (!context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) || attacker is null)
-        {
-            return;
-        }
-
-        Dictionary<string, object?> metadata = new(attacker.Metadata, StringComparer.Ordinal)
-        {
-            [IsSuspendedKey] = true,
-            ["suspendedByAttack"] = true
-        };
-        context.CardInstanceRepository.Upsert(attacker with { Metadata = metadata });
     }
 
     private static bool ReadBool(

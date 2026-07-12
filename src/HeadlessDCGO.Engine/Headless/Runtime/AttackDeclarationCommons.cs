@@ -25,26 +25,34 @@ using HeadlessDCGO.Engine.Headless.State;
 /// </summary>
 public static class AttackDeclarationCommons
 {
-    /// <summary>Declare the attack on the controller and open the shared attack-declaration windows
-    /// (OnAttack + OnAllyAttack) with the attacker as subject. Returns the resulting attack state.</summary>
+    /// <summary>Declare the attack on the controller and run the AS-IS declaration sequence — (MIG1) the sequence
+    /// (field reset, counter snapshot, attacker suspend, OnAttack/OnAllyAttack windows, IsEndAttack + battle-area
+    /// gates) now lives in the mirror <see cref="Assets.Scripts.Script.AttackProcess.Attack"/> (AS-IS
+    /// AttackProcess.cs:73-253); this chokepoint keeps both callers on the identical path.</summary>
     public static HeadlessAttackState Declare(
         EngineContext context,
         HeadlessPlayerId declaringPlayer,
         HeadlessEntityId attackerId,
         HeadlessPlayerId defendingPlayer,
         HeadlessEntityId? targetId,
-        bool isDirectAttack)
+        bool isDirectAttack,
+        bool withoutTap = false,
+        HeadlessEntityId? attackEffectSourceId = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        HeadlessAttackState attack = context.AttackController.DeclareAttack(
+        // Substrate state write (AS-IS SetAttackerDefender + IsAttacking + AttackCount++).
+        context.AttackController.DeclareAttack(
             declaringPlayer, attackerId, defendingPlayer, targetId, isDirectAttack);
 
-        // G6-005: attack-declaration windows (subject = the attacker). OnAllyAttack is the AS-IS "[When
-        // Attacking]" window every headless attack-declaration effect binds to; OnAttack (= "OnUseAttack") is
-        // kept for parity with the player-action path (no live consumer today — a dead AS-IS timing).
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnAttack, actor: declaringPlayer, subject: attackerId);
-        TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnAllyAttack, actor: declaringPlayer, subject: attackerId);
-        return attack;
+        // AS-IS Attack() — suspend, snapshot, OnAttack + OnAllyAttack emits, gates. Completes synchronously
+        // (no beforeOnAttack callback on these paths).
+        Assets.Scripts.Script.AttackProcess
+            .For(context)
+            .Attack(attackerId, attackEffectSourceId, withoutTap)
+            .GetAwaiter()
+            .GetResult();
+
+        return context.AttackController.Current;
     }
 }

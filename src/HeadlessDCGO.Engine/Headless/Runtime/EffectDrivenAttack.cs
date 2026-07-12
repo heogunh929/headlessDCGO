@@ -194,22 +194,12 @@ public static class EffectDrivenAttack
             return false;
         }
 
-        if (!options.WithoutTap &&
-            context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) &&
-            attacker is not null &&
-            !ReadFlag(attacker.Metadata, IsSuspendedKey))
-        {
-            context.CardInstanceRepository.Upsert(attacker with
-            {
-                Metadata = new Dictionary<string, object?>(attacker.Metadata, StringComparer.Ordinal) { [IsSuspendedKey] = true }
-            });
-        }
-
-        // (RD-9) declare through the shared chokepoint so an effect-driven (Vortex/Overclock/Execute) attack
-        // fires the SAME "[When Attacking]" (OnAllyAttack) window as a player-declared attack. Previously this
-        // called DeclareAttack directly and emitted no window, so those triggers never fired.
+        // (RD-9 / MIG1) declare through the shared chokepoint — the AS-IS Attack() sequence (suspend when
+        // !WithoutTap, snapshot, OnAttack + OnAllyAttack windows, gates) lives in the mirror AttackProcess, so an
+        // effect-driven (Vortex/Overclock/Execute) attack runs the SAME path as a player-declared attack.
         AttackDeclarationCommons.Declare(
-            context, target.PlayerId, attackerId, target.DefendingPlayerId, target.TargetId, target.IsDirectAttack);
+            context, target.PlayerId, attackerId, target.DefendingPlayerId, target.TargetId, target.IsDirectAttack,
+            withoutTap: options.WithoutTap);
         return true;
     }
 

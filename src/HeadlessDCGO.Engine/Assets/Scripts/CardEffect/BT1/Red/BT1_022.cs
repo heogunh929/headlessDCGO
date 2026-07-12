@@ -56,7 +56,12 @@ public sealed class BT1_022 : CEntity_Effect
                 body: new DrawBody(1),
                 maxCountPerTurn: null,
                 isOptional: false,
-                description: "[Your Turn] When this Digimon is blocked, trigger <Draw 1>. (Draw 1 card from your deck.)"));
+                description: "[Your Turn] When this Digimon is blocked, trigger <Draw 1>. (Draw 1 card from your deck.)",
+                // AS-IS SetIsInheritedEffect(true) — this is a digitama INHERITED effect (fires only while this card
+                // is a NON-top digivolution source under the attacker). The original port dropped the flag (declared
+                // in the header comment but missing from the construction), so the inherited scan excluded it and the
+                // effect never fired — surfaced by the F1-Tier2 OnBlockAnyone e2e witness.
+                isInheritedEffect: true));
         }
 
         return cardEffects;

@@ -438,5 +438,57 @@ public static class ActivatedBridgeTimings
         // memory/DP reactors and no emit, so the asymmetry note in the F-1 design §4 — "update both halves" — is
         // moot until a real emit+card arrives at M1+.)
         EffectTiming.OnEndBlockDesignation,
+        // (F1-Tier2 OnAttackTargetChanged) "[When ... attack target changes] …" (31 AS-IS cards). First F-1 Tier2
+        // COMBAT-group timing — a WhenLinked-shape one-line register (all other infra pre-existing).
+        //   AS-IS emit: AttackProcess.SwitchDefender fires OnAttackTargetChanged when the attack's defender changes
+        //   (a <Raid> switch or a block re-targeting the attack onto the blocker), guarded by newDefender != old.
+        //   HEADLESS emit: ALREADY EXISTS at two explicit sites, both subject = the ATTACKER — RaidAttackSwitch.cs:146
+        //   (Raid defender switch) and BlockTiming.cs:186 (block re-target, `before.TargetId != blockerId` guard).
+        //   enum (CardPortingFramework.cs:124) + AllTimings + gate all pre-existing.
+        //   (design item F1-ATC-EMIT-CENTRALIZE, latent) AS-IS centralizes the emit INSIDE AttackProcess.SwitchDefender
+        //   (newDefender != old guard), so EVERY caller — block, Raid, AND ~40 card-driven "switch the attack target"
+        //   effects (BT9_044/EX8_050/BT18_073 …) — fires it automatically. The headless emit is DISTRIBUTED across the
+        //   two live callers instead. Today the only SwitchDefender caller is Raid (the card-driven redirect effects
+        //   are unported), so this is not a live under-fire; but a future redirect-effect port must either emit at its
+        //   own call or (cleaner) the emit should move INTO AttackController.SwitchDefender so all paths stay covered.
+        //   Gates (both ported): CanTriggerOnAttackTargetSwitch (self — SubjectPermanentContains, the reacting card is
+        //   a cardSource of the ATTACKER) and CanTriggerOnPermanentAttackTargetSwitch (anyone — an arbitrary
+        //   permanentCondition over the attacker permanent). subject=attacker → BuildUniformResolveContext.
+        //   TriggerEntityId, self-gate via SubjectPermanentContains, exactly like OnEndAttack.
+        //   CLASSIFICATION = EventBroadcast (NOT SubjectScoped): of the 31, some are self (attacker's own reactor,
+        //   e.g. BT21_035/BT11_014) but others react to ANY attacker's target switch (BT21_025 — a different card's
+        //   attack), so SubjectScoped would drop the anyone reactors. The field scan visits every card and self-gates.
+        //   BATCH: one target change = one emit with one subject (the attacker) — no list, no batch-id (like OnMove/
+        //   OnEndAttack). Multiple switches in one attack are separate emits.
+        //   INHERITED (F1-M1-INHERITSCAN, RESOLVED): ScanZones auto-covers an inherited reactor under the attacker.
+        //   SCHEDULER-HALF: unlike the other Tier2 timings, TriggerTimings.BroadcastTimings ALREADY registers
+        //   OnAttackTargetChanged (TriggerTimings.cs:163) — the scheduler-half (memory/DP IHeadlessCardEffect) cross-
+        //   card reactors already fire (NewTimingsFire OnAttackTargetChanged proves it). This EventBroadcast register
+        //   opens the ACTIVATED half (ActivateClass draw/select/etc.), which is the remaining gap. No inline scheduler
+        //   hook exists (unlike OnEndAttack's EndAttackTriggerHook), so no CollectUnifiedSeed skip is needed.
+        //   Witnesses: EX10_002 (Draw 1, inherited) / ST15_02 (Memory +1, inherited).
+        EffectTiming.OnAttackTargetChanged,
+        // (F1-Tier2 OnBlockAnyone) "[When this Digimon is blocked] …" (6 AS-IS cards). Combat-group timing.
+        //   AS-IS emit: AttackProcess.SwitchDefender (isBlock=true) fires StackSkillInfos(OnBlockAnyone) after the
+        //   blocker is suspended, payload {AttackingPermanent, DefendingPermanent(blocker), CardEffect, IsBlock}. ALL
+        //   6 reactors gate on the ATTACKER (CanTriggerOnAttack — the reacting card is a cardSource of the
+        //   AttackingPermanent); NONE read the blocker. So the timing is attacker-scoped despite the "blocked" name.
+        //   HEADLESS emit: BlockTiming.cs:180 — FIXED HERE to carry subject = the ATTACKER (it previously used the
+        //   blocker, so all 6 were unreachable in production). Blocker suspend unchanged.
+        //   CLASSIFICATION = EventBroadcast (NOT SubjectScoped): 3 of 6 are INHERITED (BT1_012/BT1_022/ST1_09), and
+        //   SubjectScoped hardcodes Inherited=false (drops digivolution-source reactors). All 6 are attacker-self
+        //   (0 cross-card), but EventBroadcast is required for the inherited coverage — same as OnEndAttack.
+        //   BATCH: one block = one emit, one subject (the attacker). No batch-id.
+        //   INHERITED (F1-M1-INHERITSCAN, RESOLVED for the ACTIVATED half): ScanZones covers an inherited activated
+        //   reactor (BT1_022 draw) under the attacker.
+        //   SCHEDULER-HALF (asymmetry vs the other Tier2 timings): unlike OnEndAttack/WhenLinked (0 memory/DP
+        //   reactors), OnBlockAnyone HAS scheduler-half reactors — BT1_012 (DP+2000) and ST1_09 (Memory+3) are bound
+        //   IHeadlessCardEffect. TriggerTimings.BroadcastTimings deliberately EXCLUDES OnBlockAnyone (per-card filter,
+        //   TriggerTimings.cs:108) and stays so: with the subject now = the attacker, the scheduler collector's
+        //   per-card filter (subject == card) reaches a TOP-attacker bound reactor directly. LATENT gap: a bound
+        //   reactor sitting on an inherited SOURCE under the attacker is NOT reached (the scheduler half has no
+        //   inherited-source scan — the scheduler-half counterpart of F1-M1-INHERITSCAN, design item F1-BLOCK-SCHED-
+        //   INHERIT). The ACTIVATED inherited reactor (BT1_022) IS covered by ScanZones here.
+        EffectTiming.OnBlockAnyone,
     };
 }

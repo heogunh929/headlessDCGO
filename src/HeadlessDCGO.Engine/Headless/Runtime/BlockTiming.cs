@@ -171,29 +171,17 @@ public sealed class BlockTiming
                 throw new InvalidOperationException($"Selected blocker '{blockerId.Value}' is not a legal blocker candidate.");
             }
 
-            HeadlessAttackState blocked = context.AttackController.SelectBlocker(blockerId);
-
-            // A3 fix — DCG rule: the blocking Digimon is suspended, then "when blocking" effects fire.
-            // Mirrors AS-IS AttackProcess.SwitchDefender (SuspendPermanentsClass.Tap() followed by
-            // StackSkillInfos(OnBlockAnyone)). Without this the blocker stayed unsuspended after a block.
-            SuspendBlocker(context, blockerId);
-            TriggerEventEmitter.Emit(
-                context.GameEventQueue,
-                TriggerTimings.OnBlock,
-                actor: blocked.DefendingPlayerId,
-                subject: blockerId);
-
-            // (PRIM-P0-timing) AS-IS AttackProcess.SwitchDefender also fires OnAttackTargetChanged on a block
-            // (the target changes from the prior target to the blocker). GetBlockerCandidates excludes the
-            // current TargetId, so before.TargetId != blockerId always holds — the faithful "changed" guard.
-            if (blocked.AttackerId is HeadlessEntityId blockedAttacker && before.TargetId != blockerId)
-            {
-                TriggerEventEmitter.Emit(
-                    context.GameEventQueue,
-                    TriggerTimings.OnAttackTargetChanged,
-                    actor: blocked.AttackingPlayerId,
-                    subject: blockedAttacker);
-            }
+            // (MIG1) AS-IS BlockTiming applies the selection via the FULL SwitchDefender sequence
+            // (AttackProcess.cs:376-379 `SwitchDefender(null, true, selectedPermanent)`): guards -> SelectBlocker ->
+            // blocker suspend -> OnBlockAnyone (subject = the ATTACKER — all AS-IS reactors gate on the attacker) ->
+            // death checks -> OnAttackTargetChanged (centralized in SwitchDefender, F1-ATC-EMIT-CENTRALIZE). The
+            // mirror AttackProcess owns that sequence now.
+            Assets.Scripts.Script.AttackProcess
+                .For(context)
+                .SwitchDefender(causeEffectSourceId: null, isBlock: true, newDefendingPermanentId: blockerId)
+                .GetAwaiter()
+                .GetResult();
+            HeadlessAttackState blocked = context.AttackController.Current;
 
             return BlockTimingResult.Success(
                 blocked,

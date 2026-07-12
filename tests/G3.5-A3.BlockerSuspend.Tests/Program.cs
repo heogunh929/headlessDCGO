@@ -67,12 +67,15 @@ async Task BlockingEmitsScopedOnBlock()
     GameEvent window = match.Context.GameEventQueue.DrainPending()
         .Single(e => string.Equals(e.Cause, TriggerTimings.OnBlock, StringComparison.Ordinal));
 
-    AssertEqual(BlockerId, window.Subject, "OnBlock window subject is the blocker");
-    AssertEqual(Opponent, window.Actor, "OnBlock actor is the blocker's owner");
+    // (F1-Tier2 OnBlockAnyone fidelity) AS-IS OnBlockAnyone reactors all gate on the ATTACKER (CanTriggerOnAttack —
+    // "[When this Digimon is blocked]"); the emit subject/actor are the attacker / attacking player, and the window is
+    // scoped to the attacker. (This test previously asserted the blocker, encoding the old subject=blocker bug.)
+    AssertEqual(AttackerId, window.Subject, "OnBlock window subject is the ATTACKER");
+    AssertEqual(Player, window.Actor, "OnBlock actor is the attacking player");
     AssertTrue(
         window.Metadata.TryGetValue(AutoProcessingTriggerCollector.SourceEntityIdKey, out object? scoped)
-            && scoped is HeadlessEntityId id && id == BlockerId,
-        "OnBlock window is scoped to the blocker");
+            && scoped is HeadlessEntityId id && id == AttackerId,
+        "OnBlock window is scoped to the attacker");
 }
 
 async Task SkippingDoesNotSuspendOrEmit()
@@ -95,10 +98,12 @@ async Task OnBlockEffectFires()
     DcgoMatch match = await CreateConfiguredMatchAsync();
     EngineContext context = match.Context;
 
-    var onBlock = new RecordingFakeEffect("blk-fx", BlockerId.Value, TriggerTimings.OnBlock);
-    var unrelated = new RecordingFakeEffect("other-fx", InitialTargetId.Value, TriggerTimings.OnBlock);
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest("blk-fx", BlockerId.Value, TriggerTimings.OnBlock), effect: onBlock));
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest("other-fx", InitialTargetId.Value, TriggerTimings.OnBlock), effect: unrelated));
+    // (F1-Tier2 OnBlockAnyone fidelity) the reactor lives on the ATTACKER (gates via CanTriggerOnAttack); a reactor on
+    // the blocker stays dormant (the window is scoped to the attacker, not the blocker).
+    var onBlock = new RecordingFakeEffect("atk-fx", AttackerId.Value, TriggerTimings.OnBlock);
+    var unrelated = new RecordingFakeEffect("blk-fx", BlockerId.Value, TriggerTimings.OnBlock);
+    context.EffectRegistry.Register(new EffectBinding(CreateRequest("atk-fx", AttackerId.Value, TriggerTimings.OnBlock), effect: onBlock));
+    context.EffectRegistry.Register(new EffectBinding(CreateRequest("blk-fx", BlockerId.Value, TriggerTimings.OnBlock), effect: unrelated));
 
     await DeclareDirectAttackAsync(match);
     var timing = new BlockTiming();
@@ -117,8 +122,8 @@ async Task OnBlockEffectFires()
 
     await context.EffectScheduler.ResolveAllAsync();
 
-    AssertEqual(1, onBlock.ResolveCalls, "blocker's OnBlock effect fired once");
-    AssertEqual(0, unrelated.ResolveCalls, "another card's OnBlock effect stayed dormant (scoped)");
+    AssertEqual(1, onBlock.ResolveCalls, "the attacker's OnBlock effect fired once");
+    AssertEqual(0, unrelated.ResolveCalls, "the blocker's OnBlock effect stayed dormant (window scoped to the attacker)");
 }
 
 // --- Harness (trimmed from G2G-002) --------------------------------------

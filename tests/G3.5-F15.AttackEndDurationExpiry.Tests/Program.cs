@@ -44,7 +44,10 @@ async Task AttackEndExpires()
 
     context.AttackController.DeclareAttack(Player, AttackerId, Opponent, TargetId, isDirectAttack: false);
     var pipeline = new AttackPipeline();
-    for (int step = 0; step < 6 && context.AttackController.Current.Phase is not AttackPhase.Completed and not AttackPhase.None; step++)
+    // (MIG1) drive through CLEANUP (Phase == None): AS-IS resets UntilEndAttackEffects in Cleanup()
+    // (AttackProcess.cs:489-496) — AFTER the [On End Attack] window — not at the End stage, so the boost must
+    // still be live at Completed and expire only once the attack fully clears.
+    for (int step = 0; step < 10 && context.AttackController.Current.Phase is not AttackPhase.None; step++)
     {
         await pipeline.AdvanceAsync(context);
     }

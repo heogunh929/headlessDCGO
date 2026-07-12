@@ -520,6 +520,52 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 return ActionProcessResult.Success("Window choice resolved.", windowMetadata);
             }
 
+            // (MIG2) the rule-process link-max trim selection (AS-IS Permanent.RemoveLinkedCard(null, count)
+            // -> SelectCardEffect mode Discard over LinkedCards) — each selected link card routes through
+            // ITrashLinkCards, the AS-IS Mode.Discard linked-card branch (SelectCardEffect.cs:715-724); a
+            // plain ResolveChoice would clear the choice without trashing anything.
+            if (context.ChoiceController.Current.RequestId?.Value is { } linkTrimRequestId &&
+                linkTrimRequestId.StartsWith(Assets.Scripts.Script.AutoProcessing.LinkTrimRequestIdPrefix, StringComparison.Ordinal))
+            {
+                var linkHostId = new HeadlessEntityId(
+                    linkTrimRequestId[Assets.Scripts.Script.AutoProcessing.LinkTrimRequestIdPrefix.Length..]);
+                HeadlessChoiceState linkTrimChoice = context.ChoiceController.ResolveChoice(result);
+
+                if (context.CardInstanceRepository.TryGetInstance(linkHostId, out CardInstanceRecord? linkHost) && linkHost is not null)
+                {
+                    var hostPermanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, linkHostId, linkHost.OwnerId);
+                    foreach (HeadlessEntityId selectedId in result.SelectedIds)
+                    {
+                        HeadlessPlayerId linkOwner = context.CardInstanceRepository.TryGetInstance(selectedId, out CardInstanceRecord? link) && link is not null
+                            ? link.OwnerId
+                            : linkHost.OwnerId;
+                        await new Assets.Scripts.Script.ITrashLinkCards(
+                            hostPermanent,
+                            new List<Assets.Scripts.Script.CardEffectCommons.CardSource>
+                            {
+                                new(context, selectedId, linkOwner),
+                            },
+                            causeEffectSourceId: null).TrashLinkCards(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                // (MIG2 review P1-2) the trim selection may have SUSPENDED a trigger window (the F3 between-picks
+                // rule pass parked this choice mid-window) — re-drive the parked continuation now that the trim is
+                // applied, exactly like the WindowChoice resume path.
+                if (context.WindowResolution.Pending is { } linkTrimContinuation)
+                {
+                    Effects.WindowResolverDeps linkTrimDeps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context);
+                    Effects.WindowRunResult linkTrimRun = await new Effects.WindowResolver()
+                        .DriveAsync(linkTrimContinuation, linkTrimDeps, cancellationToken).ConfigureAwait(false);
+                    if (linkTrimRun == Effects.WindowRunResult.Completed)
+                    {
+                        context.WindowResolution.Clear();
+                    }
+                }
+
+                return ActionProcessResult.Success("Link-trim choice resolved.", MetadataWithChoice(action, linkTrimChoice));
+            }
+
             // C-3 Raid (F-6.8): the optional attack-switch choice flows through RaidAttackSwitch so the
             // selected defender is applied (SwitchDefender); a plain ResolveChoice would not retarget.
             if (pendingRequest.Type == ChoiceType.AttackTarget)

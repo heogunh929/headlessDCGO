@@ -164,6 +164,13 @@ public static class TriggerTimings
         // (c-remediation) AS-IS fires OnDigivolutionCardReturnToDeckBottom via global StackSkillInfos; reactors
         // may live on other cards. Broadcast so cross-card listeners are collected; each self-gates on subject.
         OnDigivolutionCardReturnToDeckBottom,
+        // (MIG1) AS-IS CounterTiming fires OnCounterTiming via a GLOBAL StackSkillInfos over the counter hashtable
+        // (AttackProcess.cs:266-296) — the WINDOW is board-wide and each card's gate (CanTriggerOnAttack over the
+        // attacker) self-filters. The mirror AttackProcess emits with subject = the attacker (so activated gates
+        // read TriggerEntityId); broadcast keeps the scheduler-half window GLOBAL (the subject must not card-scope
+        // it — that would drop bound reactors on other cards, unlike AS-IS). The CounterPassKey two-pass filter
+        // still applies per event.
+        OnCounter,
     };
 
     /// <summary>True if <paramref name="timing"/> is a board-wide timing whose listeners fire

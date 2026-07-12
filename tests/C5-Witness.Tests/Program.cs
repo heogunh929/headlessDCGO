@@ -90,7 +90,9 @@ async Task Evade_SecurityBattle_Resume()
 
     // NOTE: the [When Attacking] trigger is collected at declare (canUse passes) but its canActivate half is
     // false — no opponent battle-area Digimon — so the window exhausts without a choice and the attack proceeds.
-    AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: null, isDirectAttack: true);
+    // (MIG1) the mirror Attack() now faithfully SUSPENDS the attacker at declaration (AS-IS :158-167); Evade's
+    // suspend cost needs an unsuspended attacker, so declare withoutTap (the Vortex-shape untapped attack).
+    AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: null, isDirectAttack: true, withoutTap: true);
     await match.StepAsync();
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE would-be-deleted window is open");
@@ -120,7 +122,8 @@ async Task WhenAttacking_TrashBottom()
     HeadlessEntityId srcBottom = await Place(match, P2, "SRC", "p2src1", ChoiceZone.None);
     SetMetadata(match, defender, new Dictionary<string, object?> { ["sourceIds"] = new[] { srcTop.Value, srcBottom.Value } });
 
-    AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: defender, isDirectAttack: false);
+    // (MIG1) withoutTap so the losing attacker can still pay Evade's suspend cost (see the note above).
+    AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: defender, isDirectAttack: false, withoutTap: true);
     await match.StepAsync();   // [When Attacking] window: mandatory select of 1 opponent Digimon
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "[When Attacking] select window is open");

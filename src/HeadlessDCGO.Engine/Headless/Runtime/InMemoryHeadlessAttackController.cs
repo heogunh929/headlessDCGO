@@ -75,6 +75,47 @@ public sealed class InMemoryHeadlessAttackController : IHeadlessAttackController
         return Current;
     }
 
+    // (MIG1 substrate) nullable retarget — AS-IS SwitchDefender(newDefendingPermanent) where the new defender may be
+    // null (the attack becomes a direct/security attack). A redirect is not a block: blocked flags are cleared.
+    public HeadlessAttackState RetargetDefender(
+        HeadlessEntityId? targetId,
+        string reason = "")
+    {
+        if (!Current.IsPending)
+        {
+            return Current;
+        }
+
+        Current = Current with
+        {
+            TargetId = targetId,
+            BlockerId = null,
+            IsBlocked = false,
+            IsDirectAttack = targetId is null,
+            Reason = string.IsNullOrWhiteSpace(reason) ? "Defender retargeted." : reason.Trim()
+        };
+
+        return Current;
+    }
+
+    // (MIG1 substrate) AS-IS SwitchDefender death checks: `IsBlocking = false; yield break;` — keep the target.
+    public HeadlessAttackState ClearBlockingFlag(string reason = "")
+    {
+        if (!Current.IsPending)
+        {
+            return Current;
+        }
+
+        Current = Current with
+        {
+            BlockerId = null,
+            IsBlocked = false,
+            Reason = string.IsNullOrWhiteSpace(reason) ? "Blocking flag cleared." : reason.Trim()
+        };
+
+        return Current;
+    }
+
     public HeadlessAttackState ResolveAttack(string reason = "")
     {
         if (!Current.IsPending)

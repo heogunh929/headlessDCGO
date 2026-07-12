@@ -145,7 +145,8 @@ public static class ContinuousKeywordGate
 
             // AS-IS: `IsDigimon || IsDigiEgg` — a Digi-Egg permanent IS a Digimon. (Egg-move is separately gated by
             // the `IsDigiEgg && DP<=0` rule in the move gate, Permanent.cs:2069-2071 — NOT by making IsDigimon false.)
-            if (definition.IsCardType("Digimon") || definition.IsCardType("DigiEgg")) // (C7) dual-kind aware
+            if (definition.IsCardType("Digimon") || definition.IsCardType("DigiEgg")
+                || definition.IsCardType("Digitama")) // (C7) dual-kind aware; both egg spellings (MIG2)
             {
                 return true;
             }

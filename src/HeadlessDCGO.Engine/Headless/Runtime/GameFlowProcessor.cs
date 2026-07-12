@@ -152,16 +152,79 @@ public sealed class GameFlowProcessor
         ChoiceZone.BreedingArea
     };
 
+    /// <summary>(MIG2) AS-IS <c>AutoProcessing.RuleProcess()</c> — the FULL eight-stage rule pass, now owned by
+    /// the mirror (<see cref="Assets.Scripts.Script.AutoProcessing"/>). Both callers route through it: the main
+    /// loop's step 1 and the window loop's between-picks rule processing (AS-IS MultipleSkills.cs:398-403).</summary>
+    internal static async Task<bool> RuleProcessAsync(
+        EngineContext context,
+        CancellationToken cancellationToken)
+    {
+        return await Assets.Scripts.Script.AutoProcessing
+            .For(context)
+            .RuleProcess(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>(MIG2) Whether the state-based sweep has actionable work: a finalizable deferred deletion (not
+    /// parked on a replacement decision / battle finisher / sacrifice / batch-mate), a no-DP trashable, or a
+    /// lethal-DP Digimon. The mirror's <c>DoRuleProcess()</c> substrate extension — AS-IS resolves its
+    /// would-be-deleted windows synchronously inside <c>DigimonLackDPProcess</c>, so this state is invisible to
+    /// the original's checks.</summary>
+    internal static bool HasStateBasedSweepWork(EngineContext context)
+    {
+        if (context.ZoneMover is not IZoneStateReader zoneReader)
+        {
+            return false;
+        }
+
+        var deletionReplacement = new DeletionReplacementTiming();
+        foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
+        {
+            if (playerId.IsEmpty)
+            {
+                continue;
+            }
+
+            foreach (ChoiceZone zone in FieldZones)
+            {
+                foreach (HeadlessEntityId cardId in zoneReader.GetCards(playerId, zone))
+                {
+                    bool pending = IsPendingDeletion(context, cardId);
+                    if (pending && !(deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)
+                        || IsSacrificeAwaiting(context, cardId)
+                        || HasUndecidedBatchMate(context, deletionReplacement, cardId)))
+                    {
+                        return true;
+                    }
+
+                    if (!pending && zone == ChoiceZone.BattleArea && IsNoDpTrashablePermanent(context, cardId))
+                    {
+                        return true;
+                    }
+
+                    // (MIG2 review P2-3) battle-area-only, matching the sweep's AS-IS scope.
+                    if (!pending && zone == ChoiceZone.BattleArea && HasLethalDp(context, cardId))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
-    /// (G3.5-RL-C1 + D-2) State-based action pass. Sweeps off the field into the trash any field card
+    /// (G3.5-RL-C1 + D-2) State-based deletion sweep. Sweeps off the field into the trash any field card
     /// that is either flagged <see cref="PendingDeletionKey"/> (the uniform effect-driven deletion path)
     /// OR a Digimon whose effective DP has dropped to 0 or below (AS-IS <c>DigimonLackDPProcess</c> /
     /// <c>TrashNoDPPermanentProcess</c> / <c>CutInProcess</c>: <c>DP &lt;= 0 &amp;&amp; IsDigimon</c>).
     /// Returns true when it acts so the common loop keeps iterating until the board is stable.
+    /// (MIG2) Formerly the whole of RuleProcessAsync; now the CALLEE of the mirror's stage 3/4
+    /// (<c>TrashNoDPPermanentProcess</c> runs its own 1:1 pass first; this sweep carries the DP-zero destroys
+    /// + the parked-deletion finalizes with the verified D-1/D-2 batch semantics — splitting it back into the
+    /// AS-IS separate whole-board passes is design item R2-P2-4, DestroyPermanentsClass mirror at goal 3/7).
     /// </summary>
-    // (Stage 5, F3) internal so the window loop's ResolveBody can run state-based rule processing BETWEEN picks
-    // (AS-IS MultipleSkills.cs:398-403 RuleProcess after every pick), not just once per RunToStable iteration.
-    internal static async Task<bool> RuleProcessAsync(
+    internal static async Task<bool> StateBasedDeletionSweepAsync(
         EngineContext context,
         CancellationToken cancellationToken)
     {
@@ -224,7 +287,9 @@ public sealed class GameFlowProcessor
                         continue;
                     }
 
-                    bool lethalDp = !pending && HasLethalDp(context, cardId);
+                    // (MIG2 review P2-3) AS-IS DigimonLackDPProcess scans GetBattleAreaPermanents ONLY
+                    // (AutoProcessing.cs:471-473) — a breeding Digimon dropped to 0 DP is NOT destroyed.
+                    bool lethalDp = !pending && zone == ChoiceZone.BattleArea && HasLethalDp(context, cardId);
                     if (!pending && !lethalDp)
                     {
                         continue;
@@ -453,7 +518,15 @@ public sealed class GameFlowProcessor
         // drops the card to 0 deletes it), mirroring the original CanBeDestroyed-via-DP check. No-op until
         // continuous DP effects are registered.
         int staticDp = DpCalculator.ComputeDp(baseDp, modifiers);
-        return ContinuousDpGate.ResolveDp(context, cardId, staticDp) <= 0;
+        if (ContinuousDpGate.ResolveDp(context, cardId, staticDp) > 0)
+        {
+            return false;
+        }
+
+        // (MIG2) AS-IS IsDigimonLackDP (:205) gates on Permanent.CanBeDestroyed() at PREDICATE level — a
+        // Delete/Prevent-protected 0-DP Digimon is never selected (the sink would refuse it anyway, but the
+        // predicate-side check is what keeps the rule loop from re-selecting it forever).
+        return new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId, instance.OwnerId).CanBeDestroyed();
     }
 
     private static bool TryReadInt(IReadOnlyDictionary<string, object?> metadata, string key, out int value)
@@ -792,9 +865,20 @@ public sealed class GameFlowProcessor
             return false;
         }
 
+        // (MIG2 review P1-1) AS-IS EndGameProcess (AutoProcessing.cs:392-400): both players losing = DRAW
+        // (EndGame(null)); the evaluator names a winner unconditionally, so re-check the "winner" here.
+        bool bothLose = check.WinnerPlayerId is { } winner && !winner.IsEmpty
+            && context.PlayerStatusController.IsLose(winner);
         if (context.RuleQueryService is ITerminalOutcomeSink outcomeSink)
         {
-            outcomeSink.SetTerminalOutcome(check.WinnerPlayerId, isDraw: false, check.Message);
+            if (bothLose)
+            {
+                outcomeSink.SetTerminalOutcome(null, isDraw: true, "Both players lose — draw.");
+            }
+            else
+            {
+                outcomeSink.SetTerminalOutcome(check.WinnerPlayerId, isDraw: false, check.Message);
+            }
         }
         else if (context.RuleQueryService is ITerminalStateController terminalController)
         {

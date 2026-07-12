@@ -127,6 +127,25 @@ public static class LinkHelpers
         // RemoveField that already Init()-reset a field-origin permanent's stack).
         context?.OnceFlags.ResetForCard(linkCard.OwnerId, linkCardId);
 
+        // (MIG2) AS-IS AddLinkCard (Permanent.cs:1251-1257): overflow is resolved BEFORE the attach — with
+        // LinkedMax == 1 the current LinkedCards[0] is removed SILENTLY (bare RemoveLinkedCard: trash, but NO
+        // OnLinkCardDiscarded window and NO selection). LinkedMax > 1 opens the owner's trim SELECTION
+        // (RemoveLinkedCard(null, excess) -> ITrashLinkCards per pick, which DOES emit) — that selection needs
+        // the effect-body choice park and has no witness yet (every ported host is max-1): design item
+        // MIG2-ADDLINK-SELECT; until it lands the >1 case falls back to the post-attach oldest-first
+        // enforcement below (documented divergence, not silent).
+        {
+            CardInstanceRecord preHost = repository.TryGetInstance(hostId, out CardInstanceRecord? refreshed) && refreshed is not null ? refreshed : host;
+            IReadOnlyList<HeadlessEntityId> preLinked = ReadLinkedCardIds(preHost.Metadata);
+            int preMax = context is not null ? ResolveLinkedMax(context, hostId) : ReadLinkedMax(preHost.Metadata);
+            if (preLinked.Count >= preMax && preMax == 1 && preLinked.Count >= 1)
+            {
+                await RemoveLinkCardAsync(
+                    repository, zoneMover, hostId, preLinked[0], trash: true,
+                    gameEventQueue: null, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         // Re-read host (the move may have touched state) and prepend (AS-IS insert at index 0).
         CardInstanceRecord current = repository.TryGetInstance(hostId, out CardInstanceRecord? latest) && latest is not null ? latest : host;
         List<string> linked = ReadLinkedCardIds(current.Metadata).Select(id => id.Value).ToList();

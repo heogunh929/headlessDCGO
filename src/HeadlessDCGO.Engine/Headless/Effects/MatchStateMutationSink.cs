@@ -752,10 +752,22 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // source (mirrors AS-IS cardEffect != null — so the reactor's CanTriggerOnHandAdded gate accepts this
         // effect-driven add). A context-less sink leaves the id 0 (unstamped). Turn/mulligan/setup draws do NOT
         // route through this sink path, so they carry neither id and never fire OnAddHand (AS-IS cardEffect=null).
-        long addHandBatchId = ResolveAddHandBatchId();
         HeadlessEntityId drawCause = mutation.SourceEntityId;
-        _pendingAsync.Add(ct => zoneMover.DrawAsync(
-            player, count, addHandBatchId, drawCause.IsEmpty ? null : drawCause, ct));
+        if (_context is { } drawContext)
+        {
+            // (MIG3-3a) the mirror DrawClass is the AS-IS carrier (CardController.cs:1903-1965): DrawAsync +
+            // the OnDraw window emit the legacy staging below never fired (an effect-driven draw silently
+            // skipped OnDraw reactors — latent gap, now closed).
+            _pendingAsync.Add(ct => new Assets.Scripts.Script.DrawClass(
+                drawContext, player, count, drawCause.IsEmpty ? null : drawCause).Draw(ct));
+        }
+        else
+        {
+            long addHandBatchId = ResolveAddHandBatchId();
+            _pendingAsync.Add(ct => zoneMover.DrawAsync(
+                player, count, addHandBatchId, drawCause.IsEmpty ? null : drawCause, ct));
+        }
+
         _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "draw"));
     }
 
@@ -788,6 +800,18 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         int count = ReadInt(mutation.Values, CountKey) ?? 1;
         bool faceUp = ReadBool(mutation.Values, FaceUpKey);
+        if (_context is { } recoverContext)
+        {
+            // (MIG3-3a) the mirror IAddSecurityFromLibrary is the AS-IS carrier (CardController.cs:2041-2079 +
+            // CardObjectController.AddSecurityCard:976-1007): per-card add-security batch ids + face stamps +
+            // per-card mirror IAddSecurity — whose face-up branch fires OnFaceUpSecurityIncreased PER CARD
+            // (AS-IS :5494), replacing the legacy single player-level emit below (batch-vs-per-card divergence).
+            _pendingAsync.Add(ct => new Assets.Scripts.Script.IAddSecurityFromLibrary(
+                recoverContext, player, count, faceUp).AddSecurity(ct));
+            _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "recover"));
+            return;
+        }
+
         _pendingAsync.Add(async ct =>
         {
             // (F1-Tier1 OnAddSecurity P2-1) each recovered card gets its OWN shared-counter add-security id
@@ -811,6 +835,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
     // B-6 Trash Security: trash N security cards from the top (or bottom) (AS-IS IDestroySecurity), then emit
     // OnDiscardSecurity so security-discard triggers fire. Player-scoped batch over the zone mover.
+    // (MIG3-3a) the mirror Assets.Scripts.Script.IDestroySecurity carries the same F1-M1 semantics (one
+    // security-loss batch id, zone-derived OnLoseSecurity/OnDiscardSecurity) plus the SelectedCard mode and the
+    // CanReduceSecurity guard — unifying this handler onto it is slice 3c work (design item MIG3-TRASHSEC-UNIFY).
     private void ApplyTrashSecurity(EffectMutation mutation)
     {
         if (_zoneMover is not { } zoneMover)
