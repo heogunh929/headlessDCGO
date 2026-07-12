@@ -139,7 +139,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
             return ActionProcessResult.Failure(error, BaseMetadata(action));
         }
 
-        await context.ZoneMover.AddToHandAsync(action.PlayerId, payload.CardId, cancellationToken).ConfigureAwait(false);
+        await context.ZoneMover.AddToHandAsync(action.PlayerId, payload.CardId, cancellationToken: cancellationToken).ConfigureAwait(false);
         return ActionProcessResult.Success("Card added to hand.", MetadataWithCard(action, payload.CardId));
     }
 
@@ -171,6 +171,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
             action.PlayerId,
             payload.CardId,
             payload.FaceUp,
+            addSecurityBatchId: context.NextSecurityAddBatchId(),
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         Dictionary<string, object?> metadata = MetadataWithCard(action, payload.CardId);
@@ -219,7 +220,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
         }
 
         IReadOnlyList<HeadlessEntityId> drawnCards = await context.ZoneMover
-            .DrawAsync(action.PlayerId, count, cancellationToken)
+            .DrawAsync(action.PlayerId, count, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         Dictionary<string, object?> metadata = BaseMetadata(action);
@@ -247,7 +248,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
 
         bool faceUp = ReadBoolOrDefault(action.Parameters, HeadlessActionParameterKeys.FaceUp, defaultValue: false);
         IReadOnlyList<HeadlessEntityId> addedCards = await context.ZoneMover
-            .AddSecurityFromLibraryAsync(action.PlayerId, count, faceUp, cancellationToken)
+            .AddSecurityFromLibraryAsync(action.PlayerId, count, faceUp, () => context.NextSecurityAddBatchId(), cancellationToken)
             .ConfigureAwait(false);
 
         Dictionary<string, object?> metadata = BaseMetadata(action);

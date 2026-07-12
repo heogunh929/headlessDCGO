@@ -156,6 +156,34 @@ public sealed class EngineContext
     /// and, for OnDiscardHand/Security, fails the CardEffect!=null gate (no cause-effect id either).</summary>
     public long NextDiscardBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
 
+    /// <summary>(F1-Tier1 OnAddHand) Allocate a fresh monotonic ADD-HAND batch id. One id == one AS-IS
+    /// <c>CardObjectController.AddHandCards(list, isDraw, cardEffect)</c> call == one
+    /// <c>StackSkillInfos(OnAddHand)</c> broadcast — AS-IS builds the payload {Players, CardEffect, CardSources =
+    /// the WHOLE added LIST} ONCE and fires the timing ONCE for an N-card hand-add (CardObjectController.cs:559,616).
+    /// Stamped (via <c>MatchStateMutationSink.AddHandBatchIdKey</c>) onto every added card's CardMoved (-&gt;Hand) so
+    /// the OnAddHand activated-bridge collapse (<c>WindowResolverWiring.CollectActivatedBridgeTriggers</c>) fires a
+    /// reactor once per batch yet fires an INDEPENDENT hand-add (a distinct id) separately. Shares the deletion
+    /// counter so add-hand, discard, deletion and security-loss ids are GLOBALLY unique (a mixed drain never collides
+    /// in the window's <c>BatchId</c> cross-batch ordering). Ids start at 1; the sentinel 0 (an unstamped move — a
+    /// turn/mulligan/setup draw, which carries no cause either) collapses all-together and fails the OnAddHand
+    /// CardEffect!=null gate (AS-IS turn draws pass cardEffect=null, so no OnAddHand fires).</summary>
+    public long NextAddHandBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
+
+    /// <summary>(F1-Tier1 OnAddSecurity, design item F1-ADD-COUNTER P2-1) Allocate a fresh monotonic ADD-SECURITY
+    /// batch id. Unlike add-hand/discard/deletion/security-loss, OnAddSecurity is NOT collapsed — AS-IS fires one
+    /// <c>StackSkillInfos(OnAddSecurity)</c> per SINGLE added security card (per <c>IAddSecurity</c>,
+    /// CardController.cs:5478), resolved SEQUENTIALLY. So EACH card gets its OWN id (this is called PER card, not
+    /// cached per flush) — N recovered/added cards get N ascending ids == the AS-IS per-card sequential resolution
+    /// order. Stamped (via <c>MatchStateMutationSink.AddSecurityBatchIdKey</c>) onto every added card's -&gt;Security
+    /// CardMoved so the OnAddSecurity activated bridge (<c>WindowResolverWiring.CollectActivatedBridgeTriggers</c>)
+    /// sequences the co-drained per-card triggers ASCENDING (one at a time, no spurious cross-fire order prompt).
+    /// Shares the deletion counter so add-security, add-hand, discard, deletion and security-loss ids are GLOBALLY
+    /// unique in ONE counter space — a mixed drain (e.g. an Ascension security-add co-draining with the deletion
+    /// batch that produced it) never collides in the window's raw-<c>BatchId</c> cross-batch ordering
+    /// (<c>WindowResolver.FilterToMinimumBatch</c>). Formerly OnAddSecurity stamped the DcgoMatch event
+    /// <c>Sequence</c> (a DIFFERENT counter space), which broke that cross-timing ordering invariant. Ids start at 1.</summary>
+    public long NextSecurityAddBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
+
     /// <summary>(PRIM-P0 B.O.4 #1) The action whose cost is currently being paid, set by the play / digivolve /
     /// option action around its BeforePayCost window so a card's [BeforePayCost] effect can gate on WHICH cost
     /// it is (AS-IS ChangeCostClass rootCondition). <see cref="PayCostRoot.None"/> outside a pay window.</summary>

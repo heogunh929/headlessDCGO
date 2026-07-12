@@ -50,7 +50,7 @@ public sealed class MatchSetupFlow
                 cancellationToken).ConfigureAwait(false);
 
             IReadOnlyList<HeadlessEntityId> hand = await context.ZoneMover
-                .DrawAsync(playerId, setup.InitialHandSize, cancellationToken)
+                .DrawAsync(playerId, setup.InitialHandSize, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
             // N-5: when mulligan is enabled, security is dealt only AFTER every player's mulligan

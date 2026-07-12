@@ -523,6 +523,38 @@ public static class WindowResolverWiring
                 ? id
                 : ReadSecurityLossBatchId(gameEvent);
 
+    /// <summary>(F1-Tier1 OnAddHand) Read the ADD-HAND batch id stamped on an added card's -&gt;Hand CardMoved by the
+    /// effect-driven draw / return-to-hand path (<c>IZoneMover.Draw/AddToHandAsync</c>) — one id per sink flush ==
+    /// one AS-IS <c>AddHandCards</c> == one <c>StackSkillInfos(OnAddHand)</c> over the whole added list. The OnAddHand
+    /// collapse keys off (reactor, this id): same id = one batch = one fire; a distinct id = an independent hand-add
+    /// = a separate fire. Sentinel 0 (an unstamped move — a turn/mulligan/setup draw, which also carries no cause id)
+    /// collapses all-together and fails the CardEffect!=null gate downstream.</summary>
+    private static long ReadAddHandBatchId(GameEvent? gameEvent) =>
+        gameEvent is not null
+            && gameEvent.Metadata.TryGetValue(MatchStateMutationSink.AddHandBatchIdKey, out object? raw)
+            && raw is long id
+                ? id
+                : 0L;
+
+    /// <summary>(F1-Tier1 OnAddSecurity, design item F1-ADD-COUNTER P2-1) Read the ADD-SECURITY batch id stamped on
+    /// a card's -&gt;Security CardMoved by an effect / recovery / replacement / player security add — one distinct
+    /// id PER card (OnAddSecurity is NOT collapsed), allocated from the SHARED deletion counter
+    /// (<c>EngineContext.NextSecurityAddBatchId</c>) so it sequences ASCENDING within the ONE globally-unique id
+    /// space that deletion / discard / add-hand / security-loss also use — a mixed drain never collides in the
+    /// window's raw-<c>BatchId</c> cross-batch ordering (<c>WindowResolver.FilterToMinimumBatch</c>). Falls back to
+    /// the driving event's monotonic <c>Sequence</c> only for an UNSTAMPED security move (a context-less setup deal
+    /// or a bare unit test) so those still sequence per-card; such moves never co-drain with a unified-space effect
+    /// batch. This replaces the former unconditional <c>drivingEvent.Sequence</c> stamp, which lived in a DIFFERENT
+    /// counter space and broke the cross-timing ordering invariant when OnAddSecurity co-drained with a deletion /
+    /// discard / add-hand batch.</summary>
+    private static long ReadAddSecurityBatchId(GameEvent? gameEvent) =>
+        gameEvent is null
+            ? 0L
+            : gameEvent.Metadata.TryGetValue(MatchStateMutationSink.AddSecurityBatchIdKey, out object? raw)
+                && raw is long id
+                    ? id
+                    : gameEvent.Sequence;
+
     /// <summary>Consume the once-per-turn use at commit (before the body — RD-12/F5). For an ACTIVATED-bridge
     /// marker only the OnUnTappedAnyone caller-cap is consumed here (its synthetic key); every other activated
     /// timing is uncapped at the caller (the resolver's own MaxCountPerTurn caps it).</summary>
@@ -808,6 +840,13 @@ public static class WindowResolverWiring
         // Keyed by timing too, because one sink can share its discard id across BOTH a Hand and a Library trash while
         // AS-IS fires OnDiscardHand and OnDiscardLibrary as SEPARATE StackSkillInfos.
         var firedDiscardBatch = new HashSet<(HeadlessEntityId Card, EffectTiming Timing, long BatchId)>();
+        // (F1-Tier1 OnAddHand) add-hand batch collapse — mirror of the OnDiscard* collapse, keyed by (reactor,
+        // add-hand batch id). AS-IS fires ONE StackSkillInfos(OnAddHand) for the whole added list, so an OnAddHand
+        // reactor fires ONCE per hand-add batch. Headless emits one ->Hand CardMoved per added card sharing ONE
+        // add-hand id per sink flush, so collapse to the FIRST gate-passing add per reactor per batch — the AS-IS
+        // any-match over CardSources. OnAddSecurity is NOT collapsed: AS-IS fires it PER SINGLE card (per IAddSecurity),
+        // so its per-CardMoved derivation already matches AS-IS (a batch collapse would WRONGLY under-fire it).
+        var firedAddHandBatch = new HashSet<(HeadlessEntityId Card, long BatchId)>();
         foreach ((HeadlessEntityId card, EffectTiming timing, GameEvent? drivingEvent, ActivatedBridgeCategory category) in toResolve)
         {
             if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
@@ -880,6 +919,15 @@ public static class WindowResolverWiring
                 continue;
             }
 
+            // (F1-Tier1 OnAddHand) add-hand batch collapse — placed AFTER the gate so a reactor whose
+            // cardEffectSourceCondition matches only a LATER added card (any-match) still fires on it. OnAddSecurity
+            // is deliberately excluded (AS-IS per-card firing).
+            if (timing == EffectTiming.OnAddHand
+                && !firedAddHandBatch.Add((card, ReadAddHandBatchId(drivingEvent))))
+            {
+                continue;
+            }
+
             TimingWindowTrigger bridgeTrigger = MakeActivatedBridgeTrigger(card, timing, instance.OwnerId, drivingEvent, category, sequence++);
 
             // (D-1 order) stamp the delete-batch id onto a deletion-derived activated trigger (OnLeaveFieldAnyone —
@@ -919,6 +967,31 @@ public static class WindowResolverWiring
                 {
                     bridgeTrigger = bridgeTrigger with { BatchId = discardBatch };
                 }
+            }
+
+            // (F1-Tier1 OnAddHand) stamp the add-hand batch id so co-draining independent hand-add batches sequence
+            // in ascending temporal order rather than opening a spurious cross-batch order choice. Only a REAL id.
+            if (timing == EffectTiming.OnAddHand)
+            {
+                long addHandBatch = ReadAddHandBatchId(drivingEvent);
+                if (addHandBatch != 0)
+                {
+                    bridgeTrigger = bridgeTrigger with { BatchId = addHandBatch };
+                }
+            }
+
+            // (F1-Tier1 OnAddSecurity, design item F1-ADD-COUNTER P2-1) OnAddSecurity is PER-CARD (AS-IS fires each
+            // IAddSecurity's OnAddSecurity in its OWN StackSkillInfos, resolved SEQUENTIALLY). Headless co-drains the
+            // N ->Security CardMoved of a recovery (or several adds) into ONE window; without a distinguishing BatchId
+            // those N same-reactor triggers would collide into a single spurious cross-fire ORDER CHOICE (AS-IS never
+            // asks — it resolves them in add order). Stamp each with its per-card SHARED-counter add-security id
+            // (ReadAddSecurityBatchId), allocated from the SAME space as deletion / discard / add-hand / security-loss,
+            // so the window sequences them ASCENDING (= add order = the AS-IS sequential resolution) AND a co-draining
+            // deletion / discard / add-hand batch orders correctly against them (the former drivingEvent.Sequence lived
+            // in a DIFFERENT counter space — a cross-timing raw-BatchId collision, adversarial review P2-1).
+            if (timing == EffectTiming.OnAddSecurity && drivingEvent is not null)
+            {
+                bridgeTrigger = bridgeTrigger with { BatchId = ReadAddSecurityBatchId(drivingEvent) };
             }
 
             triggers.Add(bridgeTrigger);

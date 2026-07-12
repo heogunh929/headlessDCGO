@@ -29,7 +29,7 @@ public static class DigivolveCommons
         }
 
         context.PlayerTurnCounters.Increment(player, PlayerTurnCounterController.DigivolveCountKey);
-        await context.ZoneMover.DrawAsync(player, 1, cancellationToken).ConfigureAwait(false);
+        await context.ZoneMover.DrawAsync(player, 1, cancellationToken: cancellationToken).ConfigureAwait(false);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnDraw, actor: player);
     }
 }

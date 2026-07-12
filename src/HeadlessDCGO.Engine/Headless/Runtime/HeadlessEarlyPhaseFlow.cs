@@ -98,7 +98,7 @@ public sealed class HeadlessEarlyPhaseFlow
                 else
                 {
                     drawnCards = await context.ZoneMover
-                        .DrawAsync(currentTurnPlayerId, 1, cancellationToken)
+                        .DrawAsync(currentTurnPlayerId, 1, cancellationToken: cancellationToken)
                         .ConfigureAwait(false);
                     operations.Add("Draw");
 

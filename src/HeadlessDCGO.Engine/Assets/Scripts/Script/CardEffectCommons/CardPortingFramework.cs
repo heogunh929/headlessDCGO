@@ -9163,10 +9163,21 @@ public static class CardEffectCommons
     public static bool CanTriggerOnAttackTargetSwitch(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>
         SubjectPermanentContains(ctx, card);
 
-    /// <summary>AS-IS <c>CanTriggerWhenAddHand</c> (WhenAddHand.cs:10): a player added cards to hand.</summary>
+    /// <summary>AS-IS <c>CanTriggerWhenAddHand</c> (WhenAddHand.cs:10): cards were added to a player's hand. The
+    /// PLAYER-SCOPE half — AS-IS <c>Players.Count(playerCondition) &gt;= 1</c> (any gaining player passes) — is
+    /// reproduced per driving event: <paramref name="playerCondition"/> is applied to the added card's owner (the
+    /// event subject's owner = the gaining player), and the activated-bridge batch collapse offers each added card so
+    /// an any-match over the batch is preserved. The CAUSE half — AS-IS <c>cardEffectCondition == null ||
+    /// cardEffectCondition(CardEffect)</c>, where <c>CardEffect</c> MAY be null (a turn/mulligan draw passes
+    /// cardEffect=null) — is reproduced by threading the causing effect's source card as
+    /// <c>event.addHandCauseEffectId</c> (stamped by the effect-driven draw / return-to-hand sink paths) and passing
+    /// it (or NULL when the add carried no effect cause) to <paramref name="cardEffectCondition"/>. Unlike
+    /// <see cref="CanTriggerOnHandAdded"/> this does NOT itself require a cause — a caller that needs "effect-driven
+    /// only" supplies <c>cause =&gt; cause is not null</c> (the AS-IS <c>cardEffect =&gt; cardEffect != null</c>
+    /// idiom), exactly as the real cards do (BT9_021 / EX4_022 / BT15_083).</summary>
     public static bool CanTriggerWhenAddHand(
         Headless.Effects.CardEffectResolveContext ctx, CardSource card,
-        Func<HeadlessPlayerId, bool>? playerCondition = null, Func<CardSource, bool>? cardEffectSourceCondition = null)
+        Func<HeadlessPlayerId, bool>? playerCondition = null, Func<CardSource?, bool>? cardEffectCondition = null)
     {
         if (ctx.EffectContext.TriggerEntityId is not HeadlessEntityId subject || subject.IsEmpty)
         {
@@ -9178,13 +9189,33 @@ public static class CardEffectCommons
             return false;
         }
 
-        return cardEffectSourceCondition is null
-            || cardEffectSourceCondition(new CardSource(card.Context, ctx.EffectContext.SourceEntityId, OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId), OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId)));
+        return cardEffectCondition is null || cardEffectCondition(AddHandCauseEffect(ctx, card));
     }
 
-    /// <summary>AS-IS <c>CanTriggerOnHandAdded</c> (OnCardsAddedToHand.cs:10) — player-specific form.</summary>
+    /// <summary>The causing effect's <c>EffectSourceCard</c> (AS-IS hashtable <c>CardEffect</c>) for an effect-driven
+    /// hand add, threaded as <c>event.addHandCauseEffectId</c>; NULL when the add carried no effect cause (a turn /
+    /// mulligan / setup draw — AS-IS <c>CardEffect == null</c>). Mirror of <see cref="DiscardCauseEffect"/>.</summary>
+    private static CardSource? AddHandCauseEffect(Headless.Effects.CardEffectResolveContext ctx, CardSource card)
+    {
+        if (!ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}{Headless.Effects.MatchStateMutationSink.AddHandCauseEffectIdKey}", out object? raw)
+            || raw?.ToString() is not { Length: > 0 } value)
+        {
+            return null;
+        }
+
+        var id = new HeadlessEntityId(value);
+        EngineContext context = card.Context;
+        return new CardSource(context, id, OwnerOfId(context, id), OwnerOfId(context, id));
+    }
+
+    /// <summary>AS-IS <c>CanTriggerOnHandAdded</c> (OnCardsAddedToHand.cs:12) — the player-SPECIFIC form that
+    /// additionally REQUIRES the add be effect-driven (<c>CardEffect != null</c>, :19) before testing
+    /// <paramref name="cardEffectSourceCondition"/> on the causing effect's source card. A NON-effect add (turn /
+    /// mulligan draw, no cause id threaded) is rejected regardless of the predicate, mirroring the built-in null
+    /// check — so unlike the bare <see cref="CanTriggerWhenAddHand"/> this never fires on a plain draw.</summary>
     public static bool CanTriggerOnHandAdded(Headless.Effects.CardEffectResolveContext ctx, CardSource card, HeadlessPlayerId player, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
-        CanTriggerWhenAddHand(ctx, card, p => p == player, cardEffectSourceCondition);
+        CanTriggerWhenAddHand(ctx, card, p => p == player,
+            cause => cause is not null && (cardEffectSourceCondition is null || cardEffectSourceCondition(cause)));
 
     /// <summary>AS-IS <c>CanTriggerWhenAddSecurity</c> (WhendAddSecurity.cs:10) — delegates to the
     /// lose-security shape (the gaining player's condition over the moved card's owner).</summary>

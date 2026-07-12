@@ -145,7 +145,7 @@ public sealed class MulliganCoordinator
         }
 
         await zoneMover.ShuffleAsync(playerId, cancellationToken).ConfigureAwait(false);
-        await zoneMover.DrawAsync(playerId, _handSize, cancellationToken).ConfigureAwait(false);
+        await zoneMover.DrawAsync(playerId, _handSize, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private async Task DealSecurityAsync(IZoneMover zoneMover, CancellationToken cancellationToken)
@@ -153,7 +153,7 @@ public sealed class MulliganCoordinator
         foreach (HeadlessPlayerId playerId in _order)
         {
             await zoneMover
-                .AddSecurityFromLibraryAsync(playerId, _securitySize, _securityFaceUp, cancellationToken)
+                .AddSecurityFromLibraryAsync(playerId, _securitySize, _securityFaceUp, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
     }

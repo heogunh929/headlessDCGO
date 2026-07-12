@@ -8,7 +8,16 @@ public interface IZoneMover
 
     Task<ZoneMoveResult> MoveAsync(ZoneMoveRequest request, CancellationToken cancellationToken = default);
 
-    Task AddToHandAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default);
+    // (F1-Tier1 OnAddHand) Move a card into a player's hand, optionally stamping the ADD-HAND batch id (so an
+    // effect's multi-card hand add collapses to a single OnAddHand reactor fire) and the CAUSE effect source id
+    // (the AS-IS {"CardEffect", …} — mirrors CardEffect != null so a non-effect add does not fire the
+    // CanTriggerOnHandAdded gate). A bare add (no ids) is a non-effect hand add and derives no live OnAddHand.
+    Task AddToHandAsync(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId,
+        long? addHandBatchId = null,
+        HeadlessEntityId? causeEffectId = null,
+        CancellationToken cancellationToken = default);
 
     Task AddToTrashAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default);
 
@@ -31,18 +40,33 @@ public interface IZoneMover
 
     // N-3: toTop defaults true to match the original AddSecurityCard(toTop: true) — a returned/recovered
     // card goes to the TOP of security (index 0, the next card checked), not the bottom.
-    Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, CancellationToken cancellationToken = default);
+    // (F1-Tier1 OnAddSecurity P2-1) addSecurityBatchId stamps the shared-counter per-card id on the ->Security
+    // CardMoved so the OnAddSecurity activated bridge sequences per-card triggers in add order; null = unstamped.
+    Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, long? addSecurityBatchId = null, CancellationToken cancellationToken = default);
 
     Task MoveToDeckTopAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default);
 
     Task MoveToDeckBottomAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<HeadlessEntityId>> DrawAsync(HeadlessPlayerId playerId, int count, CancellationToken cancellationToken = default);
+    // (F1-Tier1 OnAddHand) Draw the top `count` library cards into the player's hand. The optional add-hand batch
+    // id + cause effect id are stamped on every Library->Hand CardMoved (as AddToHandAsync) so an effect-driven
+    // multi-card draw fires the OnAddHand reactor ONCE and passes the CardEffect != null gate; a bare draw
+    // (turn / mulligan / setup) carries neither and never fires OnAddHand (AS-IS cardEffect=null).
+    Task<IReadOnlyList<HeadlessEntityId>> DrawAsync(
+        HeadlessPlayerId playerId,
+        int count,
+        long? addHandBatchId = null,
+        HeadlessEntityId? causeEffectId = null,
+        CancellationToken cancellationToken = default);
 
+    // (F1-Tier1 OnAddSecurity P2-1) batchIdFactory is invoked ONCE PER moved card to allocate a fresh
+    // shared-counter add-security id (OnAddSecurity is per-card, not collapsed), stamped on each ->Security
+    // CardMoved so the activated bridge sequences the N recovered cards in ascending add order. Null = unstamped.
     Task<IReadOnlyList<HeadlessEntityId>> AddSecurityFromLibraryAsync(
         HeadlessPlayerId playerId,
         int count,
         bool faceUp = false,
+        Func<long?>? batchIdFactory = null,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<HeadlessEntityId>> TrashSecurityAsync(

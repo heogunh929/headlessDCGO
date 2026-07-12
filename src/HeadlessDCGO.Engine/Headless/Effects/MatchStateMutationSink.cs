@@ -97,6 +97,36 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     /// does not consult this key.</summary>
     public const string DiscardCauseEffectIdKey = "discardCauseEffectId";
 
+    /// <summary>(F1-Tier1 OnAddHand) The ADD-HAND batch id stamped onto a card's -&gt;Hand CardMoved by an
+    /// EFFECT-driven hand add (<c>DrawCards</c> / <c>ReturnToHand</c>) — one id per sink flush == one AS-IS
+    /// <c>AddHandCards(list, isDraw, cardEffect)</c> == one <c>StackSkillInfos(OnAddHand)</c> over the whole added
+    /// list, so an effect that draws/returns N cards fires the OnAddHand reactor ONCE. The activated-bridge collapse
+    /// (<c>WindowResolverWiring</c>) keys its dedup by (reactor, timing, this id). Shares the deletion/discard counter
+    /// for global uniqueness (<c>EngineContext.NextAddHandBatchId</c>). Sentinel 0 = an unstamped move (a
+    /// turn/mulligan/setup draw — those also carry no cause id, so they fail the OnAddHand CardEffect!=null gate).</summary>
+    public const string AddHandBatchIdKey = "addHandBatchId";
+
+    /// <summary>(F1-Tier1 OnAddHand) The CAUSE effect's source card id stamped onto an effect-driven hand-add
+    /// CardMoved — the headless mirror of the AS-IS hashtable <c>{"CardEffect", cardEffect}</c> passed to
+    /// <c>AddHandCards</c>. AS-IS <c>CanTriggerOnHandAdded</c> (OnCardsAddedToHand.cs:19) REQUIRES
+    /// <c>CardEffect != null</c> (the hand add must be effect-driven) AND lets a reactor gate on the causing effect's
+    /// <c>EffectSourceCard</c>. A NON-effect hand add (turn draw / mulligan / initial deal — AS-IS cardEffect=null)
+    /// carries no cause id, so the gate rejects it. Distinct from <see cref="DiscardCauseEffectIdKey"/> so a single
+    /// sink flush that both discards and adds-to-hand does not cross-thread the two causes.</summary>
+    public const string AddHandCauseEffectIdKey = "addHandCauseEffectId";
+
+    /// <summary>(F1-Tier1 OnAddSecurity, design item F1-ADD-COUNTER P2-1) The ADD-SECURITY batch id stamped onto a
+    /// card's -&gt;Security CardMoved by an effect / replacement / player security add — one id PER SINGLE added
+    /// card (OnAddSecurity is NOT collapsed: AS-IS fires one <c>StackSkillInfos(OnAddSecurity)</c> per
+    /// <c>IAddSecurity</c>, resolved sequentially). N cards of one recovery carry N ASCENDING ids so the
+    /// activated-bridge (<c>WindowResolverWiring</c>) sequences the co-drained per-card triggers in add order
+    /// (one at a time, no spurious order prompt). Allocated from the SHARED deletion counter
+    /// (<c>EngineContext.NextSecurityAddBatchId</c>) so it lives in the SAME globally-unique id space as
+    /// deletion/discard/add-hand/security-loss — a mixed drain never collides in the window's cross-batch ordering.
+    /// Sentinel 0 = an unstamped security move (a context-less bare unit test); the reader falls back to the
+    /// driving event's monotonic <c>Sequence</c> so those still sequence per-card.</summary>
+    public const string AddSecurityBatchIdKey = "addSecurityBatchId";
+
     /// <summary>(F1 reveal-remainder) Boolean flag stamped on a reveal-remainder trash mutation and threaded onto
     /// its Library-&gt;Trash CardMoved — the headless mirror of the AS-IS <c>CardSource.IsBeingRevealed</c> being
     /// TRUE at the moment a revealed remainder card is trashed. AS-IS <c>RevealDeckTopCardsAndSelect</c> sends the
@@ -261,6 +291,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // discard; a context-less sink (bare unit test) leaves it 0 (sentinel — collapse-all-together).
     private long? _cachedDiscardBatchId;
 
+    // (F1-Tier1 OnAddHand) the ADD-HAND batch id shared by every ->Hand move (draw / return-to-hand) this sink
+    // flush stages — one id per sink == one AS-IS AddHandCards call (fires OnAddHand ONCE for the whole added list).
+    // Lazily allocated on the first hand add; a context-less sink (bare unit test) leaves it 0 (collapse-all-together).
+    private long? _cachedAddHandBatchId;
+
     // (R2-P1-1) the CURRENT delete batch: every Delete staged before the next flush belongs to ONE batch (one
     // AS-IS DestroyPermanentsClass.Destroy() over the whole target list). The defer decision is BATCH-ATOMIC —
     // resolved once, at the first delete thunk's execution (all targets staged, none moved yet — the AS-IS
@@ -331,6 +366,24 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     {
         _cachedDiscardBatchId ??= _context?.NextDiscardBatchId() ?? 0L;
         return _cachedDiscardBatchId.Value;
+    }
+
+    // (F1-Tier1 OnAddHand) the add-hand batch id for this sink flush — one id shared by all ->Hand moves it
+    // stages (== one AS-IS StackSkillInfos(OnAddHand) over the whole added list).
+    //
+    // design item F1-ADDHAND-FLUSHGRAIN (deferred, adversarial review P2-2): the cache grain is the sink FLUSH,
+    // NOT the AS-IS AddHandCards(list, isDraw, cardEffect) CALL. AS-IS fires ONE StackSkillInfos(OnAddHand) per
+    // AddHandCards call, so a single effect that BOTH draws (isDraw:true) AND returns cards to hand (isDraw:false)
+    // is TWO AddHandCards calls == TWO OnAddHand broadcasts; here both stage under one flush and share this one id,
+    // so the activated bridge collapses them to a SINGLE OnAddHand fire (a 1-id under-fire vs AS-IS 2). This is
+    // LATENT: no ported card both draws and returns-to-hand in one effect (grain divergence unobservable today).
+    // Correct remediation: partition the id by AddHandCards boundary — a separate cached id for the DRAW list vs
+    // the RETURN-TO-HAND list within a flush (isDraw is the discriminator), each its own NextAddHandBatchId, so
+    // the bridge fires OnAddHand once per boundary == the AS-IS two broadcasts. (Deferred until a witness exists.)
+    private long ResolveAddHandBatchId()
+    {
+        _cachedAddHandBatchId ??= _context?.NextAddHandBatchId() ?? 0L;
+        return _cachedAddHandBatchId.Value;
     }
 
     public int AppliedCount => _applied.Count;
@@ -478,7 +531,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 }
 
                 ApplyAceOverflowOnLeave(record, targetId, mutation);
-                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToHandAsync(owner, id, ct));
+                // (F1-Tier1 OnAddHand) an effect-driven return-to-hand is one AS-IS AddHandCards(list, isDraw:false,
+                // cardEffect): stamp the shared add-hand batch id (N cards returned by one effect fire OnAddHand ONCE)
+                // and the CAUSE effect source (AS-IS cardEffect != null). N ReturnToHand mutations of one flush share
+                // ONE cached id, mirroring the single AddHandCards call.
+                long returnHandBatchId = ResolveAddHandBatchId();
+                HeadlessEntityId returnHandCause = mutation.SourceEntityId;
+                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToHandAsync(
+                    owner, id, returnHandBatchId, returnHandCause.IsEmpty ? null : returnHandCause, ct));
                 break;
             case ReturnToDeckTopKind:
                 if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey, mutation.SourceEntityId) || IsRemovalBlockedByScan(targetId))
@@ -518,7 +578,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // N-3: default to the security TOP (original AddSecurityCard toTop:true). An effect that
                 // needs a bottom insert sets the "toBottom" flag on the mutation.
                 bool toTop = !ReadBool(mutation.Values, ToBottomKey);
-                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, toTop, ct));
+                // (F1-Tier1 OnAddSecurity P2-1) one added card == one AS-IS IAddSecurity == one per-card
+                // OnAddSecurity: allocate a distinct shared-counter id (a context-less bare sink leaves it null).
+                long? addSecurityBatchId = _context?.NextSecurityAddBatchId();
+                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, toTop, addSecurityBatchId, ct));
                 // (faceup security) persist the AS-IS SetFace/SetReverse face state so the continuous-source
                 // scan can find a face-up security card (Runtime.SecurityFaceState).
                 Runtime.SecurityFaceState.Stamp(_repository, targetId, faceUp);
@@ -620,6 +683,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (F1-Tier1) the staged discard thunks captured their batch id by value; clear the cache so a reused sink
         // (a new resolution step) opens a FRESH discard batch rather than collapsing into the flushed one.
         _cachedDiscardBatchId = null;
+        _cachedAddHandBatchId = null;
         foreach (Func<CancellationToken, Task> operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -679,7 +743,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         }
 
         int count = ReadInt(mutation.Values, CountKey) ?? 1;
-        _pendingAsync.Add(ct => zoneMover.DrawAsync(player, count, ct));
+        // (F1-Tier1 OnAddHand) an effect-driven draw is one AS-IS AddHandCards(DrawCards, isDraw:true, cardEffect):
+        // stamp the shared add-hand batch id (so N drawn cards fire an OnAddHand reactor ONCE) and the CAUSE effect
+        // source (mirrors AS-IS cardEffect != null — so the reactor's CanTriggerOnHandAdded gate accepts this
+        // effect-driven add). A context-less sink leaves the id 0 (unstamped). Turn/mulligan/setup draws do NOT
+        // route through this sink path, so they carry neither id and never fire OnAddHand (AS-IS cardEffect=null).
+        long addHandBatchId = ResolveAddHandBatchId();
+        HeadlessEntityId drawCause = mutation.SourceEntityId;
+        _pendingAsync.Add(ct => zoneMover.DrawAsync(
+            player, count, addHandBatchId, drawCause.IsEmpty ? null : drawCause, ct));
         _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "draw"));
     }
 
@@ -714,7 +786,12 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         bool faceUp = ReadBool(mutation.Values, FaceUpKey);
         _pendingAsync.Add(async ct =>
         {
-            IReadOnlyList<HeadlessEntityId> moved = await zoneMover.AddSecurityFromLibraryAsync(player, count, faceUp, ct).ConfigureAwait(false);
+            // (F1-Tier1 OnAddSecurity P2-1) each recovered card gets its OWN shared-counter add-security id
+            // (OnAddSecurity is per-card, not collapsed — AS-IS fires one StackSkillInfos per IAddSecurity),
+            // allocated at move time so the N per-card triggers sequence in ascending add order. A context-less
+            // bare sink leaves the factory null-yielding (unstamped).
+            IReadOnlyList<HeadlessEntityId> moved = await zoneMover.AddSecurityFromLibraryAsync(
+                player, count, faceUp, () => _context?.NextSecurityAddBatchId(), ct).ConfigureAwait(false);
             // (faceup security) persist the face state on each recovered card (AS-IS SetFace/SetReverse).
             foreach (HeadlessEntityId movedId in moved)
             {

@@ -366,7 +366,7 @@ public static class DeletionReplacementGate
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
         HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null)
+        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null, long? addSecurityBatchId = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -384,7 +384,10 @@ public static class DeletionReplacementGate
             return false;
         }
 
-        await zoneMover.AddToSecurityAsync(record.OwnerId, cardId, faceUp: false, toTop: true, cancellationToken)
+        // (F1-Tier1 OnAddSecurity P2-1) this Trash->Security add co-drains with the deletion batch that produced
+        // it, so stamp the SHARED-counter add-security id (allocated by the caller) rather than leaving it to fall
+        // back to the event Sequence — keeping the OnAddSecurity trigger in the one unified cross-batch order space.
+        await zoneMover.AddToSecurityAsync(record.OwnerId, cardId, faceUp: false, toTop: true, addSecurityBatchId, cancellationToken)
             .ConfigureAwait(false);
 
         repository.Upsert(record with

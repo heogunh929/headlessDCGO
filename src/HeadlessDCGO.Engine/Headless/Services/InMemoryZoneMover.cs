@@ -59,12 +59,38 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.FromResult(MoveCard(request));
     }
 
-    public Task AddToHandAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default)
+    public Task AddToHandAsync(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId,
+        long? addHandBatchId = null,
+        HeadlessEntityId? causeEffectId = null,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateCardMutation(playerId, cardId);
-        MoveCardToSingleZone(playerId, cardId, ChoiceZone.Hand);
+        MoveCardToSingleZone(playerId, cardId, ChoiceZone.Hand, metadata: BuildAddHandMetadata(addHandBatchId, causeEffectId));
         return Task.CompletedTask;
+    }
+
+    // (F1-Tier1 OnAddHand) the batch/cause metadata threaded onto a ->Hand CardMoved so the OnAddHand activated
+    // bridge collapses one effect's multi-card add to a single fire (batch id) and its CanTriggerOnHandAdded gate
+    // reads the causing effect's source card (cause id, the AS-IS CardEffect). Null when neither is supplied.
+    private static Dictionary<string, object?>? BuildAddHandMetadata(long? addHandBatchId, HeadlessEntityId? causeEffectId)
+    {
+        Dictionary<string, object?>? metadata = null;
+        if (addHandBatchId is long batch)
+        {
+            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.AddHandBatchIdKey] = batch;
+        }
+
+        if (causeEffectId is { IsEmpty: false } cause)
+        {
+            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.AddHandCauseEffectIdKey] = cause.Value;
+        }
+
+        return metadata;
     }
 
     public Task AddToTrashAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default)
@@ -131,14 +157,30 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return null;
     }
 
-    public Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, CancellationToken cancellationToken = default)
+    public Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, long? addSecurityBatchId = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateCardMutation(playerId, cardId);
         // N-3: index 0 is the security top (consumed first by SecurityResolver / TrashSecurity fromTop),
         // so toTop maps to a top insert — matching the original AddSecurityCard(toTop: true) default.
-        MoveCardToSingleZone(playerId, cardId, ChoiceZone.Security, faceUp, insertTop: toTop);
+        MoveCardToSingleZone(playerId, cardId, ChoiceZone.Security, faceUp, insertTop: toTop, metadata: BuildAddSecurityMetadata(addSecurityBatchId));
         return Task.CompletedTask;
+    }
+
+    // (F1-Tier1 OnAddSecurity P2-1) the shared-counter per-card add-security id threaded onto a ->Security
+    // CardMoved so the OnAddSecurity activated bridge sequences co-drained per-card triggers in ascending add
+    // order. Null (a context-less bare add) leaves the move unstamped (the bridge reader falls back to Sequence).
+    private static Dictionary<string, object?>? BuildAddSecurityMetadata(long? addSecurityBatchId)
+    {
+        if (addSecurityBatchId is not long batch)
+        {
+            return null;
+        }
+
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [Effects.MatchStateMutationSink.AddSecurityBatchIdKey] = batch,
+        };
     }
 
     public Task MoveToDeckTopAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, CancellationToken cancellationToken = default)
@@ -160,6 +202,8 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
     public Task<IReadOnlyList<HeadlessEntityId>> DrawAsync(
         HeadlessPlayerId playerId,
         int count,
+        long? addHandBatchId = null,
+        HeadlessEntityId? causeEffectId = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -170,13 +214,17 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
             return Task.FromResult((IReadOnlyList<HeadlessEntityId>)Array.Empty<HeadlessEntityId>());
         }
 
-        return Task.FromResult(MoveFromLibraryTop(playerId, ChoiceZone.Hand, count));
+        // (F1-Tier1 OnAddHand) all N drawn cards share ONE add-hand batch id + cause (AS-IS one AddHandCards call
+        // over the whole DrawCards list), so the bridge collapses them to a single OnAddHand fire per reactor.
+        return Task.FromResult(MoveFromLibraryTop(
+            playerId, ChoiceZone.Hand, count, metadata: BuildAddHandMetadata(addHandBatchId, causeEffectId)));
     }
 
     public Task<IReadOnlyList<HeadlessEntityId>> AddSecurityFromLibraryAsync(
         HeadlessPlayerId playerId,
         int count,
         bool faceUp = false,
+        Func<long?>? batchIdFactory = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -190,7 +238,11 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         // N-3: the original AddSecurity deals each library-top card via AddSecurityCard(toTop: true),
         // i.e. Insert(0). Inserting each at the security top reproduces that stacking order (last dealt
         // ends up on top) instead of the previous bottom-append (which reversed the stack).
-        return Task.FromResult(MoveFromLibraryTop(playerId, ChoiceZone.Security, count, faceUp, insertTop: true));
+        // (F1-Tier1 OnAddSecurity P2-1) each recovered card gets its OWN shared-counter add-security id
+        // (OnAddSecurity is per-card, not collapsed) via the per-card factory, stamped on each ->Security move.
+        return Task.FromResult(MoveFromLibraryTop(
+            playerId, ChoiceZone.Security, count, faceUp, insertTop: true,
+            metadataFactory: batchIdFactory is null ? null : () => BuildAddSecurityMetadata(batchIdFactory())));
     }
 
     public Task<IReadOnlyList<HeadlessEntityId>> TrashSecurityAsync(
@@ -336,10 +388,11 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         HeadlessEntityId cardId,
         ChoiceZone zone,
         bool faceUp = false,
-        bool insertTop = false)
+        bool insertTop = false,
+        Dictionary<string, object?>? metadata = null)
     {
         MoveCard(
-            new ZoneMoveRequest(playerId, cardId, ChoiceZone.None, zone, faceUp),
+            new ZoneMoveRequest(playerId, cardId, ChoiceZone.None, zone, faceUp, Metadata: metadata),
             insertTop ? ZoneInsertion.Top : ZoneInsertion.Bottom);
     }
 
@@ -348,18 +401,24 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         ChoiceZone toZone,
         int count,
         bool faceUp = false,
-        bool insertTop = false)
+        bool insertTop = false,
+        Dictionary<string, object?>? metadata = null,
+        Func<Dictionary<string, object?>?>? metadataFactory = null)
     {
-        return MoveFromZoneTop(playerId, ChoiceZone.Library, toZone, count, faceUp, insertTop);
+        return MoveFromZoneTop(playerId, ChoiceZone.Library, toZone, count, faceUp, insertTop, metadata, metadataFactory);
     }
 
+    // metadataFactory (when supplied) is invoked ONCE PER moved card to build a FRESH per-card metadata dict
+    // (e.g. a distinct OnAddSecurity batch id per card); it takes precedence over the shared `metadata`.
     private IReadOnlyList<HeadlessEntityId> MoveFromZoneTop(
         HeadlessPlayerId playerId,
         ChoiceZone fromZone,
         ChoiceZone toZone,
         int count,
         bool faceUp = false,
-        bool insertTop = false)
+        bool insertTop = false,
+        Dictionary<string, object?>? metadata = null,
+        Func<Dictionary<string, object?>?>? metadataFactory = null)
     {
         List<HeadlessEntityId> sourceZone = GetZone(playerId, fromZone);
         List<HeadlessEntityId> movedCards = new();
@@ -368,7 +427,8 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         for (int index = 0; index < count && sourceZone.Count > 0; index++)
         {
             HeadlessEntityId cardId = sourceZone[0];
-            MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, toZone, faceUp), insertion);
+            Dictionary<string, object?>? moveMetadata = metadataFactory is null ? metadata : metadataFactory();
+            MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, toZone, faceUp, Metadata: moveMetadata), insertion);
             movedCards.Add(cardId);
         }
 

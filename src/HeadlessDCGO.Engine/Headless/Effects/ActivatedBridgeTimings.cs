@@ -252,6 +252,44 @@ public static class ActivatedBridgeTimings
         EffectTiming.OnDiscardHand,
         EffectTiming.OnDiscardSecurity,
         EffectTiming.OnDiscardLibrary,
+        // (F1-Tier1 OnAddHand / OnAddSecurity) the two "a card was ADDED to a zone" broadcast timings.
+        //   * OnAddHand (21 AS-IS cards) — AS-IS CardObjectController.AddHandCards (:559) fires ONE
+        //     StackSkillInfos(OnAddHand) per hand-add with payload {Players = distinct owners of the added cards,
+        //     CardEffect = the causing effect, CardSources = the WHOLE added LIST} (:616). Gate
+        //     CanTriggerOnHandAdded (OnCardsAddedToHand.cs:12) is PLAYER-SCOPE (Players.Contains(player)) AND
+        //     REQUIRES CardEffect != null (:19) — the add must be EFFECT-driven — and may gate on the causing
+        //     effect's EffectSourceCard. A NON-effect add (turn draw / mulligan / initial deal, cardEffect=null)
+        //     never fires it (guard also: DoneStartGame, :605). Headless derives OnAddHand from a ->Hand CardMoved
+        //     (TriggerTimingMap.cs:113); the effect-driven draw / return-to-hand sink paths stamp the CAUSE effect
+        //     id + a shared ADD-HAND batch id (MatchStateMutationSink.ApplyDraw / ReturnToHandKind →
+        //     IZoneMover.Draw/AddToHandAsync), so the ported gate reads the subject's owner (the gaining player) +
+        //     the cause and self-gates. A bare (non-effect) draw carries neither, so it fails the CardEffect!=null
+        //     gate — matching AS-IS. Cross-card: the reactor lives on a DIFFERENT field card than the added card.
+        //     BATCH (#9, substrate REUSED from OnDiscard*): AS-IS fires ONE StackSkillInfos for the whole N-card
+        //     add, so N simultaneous hand-adds fire a reactor ONCE. Headless emits one ->Hand CardMoved per added
+        //     card sharing ONE add-hand batch id per sink flush, so CollectActivatedBridgeTriggers collapses to the
+        //     FIRST gate-passing add per reactor per batch (an INDEPENDENT hand-add, a distinct id, fires again).
+        //   * OnAddSecurity (14 AS-IS cards) — AS-IS IAddSecurity.AddSecurity (CardController.cs:5478) fires ONE
+        //     StackSkillInfos(OnAddSecurity) per SINGLE added security card with payload {Player = source.Owner,
+        //     CardSources = [that one card]}: it is PER-CARD (AddSecurityCard runs IAddSecurity UNCONDITIONALLY per
+        //     card — recovery of N cards fires it N times), NOT a batch. Gate CanTriggerWhenAddSecurity
+        //     (WhendAddSecurity.cs) delegates to the lose-security shape (player-scope over the gaining player, NO
+        //     cause). Headless derives OnAddSecurity from a ->Security CardMoved (TriggerTimingMap.cs:159), one per
+        //     added card, so it naturally fires PER CARD — NO batch collapse (matching AS-IS's per-IAddSecurity fire).
+        //   INHERITED (design item F1-M1-INHERITSCAN, latent, shared): the bridge dispatches only the TOP instance's
+        //   own effect class and never iterates digivolution-source inherited effects; an inherited OnAddHand/
+        //   OnAddSecurity reactor under another Digimon would be missed. All ported witnesses are NON-inherited
+        //   top-permanent reactors, so 0 ported reactors need it today; close with the shared inherited-source scan.
+        //   REVEAL-TO-HAND (design item F1-ADDHAND-REVEAL, latent): AS-IS RevealLibrary routes its selected/remainder
+        //   to hand via AddHandCards(list, false, activateClass) — a NON-null cause, so it DOES fire OnAddHand. The
+        //   headless reveal state machine (RevealAndSelect.MoveAsync → AddToHandAsync) does not thread the reveal's
+        //   source effect id, so a reveal-to-hand carries no cause and fails the CardEffect!=null gate (UNDER-fires,
+        //   the safe direction — it does NOT over-fire). No ported OnAddHand reactor reacts to a reveal-to-hand
+        //   today; close by threading the reveal source id into RevealAndSelect.MoveAsync when such a card is ported.
+        //   SCHEDULER-HALF SYMMETRY: TriggerTimings.BroadcastTimings is intentionally NOT updated — every AS-IS
+        //   OnAddHand/OnAddSecurity reactor is a uniform ActivateClass (activated-half); 0 memory/DP reactors exist.
+        EffectTiming.OnAddHand,
+        EffectTiming.OnAddSecurity,
         // (F1-DEAD) OnEndBlockDesignation — an attack-pipeline event (after blockers are designated); by AS-IS name
         // semantics a board-wide event that a reactor on a DIFFERENT card (attacker/other) responds to, so it is
         // broadcast (0 AS-IS cards, so scope cannot be re-derived from real usage). NO emit source exists (no

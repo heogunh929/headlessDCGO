@@ -844,7 +844,7 @@ public sealed class DeletionReplacementTiming
                 return true;
             case AscensionOption:
                 return await DeletionReplacementGate
-                    .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken: default, effectRegistry: context.EffectRegistry).ConfigureAwait(false);
+                    .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken: default, effectRegistry: context.EffectRegistry, addSecurityBatchId: context.NextSecurityAddBatchId()).ConfigureAwait(false);
             case ArmorPurgeOption:
                 // (B1) PRE replacement — the deletion is CANCELLED (AS-IS willBeRemoveField=false): only the
                 // top card is trashed and the under-source is promoted; the permanent never leaves play.
