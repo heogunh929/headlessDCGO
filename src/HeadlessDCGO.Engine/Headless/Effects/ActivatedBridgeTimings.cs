@@ -294,6 +294,141 @@ public static class ActivatedBridgeTimings
         //   OnAddHand/OnAddSecurity reactor is a uniform ActivateClass (activated-half); 0 memory/DP reactors exist.
         EffectTiming.OnAddHand,
         EffectTiming.OnAddSecurity,
+        // (F1-Tier2 OnEndAttack) "[End of Attack] …" — a single attack has just finished (77-80 AS-IS cards). This is
+        // the FIRST F-1 Tier2 (self-attacker) timing.
+        //   AS-IS emit: AttackProcess.EndAttack (AttackProcess.cs:472-484) fires a GLOBAL StackSkillInfos(EffectHashtable,
+        //   OnEndAttack) at the End state (AFTER the battle / security-check outcome, BEFORE CleanUp), guarded on the
+        //   attacker still being alive (`AttackingPermanent != null && AttackingPermanent.TopCard != null`). The payload
+        //   EffectHashtable is the SAME one built at attack DECLARATION ({AttackingPermanent, CardEffect} —
+        //   HashtableSetting.cs:310-317) — it carries ONLY the attacker, no defender / battle-result. Distinct enum
+        //   member from OnEndAttackPhase (the whole attack-STEP boundary, a F1-DEAD Boundary timing) — do not conflate.
+        //   Gate CanTriggerOnEndAttack = CanTriggerOnAttack = CanTriggerOnPermanentAttack(hashtable, p =>
+        //   p.cardSources.Contains(card)) (OnEndAttack.cs:10-13 → OnAttack.cs:10-45): the reacting card must be a
+        //   cardSource (TOP or digivolution-SOURCE) of the AttackingPermanent, and that permanent must still be alive
+        //   (TopCard != null). Fires REGARDLESS of whether a battle happened (unblocked / security-only attacks fire it
+        //   too) as long as the attacker survives.
+        //   HEADLESS: OnEndAttack is NOT a zone transition, so it cannot be DERIVED from a CardMoved — it is an EXPLICIT
+        //   TriggerEventEmitter.Emit(GameEventQueue, TriggerTimings.OnEndAttack, actor: turnPlayer, subject: attackerId)
+        //   from AttackPipeline.AdvanceEndAttackAsync, guarded on the attacker still being on the battle area (mirroring
+        //   the AS-IS alive guard). TriggerTimingMap returns the explicit timing outright (TriggerTimingMap.cs:18-22), so
+        //   no map case is added. The bridge threads that event as the driving event; the ported gate reads its Subject
+        //   (= attackerId → BuildUniformResolveContext.TriggerEntityId) and self-gates via SubjectPermanentContains
+        //   (TriggerEntityId == card OR the subject's SourceIds contain card — the cardSources.Contains mirror).
+        //   CLASSIFICATION = EventBroadcast (NOT SubjectScoped). All 80 AS-IS OnEndAttack reactors are SELF-scoped (0
+        //   cross-card / anyone reactors — verified by full scan of CanTriggerOnPermanentAttack usage), so scope alone
+        //   would permit SubjectScoped. The DECIDING factor is INHERITED coverage: an INHERITED (진화원) OnEndAttack
+        //   reactor (BT9_062 — SetIsInheritedEffect(true), fires when its Alphamon host attacks) sits UNDER the attacker
+        //   and is matched by AS-IS cardSources.Contains(card). SubjectScoped adds ONLY the subject top
+        //   (WindowResolverWiring.cs:803-806, Inherited=false hardcoded) and would DROP it; EventBroadcast's ScanZones
+        //   visits the top's active digivolution sources (Inherited=true) and each self-gates true via the SourceIds
+        //   branch. The attacker is still on the battle area at emit (self-delete via Execute happens AFTER, in
+        //   DeleteSelfAtEndOfAttackAsync), so the EventBroadcast field scan already visits the attacker itself — the top
+        //   self reactors (BT9_043 / BT1_081) are covered by the same scan.
+        //   BATCH: a single attack fires ONE StackSkillInfos with ONE subject (the attacker) — NOT a list. Multiple
+        //   attacks are separate events. So there is NO effect-batch multi-subject collapse and NO batch-id substrate
+        //   (like OnMove, unlike OnLoseSecurity / OnDiscard*). Each attack-end fires its reactors once.
+        //   INHERITED (design item F1-M1-INHERITSCAN, RESOLVED): the shared digivolution-source scan (ScanZones) already
+        //   covers this timing the moment it is EventBroadcast-registered — BT9_062 is the ported inherited witness
+        //   (fires as a non-flipped source under an Alphamon host, NOT as a top permanent), the OnEndAttack analogue of
+        //   BT9_021 (OnAddHand).
+        //   SCHEDULER-HALF SYMMETRY: TriggerTimings.BroadcastTimings is intentionally NOT updated — all 80 OnEndAttack
+        //   reactors are uniform ActivateClass (activated-half); there are 0 memory/DP (IHeadlessCardEffect) OnEndAttack
+        //   reactors, so no scheduler-half broadcast exists to add (same rationale as OnMove / OnLoseSecurity).
+        //   HOOK COEXISTENCE + DOUBLE-FIRE (design item F1-ENDATTACK-HOOK): EndAttackTriggerHook still runs inline in
+        //   AdvanceEndAttackAsync and collects the SCHEDULER half (registered IHeadlessCardEffect bindings) via a
+        //   bespoke synthetic AttackResolved event — off-queue. Activated effects are NEVER registered
+        //   (CardPortingFramework.cs:13262 skips IActivatedCardEffect), so the hook and the activated bridge are DISJOINT
+        //   by interface (HasActivatedEffectsAt excludes IHeadlessCardEffect) — no effect is collected by both today
+        //   (0 scheduler-half OnEndAttack reactors). If a real memory/DP OnEndAttack reactor is ever added it would
+        //   double-collect (hook + unified-seed scheduler collector over the queued event); the faithful fix then is to
+        //   retire the hook's scheduler collection into the unified seed. LATENT until such a card is ported.
+        EffectTiming.OnEndAttack,
+        // (F1-Tier2 WhenLinked) "[When Linked] …" — a card was just linked onto a Digimon (64 AS-IS cards). Second
+        // F-1 Tier2 unit.
+        //   AS-IS emit: Permanent.AddLinkCard (Permanent.cs:1237-1291) fires StackSkillInfos(hashtable, WhenLinked)
+        //   ONCE per successful attach (`addedCard == true`), with payload {Permanent = the HOST that received the
+        //   link, Card = the attached link card, CardEffect, isFromDigimon}. PER-CARD: a card that links N cards calls
+        //   AddLinkCard N times (caller foreach — e.g. AD1_005) → N separate WhenLinked emits (NOT a list payload).
+        //   Gates (CanUseEffects/WhenLinked.cs) come in TWO shapes (of the 64 WhenLinked files, 42 use the host gate,
+        //   35 the link-card gate; some cards use both):
+        //     * CanTriggerWhenLinked(ht, permanentCondition, sourceCondition) — the HOST-perspective gate: applies
+        //       permanentCondition to the HOST permanent and sourceCondition to the attached link card. Self-scope is
+        //       `permanent == card.PermanentOfThisCard()`; owner-anyone is IsPermanentExistsOnOwnerBattleAreaDigimon
+        //       with no self-equality. NO cross-player reactor exists (all owner-side).
+        //     * CanTriggerWhenLinking(ht, permanentCondition, card) — the LINK-CARD-perspective gate (`Card == card`,
+        //       the reacting card IS the attached link card). See LINK-CARD GAP below.
+        //   (The AS-IS payload also carries CardEffect (cause) + isFromDigimon; the headless emit omits both. Safe:
+        //   0 WhenLinked reactors read isFromDigimon (only BT22_006/EX5_065, both OnAddDigivolutionCard), and the
+        //   AS-IS CardEffect!=null guard is unreachable — every AddLinkCard caller passes a non-null cause. Latent.)
+        //   HEADLESS: emit ALREADY EXISTS (LinkHelpers.cs:139, wired at D-1) — TriggerEventEmitter.Emit(WhenLinked,
+        //   actor: hostOwner, subject: HOST id, extraMetadata {linkCardId}). WhenLinked is NOT a zone transition (the
+        //   link card moves to None/off-field), so it is an EXPLICIT emit and TriggerTimingMap returns it outright — no
+        //   map case. The gate CanTriggerWhenLinked ALREADY EXISTS (CardPortingFramework.cs:8764): it reads
+        //   TriggerEntityId (= subject = HOST) for permanentCondition and event Values["linkCardId"] for
+        //   sourceCondition. enum + const + gate + emit are all pre-existing — the ONLY missing wire is this
+        //   EventBroadcast registration.
+        //   CLASSIFICATION = EventBroadcast (NOT SubjectScoped): the 8 owner-anyone reactors live on a DIFFERENT card
+        //   than the linked host, so SubjectScoped (which resolves only the subject's own effects) would DROP them. The
+        //   field scan visits every card and each self-gates on the host subject.
+        //   BATCH: one AddLinkCard = one emit with one subject (the host) — no list, no effect-batch collapse, no
+        //   batch-id (like OnMove/OnEndAttack). EnforceLinkedMax's overflow trash fires OnLinkCardDiscarded (a separate
+        //   timing), never a second WhenLinked. Per-card is proven by the TfxWhenLinkedCounter 2-link test (+2).
+        //   ORDER (design item F1-WHENLINKED-TRIMORDER, latent, pre-existing D-1): headless emits WhenLinked BEFORE
+        //   EnforceLinkedMaxAsync trims the overflow (LinkHelpers.cs:139 then :144), whereas AS-IS trims FIRST then
+        //   emits (Permanent.cs:1250-1289). So the WhenLinked/OnLinkCardDiscarded window order is reversed, and a
+        //   WhenLinked reactor that reads the host's linked count/DP during resolution would see the PRE-trim state.
+        //   Final linked set is count-equivalent; latent until a real WhenLinked card inspects linked count mid-resolve.
+        //   GATE LIVENESS (latent, same class as OnMove's requireOnBattleArea): the headless CanTriggerWhenLinked
+        //   mirrors neither AS-IS Permanent.TopCard != null nor CardEffect != null. Masked today — all 42 host-gate
+        //   cards pass a real permanentCondition that re-checks battle-area membership, and no caller passes a null
+        //   cause. Add the explicit re-checks if a card ever passes a null permanentCondition.
+        //   INHERITED (F1-M1-INHERITSCAN, RESOLVED): the host is a battle-area top, so ScanZones' inherited-source
+        //   visit auto-covers an inherited [When Linked] reactor sitting under the host — BT22_003 is the ported
+        //   inherited witness (SetIsInheritedEffect(true), Digimon-self, -2000 DP). BT22_035 (host-self top, already
+        //   ported at C-2) goes live the moment this registration lands.
+        //   SCHEDULER-HALF SYMMETRY: TriggerTimings.BroadcastTimings intentionally NOT updated — all WhenLinked
+        //   reactors are uniform ActivateClass (activated-half); 0 memory/DP reactors. No EndAttackTriggerHook-style
+        //   inline scheduler collector exists for WhenLinked, so no CollectUnifiedSeed skip is needed either.
+        //   LINK-CARD GAP (design item, latent, = C2-01 / IsLinkedEffect): the CanTriggerWhenLinking gate reacts from
+        //   the ATTACHED LINK CARD's position, but a link card lives off-field (ChoiceZone.None), which ScanZones does
+        //   NOT visit — so a link-card-self [When Linking] activated reactor (22 AS-IS cards; the ACTIVATED ones, e.g.
+        //   BT22_035's deferred -4000 DP) is NOT reached by this EventBroadcast wire. It shares the C2-01 IsLinkedEffect
+        //   lifecycle gap (ActivatedEffect has no link-card marker). Host-perspective WhenLinked reactors (this golf's
+        //   witnesses) are fully covered; the link-card-self addendum stays latent until C2-01 is remediated.
+        EffectTiming.WhenLinked,
+        // (F1-Tier2 OnAddDigivolutionCards) "[When ... is placed in this Digimon's digivolution cards by an effect] …"
+        // (50 AS-IS cards). Third F-1 Tier2 unit — and the one whose EMIT was INVERTED, requiring a real fix (not a
+        // one-line register).
+        //   AS-IS emit: ONLY from Permanent.AddDigivolutionCardsTop (Permanent.cs:1119) / AddDigivolutionCardsBottom
+        //   (:1223, and only when !skipEffectAndActivateSkill) — i.e. an EFFECT places >=1 card under a permanent
+        //   (place-under, DigiXros, Assembly, App-Fusion, Save/MaterialSave/Training). Payload {Permanent=receiving
+        //   host, CardEffect=cause, CardSources=the added batch, isFromSameDigimon, isFromDigimon}. The gate hard-
+        //   requires CardEffect != null (OnAddDigivolutionCards.cs:24). NATURAL digivolution does NOT emit it (AS-IS
+        //   stacks the previous top via a plain AddCardSource, CardController.cs:1365-1375, no StackSkillInfos).
+        //   HEADLESS EMIT FIX (design item F1-ADDDIGI-EMIT, remediated here): the headless emit was INVERTED — it fired
+        //   on EVERY natural digivolve (DigivolveAction.cs, over-fire) and was SILENT on effect place-under
+        //   (DigivolutionStackHelpers, under-fire). Fixed by (1) removing the DigivolveAction emit, (2) emitting from
+        //   DigivolutionStackHelpers.AddSourcesBottomAsync/AddSourcesTopAsync/MoveSourcesBottom/TrainAsync (the AS-IS
+        //   AddDigivolutionCards* port) with subject=host + causeSourceId, honoring skipEffectAndActivateSkill, and
+        //   (3) hardening the gate to require a non-empty causeSourceId (mirrors AS-IS CardEffect != null; also fixes
+        //   it reading SourceEntityId=host instead of the cause). Natural digivolve and effect-add are fully separate
+        //   headless paths (DigivolveAction never calls DigivolutionStackHelpers), so the fix cannot cross-fire.
+        //   CLASSIFICATION = EventBroadcast (NOT SubjectScoped): of the 50, self=38 / owner-anyone=10 / OPPONENT=2
+        //   (BT11_088/EX10_056 — a reactor firing when the OPPONENT's permanent receives sources). anyone + cross-
+        //   player reactors exist, so SubjectScoped would drop them; the field scan visits every card and self-gates.
+        //   BATCH: ONE emit per place-under with a CardSources LIST payload (addedCardIds), gate any-matches — NOT
+        //   per-card. N sources added at once = ONE fire. No batch-id collapse needed (single emit).
+        //   INHERITED (F1-M1-INHERITSCAN, RESOLVED): 28/50 are inherited; ScanZones auto-covers an inherited reactor
+        //   under the receiving host. Ported inherited witness: EX6_001 (memory) — TBD.
+        //   ★MEMORY LATENT (the design doc's "memory latent gap" — RESOLVED as no-op): 0 of the 50 are non-activated
+        //   (continuous memory/DP) reactors — ALL are ActivateClass, incl. the +memory ones (BT22_044/EX6_001/…),
+        //   which call AddMemory INSIDE the ActivateCoroutine. So they port as uniform ActivatedEffect + MemoryBody
+        //   (activated-half) and this EventBroadcast wire covers them; no separate scheduler-half broadcast is needed.
+        //   SCHEDULER-HALF SYMMETRY: TriggerTimings.BroadcastTimings intentionally NOT updated — the emit stamps
+        //   SourceEntityIdKey=host, so a SELF-scoped scheduler-half (IHeadlessCardEffect memory/DP) reactor would
+        //   already be collected by the unified seed; only an ANYONE-scope scheduler-half reactor (0 today) would need
+        //   BroadcastTimings. No inline scheduler hook exists (unlike OnEndAttack), so no CollectUnifiedSeed skip.
+        EffectTiming.OnAddDigivolutionCards,
         // (F1-DEAD) OnEndBlockDesignation — an attack-pipeline event (after blockers are designated); by AS-IS name
         // semantics a board-wide event that a reactor on a DIFFERENT card (attacker/other) responds to, so it is
         // broadcast (0 AS-IS cards, so scope cannot be re-derived from real usage). NO emit source exists (no

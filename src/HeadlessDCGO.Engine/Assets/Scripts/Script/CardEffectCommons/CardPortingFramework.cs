@@ -6017,7 +6017,9 @@ public sealed class SelectHandAttachToOwnStackThenMemoryEffect : IActivatedCardE
         await DigivolutionStackHelpers.AddSourcesTopAsync(
             context.CardInstanceRepository, context.ZoneMover, Card.InstanceId,
             new[] { result.SelectedIds[0] }, ChoiceZone.Hand, cancellationToken,
-            onceFlags: context.OnceFlags).ConfigureAwait(false);
+            onceFlags: context.OnceFlags,
+            // (F1-Tier2 OnAddDigivolutionCards) effect place-under (top) — this card's own effect is the cause.
+            gameEventQueue: context.GameEventQueue, causeSourceId: Card.InstanceId).ConfigureAwait(false);
 
         if (_memoryGain != 0)
         {
@@ -8811,8 +8813,21 @@ public static class CardEffectCommons
             return false;
         }
 
+        // (F1-Tier2) AS-IS OnAddDigivolutionCards.cs:24 hard-requires `CardEffect != null` — the add MUST be
+        // effect-driven. The causing effect's SOURCE id is carried on the event as `causeSourceId` (distinct from
+        // subject=host). A natural-digivolve remnant or an Assembly-style add (AS-IS `AddDigivolutionCardsBottom(card,
+        // null)`) carries no cause, so EVERY reactor gates false here. (Previously this read SourceEntityId, which the
+        // emit set to the HOST — never the cause — so cardEffectSourceCondition evaluated the wrong card and the
+        // mandatory-cause requirement was missing entirely.)
+        if (!ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}causeSourceId", out object? causeRaw) ||
+            causeRaw?.ToString() is not { Length: > 0 } causeValue)
+        {
+            return false;
+        }
+
+        var causeId = new HeadlessEntityId(causeValue);
         if (cardEffectSourceCondition is not null &&
-            !cardEffectSourceCondition(new CardSource(context, ctx.EffectContext.SourceEntityId, OwnerOfId(context, ctx.EffectContext.SourceEntityId), OwnerOfId(context, ctx.EffectContext.SourceEntityId))))
+            !cardEffectSourceCondition(new CardSource(context, causeId, OwnerOfId(context, causeId), OwnerOfId(context, causeId))))
         {
             return false;
         }
@@ -10574,7 +10589,9 @@ public static class CardEffectCommons
         await Headless.Runtime.DigivolutionStackHelpers.AddSourcesBottomAsync(
             context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0],
             new[] { card.InstanceId }, ChoiceZone.Trash, cancellationToken,
-            onceFlags: context.OnceFlags).ConfigureAwait(false);
+            onceFlags: context.OnceFlags,
+            // (F1-Tier2 OnAddDigivolutionCards) Save place-under — the saved card's own effect is the cause.
+            gameEventQueue: context.GameEventQueue, causeSourceId: card.InstanceId).ConfigureAwait(false);
     }
 
     /// <summary>AS-IS <c>CanActivateBlitz</c> (KeyWordEffects/Blitz.cs:10, verbatim): on the battle area,

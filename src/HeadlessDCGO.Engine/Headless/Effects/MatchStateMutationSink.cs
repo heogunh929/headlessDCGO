@@ -636,7 +636,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // (C-24 Training) suspend self + place the owner's top library card at the bottom of self's stack.
                 if (_zoneMover is { } trainMover)
                 {
-                    _pendingAsync.Add(ct => DigivolutionStackHelpers.TrainAsync(_repository, trainMover, targetId, ct));
+                    // (F1-Tier2 OnAddDigivolutionCards) Training is an effect place-under (cause = the trained Digimon).
+                    _pendingAsync.Add(ct => DigivolutionStackHelpers.TrainAsync(_repository, trainMover, targetId, ct, _gameEventQueue));
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, TrainKind));
                 }
                 else
@@ -651,7 +652,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 if (mutation.Values.TryGetValue(ToEntityIdKey, out object? toRaw) && toRaw is string toValue && !string.IsNullOrWhiteSpace(toValue))
                 {
                     int saveCount = ReadInt(mutation.Values, CountKey) ?? 1;
-                    DigivolutionStackHelpers.MoveSourcesBottom(_repository, mutation.SourceEntityId, new HeadlessEntityId(toValue), saveCount);
+                    // (F1-Tier2 OnAddDigivolutionCards) Material Save's MoveSourcesBottom IS the real add (cause = the
+                    // Material Save effect's source = the mutation source card), so it fires.
+                    DigivolutionStackHelpers.MoveSourcesBottom(_repository, mutation.SourceEntityId, new HeadlessEntityId(toValue), saveCount,
+                        gameEventQueue: _gameEventQueue, causeSourceId: mutation.SourceEntityId);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, MaterialSaveKind));
                 }
                 else

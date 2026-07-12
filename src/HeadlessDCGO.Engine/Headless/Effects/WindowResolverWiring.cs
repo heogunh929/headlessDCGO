@@ -291,6 +291,21 @@ public static class WindowResolverWiring
                     continue;
                 }
 
+                // (F1-Tier2 OnEndAttack / design item F1-ENDATTACK-HOOK) the SCHEDULER half of OnEndAttack is owned by
+                // EndAttackTriggerHook, which runs INLINE (off-queue) in AttackPipeline.AdvanceEndAttackAsync and
+                // enqueues bound OnEndAttack reactors directly to the scheduler. The queued OnEndAttack event exists
+                // ONLY to open the ACTIVATED bridge (CollectActivatedBridgeTriggers, below), so skip the scheduler
+                // collect for it — otherwise a bound (IHeadlessCardEffect) OnEndAttack reactor would be collected TWICE
+                // (once by the hook, once here) and fire twice. Activated effects are never registered (the bridge
+                // reaches them via the separate scan), so this skip does not affect the activated half. 0 production
+                // bound OnEndAttack reactors exist today; the PRIM-P0 NewTimingsFire fixture (a bound memory probe)
+                // proves the single fire. The faithful long-term fix is to retire the hook so the unified seed owns
+                // both halves (design item F1-ENDATTACK-HOOK).
+                if (TriggerTimingMap.Derive(gameEvent).Contains(EndAttackTriggerHook.OnEndAttackTiming))
+                {
+                    continue;
+                }
+
                 long deletionBatchId = ReadDeletionBatchId(gameEvent);
                 foreach (TimingWindowTrigger trigger in collector.CollectAllTriggers(gameEvent))
                 {

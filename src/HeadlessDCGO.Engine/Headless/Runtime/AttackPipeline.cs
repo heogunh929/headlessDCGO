@@ -457,6 +457,39 @@ public class AttackPipeline
                     }
                 }
             }
+
+            // (F1-Tier2 OnEndAttack) publish the ACTIVATED-half timing window. AS-IS AttackProcess.EndAttack
+            // (AttackProcess.cs:472-484) fires a global StackSkillInfos(OnEndAttack) ONLY while the attacker is still
+            // alive (`AttackingPermanent.TopCard != null`). This emit-time guard mirrors that for the DIE-IN-BATTLE
+            // case: an attacker knocked out during combat is off the battle area by now, so no window opens.
+            // subject=attacker → the bridge gate self-scopes; the EventBroadcast field+source scan reaches top and
+            // inherited reactors. The scheduler half above (EndAttackTriggerHook) stays disjoint (bound
+            // IHeadlessCardEffect only).
+            //   (design item F1-ENDATTACK-LIVENESS, latent) The emit-time guard alone is NOT a full mirror of AS-IS.
+            //   AS-IS's gate CanTriggerOnPermanentAttack (OnAttack.cs:26-30) re-checks `AttackingPermanent.TopCard !=
+            //   null` at RESOLUTION time; the headless mirror SubjectPermanentContains (CardPortingFramework.cs:9653)
+            //   checks only stack MEMBERSHIP (TriggerEntityId == card OR subject's SourceIds contain card), with NO
+            //   liveness re-check. The one thing that can trash the attacker BETWEEN this emit and the deferred window
+            //   drain is DeleteSelfAtEndOfAttackAsync (Execute self-delete, below), which runs before RunToStable. Since
+            //   ScanZones also scans the Trash, at resolution a self-deleted attacker is still visited, and then:
+            //     * a reactor WITH an IsExistOnBattleArea CanActivate gate (BT9_043/BT9_062 and ~all real ones) is
+            //       DENIED — AS-IS would order it before the self-delete and fire it → headless UNDER-fires;
+            //     * a reactor WITHOUT a self-existence gate would OVER-fire from the trash — SubjectPermanentContains
+            //       returns true with no TopCard check, whereas AS-IS's self-delete-first ordering rejects it.
+            //   LATENT: no production path arms deleteSelfAtEndOfAttack (the Execute keyword is still a skeleton; only
+            //   tests set the flag), and a self-deleting attacker coexisting with a same-attacker OnEndAttack reactor is
+            //   board-rare. The faithful fix (when Execute is ported) is to add the TopCard-liveness re-check to
+            //   SubjectPermanentContains so the gate — not just this emit guard — enforces it.
+            if (attack.AttackerId is HeadlessEntityId endAttackerId
+                && context.ZoneMover is IZoneStateReader endAttackZones
+                && endAttackZones.GetCards(turnPlayer, ChoiceZone.BattleArea).Contains(endAttackerId))
+            {
+                TriggerEventEmitter.Emit(
+                    context.GameEventQueue,
+                    TriggerTimings.OnEndAttack,
+                    actor: turnPlayer,
+                    subject: endAttackerId);
+            }
         }
 
         // C-9 Execute: a Digimon flagged to self-delete at end of attack (AS-IS UntilEndAttack

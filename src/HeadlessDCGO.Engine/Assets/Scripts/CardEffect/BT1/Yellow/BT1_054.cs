@@ -39,8 +39,17 @@ public sealed class BT1_054 : CEntity_Effect
                     canEndNotMax: false,
                     mode: SelectPermanentEffect.Mode.Custom,
                     description: "[When Attacking] If you have 3 or more memory, 1 of your opponent's Digimon gets -2000 DP for the turn.",
+                    // Resolve the SELECTED target's actual owner from the repository — the target is an OPPONENT'S
+                    // Digimon (P2), so `card.Owner` (P1) would build a Permanent whose OwnerId mismatches the real
+                    // zone owner, and ChangeDigimonStat's battle-area guard would reject it (no modifier registered).
+                    // AS-IS `new Permanent(id)` resolves owner internally; the headless port must too. (Latent bug
+                    // surfaced by the F1-Tier2 WhenLinked BT22_003 witness, which shares this select→ChangeDigimonDP
+                    // shape; BT1_054 had no test.)
                     onEachSelected: id => CardEffectCommons.ChangeDigimonDP(
-                        new Permanent(card.Context, id, card.Owner), changeValue: -2000, EffectDuration.UntilEachTurnEnd, card)),
+                        new Permanent(card.Context, id,
+                            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? tgtRec) && tgtRec is not null
+                                ? tgtRec.OwnerId : card.Owner),
+                        changeValue: -2000, EffectDuration.UntilEachTurnEnd, card)),
                 maxCountPerTurn: null,
                 isOptional: false,
                 description: "[When Attacking] If you have 3 or more memory, 1 of your opponent's Digimon gets -2000 DP for the turn."));

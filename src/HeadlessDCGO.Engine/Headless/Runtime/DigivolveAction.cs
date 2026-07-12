@@ -244,20 +244,12 @@ public sealed class DigivolveAction
                 ["oldLevel"] = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.TargetCardId, action.PlayerId, action.PlayerId).Level,
             });
 
-        // F-6.4: digivolving places the previous card(s) under the new top as digivolution sources —
-        // open the OnAddDigivolutionCards window scoped to the receiving (top) card.
-        if (sourceIds.Count > 0)
-        {
-            TriggerEventEmitter.Emit(
-                context.GameEventQueue,
-                TriggerTimings.OnAddDigivolutionCards,
-                actor: action.PlayerId,
-                subject: payload.CardId,
-                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
-                {
-                    ["addedCardIds"] = string.Join(",", sourceIds.Select(id => id.Value)),
-                });
-        }
+        // (F1-Tier2 OnAddDigivolutionCards fidelity) NATURAL digivolution does NOT emit OnAddDigivolutionCards — AS-IS
+        // reserves that timing for EFFECT-driven place-under (Permanent.AddDigivolutionCardsTop/Bottom, gate hard-
+        // requires CardEffect != null). AS-IS natural digivolve stacks the previous top via a plain AddCardSource
+        // (CardController.cs:1365-1375) with NO StackSkillInfos. The prior emit here fired on EVERY digivolve (over-
+        // fire); the effect place-under emit now lives in DigivolutionStackHelpers (the AS-IS AddDigivolutionCards*
+        // port). See ActivatedBridgeTimings OnAddDigivolutionCards note.
 
         // G6-001: the digivolving card is the new top entering play — auto-register its ported effects.
         // The previous top (now a digivolution source) keeps its bindings: its inherited effect now folds

@@ -391,6 +391,45 @@ public sealed class MemoryCostThenUnsuspendSelfBody : IEffectBody
     }
 }
 
+/// <summary>Return the TOP security card to hand, then unsuspend this card's own permanent — the AS-IS BT9_043
+/// OnEndAttack ActivateCoroutine (BT9_043.cs:115-135): <c>AddHandCards({SecurityCards[0]})</c> +
+/// <c>IReduceSecurity().ReduceSecurity()</c> THEN <c>if (IsExistOnBattleArea) IUnsuspendPermanents(self).Unsuspend()</c>.
+/// A SINGLE ReturnToHand on the top security card reproduces BOTH AS-IS steps: the security->hand zone move fires
+/// OnAddHand (the AS-IS AddHandCards) AND derives OnLoseSecurity (the AS-IS IReduceSecurity broadcast — TriggerTimingMap
+/// from==Security &amp;&amp; to!=Security). AS-IS "Top security = index 0" (SecurityCards[0]) == zone-reader index 0. A single
+/// card moves, so the derived OnLoseSecurity fires exactly once (no batch-id needed — same proven path as
+/// ReplaceBottomSecurityWithFaceUpEffect). Non-interactive.</summary>
+public sealed class ReturnTopSecurityToHandThenUnsuspendSelfBody : IEffectBody
+{
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        // AS-IS: topCard = SecurityCards[0]; AddHandCards({topCard}) + IReduceSecurity().
+        if (card.Context.ZoneMover is IZoneStateReader reader)
+        {
+            IReadOnlyList<HeadlessEntityId> security = reader.GetCards(card.Owner, ChoiceZone.Security);
+            if (security.Count > 0)
+            {
+                sink.Apply(new EffectMutation(
+                    MatchStateMutationSink.ReturnToHandKind,
+                    card.InstanceId,
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                        { [MatchStateMutationSink.TargetEntityIdKey] = security[0].Value }));
+            }
+        }
+        // AS-IS: if (IsExistOnBattleArea(card)) IUnsuspendPermanents(self).Unsuspend().
+        if (CardEffectCommons.IsExistOnBattleArea(card))
+        {
+            CardEffectCommons.UnsuspendSelf(sink, card);
+        }
+    }
+}
+
 /// <summary>Gain N memory now, then schedule a one-shot reversal (lose N memory) at end of THIS turn — the AS-IS
 /// ActivateCoroutine <c>card.Owner.AddMemory(+N)</c> THEN a nested one-shot <c>AddMemory(-N)</c> registered via
 /// <c>AddEffectToPlayer(timing: OnEndTurn)</c> (e.g. BT1_090 "[Main] Gain 2 memory. At end of turn, lose 2

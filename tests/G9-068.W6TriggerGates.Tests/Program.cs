@@ -188,9 +188,19 @@ async Task LinkAndSourcesGates()
         "host + link-card predicates both evaluated");
     AssertTrue(!CardEffectCommons.CanTriggerWhenLinked(linked, V(ctx, self), p => p.Level == 5, cs => cs.Level == 9), "link mismatch fails");
 
-    var added = ResolveCtx(ctx, subject: host, values: new() { [$"{GameFlowProcessor.EventValuePrefix}addedCardIds"] = link.Value });
+    // OnAddDigivolutionCards requires a NON-EMPTY cause (AS-IS OnAddDigivolutionCards.cs:24 `CardEffect != null`) —
+    // carry causeSourceId in addition to the added-card list and the host subject.
+    var added = ResolveCtx(ctx, subject: host, values: new()
+    {
+        [$"{GameFlowProcessor.EventValuePrefix}addedCardIds"] = link.Value,
+        [$"{GameFlowProcessor.EventValuePrefix}causeSourceId"] = host.Value,
+    });
     AssertTrue(CardEffectCommons.CanTriggerOnAddDigivolutionCard(added, V(ctx, self), p => p.Level == 5, null, cs => cs.Level == 3),
         "added-source predicate hits");
+    // Missing cause (AS-IS CardEffect == null) gates false regardless of the other predicates.
+    var noCause = ResolveCtx(ctx, subject: host, values: new() { [$"{GameFlowProcessor.EventValuePrefix}addedCardIds"] = link.Value });
+    AssertTrue(!CardEffectCommons.CanTriggerOnAddDigivolutionCard(noCause, V(ctx, self), p => p.Level == 5, null, cs => cs.Level == 3),
+        "no cause (CardEffect == null) gates false");
 }
 
 async Task ByBattleAndAccessors()

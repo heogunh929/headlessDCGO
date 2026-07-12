@@ -41,8 +41,15 @@ public sealed class BT1_061 : CEntity_Effect
                     canEndNotMax: false,
                     mode: SelectPermanentEffect.Mode.Custom,
                     description: "[On Play] 2 of your opponent's Digimon get -3000 DP for the turn.",
+                    // Resolve the selected OPPONENT target's real owner from the repository — `card.Owner` (self) would
+                    // build a Permanent whose OwnerId mismatches the zone owner and ChangeDigimonStat's battle-area
+                    // guard would silently reject it (no modifier registered). AS-IS `new Permanent(id)` resolves owner
+                    // internally. (Same latent bug class as BT1_054/BT22_003; surfaced by the WhenLinked witness.)
                     onEachSelected: id => CardEffectCommons.ChangeDigimonDP(
-                        new Permanent(card.Context, id, card.Owner), changeValue: -3000, EffectDuration.UntilEachTurnEnd, card)),
+                        new Permanent(card.Context, id,
+                            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? tgtRec) && tgtRec is not null
+                                ? tgtRec.OwnerId : card.Owner),
+                        changeValue: -3000, EffectDuration.UntilEachTurnEnd, card)),
                 maxCountPerTurn: null,
                 isOptional: false,
                 description: "[On Play] 2 of your opponent's Digimon get -3000 DP for the turn."));

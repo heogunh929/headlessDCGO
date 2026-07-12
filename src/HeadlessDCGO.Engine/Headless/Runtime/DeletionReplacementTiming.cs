@@ -884,7 +884,9 @@ public sealed class DeletionReplacementTiming
                 // POST: place the deleted card under the chosen permanent (AS-IS AddDigivolutionCardsBottom).
                 await DigivolutionStackHelpers.AddSourcesBottomAsync(
                     context.CardInstanceRepository, context.ZoneMover, target, new[] { cardId }, ChoiceZone.Trash,
-                    onceFlags: context.OnceFlags).ConfigureAwait(false);
+                    onceFlags: context.OnceFlags,
+                    // (F1-Tier2 OnAddDigivolutionCards) Save place-under — the saved card's own effect is the cause.
+                    gameEventQueue: context.GameEventQueue, causeSourceId: cardId).ConfigureAwait(false);
                 return (true, true);
             case DecodeOption:
                 // (C-1/TODO-96) PRE: play the chosen digivolution source as a new permanent for free (AS-IS
