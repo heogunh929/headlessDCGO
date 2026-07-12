@@ -118,19 +118,28 @@ OnPermamemtReturnedToHand(2)·OnReturnCards*(2+2)·AfterEffectsActivate(2)·When
 7. **event value 타입 필터**: string/int/bool/long만 스레드 — list/Func 메타는 원시 평탄화 필요.
 8. **CanCollectAt vs CanActivateAt 분리**(2차 리뷰 상환분): collect 1회(CanUse半) vs per-pass(CanActivate半+IsEffectsDisabled) 재뭉갬 금지.
 
-추가: **scheduler-half vs activated-half 경계**(HasActivatedEffectsAt) — 같은 타이밍 memory+activated 공존 시 이중수집 방지 유지. **BroadcastTimings allow-list(스케줄러半)와 EventBroadcast 세트(activated半) 둘 다 갱신**(비대칭 방지).
+9. **batch semantics: effect-batch vs per-card**(M1이 적발·상환): AS-IS는 "1 StackSkillInfos = 1 논리적 이벤트"를 구분 — 효과-구동 다중 존-전이(1 IReduce/IDestroy 호출)는 **1회**, per-card 경로(attack security-check 등)는 **N회**. 헤드리스는 항상 per-CardMoved 파생이라 effect-batch에서 uncapped 리액터 N배 over-fire. **다중 존-전이 EB 타이밍(OnDiscard*·OnAddHand·OnAddSecurity·OnLoseSecurity 등)마다 batch-id substrate 필요**(D-1 delete-batch·M1 `SecurityLossBatchId` 패턴). naive collapse는 per-card 경로 오병합 — 경계 키가 필수. **uncapped 픽스처로만 실증**(캡 witness는 collapse 가림).
+10. **inherited-source scan 갭**(M1이 적발, design item F1-M1-INHERITSCAN, **모든 activated 타이밍 공통·latent**): 브릿지가 **top 인스턴스 효과 클래스만** dispatch하고 **진화원(digivolution-source) inherited 효과는 순회 안 함**. OnLoseSecurity 73장 중 ~28장이 inherited 리액터(현재 전부 스켈레톤이라 latent). 첫 inherited activated 리액터 포팅 시 라이브 — F-1 인프라 축으로 별도 상환 필요(scan이 top+inherited 소스 순회).
+
+추가: **scheduler-half vs activated-half 경계**(HasActivatedEffectsAt) — 같은 타이밍 memory+activated 공존 시 이중수집 방지 유지. **BroadcastTimings allow-list(스케줄러半)와 EventBroadcast 세트(activated半) 둘 다 갱신**(비대칭 방지). **attack security-check 등 sync-window 경로**(RunSyncWindowAsync)는 scheduler collector만 써 activated 리액터 drop — unified seed 편입 필요(M1 `RunSecurityCheckWindowAsync` 선례).
 
 ---
 
 ## 5. 로드맵
 
 1. **M0 — 인프라 선행**(1 골): enum 정합(부재 타이밍 append) + `ScanZones` 5존 확장 + event value 원시 평탄화 헬퍼 + `TriggerTimingMap` emit 매트릭스 감사. witness=기존 브릿지 카드 회귀 + 신규 타이밍 1개 스모크. **이게 확산의 토대**.
-2. **M1 — Tier 1 확산**(타이밍별 골): OnLoseSecurity → OnMove → OnDiscard* → OnAdd*. 각 witness 2~3장 + 적대 리뷰. 저위험으로 브릿지 패턴·회귀 방어 검증.
+2. **M1 — Tier 1 확산**(타이밍별 골): ~~OnLoseSecurity~~ ✅(413) → ~~OnMove~~ **✅(414, 2026-07-12)** → ~~OnDiscard*~~ **✅(415, 2026-07-12)** → OnAdd*. 각 witness 2~3장 + 적대 리뷰.
+   - **M1=OnLoseSecurity 완료**: EventBroadcast 등록(emit·게이트 M0 완비, 세트 등록만) + player-scope threading(subject.owner=잃은 플레이어) + witness BT24_018(enemy select-destroy)·BT15_037(self memory). **적대 리뷰가 batch-semantics 템플릿 구멍 적발→상환**: `SecurityLossBatchId` substrate(effect-batch 1회 vs attack-check per-card N회 구분) + `RunSecurityCheckWindowAsync`(sync-window activated drop 수정) + uncapped 픽스처 collapse 실증. **inherited-scan 갭(F1-M1-INHERITSCAN) 적발**=회귀방어 #10, latent. **교훈: 첫 확산이 템플릿의 두 근본 축(batch semantics·inherited scan)을 드러냄 — 이후 Tier 1 다중 존-전이 타이밍은 batch-id substrate 재사용**.
+   - **M1=OnDiscardHand/Security/Library 완료(415, 2026-07-12)**: 3 타이밍 EventBroadcast 등록(게이트 M0-선포팅 재사용). **선행 조사가 두 실갭 적발**: (1) `AddToTrashAsync`가 From=None(RemoveFromAllZones)이라 Hand/Library→Trash가 OnDiscard*를 **애초에 파생조차 안 함** → `IZoneMover.TrashCardAsync`(원존 보존 + 존-전이 파생) 신설. (2) 선포팅 게이트가 AS-IS `CardEffect != null`를 미강제(security-check reveal 오발) → `DiscardCauseEffectIdKey`(hashtable {CardEffect} 미러)를 effect-driven trash에 스탬프, `CanTriggerOnTrashHand/Security`가 cause 필수화(+cardEffectSourceCondition을 event cause로 정정). batch-id substrate 재사용: Hand/Library=per-sink `DiscardBatchId`, Security=`SecurityLossBatchId` 공유; collapse `firedDiscardBatch` (card,timing,id). 중복 `EmitTiming(OnDiscardSecurity)` 제거(CardMoved 파생이 subject+cause 운반, OnLoseSecurity 모델과 동일). witness ST16_14(self hand, cause-gate)·BT19_071(anyone library, [Once Per Turn] select-destroy) + uncapped 픽스처 TfxDiscardCounter(hand/security/library collapse + check-reveal CardEffect-gate 실증). OnDiscardSecurity **real** witness(BT18_098류 "activate own <Security> effect")는 프리미티브(security-effect-activation body) 부재로 STOP(픽스처가 end-to-end 발화 실증). 회귀=G9-074가 미강제-게이트를 단언하던 버그 assert였음→cause 스레딩으로 정정(1:1 충실). **적대리뷰 P1 상환**: reveal-then-trash가 OnDiscardLibrary **over-fire**(F-1의 TrashCardAsync가 도입한 회귀 — reveal remainder를 Library→Trash CardMoved로 만들어 OnDiscardLibrary 파생·발화). AS-IS `!IsBeingRevealed`(WhenDiscardLibrary.cs:23-26, reveal remainder 트래시 시점 IsBeingRevealed=true라 게이트 전량 거부)를 `RevealTrashFlagKey`(reveal marker)로 1:1 미러 — 두 reveal StageMove 경로 균일 배선, 일반 effect-driven library 트래시는 정상 발화. false 주석 2개 정정. **교훈=F-1 자신의 변경이 도입한 회귀를 적대리뷰가 포착('no headless surface' dismissal=wired path, C군 계열)**.
 3. **M2 — Tier 2**: OnEndAttack → WhenLinked → OnAddDigivolutionCards → 전투 계열.
 4. **M3 — Tier 3**: WhenRemoveField(leave-hook 재설계) → WhenPermanentWouldBeDeleted(PRE 창 확장) → WhenReturnto*.
 5. **M4 — 단발 정리** + per-card 포팅 백로그(별도 트랙)로 이행.
 
 각 골: goal+witness + 독립 적대 리뷰(렌즈: 삽입점 전수·scan-zone·게이트 driving-event 정합·회귀 8지점). C군 2차 리뷰 교훈(골-스코프 리뷰 불충분·witness 토폴로지도 AS-IS 재도출) 상시 적용.
+
+### 확산 중 누적 이연 design item (프리미티브/공통 갭)
+- **F1-M1-INHERITSCAN**(#10): inherited(진화원) activated 리액터 미순회 — 브릿지가 top 인스턴스만 dispatch. 실카드 라이브 갭 확인(OnLoseSecurity ~28 latent·OnMove EX10_004 1장). 별도 인프라 골(scan top+inherited).
+- **X-Antibody trait 정규화**(OnMove 리뷰 P2-1): 헤드리스 `EqualsTraits` exact match ≠ AS-IS `IsXAntibodyString`(공백/하이픈 strip+lower). "X-Antibody"(공식 TCG 표기) 미매칭 — X Antibody trait 읽는 전 카드(BT9_109·BT9_081·BT8_092…) 공통. 프리미티브 감사 부채(IsXAntibodyString 미러 헬퍼 추가).
 
 ---
 
@@ -143,3 +152,35 @@ OnPermamemtReturnedToHand(2)·OnReturnCards*(2+2)·AfterEffectsActivate(2)·When
 - **EventBroadcast 미배선(핵심)**: OnCounterTiming·OnBlockAnyone·OnStartBattle·OnAttackTargetChanged·OnSecurityCheck·WhenReturntoLibraryAnyone·WhenReturntoHandAnyone·OnPermamemtReturnedToHand·OnRemovedField·WhenUntapAnyone·OnDiscardHand·OnDiscardSecurity·OnDiscardLibrary·OnReturnCardsToHandFromTrash·OnReturnCardsToLibraryFromTrash·WhenTopCardTrashed·OnAddDigivolutionCards·WhenLinked·WhenWouldLink·OnLinkCardDiscarded·WhenWouldDigivolutionCardDiscarded·WhenDigisorption·OnDraw·OnAddHand·OnLoseSecurity·OnAddSecurity·OnFaceUpSecurityIncreased·OnMove·BeforePayCost·AfterPayCost.
 
 전수 표(발화지점·payload·게이트·DE 필요)는 조사 산출물 참조(이 문서 작성 근거).
+
+---
+
+## M0 감사 결과 (2026-07-12 실행): 인프라 토대 + 타이밍별 emit 상태
+
+M0는 **behavior-neutral** 3-파트로 완료(회귀 411/411 불변). 새 브릿지는 개통 안 됨(enum append + 헬퍼 + 감사만).
+
+### M0-1: EffectTiming enum 정합 (9개 append)
+`CardPortingFramework.cs` `enum EffectTiming` **끝에 9개 append**(ordinal 안정 — 회귀지점 #6): `AfterEffectsActivate·OnDraw·OnStartBattle·OnUseDigiburst·RulesTiming·WhenDigisorption·WhenUntapAnyone·WhenWouldDigivolutionCardDiscarded·WhenWouldLink`. 각 이름은 AS-IS `ICardEffect.cs:969` enum과 string-equal(검증). DEAD 6종(`OnEndAttackPhase·OnEndBlockDesignation·OnEndCoinToss·OnEndMainPhase·OnGetDamage·OnKnockOut`)은 미추가. 세트 미등록·emit 미배선이므로 브릿지 안 열림(순수 자리 확보).
+
+### M0-2: event value 컬렉션 평탄화 규약 헬퍼
+- **AS-IS**: hashtable에 `List<Permanent>` 원본 저장(`CardController.cs:4694` `hashtable.Add("WinnerPermanents", …)`); 게이트가 `GetLoserPermanentsFromHashtable(ht).Contains(permanent)`로 읽음(컬렉션 payload).
+- **헤드리스 제약**: `BuildUniformResolveContext`(ActivatedEffectResolver.cs:307-313) / `GameFlowProcessor`(:715-721)가 event 메타를 `event.<key>`로 스레드하되 **string/int/bool/long만** — List/Func 유실(회귀지점 #7).
+- **기존 규약 확인**: OnEndBattle이 **이미 CSV-of-id-values로 평탄화**돼 있음(emit `BattleResolver.cs:240-243` `string.Join(",", ids…)`, read `CardPortingFramework.EventPermanents` `Split(',')`). 이 관례는 엔진 전반에 산재(discardedCardIds·deckBottomCardIds·addedCardIds·materials·selectedCardIds 등).
+- **신규**: 이 관례를 단일 재사용 헬퍼 `Headless.Effects.EventCollectionMetadata`로 codify(`Flatten(ids)→CSV` / `ParseIds(raw)` / `ReadIds(values,key)`). 기존 OnEndBattle emit(BattleResolver)+read(EventPermanents)를 헬퍼 경유로 라우팅 — **byte-identical 출력**이라 OnEndBattle witness(TfxWinBattleDraw·ST4_11) 회귀 불변으로 자기검증. M1+ broadcast 타이밍(winnerIds/loserIds류 컬렉션)이 이 헬퍼 재사용.
+
+### M0-3: 타이밍별 emit 매트릭스 (신규 9 timing 중심)
+`TriggerTimingMap.Derive`는 CardMoved 존-전이에서 이동계 타이밍(OnAddHand·OnLoseSecurity·OnDiscard*·OnReturn*·OnMove·WhenRemoveField 등) 다수를 이미 파생. 신규 append 9개의 emit 상태:
+
+| Timing | TriggerTimings const | 헤드리스 emit 경로 | M1 착수 상태 |
+|---|---|---|---|
+| **OnDraw** | 있음 (`OnDraw`) | **있음** — `DigivolveCommons.cs:33`, `HeadlessEarlyPhaseFlow.cs:106` (드로우 액션이 emit) | ✅ 세트 등록만으로 개통 (emit 선배선 불요) |
+| **OnStartBattle** | 있음 (`OnStartBattle`) | **있음** — `BattleResolver.cs:55-56` 참가자별 동기 창(subject-scoped, explicit-timing override) | ✅ 이미 emit(sync 창). ⚠️ `TriggerTimings.cs:136-138` 주석 "OnStartBattle NOT emitted yet"는 **stale**(G8-003이 추가) — M1 착수 시 주석 정정 |
+| **OnUseDigiburst** | 있음 (`OnUseDigiburst`, 선언만·미사용) | **없음** | ❌ emit 선배선 필요 — DigiBurst 경로(select↔trash 사이, AS-IS `CardController.cs:2228→2233`) |
+| **WhenWouldLink** | 있음 (`WhenWouldLink`, 선언만·미사용) | **없음** | ❌ emit 선배선 필요 — 링크 비용 지불 前 PRE 창 |
+| **WhenUntapAnyone** | 없음 (별개 `OnUntapped="OnUnTappedAnyone"`만 존재) | **없음** | ❌ const+emit 필요. **OnUnTappedAnyone와 별개 타이밍**(AS-IS 둘 다 발화; `CardController.cs:5694` `GetSkillInfos(ht, WhenUntapAnyone)`) — M1서 WhenUntap vs OnUnTapped 분기 AS-IS 재도출 필요 |
+| **AfterEffectsActivate** | 없음 | **없음** | ❌ const+emit 필요 (효과 해소 직후 rules 경계) |
+| **RulesTiming** | 없음 | **없음** | ❌ const+emit 필요 (rules-processing 경계) |
+| **WhenWouldDigivolutionCardDiscarded** | 없음 | **없음** | ❌ const+emit 필요 (진화원 trash PRE 치환 창) |
+| **WhenDigisorption** | 없음 | **없음** | ❌ 카드-드리븐 cut-in, 중앙 훅 부재(단발 BT3_056) — per-card 재현 |
+
+**요약**: 신규 9 중 **2개(OnDraw·OnStartBattle)는 emit 이미 존재** → M1서 `ActivatedBridgeTimings` 세트 등록만으로 개통(최저위험 착수점). **7개는 emit 선배선 필요**(WhenUntapAnyone·WhenWouldLink·WhenWouldDigivolutionCardDiscarded·AfterEffectsActivate·RulesTiming = const 신설 포함, OnUseDigiburst·WhenWouldLink = const만 있고 emit 없음, WhenDigisorption = 카드-드리븐). 자명한 존-전이 emit 누락은 없음(이동계는 Derive가 이미 커버). M1 우선순위: **OnDraw → OnStartBattle**(emit 有, 세트 등록만) 먼저, emit 배선 필요분은 후순위.

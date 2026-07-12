@@ -40,10 +40,19 @@ async Task GateTail()
     var self = await Put(ctx, P1, "SELF", ChoiceZone.BattleArea);
     var discarded = await Put(ctx, P1, "DISC", ChoiceZone.Trash);
 
-    var evt = ResolveCtx(ctx, subject: discarded, values: new());
+    // (F1-Tier1) AS-IS CanTriggerOnTrashHand/Security require CardEffect != null (OnTrashHand.cs:19-21) — the
+    // headless mirror threads the cause effect's source id as event.discardCauseEffectId, so an effect-driven
+    // discard event carries it. (Library has no CardEffect check, so it is unaffected by the cause.)
+    var evt = ResolveCtx(ctx, subject: discarded, values: new()
+    {
+        [$"{GameFlowProcessor.EventValuePrefix}{MatchStateMutationSink.DiscardCauseEffectIdKey}"] = self.Value,
+    });
     AssertTrue(CardEffectCommons.CanTriggerOnTrashSelfHand(evt, V(ctx, discarded)), "self hand-trash gate hits on the subject");
     AssertTrue(!CardEffectCommons.CanTriggerOnTrashSelfHand(evt, V(ctx, self)), "unrelated card misses");
     AssertTrue(CardEffectCommons.CanTriggerWhenSelfDiscardLibrary(evt, V(ctx, discarded)), "self library-discard gate");
+    // (F1-Tier1) a NON-effect discard (no cause id) is rejected even on a matching subject — AS-IS CardEffect==null.
+    var noCauseEvt = ResolveCtx(ctx, subject: discarded, values: new());
+    AssertTrue(!CardEffectCommons.CanTriggerOnTrashSelfHand(noCauseEvt, V(ctx, discarded)), "non-effect hand-trash misses (CardEffect==null)");
 
     var option = await Put(ctx, P1, "OPT", ChoiceZone.Trash, cardType: "Option");
     var useEvt = ResolveCtx(ctx, subject: option, values: new() { [$"{GameFlowProcessor.EventValuePrefix}cost"] = 3 });

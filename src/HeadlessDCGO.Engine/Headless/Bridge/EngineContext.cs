@@ -132,6 +132,30 @@ public sealed class EngineContext
     /// behaviour for paths that never carried a batch.</summary>
     public long NextDeletionBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
 
+    /// <summary>(F1-M1 P1-1) Allocate a fresh monotonic security-LOSS batch id. One id == one AS-IS
+    /// <c>IReduceSecurity.ReduceSecurity()</c> call == one <c>StackSkillInfos(OnLoseSecurity)</c> broadcast
+    /// (the effect-driven <c>IDestroySecurity</c> path calls it ONCE for the whole N-card trash). Stamped (via
+    /// <c>MatchStateMutationSink.SecurityLossBatchIdKey</c>) onto every trashed security card's CardMoved so the
+    /// OnLoseSecurity activated-bridge collapse (<c>WindowResolverWiring.CollectActivatedBridgeTriggers</c>) fires the
+    /// reactor once per batch yet fires an INDEPENDENT security removal (a distinct id) separately. Shares the
+    /// deletion counter so security-loss and deletion ids are GLOBALLY unique — a drain that mixes a leave batch and a
+    /// security-loss batch never collides in the window's <c>BatchId</c> cross-batch ordering (temporal allocation
+    /// order == resolve order, matching AS-IS resolving each StackSkillInfos window before the next). Ids start at 1;
+    /// the sentinel 0 (an unstamped security move) collapses all-together.</summary>
+    public long NextSecurityLossBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
+
+    /// <summary>(F1-Tier1 OnDiscard*) Allocate a fresh monotonic DISCARD batch id. One id == one AS-IS logical
+    /// discard operation == one <c>StackSkillInfos(OnDiscardHand / OnDiscardLibrary)</c> broadcast — AS-IS collects
+    /// the whole discarded LIST and fires the timing ONCE (<c>DiscardHands</c> → CardController.cs:48-56;
+    /// <c>TrashDeckCards</c> → CardController.cs:5807-5816). Stamped (via <c>MatchStateMutationSink.DiscardBatchIdKey</c>)
+    /// onto every discarded card's CardMoved (Hand/Library-&gt;Trash) so the OnDiscard* activated-bridge collapse
+    /// (<c>WindowResolverWiring.CollectActivatedBridgeTriggers</c>) fires a reactor once per batch yet fires an
+    /// INDEPENDENT discard operation (a distinct id) separately. Shares the deletion counter so discard, deletion and
+    /// security-loss ids are GLOBALLY unique (a mixed drain never collides in the window's <c>BatchId</c> cross-batch
+    /// ordering). Ids start at 1; the sentinel 0 (an unstamped move — e.g. a non-effect trash) collapses all-together
+    /// and, for OnDiscardHand/Security, fails the CardEffect!=null gate (no cause-effect id either).</summary>
+    public long NextDiscardBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
+
     /// <summary>(PRIM-P0 B.O.4 #1) The action whose cost is currently being paid, set by the play / digivolve /
     /// option action around its BeforePayCost window so a card's [BeforePayCost] effect can gate on WHICH cost
     /// it is (AS-IS ChangeCostClass rootCondition). <see cref="PayCostRoot.None"/> outside a pay window.</summary>

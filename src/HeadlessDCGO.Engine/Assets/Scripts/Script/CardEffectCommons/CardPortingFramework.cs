@@ -130,6 +130,52 @@ public enum EffectTiming
     // registered here surfaces as a PRE option in the existing DeletionReplacementTiming synchronous window;
     // activating it prevents/replaces the deletion. See docs/porting/when_permanent_would_be_deleted_design.md.
     WhenPermanentWouldBeDeleted,
+
+    // (F1-M0-1) Bridge-expansion enum reconciliation — the 9 AS-IS EffectTiming members (ICardEffect.cs:969)
+    // that had NO headless enum member yet, appended AT THE END to keep every existing ordinal stable
+    // (serialization/binding regression point #6). Each name is string-equal to its AS-IS enum member so
+    // EffectTimings.ToTriggerName (== ToString()) matches the emitted TriggerTimings value. These are pure
+    // placeholders: none is registered in ActivatedBridgeTimings' sets and none has an emit wired for the
+    // bridge, so NO new trigger window opens (behavior-neutral). The activated-bridge wiring per timing is the
+    // per-timing F-1 milestones (M1+). The 6 AS-IS DEAD timings (OnEndAttackPhase/OnEndBlockDesignation/
+    // OnEndCoinToss/OnEndMainPhase/OnGetDamage/OnKnockOut — AS-IS never emits them and no card reacts) are
+    // deliberately NOT added — they stay inert.
+    AfterEffectsActivate,
+    OnDraw,
+    OnStartBattle,
+    OnUseDigiburst,
+    RulesTiming,
+    WhenDigisorption,
+    WhenUntapAnyone,
+    WhenWouldDigivolutionCardDiscarded,
+    WhenWouldLink,
+
+    // (F1-DEAD) The 6 AS-IS DEAD timings — declared in the AS-IS EffectTiming enum (ICardEffect.cs:975/984/987/
+    // 996/998/1008) but NEVER stacked/gated there and reacted to by ZERO cards (verified true-scan: each name
+    // appears ONLY at its enum declaration in DCGO/, no StackSkillInfos/GetSkillInfos/gate). Appended AT THE END
+    // (ordinal-stable, regression point #6). Each name is string-equal to its AS-IS enum member so
+    // EffectTimings.ToTriggerName (== ToString()) matches the emitted TriggerTimings value. Included per the
+    // uniform-wiring principle (a missing call-site is not a skip reason): the enum slot + set classification +
+    // emit wiring (where a source exists) are prebuilt so the infra is symmetric with the live timings. They are
+    // behavior-neutral (0 cards react), so no regression can arise; the activated bridge only ever produces a
+    // marker for a TEST FIXTURE (F1-DeadTimingInfra). Emit status per timing (see ActivatedBridgeTimings /
+    // TriggerTimings comments):
+    //   OnEndAttackPhase / OnEndMainPhase — queue-emitted (PassAction.cs:28-29); Boundary set opens the bridge.
+    //   OnKnockOut  — emitted via a SYNC window (BattleResolver.ResolveKnockOutWindowAsync), NOT the GameEventQueue,
+    //                 so the activated bridge never sees it: SubjectScoped registration is LATENT (design item
+    //                 F1-DEAD-KNOCKOUT). It does NOT alter the C-4 vestigial phase-1 window (that path uses its own
+    //                 AutoProcessingTriggerCollector, never ActivatedBridgeTimings), so no double-fire with
+    //                 OnDestroyedAnyone (a distinct timing).
+    //   OnEndCoinToss / OnGetDamage / OnEndBlockDesignation — NO emit source exists in headless (no coin-toss /
+    //                 damage / block-designation pipeline). Set classification is a LATENT placeholder; emit is a
+    //                 design item (F1-DEAD-COINTOSS / F1-DEAD-DAMAGE / F1-DEAD-BLOCKDESIGNATION) — do NOT invent the
+    //                 pipeline.
+    OnEndAttackPhase,
+    OnEndBlockDesignation,
+    OnEndCoinToss,
+    OnEndMainPhase,
+    OnGetDamage,
+    OnKnockOut,
 }
 
 /// <summary>The headless <see cref="EffectTiming"/> mirror values are named after the engine trigger
@@ -3507,9 +3553,17 @@ public sealed class SimplifiedRevealAndSelectEffect : IActivatedCardEffect
             RevealDestination.Trash => MatchStateMutationSink.TrashCardKind,
             _ => MatchStateMutationSink.ReturnToDeckBottomKind,
         };
-        sink.Apply(new EffectMutation(
-            kind, Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId }));
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId };
+        // (F1 reveal-remainder) an unselected revealed card sent to the trash is IsBeingRevealed==true at the
+        // trash moment (AS-IS RevealLibrary.cs resets IsBeingRevealed only AFTER TrashRevealedCards runs), so its
+        // OnDiscardLibrary broadcast is filtered out by the !IsBeingRevealed gate (WhenDiscardLibrary.cs:23-26).
+        // Mirror that by stamping the reveal marker onto the discard so CanTriggerWhenDiscardLibrary rejects it.
+        if (destination == RevealDestination.Trash)
+        {
+            values[MatchStateMutationSink.RevealTrashFlagKey] = true;
+        }
+
+        sink.Apply(new EffectMutation(kind, Card.InstanceId, values));
     }
 
     public EffectBinding ToBinding(string effectId) =>
@@ -3749,9 +3803,17 @@ public sealed class RevealMultiSelectEffect : IActivatedCardEffect
             RevealDestination.Trash => MatchStateMutationSink.TrashCardKind,
             _ => MatchStateMutationSink.ReturnToDeckBottomKind,
         };
-        sink.Apply(new EffectMutation(
-            kind, Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId }));
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId };
+        // (F1 reveal-remainder) an unselected revealed card sent to the trash is IsBeingRevealed==true at the
+        // trash moment (AS-IS RevealLibrary.cs resets IsBeingRevealed only AFTER TrashRevealedCards runs), so its
+        // OnDiscardLibrary broadcast is filtered out by the !IsBeingRevealed gate (WhenDiscardLibrary.cs:23-26).
+        // Mirror that by stamping the reveal marker onto the discard so CanTriggerWhenDiscardLibrary rejects it.
+        if (destination == RevealDestination.Trash)
+        {
+            values[MatchStateMutationSink.RevealTrashFlagKey] = true;
+        }
+
+        sink.Apply(new EffectMutation(kind, Card.InstanceId, values));
     }
 
     public EffectBinding ToBinding(string effectId) =>
@@ -8770,10 +8832,13 @@ public static class CardEffectCommons
             .Any(id => cardCondition(new CardSource(context, new HeadlessEntityId(id), OwnerOfId(context, new HeadlessEntityId(id)), OwnerOfId(context, new HeadlessEntityId(id)))));
     }
 
-    /// <summary>AS-IS <c>CanTriggerOnMove</c> (the OnMove promotion window — CV-A4): the moved permanent
-    /// passes the predicate.</summary>
+    /// <summary>AS-IS <c>CanTriggerOnMove</c> (CanUseEffects/OnMove.cs:10, verbatim): the moved permanent is
+    /// STILL on the battle area (AS-IS <c>IsPermanentExistsOnBattleArea(permanent)</c>) AND passes the predicate.
+    /// The battle-area guard is load-bearing 1:1 — a promotion subject that has already been removed (deleted by a
+    /// concurrent effect before this reactor's pass) must gate FALSE (AS-IS returns false), so pass
+    /// <c>requireOnBattleArea: true</c> rather than relying on the per-card predicate to re-check membership.</summary>
     public static bool CanTriggerOnMove(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<Permanent, bool>? permanentCondition = null) =>
-        SubjectPermanentPasses(ctx, card, permanentCondition);
+        SubjectPermanentPasses(ctx, card, permanentCondition, requireOnBattleArea: true);
 
     /// <summary>AS-IS <c>IsByBattle</c>: the deletion driving this window came from a BATTLE — headless the
     /// dead card carries the <c>deletedByBattle</c> marker (BattleResolver).</summary>
@@ -8878,14 +8943,10 @@ public static class CardEffectCommons
 
     private static IReadOnlyList<Permanent> EventPermanents(Headless.Effects.CardEffectResolveContext ctx, EngineContext context, string key)
     {
-        if (!ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}{key}", out object? raw) ||
-            raw?.ToString() is not { Length: > 0 } value)
-        {
-            return Array.Empty<Permanent>();
-        }
-
-        return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(id => new HeadlessEntityId(id))
+        // (F1-M0-2) reads the CSV-of-id-values collection payload via the shared flattening convention helper
+        // (mirror of the emit-side EventCollectionMetadata.Flatten). Same split semantics as the prior inline
+        // Split — behavior-neutral.
+        return Headless.Effects.EventCollectionMetadata.ReadIds(ctx.EffectContext.Values, key)
             .Select(id => new Permanent(context, id, OwnerOfId(context, id)))
             .ToArray();
     }
@@ -8946,19 +9007,46 @@ public static class CardEffectCommons
             || cardEffectSourceCondition(new CardSource(context, ctx.EffectContext.SourceEntityId, OwnerOfId(context, ctx.EffectContext.SourceEntityId), OwnerOfId(context, ctx.EffectContext.SourceEntityId)));
     }
 
-    /// <summary>AS-IS <c>CanTriggerOnTrashHand</c> (OnTrashHand.cs:17): a hand card was discarded — the
-    /// causing effect's source and at least one discarded card pass their predicates.</summary>
+    /// <summary>AS-IS <c>CanTriggerOnTrashHand</c> (OnTrashHand.cs:17): a hand card was discarded BY AN EFFECT
+    /// (<c>CardEffect != null</c>) — the causing effect's source and at least one discarded card pass their
+    /// predicates. The AS-IS payload is {DiscardedCards, CardEffect}; headless threads the discarded card as the
+    /// event subject and the causing effect's source card id as <c>event.discardCauseEffectId</c> (stamped on the
+    /// effect-driven trash by <c>MatchStateMutationSink.ApplyTrashCard</c> / <c>TrashSecurityAsync</c>). A NON-effect
+    /// trash (attack security-CHECK reveal, hand-size trim) carries NO cause id, so — like AS-IS <c>CardEffect ==
+    /// null</c> — it is rejected here regardless of the predicates.</summary>
     public static bool CanTriggerOnTrashHand(
         Headless.Effects.CardEffectResolveContext ctx, CardSource card,
         Func<CardSource, bool>? cardEffectSourceCondition, Func<CardSource, bool>? cardCondition)
     {
-        if (cardEffectSourceCondition is not null &&
-            !cardEffectSourceCondition(new CardSource(card.Context, ctx.EffectContext.SourceEntityId, OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId), OwnerOfId(card.Context, ctx.EffectContext.SourceEntityId))))
+        // AS-IS: CardEffect != null (the discard must be effect-driven) — the cause effect's source card.
+        CardSource? cause = DiscardCauseEffect(ctx, card);
+        if (cause is null)
+        {
+            return false;
+        }
+
+        if (cardEffectSourceCondition is not null && !cardEffectSourceCondition(cause))
         {
             return false;
         }
 
         return EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+    }
+
+    /// <summary>The causing effect's <c>EffectSourceCard</c> (AS-IS hashtable <c>CardEffect</c>) for an effect-driven
+    /// discard, threaded as <c>event.discardCauseEffectId</c>; null when the trash carried no effect cause (mirrors
+    /// <c>CardEffect == null</c>).</summary>
+    private static CardSource? DiscardCauseEffect(Headless.Effects.CardEffectResolveContext ctx, CardSource card)
+    {
+        if (!ctx.EffectContext.Values.TryGetValue($"{GameFlowProcessor.EventValuePrefix}{Headless.Effects.MatchStateMutationSink.DiscardCauseEffectIdKey}", out object? raw)
+            || raw?.ToString() is not { Length: > 0 } value)
+        {
+            return null;
+        }
+
+        var id = new HeadlessEntityId(value);
+        EngineContext context = card.Context;
+        return new CardSource(context, id, OwnerOfId(context, id), OwnerOfId(context, id));
     }
 
     /// <summary>AS-IS <c>CanTriggerOnTrashSelfHand</c> (OnTrashHand.cs:10).</summary>
@@ -8973,11 +9061,24 @@ public static class CardEffectCommons
     public static bool CanTriggerOnTrashSelfSecurity(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardEffectSourceCondition = null) =>
         CanTriggerOnTrashSecurity(ctx, card, cardEffectSourceCondition, cs => cs.InstanceId == card.InstanceId);
 
-    /// <summary>AS-IS <c>CanTriggerWhenDiscardLibrary</c> (WhenDiscardLibrary.cs:17) — the AS-IS
-    /// <c>IsBeingRevealed</c> exclusion has no headless surface (reveals never route through the discard
-    /// window here).</summary>
+    /// <summary>AS-IS <c>CanTriggerWhenDiscardLibrary</c> (WhenDiscardLibrary.cs:17-30): any-match the discarded
+    /// list on <c>!IsBeingRevealed &amp;&amp; cardCondition</c>. The <c>!IsBeingRevealed</c> exclusion DOES have a
+    /// headless surface: the reveal path (<c>SimplifiedRevealAndSelectEffect</c> / <c>RevealMultiSelectEffect</c>)
+    /// routes its unselected remainder to the trash via a <c>TrashCard</c> mutation, which F1 threads as a
+    /// Library-&gt;Trash CardMoved that derives <c>OnDiscardLibrary</c>. That reveal-remainder trash is stamped with
+    /// <see cref="MatchStateMutationSink.RevealTrashFlagKey"/> — the mirror of <c>IsBeingRevealed==true</c> at the
+    /// trash moment (AS-IS resets the flag only AFTER <c>TrashRevealedCards</c>, RevealLibrary.cs:174/464) — so this
+    /// gate rejects it, exactly as AS-IS excludes revealed cards. A DIRECT effect-driven library trash (a plain
+    /// <c>TrashDeckCards</c>, <c>IsBeingRevealed==false</c>) carries no flag and fires normally.</summary>
     public static bool CanTriggerWhenDiscardLibrary(Headless.Effects.CardEffectResolveContext ctx, CardSource card, Func<CardSource, bool>? cardCondition = null) =>
-        EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+        !IsRevealTrashEvent(ctx) && EventCards(ctx, card).Any(cs => cardCondition is null || cardCondition(cs));
+
+    /// <summary>(F1 reveal-remainder) Reads the AS-IS <c>IsBeingRevealed</c> mirror off the driving
+    /// Library-&gt;Trash CardMoved (stamped by the reveal-remainder trash path). True ⇒ the discarded card was a
+    /// revealed remainder ⇒ <c>CanTriggerWhenDiscardLibrary</c> excludes it (WhenDiscardLibrary.cs:23-26).</summary>
+    private static bool IsRevealTrashEvent(Headless.Effects.CardEffectResolveContext ctx) =>
+        ctx.EffectContext.Values.TryGetValue(
+            $"{GameFlowProcessor.EventValuePrefix}{MatchStateMutationSink.RevealTrashFlagKey}", out object? raw) && raw is true;
 
     /// <summary>AS-IS <c>CanTriggerWhenSelfDiscardLibrary</c> (WhenDiscardLibrary.cs:10).</summary>
     public static bool CanTriggerWhenSelfDiscardLibrary(Headless.Effects.CardEffectResolveContext ctx, CardSource card) =>

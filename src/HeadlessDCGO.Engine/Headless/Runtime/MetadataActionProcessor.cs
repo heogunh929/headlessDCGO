@@ -275,8 +275,12 @@ public sealed class MetadataActionProcessor : IActionProcessor
         }
 
         bool fromTop = ReadBoolOrDefault(action.Parameters, HeadlessActionParameterKeys.FromTop, defaultValue: true);
+        // (F1-M1 P1-1) one action == one IReduceSecurity == one OnLoseSecurity batch id shared across N cards.
+        // (F1-Tier1) no card-effect cause is threaded on this normalized action path, so the derived
+        // OnDiscardSecurity CardMoved carries no cause id and does NOT satisfy the OnDiscardSecurity CardEffect!=null
+        // gate — OnLoseSecurity (player-scope, no cause gate) is unaffected.
         IReadOnlyList<HeadlessEntityId> trashedCards = await context.ZoneMover
-            .TrashSecurityAsync(action.PlayerId, count, fromTop, cancellationToken)
+            .TrashSecurityAsync(action.PlayerId, count, fromTop, context.NextSecurityLossBatchId(), cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         Dictionary<string, object?> metadata = BaseMetadata(action);

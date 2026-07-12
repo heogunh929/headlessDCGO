@@ -1,6 +1,7 @@
 namespace HeadlessDCGO.Engine.Headless.Services;
 
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 
 public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessMatchStateResettable
@@ -74,6 +75,62 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         return Task.CompletedTask;
     }
 
+    public Task TrashCardAsync(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId,
+        long? discardBatchId = null,
+        HeadlessEntityId? causeEffectId = null,
+        bool isRevealTrash = false,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateCardMutation(playerId, cardId);
+
+        // (F1-Tier1 OnDiscard*) preserve the REAL source zone so a Hand->Trash / Library->Trash derives
+        // OnDiscardHand / OnDiscardLibrary (TriggerTimingMap). If the card is not found in a concrete zone
+        // (already removed / a token), fall back to From=None (identical to AddToTrashAsync) — a None->Trash move
+        // derives no source-zone discard timing, exactly as before.
+        ChoiceZone fromZone = FindZoneOf(playerId, cardId) ?? ChoiceZone.None;
+
+        Dictionary<string, object?>? metadata = null;
+        if (discardBatchId is long batch)
+        {
+            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.DiscardBatchIdKey] = batch;
+        }
+
+        if (causeEffectId is { IsEmpty: false } cause)
+        {
+            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.DiscardCauseEffectIdKey] = cause.Value;
+        }
+
+        // (F1 reveal-remainder) mirror the AS-IS IsBeingRevealed=true at the trash moment so the
+        // OnDiscardLibrary gate (CanTriggerWhenDiscardLibrary) filters this discard out (WhenDiscardLibrary.cs:23-26).
+        if (isRevealTrash)
+        {
+            (metadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.RevealTrashFlagKey] = true;
+        }
+
+        MoveCard(new ZoneMoveRequest(playerId, cardId, fromZone, ChoiceZone.Trash, Metadata: metadata));
+        return Task.CompletedTask;
+    }
+
+    // (F1-Tier1) The concrete zone a card currently sits in for this player, or null if it is in none.
+    private ChoiceZone? FindZoneOf(HeadlessPlayerId playerId, HeadlessEntityId cardId)
+    {
+        foreach (KeyValuePair<ChoiceZone, List<HeadlessEntityId>> pair in GetPlayerZones(playerId))
+        {
+            if (pair.Value.Contains(cardId))
+            {
+                return pair.Key;
+            }
+        }
+
+        return null;
+    }
+
     public Task AddToSecurityAsync(HeadlessPlayerId playerId, HeadlessEntityId cardId, bool faceUp, bool toTop = true, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -140,6 +197,8 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         HeadlessPlayerId playerId,
         int count,
         bool fromTop = true,
+        long? securityLossBatchId = null,
+        HeadlessEntityId? causeEffectId = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -154,11 +213,31 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         List<HeadlessEntityId> trash = GetZone(playerId, ChoiceZone.Trash);
         List<HeadlessEntityId> trashedCards = new();
 
+        // (F1-M1 P1-1) all N cards of this ONE IDestroySecurity/IReduceSecurity call share ONE security-loss
+        // batch id (AS-IS: one StackSkillInfos(OnLoseSecurity) broadcast for the whole trash), so the activated
+        // bridge collapses the N CardMoved events to a single OnLoseSecurity fire per reactor. (F1-Tier1) the same
+        // move ALSO derives OnDiscardSecurity (Security->Trash), whose collapse reuses this security-loss id and
+        // whose CardEffect!=null gate reads the CAUSE effect id stamped here — a non-effect security loss (attack
+        // security-CHECK reveal, a bare zone move with neither id) fails that gate, matching AS-IS's IDestroySecurity-
+        // only OnDiscardSecurity emit.
+        Dictionary<string, object?>? moveMetadata = null;
+        if (securityLossBatchId is long batch)
+        {
+            (moveMetadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.SecurityLossBatchIdKey] = batch;
+        }
+
+        if (causeEffectId is { IsEmpty: false } cause)
+        {
+            (moveMetadata ??= new Dictionary<string, object?>(StringComparer.Ordinal))
+                [Effects.MatchStateMutationSink.DiscardCauseEffectIdKey] = cause.Value;
+        }
+
         for (int index = 0; index < count && security.Count > 0; index++)
         {
             int securityIndex = fromTop ? 0 : security.Count - 1;
             HeadlessEntityId cardId = security[securityIndex];
-            MoveCard(new ZoneMoveRequest(playerId, cardId, ChoiceZone.Security, ChoiceZone.Trash));
+            MoveCard(new ZoneMoveRequest(playerId, cardId, ChoiceZone.Security, ChoiceZone.Trash, Metadata: moveMetadata));
             trashedCards.Add(cardId);
         }
 

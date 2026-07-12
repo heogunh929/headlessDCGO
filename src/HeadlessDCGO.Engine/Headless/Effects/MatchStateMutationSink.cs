@@ -64,6 +64,52 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     /// deletion's instance metadata so the deferred-finalize move re-stamps the ORIGINATING batch's id.</summary>
     public const string DeletionBatchIdKey = "deletionBatchId";
 
+    /// <summary>(F1-M1 P1-1) The security-LOSS batch id stamped onto a security card's CardMoved
+    /// (Security-&gt;non-Security) event metadata — one id per AS-IS <c>IReduceSecurity.ReduceSecurity()</c> call,
+    /// i.e. per <c>IDestroySecurity.DestroySecurity()</c> (the effect-driven multi-trash calls IReduceSecurity ONCE
+    /// after trashing N cards, CardController.cs:4358-4363 → a SINGLE StackSkillInfos(OnLoseSecurity) broadcast for
+    /// the whole batch, hashtable {Player}). The OnLoseSecurity activated-bridge collapse keys its dedup by
+    /// (reactor, this id), so N cards trashed by ONE effect fire the reactor once while an independent second
+    /// security removal (a distinct id) fires it again. Distinct from <see cref="DeletionBatchIdKey"/> BECAUSE a
+    /// security move is NOT a field deletion (it must NOT derive OnDeletion / OnLeaveFieldAnyone in TriggerTimingMap);
+    /// the id sequence is shared with the deletion counter so a mixed drain never collides in the window's cross-batch
+    /// ordering. The sentinel 0 (an unstamped security move — e.g. the attack security-CHECK per-card reveal, which is
+    /// per-card by design) collapses all-together within one drain, preserving per-card firing across per-iteration
+    /// windows.</summary>
+    public const string SecurityLossBatchIdKey = "securityLossBatchId";
+
+    /// <summary>(F1-Tier1 OnDiscard*) The DISCARD batch id stamped onto a discarded card's CardMoved
+    /// (Hand-&gt;Trash / Library-&gt;Trash) event metadata — one id per AS-IS logical discard operation
+    /// (<c>DiscardHands</c> → one <c>StackSkillInfos(OnDiscardHand)</c>; <c>TrashDeckCards</c> → one
+    /// <c>StackSkillInfos(OnDiscardLibrary)</c>), i.e. per sink flush so an effect that discards N cards fires the
+    /// OnDiscard* reactor ONCE. The activated-bridge collapse (<c>WindowResolverWiring</c>) keys its dedup by
+    /// (reactor, this id). Shares the deletion/security-loss counter for global uniqueness (see
+    /// <c>EngineContext.NextDiscardBatchId</c>). OnDiscardSecurity reuses <see cref="SecurityLossBatchIdKey"/> (a
+    /// security discard is one IReduceSecurity == one security-loss batch). Sentinel 0 = an unstamped move.</summary>
+    public const string DiscardBatchIdKey = "discardBatchId";
+
+    /// <summary>(F1-Tier1 OnDiscardHand/Security) The CAUSE effect's source card id stamped onto an effect-driven
+    /// discard CardMoved — the headless mirror of the AS-IS hashtable <c>{"CardEffect", cardEffect}</c>. AS-IS
+    /// <c>CanTriggerOnTrashHand/Security</c> requires <c>CardEffect != null</c> (the discard must be effect-driven)
+    /// AND lets a reactor gate on the causing effect's <c>EffectSourceCard</c> (e.g. ST16_14: source owner ==
+    /// reactor owner). A NON-effect trash (attack security-CHECK reveal, hand-size trim) carries no cause id, so
+    /// the gate rejects it. OnDiscardLibrary has no <c>CardEffect</c> check in AS-IS (WhenDiscardLibrary.cs) and
+    /// does not consult this key.</summary>
+    public const string DiscardCauseEffectIdKey = "discardCauseEffectId";
+
+    /// <summary>(F1 reveal-remainder) Boolean flag stamped on a reveal-remainder trash mutation and threaded onto
+    /// its Library-&gt;Trash CardMoved — the headless mirror of the AS-IS <c>CardSource.IsBeingRevealed</c> being
+    /// TRUE at the moment a revealed remainder card is trashed. AS-IS <c>RevealDeckTopCardsAndSelect</c> sends the
+    /// unselected remainder through <c>TrashRevealedCards</c> → <c>TrashDeckCards</c> (which broadcasts
+    /// <c>OnDiscardLibrary</c>, CardController.cs:5816) BEFORE resetting <c>IsBeingRevealed=false</c>
+    /// (RevealLibrary.cs:174/464). So <c>CanTriggerWhenDiscardLibrary</c> (WhenDiscardLibrary.cs:23-26) any-matches
+    /// only <c>!IsBeingRevealed</c> cards, excluding the whole reveal-trashed set. The headless reveal path
+    /// (<c>SimplifiedRevealAndSelectEffect</c> / <c>RevealMultiSelectEffect</c> StageMove to Trash) stamps this so
+    /// the ported gate (<c>CardPortingFramework.CanTriggerWhenDiscardLibrary</c>) reads it as the
+    /// <c>IsBeingRevealed</c> mirror and rejects the discard. A DIRECT effect-driven library trash (a plain
+    /// <c>TrashDeckCards</c> — <c>IsBeingRevealed==false</c>) does NOT carry this flag and fires normally.</summary>
+    public const string RevealTrashFlagKey = "revealTrash";
+
     // W2-follow: async / controller-backed kinds (applied on flush or via the memory controller).
     public const string TrashCardKind = "TrashCard";
     public const string ReturnToHandKind = "ReturnToHand";
@@ -73,7 +119,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string DrawCardsKind = "DrawCards";
     // B-6: effect-driven security operations (player-scoped batches over IZoneMover primitives).
     public const string RecoverKind = "Recover";              // top N library -> security (AS-IS IRecovery/IAddSecurityFromLibrary)
-    public const string TrashSecurityKind = "TrashSecurity";  // N security -> trash (AS-IS IDestroySecurity), emits OnDiscardSecurity
+    public const string TrashSecurityKind = "TrashSecurity";  // N security -> trash (AS-IS IDestroySecurity); each Security->Trash CardMoved derives OnLoseSecurity + OnDiscardSecurity
     public const string ShuffleSecurityKind = "ShuffleSecurity"; // (BT1_087) shuffle the player's security stack (AS-IS RandomUtility.ShuffledDeckCards)
     // B-9: create N token Digimon on the controller's battle area (AS-IS CardEffectCommons.PlayToken).
     public const string CreateTokenKind = "CreateToken";
@@ -209,6 +255,12 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     private readonly long? _explicitDeletionBatchId;
     private long? _cachedDeletionBatchId;
 
+    // (F1-Tier1 OnDiscard*) the DISCARD batch id shared by every hand/library trash this sink flush stages — one
+    // id per sink == one AS-IS logical discard operation (DiscardHands / TrashDeckCards each fire OnDiscard* ONCE
+    // for the whole list), so an effect discarding N cards fires the reactor once. Lazily allocated on the first
+    // discard; a context-less sink (bare unit test) leaves it 0 (sentinel — collapse-all-together).
+    private long? _cachedDiscardBatchId;
+
     // (R2-P1-1) the CURRENT delete batch: every Delete staged before the next flush belongs to ONE batch (one
     // AS-IS DestroyPermanentsClass.Destroy() over the whole target list). The defer decision is BATCH-ATOMIC —
     // resolved once, at the first delete thunk's execution (all targets staged, none moved yet — the AS-IS
@@ -271,6 +323,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         _cachedDeletionBatchId ??= _context?.NextDeletionBatchId() ?? 0L;
         return _cachedDeletionBatchId.Value;
+    }
+
+    // (F1-Tier1 OnDiscard*) the discard batch id for this sink flush — one id shared by all hand/library trashes
+    // it stages (== one AS-IS StackSkillInfos(OnDiscard*) over the whole discarded list).
+    private long ResolveDiscardBatchId()
+    {
+        _cachedDiscardBatchId ??= _context?.NextDiscardBatchId() ?? 0L;
+        return _cachedDiscardBatchId.Value;
     }
 
     public int AppliedCount => _applied.Count;
@@ -404,7 +464,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 ApplyDelete(mutation, record, targetId);
                 break;
             case TrashCardKind:
-                ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToTrashAsync(owner, id, ct));
+                ApplyTrashCard(mutation, record, targetId);
                 break;
             case ReturnToHandKind:
                 // (PRIM-W4/FR2 CannotReturnToHandStaticEffect) a continuous "cannot return to hand" restriction
@@ -557,6 +617,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (R2-P1-1) the staged delete thunks hold their batch by reference; detach it so a post-flush Apply
         // opens a NEW batch (a reused sink = a new resolution step) instead of extending the executed one.
         _currentDeleteBatch = null;
+        // (F1-Tier1) the staged discard thunks captured their batch id by value; clear the cache so a reused sink
+        // (a new resolution step) opens a FRESH discard batch rather than collapsing into the flushed one.
+        _cachedDiscardBatchId = null;
         foreach (Func<CancellationToken, Task> operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -686,9 +749,20 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         int count = ReadInt(mutation.Values, CountKey) ?? 1;
         bool fromTop = !mutation.Values.ContainsKey(FromTopKey) || ReadBool(mutation.Values, FromTopKey);
-        _pendingAsync.Add(ct => zoneMover.TrashSecurityAsync(player, count, fromTop, ct));
+        // (F1-M1 P1-1) one IDestroySecurity == one IReduceSecurity == one OnLoseSecurity batch: allocate a single
+        // security-loss id shared across the N trashed cards so the activated bridge fires an OnLoseSecurity reactor
+        // ONCE for this effect (not per card). A context-less sink (bare unit test) leaves it null (sentinel 0).
+        long? securityLossBatchId = _context?.NextSecurityLossBatchId();
+        // (F1-Tier1) thread the CAUSE effect source so the Security->Trash CardMoved passes the OnDiscardSecurity
+        // CardEffect!=null gate (this IS an effect-driven IDestroySecurity). The redundant explicit
+        // EmitTiming(OnDiscardSecurity) was REMOVED: every trashed security card already emits a Security->Trash
+        // CardMoved (carrying the subject + batch id + cause) that derives OnDiscardSecurity via TriggerTimingMap,
+        // exactly as OnLoseSecurity does — the old subject-less explicit emit only produced a phantom broadcast the
+        // gate rejected (no discarded card). Mirrors AS-IS's single StackSkillInfos(OnDiscardSecurity) per trash.
+        HeadlessEntityId cause = mutation.SourceEntityId;
+        _pendingAsync.Add(ct => zoneMover.TrashSecurityAsync(
+            player, count, fromTop, securityLossBatchId, cause.IsEmpty ? null : cause, ct));
         _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "trashSecurity"));
-        EmitTiming(TriggerTimings.OnDiscardSecurity, player);
     }
 
     // (BT1_087) Shuffle the player's security stack — a deferred zone shuffle so it flushes after any
@@ -779,6 +853,32 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // and would otherwise keep applying after the source has left. No-op for cards that had none.
         // (design item R2-P2-3) this drop runs at STAGE time while the move is a flush thunk — a later
         // mutation staged in the SAME batch evaluates restrictions with this card's protections already gone.
+        _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
+        _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
+    }
+
+    // (F1-Tier1 OnDiscard*) Trash a card to the trash while PRESERVING its source zone (so Hand->Trash /
+    // Library->Trash derives OnDiscardHand / OnDiscardLibrary), stamping this flush's shared DISCARD batch id (so
+    // an effect discarding N cards collapses to one reactor fire) and the CAUSE effect's source card id (the AS-IS
+    // {"CardEffect", cardEffect} — a Hand/Security discard reactor requires an effect cause). Distinct from the
+    // generic ApplyZoneMove/AddToTrashAsync (From=None) which cannot derive a source-zone discard timing.
+    private void ApplyTrashCard(EffectMutation mutation, CardInstanceRecord record, HeadlessEntityId targetId)
+    {
+        if (_zoneMover is not { } zoneMover)
+        {
+            _unsupported.Add(mutation);
+            _log?.Warn($"Mutation '{mutation.Kind}' requires a zone mover; none is wired.");
+            return;
+        }
+
+        HeadlessPlayerId owner = record.OwnerId;
+        long discardBatchId = ResolveDiscardBatchId();
+        HeadlessEntityId cause = mutation.SourceEntityId;
+        // (F1 reveal-remainder) a reveal-remainder trash carries the IsBeingRevealed mirror so the
+        // OnDiscardLibrary gate rejects it (AS-IS !IsBeingRevealed, WhenDiscardLibrary.cs:23-26).
+        bool isRevealTrash = ReadBool(mutation.Values, RevealTrashFlagKey);
+        _pendingAsync.Add(ct => zoneMover.TrashCardAsync(owner, targetId, discardBatchId, cause.IsEmpty ? null : cause, isRevealTrash, ct));
+        // (G7-001, same as ApplyZoneMove) drop the leaving card's auto-registered continuous/trigger bindings.
         _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
     }

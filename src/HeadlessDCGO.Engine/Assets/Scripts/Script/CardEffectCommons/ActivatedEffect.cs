@@ -63,6 +63,51 @@ public sealed class DrawBody : IEffectBody
     }
 }
 
+/// <summary>Run a fixed SEQUENCE of non-interactive bodies in order — the 1:1 mirror of an AS-IS
+/// ActivateCoroutine that performs several sink mutations back-to-back (e.g. BT8_092/BT6_088 "gain 1 memory
+/// and &lt;Draw 1&gt;" = <see cref="DrawBody"/> then <see cref="MemoryBody"/>). Every sub-body must be
+/// non-interactive (no player choice); this composite is itself non-interactive and applies each in list order.
+/// A body needing an interactive step must be expressed as a dedicated "…Then…" body, not composed here.</summary>
+public sealed class CompositeBody : IEffectBody
+{
+    private readonly IReadOnlyList<IEffectBody> _bodies;
+
+    public CompositeBody(params IEffectBody[] bodies)
+    {
+        ArgumentNullException.ThrowIfNull(bodies);
+        foreach (IEffectBody b in bodies)
+        {
+            if (b is null)
+            {
+                throw new ArgumentException("Composite sub-body must not be null.", nameof(bodies));
+            }
+
+            if (b.IsInteractive)
+            {
+                throw new ArgumentException(
+                    "CompositeBody composes only NON-interactive bodies; use a dedicated '…Then…' body for an interactive step.",
+                    nameof(bodies));
+            }
+        }
+
+        _bodies = bodies;
+    }
+
+    public bool IsInteractive => false;
+
+    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
+
+    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(sink);
+        foreach (IEffectBody body in _bodies)
+        {
+            body.Apply(card, sink, selected);
+        }
+    }
+}
+
 /// <summary>Gain / lose N memory (AS-IS card.Owner.AddMemory). Non-interactive.</summary>
 public sealed class MemoryBody : IEffectBody
 {

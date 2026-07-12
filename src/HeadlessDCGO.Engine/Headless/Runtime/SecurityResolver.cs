@@ -374,9 +374,10 @@ public sealed class SecurityResolver
             Subject = checkedCardId,
             Cause = TriggerTimings.OnSecurityCheck,
         };
-        // (Stage 5, Phase 2) resolve through the WindowResolver — equivalent to the legacy sync path.
-        await Effects.WindowResolverWiring.RunSyncWindowAsync(
-            context, gameEvent, () => new AutoProcessingTriggerCollector(context.EffectRegistry), cancellationToken)
+        // (F1-M1 P1-2) resolve through the UNIFIED security-check window so the revealed card's ACTIVATED
+        // OnLoseSecurity is collected + merged with OnSecurityCheck (AS-IS IReduceSecurity(ref triggeredSkillInfos)
+        // merges the per-card OnLoseSecurity into the same resolution), not dropped by a scheduler-only drain.
+        await Effects.WindowResolverWiring.RunSecurityCheckWindowAsync(context, gameEvent, cancellationToken)
             .ConfigureAwait(false);
     }
 

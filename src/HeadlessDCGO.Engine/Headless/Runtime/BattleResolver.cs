@@ -237,10 +237,13 @@ public sealed class BattleResolver
         // replacement survivors never reach `deleted`), losersReal = actually destroyed by this battle.
         var battleValues = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["winnerIds"] = string.Join(",", new[] { attacker.InstanceId, defender.InstanceId }
-                .Where(id => !deleted.Any(p => p.InstanceId == id)).Select(id => id.Value)),
-            ["loserIds"] = string.Join(",", deleted.Select(p => p.InstanceId.Value)),
-            ["loserRealIds"] = string.Join(",", deleted.Select(p => p.InstanceId.Value)),
+            // (F1-M0-2) collection payloads flatten to CSV-of-id-values via the shared convention helper so a
+            // gate can read them back with EventCollectionMetadata.ReadIds (BuildUniformResolveContext threads
+            // only primitive metadata — a raw List would be dropped). Byte-identical to the prior inline joins.
+            ["winnerIds"] = EventCollectionMetadata.Flatten(new[] { attacker.InstanceId, defender.InstanceId }
+                .Where(id => !deleted.Any(p => p.InstanceId == id))),
+            ["loserIds"] = EventCollectionMetadata.Flatten(deleted.Select(p => p.InstanceId)),
+            ["loserRealIds"] = EventCollectionMetadata.Flatten(deleted.Select(p => p.InstanceId)),
             ["attackerId"] = attacker.InstanceId.Value,
             ["defenderId"] = defender.InstanceId.Value,
         };

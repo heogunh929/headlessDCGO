@@ -49,6 +49,46 @@ public static class WindowResolverWiring
         return new WindowResolver().RunWindowAsync(seed, deps, depth: 0, cancellationToken);
     }
 
+    /// <summary>(F1-M1 P1-2) Resolve the attack security-CHECK window for ONE revealed security card. Unlike the
+    /// plain <see cref="RunSyncWindowAsync"/> (which seeds ONLY the scheduler collector and drains scheduler cut-ins,
+    /// so the revealed card's ACTIVATED OnLoseSecurity is DROPPED — the check reveal's CardMoved is consumed by the
+    /// scheduler-only drain and never re-collected), this seeds the UNIFIED seed and drains UNIFIED cut-ins:
+    /// <list type="bullet">
+    /// <item>the synthetic OnSecurityCheck window event → the checked card's OnSecurityCheck scheduler reactors
+    /// (AS-IS <c>triggeredSkillInfos</c> = OnSecurityCheck SkillInfos, CardController.cs:3954-3957);</item>
+    /// <item>the already-queued reveal CardMoved (Security→Trash) → its OnLoseSecurity/OnDiscardSecurity scheduler
+    /// AND ACTIVATED reactors (AS-IS merges the per-card OnLoseSecurity SkillInfos into the SAME resolution via
+    /// <c>IReduceSecurity(ref triggeredSkillInfos)</c>, CardController.cs:3982-3985 → :5448).</item>
+    /// </list>
+    /// Draining the reveal event UP FRONT also prevents the later main-loop drain from re-firing it (no double).
+    /// AS-IS stacks both timings together and resolves them in one AutoProcessCheck, so a FIFO port (equivalence with
+    /// the legacy sync path) reproduces it; an interactive activated reactor suspends externally (DeferredActivations)
+    /// exactly as in the main-loop window.</summary>
+    public static Task RunSecurityCheckWindowAsync(
+        EngineContext context,
+        GameEvent windowEvent,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(windowEvent);
+
+        // Drain the pending reveal event(s) so their unified (scheduler + activated) triggers merge into THIS window.
+        context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
+        IReadOnlyList<GameEvent> pending = context.GameEventQueue.DrainPending();
+
+        var seed = new List<TimingWindowTrigger>();
+        seed.AddRange(new AutoProcessingTriggerCollector(context.EffectRegistry).CollectAllTriggers(windowEvent));
+        seed.AddRange(CollectUnifiedSeed(context, pending));
+        if (seed.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        WindowResolverDeps deps = BuildSchedulerDeps(
+            context, new FifoWindowChoicePort(), () => DrainUnifiedCutIns(context));
+        return new WindowResolver().RunWindowAsync(seed, deps, depth: 0, cancellationToken);
+    }
+
     /// <summary>Re-collect the scheduler-path triggers emitted since the last pick (the cut-in drain): sync the
     /// zone-mover events into the queue, drain the pending game events, and collect each into triggers. Shared by
     /// the sync-window path and the main-loop deps so both drain cut-ins identically.</summary>
@@ -455,6 +495,34 @@ public static class WindowResolverWiring
                 ? id
                 : 0L;
 
+    /// <summary>(F1-M1 P1-1) Read the security-LOSS batch id stamped on a security card's CardMoved (Security-&gt;non-
+    /// Security) event by the effect-driven trash path (<c>IZoneMover.TrashSecurityAsync</c>) — one id per AS-IS
+    /// <c>IReduceSecurity.ReduceSecurity()</c> == one <c>StackSkillInfos(OnLoseSecurity)</c>. The OnLoseSecurity
+    /// collapse keys off (reactor, this id): same id = one batch = one fire; a distinct id = an independent
+    /// security removal = a separate fire. The sentinel 0 (an UNSTAMPED security move — the attack security-CHECK
+    /// per-card reveal is unstamped BY DESIGN, resolved in its own per-iteration window so it fires per-card as AS-IS
+    /// merges OnLoseSecurity into each OnSecurityCheck resolution) collapses all-together within a single drain.</summary>
+    private static long ReadSecurityLossBatchId(GameEvent? gameEvent) =>
+        gameEvent is not null
+            && gameEvent.Metadata.TryGetValue(MatchStateMutationSink.SecurityLossBatchIdKey, out object? raw)
+            && raw is long id
+                ? id
+                : 0L;
+
+    /// <summary>(F1-Tier1 OnDiscard*) Read the DISCARD batch id stamped on a discarded card's CardMoved. A
+    /// Hand/Library discard carries <see cref="MatchStateMutationSink.DiscardBatchIdKey"/> (one id per sink flush ==
+    /// one AS-IS StackSkillInfos(OnDiscardHand/Library)); a Security discard reuses the security-loss id
+    /// (<see cref="MatchStateMutationSink.SecurityLossBatchIdKey"/>, one id per IReduceSecurity ==
+    /// StackSkillInfos(OnDiscardSecurity)). Falling back to the security-loss key lets the OnDiscardSecurity collapse
+    /// share the SAME substrate as OnLoseSecurity without a duplicate stamp. Sentinel 0 = an unstamped (non-effect)
+    /// move — those collapse all-together within one drain.</summary>
+    private static long ReadDiscardBatchId(GameEvent? gameEvent) =>
+        gameEvent is not null
+            && gameEvent.Metadata.TryGetValue(MatchStateMutationSink.DiscardBatchIdKey, out object? raw)
+            && raw is long id
+                ? id
+                : ReadSecurityLossBatchId(gameEvent);
+
     /// <summary>Consume the once-per-turn use at commit (before the body — RD-12/F5). For an ACTIVATED-bridge
     /// marker only the OnUnTappedAnyone caller-cap is consumed here (its synthetic key); every other activated
     /// timing is uncapped at the caller (the resolver's own MaxCountPerTurn caps it).</summary>
@@ -723,6 +791,23 @@ public static class WindowResolverWiring
         // of the Destroy() that removed it, so a reactor fires once per batch yet an INDEPENDENT leave-batch in the
         // same drain (a distinct id) fires it again.
         var firedLeaveBatch = new HashSet<(HeadlessEntityId Card, long BatchId)>();
+        // (F1-M1 P1-1) OnLoseSecurity batch collapse — the same pattern as firedLeaveBatch, keyed by
+        // (reactor, security-loss BATCH id). AS-IS the effect-driven IDestroySecurity trashes N security cards then
+        // calls IReduceSecurity ONCE (CardController.cs:4358-4363), a SINGLE StackSkillInfos(OnLoseSecurity) broadcast
+        // (hashtable {Player}), so an OnLoseSecurity reactor fires ONCE for the whole batch. Headless emits one
+        // CardMoved (Security->Trash) per card; TrashSecurityAsync stamps all N with ONE shared id, so collapse to the
+        // FIRST gate-passing removal per reactor. An INDEPENDENT security removal in the same drain (a distinct id)
+        // fires the reactor again (AS-IS: each IReduceSecurity broadcasts separately). The per-card attack security
+        // CHECK reveal is UNSTAMPED (id 0) and resolved in its OWN per-iteration window, so it keeps AS-IS's per-card
+        // merge into each OnSecurityCheck resolution (a single drain never co-holds two check reveals).
+        var firedSecurityLossBatch = new HashSet<(HeadlessEntityId Card, long BatchId)>();
+        // (F1-Tier1 OnDiscard*) discard batch collapse — same pattern, keyed by (reactor, timing, discard/security-loss
+        // batch id). AS-IS fires ONE StackSkillInfos(OnDiscard*) for the whole discarded list, so a reactor fires ONCE
+        // per batch. Headless emits one CardMoved per discarded card (all sharing one batch id per sink flush /
+        // IReduceSecurity), so collapse to the FIRST gate-passing discard per reactor per batch — the AS-IS any-match.
+        // Keyed by timing too, because one sink can share its discard id across BOTH a Hand and a Library trash while
+        // AS-IS fires OnDiscardHand and OnDiscardLibrary as SEPARATE StackSkillInfos.
+        var firedDiscardBatch = new HashSet<(HeadlessEntityId Card, EffectTiming Timing, long BatchId)>();
         foreach ((HeadlessEntityId card, EffectTiming timing, GameEvent? drivingEvent, ActivatedBridgeCategory category) in toResolve)
         {
             if (!context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? instance)
@@ -775,6 +860,26 @@ public static class WindowResolverWiring
                 continue;
             }
 
+            // (F1-M1 P1-1) OnLoseSecurity batch collapse — mirror of the OnLeaveFieldAnyone collapse above, keyed by
+            // the security-loss batch id, placed AFTER the gate so a reactor whose player-gate matches only a later
+            // removal still fires on it (within one batch all N cards belong to the SAME losing player, so the
+            // player-gate is uniform and the first gate-passing removal claims the reactor).
+            if (timing == EffectTiming.OnLoseSecurity
+                && !firedSecurityLossBatch.Add((card, ReadSecurityLossBatchId(drivingEvent))))
+            {
+                continue;
+            }
+
+            // (F1-Tier1) OnDiscard* batch collapse — mirror of the OnLoseSecurity collapse, placed AFTER the gate so a
+            // reactor whose cardCondition matches only a LATER discarded card (any-match) still fires on it.
+            if ((timing == EffectTiming.OnDiscardHand
+                    || timing == EffectTiming.OnDiscardSecurity
+                    || timing == EffectTiming.OnDiscardLibrary)
+                && !firedDiscardBatch.Add((card, timing, ReadDiscardBatchId(drivingEvent))))
+            {
+                continue;
+            }
+
             TimingWindowTrigger bridgeTrigger = MakeActivatedBridgeTrigger(card, timing, instance.OwnerId, drivingEvent, category, sequence++);
 
             // (D-1 order) stamp the delete-batch id onto a deletion-derived activated trigger (OnLeaveFieldAnyone —
@@ -788,6 +893,31 @@ public static class WindowResolverWiring
                 if (leaveBatch != 0)
                 {
                     bridgeTrigger = bridgeTrigger with { BatchId = leaveBatch };
+                }
+            }
+
+            // (F1-M1 P1-1) stamp the security-loss batch id (shared sequence with deletion ids) so the window loop
+            // sequences an independent security-loss batch that co-drains with another batch in ascending temporal
+            // order instead of opening a spurious cross-batch order choice. Only a REAL id (non-zero).
+            if (timing == EffectTiming.OnLoseSecurity)
+            {
+                long lossBatch = ReadSecurityLossBatchId(drivingEvent);
+                if (lossBatch != 0)
+                {
+                    bridgeTrigger = bridgeTrigger with { BatchId = lossBatch };
+                }
+            }
+
+            // (F1-Tier1) stamp the discard batch id so co-draining independent discard batches sequence in ascending
+            // temporal order rather than opening a spurious cross-batch order choice. Only a REAL id (non-zero).
+            if (timing == EffectTiming.OnDiscardHand
+                || timing == EffectTiming.OnDiscardSecurity
+                || timing == EffectTiming.OnDiscardLibrary)
+            {
+                long discardBatch = ReadDiscardBatchId(drivingEvent);
+                if (discardBatch != 0)
+                {
+                    bridgeTrigger = bridgeTrigger with { BatchId = discardBatch };
                 }
             }
 
