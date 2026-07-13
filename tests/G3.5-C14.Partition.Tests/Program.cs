@@ -6,6 +6,7 @@
 // and DiscardEvoRoots trashes any remaining sources. Engine: DeletionReplacementTiming PartitionOption
 // (PreOptions) + DeletionReplacementGate.TryPartitionPlaySourceAsync; grant GrantPartition -> hasPartition.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -212,9 +213,22 @@ async Task<(DcgoMatch, HeadlessEntityId, Dictionary<string, HeadlessEntityId>)> 
         [DeletionReplacementGate.SourceIdsKey] = src.Values.Select(s => s.Value).ToArray(),
     });
     // KEYWORD grant with the AS-IS condition pair — no HasPartitionKey metadata (snapshot path).
-    context.EffectRegistry.Register(CardEffectFactory.PartitionSelfEffect(
-        false, new CardSource(context, holder, P1), null,
-        new[] { group0, group1 }).ToBinding($"part:{holder.Value}"));
+    // NOTE: CardEffectFactory.PartitionSelfEffect returns an ActivateClass (ActivateICardEffect) — the AS-IS
+    // "Trigger effect of Partition" activated primitive, which CardEffectRegistrar.RegisterOnEnterPlay
+    // explicitly excludes from ANY registration (`if (cardEffect is IActivatedCardEffect or ActivateICardEffect)
+    // continue;`) and which has no ToBinding at all. The actual substrate this test's gate reads
+    // (DeletionReplacementTiming.PartitionConditionsOf -> context.EffectRegistry.GetKeywordEffects(
+    // ContinuousKeywordGate.Partition) -> PartitionConditionsKey) is the SelfKeywordBatch2Effect self-static
+    // keyword grant (ToBinding present, ContinuousAndRestrictionEffects.cs), carrying the two-entry
+    // PartitionCondition list via ExtraValues — exactly the "KEYWORD grant with the AS-IS condition pair"
+    // this comment already describes.
+    var partitionExtraValues = new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [PartitionCondition.PartitionConditionsKey] = (IReadOnlyList<PartitionCondition>)new List<PartitionCondition> { group0, group1 },
+    };
+    context.EffectRegistry.Register(new SelfKeywordBatch2Effect(
+        new CardSource(context, holder, P1), KeywordBaseBatch2Kind.Partition, isInheritedEffect: false, condition: null,
+        extraValues: partitionExtraValues).ToBinding($"part:{holder.Value}"));
 
     var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),

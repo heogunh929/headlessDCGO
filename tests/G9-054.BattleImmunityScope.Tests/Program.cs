@@ -42,9 +42,15 @@ async Task Immune(bool match)
     var subject = await Place(ctx, P1, "SUBJ", level: match ? 5 : 4);
     // "Your Level-5 Digimon cannot be deleted by battle" (permanentCondition = Level==5); the 4-arg battle
     // condition is trivially true for a participant, so it is omitted 1:1.
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedByBattleClass (Script/CardEffects/CanNotBeDestroyedByBattleClass.cs)
+    // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // The gate this test checks (BattleDeletionGate.PreventsBattleDeletion, via ContinuousScopeEvaluation over the
+    // substrate EffectRegistry) reads only registered EffectRequest bindings, not the AS-IS live CardSource.EffectList
+    // scan, so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
         canNotBeDestroyedByBattleCondition: null, permanentCondition: p => p.Level == 5, isInheritedEffect: false,
-        card: new CardSource(ctx, src, P1), condition: null).ToBinding($"cbdb:{src.Value}"));
+        card: new CardSource(ctx, src, P1), condition: null, effectName: "cbdb-test");
 
     bool immune = BattleDeletionGate.PreventsBattleDeletion(ctx, subject);
     AssertTrue(immune == match, $"battle-immune == {match} (permanentCondition gates it — NOT condition-less)");
@@ -54,9 +60,14 @@ async Task SelfForm()
 {
     EngineContext ctx = Ctx();
     var self = await Place(ctx, P1, "SELF", level: 4);
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedByBattleClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (BattleDeletionGate.PreventsBattleDeletion) reads only the substrate EffectRegistry, not the AS-IS
+    // live scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED
+    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
         canNotBeDestroyedByBattleCondition: null, permanentCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, self, P1), condition: null).ToBinding($"cbdb:{self.Value}"));
+        card: new CardSource(ctx, self, P1), condition: null, effectName: "cbdb-test");
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, self), "self is battle-immune");
 }
 
@@ -65,9 +76,14 @@ async Task ConditionGate()
     EngineContext ctx = Ctx();
     var self = await Place(ctx, P1, "SELF", level: 4);
     // Mirror EX8_068's CanUseCondition gate: immunity active only while the owner's memory >= 1. Evaluated LIVE.
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedByBattleClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (BattleDeletionGate.PreventsBattleDeletion) reads only the substrate EffectRegistry, not the AS-IS
+    // live scan, so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED
+    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
         canNotBeDestroyedByBattleCondition: null, permanentCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, self, P1), condition: () => ctx.MemoryController.Current.Current >= 1).ToBinding($"cbdb:{self.Value}"));
+        card: new CardSource(ctx, self, P1), condition: () => ctx.MemoryController.Current.Current >= 1, effectName: "cbdb-test");
 
     ctx.MemoryController.Set(0);
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, self), "memory 0 -> NOT immune (condition false)");
@@ -118,8 +134,11 @@ async Task GainRefusedByImmunity()
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P2, "ENEMYSRC", level: 4);   // OPPONENT grants -> blocked by CanNotBeAffected
     var target = await Place(ctx, P1, "TGT", level: 5);
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(
-        null, null, false, new CardSource(ctx, target, P1), null).ToBinding($"cna:{target.Value}"));
+    ICardEffect cnaEffect = CardEffectFactory.CanNotAffectedStaticEffect(
+        null, null, false, new CardSource(ctx, target, P1), null);
+    if (!LegacyBindingBridge.TryToBinding(cnaEffect, $"cna:{target.Value}", out EffectBinding? cnaBinding) || cnaBinding is null)
+        throw new InvalidOperationException($"{cnaEffect.GetType().Name} has no ToBinding bridge.");
+    ctx.EffectRegistry.Register(cnaBinding);
 
     AssertTrue(!CardEffectCommons.GainCanNotBeDeletedByBattle(
         new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,

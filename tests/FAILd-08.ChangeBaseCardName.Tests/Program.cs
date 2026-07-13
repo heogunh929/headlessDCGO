@@ -18,7 +18,14 @@ bool beforeOriginal = cs.EqualsCardName("Original");
 bool beforeSukamon = cs.EqualsCardName("Sukamon");
 
 // Apply ChangeBaseCardName -> Sukamon (replace).
-context.EffectRegistry.Register(CardEffectFactory.ChangeBaseCardNameStaticEffect("Sukamon", cs).ToBinding("cbn"));
+// ChangeBaseCardNameStaticEffect builds a NEW-model kind-class (CardEffects.ChangeBaseCardNameClass) which,
+// post-rebuild, has no ToBinding/EffectRegistry bridge (stage-B RED elsewhere). BUT the gate this test actually
+// exercises (CardSource.EqualsCardName -> CardNames -> BaseCardNames) is a genuine AS-IS LIVE SCAN over
+// cEntity_EffectController.GetCardEffects (CardSource.cs / CEntity_EffectController.cs), not the substrate
+// EffectRegistry — so it is directly wireable via the already-ported `cEntity_Effect` settable property (the
+// same seam every AS-IS card definition class, e.g. `class BT1_001 : CEntity_Effect`, uses), with no engine change.
+ICardEffect changeNameEffect = CardEffectFactory.ChangeBaseCardNameStaticEffect("Sukamon", cs);
+cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(changeNameEffect);
 
 var after = new (string Name, Func<bool> Body)[]
 {
@@ -48,4 +55,18 @@ Console.WriteLine($"\n{after.Length} test(s) passed.");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("ORIG"), P1));
     ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     return (ctx, id);
+}
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

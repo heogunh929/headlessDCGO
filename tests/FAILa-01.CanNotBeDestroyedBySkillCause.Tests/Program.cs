@@ -36,9 +36,17 @@ async Task Delete(HeadlessPlayerId byOwner, bool expectBlocked)
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, byOwner, "CAUSE", ChoiceZone.BattleArea);
     // "This cannot be deleted by the OPPONENT's effects" — cardEffectCondition = deleting source is P1's enemy.
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
-        permanentCondition: null, cardEffectCondition: src => src.Owner != P1, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"cnbs:{protectedCard.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedBySkillClass (Assets/Scripts/Script/CardEffects/
+    // CanNotBeDestroyedBySkillClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge
+    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The deletion gate this test checks
+    // (MatchStateMutationSink.IsDeletionPreventedByContinuous / IsRestrictedFromCause) reads only the
+    // substrate RestrictionHelpers.CannotBeDeletedBySkillKey path, not this kind-class's
+    // ICanNotBeDestroyedBySkillEffect interface (the engine's stage-B live is-scan serves real ported cards, not
+    // a synthetic fixture card), so there is no buildable way to make this grant observable yet.
+    // Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
+        permanentCondition: null, cardEffectCondition: src => src.EffectSourceCard.Owner != P1, isInheritedEffect: false,
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CanNotBeDestroyedBySkill");
 
     await ApplyDelete(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);
@@ -51,9 +59,13 @@ async Task UnconditionalBlocks()
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, P1, "CAUSE", ChoiceZone.BattleArea);
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedBySkillClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See the
+    // MIGRATION-NOTE in Delete() above for the full gate explanation. Assertions below are UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"cnbs:{protectedCard.Value}"));
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CanNotBeDestroyedBySkill");
 
     await ApplyDelete(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);

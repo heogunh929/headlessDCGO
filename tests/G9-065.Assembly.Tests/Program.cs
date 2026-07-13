@@ -122,7 +122,14 @@ async Task<(EngineContext Ctx, HeadlessEntityId Top, HeadlessEntityId Wgrey, Hea
                 reduceCost: 6)
             : null);
     assembly.SetNotShowUI(true);
-    ctx.EffectRegistry.Register(assembly.ToBinding($"assembly:{top.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AddAssemblyConditionClass (Script/CardEffects/AddAssemblyConditionClass.cs)
+    // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // The gate this test checks (CardSource.AssemblyConditionOf, which scans CardSource.EffectList ->
+    // cEntity_EffectController.GetCardEffects -> the card's dispatched CEntity_Effect) has no test-facing hook to
+    // attach a synthetic ICardEffect instance either (CEntity_Effect is populated only from
+    // CardEffectDispatch.TryCreateForCard, i.e. a real ported card class) — so there is no buildable way to make
+    // this grant observable yet. Assertions in this file are UNCHANGED and EXPECTED TO FAIL until stage B lands —
+    // tracked, not silently weakened.
 
     var wgrey = await PlaceTrash(ctx, P1, "WGREY", "WarGreymon");
     HeadlessEntityId mgaru = default;

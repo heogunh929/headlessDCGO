@@ -22,7 +22,7 @@ var tests = new (string Name, Func<Task> Body)[]
         CarriedScoped(c => CardEffectFactory.ChangeLinkMaxStaticEffect(null, 1, false, c, null), ModifierHelpers.LinkedMaxDeltaKey)),
     ("Collision -> owner's ally has Collision", () => Keyword(c => CardEffectFactory.CollisionStaticEffect(null, false, c, null), ContinuousKeywordGate.Collision)),
     // (K1) un-flattened: the marker is its OWN keyword (player-target eligibility), NOT a Vortex grant.
-    ("VortexCanAttackPlayers -> owner's ally has the marker (not Vortex)", () => Keyword(c => CardEffectFactory.VortexCanAttackPlayersStaticEffect(null, false, c, null), ContinuousKeywordGate.VortexCanAttackPlayers)),
+    ("VortexCanAttackPlayers -> owner's ally has the marker (not Vortex)", () => Keyword(c => CardEffectFactory.VortexCanAttackPlayersStaticEffect(null, false, c, null, "vortex-marker"), ContinuousKeywordGate.VortexCanAttackPlayers)),
     ("TreatAsDigimon -> HasKeyword(TreatAsDigimon)", TreatAsDigimon),
     ("(K4) IsDigimon chokepoint: a TreatAsDigimon Tamer counts as a Digimon (predicate honored)", TreatAsDigimonChokepoint),
     ("(K4) a TreatAsDigimon Tamer with hasBlocker is an eligible blocker (consumer wired)", TreatAsDigimonBlocks),
@@ -47,7 +47,12 @@ async Task ChangeBaseDp()
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    context.EffectRegistry.Register(CardEffectFactory.ChangeBaseDPGlobalEffect(null, 1000, false, new CardSource(context, src, P1), null).ToBinding($"bdp:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeBaseDPClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks (PlayerScopeCarries
+    // -> the substrate EffectRegistry player-scope query) does not scan the AS-IS live effect list, so there is
+    // no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeBaseDPGlobalEffect(null, 1000, false, new CardSource(context, src, P1), null);
     AssertTrue(PlayerScopeCarries(context, ally, ModifierHelpers.BaseDpDeltaKey), "baseDpDelta applies to owner's Digimon (player-scope)");
 }
 
@@ -56,7 +61,12 @@ async Task TreatAsDigimon()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.TreatAsDigimon), "absent before");
-    context.EffectRegistry.Register(CardEffectFactory.TreatAsDigimonStaticEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"tad:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): TreatAsDigimonClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousKeywordGate.HasKeyword) reads only the substrate EffectRegistry, not the AS-IS live scan, so
+    // there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO
+    // FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.TreatAsDigimonStaticEffect(null, false, new CardSource(context, id, P1), null);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.TreatAsDigimon), "TreatAsDigimon live");
 }
 
@@ -70,8 +80,12 @@ async Task TreatAsDigimonChokepoint()
     var digimon = await Place(context, P1, "DIGIMON");
 
     AssertTrue(!ContinuousKeywordGate.IsDigimon(context, tamer), "the Tamer is not a Digimon before the grant");
-    context.EffectRegistry.Register(CardEffectFactory.TreatAsDigimonStaticEffect(
-        p => p.IsTamer, false, new CardSource(context, tamer, P1), null).ToBinding($"tad:{tamer.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): TreatAsDigimonClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousKeywordGate.IsDigimon) reads only the substrate EffectRegistry, not the AS-IS live scan, so
+    // there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED
+    // TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.TreatAsDigimonStaticEffect(p => p.IsTamer, false, new CardSource(context, tamer, P1), null);
 
     AssertTrue(ContinuousKeywordGate.IsDigimon(context, tamer), "the Tamer is treated as a Digimon");
     AssertTrue(!ContinuousKeywordGate.IsDigimon(context, option), "the predicate is honored (Option not matched)");
@@ -89,8 +103,12 @@ async Task TreatAsDigimonBlocks()
     var withoutKeyword = new BlockTiming().GetBlockerCandidates(context);
     AssertTrue(!withoutKeyword.Any(c => c.BlockerId == tamer), "without the keyword a Tamer cannot block (control)");
 
-    context.EffectRegistry.Register(CardEffectFactory.TreatAsDigimonStaticEffect(
-        p => p.IsTamer, false, new CardSource(context, tamer, P2), null).ToBinding($"tad:{tamer.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): TreatAsDigimonClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). BlockTiming's blocker-candidate scan reads
+    // only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
+    // grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
+    // not silently weakened.
+    CardEffectFactory.TreatAsDigimonStaticEffect(p => p.IsTamer, false, new CardSource(context, tamer, P2), null);
     var withKeyword = new BlockTiming().GetBlockerCandidates(context);
     AssertTrue(withKeyword.Any(c => c.BlockerId == tamer), "the TreatAsDigimon Tamer is an eligible blocker");
 }
@@ -129,7 +147,13 @@ async Task Carried(Func<CardSource, ICardEffect> build, string key)
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(build(new CardSource(context, id, P1)).ToBinding($"c:{key}:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): InvertSAttackClass (the only Carried() consumer) is a new-model kind-class
+    // with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). HasFlag reads
+    // only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. The factory call is kept (exercises construction); registration is skipped since there is
+    // no bridge. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
+    // weakened.
+    build(new CardSource(context, id, P1));
     AssertTrue(HasFlag(context, id, key), $"'{key}' carried");
 }
 
@@ -138,7 +162,13 @@ async Task CarriedScoped(Func<CardSource, ICardEffect> build, string key)
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    context.EffectRegistry.Register(build(new CardSource(context, src, P1)).ToBinding($"cs:{key}:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeLinkMaxClass (the only CarriedScoped() consumer) is a new-model
+    // kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // PlayerScopeCarries reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
+    // buildable way to make this grant observable yet. The factory call is kept (exercises construction);
+    // registration is skipped since there is no bridge. Assertion below is UNCHANGED and EXPECTED TO FAIL until
+    // stage B lands — tracked, not silently weakened.
+    build(new CardSource(context, src, P1));
     AssertTrue(PlayerScopeCarries(context, ally, key), $"'{key}' carried onto owner's ally (player-scope)");
 }
 
@@ -156,7 +186,13 @@ async Task Keyword(Func<CardSource, ICardEffect> build, string keyword)
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    context.EffectRegistry.Register(build(new CardSource(context, src, P1)).ToBinding($"kw:{keyword}:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): the Keyword() consumers here (CollisionClass, VortexCanAttackPlayersClass)
+    // are new-model kind-classes with no ToBinding/EffectRegistry bridge (stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the substrate
+    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant observable yet.
+    // The factory call is kept (exercises construction); registration is skipped since there is no bridge.
+    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    build(new CardSource(context, src, P1));
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, ally, keyword), $"owner's ally has {keyword}");
 }
 
@@ -172,7 +208,9 @@ async Task Resolve(EngineContext context, ICardEffect effect)
 {
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(effect.ToBinding("mem").Request), sink);
+    if (!LegacyBindingBridge.TryToBinding(effect, "mem", out var binding) || binding is null)
+        throw new InvalidOperationException($"{effect.GetType().Name} has no ToBinding bridge.");
+    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
     await sink.FlushAsync();
 }
 

@@ -25,15 +25,28 @@ foreach ((HeadlessEntityId id, HeadlessPlayerId owner) in new[] { (Holder, P1), 
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("DEF"), owner));
 }
 
-// Printed "the scoped player (P2)'s Digimon cannot attack", sourced by the holder (P1).
+// Printed "the scoped player (P2)'s Digimon cannot attack", sourced by the holder (P1). The AS-IS-mirrored
+// CardEffectFactory.CanNotAttackStaticEffect (CardEffectFactory/CanNotAttack.cs) is the pure attackerCondition-
+// based kind class (no player-scope convenience any more) — the printed STATIC player-scope form is built
+// directly from ContinuousPlayerScopeRestrictionEffect (its own header: "covers the STATIC/printed form"),
+// which already folds the AS-IS !TopCard.CanNotBeAffected exemption for RestrictionHelpers.CannotAttackKey.
 context.EffectRegistry.Register(
-    CardEffectFactory.CanNotAttackStaticEffect(P2, isInheritedEffect: false, new CardSource(context, Holder, P1, P1), condition: null)
-        .ToBinding("cannot-attack"));
+    new ContinuousPlayerScopeRestrictionEffect(
+        card: new CardSource(context, Holder, P1, P1),
+        scopePlayerId: P2,
+        restrictionKey: RestrictionHelpers.CannotAttackKey,
+        scopeCardType: null,
+        isInheritedEffect: false,
+        condition: null)
+    .ToBinding("cannot-attack"));
 
 // ImmuneSub is immune to the OPPONENT's (P1's) effects (AS-IS CanNotAffectedClass, SkillCondition = IsOpponentEffect).
+// CanNotAffectedStaticEffect's return type is the ICardEffect interface (ToBinding is not part of that
+// interface); the concrete instance it always constructs is ContinuousImmunityEffect, which does carry
+// ToBinding — cast to it (value/behavior unchanged, just the static type needed to call ToBinding).
 context.EffectRegistry.Register(
-    CardEffectFactory.CanNotAffectedStaticEffect(permanentCondition: null, skillCondition: src => src.Owner != P2,
-        isInheritedEffect: false, new CardSource(context, ImmuneSub, P2, P2), condition: null)
+    ((ContinuousImmunityEffect)CardEffectFactory.CanNotAffectedStaticEffect(permanentCondition: null, skillCondition: src => src.Owner != P2,
+        isInheritedEffect: false, new CardSource(context, ImmuneSub, P2, P2), condition: null))
         .ToBinding("immunity"));
 
 int failures = 0;

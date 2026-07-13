@@ -48,9 +48,16 @@ async Task RaidViaKeywordUnsealed()
     // raid: false → the hasRaid METADATA flag is NOT set (production never sets it for keyword-granted Raid).
     HeadlessEntityId attacker = await Establish(s, P1, dp: 4000, suspended: false, raid: false);
     HeadlessEntityId high = await Establish(s, P2, dp: 8000, suspended: false, raid: false);
-    // Grant Raid the way real cards do — the continuous KEYWORD (RaidSelfEffect → SelfKeywordByNameEffect).
+    // Grant Raid the way real cards do — the continuous KEYWORD (SelfKeywordByNameEffect -> ContinuousKeywordGate.Raid).
+    // NOTE: CardEffectFactory.RaidSelfEffect returns an ActivateClass (ActivateICardEffect) — the AS-IS "Trigger
+    // effect of Raid" ACTIVATED primitive (fires on OnAllyAttack), which has no ToBinding and which
+    // CardEffectRegistrar.RegisterOnEnterPlay explicitly excludes from any registration. The live continuous
+    // KEYWORD this test actually needs (read by RaidAttackSwitch.cs via ContinuousKeywordGate.HasKeyword) is the
+    // separate self-static-by-name primitive, SelfKeywordByNameEffect (ContinuousAndRestrictionEffects.cs),
+    // which IS the primitive documented for Raid/Barrier/Collision/Fortitude/Evade self-statics.
     s.Match.Context.EffectRegistry.Register(
-        CardEffectFactory.RaidSelfEffect(false, new CardSource(s.Match.Context, attacker, P1), null).ToBinding($"raid:{attacker.Value}"));
+        new SelfKeywordByNameEffect(new CardSource(s.Match.Context, attacker, P1), ContinuousKeywordGate.Raid, isInheritedEffect: false, condition: null)
+            .ToBinding($"raid:{attacker.Value}"));
 
     s.Match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
     AssertTrue(RaidAttackSwitch.RequestChoice(s.Match.Context),

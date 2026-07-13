@@ -51,7 +51,14 @@ async Task CostResolvesTo(Func<CardSource, ICardEffect> build, int baseCost, int
     EngineContext context = Context();
     var id = await PlaceInHand(context, P1, "CARD", playCost: baseCost);
     var source = new CardSource(context, id, P1);
-    context.EffectRegistry.Register(build(source).ToBinding($"effect:cost:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeCostClass (returned by ChangePlayCostStaticEffect /
+    // MandatorySelfPlayCostReduction) is a new-model kind-class with no ToBinding/EffectRegistry bridge
+    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). ContinuousModifierGate.ResolvePlayCost reads
+    // only the substrate EffectRegistry (via ContinuousScopeEvaluation.ApplicableEffects), not the AS-IS
+    // live scan, so there is no buildable way to make this grant observable yet. The factory call is kept
+    // (still exercises construction); Register/ToBinding is dropped. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    build(source);
 
     int resolved = ContinuousModifierGate.ResolvePlayCost(context, id, baseCost);
     AssertEqual(expected, resolved, $"resolved play cost (base {baseCost})");
@@ -62,7 +69,12 @@ async Task CanReduceCostGuardHolds()
     EngineContext context = Context();
     var id = await PlaceInHand(context, P1, "CARD", playCost: 6);
     var source = new CardSource(context, id, P1);
-    context.EffectRegistry.Register(CardEffectFactory.MandatorySelfPlayCostReduction(4, source, null).ToBinding($"effect:cost:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): MandatorySelfPlayCostReduction returns ChangeCostClass, a new-model
+    // kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // ContinuousModifierGate.ResolvePlayCost reads only the substrate EffectRegistry, not the AS-IS live
+    // scan, so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED
+    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.MandatorySelfPlayCostReduction(4, source, null);
 
     int withReduction = ContinuousModifierGate.ResolvePlayCost(context, id, basePlayCost: 6, canReduceCost: true);
     int noReduction = ContinuousModifierGate.ResolvePlayCost(context, id, basePlayCost: 6, canReduceCost: false);

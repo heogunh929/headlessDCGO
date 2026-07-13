@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -55,10 +56,19 @@ bool OpponentScope()
     var ownCard = new HeadlessEntityId("1:SRC");    // P1's own card = effectOwnerCard
 
     // "Your opponent can't reduce digivolution costs of their Digimon."
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotReduceCostStaticEffect(
+    // CanNotReduceCostStaticEffect is declared to return the abstract ICardEffect base (its concrete result is
+    // one of the OLD-model ContinuousSelfRestrictionEffect/ContinuousPlayerScopeRestrictionEffect, which DO
+    // implement ToBinding — just not through the ICardEffect static type), so ToBinding is reached via the
+    // LegacyBindingBridge reflective dispatch rather than a direct call.
+    ICardEffect opponentDigivolveImmunity = CardEffectFactory.CanNotReduceCostStaticEffect(
         permanentCondition: p => p is not null && p.OwnerId == P2,
         isInheritedEffect: false, new CardSource(ctx, effectOwnerCard, P1), condition: null,
-        costKind: CostReductionScope.Digivolve, scopeAnyPlayer: true).ToBinding($"imm:{effectOwnerCard.Value}"));
+        costKind: CostReductionScope.Digivolve, scopeAnyPlayer: true);
+    if (!LegacyBindingBridge.TryToBinding(opponentDigivolveImmunity, $"imm:{effectOwnerCard.Value}", out EffectBinding? opponentDigivolveBinding) || opponentDigivolveBinding is null)
+    {
+        throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotReduceCostStaticEffect");
+    }
+    ctx.EffectRegistry.Register(opponentDigivolveBinding);
 
     int oppDigivolve = ContinuousModifierGate.ResolveDigivolutionCost(ctx, oppCard, Base);
     int ownDigivolve = ContinuousModifierGate.ResolveDigivolutionCost(ctx, ownCard, Base);
@@ -84,8 +94,15 @@ int Resolve(CostReductionScope? immunity, bool digivolve)
     ctx.EffectRegistry.Register(new ContinuousSelfModifierEffect(card, ModifierHelpers.DigivolutionCostDeltaKey, -2, false, null).ToBinding($"dc:{id.Value}"));
     if (immunity is CostReductionScope scope)
     {
-        ctx.EffectRegistry.Register(CardEffectFactory.CanNotReduceCostStaticEffect(
-            permanentCondition: null, isInheritedEffect: false, card, condition: null, costKind: scope).ToBinding($"imm:{id.Value}"));
+        // See the OpponentScope() MIGRATION-NOTE above: CanNotReduceCostStaticEffect's declared ICardEffect
+        // return type needs the LegacyBindingBridge reflective dispatch to reach the concrete ToBinding.
+        ICardEffect costImmunity = CardEffectFactory.CanNotReduceCostStaticEffect(
+            permanentCondition: null, isInheritedEffect: false, card, condition: null, costKind: scope);
+        if (!LegacyBindingBridge.TryToBinding(costImmunity, $"imm:{id.Value}", out EffectBinding? costImmunityBinding) || costImmunityBinding is null)
+        {
+            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotReduceCostStaticEffect");
+        }
+        ctx.EffectRegistry.Register(costImmunityBinding);
     }
 
     return digivolve

@@ -69,7 +69,10 @@ async Task CausingPredicateHonored()
     var grantSrc = new HeadlessEntityId("1:battle:GRANT");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(grantSrc, new HeadlessEntityId("DEF:GRANT"), P1, Metadata: new Dictionary<string, object?>()));
     var grantCard = new CardSource(context, grantSrc, P1, P1);
-    ICardEffect effect = CardEffectFactory.CanNotAddSecurityStaticEffect(P1, isInheritedEffect: false, grantCard, condition: null,
+    // CanNotAddSecurityStaticEffect's declared return type is the ICardEffect interface (ToBinding is not
+    // part of it); the concrete instance it always constructs is ContinuousPlayerScopeRestrictionEffect,
+    // which does carry ToBinding — cast to it (value/behavior unchanged).
+    var effect = (ContinuousPlayerScopeRestrictionEffect)CardEffectFactory.CanNotAddSecurityStaticEffect(P1, isInheritedEffect: false, grantCard, condition: null,
         causingEffectPredicate: cause => cause.InstanceId.Value.Contains("BLOCK", StringComparison.Ordinal));
     context.EffectRegistry.Register(effect.ToBinding("1:cannotAddSecurity:pred"));
 
@@ -124,7 +127,7 @@ void GrantCannotAddSecurity(EngineContext context, HeadlessPlayerId player)
     var srcId = new HeadlessEntityId($"{player.Value}:battle:GRANT");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, new HeadlessEntityId("DEF:GRANT"), player, Metadata: new Dictionary<string, object?>()));
     var card = new CardSource(context, srcId, player, player);
-    ICardEffect effect = CardEffectFactory.CanNotAddSecurityStaticEffect(player, isInheritedEffect: false, card, condition: null);
+    var effect = (ContinuousPlayerScopeRestrictionEffect)CardEffectFactory.CanNotAddSecurityStaticEffect(player, isInheritedEffect: false, card, condition: null);
     context.EffectRegistry.Register(effect.ToBinding($"{player.Value}:cannotAddSecurity"));
 }
 

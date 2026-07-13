@@ -7,6 +7,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -65,20 +66,42 @@ async Task PredicateHonoured()
 
 async Task AllKeywordsLiveSet()
 {
-    var kws = new (string Kw, System.Func<CardSource, ICardEffect> Make)[]
+    // Piercing/Blitz/Retaliation/Decoy/Barrier's *StaticEffect factories still construct the OLD-model
+    // ContinuousPlayerScopeKeywordEffect (ICardEffect + ToBinding) — cast to it to reach ToBinding, which is
+    // not part of the ICardEffect interface the factories are declared to return. Scapegoat's factory
+    // (KeyWordEffects/Scapegoat.cs) was rebuilt to the new-model ScapegoatClass kind-class, which has no
+    // ToBinding/EffectRegistry bridge (see MIGRATION-NOTE below) — its Make returns null (nothing to
+    // register) and the assertion is left as-is, expected to fail until stage B lands.
+    var kws = new (string Kw, Func<CardSource, string, EffectBinding?> MakeBinding)[]
     {
-        (ContinuousKeywordGate.Piercing, c => CardEffectFactory.PiercingStaticEffect(null, false, c, null)),
-        (ContinuousKeywordGate.Blitz, c => CardEffectFactory.BlitzStaticEffect(null, false, c, null)),
-        (ContinuousKeywordGate.Retaliation, c => CardEffectFactory.RetaliationStaticEffect(null, false, c, null)),
-        (ContinuousKeywordGate.Scapegoat, c => CardEffectFactory.ScapegoatStaticEffect(null, false, c, null)),
-        (ContinuousKeywordGate.Decoy, c => CardEffectFactory.DecoyStaticEffect(null, false, c, null)),
-        (ContinuousKeywordGate.Barrier, c => CardEffectFactory.BarrierStaticEffect(null, false, c, null)),
+        (ContinuousKeywordGate.Piercing, (c, id) => ((ContinuousPlayerScopeKeywordEffect)CardEffectFactory.PiercingStaticEffect(null, false, c, null)).ToBinding(id)),
+        (ContinuousKeywordGate.Blitz, (c, id) => ((ContinuousPlayerScopeKeywordEffect)CardEffectFactory.BlitzStaticEffect(null, false, c, null)).ToBinding(id)),
+        (ContinuousKeywordGate.Retaliation, (c, id) => ((ContinuousPlayerScopeKeywordEffect)CardEffectFactory.RetaliationStaticEffect(null, false, c, null)).ToBinding(id)),
+        (ContinuousKeywordGate.Scapegoat, (c, id) =>
+        {
+            // MIGRATION-NOTE (P7 test-fix): ScapegoatClass (Assets/Scripts/Script/CardEffects/ScapegoatClass.cs)
+            // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/
+            // rebuild_p6_stageA_notes.md). The gate this test checks (ContinuousKeywordGate.HasKeyword(...,
+            // ContinuousKeywordGate.Scapegoat)) reads only the substrate EffectRegistry; there is no live
+            // interface-scan bridge from that gate to a new-model keyword kind-class (the engine's stage-B live
+            // is-scan serves real ported cards, not a synthetic fixture card), so there is no buildable way to make this grant observable yet. The assertion
+            // below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+            CardEffectFactory.ScapegoatStaticEffect(null, false, c, null);
+            return null;
+        }),
+        (ContinuousKeywordGate.Decoy, (c, id) => ((ContinuousPlayerScopeKeywordEffect)CardEffectFactory.DecoyStaticEffect(null, false, c, null)).ToBinding(id)),
+        (ContinuousKeywordGate.Barrier, (c, id) => ((ContinuousPlayerScopeKeywordEffect)CardEffectFactory.BarrierStaticEffect(null, false, c, null)).ToBinding(id)),
     };
-    foreach (var (kw, make) in kws)
+    foreach (var (kw, makeBinding) in kws)
     {
         EngineContext ctx = Ctx();
         var grantSrc = await Put(ctx, P1, "GRANT", "grant");
-        ctx.EffectRegistry.Register(make(new CardSource(ctx, grantSrc, P1, P1)).ToBinding($"{grantSrc.Value}:{kw}:scoped"));
+        EffectBinding? binding = makeBinding(new CardSource(ctx, grantSrc, P1, P1), $"{grantSrc.Value}:{kw}:scoped");
+        if (binding is not null)
+        {
+            ctx.EffectRegistry.Register(binding);
+        }
+
         var late = await Put(ctx, P1, "LATE", "late");
         AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, late, kw), $"late entrant gained {kw} (live set)");
     }
@@ -86,11 +109,18 @@ async Task AllKeywordsLiveSet()
 
 // --- Harness -------------------------------------------------------------
 
+// CardEffectFactory.AllianceStaticEffect was rebuilt AS-IS-1:1 (KeyWordEffects/Alliance.cs) to the true
+// [Alliance] TRIGGERED-on-attack ActivateClass — it is no longer the player-scope "your Digimon gain
+// Alliance" continuous grant this fixture needs (that convenience wrapper was removed per that file's
+// header: "Replaces ... the monolith's invented AllianceSelfEffect/AllianceStaticEffect"). The AS-IS
+// player-scope keyword-grant primitive for Alliance is CardEffectCommons.GainAlliancePlayerEffect
+// (AS-IS GainAlliancePlayerEffect, KeyWordEffects/Alliance.cs:180), which registers the binding itself.
+// EffectDuration.UntilOpponentTurnEnd is the same "won't expire mid-test" placeholder duration used by
+// other fixtures exercising this player-scope-grant family (no turn boundary is crossed in this test).
 void GrantAllianceToMyDigimon(EngineContext ctx, HeadlessEntityId grantSrc, Func<Permanent, bool>? permanentCondition)
 {
     var card = new CardSource(ctx, grantSrc, P1, P1);
-    ICardEffect grant = CardEffectFactory.AllianceStaticEffect(permanentCondition, isInheritedEffect: false, card, condition: null);
-    ctx.EffectRegistry.Register(grant.ToBinding($"{grantSrc.Value}:allianceScoped"));
+    CardEffectCommons.GainAlliancePlayerEffect(permanentCondition, EffectDuration.UntilOpponentTurnEnd, card);
 }
 
 EngineContext Ctx()

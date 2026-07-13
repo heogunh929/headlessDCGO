@@ -63,7 +63,9 @@ async Task Resolve(EngineContext context, ICardEffect effect)
 {
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(effect.ToBinding("gain").Request), sink);
+    if (!LegacyBindingBridge.TryToBinding(effect, "gain", out var binding) || binding is null)
+        throw new InvalidOperationException($"{effect.GetType().Name} has no ToBinding bridge.");
+    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
     await sink.FlushAsync();
 }
 

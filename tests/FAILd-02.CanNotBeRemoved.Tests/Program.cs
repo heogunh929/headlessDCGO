@@ -54,8 +54,16 @@ async Task Run(string kind, Protect protect, bool expectStays)
             ? candidate => candidate.InstanceId == new HeadlessEntityId("p1:OTHER")
             : candidate => candidate.InstanceId == target;
         Func<bool>? condition = protect == Protect.Conditioned ? () => false : null;
-        ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeRemovedStaticEffect(
-            predicate, new CardSource(ctx, target, P1), condition).ToBinding($"cnbr:{target.Value}"));
+        // MIGRATION-NOTE (P7 test-fix): CardEffectFactory.CanNotBeRemovedStaticEffect now wraps the NEW-model
+        // kind-class CanNotBeRemovedClass (no ToBinding/EffectRegistry bridge — stage-B RED, docs/audit/
+        // rebuild_p6_stageA_notes.md), which MatchStateMutationSink.IsRemovalBlockedByScan does not read. The
+        // gate this test actually checks (IsRemovalBlockedByScan -> Runtime.RestrictionScan.IsRestricted over
+        // RestrictionHelpers.CannotBeRemovedKey) is fed by the OLD-model "true-scan" CanNotBeRemovedEffect class
+        // (ContinuousAndRestrictionEffects.cs) — the single-arg-predicate joint-restriction producer built for
+        // exactly this remediation — so the test constructs that class directly (same predicate/condition
+        // shape the test already assembles) instead of going through the now-dead factory method.
+        ctx.EffectRegistry.Register(new CanNotBeRemovedEffect(
+            new CardSource(ctx, target, P1), predicate, condition).ToBinding($"cnbr:{target.Value}"));
     }
 
     var sink = new MatchStateMutationSink(

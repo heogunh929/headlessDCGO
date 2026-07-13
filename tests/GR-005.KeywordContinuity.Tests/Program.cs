@@ -105,6 +105,10 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P6 STAGE B) advance past Setup so AS-IS CanTrigger's DoneStartGame gate lets the new-model keyword
+    // interface scan see a ported self-static keyword (a real board is in a live phase). test3 uses the
+    // binding path directly (no DoneStartGame gate), so it was green already; test1/2 use the new-model scan.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

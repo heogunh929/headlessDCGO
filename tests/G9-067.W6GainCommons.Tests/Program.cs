@@ -60,8 +60,11 @@ async Task RefusedByImmunity()
     EngineContext ctx = Ctx();
     var enemySrc = await Place(ctx, P2, "ENEMYSRC");
     var target = await Place(ctx, P1, "TGT");
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(
-        null, null, false, V(ctx, target), null).ToBinding($"cna:{target.Value}"));
+    ICardEffect cnaEffect = CardEffectFactory.CanNotAffectedStaticEffect(
+        null, null, false, V(ctx, target), null);
+    if (!LegacyBindingBridge.TryToBinding(cnaEffect, $"cna:{target.Value}", out EffectBinding? cnaBinding) || cnaBinding is null)
+        throw new InvalidOperationException($"{cnaEffect.GetType().Name} has no ToBinding bridge.");
+    ctx.EffectRegistry.Register(cnaBinding);
 
     AssertTrue(!CardEffectCommons.GainJamming(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, enemySrc)),
         "an immune target refuses an opponent's grant");

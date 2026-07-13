@@ -121,10 +121,19 @@ async Task NoLevelSourceRejected()
     AssertTrue(!result.IsSuccess, "AS-IS: a configured gate requires HasLevel — a no-level source is rejected");
 }
 
+// MIGRATION-NOTE (P7 test-fix): AddDigivolutionRequirementClass (the kind-class AS-IS
+// AddSelfDigivolutionRequirementStaticEffect constructs) is a new-model kind-class with no
+// ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this project's
+// tests check (DigivolveAction's added-requirement scan, ContinuousScopeEvaluation.ApplicableEffects over
+// ContinuousRestrictionGate.Scope) reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
+// no buildable way to make this grant observable yet. The factory call is kept (exercises construction);
+// registration is skipped since there is no bridge. Assertions across this file that depend on the added
+// requirement being seen are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
+// weakened.
 void RegisterLeveled(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate, int level = -1, int minLevel = -1, int maxLevel = -1) =>
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: predicate, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null, level: level, minLevel: minLevel, maxLevel: maxLevel).ToBinding($"asdrl:{evo.Value}"));
+        card: new CardSource(ctx, evo, P1), condition: null, level: level, minLevel: minLevel, maxLevel: maxLevel);
 
 // --- Helpers -------------------------------------------------------------
 
@@ -135,9 +144,11 @@ async Task DynamicCost()
     var target = await PlaceBase(ctx, "BLUE5", color: "Blue", level: 5);
     var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@4", cost: 2);
     // Added path with a DYNAMIC cost (costEquation) that overrides the fixed digivolutionCost: 3.
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): see RegisterLeveled's note above — AddDigivolutionRequirementClass has no
+    // ToBinding/EffectRegistry bridge yet; the factory call is kept, registration is skipped.
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: p => p.Level == 5, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null, costEquation: () => 6).ToBinding($"asd:{evo.Value}"));
+        card: new CardSource(ctx, evo, P1), condition: null, costEquation: () => 6);
 
     var atFixed = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
     AssertTrue(!atFixed.IsSuccess, "fixed cost (3) is rejected — costEquation() overrides it");
@@ -146,10 +157,12 @@ async Task DynamicCost()
     AssertTrue(result.IsSuccess, $"legal at the dynamic cost 6 ({result.Message})");
 }
 
+// MIGRATION-NOTE (P7 test-fix): see RegisterLeveled's note above — AddDigivolutionRequirementClass has no
+// ToBinding/EffectRegistry bridge yet; the factory call is kept, registration is skipped.
 void Register(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate) =>
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: predicate, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null).ToBinding($"asdr:{evo.Value}"));
+        card: new CardSource(ctx, evo, P1), condition: null);
 
 EngineContext Ctx()
 {

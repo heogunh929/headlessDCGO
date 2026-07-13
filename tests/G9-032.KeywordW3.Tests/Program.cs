@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -13,15 +14,25 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Blitz", () => Grant(c => CardEffectFactory.BlitzSelfEffect(false, c, null), ContinuousKeywordGate.Blitz)),
-    ("Decode", () => Grant(c => CardEffectFactory.DecodeSelfEffect(false, c, null), ContinuousKeywordGate.Decode)),
+    // (P7 test-fix) Blitz/Decode/Partition/Decoy/Fragment/Scapegoat now require additional AS-IS parameters
+    // that did not exist on the pre-rebuild simplified factories (isWhenDigivolving, decodeStrings/
+    // sourceCondition, cardSourceConditions, permanentCondition/effectName/effectDiscription, trashValue,
+    // effectName/effectDiscription respectively). Values below are innocuous placeholders (the assertions
+    // only check keyword-presence via the gate, not these payloads) — see the MIGRATION-NOTE in Grant()
+    // for why the grant itself is not observable yet regardless.
+    ("Blitz", () => Grant(c => CardEffectFactory.BlitzSelfEffect(false, c, null, isWhenDigivolving: false), ContinuousKeywordGate.Blitz)),
+    ("Decode", () => Grant(c => CardEffectFactory.DecodeSelfEffect(c, false, new[] { "Red" }, null, null), ContinuousKeywordGate.Decode)),
     ("Progress", () => Grant(c => CardEffectFactory.ProgressSelfStaticEffect(false, c, null), ContinuousKeywordGate.Progress)),
-    ("Partition", () => Grant(c => CardEffectFactory.PartitionSelfEffect(false, c, null), ContinuousKeywordGate.Partition)),
+    ("Partition", () => Grant(c => CardEffectFactory.PartitionSelfEffect(false, c, null,
+        new List<PartitionCondition> { new(4, "Red"), new(4, "Red") }), ContinuousKeywordGate.Partition)),
     ("Iceclad", () => Grant(c => CardEffectFactory.IcecladSelfStaticEffect(false, c, null), ContinuousKeywordGate.Iceclad)),
-    ("Decoy", () => Grant(c => CardEffectFactory.DecoySelfEffect(false, c, null), ContinuousKeywordGate.Decoy)),
-    ("Fragment", () => Grant(c => CardEffectFactory.FragmentSelfEffect(false, c, null), ContinuousKeywordGate.Fragment)),
+    ("Decoy", () => Grant(c => CardEffectFactory.DecoySelfEffect(false, c, null, permanentCondition: null,
+        effectName: "Decoy", effectDiscription: "Decoy"), ContinuousKeywordGate.Decoy)),
+    ("Fragment", () => Grant(c => CardEffectFactory.FragmentSelfEffect(false, c, null, trashValue: 1,
+        effectName: "Fragment", effectDiscription: "Fragment"), ContinuousKeywordGate.Fragment)),
     ("Execute", () => Grant(c => CardEffectFactory.ExecuteSelfEffect(false, c, null), ContinuousKeywordGate.Execute)),
-    ("Scapegoat", () => Grant(c => CardEffectFactory.ScapegoatSelfEffect(false, c, null), ContinuousKeywordGate.Scapegoat)),
+    ("Scapegoat", () => Grant(c => CardEffectFactory.ScapegoatSelfEffect(false, c, null,
+        effectName: "Scapegoat", effectDiscription: "Scapegoat"), ContinuousKeywordGate.Scapegoat)),
 };
 
 var failures = new List<string>();
@@ -45,7 +56,15 @@ async Task Grant(Func<CardSource, ICardEffect> build, string keyword)
     EngineContext context = Context();
     var id = await PlaceDigimon(context, P1, "KW");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} absent before grant");
-    context.EffectRegistry.Register(build(new CardSource(context, id, P1)).ToBinding($"kw:{keyword}:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): all of these SelfEffect/SelfStaticEffect factories (Blitz/Decode/
+    // Progress/Partition/Iceclad/Decoy/Fragment/Execute/Scapegoat) return new-model kind-classes
+    // (ActivateClass/CanNotAffectedClass/IcecladClass) with no ToBinding/EffectRegistry bridge (stage-B
+    // RED, docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. The factory call is kept (still exercises construction); Register/ToBinding is
+    // dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    build(new CardSource(context, id, P1));
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} live after grant");
 }
 

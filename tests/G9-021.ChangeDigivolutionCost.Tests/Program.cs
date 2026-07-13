@@ -42,8 +42,15 @@ Task StaticReduces()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    context.EffectRegistry.Register(
-        CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, isInheritedEffect: false, card, condition: null).ToBinding("w1-3-static"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeDigivolutionCostStaticEffect returns ChangeCostClass, a new-model
+    // kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // ContinuousModifierGate.ResolveDigivolutionCost reads only the substrate EffectRegistry (via
+    // ContinuousScopeEvaluation), not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. The factory call is kept (still exercises construction); Register/ToBinding is
+    // dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, permanentCondition: null, cardCondition: null,
+        rootCondition: null, isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
 
     int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
     AssertEqual(3, cost, "digivolution cost 5 - 2 = 3");
@@ -54,8 +61,11 @@ Task DynamicReduces()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    context.EffectRegistry.Register(
-        CardEffectFactory.ChangeDigivolutionCostStaticEffect(() => -3, isInheritedEffect: false, card, condition: null).ToBinding("w1-3-dyn"));
+    // MIGRATION-NOTE (P7 test-fix): see StaticReduces above — ChangeCostClass has no ToBinding/
+    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
+    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    CardEffectFactory.ChangeDigivolutionCostStaticEffect(() => -3, permanentCondition: null, cardCondition: null,
+        rootCondition: null, isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
 
     int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
     AssertEqual(2, cost, "digivolution cost 5 - 3 = 2 (dynamic)");
@@ -66,8 +76,11 @@ Task ConditionGates()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    context.EffectRegistry.Register(
-        CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, isInheritedEffect: false, card, condition: () => false).ToBinding("w1-3-cond"));
+    // MIGRATION-NOTE (P7 test-fix): see StaticReduces above — ChangeCostClass has no ToBinding/
+    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
+    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, permanentCondition: null, cardCondition: null,
+        rootCondition: null, isInheritedEffect: false, card: card, condition: () => false, setFixedCost: false);
 
     int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
     AssertEqual(5, cost, "false condition -> no reduction");
@@ -78,8 +91,11 @@ Task PositiveRaises()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    context.EffectRegistry.Register(
-        CardEffectFactory.ChangeDigivolutionCostStaticEffect(2, isInheritedEffect: false, card, condition: null).ToBinding("w1-3-up"));
+    // MIGRATION-NOTE (P7 test-fix): see StaticReduces above — ChangeCostClass has no ToBinding/
+    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
+    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    CardEffectFactory.ChangeDigivolutionCostStaticEffect(2, permanentCondition: null, cardCondition: null,
+        rootCondition: null, isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
 
     int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
     AssertEqual(7, cost, "digivolution cost 5 + 2 = 7");

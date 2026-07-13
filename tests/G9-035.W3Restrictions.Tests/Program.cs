@@ -39,7 +39,13 @@ async Task CantUnsuspend()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(context, id).IsRestricted, "not restricted before grant");
-    context.EffectRegistry.Register(CardEffectFactory.CantUnsuspendStaticEffect(false, new CardSource(context, id, P1), null).ToBinding($"cu:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotUnsuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousRestrictionGate.EvaluateUnsuspend) reads only the substrate EffectRegistry, not the AS-IS live
+    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CantUnsuspendStaticEffect(
+        permanentCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cu:{id.Value}");
     AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(context, id).IsRestricted, "does not unsuspend after grant");
 }
 
@@ -48,7 +54,13 @@ async Task CanNotBeBlocked()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousRestrictionGate.EvaluateBeBlocked(context, id).IsRestricted, "not restricted before grant");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"cbb:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotBlockClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousRestrictionGate.EvaluateBeBlocked) reads only the substrate EffectRegistry, not the AS-IS live
+    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
+        defenderCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cbb:{id.Value}");
     AssertTrue(ContinuousRestrictionGate.EvaluateBeBlocked(context, id).IsRestricted, "unblockable after grant");
 }
 
@@ -56,7 +68,13 @@ async Task DeleteBySkillPrevented()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(permanentCondition: null, cardEffectCondition: null, false, new CardSource(context, id, P1), null).ToBinding($"cds:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedBySkillClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The delete-path gate
+    // this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable
+    // way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B
+    // lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
+        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cds:{id.Value}");
     await ApplyDelete(context, id);
     AssertTrue(InBattleArea(context, P1, id), "card survives effect deletion");
 }

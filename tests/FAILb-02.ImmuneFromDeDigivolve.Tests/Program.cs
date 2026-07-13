@@ -47,8 +47,17 @@ async Task Run(bool immune, bool expectRemoved)
 
     if (immune)
     {
-        ctx.EffectRegistry.Register(CardEffectFactory.ImmuneFromDeDigivolveStaticEffect(
-            permanentCondition: null, isInheritedEffect: false, new CardSource(ctx, host, P1), condition: null).ToBinding("imm:host"));
+        // ImmuneFromDeDigivolveStaticEffect is declared to return the abstract ICardEffect base (its concrete
+        // result is one of the OLD-model ContinuousSelfRestrictionEffect/ContinuousPlayerScopeRestrictionEffect,
+        // which DO implement ToBinding — just not through the ICardEffect static type), so ToBinding is reached
+        // via the LegacyBindingBridge reflective dispatch rather than a direct call.
+        ICardEffect immunity = CardEffectFactory.ImmuneFromDeDigivolveStaticEffect(
+            permanentCondition: null, isInheritedEffect: false, new CardSource(ctx, host, P1), condition: null);
+        if (!LegacyBindingBridge.TryToBinding(immunity, "imm:host", out EffectBinding? immunityBinding) || immunityBinding is null)
+        {
+            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from ImmuneFromDeDigivolveStaticEffect");
+        }
+        ctx.EffectRegistry.Register(immunityBinding);
     }
 
     var sink = new MatchStateMutationSink(

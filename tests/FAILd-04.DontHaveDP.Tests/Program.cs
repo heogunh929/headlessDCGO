@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -46,8 +47,16 @@ int Resolve(int dpDelta, bool dontHaveDp)
 
     if (dontHaveDp)
     {
-        ctx.EffectRegistry.Register(CardEffectFactory.DontHaveDPStaticEffect(
-            permanentCondition: null, isInheritedEffect: false, card, condition: null).ToBinding($"nodp:{id.Value}"));
+        // DontHaveDPStaticEffect's declared return type is the AS-IS abstract ICardEffect base class (which has
+        // no ToBinding member); the concrete ContinuousSelfRestrictionEffect/ContinuousPlayerScopeRestrictionEffect
+        // it actually returns still declare a real ToBinding — bridge via LegacyBindingBridge (the sanctioned
+        // reflective lowering for exactly this shape, see CardEffectCommons/LegacyActivatedBridge.cs).
+        ICardEffect nodpEffect = CardEffectFactory.DontHaveDPStaticEffect(
+            permanentCondition: null, isInheritedEffect: false, card, condition: null);
+        if (LegacyBindingBridge.TryToBinding(nodpEffect, $"nodp:{id.Value}", out EffectBinding? nodpBinding) && nodpBinding is not null)
+        {
+            ctx.EffectRegistry.Register(nodpBinding);
+        }
     }
 
     return ContinuousDpGate.ResolveDp(ctx, id, Base);

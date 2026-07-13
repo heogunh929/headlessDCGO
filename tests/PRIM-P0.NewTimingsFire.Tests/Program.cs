@@ -334,7 +334,7 @@ public sealed class TimingProbe : CEntity_Effect
     private readonly EffectTiming _fireOn;
     public TimingProbe(EffectTiming fireOn) => _fireOn = fireOn;
 
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         if (timing == _fireOn)

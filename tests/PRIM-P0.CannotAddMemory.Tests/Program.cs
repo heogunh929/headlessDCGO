@@ -75,7 +75,10 @@ void Grant(EngineContext context, HeadlessPlayerId player)
     var srcId = new HeadlessEntityId($"{player.Value}:battle:GRANT");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, new HeadlessEntityId("DEF:GRANT"), player, Metadata: new Dictionary<string, object?>()));
     var card = new CardSource(context, srcId, player, player);
-    ICardEffect effect = CardEffectFactory.CanNotAddMemoryStaticEffect(player, isInheritedEffect: false, card, condition: null);
+    // CanNotAddMemoryStaticEffect's declared return type is the ICardEffect interface (ToBinding is not part
+    // of it); the concrete instance it always constructs is ContinuousPlayerScopeRestrictionEffect, which
+    // does carry ToBinding — cast to it (value/behavior unchanged).
+    var effect = (ContinuousPlayerScopeRestrictionEffect)CardEffectFactory.CanNotAddMemoryStaticEffect(player, isInheritedEffect: false, card, condition: null);
     context.EffectRegistry.Register(effect.ToBinding($"{player.Value}:cannotAddMemory"));
 }
 

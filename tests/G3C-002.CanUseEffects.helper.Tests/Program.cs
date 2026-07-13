@@ -283,7 +283,10 @@ CanUseEffectRequest CreateRequest(
         triggerCondition?.ToString() ?? "Manual",
         maxCountPerTurn: maxCountPerTurn);
     var request = new EffectRequest(definition.EffectId, PlayerOne, definition.Timing, context);
-    var skill = new SkillInfo(definition, request);
+    // (P6 cluster3) CanUseEffectRequest is built against the substrate HeadlessDCGO.Engine.Headless.Effects.SkillInfo
+    // record; the P6 AS-IS-mirror SkillInfo class (Script/SkillInfo.cs) now also lives in the imported
+    // CardEffectCommons namespace and shadows the plain name — qualify explicitly (see CanUseEffectHelpers.cs header).
+    var skill = new HeadlessDCGO.Engine.Headless.Effects.SkillInfo(definition, request);
 
     return new CanUseEffectRequest(
         state,

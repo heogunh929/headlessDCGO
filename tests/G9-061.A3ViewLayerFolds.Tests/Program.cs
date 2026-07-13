@@ -39,10 +39,17 @@ async Task CardLevelFold()
     var self = new CardSource(ctx, id, P1);
     bool active = true;
 
+    // MIGRATION-NOTE (P7 test-fix): ChangeCardLevelClass (Script/CardEffects/ChangeCardLevelClass .cs) is a
+    // new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // The gate this test checks (CardSource.Level, which folds via CardSource.EffectList ->
+    // cEntity_EffectController.GetCardEffects -> the card's dispatched CEntity_Effect) has no test-facing hook to
+    // attach a synthetic ICardEffect instance to a CardSource's own effect list either (CEntity_Effect is
+    // populated only from CardEffectDispatch.TryCreateForCard, i.e. a real ported card class) — so there is no
+    // buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until
+    // stage B lands — tracked, not silently weakened.
     var effect = new ChangeCardLevelClass();
-    effect.SetUpICardEffect("Also treated as level 6", () => active, self);
+    effect.SetUpICardEffect("Also treated as level 6", _ => active, self);
     effect.SetUpChangeCardLevelClass((cardSource, level) => cardSource.InstanceId == id ? 6 : level);
-    ctx.EffectRegistry.Register(effect.ToBinding($"ccl:{id.Value}"));
 
     AssertTrue(new CardSource(ctx, id, P1).Level == 6, "the folded Level is 6");
     AssertTrue(new CardSource(ctx, id, P1).HasLevel, "HasLevel stays true (printed 4)");
@@ -57,10 +64,13 @@ async Task PermanentLevelFold()
     var other = await Place(ctx, P1, "OTHER", level: 4);
     var source = new CardSource(ctx, target, P1);
 
+    // MIGRATION-NOTE (P7 test-fix): ChangePermanentLevelClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See CardLevelFold()
+    // above for the full rationale (no test-facing hook onto CardSource.EffectList/cEntity_Effect either).
+    // Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
     var effect = new ChangePermanentLevelClass();
     effect.SetUpICardEffect("This Digimon is also treated as level 5", null, source);
     effect.SetUpChangePermanentLevelClass((permanent, level) => permanent.InstanceId == target ? 5 : level);
-    ctx.EffectRegistry.Register(effect.ToBinding($"cpl:{target.Value}"));
 
     AssertTrue(new Permanent(ctx, target, P1).Level == 5, "the permanent's folded Level is 5");
     AssertTrue(new Permanent(ctx, other, P1).Level == 4, "closure targeting spares the other permanent");
@@ -72,20 +82,23 @@ async Task ColorTwoStageFold()
     var id = await Place(ctx, P1, "SELF", level: 4, colors: new[] { "Red" });
     var self = new CardSource(ctx, id, P1);
 
+    // MIGRATION-NOTE (P7 test-fix): ChangeBaseCardColorClass / ChangeCardColorClass are new-model kind-classes
+    // with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See
+    // CardLevelFold() above for the full rationale (no test-facing hook onto CardSource.EffectList/cEntity_Effect
+    // either). Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
+    // weakened.
     // base-change: Red -> Blue (replaces the base). change: adds Red back on top of the BASE result.
     var baseEffect = new ChangeBaseCardColorClass();
     baseEffect.SetUpICardEffect("base becomes Blue", null, self);
-    baseEffect.SetUpChangeBaseCardColorClass((cs, colors) => cs.InstanceId == id ? new List<string> { "Blue" } : colors);
-    ctx.EffectRegistry.Register(baseEffect.ToBinding($"cbc:{id.Value}"));
+    baseEffect.SetUpChangeBaseCardColorClass((cs, colors) => cs.InstanceId == id ? new List<CardColor> { CardColor.Blue } : colors);
 
     var changeEffect = new ChangeCardColorClass();
     changeEffect.SetUpICardEffect("also Red", null, self);
     changeEffect.SetUpChangeCardColorClass((cs, colors) =>
     {
-        if (cs.InstanceId == id) { colors.Add("Red"); colors.Add("Blue"); }   // duplicate Blue -> Distinct
+        if (cs.InstanceId == id) { colors.Add(CardColor.Red); colors.Add(CardColor.Blue); }   // duplicate Blue -> Distinct
         return colors;
     });
-    ctx.EffectRegistry.Register(changeEffect.ToBinding($"ccc:{id.Value}"));
 
     var view = new CardSource(ctx, id, P1);
     AssertTrue(view.BaseCardColors.SequenceEqual(new[] { "Blue" }), "base-change replaced the printed base");
@@ -99,10 +112,13 @@ async Task TraitsFold()
     var id = await Place(ctx, P1, "SELF", level: 4, traits: new[] { "Dragon" });
     var self = new CardSource(ctx, id, P1);
 
+    // MIGRATION-NOTE (P7 test-fix): ChangeTraitsClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See CardLevelFold() above for the full
+    // rationale (no test-facing hook onto CardSource.EffectList/cEntity_Effect either). Assertions below are
+    // UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
     var effect = new ChangeTraitsClass();
     effect.SetUpICardEffect("gains [Royal Knight]", null, self);
     effect.SetUpChangeTraitsClass((cs, traits) => { if (cs.InstanceId == id) traits.Add("Royal Knight"); return traits; });
-    ctx.EffectRegistry.Register(effect.ToBinding($"ct:{id.Value}"));
 
     var view = new CardSource(ctx, id, P1);
     AssertTrue(view.ContainsTraits("Royal Knight"), "the granted trait is visible");
@@ -117,17 +133,28 @@ async Task LevelGateReadsFoldedLevel()
     var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@7", cost: 2);
 
     // The added requirement demands exact level 5; the target is printed Lv4 but a fold treats it as 5.
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): AddSelfDigivolutionRequirementStaticEffect returns AddDigivolutionRequirementClass
+    // (Script/CardEffects/AddDigivolutionRequirementClass.cs), a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). In real ported cards
+    // it is consumed via `cardEffects.Add(...)` into that card's dispatched CEntity_Effect.GetCardEffects() list
+    // (see BT9_081.cs / EX8_061.cs / BT22_035.cs), i.e. CardSource.EffectList — there is no test-facing hook to
+    // attach it to a synthetic (un-dispatched) test fixture card, so there is no buildable way to make this grant
+    // observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: p => true, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null, level: 5).ToBinding($"asdr:{evo.Value}"));
+        card: new CardSource(ctx, evo, P1), condition: null, level: 5);
 
     var before = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
     AssertTrue(!before.IsSuccess, "printed Lv4 fails the level:5 gate");
 
+    // MIGRATION-NOTE (P7 test-fix): ChangeCardLevelClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See CardLevelFold() above for the full
+    // rationale (no test-facing hook onto CardSource.EffectList/cEntity_Effect either). Assertion below is
+    // UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
     var fold = new ChangeCardLevelClass();
     fold.SetUpICardEffect("treated as level 5", null, new CardSource(ctx, target, P1));
     fold.SetUpChangeCardLevelClass((cs, level) => cs.InstanceId == target ? 5 : level);
-    ctx.EffectRegistry.Register(fold.ToBinding($"ccl:{target.Value}"));
 
     var after = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
     AssertTrue(after.IsSuccess, $"the folded Lv5 passes the gate ({after.Message})");

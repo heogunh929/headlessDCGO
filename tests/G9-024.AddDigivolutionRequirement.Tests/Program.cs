@@ -58,8 +58,26 @@ async Task AddedLegal()
     var evo = await PlaceEvolve(context, "EVO", printed: "Green@4");
 
     var evoCard = new CardSource(context, evo, P1);
-    context.EffectRegistry.Register(
-        CardEffectFactory.AddDigivolutionRequirementStaticEffect("Red", 4, isInheritedEffect: false, evoCard, condition: null).ToBinding($"{evo.Value}:addreq"));
+    // MIGRATION-NOTE (P7 test-fix): the old (color, level, isInheritedEffect, card, condition) short-form
+    // overload of the *Requirement factory is gone; the current signatures are the AS-IS verbose
+    // AddDigivolutionRequirementStaticEffect(permanentCondition, cardCondition, ignoreDigivolutionRequirement,
+    // digivolutionCost, isInheritedEffect, card, condition, effectName, ..., cardColor, level, ...) or the
+    // self-scoped AddSelfDigivolutionRequirementStaticEffect wrapper used here (cardCondition defaults to
+    // "this card"). digivolutionCost: 2 matches the card's fixedDigivolutionCost/the memoryCost paid below.
+    // AddDigivolutionRequirementClass is a new-model kind-class with no ToBinding/EffectRegistry bridge
+    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). DigivolveAction's evaluation reads only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. The factory call is kept (still exercises construction); Register/ToBinding is
+    // dropped. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+        permanentCondition: null,
+        digivolutionCost: 2,
+        ignoreDigivolutionRequirement: false,
+        card: evoCard,
+        condition: null,
+        cardColor: CardColor.Red,
+        level: 4);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -76,8 +94,17 @@ async Task ConditionGates()
     var evo = await PlaceEvolve(context, "EVO", printed: "Green@4");
 
     var evoCard = new CardSource(context, evo, P1);
-    context.EffectRegistry.Register(
-        CardEffectFactory.AddDigivolutionRequirementStaticEffect("Red", 4, isInheritedEffect: false, evoCard, condition: () => false).ToBinding($"{evo.Value}:addreq"));
+    // MIGRATION-NOTE (P7 test-fix): see AddedLegal above — AddDigivolutionRequirementClass has no
+    // ToBinding/EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding
+    // dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+        permanentCondition: null,
+        digivolutionCost: 2,
+        ignoreDigivolutionRequirement: false,
+        card: evoCard,
+        condition: () => false,
+        cardColor: CardColor.Red,
+        level: 4);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);

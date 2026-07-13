@@ -88,10 +88,17 @@ async Task PredicateForm()
     var other = await Place(ctx, P1, "PLAIN");
 
     // Direct-construction shape (EX8_025/BT20_026 …): the card's own PermanentCondition, here name-based.
+    // MIGRATION-NOTE (P7 test-fix): CanNotSwitchAttackTargetClass (Script/CardEffects/CanNotSwitchAttackTargetClass.cs)
+    // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // The gate this test checks (AttackTargetSwitchGate.IsLocked) reads CardSource/Permanent.EffectList ->
+    // cEntity_EffectController.GetCardEffects -> the card's dispatched CEntity_Effect, which has no test-facing
+    // hook to attach a synthetic ICardEffect instance (CEntity_Effect is populated only from
+    // CardEffectDispatch.TryCreateForCard, i.e. a real ported card class) — so there is no buildable way to make
+    // this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands —
+    // tracked, not silently weakened.
     var effect = new CanNotSwitchAttackTargetClass();
     effect.SetUpICardEffect("named lock", null, new CardSource(ctx, named, P1));
     effect.SetUpCanNotSwitchAttackTargetClass(p => p.TopCard.EqualsCardName("OMEGA"));
-    ctx.EffectRegistry.Register(effect.ToBinding($"lock:{named.Value}"));
 
     AssertTrue(AttackTargetSwitchGate.IsLocked(ctx, named), "matching attacker is locked");
     AssertTrue(!AttackTargetSwitchGate.IsLocked(ctx, other), "non-matching attacker is not (predicate evaluated 1:1)");
@@ -99,12 +106,17 @@ async Task PredicateForm()
 
 // --- Helpers ---
 
+// MIGRATION-NOTE (P7 test-fix): CanNotSwitchAttackTargetClass is a new-model kind-class with no
+// ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+// checks (AttackTargetSwitchGate.IsLocked, via CardSource/Permanent.EffectList -> cEntity_Effect dispatch) has
+// no test-facing hook to attach a synthetic ICardEffect instance either (see PredicateForm() above for the
+// full rationale). Callers of this helper get UNCHANGED assertions EXPECTED TO FAIL until stage B lands —
+// tracked, not silently weakened.
 void GrantLock(EngineContext ctx, HeadlessEntityId attackerId)
 {
     // AS-IS AD1_011 shape: UntilEachTurnEndEffects.Add(PermanentEffectFactory.CanNotSwitchAttackTargetEffect(...)).
-    CanNotSwitchAttackTargetClass effect = PermanentEffectFactory.CanNotSwitchAttackTargetEffect(
+    PermanentEffectFactory.CanNotSwitchAttackTargetEffect(
         new Permanent(ctx, attackerId, OwnerOf(ctx, attackerId)));
-    ctx.EffectRegistry.Register(effect.ToBinding($"switchlock:{attackerId.Value}", EffectDuration.UntilEachTurnEnd));
 }
 
 HeadlessPlayerId OwnerOf(EngineContext ctx, HeadlessEntityId id) =>

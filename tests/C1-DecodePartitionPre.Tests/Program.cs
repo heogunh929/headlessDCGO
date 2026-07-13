@@ -171,13 +171,21 @@ async Task PartitionColourGroupRepeatThenDeletes()
     HeadlessEntityId blue = Colored("BLU", "Blue");   // matches no group -> trashed with the stack
 
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    // MIGRATION-NOTE (P7 test-fix): PartitionSelfEffect (CardEffectFactory/KeyWordEffects/Partition.cs) now
+    // returns the new-model ActivateClass, which has no ToBinding — EffectRegistry.Register can no longer take
+    // its result (CS1061 if attempted). DeletionReplacementTiming.PartitionConditionsOf reads the holder's
+    // colour-group pair either from the live EffectRegistry (keyword-tagged binding — unavailable here) OR
+    // directly from the card's metadata under PartitionCondition.PartitionConditionsKey, so the metadata path
+    // is used instead to supply the exact same two colour-group conditions the factory call constructed.
     SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         [DeletionReplacementGate.SourceIdsKey] = new[] { red.Value, yellow.Value, blue.Value },
+        [DeletionReplacementGate.HasPartitionKey] = true,
+        [PartitionCondition.PartitionConditionsKey] = (IReadOnlyList<PartitionCondition>)new List<PartitionCondition>
+        {
+            new PartitionCondition(4, "Red"), new PartitionCondition(4, "Yellow"),
+        },
     });
-    ctx.EffectRegistry.Register(CardEffectFactory.PartitionSelfEffect(
-        false, new CardSource(ctx, holder, P1), null,
-        new[] { new PartitionCondition(4, "Red"), new PartitionCondition(4, "Yellow") }).ToBinding($"c1d:{holder.Value}"));
 
     await DeleteByEffect(match, ctx, holder);
     AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, holder), "PRE window: holder still on the field");

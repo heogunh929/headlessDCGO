@@ -57,7 +57,9 @@ async Task Gain1(bool match)
     var eff = CardEffectFactory.Gain1MemoryTamerOwnerDigimonConditionalEffect(
         "", p => p.Level == 5, null, new CardSource(ctx, tamer, P1));
     var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue);
-    await ((IHeadlessCardEffect)eff).ResolveAsync(new CardEffectResolveContext(eff.ToBinding("g1").Request), sink);
+    if (!LegacyBindingBridge.TryToBinding(eff, "g1", out var binding) || binding is null)
+        throw new InvalidOperationException($"{eff.GetType().Name} has no ToBinding bridge.");
+    await ((IHeadlessCardEffect)eff).ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
     await sink.FlushAsync();
 
     // Gains only when the owner controls a matching (Level-5) Digimon — not unconditionally.

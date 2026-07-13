@@ -244,19 +244,19 @@ void Link(EngineContext context, HeadlessEntityId host, HeadlessEntityId link)
     });
 }
 
-// Registry-fallback link condition declaration (the AddLinkConditionClass continuous surface).
+// Live-scan link condition declaration (the AddLinkConditionClass new-model kind-class continuous surface).
+// AS-IS CardSource.LinkConditionOf() (CardSource.cs:2727-2741, mirror CardSource.cs:728) scans THIS card's
+// live EffectList(EffectTiming.None) for an IAddLinkConditionEffect — there is no EffectRegistry fallback
+// any more (the "pre-flip dispatch-first/registry-fallback split is superseded by the flip's enumeration
+// model", CardSource.cs comment above LinkConditionOf). So the fixture attaches the AddLinkConditionClass
+// via the card's cEntity_EffectController.cEntity_Effect probe — the same live-scan idiom used elsewhere in
+// this migration (cardSource.cEntity_EffectController.cEntity_Effect = <probe>) — instead of registering an
+// EffectBinding the live scan never reads.
 void DeclareLinkCondition(EngineContext context, HeadlessEntityId cardId, Func<Permanent, bool> condition)
 {
-    Func<CardSource, LinkCondition?> getCondition = _ => new LinkCondition(condition, cost: 0);
-    var effectContext = new EffectContext(
-        P1, P1, cardId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(),
-        values: new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.AddLinkConditionClass.GetLinkConditionKey] = getCondition,
-        });
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId($"linkcond:{cardId.Value}"), P1, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
+    var cardSource = new CardSource(context, cardId, P1);
+    var linkConditionEffect = CardEffectFactory.AddSelfLinkConditionStaticEffect(condition, linkCost: 0, cardSource);
+    cardSource.cEntity_EffectController.cEntity_Effect = new LinkConditionProbe(linkConditionEffect);
 }
 
 void Mutate(EngineContext context, HeadlessEntityId id, Action<Dictionary<string, object?>> mutate)
@@ -278,4 +278,12 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+sealed class LinkConditionProbe : CEntity_Effect
+{
+    readonly ICardEffect _effect;
+    public LinkConditionProbe(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) =>
+        timing == EffectTiming.None ? new List<ICardEffect> { _effect } : new List<ICardEffect>();
 }

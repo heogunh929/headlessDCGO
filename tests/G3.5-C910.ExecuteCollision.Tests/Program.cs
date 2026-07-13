@@ -131,8 +131,14 @@ async Task ExecuteKeywordNormalAttackNoSelfDelete()
     HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
     HeadlessEntityId defender = await Establish(match, P2, dp: 3000, suspended: true, flag: null);
     // Grant Execute via the KEYWORD (ExecuteSelfEffect), NOT the deleteSelfAtEndOfAttack metadata flag.
+    // NOTE: CardEffectFactory.ExecuteSelfEffect returns an ActivateClass (ActivateICardEffect) — the AS-IS
+    // "Trigger effect of Execute" ACTIVATED primitive, which has no ToBinding and which
+    // CardEffectRegistrar.RegisterOnEnterPlay explicitly excludes from any registration. The live continuous
+    // Execute KEYWORD this test needs (read via ContinuousKeywordGate.HasKeyword) is the self-static-by-name
+    // primitive, SelfKeywordByNameEffect (ContinuousAndRestrictionEffects.cs).
     match.Context.EffectRegistry.Register(
-        CardEffectFactory.ExecuteSelfEffect(false, new CardSource(match.Context, attacker, P1), null).ToBinding($"exec:{attacker.Value}"));
+        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
+            .ToBinding($"exec:{attacker.Value}"));
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
     await DriveAttackAsync(match);
@@ -149,8 +155,11 @@ async Task ExecuteEndOfTurnWindowSelfDeletes()
     used.Clear();
     HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
     HeadlessEntityId defender = await Establish(match, P2, dp: 3000, suspended: false, flag: null);   // UNSUSPENDED
+    // (see NOTE above ExecuteKeywordNormalAttackNoSelfDelete) ExecuteSelfEffect's ActivateClass has no ToBinding
+    // and is excluded from registration — grant the live Execute keyword via SelfKeywordByNameEffect instead.
     match.Context.EffectRegistry.Register(
-        CardEffectFactory.ExecuteSelfEffect(false, new CardSource(match.Context, attacker, P1), null).ToBinding($"exec:{attacker.Value}"));
+        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
+            .ToBinding($"exec:{attacker.Value}"));
 
     AssertTrue(EndOfTurnEffectAttack.TryOpen(match.Context, P1), "the end-of-turn window offers the Execute attack");
     ChoiceRequest offer = match.Context.ChoiceController.PendingRequest!;
@@ -172,8 +181,11 @@ async Task ExecuteWindowRespectsSummoningSickness()
     DcgoMatch match = await NewMatch();
     used.Clear();
     HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: ("enteredThisTurn", true));
+    // (see NOTE above ExecuteKeywordNormalAttackNoSelfDelete) ExecuteSelfEffect's ActivateClass has no ToBinding
+    // and is excluded from registration — grant the live Execute keyword via SelfKeywordByNameEffect instead.
     match.Context.EffectRegistry.Register(
-        CardEffectFactory.ExecuteSelfEffect(false, new CardSource(match.Context, attacker, P1), null).ToBinding($"exec:{attacker.Value}"));
+        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
+            .ToBinding($"exec:{attacker.Value}"));
 
     AssertFalse(EndOfTurnEffectAttack.TryOpen(match.Context, P1), "an Execute Digimon played this turn (no Rush) gets no window");
 }
@@ -185,9 +197,15 @@ async Task CollisionViaKeywordUnsealed()
     HeadlessEntityId attacker = await Establish(match, P1, dp: 6000, suspended: false, flag: null);
     HeadlessEntityId blocker = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
 
-    // Grant Collision via the KEYWORD (CollisionStaticEffect → player-scope Collision keyword), NOT the mutation.
+    // Grant Collision via the KEYWORD. NOTE: CardEffectFactory.CollisionStaticEffect returns a CollisionClass, a
+    // NEW-model kind-class (post-rebuild, no ToBinding/EffectRegistry bridge — stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md). The gate this test actually reads (BlockTiming.cs: "recognise the
+    // live Collision KEYWORD (CollisionSelfEffect -> SelfKeywordByNameEffect)" via
+    // ContinuousKeywordGate.HasKeyword(..., ContinuousKeywordGate.Collision)) is the self-static-by-name
+    // primitive, SelfKeywordByNameEffect — the same primitive already used for Raid/Execute above.
     match.Context.EffectRegistry.Register(
-        CardEffectFactory.CollisionStaticEffect(null, false, new CardSource(match.Context, attacker, P1), null).ToBinding($"col:{attacker.Value}"));
+        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Collision, isInheritedEffect: false, condition: null)
+            .ToBinding($"col:{attacker.Value}"));
     AssertFalse(ReadFlag(match, attacker, BlockTiming.HasCollisionKey), "hasCollision metadata is NOT set (keyword-granted)");
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
@@ -209,13 +227,20 @@ async Task CollisionImmuneDefenderNotForced()
     HeadlessEntityId plain = await Establish(match, P2, dp: 4000, suspended: false, flag: null);
 
     match.Context.EffectRegistry.Register(
-        CardEffectFactory.CollisionStaticEffect(null, false, new CardSource(match.Context, attacker, P1), null).ToBinding($"col:{attacker.Value}"));
+        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Collision, isInheritedEffect: false, condition: null)
+            .ToBinding($"col:{attacker.Value}"));
     // The immune defender cannot be affected by the OPPONENT's Digimon effects (AS-IS SkillCondition shape).
-    match.Context.EffectRegistry.Register(
-        CardEffectFactory.CanNotAffectedStaticEffect(
-            permanentCondition: null,
-            skillCondition: src => src.Owner != P2 && src.IsDigimon,
-            isInheritedEffect: false, card: new CardSource(match.Context, immune, P2), condition: null).ToBinding($"cna:{immune.Value}"));
+    // CanNotAffectedStaticEffect's declared return type is the AS-IS abstract ICardEffect base class (no
+    // ToBinding member); the concrete ContinuousImmunityEffect it returns still declares a real ToBinding —
+    // bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+    ICardEffect cnaEffect = CardEffectFactory.CanNotAffectedStaticEffect(
+        permanentCondition: null,
+        skillCondition: src => src.Owner != P2 && src.IsDigimon,
+        isInheritedEffect: false, card: new CardSource(match.Context, immune, P2), condition: null);
+    if (LegacyBindingBridge.TryToBinding(cnaEffect, $"cna:{immune.Value}", out EffectBinding? cnaBinding) && cnaBinding is not null)
+    {
+        match.Context.EffectRegistry.Register(cnaBinding);
+    }
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
     BlockTimingResult result = new BlockTiming().RequestBlockChoice(match.Context);

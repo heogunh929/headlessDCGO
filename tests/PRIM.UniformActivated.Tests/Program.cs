@@ -98,8 +98,12 @@ async Task GrantRestrictionBody()
     var card = new CardSource(ctx, self, P1);
     AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(ctx, self).IsRestricted, "not restricted before the grant");
 
+    // CantUnsuspendStaticEffect gained a leading permanentCondition parameter (AS-IS shape) — scope it to
+    // THIS card (self-grant), matching the CanNotAttackSelfStaticEffect/CanNotBeBlockedStaticSelfEffect
+    // "self" idiom used elsewhere, plus an effectName (display-only, unasserted).
     var e = new ActivatedEffect(card, EffectTiming.OptionSkill, canUse: null, canActivate: null,
-        body: new GrantContinuousBody(CardEffectFactory.CantUnsuspendStaticEffect(false, card, null)),
+        body: new GrantContinuousBody(CardEffectFactory.CantUnsuspendStaticEffect(
+            permanentCondition: p => p.InstanceId == self, isInheritedEffect: false, card, condition: null, effectName: "Can't unsuspend")),
         maxCountPerTurn: null, isOptional: false, "[Main] grant: this Digimon can't unsuspend");
 
     await Resolve(ctx, e);

@@ -39,6 +39,11 @@ async Task EffectPlayRegisters()
     EngineContext context = EngineContext.CreateDefault(randomSeed: 802);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("ST7_10"), "ST7_10", "MetalGreymon", new Dictionary<string, object?>(), CardType: "Digimon"));
+    // (P6 STAGE B) a live game (past Setup) so AS-IS CanUse/CanTrigger's DoneStartGame gate lets the ported
+    // continuous effects apply — the new-model interface scan honours that precondition, as every other
+    // continuous member in the suite does; the old binding gate ignored it.
+    context.TurnController.Initialize(new[] { P1, new HeadlessPlayerId(2) }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(Played, new HeadlessEntityId("ST7_10"), P1));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, Played, ChoiceZone.None, ChoiceZone.Trash));
 
@@ -56,7 +61,9 @@ async Task EffectPlayRegisters()
 
     AssertTrue(((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(Played), "ST7_10 played onto the field");
     AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Played, baseSecurityAttack: 1), "SA +1 auto-active after the effect-play");
-    AssertTrue(context.EffectRegistry.GetKeywordEffects("Piercing").Count >= 1, "Piercing auto-registered after the effect-play");
+    // (P6 STAGE B) new-model interface-scan for keyword presence (the flip retires the keyword EffectBinding
+    // the old GetKeywordEffects("Piercing") check read — a ported <Pierce> registers no binding).
+    AssertTrue(ContinuousKeywordGate.HasKeyword(context, Played, "Piercing"), "Piercing auto-active after the effect-play");
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

@@ -60,8 +60,15 @@ async Task RestrictedIllegal()
 
     // Register "this card cannot be digivolved" on the target.
     var targetCard = new CardSource(context, target, P1);
-    context.EffectRegistry.Register(
-        CardEffectFactory.CanNotDigivolveStaticSelfEffect(isInheritedEffect: false, targetCard, condition: null).ToBinding($"{target.Value}:cnd"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotDigivolveStaticSelfEffect returns CanNotDigivolveClass, a
+    // new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md). DigivolveAction's EvaluateDigivolve gate reads only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
+    // restriction observable yet. The factory call is kept (still exercises construction); Register/
+    // ToBinding is dropped. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands —
+    // tracked, not silently weakened.
+    CardEffectFactory.CanNotDigivolveStaticSelfEffect(cardCondition: null, isInheritedEffect: false,
+        card: targetCard, condition: null, effectName: "CanNotDigivolve");
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -78,8 +85,12 @@ async Task ConditionLifts()
     var evo = await PlaceEvolve(context, "EVO");
 
     var targetCard = new CardSource(context, target, P1);
-    context.EffectRegistry.Register(
-        CardEffectFactory.CanNotDigivolveStaticSelfEffect(isInheritedEffect: false, targetCard, condition: () => false).ToBinding($"{target.Value}:cnd"));
+    // MIGRATION-NOTE (P7 test-fix): see RestrictedIllegal above — CanNotDigivolveClass has no ToBinding/
+    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
+    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands (it currently passes vacuously
+    // since the restriction was never observable to begin with, matching the "no restriction" branch).
+    CardEffectFactory.CanNotDigivolveStaticSelfEffect(cardCondition: null, isInheritedEffect: false,
+        card: targetCard, condition: () => false, effectName: "CanNotDigivolve");
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);

@@ -3,16 +3,9 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
-using FactoryArmorPurge = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.ArmorPurge;
-using FactoryBlitz = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Blitz;
-using FactoryDecode = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Decode;
-using FactoryAlliance = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Alliance;
-using FactoryVortex = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Vortex;
-using FactoryOverclock = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Overclock;
-using FactoryPartition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Partition;
-using FactoryProgress = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Progress;
-using FactoryRetaliation = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Retaliation;
-using FactoryRush = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Rush;
+// (post-rebuild) the old mirror-invented per-keyword `static class ArmorPurge/Blitz/.../Rush { .Create }`
+// helpers under CardEffectFactory.KeyWordEffects are gone — the unified KeywordBaseBatch2Factory.Create(kind, ...)
+// (CardEffectCommons/KeyWordEffects/KeywordBaseBatch2.cs) is the current single entry point for all ten kinds.
 
 var root = FindRepositoryRoot();
 HeadlessPlayerId PlayerOne = new(1);
@@ -108,16 +101,16 @@ Task AsIsKeywordBatch2ReferencesAreRecorded()
 
 Task FactoryCreatesFourKeywordEffects()
 {
-    KeywordBaseBatch2Effect rush = FactoryRush.Create(KeywordSource);
-    KeywordBaseBatch2Effect blitz = FactoryBlitz.Create(KeywordSource, triggerReason: "WhenDigivolving");
-    KeywordBaseBatch2Effect retaliation = FactoryRetaliation.Create(KeywordSource, isInherited: true, isLinked: true);
-    KeywordBaseBatch2Effect armor = FactoryArmorPurge.Create(KeywordSource);
-    KeywordBaseBatch2Effect decode = FactoryDecode.Create(KeywordSource);
-    KeywordBaseBatch2Effect alliance = FactoryAlliance.Create(KeywordSource);
-    KeywordBaseBatch2Effect vortex = FactoryVortex.Create(KeywordSource);
-    KeywordBaseBatch2Effect overclock = FactoryOverclock.Create(KeywordSource);
-    KeywordBaseBatch2Effect partition = FactoryPartition.Create(KeywordSource);
-    KeywordBaseBatch2Effect progress = FactoryProgress.Create(KeywordSource);
+    KeywordBaseBatch2Effect rush = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Rush, KeywordSource);
+    KeywordBaseBatch2Effect blitz = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Blitz, KeywordSource, triggerReason: "WhenDigivolving");
+    KeywordBaseBatch2Effect retaliation = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Retaliation, KeywordSource, isInherited: true, isLinked: true);
+    KeywordBaseBatch2Effect armor = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.ArmorPurge, KeywordSource);
+    KeywordBaseBatch2Effect decode = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Decode, KeywordSource);
+    KeywordBaseBatch2Effect alliance = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Alliance, KeywordSource);
+    KeywordBaseBatch2Effect vortex = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Vortex, KeywordSource);
+    KeywordBaseBatch2Effect overclock = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Overclock, KeywordSource);
+    KeywordBaseBatch2Effect partition = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Partition, KeywordSource);
+    KeywordBaseBatch2Effect progress = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Progress, KeywordSource);
 
     AssertEqual(KeywordBaseBatch2Kind.Rush, rush.Kind, "rush kind");
     AssertEqual("Rush", rush.Definition.Name, "rush name");

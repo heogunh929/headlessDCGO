@@ -36,10 +36,13 @@ async Task Check(string sourceTag, string CardType, int owner, bool expectBlocke
     var target = await Place(ctx, P1, "TARGET", "Digimon");
     var source = await Place(ctx, new HeadlessPlayerId(owner), sourceTag, CardType);
     // AS-IS SkillCondition: immune to the OPPONENT's DIGIMON effects only.
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(
+    ICardEffect cnaEffect1 = CardEffectFactory.CanNotAffectedStaticEffect(
         permanentCondition: null,
         skillCondition: src => src.Owner != P1 && src.IsDigimon,
-        isInheritedEffect: false, card: new CardSource(ctx, target, P1), condition: null).ToBinding($"cna:{target.Value}"));
+        isInheritedEffect: false, card: new CardSource(ctx, target, P1), condition: null);
+    if (!LegacyBindingBridge.TryToBinding(cnaEffect1, $"cna:{target.Value}", out HeadlessDCGO.Engine.Headless.Effects.EffectBinding? cnaBinding1) || cnaBinding1 is null)
+        throw new InvalidOperationException($"{cnaEffect1.GetType().Name} has no ToBinding bridge.");
+    ctx.EffectRegistry.Register(cnaBinding1);
 
     bool blocked = ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, target, source, ctx);
     AssertTrue(blocked == expectBlocked, $"blocked == {expectBlocked} (source={sourceTag})");
@@ -56,10 +59,13 @@ async Task PermanentConditionScopes()
     var source = await Place(ctx, P2, "P2-DIGI", "Digimon");
 
     // "Your [MATCH] Digimon cannot be affected by your opponent's Digimon effects."
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(
+    ICardEffect cnaEffect2 = CardEffectFactory.CanNotAffectedStaticEffect(
         permanentCondition: p => p.TopCard.EqualsCardName("MATCH"),
         skillCondition: src => src.Owner != P1 && src.IsDigimon,
-        isInheritedEffect: false, card: new CardSource(ctx, granter, P1), condition: null).ToBinding($"cna2:{granter.Value}"));
+        isInheritedEffect: false, card: new CardSource(ctx, granter, P1), condition: null);
+    if (!LegacyBindingBridge.TryToBinding(cnaEffect2, $"cna2:{granter.Value}", out HeadlessDCGO.Engine.Headless.Effects.EffectBinding? cnaBinding2) || cnaBinding2 is null)
+        throw new InvalidOperationException($"{cnaEffect2.GetType().Name} has no ToBinding bridge.");
+    ctx.EffectRegistry.Register(cnaBinding2);
 
     AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, protectedAlly, source, ctx),
         "the predicate-matching ally is protected");

@@ -34,8 +34,16 @@ async Task DeclarationReadable()
     var linkCard = await Put(ctx, P1, "LINKER", ChoiceZone.Hand);
     CardSource view = V(ctx, linkCard);
 
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfLinkConditionStaticEffect(
-        permanentCondition: p => p.TopCard.EqualsCardName("APPHOST"), linkCost: 1, card: view).ToBinding($"linkcond:{linkCard.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AddSelfLinkConditionStaticEffect returns AddLinkConditionClass
+    // (Script/CardEffects/AddLinkConditionClass.cs), a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (CardSource.LinkConditionOf, which scans CardSource.EffectList -> cEntity_EffectController.GetCardEffects
+    // -> the card's dispatched CEntity_Effect) has no test-facing hook to attach a synthetic ICardEffect
+    // instance either (CEntity_Effect is populated only from CardEffectDispatch.TryCreateForCard, i.e. a real
+    // ported card class) — so there is no buildable way to make this declaration observable yet. Assertions
+    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.AddSelfLinkConditionStaticEffect(
+        permanentCondition: p => p.TopCard.EqualsCardName("APPHOST"), linkCost: 1, card: view);
 
     LinkCondition? condition = view.LinkConditionOf();
     AssertTrue(condition is not null, "the declaration is readable");
@@ -53,13 +61,27 @@ async Task LinkFlow()
     var badHost = await Put(ctx, P1, "PLAIN", ChoiceZone.BattleArea);
     CardSource view = V(ctx, linkCard);
 
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfLinkConditionStaticEffect(
-        permanentCondition: p => p.TopCard.EqualsCardName("APPHOST"), linkCost: 1, card: view).ToBinding($"linkcond:{linkCard.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AddSelfLinkConditionStaticEffect is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See
+    // DeclarationReadable() above for the full rationale. Assertions below are UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.AddSelfLinkConditionStaticEffect(
+        permanentCondition: p => p.TopCard.EqualsCardName("APPHOST"), linkCost: 1, card: view);
 
     var provider = (ScriptedChoiceProvider)ctx.ChoiceProvider;
     provider.Enqueue(ChoiceResult.Select(goodHost));
 
-    var effect = (LinkSelfEffect)CardEffectFactory.LinkEffect(view);
+    // MIGRATION-NOTE (P7 test-fix): CardEffectFactory.LinkEffect (KeyWordEffects/Link.cs) was re-pointed by the
+    // kind-class rebuild to construct/return the NEW-model ActivateClass (whose ActivateCoroutine throws
+    // NotSupportedException — design item RD-P6C2-7, docs/audit/rebuild_p6_cluster2_notes.md: "AS-IS ILinkCard
+    // has no mirror"), so it can no longer be cast to the OLD-model action class LinkSelfEffect
+    // (CardEffectCommons/ActivatedEffects.cs) this test exercises. LinkSelfEffect itself is still fully
+    // functional (host-filter via CardSource.LinkConditionOf + link-cost payment) and has no other production
+    // call site since the flip, so it is constructed directly here, reading the declared cost the same way the
+    // orphaned factory used to. Because LinkConditionOf() depends on the same un-bindable AddLinkConditionClass
+    // grant (see above), it resolves to null for this fixture card, so LinkCost below is 0, not the declared 1 —
+    // the "reads the DECLARED cost" assertion is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    var effect = new LinkSelfEffect(view, view.LinkConditionOf()?.cost ?? 0, "Link");
     AssertTrue(effect.LinkCost == 1, "the play action reads the DECLARED cost (not metadata)");
     await effect.ResolveAsync(CancellationToken.None);
 
@@ -72,9 +94,12 @@ async Task LinkFlow()
     // confirming a second run with only the bad host present yields no link.
     var linkCard2 = await Put(ctx, P1, "LINKER2", ChoiceZone.Hand);
     CardSource view2 = V(ctx, linkCard2);
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfLinkConditionStaticEffect(
-        permanentCondition: p => p.TopCard.EqualsCardName("NOSUCH"), linkCost: 1, card: view2).ToBinding($"linkcond:{linkCard2.Value}"));
-    var effect2 = (LinkSelfEffect)CardEffectFactory.LinkEffect(view2);
+    // MIGRATION-NOTE (P7 test-fix): AddSelfLinkConditionStaticEffect / CardEffectFactory.LinkEffect — see
+    // DeclarationReadable() / LinkFlow() above for the full rationale (un-bindable kind-class grant + orphaned
+    // factory constructing the broken new-model stub instead of LinkSelfEffect).
+    CardEffectFactory.AddSelfLinkConditionStaticEffect(
+        permanentCondition: p => p.TopCard.EqualsCardName("NOSUCH"), linkCost: 1, card: view2);
+    var effect2 = new LinkSelfEffect(view2, view2.LinkConditionOf()?.cost ?? 0, "Link");
     await effect2.ResolveAsync(CancellationToken.None);   // no matching host -> no choice, no link
     ctx.CardInstanceRepository.TryGetInstance(badHost, out CardInstanceRecord? bad);
     AssertTrue(!LinkHelpers.ReadLinkedCardIds(bad!.Metadata).Contains(linkCard2), "no host matched the predicate -> no link");

@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -48,8 +49,15 @@ async Task Run(bool grantIgnoreColor, bool cannotIgnore, bool expectLegal)
     if (cannotIgnore)
     {
         // BT8_059: a battle-area card forbids ignoring digivolution requirements board-wide (joint predicate = always).
-        context.EffectRegistry.Register(CardEffectFactory.CannotIgnoreDigivolutionConditionStaticEffect(
-            (_, _) => true, new CardSource(context, target, P1), condition: null).ToBinding("cannot-ignore"));
+        // CannotIgnoreDigivolutionConditionStaticEffect's declared return type is the AS-IS abstract ICardEffect
+        // base class (no ToBinding member); the concrete CannotIgnoreDigivolutionConditionEffect it returns still
+        // declares a real ToBinding — bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+        ICardEffect cannotIgnoreEffect = CardEffectFactory.CannotIgnoreDigivolutionConditionStaticEffect(
+            (_, _) => true, new CardSource(context, target, P1), condition: null);
+        if (LegacyBindingBridge.TryToBinding(cannotIgnoreEffect, "cannot-ignore", out EffectBinding? cannotIgnoreBinding) && cannotIgnoreBinding is not null)
+        {
+            context.EffectRegistry.Register(cannotIgnoreBinding);
+        }
     }
 
     ActionProcessResult result = await new DigivolveAction()

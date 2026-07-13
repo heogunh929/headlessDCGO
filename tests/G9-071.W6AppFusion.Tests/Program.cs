@@ -42,8 +42,16 @@ async Task Enumeration()
     await LinkHelpers.AddLinkCardAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host, link, ChoiceZone.Hand);
     await LinkHelpers.AddLinkCardAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host, sameLink, ChoiceZone.Hand);
 
-    ctx.EffectRegistry.Register(CardEffectFactory.AddAppfuseMethodByName(
-        new List<string> { "Mediamon", "Dreammon" }, V(ctx, fused)).ToBinding($"appfuse:{fused.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AddAppfuseMethodByName returns AddAppFusionConditionClass
+    // (Script/CardEffects/AddAppFusionConditionClass.cs), a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (CardSource.AppFusionConditionOf, which scans CardSource.EffectList -> cEntity_EffectController.GetCardEffects
+    // -> the card's dispatched CEntity_Effect) has no test-facing hook to attach a synthetic ICardEffect
+    // instance either (CEntity_Effect is populated only from CardEffectDispatch.TryCreateForCard, i.e. a real
+    // ported card class) — so there is no buildable way to make this declaration observable yet. Assertions
+    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.AddAppfuseMethodByName(
+        new List<string> { "Mediamon", "Dreammon" }, V(ctx, fused));
 
     IReadOnlyList<LegalAction> actions = new DigivolveAction().GetLegalActions(ctx, P1);
     LegalAction[] fusions = actions.Where(a => a.Id.Value.Contains("appfusion")).ToArray();
@@ -60,8 +68,12 @@ async Task Execution()
     var host = await Put(ctx, P1, "HOST", ChoiceZone.BattleArea, name: "Mediamon");
     var link = await Put(ctx, P1, "LINK", ChoiceZone.Hand, name: "Dreammon");
     await LinkHelpers.AddLinkCardAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host, link, ChoiceZone.Hand);
-    ctx.EffectRegistry.Register(CardEffectFactory.AddAppfuseMethodByName(
-        new List<string> { "Mediamon", "Dreammon" }, V(ctx, fused)).ToBinding($"appfuse:{fused.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AddAppfuseMethodByName is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See Enumeration()
+    // above for the full rationale. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands —
+    // tracked, not silently weakened.
+    CardEffectFactory.AddAppfuseMethodByName(
+        new List<string> { "Mediamon", "Dreammon" }, V(ctx, fused));
 
     LegalAction fusion = new DigivolveAction().GetLegalActions(ctx, P1).Single(a => a.Id.Value.Contains("appfusion"));
     var result = await new DigivolveAction().ProcessAsync(fusion, ctx);
@@ -95,7 +107,16 @@ async Task Arts()
 
     var provider = (ScriptedChoiceProvider)ctx.ChoiceProvider;
     provider.Enqueue(ChoiceResult.Select(target));
-    var effect = (ArtsDigivolveSelfEffect)CardEffectFactory.ArtsDigivolveEffect(V(ctx, option));
+    // MIGRATION-NOTE (P7 test-fix): CardEffectFactory.ArtsDigivolveEffect (KeyWordEffects/ArtsDigivolve.cs) was
+    // re-pointed by the kind-class rebuild to construct/return the NEW-model OptionResolutionClass, whose
+    // CanResolveCondition/ResolutionCoroutine both throw NotSupportedException (design item RD-P6C2-10,
+    // docs/audit/rebuild_p6_cluster2_notes.md: "AS-IS CanPlayCardTargetFrame/PermanentFrame/ContinuousController/
+    // PlayCardClass have no mirror"), so it can no longer be cast to the OLD-model action class
+    // ArtsDigivolveSelfEffect (CardEffectCommons/ActivatedEffects.cs) this test exercises. ArtsDigivolveSelfEffect
+    // itself is fully functional (candidate scan via TryGetEvolutionCost/ContinuousRestrictionGate, no dependency
+    // on the un-bindable kind-class layer) and has no other production call site since the flip, so it is
+    // constructed directly here in place of the orphaned factory.
+    var effect = new ArtsDigivolveSelfEffect(V(ctx, option));
     await effect.ResolveAsync(CancellationToken.None);
 
     var zones = (IZoneStateReader)ctx.ZoneMover;

@@ -38,7 +38,12 @@ async Task CantSuspend()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CantSuspendStaticEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"cs:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotSuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The suspend mutation gate this test checks
+    // reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
+    // grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
+    // not silently weakened.
+    CardEffectFactory.CantSuspendStaticEffect(null, false, new CardSource(context, id, P1), null, $"cs:{id.Value}");
     await ApplyKind(context, id, MatchStateMutationSink.SuspendKind);
     AssertTrue(!ReadBool(context, id, "isSuspended"), "not suspended (blocked)");
 }
@@ -47,7 +52,12 @@ async Task CannotReturnToHand()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CannotReturnToHandStaticEffect(null, null, false, new CardSource(context, id, P1), null).ToBinding($"crh:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotReturnToHandClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The bounce mutation
+    // gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
+    // buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until
+    // stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CannotReturnToHandStaticEffect(null, null, false, new CardSource(context, id, P1), null, $"crh:{id.Value}");
     await ApplyKind(context, id, MatchStateMutationSink.ReturnToHandKind);
     AssertTrue(InBattle(context, P1, id), "stays in play (bounce blocked)");
 }
@@ -56,7 +66,13 @@ async Task CannotReturnToDeck()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CannotReturnToDeckStaticEffect(permanentCondition: null, cardEffectCondition: null, false, new CardSource(context, id, P1), null).ToBinding($"crd:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotReturnToLibraryClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The deck-return
+    // mutation gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there
+    // is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CannotReturnToDeckStaticEffect(
+        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"crd:{id.Value}");
     await ApplyKind(context, id, MatchStateMutationSink.ReturnToDeckBottomKind);
     AssertTrue(InBattle(context, P1, id), "stays in play (deck-return blocked)");
 }
@@ -65,7 +81,12 @@ async Task CanNotBeDestroyedByBattle()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(null, null, false, new CardSource(context, id, P1), null).ToBinding($"cbdb:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedByBattleClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (BattleDeletionGate.PreventsBattleDeletion) reads only the substrate EffectRegistry, not the AS-IS
+    // live scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED
+    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(null, null, false, new CardSource(context, id, P1), null, $"cbdb:{id.Value}");
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(context, id), "battle deletion prevented");
     // effect deletion still applies
     await ApplyKind(context, id, MatchStateMutationSink.DeleteKind);
@@ -79,7 +100,10 @@ async Task ImmuneStackTrashing()
     var mat = await PlaceOffField(context, P1, "MAT");
     context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? r);
     context.CardInstanceRepository.Upsert(r! with { Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = new[] { mat.Value } } });
-    context.EffectRegistry.Register(CardEffectFactory.ImmuneStackTrashingClass(false, new CardSource(context, host, P1), null).ToBinding($"ist:{host.Value}"));
+    var immuneEffect = CardEffectFactory.ImmuneStackTrashingClass(false, new CardSource(context, host, P1), null);
+    if (!LegacyBindingBridge.TryToBinding(immuneEffect, $"ist:{host.Value}", out var immuneBinding) || immuneBinding is null)
+        throw new InvalidOperationException($"{immuneEffect.GetType().Name} has no ToBinding bridge.");
+    context.EffectRegistry.Register(immuneBinding);
 
     var sink = Sink(context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.TrashDigivolutionCardsKind, host,

@@ -69,9 +69,14 @@ async Task ConditionGates()
 
 // --- Helpers -------------------------------------------------------------
 
+// MIGRATION-NOTE (P7 test-fix): BlockerStaticEffect returns a new-model kind-class (BlockerClass) with no
+// ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+// ContinuousKeywordGate.HasKeyword reads only the substrate EffectRegistry, not the AS-IS live scan, so
+// there is no buildable way to make this player-scope grant observable yet. The factory call is kept
+// (still exercises construction); Register/ToBinding is dropped. All three tests' assertions above are
+// UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
 void Register(EngineContext context, HeadlessEntityId source, Func<bool>? condition) =>
-    context.EffectRegistry.Register(
-        CardEffectFactory.BlockerStaticEffect(null, false, new CardSource(context, source, P1), condition).ToBinding($"blk:{source.Value}"));
+    CardEffectFactory.BlockerStaticEffect(null, false, new CardSource(context, source, P1), condition);
 
 EngineContext Context()
 {

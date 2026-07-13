@@ -35,9 +35,16 @@ async Task Return(HeadlessPlayerId byOwner, bool expectBlocked)
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, byOwner, "CAUSE", ChoiceZone.BattleArea);
     // "This cannot be returned to hand by the OPPONENT's effects" — cardEffectCondition = source is P1's enemy.
-    ctx.EffectRegistry.Register(CardEffectFactory.CannotReturnToHandStaticEffect(
-        permanentCondition: null, cardEffectCondition: src => src.Owner != P1, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"crh:{protectedCard.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotReturnToHandClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The bounce mutation
+    // gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
+    // buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until
+    // stage B lands — tracked, not silently weakened. (cardEffectCondition takes the CAUSING ICardEffect —
+    // AS-IS CardEffectCondition — so the owner check reads its EffectSourceCard, not a nonexistent Owner member
+    // on ICardEffect itself.)
+    CardEffectFactory.CannotReturnToHandStaticEffect(
+        permanentCondition: null, cardEffectCondition: src => src.EffectSourceCard?.Owner != P1, isInheritedEffect: false,
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: $"crh:{protectedCard.Value}");
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool inHand = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(protectedCard);
@@ -50,9 +57,14 @@ async Task UnconditionalBlocks()
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, P1, "CAUSE", ChoiceZone.BattleArea);
-    ctx.EffectRegistry.Register(CardEffectFactory.CannotReturnToHandStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): CannotReturnToHandClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The bounce mutation
+    // gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
+    // buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until
+    // stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CannotReturnToHandStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"crh:{protectedCard.Value}"));
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: $"crh:{protectedCard.Value}");
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool inHand = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(protectedCard);

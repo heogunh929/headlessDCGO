@@ -22,9 +22,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("ChangeSelfLinkMax +1 -> linkedMaxDelta carried in continuous values", () =>
         FlagCarried(id => CardEffectFactory.ChangeSelfLinkMaxStaticEffect(1, false, id, null), ModifierHelpers.LinkedMaxDeltaKey)),
     ("GrantedReduceLinkCost 2 -> linkCostDelta carried in continuous values", () =>
-        FlagCarried(id => CardEffectFactory.GrantedReduceLinkCostClass(id, 2), ModifierHelpers.LinkCostDeltaKey)),
+        FlagCarried(id => CardEffectFactory.GrantedReduceLinkCostClass(id, 2, cardSourceCondition: _ => true, permanentCondition: _ => true, rootCondition: _ => true), ModifierHelpers.LinkCostDeltaKey)),
     ("UseRequirements -> ignoreColorRequirement flag read by the digivolve gate", () =>
-        FlagCarried(id => CardEffectFactory.UseRequirements(id), DigivolveAction.IgnoreColorRequirementKey)),
+        FlagCarried(id => CardEffectFactory.UseRequirements(id, cardCondition: _ => true), DigivolveAction.IgnoreColorRequirementKey)),
 };
 
 var failures = new List<string>();
@@ -44,7 +44,10 @@ async Task MindLink()
     EngineContext context = Context();
     var id = await Place(context, P1, "TAMER");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.MindLink), "absent before grant");
-    context.EffectRegistry.Register(CardEffectFactory.MindLinkSelfEffect(false, new CardSource(context, id, P1), null).ToBinding($"ml:{id.Value}"));
+    var mindLinkEffect = CardEffectFactory.MindLinkSelfEffect(false, new CardSource(context, id, P1), null);
+    if (!LegacyBindingBridge.TryToBinding(mindLinkEffect, $"ml:{id.Value}", out var mindLinkBinding) || mindLinkBinding is null)
+        throw new InvalidOperationException($"{mindLinkEffect.GetType().Name} has no ToBinding bridge.");
+    context.EffectRegistry.Register(mindLinkBinding);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.MindLink), "MindLink live after grant");
 }
 
@@ -52,7 +55,16 @@ async Task FlagCarried(Func<CardSource, ICardEffect> build, string expectedKey)
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(build(new CardSource(context, id, P1)).ToBinding($"eff:{expectedKey}:{id.Value}"));
+    ICardEffect builtEffect = build(new CardSource(context, id, P1));
+    // MIGRATION-NOTE (P7 test-fix): the new-model kind-classes constructed via FlagCarried
+    // (ChangeLinkMaxClass / ChangeLinkCostClass / IgnoreColorConditionClass) have no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The continuous-effect query below reads only
+    // the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. The factory call above is kept (exercises construction); registration is skipped when no
+    // bridge exists. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    if (LegacyBindingBridge.TryToBinding(builtEffect, $"eff:{expectedKey}:{id.Value}", out var builtBinding) && builtBinding is not null)
+        context.EffectRegistry.Register(builtBinding);
 
     bool carried = context.EffectRegistry
         .GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: id))

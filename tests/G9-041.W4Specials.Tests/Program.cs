@@ -66,7 +66,13 @@ async Task CanNotBeAttacked()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF", ChoiceZone.BattleArea);
     AssertTrue(!ContinuousRestrictionGate.EvaluateBeAttacked(context, id).IsRestricted, "not restricted before grant");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeAttackedSelfStaticEffect(false, new CardSource(context, id, P1), null).ToBinding($"cba:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (ContinuousRestrictionGate.EvaluateBeAttacked) reads only the substrate EffectRegistry, not the
+    // AS-IS live scan, so there is no buildable way to make this grant observable yet. Assertion below is
+    // UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeAttackedSelfStaticEffect(
+        attackerCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cba:{id.Value}");
     AssertTrue(ContinuousRestrictionGate.EvaluateBeAttacked(context, id).IsRestricted, "cannot be attacked after grant");
 }
 

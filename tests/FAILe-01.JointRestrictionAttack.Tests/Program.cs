@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -49,8 +50,15 @@ bool Restricted(bool joint, bool sameOwnerDefender)
     if (joint)
     {
         // coupled: cannot attack a defender whose owner equals the attacker's owner.
-        ctx.EffectRegistry.Register(CardEffectFactory.CanNotAttackJointStaticEffect(
-            (atk, def) => def is not null && def.Owner == atk.Owner, new CardSource(ctx, attacker, P1)).ToBinding("joint-cna"));
+        // CanNotAttackJointStaticEffect's declared return type is the AS-IS abstract ICardEffect base class (no
+        // ToBinding member); the concrete JointRestrictionEffect it returns still declares a real ToBinding —
+        // bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+        ICardEffect jointEffect = CardEffectFactory.CanNotAttackJointStaticEffect(
+            (atk, def) => def is not null && def.Owner == atk.Owner, new CardSource(ctx, attacker, P1));
+        if (LegacyBindingBridge.TryToBinding(jointEffect, "joint-cna", out EffectBinding? jointBinding) && jointBinding is not null)
+        {
+            ctx.EffectRegistry.Register(jointBinding);
+        }
     }
 
     return ContinuousRestrictionGate.EvaluateAttack(ctx, attacker, defender).IsRestricted;

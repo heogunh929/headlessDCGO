@@ -106,8 +106,12 @@ async Task RemovesBindings()
     EngineContext ctx = Ctx();
     var tamer = await Place(ctx, P1, "TAMER", cardType: "Tamer");
     var digimon = await Place(ctx, P1, "DIGIMON", level: 4);
-    ctx.EffectRegistry.Register(CardEffectFactory.BlockerSelfStaticEffect(false, new CardSource(ctx, tamer, P1), null)
-        .ToBinding($"tamer-eff:{tamer.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): BlockerClass (Script/CardEffects/BlockerClass.cs) is a new-model kind-class
+    // with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this
+    // test checks (ContinuousKeywordGate.HasKeyword) reads only the substrate EffectRegistry, not the AS-IS live
+    // CardSource.EffectList scan, so there is no buildable way to make this grant observable yet. Assertions
+    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.BlockerSelfStaticEffect(false, new CardSource(ctx, tamer, P1), null);
     AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, tamer, ContinuousKeywordGate.Blocker), "precondition: the binding is live");
 
     AssertTrue(await new MindLinkClass(new Permanent(ctx, tamer, P1), null, null).MindLink(digimon), "MindLink applied");

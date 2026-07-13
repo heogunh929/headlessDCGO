@@ -25,12 +25,20 @@ var noblock = Card("NOBLOCK", P2);   // the defender the attacker can't be block
 var other = Card("OTHER", P2);       // an ordinary blocker
 
 // attacker: "can't be blocked by NOBLOCK" (defenderCondition matches only NOBLOCK)
-var eff = CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
+// MIGRATION-NOTE (P7 test-fix): CanNotBeBlockedStaticSelfEffect returns CannotBlockClass
+// (Assets/Scripts/Script/CardEffects/CannotBlockClass.cs), a new-model kind-class with no
+// ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+// checks (ContinuousRestrictionGate.EvaluateBeBlocked -> RestrictionScan.IsRestricted) reads only the
+// substrate EffectRegistry (Continuous/Restriction query roles) — it has no new-model interface-scan union
+// (unlike ContinuousKeywordGate.HasKeyword), so there is no buildable way to make this restriction
+// observable yet. The factory call is kept (still exercises construction); Register/ToBinding is dropped.
+// Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
     defenderCondition: p => p.InstanceId == noblock,
     isInheritedEffect: false,
     card: new CardSource(ctx, attacker, P1),
-    condition: null);
-ctx.EffectRegistry.Register(eff.ToBinding($"{attacker.Value}:cantbeblocked"));
+    condition: null,
+    effectName: "CantBeBlocked");
 
 bool restrictedByNoblock = ContinuousRestrictionGate.EvaluateBeBlocked(ctx, attacker, noblock).IsRestricted;
 bool restrictedByOther = ContinuousRestrictionGate.EvaluateBeBlocked(ctx, attacker, other).IsRestricted;

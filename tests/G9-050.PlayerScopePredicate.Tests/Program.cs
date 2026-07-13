@@ -70,13 +70,19 @@ async Task FactoryPredicate()
     var lv4 = await Place(ctx, P1, "LV4", level: 4);
     var lv3 = await Place(ctx, P1, "LV3", level: 3);
 
+    // MIGRATION-NOTE (P7 test-fix): RushClass and ChangeDPClass are new-model kind-classes with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gates this test
+    // checks (ContinuousKeywordGate.HasKeyword / ContinuousDpGate.ResolveDp) read only the substrate
+    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make these grants observable yet.
+    // The factory calls are kept (exercise construction); registration is skipped since there is no bridge.
+    // Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
     // RushStaticEffect with a NARROWED permanentCondition (only Lv4).
-    ctx.EffectRegistry.Register(CardEffectFactory.RushStaticEffect(p => p.Level == 4, false, new CardSource(ctx, src, P1), null).ToBinding($"rush:{src.Value}"));
+    CardEffectFactory.RushStaticEffect(p => p.Level == 4, false, new CardSource(ctx, src, P1), null);
     AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, lv4, ContinuousKeywordGate.Rush), "Rush on Lv4 ally");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, lv3, ContinuousKeywordGate.Rush), "no Rush on Lv3 ally (permanentCondition honored)");
 
     // ChangeDPStaticEffect with a NARROWED permanentCondition (only Lv4).
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeDPStaticEffect(p => p.Level == 4, 1000, false, new CardSource(ctx, src, P1), null).ToBinding($"dp:{src.Value}"));
+    CardEffectFactory.ChangeDPStaticEffect(p => p.Level == 4, 1000, false, new CardSource(ctx, src, P1), null, () => "dp+1000");
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, lv4, 4000) == 5000, "Lv4 ally +1000 DP");
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, lv3, 4000) == 4000, "Lv3 ally no DP change (permanentCondition honored)");
 }
@@ -88,7 +94,12 @@ async Task SetFormDelete()
     var lv3 = await Place(ctx, P1, "LV3", level: 3);
     var lv4 = await Place(ctx, P1, "LV4", level: 4);
     // "Your Level-3 Digimon cannot be deleted." SET form (permanentCondition, not self).
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedStaticEffect(p => p.Level == 3, false, new CardSource(ctx, src, P1), null, null).ToBinding($"cbd:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The delete-path gate
+    // this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable
+    // way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B
+    // lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBeDestroyedStaticEffect(p => p.Level == 3, false, new CardSource(ctx, src, P1), null, null);
 
     await Delete(ctx, lv3);
     await Delete(ctx, lv4);
@@ -103,7 +114,12 @@ async Task SetFormSuspend()
     var src = await Place(ctx, P1, "SRC", level: 4);
     var lv3 = await Place(ctx, P1, "LV3", level: 3);
     var lv4 = await Place(ctx, P1, "LV4", level: 4);
-    ctx.EffectRegistry.Register(CardEffectFactory.CantSuspendStaticEffect(p => p.Level == 3, false, new CardSource(ctx, src, P1), null, null).ToBinding($"cs:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotSuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The suspend-mutation gate this test checks
+    // reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
+    // grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
+    // not silently weakened.
+    CardEffectFactory.CantSuspendStaticEffect(p => p.Level == 3, false, new CardSource(ctx, src, P1), null, null);
 
     await Suspend(ctx, lv3);
     await Suspend(ctx, lv4);
@@ -136,7 +152,12 @@ async Task DefenderCondition()
     var lv3def = await PlaceOwner(ctx, P2, "D3", level: 3);
     var lv4def = await PlaceOwner(ctx, P2, "D4", level: 4);
     // "This Digimon cannot attack Level-3 Digimon" (defenderCondition), can still attack others.
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAttackSelfStaticEffect(p => p.Level == 3, false, new CardSource(ctx, attacker, P1), null, null).ToBinding($"cna:{attacker.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (ContinuousRestrictionGate.EvaluateAttack) reads only the substrate EffectRegistry, not the AS-IS
+    // live scan, so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED
+    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotAttackSelfStaticEffect(p => p.Level == 3, false, new CardSource(ctx, attacker, P1), null, null);
 
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(ctx, attacker, lv3def).IsRestricted, "cannot attack the Lv3 defender");
     AssertTrue(!ContinuousRestrictionGate.EvaluateAttack(ctx, attacker, lv4def).IsRestricted, "CAN attack the Lv4 defender (not over-restricted)");

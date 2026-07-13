@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -42,8 +43,15 @@ bool Passes(int memory, int? minMemory)
 
     if (minMemory is int m)
     {
-        context.EffectRegistry.Register(CardEffectFactory.ChangeEndTurnMinMemoryStaticEffect(
-            m, isInheritedEffect: false, new CardSource(context, card, P1), condition: null).ToBinding("cetmm"));
+        // ChangeEndTurnMinMemoryStaticEffect's declared return type is the AS-IS abstract ICardEffect base class
+        // (no ToBinding member); the concrete ContinuousSelfModifierEffect it returns still declares a real
+        // ToBinding — bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+        ICardEffect cetmmEffect = CardEffectFactory.ChangeEndTurnMinMemoryStaticEffect(
+            m, isInheritedEffect: false, new CardSource(context, card, P1), condition: null);
+        if (LegacyBindingBridge.TryToBinding(cetmmEffect, "cetmm", out EffectBinding? cetmmBinding) && cetmmBinding is not null)
+        {
+            context.EffectRegistry.Register(cetmmBinding);
+        }
     }
 
     HeadlessMemoryState state = context.MemoryController.Set(memory);

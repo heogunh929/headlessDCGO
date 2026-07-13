@@ -133,8 +133,14 @@ async Task TamerTargetNotProtected()
 
 // --- Helpers ---
 
+// MIGRATION-NOTE (P7 test-fix): DecoySelfEffect returns ActivateClass (Script/CardEffects/ActivateClass.cs), a
+// new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+// The gate this test checks (ContinuousKeywordGate.HasKeyword, read by DeletionReplacementGate.HasDecoy) reads
+// only the substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there is no buildable way
+// to make this grant observable yet. Assertions across this file are UNCHANGED and EXPECTED TO FAIL until stage B
+// lands — tracked, not silently weakened.
 void GrantDecoy(EngineContext ctx, HeadlessEntityId holder, Func<Permanent, bool>? permanentCondition = null) =>
-    ctx.EffectRegistry.Register(CardEffectFactory.DecoySelfEffect(false, new CardSource(ctx, holder, P1), null, permanentCondition).ToBinding($"decoy:{holder.Value}"));
+    CardEffectFactory.DecoySelfEffect(false, new CardSource(ctx, holder, P1), null, permanentCondition, "decoy-test", "decoy-test");
 
 CardInstanceRecord Rec(EngineContext ctx, HeadlessEntityId id) =>
     ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r : throw new InvalidOperationException("no record");

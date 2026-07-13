@@ -34,7 +34,14 @@ async Task Offered(string tag, Func<bool, CardSource, Func<bool>?, ICardEffect> 
     EngineContext ctx = Ctx();
     var id = await Place(ctx, P1, tag);
     if (security) { await PlaceSecurity(ctx, P1); }
-    ctx.EffectRegistry.Register(factory(false, new CardSource(ctx, id, P1), null).ToBinding($"kw:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): EvadeSelfEffect/BarrierSelfEffect return ActivateClass
+    // (Script/CardEffects/ActivateClass.cs), a new-model kind-class with no ToBinding/EffectRegistry bridge
+    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (DeletionReplacementGate.HasReplacementKeyword -> ContinuousKeywordGate.HasKeyword) reads only the
+    // substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there is no buildable way to
+    // make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands —
+    // tracked, not silently weakened.
+    factory(false, new CardSource(ctx, id, P1), null);
     var record = Rec(ctx, id);
     var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle, ctx.EffectRegistry);
     AssertTrue(options.Contains(option), $"{option} offered for keyword-granted {tag} (un-sealed)");
@@ -71,8 +78,14 @@ async Task FragmentTrashValueGates()
                 [DeletionReplacementGate.SourceIdsKey] = sources.Select(s => s.Value).ToArray(),
             }
         });
-        ctx.EffectRegistry.Register(CardEffectFactory.FragmentSelfEffect(
-            false, new CardSource(ctx, id, P1), null, trashValue: 3).ToBinding($"frag:{id.Value}"));
+        // MIGRATION-NOTE (P7 test-fix): FragmentSelfEffect returns ActivateClass, a new-model kind-class with no
+        // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gates this
+        // test checks (DeletionReplacementGate.FragmentCostOf / HasReplacementKeyword -> ContinuousKeywordGate)
+        // read only the substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there is no
+        // buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
+        // until stage B lands — tracked, not silently weakened.
+        CardEffectFactory.FragmentSelfEffect(
+            false, new CardSource(ctx, id, P1), null, trashValue: 3, effectName: "fragment-test", effectDiscription: "fragment-test");
 
         var record = Rec(ctx, id);
         AssertTrue(DeletionReplacementGate.FragmentCostOf(record, ctx.EffectRegistry) == 3, "the grant's trashValue is the cost");

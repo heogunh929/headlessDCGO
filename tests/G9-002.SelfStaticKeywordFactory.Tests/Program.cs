@@ -27,7 +27,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("AllianceSelfEffect -> gate sees Alliance live (Batch2)", () => SelfStaticGoesLive(
         (card) => CardEffectFactory.AllianceSelfEffect(false, card, null), ContinuousKeywordGate.Alliance)),
     ("OverclockSelfEffect -> gate sees Overclock live (Batch2)", () => SelfStaticGoesLive(
-        (card) => CardEffectFactory.OverclockSelfEffect(false, card, null), ContinuousKeywordGate.Overclock)),
+        (card) => CardEffectFactory.OverclockSelfEffect("", false, card, null), ContinuousKeywordGate.Overclock)),
     ("VortexSelfEffect -> gate sees Vortex live (Batch2)", () => SelfStaticGoesLive(
         (card) => CardEffectFactory.VortexSelfEffect(false, card, null), ContinuousKeywordGate.Vortex)),
     ("VortexSelfEffect opens the live end-of-turn attack window (real card path)", VortexSelfEffectOpensWindow),
@@ -55,7 +55,14 @@ async Task SelfStaticGoesLive(Func<CardSource, ICardEffect> build, string keywor
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} not present before the factory registers it");
 
     var source = new CardSource(context, id, P1);
-    context.EffectRegistry.Register(build(source).ToBinding($"effect:{keyword}:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): the SelfEffect factories under test (RebootSelfStaticEffect /
+    // AllianceSelfEffect / OverclockSelfEffect / VortexSelfEffect) all return new-model kind-classes
+    // (RebootClass / ActivateClass) with no ToBinding/EffectRegistry bridge (stage-B RED, see
+    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the substrate
+    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant observable
+    // yet. The factory call is kept (still exercises construction); Register/ToBinding is dropped.
+    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    build(source);
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} is live after the SelfEffect factory registers it");
 }
@@ -67,7 +74,13 @@ async Task VortexSelfEffectOpensWindow()
     await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
 
     var source = new CardSource(context, vortex, P1);
-    context.EffectRegistry.Register(CardEffectFactory.VortexSelfEffect(false, source, null).ToBinding($"effect:Vortex:{vortex.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): VortexSelfEffect returns ActivateClass, a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this
+    // test checks (EndOfTurnEffectAttack.TryOpen -> ContinuousKeywordGate.HasKeyword) reads only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
+    // not silently weakened.
+    CardEffectFactory.VortexSelfEffect(false, source, null);
 
     AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opens for a card granted Vortex via VortexSelfEffect");
     AssertEqual(ChoiceType.EffectAttack, context.ChoiceController.PendingRequest!.Type, "an effect-attack choice is pending");
@@ -80,7 +93,13 @@ async Task ScopedToOwnCard()
     var bystander = await PlaceDigimon(context, P1, "BYST", dp: 4000, suspended: false);
 
     var source = new CardSource(context, alliance, P1);
-    context.EffectRegistry.Register(CardEffectFactory.AllianceSelfEffect(false, source, null).ToBinding($"effect:Alliance:{alliance.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AllianceSelfEffect returns a new-model kind-class (ActivateClass, via
+    // the ICardEffect declared return type) with no ToBinding/EffectRegistry bridge (stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the substrate
+    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant observable
+    // yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
+    // weakened.
+    CardEffectFactory.AllianceSelfEffect(false, source, null);
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, alliance, ContinuousKeywordGate.Alliance), "the granting card HAS Alliance");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, bystander, ContinuousKeywordGate.Alliance), "a bystander does NOT get Alliance");

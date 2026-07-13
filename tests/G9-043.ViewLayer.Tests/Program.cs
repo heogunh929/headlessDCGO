@@ -52,7 +52,12 @@ async Task PermanentViews()
     AssertTrue(perm.TopCard.EqualsCardName("MetalGreymon"), "TopCard reuses CardSource");
     AssertTrue(perm.DP == 5000, "base DP");
     // continuous +2000 DP → effective DP folds it
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeSelfDPStaticEffect(2000, false, new CardSource(ctx, top, P1), null).ToBinding($"dp:{top.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeDPClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). Permanent.DP reads only the substrate
+    // EffectRegistry (ContinuousDpGate), not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.ChangeSelfDPStaticEffect(2000, false, new CardSource(ctx, top, P1), null);
     AssertTrue(perm.DP == 7000, "DP folds continuous modifier (5000+2000)");
     AssertTrue(perm.HasNoDigivolutionCards, "no sources");
 }

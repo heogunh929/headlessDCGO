@@ -3,10 +3,9 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
-using FactoryBlocker = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Blocker;
-using FactoryJamming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Jamming;
-using FactoryPierce = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Pierce;
-using FactoryReboot = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.Reboot;
+// (post-rebuild) the old mirror-invented per-keyword `static class Blocker/Jamming/Pierce/Reboot { .Create }`
+// helpers under CardEffectFactory.KeyWordEffects are gone — the unified KeywordBaseBatch1Factory.Create(kind, ...)
+// (CardEffectCommons/KeyWordEffects/KeywordBaseBatch1.cs) is the current single entry point for all four kinds.
 
 var root = FindRepositoryRoot();
 HeadlessPlayerId PlayerOne = new(1);
@@ -95,10 +94,10 @@ Task AsIsKeywordBatch1ReferencesAreRecorded()
 
 Task FactoryCreatesFourKeywordEffects()
 {
-    KeywordBaseBatch1Effect blocker = FactoryBlocker.Create(KeywordSource);
-    KeywordBaseBatch1Effect jamming = FactoryJamming.Create(KeywordSource);
-    KeywordBaseBatch1Effect reboot = FactoryReboot.Create(KeywordSource);
-    KeywordBaseBatch1Effect piercing = FactoryPierce.Create(KeywordSource, isInherited: true, isLinked: true);
+    KeywordBaseBatch1Effect blocker = KeywordBaseBatch1Factory.Create(KeywordBaseBatch1Kind.Blocker, KeywordSource);
+    KeywordBaseBatch1Effect jamming = KeywordBaseBatch1Factory.Create(KeywordBaseBatch1Kind.Jamming, KeywordSource);
+    KeywordBaseBatch1Effect reboot = KeywordBaseBatch1Factory.Create(KeywordBaseBatch1Kind.Reboot, KeywordSource);
+    KeywordBaseBatch1Effect piercing = KeywordBaseBatch1Factory.Create(KeywordBaseBatch1Kind.Piercing, KeywordSource, isInherited: true, isLinked: true);
 
     AssertEqual(KeywordBaseBatch1Kind.Blocker, blocker.Kind, "blocker kind");
     AssertEqual("Blocker", blocker.Definition.Name, "blocker name");

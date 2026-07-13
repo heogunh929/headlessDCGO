@@ -72,7 +72,10 @@ void GrantWhenAttacking(EngineContext ctx)
         description: "[When Attacking] Gain 2 memory.",
         triggerGate: rc => rc.EffectContext.TriggerEntityId is HeadlessEntityId subj && subj == A1,
         isOptional: false);
-    ICardEffect grant = CardEffectFactory.GrantTriggeredEffectToScopedSet(grantCard, P1, nested);
+    // GrantTriggeredEffectToScopedSet's declared return type is the ICardEffect interface (ToBinding is not
+    // part of it); the concrete instance it always constructs is PlayerScopeTriggerGrantEffect, which does
+    // carry ToBinding — cast to it (value/behavior unchanged).
+    var grant = (PlayerScopeTriggerGrantEffect)CardEffectFactory.GrantTriggeredEffectToScopedSet(grantCard, P1, nested);
     ctx.EffectRegistry.Register(grant.ToBinding($"{GrantSrc.Value}:whenAttackGrant"));
 }
 

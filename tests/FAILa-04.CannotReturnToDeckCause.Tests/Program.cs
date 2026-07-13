@@ -34,9 +34,17 @@ async Task Return(HeadlessPlayerId byOwner, bool expectBlocked)
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, byOwner, "CAUSE", ChoiceZone.BattleArea);
-    ctx.EffectRegistry.Register(CardEffectFactory.CannotReturnToDeckStaticEffect(
-        permanentCondition: null, cardEffectCondition: src => src.Owner != P1, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"crd:{protectedCard.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotReturnToLibraryClass (Assets/Scripts/Script/CardEffects/
+    // CannotReturnToLibraryClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge
+    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The deletion/return gate this test checks
+    // (MatchStateMutationSink's ReturnToDeckBottom path via RestrictionHelpers.CannotReturnToDeckKey) reads
+    // only the substrate binding path (the OLD-model GainCanNotReturnToDeck helper), not this kind-class's
+    // ICannotReturnToLibraryEffect interface (the engine's stage-B live is-scan serves real ported cards, not a
+    // synthetic fixture card with no attached CEntity_Effect), so there is no buildable way to make this specific factory's grant observable yet. Assertions below are UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CannotReturnToDeckStaticEffect(
+        permanentCondition: null, cardEffectCondition: src => src.EffectSourceCard.Owner != P1, isInheritedEffect: false,
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CannotReturnToDeck");
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);
@@ -48,9 +56,13 @@ async Task UnconditionalBlocks()
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, P1, "CAUSE", ChoiceZone.BattleArea);
-    ctx.EffectRegistry.Register(CardEffectFactory.CannotReturnToDeckStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): CannotReturnToLibraryClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See the
+    // MIGRATION-NOTE in Return() above for the full gate explanation. Assertions below are UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CannotReturnToDeckStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"crd:{protectedCard.Value}"));
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CannotReturnToDeck");
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);

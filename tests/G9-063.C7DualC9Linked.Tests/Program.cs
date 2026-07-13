@@ -72,8 +72,14 @@ async Task LinkedEffectGate()
     var link = await OffField(ctx, P1, "LINK");
 
     // The LINK card carries "Collision" flagged isLinkedEffect — AS-IS it applies only while linked.
-    ctx.EffectRegistry.Register(CardEffectFactory.CollisionSelfStaticEffect(
-        false, new CardSource(ctx, link, P1), null, isLinkedEffect: true).ToBinding($"col:{link.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CollisionSelfStaticEffect returns CollisionClass
+    // (Script/CardEffects/CollisionClass.cs), a new-model kind-class with no ToBinding/EffectRegistry bridge
+    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousKeywordGate.HasKeyword) reads only the substrate EffectRegistry, not the AS-IS live
+    // CardSource.EffectList scan, so there is no buildable way to make this grant observable yet. Assertions
+    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CollisionSelfStaticEffect(
+        false, new CardSource(ctx, link, P1), null, isLinkedEffect: true);
 
     AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, link, ContinuousKeywordGate.Collision),
         "not linked -> the linked effect is inactive");

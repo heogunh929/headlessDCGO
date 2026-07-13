@@ -86,7 +86,10 @@ void RegisterCostModifier(EngineContext context, string deltaKey, int delta)
 void GrantCannotReduceCost(EngineContext context)
 {
     var card = new CardSource(context, Card, P1, P1);
-    ICardEffect effect = CardEffectFactory.CanNotReduceCostStaticEffect(permanentCondition: null, isInheritedEffect: false, card, condition: null);
+    // CanNotReduceCostStaticEffect's declared return type is the ICardEffect interface (ToBinding is not
+    // part of it); with permanentCondition:null it always constructs ContinuousSelfRestrictionEffect, which
+    // does carry ToBinding — cast to it (value/behavior unchanged).
+    var effect = (ContinuousSelfRestrictionEffect)CardEffectFactory.CanNotReduceCostStaticEffect(permanentCondition: null, isInheritedEffect: false, card, condition: null);
     context.EffectRegistry.Register(effect.ToBinding($"{Card.Value}:cannotReduceCost"));
 }
 

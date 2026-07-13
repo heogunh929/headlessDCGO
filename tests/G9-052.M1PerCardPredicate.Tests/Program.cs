@@ -38,8 +38,13 @@ async Task EnemySecurity()
     var ownSec = await Place(ctx, P1, "OWNSEC", ChoiceZone.Security);
     var enemySec = await Place(ctx, P2, "ENEMYSEC", ChoiceZone.Security);
     // "Your opponent's Security Digimon get -2000 DP" — predicate selects the enemy (source owner is P1).
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
-        cs => cs.Owner == P2, -2000, false, new CardSource(ctx, src, P1), null).ToBinding($"sd:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeCardDPClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousDpGate.ResolveDp) reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
+    // no buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
+        cs => cs.Owner == P2, -2000, false, new CardSource(ctx, src, P1), null, $"sd:{src.Value}");
 
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemySec, 5000) == 3000, "enemy Security -2000");
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, ownSec, 5000) == 5000, "own Security unchanged (right player)");
@@ -51,8 +56,13 @@ async Task OwnSecurity()
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var ownSec = await Place(ctx, P1, "OWNSEC", ChoiceZone.Security);
     var enemySec = await Place(ctx, P2, "ENEMYSEC", ChoiceZone.Security);
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
-        cs => cs.Owner == P1, 2000, false, new CardSource(ctx, src, P1), null).ToBinding($"sd:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeCardDPClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousDpGate.ResolveDp) reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
+    // no buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
+        cs => cs.Owner == P1, 2000, false, new CardSource(ctx, src, P1), null, $"sd:{src.Value}");
 
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, ownSec, 5000) == 7000, "own Security +2000");
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemySec, 5000) == 5000, "enemy Security unchanged");
@@ -63,8 +73,13 @@ async Task ZoneScope()
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var enemyBattle = await Place(ctx, P2, "ENEMYBATTLE", ChoiceZone.BattleArea);
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
-        cs => cs.Owner == P2, -2000, false, new CardSource(ctx, src, P1), null).ToBinding($"sd:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeCardDPClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousDpGate.ResolveDp) reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
+    // no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
+        cs => cs.Owner == P2, -2000, false, new CardSource(ctx, src, P1), null, $"sd:{src.Value}");
 
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemyBattle, 5000) == 5000, "enemy BATTLE-area Digimon unaffected (Security-zone scope)");
 }
@@ -81,7 +96,12 @@ async Task UseReq()
             await PlaceLevel(ctx, P1, "MATCH", ChoiceZone.BattleArea, level: 5);
         }
 
-        ctx.EffectRegistry.Register(CardEffectFactory.UseRequirements(new CardSource(ctx, src, P1), cs => cs.Level == 5).ToBinding($"ur:{src.Value}"));
+        // MIGRATION-NOTE (P7 test-fix): IgnoreColorConditionClass is a new-model kind-class with no
+        // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The
+        // ContinuousScopeEvaluation query below reads only the substrate EffectRegistry, not the AS-IS live
+        // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED
+        // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+        CardEffectFactory.UseRequirements(new CardSource(ctx, src, P1), cs => cs.Level == 5);
 
         bool active = ContinuousScopeEvaluation
             .ApplicableEffects(ctx, ContinuousRestrictionGate.Scope, src)
@@ -98,7 +118,12 @@ async Task BaseDpGlobal()
     var enemyLv5 = await PlaceLevel(ctx, P2, "ENE5", ChoiceZone.BattleArea, level: 5);
     var enemyLv4 = await PlaceLevel(ctx, P2, "ENE4", ChoiceZone.BattleArea, level: 4);
     // "All Level-5 Digimon get +1000 base DP" — global (both players), predicate = Level==5.
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeBaseDPGlobalEffect(p => p.Level == 5, 1000, false, new CardSource(ctx, src, P1), null).ToBinding($"bdp:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeBaseDPClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousDpGate.ResolveDp) reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
+    // no buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeBaseDPGlobalEffect(p => p.Level == 5, 1000, false, new CardSource(ctx, src, P1), null);
 
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, ownLv5, 5000) == 6000, "own Lv5 +1000 base DP");
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemyLv5, 5000) == 6000, "ENEMY Lv5 +1000 too (global, not owner-only)");
@@ -112,9 +137,15 @@ async Task AddSelfCardCond()
     var match = await PlaceNamed(ctx, P1, "MATCH", "UlforceVeedramon", ChoiceZone.Hand);
     var nonMatch = await PlaceNamed(ctx, P1, "OTHER", "Agumon", ChoiceZone.Hand);
     // "Your UlforceVeedramon cards can digivolve from <permanentCondition>" — cardCondition targets other cards.
-    ctx.EffectRegistry.Register(CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // MIGRATION-NOTE (P7 test-fix): AddDigivolutionRequirementClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). HasAddedReq
+    // (ContinuousScopeEvaluation.ApplicableEffects over ContinuousRestrictionGate.Scope) reads only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: _ => true, digivolutionCost: 0, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, src, P1), condition: null, cardCondition: cs => cs.EqualsCardName("UlforceVeedramon")).ToBinding($"asd:{src.Value}"));
+        card: new CardSource(ctx, src, P1), condition: null, cardCondition: cs => cs.EqualsCardName("UlforceVeedramon"));
 
     AssertTrue(HasAddedReq(ctx, match), "added requirement reaches the matching (UlforceVeedramon) card");
     AssertTrue(!HasAddedReq(ctx, nonMatch), "added requirement does NOT reach a non-matching card (cardCondition honored)");

@@ -51,7 +51,11 @@ async Task PlayActivatesEffects()
 {
     EngineContext context = await PlayST7_10();
     AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Battle(), baseSecurityAttack: 1), "SA +1 active after play");
-    AssertTrue(context.EffectRegistry.GetKeywordEffects("Piercing").Count >= 1, "Piercing registered after play");
+    // (P6 STAGE B) The flip retires keyword EffectBindings (a ported <Pierce> is a new-model ActivateClass that
+    // registers NO binding — stage A stopped registering activated effects). The flip-correct query for keyword
+    // presence is the interface scan ContinuousKeywordGate.HasKeyword (new-model HasPierce), which verifies the
+    // SAME behaviour the old GetKeywordEffects("Piercing") binding-count check did.
+    AssertTrue(ContinuousKeywordGate.HasKeyword(context, Battle(), "Piercing"), "Piercing active after play");
 }
 
 async Task DeleteRemovesEffects()
@@ -67,7 +71,8 @@ async Task DeleteRemovesEffects()
     await sink.FlushAsync();
 
     AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, onField, baseSecurityAttack: 1), "SA buff gone after delete");
-    AssertTrue(context.EffectRegistry.GetKeywordEffects("Piercing").Count == 0, "Piercing removed after delete");
+    // (P6 STAGE B) new-model interface-scan equivalent of the old GetKeywordEffects binding-count==0 check.
+    AssertTrue(!ContinuousKeywordGate.HasKeyword(context, onField, "Piercing"), "Piercing gone after delete");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -80,6 +85,11 @@ async Task<EngineContext> PlayST7_10()
     EngineContext context = EngineContext.CreateDefault(randomSeed: 601);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("ST7_10"), "ST7_10", "MetalGreymon", new Dictionary<string, object?>(), CardType: "Digimon", PlayCost: 3));
+    // (P6 STAGE B) a live game (past Setup) so AS-IS CanUse/CanTrigger's DoneStartGame gate lets the ported
+    // continuous effects apply — the new-model interface scan honours that precondition, as every other
+    // continuous member in the suite does; the old binding gate ignored it. A real board play IS in Main.
+    context.TurnController.Initialize(new[] { P1, new HeadlessPlayerId(2) }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(Card, new HeadlessEntityId("ST7_10"), P1));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, Card, ChoiceZone.None, ChoiceZone.Hand));
     context.MemoryController.Set(5);

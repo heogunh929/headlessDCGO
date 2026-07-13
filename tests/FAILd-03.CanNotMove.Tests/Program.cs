@@ -42,8 +42,16 @@ bool MoveOffered(bool restrict)
     if (restrict)
     {
         // AS-IS joint predicate CanNotMove(candidate, causing): the breeding Digimon B cannot move (causing is null).
-        ctx.EffectRegistry.Register(CardEffectFactory.CanNotMoveStaticEffect(
-            (candidate, _) => candidate.InstanceId == b, new CardSource(ctx, b, P1), condition: null).ToBinding($"cnm:{b.Value}"));
+        // CanNotMoveStaticEffect is declared to return the abstract ICardEffect base (its concrete result is the
+        // OLD-model CanNotMoveEffect, which DOES implement ToBinding — just not through the ICardEffect static
+        // type), so ToBinding is reached via the LegacyBindingBridge reflective dispatch rather than a direct call.
+        ICardEffect cannotMove = CardEffectFactory.CanNotMoveStaticEffect(
+            (candidate, _) => candidate.InstanceId == b, new CardSource(ctx, b, P1), condition: null);
+        if (!LegacyBindingBridge.TryToBinding(cannotMove, $"cnm:{b.Value}", out HeadlessDCGO.Engine.Headless.Effects.EffectBinding? cannotMoveBinding) || cannotMoveBinding is null)
+        {
+            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotMoveStaticEffect");
+        }
+        ctx.EffectRegistry.Register(cannotMoveBinding);
     }
 
     var dispatcher = new HeadlessLegalActionDispatcher();

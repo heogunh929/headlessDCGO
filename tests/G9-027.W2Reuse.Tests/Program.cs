@@ -44,7 +44,13 @@ async Task ArmorPurgeGrants()
     EngineContext context = Context();
     var id = await PlaceDigimon(context, P1, "AP");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.ArmorPurge), "Armor Purge absent before grant");
-    context.EffectRegistry.Register(CardEffectFactory.ArmorPurgeEffect(new CardSource(context, id, P1)).ToBinding($"ap:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ArmorPurgeEffect returns ActivateClass, a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // ContinuousKeywordGate.HasKeyword reads only the substrate EffectRegistry, not the AS-IS live scan, so
+    // there is no buildable way to make this grant observable yet. The factory call is kept (still
+    // exercises construction); Register/ToBinding is dropped. Assertion below is UNCHANGED and EXPECTED TO
+    // FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ArmorPurgeEffect(new CardSource(context, id, P1));
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.ArmorPurge), "Armor Purge live after grant");
 }
 
@@ -55,8 +61,15 @@ async Task CanNotAttackRestricts()
     var defender = await PlaceDigimon(context, P2, "DEF");
 
     AssertTrue(!ContinuousRestrictionGate.EvaluateAttack(context, attacker, defender).IsRestricted, "not restricted before grant");
-    context.EffectRegistry.Register(
-        CardEffectFactory.CanNotAttackSelfStaticEffect(null, false, new CardSource(context, attacker, P1), null).ToBinding($"cna:{attacker.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotAttackSelfStaticEffect returns CanNotAttackTargetDefendingPermanentClass,
+    // a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousRestrictionGate.EvaluateAttack (RestrictionScan)
+    // reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to
+    // make this restriction observable yet. The factory call is kept (still exercises construction, with
+    // the now-required `effectName` argument added); Register/ToBinding is dropped. Assertion below is
+    // UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotAttackSelfStaticEffect(null, false, new CardSource(context, attacker, P1), null,
+        effectName: "CanNotAttack");
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(context, attacker, defender).IsRestricted, "attack restricted after CanNotAttackSelf");
 }
 

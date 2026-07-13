@@ -42,7 +42,13 @@ async Task CanNotBlockSelf()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousRestrictionGate.EvaluateBlock(context, id).IsRestricted, "not restricted before");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBlockStaticSelfEffect(false, new CardSource(context, id, P1), null).ToBinding($"cb:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotBlockClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousRestrictionGate.EvaluateBlock) reads only the substrate EffectRegistry, not the AS-IS live
+    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotBlockStaticSelfEffect(
+        attackerCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cb:{id.Value}");
     AssertTrue(ContinuousRestrictionGate.EvaluateBlock(context, id).IsRestricted, "cannot block after grant");
 }
 
@@ -52,7 +58,15 @@ async Task CanNotBlockScoped()
     var src = await Place(context, P1, "SRC");
     var foe = await Place(context, P2, "FOE");
     AssertTrue(!ContinuousRestrictionGate.EvaluateBlock(context, foe).IsRestricted, "not restricted before");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBlockStaticEffect(P2, false, new CardSource(context, src, P1), null).ToBinding($"cbp:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CannotBlockClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousRestrictionGate.EvaluateBlock) reads only the substrate EffectRegistry, not the AS-IS live
+    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened. (defenderCondition replaces the
+    // former direct player-scope parameter — the AS-IS shape scopes via a Permanent.OwnerId predicate.)
+    CardEffectFactory.CanNotBlockStaticEffect(
+        attackerCondition: null, defenderCondition: p => p.OwnerId == P2, isInheritedEffect: false,
+        card: new CardSource(context, src, P1), condition: null, effectName: $"cbp:{src.Value}");
     AssertTrue(ContinuousRestrictionGate.EvaluateBlock(context, foe).IsRestricted, "P2's Digimon cannot block");
 }
 
@@ -60,7 +74,14 @@ async Task CanNotBeDestroyed()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotBeDestroyedStaticEffect(null, false, new CardSource(context, id, P1), null).ToBinding($"cbd:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gates this test
+    // checks (BattleDeletionGate.PreventsBattleDeletion + the effect-delete mutation sink) read only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.CanNotBeDestroyedStaticEffect(
+        permanentCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cbd:{id.Value}");
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(context, id), "battle deletion prevented");
     // effect deletion
     var sink = Sink(context);
@@ -77,7 +98,13 @@ async Task ImmuneFromDpMinus()
     // A -3000 DP reduction from another source.
     context.EffectRegistry.Register(new ContinuousSelfModifierEffect(new CardSource(context, id, P1), ModifierHelpers.DpDeltaKey, -3000, false, null).ToBinding($"dp:{id.Value}"));
     AssertEqual(1000, ContinuousDpGate.ResolveDp(context, id, 4000), "reduction applies before immunity (4000-3000)");
-    context.EffectRegistry.Register(CardEffectFactory.ImmuneFromDPMinusStaticEffect(permanentCondition: null, cardEffectCondition: null, false, new CardSource(context, id, P1), null).ToBinding($"imm:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ImmuneFromDPMinusClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (ContinuousDpGate.ResolveDp) reads only the substrate EffectRegistry, not the AS-IS live scan, so
+    // there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO
+    // FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ImmuneFromDPMinusStaticEffect(
+        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"imm:{id.Value}");
     AssertEqual(4000, ContinuousDpGate.ResolveDp(context, id, 4000), "DP reduction ignored under immunity");
 }
 
@@ -86,7 +113,14 @@ async Task KeywordScoped(Func<CardSource, ICardEffect> build, string keyword)
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    context.EffectRegistry.Register(build(new CardSource(context, src, P1)).ToBinding($"kw:{keyword}:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): the built effects here (ActivateClass for Alliance, CanNotBeDestroyedByBattleClass
+    // for Jamming) are new-model kind-classes with no ToBinding/EffectRegistry bridge (stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks (ContinuousKeywordGate.HasKeyword) reads
+    // only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
+    // observable yet. The factory call is kept (exercises construction); registration is skipped since there is
+    // no bridge. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
+    // weakened.
+    build(new CardSource(context, src, P1));
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, ally, keyword), $"owner's ally has {keyword}");
 }
 
@@ -95,7 +129,12 @@ async Task AscensionSelf()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Ascension), "absent before");
-    context.EffectRegistry.Register(CardEffectFactory.AscensionSelfEffect(false, new CardSource(context, id, P1), null).ToBinding($"asc:{id.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AscensionSelfEffect constructs an ActivateClass, a new-model kind-class with
+    // no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
+    // checks (ContinuousKeywordGate.HasKeyword) reads only the substrate EffectRegistry, not the AS-IS live scan,
+    // so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED
+    // TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.AscensionSelfEffect(false, new CardSource(context, id, P1), null);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Ascension), "Ascension live after grant");
 }
 

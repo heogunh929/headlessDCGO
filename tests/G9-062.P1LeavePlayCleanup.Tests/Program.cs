@@ -39,8 +39,14 @@ async Task BattleDeletionDropsBindings()
     (DcgoMatch match, EngineContext ctx) = await BattleSetup(attackerDp: 5000, targetDp: 3000);
 
     // The doomed defender grants "+1000 DP to the owner's Digimon" (player-scope) — alive it buffs the ally.
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeDPStaticEffect(
-        null, 1000, false, new CardSource(ctx, TargetId, P2), null).ToBinding($"buff:{TargetId.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeDPStaticEffect returns ChangeDPClass (Script/CardEffects/ChangeDPClass.cs),
+    // a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // The gate this test checks (ContinuousDpGate.ResolveDp, via ContinuousScopeEvaluation over the substrate
+    // EffectRegistry) reads only registered EffectRequest bindings, not the AS-IS live CardSource.EffectList scan,
+    // so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeDPStaticEffect(
+        null, 1000, false, new CardSource(ctx, TargetId, P2), null, effectName: null);
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 4000, "precondition: the buff applies while alive");
 
     await DriveAttackAsync(match);
@@ -55,8 +61,13 @@ async Task BattleDeletionSnapshotsKeywords()
     (DcgoMatch match, EngineContext ctx) = await BattleSetup(attackerDp: 5000, targetDp: 3000);
 
     // Keyword-granted Ascension (no metadata flag) — must survive the binding drop via the snapshot.
-    ctx.EffectRegistry.Register(CardEffectFactory.AscensionSelfEffect(
-        false, new CardSource(ctx, TargetId, P2), null).ToBinding($"asc:{TargetId.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): AscensionSelfEffect returns an ActivateClass (Script/CardEffects/ActivateClass.cs),
+    // a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // The gate this test checks (ContinuousKeywordGate.HasKeyword / DeletionReplacementGate.HasAscensionKey
+    // snapshot) reads only the substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there
+    // is no buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
+    // until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.AscensionSelfEffect(false, new CardSource(ctx, TargetId, P2), null);
 
     await DriveAttackAsync(match);
 
@@ -73,8 +84,12 @@ async Task SweepFinishDropsBindings()
     EngineContext ctx = Ctx();
     var holder = await Place(ctx, P1, "HOLDER", dp: 3000);
     var ally = await Place(ctx, P1, "ALLY", dp: 3000);
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeDPStaticEffect(
-        null, 1000, false, new CardSource(ctx, holder, P1), null).ToBinding($"buff:{holder.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeDPStaticEffect is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See BattleDeletionDropsBindings() above for the
+    // full rationale. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
+    // silently weakened.
+    CardEffectFactory.ChangeDPStaticEffect(
+        null, 1000, false, new CardSource(ctx, holder, P1), null, effectName: null);
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, ally, 3000) == 4000, "precondition: buff applies");
 
     // Deferred deletion (pendingDeletion + declined) -> the sweep finishes it.

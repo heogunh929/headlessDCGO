@@ -3,13 +3,14 @@
 // as level 6 when the digivolving card is Examon". Verified via CardSource.JogressLevelsAgainst.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 HeadlessPlayerId P1 = new(1);
 
-var tests = new (string Name, Action Body)[]
+var tests = new (string Name, Func<Task> Body)[]
 {
     ("printed level only when no AddJogressLevels effect is active", PrintedOnly),
     ("gains the extra level when the digivolving card matches (Examon)", GainsWhenMatch),
@@ -19,37 +20,40 @@ var tests = new (string Name, Action Body)[]
 var failures = new List<string>();
 foreach (var t in tests)
 {
-    try { t.Body(); Console.WriteLine($"PASS {t.Name}"); }
+    try { await t.Body(); Console.WriteLine($"PASS {t.Name}"); }
     catch (Exception ex) { failures.Add(t.Name); Console.Error.WriteLine($"FAIL {t.Name}\n{ex.GetType().Name}: {ex.Message}"); }
 }
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
-void PrintedOnly()
+async Task PrintedOnly()
 {
     EngineContext ctx = Ctx();
     var mat = Card(ctx, "MAT", level: 4);
     var examon = Card(ctx, "Examon", level: 7);
+    await PlaceOnField(ctx, mat);
     var levels = new CardSource(ctx, mat, P1).JogressLevelsAgainst(new CardSource(ctx, examon, P1));
     AssertSeq(new[] { 4 }, levels, "printed level 4 only (no effect registered)");
 }
 
-void GainsWhenMatch()
+async Task GainsWhenMatch()
 {
     EngineContext ctx = Ctx();
     var mat = Card(ctx, "MAT", level: 4);
     var examon = Card(ctx, "Examon", level: 7);
-    RegisterJogressLevels(ctx, mat, jc => jc.CardNames.Contains("Examon") ? new[] { 6 } : Array.Empty<int>());
+    await PlaceOnField(ctx, mat);
+    RegisterJogressLevels(ctx, mat, (jc, _) => jc.CardNames.Contains("Examon") ? new List<int> { 6 } : new List<int>());
     var levels = new CardSource(ctx, mat, P1).JogressLevelsAgainst(new CardSource(ctx, examon, P1));
     AssertSeq(new[] { 4, 6 }, levels, "printed 4 + treated-as 6 for Examon");
 }
 
-void NoGainWhenNoMatch()
+async Task NoGainWhenNoMatch()
 {
     EngineContext ctx = Ctx();
     var mat = Card(ctx, "MAT", level: 4);
     var other = Card(ctx, "Other", level: 7);
-    RegisterJogressLevels(ctx, mat, jc => jc.CardNames.Contains("Examon") ? new[] { 6 } : Array.Empty<int>());
+    await PlaceOnField(ctx, mat);
+    RegisterJogressLevels(ctx, mat, (jc, _) => jc.CardNames.Contains("Examon") ? new List<int> { 6 } : new List<int>());
     var levels = new CardSource(ctx, mat, P1).JogressLevelsAgainst(new CardSource(ctx, other, P1));
     AssertSeq(new[] { 4 }, levels, "printed 4 only (digivolving card is not Examon)");
 }
@@ -65,13 +69,37 @@ HeadlessEntityId Card(EngineContext ctx, string cardNumber, int level)
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF:{cardNumber}"), P1, Metadata: new Dictionary<string, object?>()));
     return id;
 }
-void RegisterJogressLevels(EngineContext ctx, HeadlessEntityId matId, Func<CardSource, IReadOnlyList<int>> getLevels)
+
+// AS-IS CardSource.JogressLevelsAgainst (Permanent.cs:3554-3605, mirror CardSource.cs:512-545) scans every
+// FIELD permanent's (battle + breeding area) live EffectList(EffectTiming.None) for an IAddJogressLevelsEffect
+// (Player.GetFieldPermanents) — the material card must actually be on the field for the scan to see its
+// granted effect.
+async Task PlaceOnField(EngineContext ctx, HeadlessEntityId id) =>
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea));
+
+// Live-scan Jogress-levels declaration (the AddJogressLevelsClass new-model kind-class continuous surface).
+// AS-IS CardSource.JogressLevelsAgainst scans live EffectList(EffectTiming.None) — there is no EffectRegistry
+// fallback (same "flip's live enumeration replaces the retired registry-key fold" shift as CardSource
+// .LinkConditionOf). So the fixture attaches the AddJogressLevelsClass via the card's
+// cEntity_EffectController.cEntity_Effect probe instead of registering an EffectBinding the live scan never
+// reads.
+void RegisterJogressLevels(EngineContext ctx, HeadlessEntityId matId, Func<CardSource, Permanent, List<int>> getLevels)
 {
-    var effect = CardEffectFactory.AddJogressLevelsEffect(new CardSource(ctx, matId, P1), getLevels);
-    ctx.EffectRegistry.Register(effect.ToBinding($"{matId.Value}:jogresslevels"));
+    var card = new CardSource(ctx, matId, P1);
+    var effect = CardEffectFactory.AddJogressLevelsEffect(card, getLevels);
+    card.cEntity_EffectController.cEntity_Effect = new JogressLevelsProbe(effect);
 }
+
 void AssertSeq(int[] expected, IReadOnlyList<int> actual, string label)
 {
     if (!expected.OrderBy(x => x).SequenceEqual(actual.OrderBy(x => x)))
         throw new InvalidOperationException($"{label}: expected [{string.Join(",", expected)}], actual [{string.Join(",", actual)}].");
+}
+
+sealed class JogressLevelsProbe : CEntity_Effect
+{
+    readonly ICardEffect _effect;
+    public JogressLevelsProbe(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) =>
+        timing == EffectTiming.None ? new List<ICardEffect> { _effect } : new List<ICardEffect>();
 }

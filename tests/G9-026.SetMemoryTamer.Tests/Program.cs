@@ -49,7 +49,16 @@ async Task Run(int turnPlayer, int memory, int expected)
 
     var sink = new MatchStateMutationSink(
         context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(effect.ToBinding("setmem").Request), sink);
+    // (P7 test-fix) CardEffectFactory.SetMemoryTo3TamerEffect is declared to return ICardEffect, which no
+    // longer carries ToBinding as a contract member post-rebuild (only concrete classes like
+    // TriggeredSetMemoryEffect still implement it, see TriggeredEffects.cs). Use the engine's own
+    // LegacyBindingBridge.TryToBinding (reflective dispatch to the concrete type's ToBinding) rather than
+    // casting to the internal concrete type by name.
+    if (!LegacyBindingBridge.TryToBinding(effect, "setmem", out EffectBinding? binding) || binding is null)
+    {
+        throw new InvalidOperationException("SetMemoryTo3TamerEffect effect could not be lowered via ToBinding.");
+    }
+    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
     await sink.FlushAsync();
 
     AssertEqual(expected, context.MemoryController.Current.Current,

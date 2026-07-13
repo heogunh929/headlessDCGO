@@ -37,8 +37,17 @@ async Task Place(bool isFaceUp, bool restrict, bool expectFaceUpEvent, bool expe
     if (restrict)
     {
         // P1 can't add to security.
-        ctx.EffectRegistry.Register(CardEffectFactory.CanNotAddSecurityStaticEffect(
-            P1, isInheritedEffect: false, new CardSource(ctx, card, P1), condition: null).ToBinding($"cnas:{card.Value}"));
+        // CanNotAddSecurityStaticEffect is declared to return the abstract ICardEffect base (its concrete
+        // result is the OLD-model ContinuousPlayerScopeRestrictionEffect, which DOES implement ToBinding —
+        // just not through the ICardEffect static type), so ToBinding is reached via the LegacyBindingBridge
+        // reflective dispatch rather than a direct call.
+        ICardEffect cannotAddSecurity = CardEffectFactory.CanNotAddSecurityStaticEffect(
+            P1, isInheritedEffect: false, new CardSource(ctx, card, P1), condition: null);
+        if (!LegacyBindingBridge.TryToBinding(cannotAddSecurity, $"cnas:{card.Value}", out EffectBinding? cannotAddSecurityBinding) || cannotAddSecurityBinding is null)
+        {
+            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotAddSecurityStaticEffect");
+        }
+        ctx.EffectRegistry.Register(cannotAddSecurityBinding);
     }
 
     await CardEffectCommons.PlacePermanentInSecurityAndProcessAccordingToResult(

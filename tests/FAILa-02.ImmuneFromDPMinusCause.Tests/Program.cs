@@ -39,9 +39,19 @@ async Task Run(HeadlessPlayerId reducerOwner, Func<CardSource, bool>? cardEffect
     var reducer = await Place(ctx, reducerOwner, "REDU", ChoiceZone.BattleArea);
 
     // "PROT is immune to <cardEffectCondition>'s DP-minus."
-    ctx.EffectRegistry.Register(CardEffectFactory.ImmuneFromDPMinusStaticEffect(
-        permanentCondition: null, cardEffectCondition: cardEffectCondition, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null).ToBinding($"imm:{protectedCard.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ImmuneFromDPMinusClass (Assets/Scripts/Script/CardEffects/
+    // ImmuneFromDPMinusClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B
+    // RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks (ContinuousDpGate.ResolveDp /
+    // CollectDpMinusImmunities) reads only the substrate ReplacementHelpers.ImmuneFromDpMinusKey +
+    // RestrictionHelpers.CausingEffectPredicateKey binding values (the OLD-model GainImmuneFromDPMinus path),
+    // not this kind-class's IImmuneFromDPMinusEffect interface (the engine's stage-B live is-scan serves real
+    // ported cards, not a synthetic fixture card), so there is no buildable way to make this specific factory's grant observable yet. Assertions
+    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ImmuneFromDPMinusStaticEffect(
+        permanentCondition: null,
+        cardEffectCondition: cardEffectCondition is null ? null : (ICardEffect ce) => cardEffectCondition(ce.EffectSourceCard),
+        isInheritedEffect: false,
+        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "ImmuneFromDPMinus");
 
     // A continuous "-3000 DP to PROT" sourced from `reducer` (any-player scope, so cross-player applies).
     ctx.EffectRegistry.Register(new PlayerScopeModifierEffect(

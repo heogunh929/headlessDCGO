@@ -73,7 +73,7 @@ async Task CountsBothPlayers()
     await PlaceDigimon(context, P2, "C", suspended: false);
     var card = new CardSource(context, new HeadlessEntityId("1:battle:A"), P1);
 
-    int count = CardEffectCommons.MatchConditionPermanentCount(card, _ => true);
+    int count = CardEffectCommons.MatchConditionPermanentCount(card, (HeadlessEntityId _) => true);
     AssertEqual(3, count, "counts all 3 battle-area cards across both players");
 }
 

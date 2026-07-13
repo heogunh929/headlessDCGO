@@ -40,7 +40,12 @@ async Task ChangeSAttack()
     var src = await Place(context, P1, "SRC", ChoiceZone.BattleArea);
     var ally = await Place(context, P1, "ALLY", ChoiceZone.BattleArea);
     int before = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 1);
-    context.EffectRegistry.Register(CardEffectFactory.ChangeSAttackStaticEffect(null, 2, false, new CardSource(context, src, P1), null).ToBinding($"sa:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): ChangeSAttackClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
+    // (ContinuousModifierGate.ResolveSecurityAttack) reads only the substrate EffectRegistry, not the AS-IS live
+    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.ChangeSAttackStaticEffect(null, 2, false, new CardSource(context, src, P1), null);
     int after = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 1);
     AssertEqual(before + 2, after, "SA +2 on owner's Digimon");
 }

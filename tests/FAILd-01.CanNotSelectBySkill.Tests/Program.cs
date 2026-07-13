@@ -57,8 +57,17 @@ IReadOnlyList<ChoiceCandidate> Candidates(RestrictKind restrict, int skillOwner 
         Func<CardSource, CardSource, bool> predicate = restrict == RestrictKind.GatedOpponentOnly
             ? (candidate, skill) => candidate.InstanceId == b && skill.Owner == P2
             : (candidate, skill) => candidate.InstanceId == b;
-        ctx.EffectRegistry.Register(CardEffectFactory.CanNotSelectBySkillStaticEffect(
-            predicate, new CardSource(ctx, protector, P1), condition: null).ToBinding("cnsbs"));
+        // CanNotSelectBySkillStaticEffect is declared to return the abstract ICardEffect base (its concrete
+        // result is the OLD-model CanNotSelectBySkillEffect, which DOES implement ToBinding — just not through
+        // the ICardEffect static type), so ToBinding is reached via the LegacyBindingBridge reflective dispatch
+        // rather than a direct call.
+        ICardEffect canNotSelectBySkill = CardEffectFactory.CanNotSelectBySkillStaticEffect(
+            predicate, new CardSource(ctx, protector, P1), condition: null);
+        if (!LegacyBindingBridge.TryToBinding(canNotSelectBySkill, "cnsbs", out HeadlessDCGO.Engine.Headless.Effects.EffectBinding? canNotSelectBinding) || canNotSelectBinding is null)
+        {
+            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotSelectBySkillStaticEffect");
+        }
+        ctx.EffectRegistry.Register(canNotSelectBinding);
     }
 
     // The selecting skill's source instance (owned by skillOwner).

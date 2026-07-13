@@ -35,7 +35,10 @@ async Task ChangeCardNames()
     var id = await Place(ctx, P1, "GREY", "Greymon");
     var cs = new CardSource(ctx, id, P1);
     AssertTrue(cs.EqualsCardName("Greymon") && !cs.EqualsCardName("Agumon"), "printed name only before");
-    ctx.EffectRegistry.Register(CardEffectFactory.ChangeCardNamesStaticEffect("Agumon", false, new CardSource(ctx, id, P1), null).ToBinding($"ccn:{id.Value}"));
+    var changeNamesEffect = CardEffectFactory.ChangeCardNamesStaticEffect("Agumon", false, new CardSource(ctx, id, P1), null);
+    if (!LegacyBindingBridge.TryToBinding(changeNamesEffect, $"ccn:{id.Value}", out var changeNamesBinding) || changeNamesBinding is null)
+        throw new InvalidOperationException($"{changeNamesEffect.GetType().Name} has no ToBinding bridge.");
+    ctx.EffectRegistry.Register(changeNamesBinding);
     AssertTrue(cs.EqualsCardName("Agumon") && cs.EqualsCardName("Greymon"), "added name folded into CardNames");
 }
 
@@ -47,7 +50,10 @@ async Task CanNotAffected()
     var id = await Place(ctx, P1, "SELF", "Digimon");
     var opp = await Place(ctx, P2, "OPP", "Digimon");
     var own = await Place(ctx, P1, "OWN", "Digimon");
-    ctx.EffectRegistry.Register(CardEffectFactory.CanNotAffectedStaticEffect(null, null, false, new CardSource(ctx, id, P1), null).ToBinding($"cna:{id.Value}"));
+    var canNotAffectedEffect = CardEffectFactory.CanNotAffectedStaticEffect(null, null, false, new CardSource(ctx, id, P1), null);
+    if (!LegacyBindingBridge.TryToBinding(canNotAffectedEffect, $"cna:{id.Value}", out var canNotAffectedBinding) || canNotAffectedBinding is null)
+        throw new InvalidOperationException($"{canNotAffectedEffect.GetType().Name} has no ToBinding bridge.");
+    ctx.EffectRegistry.Register(canNotAffectedBinding);
 
     AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, id, opp, ctx), "opponent effect blocked (immunity live)");
     AssertTrue(!ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, id, own, ctx), "own effect not blocked");

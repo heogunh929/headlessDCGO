@@ -36,7 +36,13 @@ async Task RushStatic()
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    context.EffectRegistry.Register(CardEffectFactory.RushStaticEffect(null, false, new CardSource(context, src, P1), null).ToBinding($"rush:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): RushStaticEffect returns RushClass, a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
+    // ContinuousKeywordGate.HasKeyword reads only the substrate EffectRegistry, not the AS-IS live scan, so
+    // there is no buildable way to make this player-scope grant observable yet. The factory call is kept
+    // (still exercises construction); Register/ToBinding is dropped. Assertion below is UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.RushStaticEffect(null, false, new CardSource(context, src, P1), null);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, ally, ContinuousKeywordGate.Rush), "owner's ally has Rush");
 }
 
@@ -45,7 +51,10 @@ async Task RebootStatic()
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    context.EffectRegistry.Register(CardEffectFactory.RebootStaticEffect(null, false, new CardSource(context, src, P1), null).ToBinding($"reboot:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): see RushStatic above — RebootClass has no ToBinding/EffectRegistry
+    // bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped. Assertion
+    // below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    CardEffectFactory.RebootStaticEffect(null, false, new CardSource(context, src, P1), null);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, ally, ContinuousKeywordGate.Reboot), "owner's ally has Reboot");
 }
 
@@ -57,7 +66,24 @@ async Task CanNotAttackStatic()
     var target = await Place(context, P1, "TGT");
 
     AssertTrue(!ContinuousRestrictionGate.EvaluateAttack(context, foe, target).IsRestricted, "not restricted before grant");
-    context.EffectRegistry.Register(CardEffectFactory.CanNotAttackStaticEffect(P2, false, new CardSource(context, src, P1), null).ToBinding($"cna:{src.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): the old (HeadlessPlayerId scope, isInheritedEffect, card, condition)
+    // short-form call no longer matches CanNotAttackStaticEffect's current signature
+    // (attackerCondition, defenderCondition, isInheritedEffect, card, condition, effectName) — the
+    // player-scope filter is now expressed as an attackerCondition predicate on Permanent.OwnerId (matching
+    // the same adaptation used in G9-023 for CanNotDigivolveStaticEffect). CanNotAttackTargetDefendingPermanentClass
+    // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED,
+    // docs/audit/rebuild_p6_stageA_notes.md); ContinuousRestrictionGate.EvaluateAttack reads only the
+    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
+    // restriction observable yet. The factory call is kept (still exercises construction); Register/
+    // ToBinding is dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands —
+    // tracked, not silently weakened.
+    CardEffectFactory.CanNotAttackStaticEffect(
+        attackerCondition: permanent => permanent.OwnerId == P2,
+        defenderCondition: null,
+        isInheritedEffect: false,
+        card: new CardSource(context, src, P1),
+        condition: null,
+        effectName: "CanNotAttack");
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(context, foe, target).IsRestricted, "P2's Digimon cannot attack (player-scope)");
 }
 

@@ -94,8 +94,23 @@ EngineContext Context()
 void RegisterOpponentCannotDigivolve(EngineContext context, HeadlessEntityId source, HeadlessPlayerId scope, Func<bool>? condition)
 {
     var sourceCard = new CardSource(context, source, P1);
-    context.EffectRegistry.Register(
-        CardEffectFactory.CanNotDigivolveStaticEffect(scope, scopeCardType: null, isInheritedEffect: false, sourceCard, condition).ToBinding($"cnd:scope:{scope.Value}"));
+    // MIGRATION-NOTE (P7 test-fix): the old scopeCardType-taking overload of CanNotDigivolveStaticEffect is
+    // gone; the current signature is (permanentCondition, cardCondition, isInheritedEffect, card, condition,
+    // effectName) — the player-scope filter is now expressed as a permanentCondition predicate on
+    // Permanent.OwnerId (scopeCardType was passed null at this call site anyway, i.e. no CardType filter).
+    // CanNotDigivolveStaticEffect returns CanNotDigivolveClass, a new-model kind-class with no ToBinding/
+    // EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). DigivolveAction's
+    // EvaluateDigivolve gate reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
+    // no buildable way to make this restriction observable yet. The factory call is kept (still exercises
+    // construction); Register/ToBinding is dropped. Assertions in the tests above are UNCHANGED and
+    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    CardEffectFactory.CanNotDigivolveStaticEffect(
+        permanentCondition: permanent => permanent.OwnerId == scope,
+        cardCondition: null,
+        isInheritedEffect: false,
+        card: sourceCard,
+        condition: condition,
+        effectName: "CanNotDigivolve");
 }
 
 async Task<HeadlessEntityId> PlaceSource(EngineContext context, HeadlessPlayerId owner)

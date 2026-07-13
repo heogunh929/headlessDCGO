@@ -170,7 +170,7 @@ static void AssertEqual<T>(T expected, T actual, string label)
 // effect. Activating the window option enqueues this, so its execution is observable via the memory gain.
 public sealed class WouldBeDeletedProbe : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.WhenPermanentWouldBeDeleted)

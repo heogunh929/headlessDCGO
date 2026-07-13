@@ -46,8 +46,15 @@ async Task LinkAttaches()
     var linkCard = await Place(context, P1, "LINK", ChoiceZone.Hand, linkCost: 2);
 
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(host));
-    var effect = (LinkSelfEffect)CardEffectFactory.LinkEffect(new CardSource(context, linkCard, P1));
-    await effect.ResolveAsync(default);
+    // (P7 test-fix) CardEffectFactory.LinkEffect was re-ported to the AS-IS Link.cs kind-class shape and now
+    // returns ActivateClass (there is no LinkSelfEffect type any more). Drive it the way the AS-IS
+    // ActivateICardEffect contract is driven: ActivateClass.Activate(Hashtable). NOTE: its ActivateCoroutine
+    // body currently throws NotSupportedException by design (RD-P6C2-7, docs/audit/rebuild_p6_cluster2_notes.md
+    // — the AS-IS ILinkCard link-attach + link-cost-payment subsystem is unported) — this call is kept
+    // faithfully (still exercises the real factory + Activate path); the assertions below are UNCHANGED and
+    // EXPECTED TO FAIL/throw until that subsystem is ported — tracked, not silently weakened.
+    var effect = (HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)CardEffectFactory.LinkEffect(new CardSource(context, linkCard, P1));
+    await effect.Activate(new System.Collections.Hashtable());
 
     var linked = LinkHelpers.ReadLinkedCardIds(
         context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? h) && h is not null ? h.Metadata : new Dictionary<string, object?>());

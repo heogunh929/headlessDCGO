@@ -87,7 +87,13 @@ async Task<(EngineContext, HeadlessEntityId)> Setup(bool[] gate)
     ICardEffect mem = CardEffectFactory.AddMemoryTriggerEffect(
         EffectTiming.OnAllyAttack, amount: -1, isInheritedEffect: false, card: source,
         condition: () => gate[0], description: "test once+gate", maxCountPerTurn: 1, hash: "g11_004_once");
-    context.EffectRegistry.Register(mem.ToBinding($"{card.Value}:test:onallyattack"));
+    // AddMemoryTriggerEffect's declared return type is the AS-IS abstract ICardEffect base class (no ToBinding
+    // member); the concrete TriggeredMemoryEffect it returns still declares a real ToBinding — bridge via
+    // LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+    if (LegacyBindingBridge.TryToBinding(mem, $"{card.Value}:test:onallyattack", out EffectBinding? memBinding) && memBinding is not null)
+    {
+        context.EffectRegistry.Register(memBinding);
+    }
 
     // Drain any pending zone-entry events so they don't interfere with the gated firings.
     await new GameFlowProcessor().RunToStableAsync(context);
