@@ -7,7 +7,7 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 
 public sealed class TfxMaxTrashXros : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.None)

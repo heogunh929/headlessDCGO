@@ -3,7 +3,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Runtime;
 public sealed class TfxZeroTrashXros : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var e = new List<ICardEffect>();
         if (timing == EffectTiming.None)

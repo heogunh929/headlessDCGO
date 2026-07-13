@@ -21,7 +21,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT1_048 : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 

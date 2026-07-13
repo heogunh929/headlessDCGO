@@ -29,7 +29,7 @@ using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPe
 
 public sealed class EX8_074 : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 

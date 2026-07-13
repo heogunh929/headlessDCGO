@@ -8,9 +8,9 @@
 //   [All Turns] Security Attack +2.                          -> ChangeSelfSAttackStaticEffect (continuous)
 //   [When Attacking] Lose 5 memory.                           -> AddMemoryTriggerEffect (OnAllyAttack)
 //   [Your Turn] DP+3000.                                      -> ChangeSelfDPStaticEffect (continuous, condition)
-// NOTE: AS-IS's OnAllyAttack ActivateClass has a CanActivateCondition of IsExistOnBattleArea(card); this is
-// dropped here per established precedent (ST1_06) since the OnAllyAttack trigger only fires while the card is
-// on the battle area — see docs/audit/card_porting_recipe.md §5.
+// AS-IS OnAllyAttack ActivateClass: CanUseCondition = CanTriggerOnAttack(hashtable, card), CanActivateCondition
+// = IsExistOnBattleArea(card) — ported explicitly (not folded away) via AddMemoryTriggerEffect's `condition`
+// parameter, which maps to the AS-IS CanActivateCondition half.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
@@ -18,7 +18,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public sealed class BT1_114 : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
@@ -38,7 +38,7 @@ public sealed class BT1_114 : CEntity_Effect
                 amount: -5,
                 isInheritedEffect: false,
                 card: card,
-                condition: null,
+                condition: () => CardEffectCommons.IsExistOnBattleArea(card),
                 description: "[When Attacking] Lose 5 memory.",
                 triggerGate: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card)));
         }

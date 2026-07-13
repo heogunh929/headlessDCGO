@@ -10,7 +10,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public sealed class TfxEndTurnLose3Memory : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.OnEndTurn)

@@ -21,7 +21,11 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 /// dominant BT usage is <c>Mode.AddHand</c> → <see cref="RevealDestination.Hand"/> (tutor). The AS-IS
 /// <c>selectCardCoroutine</c> (Mode.Custom) per-card action is a per-card follow-up (not modeled here).
 /// </summary>
-public sealed class SimplifiedSelectCardConditionClass
+// (EFFECT-MODEL REBUILD / bridge W3) `partial` added so the AS-IS-signature constructor overloads +
+// AS-IS-shape members (Func<CardSource,bool> predicate, SelectCardEffect.Mode, per-card coroutine) can live in
+// the AS-IS-path file Script/CardEffectCommons/RevealLibrary.cs without touching this legacy body. Purely
+// syntactic (no behaviour change to this part).
+public sealed partial class SimplifiedSelectCardConditionClass
 {
     public SimplifiedSelectCardConditionClass(
         Func<HeadlessEntityId, bool> canTargetCondition,
@@ -51,7 +55,8 @@ public sealed class SimplifiedSelectCardConditionClass
 /// this). Consumed by the same reveal-select mechanism (<see cref="SimplifiedRevealAndSelectEffect"/>) via
 /// <see cref="ToSimplified"/>. The advanced predicates (by-pre-selected-list / can-end-select) and the
 /// <c>Mode.Custom</c> per-card select action are accepted for 1:1 source fidelity but resolved per-card.</summary>
-public sealed class SelectCardConditionClass
+// (EFFECT-MODEL REBUILD / bridge W3) `partial` added — same reason as SimplifiedSelectCardConditionClass above.
+public sealed partial class SelectCardConditionClass
 {
     public SelectCardConditionClass(
         Func<HeadlessEntityId, bool> canTargetCondition,

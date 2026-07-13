@@ -7,7 +7,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public sealed class TfxEndTurnDraw : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         // "[End of YOUR Turn]" — only on the owner's turn.

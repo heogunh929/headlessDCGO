@@ -5,7 +5,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class ST6_12 : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.OnEnterFieldAnyone)

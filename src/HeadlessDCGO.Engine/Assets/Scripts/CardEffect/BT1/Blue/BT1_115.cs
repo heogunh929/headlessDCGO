@@ -23,7 +23,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 public sealed class BT1_115 : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var cardEffects = new List<ICardEffect>();
 

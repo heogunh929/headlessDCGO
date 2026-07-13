@@ -15,7 +15,7 @@ public sealed class TfxSplitGateDraw : CEntity_Effect
     public const string GateUseKey = "tfxGateUse";
     public const string GateActKey = "tfxGateAct";
 
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.OnEnterFieldAnyone)

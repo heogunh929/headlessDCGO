@@ -11,7 +11,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class TfxBeforePayCostReduction : CEntity_Effect
 {
-    public override IReadOnlyList<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
         var effects = new List<ICardEffect>();
         // (B.O.4 #1) gate to a root read from the "gateRoot" metadata ("play" default / "digivolve" / "option")

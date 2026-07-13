@@ -264,6 +264,27 @@
 
 **결론**: **카드 제외 엔진 작업 = 모델 층(파운데이션·kind-클래스·팩토리·게이트·미싱타입) 완료가 진짜 경계.** DP/color/restriction/immunity 스캔·3-게이트·gap 전부 **P6 flip(GetContinuousEffects+is-스캔)에 수렴**하고, flip은 구모델 은퇴↔카드 신모델 전환이라 **카드 층을 요구**. 따라서 (A)의 실질 산출 = **경계가 crisp함을 확인(행동버그 없음)+문서화**. 실제 다음 한 걸음은 flip=카드.
 
+### 11.10 카드 착수 실측 → 뮤테이션 헬퍼 브릿지 선결 재설계 (2026-07-13, 사용자 (II) 빅뱅 컷오버 결정)
+
+- **시그니처 274 해소(sonnet)**: 카드 `CardEffects` override `IReadOnlyList`→`List`, CS0508 274→0. **표면화 0** — 카드 본문은 monolith 잔존 발명 메서드로 여전히 resolve(구모델 컴파일). 빌드=59 IActivatedCardEffect뿐(ActivatedEffects.cs 51·monolith 7·ActivatedEffect.cs 1).
+- **BT1/Red 10장 재포팅 시도(sonnet) → 방향 검증에서 잡힘**: 에이전트가 **구 미러 카드의 실 행동버그 다수 적발**(BT1_025=실효과 DisableEffectClass 누락+무관 <Jamming> 날조·BT1_001/012=SetIsInheritedEffect+DefendingPermanent 게이트 누락·다수 카드=AsUniformActivated가 CanUse/CanActivate fold — **구 카드 corpus가 AS-IS와 발산 중이었음 실증**) — 단 재포팅을 **구모델 ActivatedEffect/IEffectBody로 우회**(AS-IS ActivateClass 아님). 원인=**AS-IS-verbatim 카드가 호출하는 뮤테이션 코루틴이 미러와 시그니처 불일치**: AS-IS `ChangeDigimonDP(targetPermanent, changeValue, effectDuration, activateClass)`→IEnumerator vs 미러 `(Permanent?, int, EffectDuration, CardSource sourceCard)`→bool. §11.8의 "뮤테이션 헬퍼 이미 존재"는 **substrate 시그니처로 존재**였지 AS-IS 시그니처가 아님.
+- **재설계 = 뮤테이션 헬퍼 브릿지 층(카드 1:1의 진짜 선결)**: 실측 **AS-IS 뮤테이션 코루틴 125종 중 카드 호출 91종**(Gain* 다수·ChangeDigimonDP/SAttack·Play*·Delete*/Bounce*/Trash*·Digivolve*/DNA*). 각각 **AS-IS 시그니처의 `Task` 오버로드**를 만들고 본문은 기존 검증 substrate에 위임(activateClass→sourceCard/causeId 변환). 공정: ①인벤토리 매핑표(sonnet, mutation_helper_bridge_map.md 작성중: AS-IS 시그니처↔미러 등가물↔gap 분류) → ②Opus wrap 규칙 설계(카테고리별) → ③배치 구현 위임 → ④카드 재포팅 재개(**진짜 AS-IS verbatim: new ActivateClass + AS-IS 헬퍼 호출**; BT1/Red 10장 구모델 재포팅분도 이때 재작업 — 단 적발된 행동버그 교정은 유지 가치).
+- **순서 확정**: 브릿지 91 → 카드 재포팅(ActivateClass·AS-IS verbatim) → 발명 메서드/구모델 은퇴 → executor flip(§11.8) → GREEN → P7.
+
+### 11.11 브릿지 wrap 규칙 (Opus 설계, 매핑표=mutation_helper_bridge_map.md 기반)
+
+인벤토리: 91 = SAME-NAME-DIFF-SIG 84 · COMPAT 3 · NO-MIRROR 3 · UI-ONLY 1. 중량급 5(호출순): PlayPermanentCards 977·ChangeDigimonDP 584(clean)·SimplifiedReveal 409·DigivolveIntoHandOrTrash 342·Delete...Result 322.
+
+**규칙**:
+1. **브릿지 시그니처 = AS-IS 시그니처의 표준 substrate 번역형**: `IEnumerator`→`Task`(델리게이트 포함: `Func<List<Permanent>,IEnumerator>`→`Func<List<Permanent>,Task>`), **`ICardEffect activateClass`는 그대로 유지**(카드가 activateClass를 넘김 — 이게 카드 verbatim의 핵심), UnityAction→Action. 본문=기존 검증 substrate 오버로드에 위임(`activateClass?.EffectSourceCard`→sourceCard, `List`↔`IReadOnlyList` 변환).
+2. **파일 위치 = AS-IS 경로**(upstream diff): `Script/CardEffectCommons/GiveEffect/GiveEffectToPermanent/ChangeDP.cs` 등 — 미러에 AS-IS-경로 스켈레톤 폴더(GiveEffect/·MinMax_DP_Cost_Level/) 존재, `static partial class CardEffectCommons`.
+3. **어댑터**: `Func<ICardEffect,bool>`→기존 substrate가 `Func<CardSource,bool>`이면 `ce=>pred(ce)` 아님 — **AS-IS형 유지**하고 substrate 호출부에서 변환. *ProcessAccordingToResult 계열=성공/실패 델리게이트 어댑트(List↔IReadOnlyList, 페이로드 차이는 design item).
+4. **substrate가 버리는 load-bearing 파라미터**(notes#5: TrashDigivolutionCardsFromTopOrBottom cardCondition 121호출·PlayPermanentCards cardEffect-게이트·PlayXToken 필드용량 등): **조용히 드롭 금지** — wrapper-side 구현(필터를 wrapper에서 적용해 구체 소스 계산 후 substrate 호출) 또는 명시 design item+주석. 중량급은 개별 설계 배치(W3).
+5. **UI-ONLY**(ShowReducedCost 132호출): AS-IS-sig **no-op Task**(카드 verbatim이 await하므로 심볼 필요, 행동=무변경이 정확).
+6. **NO-MIRROR 3**: DNA-temp=STOP 유지(기존 규약) · PlayOptionCards(43)·RevealDeckTopCardsAndProcessForAll(34)=실설계 포팅(W3).
+
+**구현 배치**: W1(sonnet)=universal 패턴 ~50(Gain*·Change*·PlayerEffect류) → W2(sonnet)=*ProcessAccordingToResult+어댑터 ~12 → W3(opus)=중량급·NO-MIRROR ~15(개별 설계). 각 배치 후 Opus 검증(선언 clean+대표 wrap 대조).
+
 ### 11.2 선결 해소: CARDSOURCE-EQUALITY (2026-07-13)
 
 첫 슬라이스 착수 중 **필수 선결** 발견: AS-IS 팩토리 로직이 `permanent == targetPermanent`·`LinkedCards.Contains(card)`·`EffectSourceCard == permanent.TopCard` 등 **CardSource/Permanent identity 비교**에 의존하는데, 미러는 뷰가 매 접근 새 인스턴스라 **reference equality → 절대 안 맞음**(P1 design item CARDSOURCE-EQUALITY, ICardEffect.CanActivate/IsSameEffect도 동일 의존). 이걸 먼저 해소 안 하면 포팅한 팩토리·게이트가 **조용히 틀림**(red window가 가림).
