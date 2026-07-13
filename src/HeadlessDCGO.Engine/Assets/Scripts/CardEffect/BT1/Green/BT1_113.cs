@@ -1,27 +1,19 @@
-// Source: Assets/Scripts/CardEffect/BT1/Green/BT1_113.cs
-// 1:1 mirror of the original BT1_113 (BT1/Green) — an Option.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_113.cs
+// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_113 (BT1/Green) — an Option.
 //   [Main] Until the end of your opponent's next turn, 1 of your opponent's Digimon can't attack or block.
-//   AS-IS (OptionSkill): ActivateClass(CanUseCondition = CanTriggerOptionMainEffect, ORDER=-1, ISOPTIONAL=false).
-//   ActivateCoroutine: guarded by maxCount = Min(1, MatchConditionPermanentCount(CanSelectPermanentCondition));
-//   CanSelectPermanentCondition = IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) (NO
-//   HasNoDigivolutionCards filter, unlike ST2_14/BT1_100 — any opponent battle-area Digimon qualifies).
-//   SelectPermanentEffect(mode: Custom, maxCount, canNoSelect:false, canEndNotMax:false); its per-target
-//   coroutine calls BOTH CardEffectCommons.GainCanNotAttack(selectedPermanent, defenderCondition:null,
-//   EffectDuration.UntilOpponentTurnEnd, activateClass) AND GainCanNotBlock(selectedPermanent,
-//   attackerCondition:null, EffectDuration.UntilOpponentTurnEnd, activateClass) on the ONE selected permanent —
-//   same "select 1 -> can't-attack + can't-block, until opponent turn end" shape as ST2_14/BT1_100 [Main], minus
-//   the HasNoDigivolutionCards narrowing.
-//   Headless mirror: CardEffectFactory.SelectAndRestrictEffect (ActivatedTargetRestrictionEffect) — the exact
-//   ST2_14 shape — with canTarget = IsOpponentBattleAreaDigimon only (no digivolution-card filter, matching
-//   AS-IS's narrower CanSelectPermanentCondition), maxCount:1, cannotAttack:true, cannotBlock:true,
-//   duration:UntilOpponentTurnEnd. CanTriggerOptionMainEffect + HasMatchConditionPermanent/Min(1,count) are
-//   subsumed by the OptionSkill activation gate + SelectAndRestrictEffect's own "select up to maxCount matching
-//   permanents" behaviour (no-op when nothing matches), same as ST2_14/BT1_092/BT1_094.
-//
-//   [Security] "Your opponent's Digimon don't unsuspend during their next unsuspend phase." -> STOP (see below).
+//   [Security] Your opponent's Digimon don't unsuspend during their next unsuspend phase.
+// AS-IS structure kept verbatim: [Main] is inline ActivateClass + SelectPermanentEffect(Mode.Custom), per-target
+// coroutine calling GainCanNotAttack + GainCanNotBlock (both bridged, verified). [Security] has NO
+// SelectPermanentEffect — it directly calls the bridged GainCanNotUnsuspendPlayerEffect (a broad, no-select,
+// player-scope grant).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -33,47 +25,104 @@ public sealed class BT1_113 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Main] Until the end of your opponent's next turn�1 of your opponent's Digimon can't attack or block.";
+            }
+
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
             }
 
-            cardEffects.Add(CardEffectFactory.SelectAndRestrictEffect(
-                card: card,
-                canTarget: CanSelectPermanentCondition,
-                maxCount: 1,
-                duration: EffectDuration.UntilOpponentTurnEnd,
-                cannotAttack: true,
-                cannotBlock: true,
-                description: "[Main] Until the end of your opponent's next turn, 1 of your opponent's Digimon can't attack or block."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: CanSelectPermanentCondition,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: SelectPermanentCoroutine,
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Custom,
+                    cardEffect: activateClass);
+
+                selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get effects.", "The opponent is selecting 1 Digimon that will get effects.");
+
+                await selectPermanentEffect.Activate();
+
+                async Task SelectPermanentCoroutine(Permanent permanent)
+                {
+                    Permanent selectedPermanent = permanent;
+
+                    CardEffectCommons.GainCanNotAttack(targetPermanent: selectedPermanent, defenderCondition: null, effectDuration: EffectDuration.UntilOpponentTurnEnd, sourceCard: activateClass.EffectSourceCard, effectName: "Can't Attack");
+
+                    CardEffectCommons.GainCanNotBlock(targetPermanent: selectedPermanent, attackerCondition: null, effectDuration: EffectDuration.UntilOpponentTurnEnd, sourceCard: activateClass.EffectSourceCard, effectName: "Can't Block");
+
+                    await Task.CompletedTask;
+                }
+            }
         }
 
-        // [Security] "Your opponent's Digimon don't unsuspend during their next unsuspend phase." (SecuritySkill)
-        // AS-IS: ActivateClass(CanUseCondition = CanTriggerSecurityEffect, ORDER=-1, ISOPTIONAL=false,
-        // IsSecurityEffect=true). ActivateCoroutine has NO SelectPermanentEffect — it directly calls
-        // CardEffectCommons.GainCanNotUnsuspendPlayerEffect(permanentCondition = opponent-battle-area-Digimon
-        // (the AS-IS !CanNotBeAffected guard is folded into GainToPlayerScope's live CanUse), effectDuration:
-        // UntilOwnerActivePhase, isOnlyActivePhase: true) — a broad, no-select, player-scope grant to EVERY
-        // currently/future-qualifying opponent Digimon for one unsuspend phase.
-        // Headless mirror: uniform ActivatedEffect whose body is GrantPlayerScopeRestrictionBody invoking
-        // GainCanNotUnsuspendPlayerEffect (verbatim AS-IS mirror) directly — same no-select player-scope grant
-        // shape as BT1_100, for CannotUnsuspendKey instead of CannotAttackKey.
         if (timing == EffectTiming.SecuritySkill)
         {
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.SecuritySkill,
-                canUse: ctx => CardEffectCommons.CanTriggerSecurityEffect(ctx, card),
-                canActivate: null,
-                body: new GrantPlayerScopeRestrictionBody(c => CardEffectCommons.GainCanNotUnsuspendPlayerEffect(
-                    permanentCondition: p => CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(p, c),
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Can't Unsuspend", CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsSecurityEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Security] Your opponent's Digimon don't unsuspend during their next unsuspend phase.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                bool PermanentCondition(Permanent permanent)
+                {
+                    if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                    {
+                        if (!permanent.TopCard.CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                CardEffectCommons.GainCanNotUnsuspendPlayerEffect(
+                    permanentCondition: PermanentCondition,
                     effectDuration: EffectDuration.UntilOwnerActivePhase,
-                    sourceCard: c,
+                    sourceCard: activateClass.EffectSourceCard,
                     isOnlyActivePhase: true,
-                    effectName: "Your Digimon can't unsuspend")),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[Security] Your opponent's Digimon don't unsuspend during their next unsuspend phase."));
+                    effectName: "Your Digimon can't unsuspend");
+
+                await Task.CompletedTask;
+            }
         }
 
         return cardEffects;

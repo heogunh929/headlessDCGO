@@ -1,23 +1,20 @@
-// 1:1 mirror of the original BT1_048 (BT1/Yellow).
-//   [On Play] Reveal 4 cards from the top of your deck. Add all yellow Tamer cards among them to your
-//             hand. Place the remaining cards at the bottom of your deck in any order.
-//   AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay,
-//   CanActivateCondition = IsExistOnBattleArea(card) && Owner.LibraryCards.Count >= 1, ORDER=-1, ISOPTIONAL=false,
-//   ActivateCoroutine = RevealDeckTopCardsAndProcessForAll(revealCount:4, SimplifiedSelectCardConditionClass
-//   (cardSource.IsTamer && cardSource.HasCardColor(Yellow) -> Mode.AddHand, maxCount:-1),
-//   remainingCardsPlace: DeckBottom).
-//   Headless mirror: CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect (AS-IS
-//   SimplifiedRevealDeckTopCardsAndSelect) — the [On Play] play path (PlayCardAction) resolves this card's own
-//   OnEnterFieldAnyone effects directly (subject = this card), so CanTriggerOnPlay / IsExistOnBattleArea are
-//   structurally satisfied; the "library >= 1" precondition is covered by the primitive's own no-op-if-empty
-//   reveal (SimplifiedRevealAndSelectEffect.ResolveAsync: `if (revealed.Count == 0) return;`). Same idiom as
-//   ST4_03 (Green Digimon variant of this exact shape).
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_048.cs
+// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_048 (BT1/Yellow).
+//   [On Play] Reveal 4 cards from the top of your deck. Add all yellow Tamer cards among them to your hand.
+//   Place the remaining cards at the bottom of your deck in any order.
+// AS-IS structure kept verbatim: inline ActivateClass, ActivateCoroutine = the bridged
+// `CardEffectCommons.RevealDeckTopCardsAndProcessForAll` (W3), fed a single AS-IS-ctor
+// `SimplifiedSelectCardConditionClass` (CardSource-shape predicate + Mode.AddHand + maxCount -1).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
+using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
 public sealed class BT1_048 : CEntity_Effect
 {
@@ -27,24 +24,61 @@ public sealed class BT1_048 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            bool IsYellowTamer(HeadlessEntityId id)
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Reveal the top 4 cards of deck", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
             {
-                var candidate = new CardSource(card.Context, id, card.Owner, card.Owner);
-                return candidate.IsTamer && candidate.HasCardColor("Yellow");
+                return "[On Play] Reveal 4 cards from the top of your deck. Add all yellow Tamer cards among them to your hand. Place the remaining cards at the bottom of your deck in any order.";
             }
 
-            var condition = new SimplifiedSelectCardConditionClass(
-                canTargetCondition: IsYellowTamer,
-                message: "",
-                selectedTo: RevealDestination.Hand,
-                maxCount: -1);
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                if (cardSource.IsTamer)
+                {
+                    if (cardSource.HasCardColor("Yellow"))
+                    {
+                        return true;
+                    }
+                }
 
-            cardEffects.Add(CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect(
-                card,
-                revealCount: 4,
-                conditions: new[] { condition },
-                remainingTo: RevealDestination.DeckBottom,
-                description: "[On Play] Reveal 4 cards from the top of your deck. Add all yellow Tamer cards among them to your hand. Place the remaining cards at the bottom of your deck in any order."));
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await CardEffectCommons.RevealDeckTopCardsAndProcessForAll(
+                    revealCount: 4,
+                    simplifiedSelectCardCondition:
+                    new SimplifiedSelectCardConditionClass(
+                            canTargetCondition: CanSelectCardCondition,
+                            message: "",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: -1,
+                            selectCardCoroutine: null),
+                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                    activateClass: activateClass);
+            }
         }
 
         return cardEffects;

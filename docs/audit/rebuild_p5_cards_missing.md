@@ -112,3 +112,61 @@ shim added, full rebuild, then removed): with the shim, the 10 files contribute 
 `SetUpCustomMessage` CS1501/`Activate` CS1061 across BT1_011/017/023/092/094, i.e. 3-4 lines per card depending
 on whether `SetUpCustomMessage` is called) — no unexplained/accidental body errors. Baseline re-confirmed at
 `59 error CS0246` after the shim was deleted.
+
+## 2026-07-14 — TRUE AS-IS-verbatim re-port, BATCH 2 (BT1 remaining, 27 cards)
+
+Cards re-ported this batch (all rewritten from the previous, non-verbatim old-model mirror to literal AS-IS
+inline `new ActivateClass()` + `SetUpICardEffect`/`SetUpActivateClass` + local-function structure): Blue
+BT1_029/030/035/036/040/041/043/096/097/099/115; Yellow BT1_048/055/062/104/106; Green
+BT1_007/067/070/074/076/077/108/110/111/112/113.
+
+**BT1_104 note**: the PRIOR pass had STOPped this card entirely ("no composed primitive" for the AddSkillClass
+grant). Re-ported this pass because the literal AS-IS structure (inline `AddSkillClass.SetUpAddSkillClass` +
+`CardEffectCommons.AddEffectToPlayer(effectDuration, card, cardEffect, timing)`, the exact bridge for AS-IS
+`GiveEffectToPermanentOrPlayer.cs:57`) is NOT the declarative old-model factory route the prior STOP was
+about — going fully verbatim resolved what looked like a primitive gap under the old model.
+
+**New unresolved-member findings** (kept AS-IS-verbatim per the no-fallback rule; each site commented in-file;
+shim-verified — see below):
+
+1. **`HeadlessPlayerId.CanAddMemory(ICardEffect)` — no mirror extension** (BT1_030, BT1_035, BT1_041, BT1_076,
+   BT1_077, all via AS-IS `card.Owner.CanAddMemory(activateClass)`). Bridge W4 added a `HeadlessPlayerId.
+   AddMemory(int, ICardEffect)` extension (`PlayerIdAsIsExtensions`) but NOT a matching `CanAddMemory`
+   extension — `Player.CanAddMemory(ICardEffect)` (Player.cs) exists only as a `Player`-instance member,
+   unreachable from the bare-id `CardSource.Owner` call site. CS1061 at each site (5 total).
+
+2. **`CardEffectCommons.customPermanentMessageArray_ChangeDP(int, int)` — no mirror member** (BT1_055,
+   BT1_096, BT1_104, all via `selectPermanentEffect.SetUpCustomMessage(customMessageArray:
+   CardEffectCommons.customPermanentMessageArray_ChangeDP(...))`). AS-IS defines this (and its
+   `customPermanentMessageArrayTemplate`/`_ChangeOriginDP`/`_ChangeSAttack` siblings) in
+   `CardEffectCommons/CustomMessage.cs` as a pure string-template helper (no gameplay state) that the W4
+   `SetUpCustomMessage(string, string, string[]?)` overload is shaped to accept, but the helper method itself
+   was never ported. Purely informational (the ChoiceRequest prompt text); CS0117 at each site (3 total).
+
+3. **`GManager.userSelectionManager` / `SelectionElement<T>` — no mirror surface at all** (BT1_111's [Main],
+   the "Suspend 1 vs Suspend 2" mode pick: `GManager.instance.userSelectionManager.SetBoolSelection(...)` /
+   `.SetBool(...)` / `.WaitForEndSelect()` / `.SelectedBoolValue`). Unlike the W4-bridged
+   `SelectPermanentEffect`/`SelectCardEffect`, the mirror `GManager` has no `userSelectionManager` field and NO
+   mirror `UserSelectionManager`/`SelectionElement<T>` type exists anywhere in the codebase — this is a
+   genuine interactive gameplay CHOICE ("which of two effects do you want?"), not cosmetic UI, so per the
+   no-simplification rule it is kept in AS-IS shape rather than auto-picking a branch or dropping the choice.
+   **Note for the build-verification gate**: since `SelectionElement<T>` is a wholly undeclared TYPE (not just
+   a missing member on an existing type), referencing it produces **new CS0246 errors even in the PLAIN
+   (non-shim) build** — 4 occurrences in BT1_111.cs, on top of the pre-existing 59. This is the first
+   verbatim-card gap in the P5/W-series corpus that moves the plain-build CS0246 count (all prior "kept
+   verbatim" gaps — `GetComponent<T>`/`BaseENGCardNameFromEntity`/`Player.AddMemory` — referenced EXISTING
+   mirror types with wrong member shapes, i.e. CS1061/CS1739/CS1501, which stay masked under the
+   declaration-phase-error suppression the W3 notes describe). `userSelectionManager` itself is CS1061 (5
+   occurrences, `GManager` exists, just lacks the field).
+
+**Shim-check result** (same method): with the shim, this batch's 27 files contribute exactly 16 error lines
+beyond the ~700-line old-corpus noise — 5× `HeadlessPlayerId.CanAddMemory` (finding 1), 3×
+`customPermanentMessageArray_ChangeDP` (finding 2), 4× `SelectionElement<>` CS0246 + 4× `userSelectionManager`
+CS1061 (finding 3) — no unexplained/accidental body errors in any of the 27 files. Baseline re-confirmed at
+`59 error CS0246` after the shim was deleted, WITH ONE CAVEAT: the plain (non-shim) baseline build is also
+`59 error CS0246` exactly as before — the 4 new `SelectionElement<>` CS0246s do NOT appear in the plain build
+either, because they are themselves masked by the SAME declaration-phase-error suppression the W3 notes
+describe (the missing `IActivatedCardEffect` blocks body binding project-wide, and `SelectionElement<>` is
+referenced only inside a method body). So the plain-build "59 CS0246, unchanged" gate holds, but is (as W3
+already flagged) a signatures-only check — the shim pass is what actually proves these 4 sites' declaration
+type is absent, same rigor as every other finding here.

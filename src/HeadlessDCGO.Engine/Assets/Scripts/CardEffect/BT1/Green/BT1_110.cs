@@ -1,33 +1,24 @@
-// Source: Assets/Scripts/CardEffect/BT1/Green/BT1_110.cs — an Option.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_110.cs — an Option.
+// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_110 (BT1/Green).
 //   [Main]     Suspend 1 of your opponent's Digimon.
 //   [Security] Suspend all of your opponent's Digimon without <Blocker>.
-// AS-IS [Main] (OptionSkill): ActivateClass(CanUseCondition = CanTriggerOptionMainEffect, ORDER=-1,
-// ISOPTIONAL=false). ActivateCoroutine: guarded by HasMatchConditionPermanent(CanSelectPermanentCondition)
-// (CanSelectPermanentCondition = IsPermanentExistsOnOpponentBattleAreaDigimon), maxCount =
-// Math.Min(1, MatchConditionPermanentCount(...)), then a SelectPermanentEffect(Mode.Tap) (canNoSelect:false,
-// canEndNotMax:false) over opponent battle-area Digimon.
-// Headless mirror: CardEffectFactory.SelectAndSuspendEffect (AS-IS SelectPermanentEffect Mode.Tap), maxCount:1
-// — same shape as ST4_15's [Main] ("Suspend 1 of your opponent's Digimon."). CanTriggerOptionMainEffect is
-// subsumed by the OptionSkill activation gate (ST1_13/ST1_15/BT1_090/BT1_092/BT1_094/ST4_15 precedent);
-// HasMatchConditionPermanent + Min(1,count) are subsumed by SelectAndSuspendEffect's own "select up to
-// maxCount matching permanents" behaviour (no-op / BuildRequest clamp when nothing matches, same precedent).
-//
-// AS-IS [Security] (SecuritySkill): ActivateClass(CanUseCondition = CanTriggerSecurityEffect, ORDER=-1,
-// ISOPTIONAL=false, IsSecurityEffect=true). ActivateCoroutine has NO SelectPermanentEffect step at all: it
-// computes `card.Owner.Enemy.GetBattleAreaDigimons().Filter(PermanentCondition)` — every opponent
-// battle-area Digimon that (a) IsPermanentExistsOnOpponentBattleAreaDigimon, (b) `!permanent.HasBlocker`, and
-// (c) `!permanent.TopCard.CanNotBeAffected(activateClass)` — then directly runs
-// `new SuspendPermanentsClass(suspendTargetPermanents, ...).Tap()` on that whole precomputed list, with zero
-// player choice (unlike [Main], which does select).
-// Headless mirror ([Security]): the no-select "apply a mutation to EVERY matching permanent" gap (shared with
-// BT1_101 trash-all) is now covered by ApplyToAllMatchingBody (ActivatedEffect.cs) — a non-interactive uniform
-// body that, at resolve time, enumerates CardEffectCommons.MatchConditionPermanentIds(match) and runs a
-// per-target sink action (here CardEffectCommons.SuspendPermanent). The AS-IS !CanNotBeAffected guard is folded
-// into the sink's centralised immunity gate (applied to every mutation), so the match predicate carries only
-// "opponent battle-area Digimon && !HasKeyword(Blocker)". See the [Security] block below.
+// AS-IS structure kept verbatim: [Main] is inline ActivateClass + SelectPermanentEffect(Mode.Tap); [Security]
+// has NO SelectPermanentEffect at all — it computes `card.Owner.Enemy.GetBattleAreaDigimons().Filter(...)`
+// (AS-IS `Player.Enemy`, a live object) -> `new Player(card.Context, card.Owner).Enemy` (mirror `CardSource.
+// Owner` is a bare `HeadlessPlayerId`), then runs `new SuspendPermanentsClass(list, cause, isBlock:false).Tap()`
+// directly (bridged 1:1, HeadlessEntityId? cause instead of Hashtable). `!permanent.HasBlocker` -> the
+// established id-shape keyword check (`ContinuousKeywordGate.HasKeyword`, no Permanent-shape sibling exists).
+// `!permanent.TopCard.CanNotBeAffected(activateClass)` -> `CanNotBeAffected(HeadlessEntityId?)` fed the
+// causing effect's source card id (the established `ICardEffect -> EffectSourceCard.InstanceId` idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -39,45 +30,96 @@ public sealed class BT1_110 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Main] Suspend 1 of your opponent's Digimon.";
+            }
+
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
             }
 
-            cardEffects.Add(CardEffectFactory.SelectAndSuspendEffect(
-                card: card,
-                canTarget: CanSelectPermanentCondition,
-                maxCount: 1,
-                canEndNotMax: false,
-                description: "[Main] Suspend 1 of your opponent's Digimon."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Tap,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+            }
         }
 
-        // [Security] "Suspend all of your opponent's Digimon without <Blocker>." (SecuritySkill)
-        // AS-IS: ActivateClass(CanUseCondition = CanTriggerSecurityEffect, ORDER=-1, ISOPTIONAL=false,
-        // IsSecurityEffect=true). ActivateCoroutine has NO SelectPermanentEffect — it computes
-        // card.Owner.Enemy.GetBattleAreaDigimons().Filter(opponent battle-area Digimon && !HasBlocker &&
-        // !CanNotBeAffected) and directly SuspendPermanentsClass(...).Tap() on that whole precomputed list.
-        // Headless mirror: uniform ActivatedEffect whose body is ApplyToAllMatchingBody — per opponent battle-area
-        // Digimon without <Blocker> it stages SuspendPermanent. The AS-IS !CanNotBeAffected guard is handled by the
-        // sink's centralised immunity gate (applied to EVERY mutation, source = this card), so the match predicate
-        // carries only "opponent battle-area Digimon && !HasKeyword(Blocker)".
         if (timing == EffectTiming.SecuritySkill)
         {
-            bool Match(HeadlessEntityId id) =>
-                CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                    && !ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker);
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Suspend opponent's all Digimon without Blocker", CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsSecurityEffect(true);
+            cardEffects.Add(activateClass);
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.SecuritySkill,
-                canUse: ctx => CardEffectCommons.CanTriggerSecurityEffect(ctx, card),
-                canActivate: null,
-                body: new ApplyToAllMatchingBody(
-                    match: Match,
-                    perTarget: (c, sink, id) => CardEffectCommons.SuspendPermanent(sink, c, id)),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[Security] Suspend all of your opponent's Digimon without <Blocker>."));
+            string EffectDiscription()
+            {
+                return "[Security] Suspend all of your opponent's Digimon without <Blocker>.";
+            }
+
+            bool PermanentCondition(Permanent permanent)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (!ContinuousKeywordGate.HasKeyword(card.Context, permanent.InstanceId, ContinuousKeywordGate.Blocker))
+                    {
+                        if (!permanent.TopCard.CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                List<Permanent> suspendTargetPermanents = new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Filter(PermanentCondition)
+                    ?? new List<Permanent>();
+
+                await new SuspendPermanentsClass(
+                    suspendTargetPermanents,
+                    activateClass.EffectSourceCard?.InstanceId,
+                    isBlock: false).Tap();
+            }
         }
 
         return cardEffects;

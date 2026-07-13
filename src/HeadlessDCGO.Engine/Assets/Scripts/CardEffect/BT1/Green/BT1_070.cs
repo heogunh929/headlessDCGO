@@ -1,21 +1,16 @@
-// Source: Assets/Scripts/CardEffect/BT1/Green/BT1_070.cs
-// 1:1 headless mirror of the original BT1_070 (BT1/Green) — a Digimon.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_070.cs
+// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_070 (BT1/Green) — a Digimon.
 //   [On Play] Suspend 1 of your opponent's Digimon.
-//   AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay,
-//   CanActivateCondition = IsExistOnBattleArea(card) && HasMatchConditionPermanent(CanSelectPermanentCondition),
-//   CanSelectPermanentCondition = IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card),
-//   ORDER=-1 (maxCountPerTurn:null), ISOPTIONAL=false, ActivateCoroutine = SelectPermanentEffect(Mode.Tap)
-//   with maxCount = Min(1, MatchConditionPermanentCount), canNoSelect:false, canEndNotMax:false.
-//   Headless mirror: CardEffectFactory.SelectAndSuspendEffect (AS-IS SelectPermanentEffect Mode.Tap) with
-//   maxCount:1, canEndNotMax:false — same shape as BT1_023 (Mode.Destroy sibling) and ST4_15 [Main]. The
-//   [On Play] play path (PlayCardAction) resolves this card's own OnEnterFieldAnyone effects directly
-//   (subject = this card), so CanTriggerOnPlay / IsExistOnBattleArea are structurally satisfied and folded
-//   (same as BT1_010/BT1_023/ST4_03). HasMatchConditionPermanent + Min(1,count) are subsumed by
-//   SelectAndSuspendEffect's own "select up to maxCount matching permanents" behaviour (no-op when nothing
-//   matches).
+// AS-IS structure kept verbatim: inline ActivateClass + SelectPermanentEffect(Mode.Tap), no per-target
+// follow-up coroutine (Mode.Tap suspends directly).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT1_070 : CEntity_Effect
@@ -26,17 +21,60 @@ public sealed class BT1_070 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Suspend 1 Digimon", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[On Play] Suspend 1 of your opponent's Digimon.";
+            }
+
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
             }
 
-            cardEffects.Add(CardEffectFactory.SelectAndSuspendEffect(
-                card: card,
-                canTarget: CanSelectPermanentCondition,
-                maxCount: 1,
-                canEndNotMax: false,
-                description: "[On Play] Suspend 1 of your opponent's Digimon."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: CanSelectPermanentCondition,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: null,
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Tap,
+                    cardEffect: activateClass);
+
+                await selectPermanentEffect.Activate();
+            }
         }
 
         return cardEffects;

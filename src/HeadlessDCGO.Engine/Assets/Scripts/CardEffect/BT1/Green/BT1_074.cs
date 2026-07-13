@@ -1,21 +1,19 @@
-// 1:1 mirror of the original BT1_074 (BT1/Green).
-//   [When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 or higher Digimon card
-//   among them to your hand. Place the remaining cards at the bottom of your deck in any order.
-//   -> SimplifiedRevealDeckTopCardsAndSelect (reveal 3, select Lv5+ Digimon -> Hand, rest -> DeckBottom)
-// Declared under WhenDigivolving (the DigivolveAction-wired timing that resolves activated selects via
-// ActivatedEffectResolver), NOT OnEnterFieldAnyone — the bridge excludes OnEnterFieldAnyone, so an
-// activated select/reveal there never fires live. Matches ST1_08/ST4_10/BT1_025's WhenDigivolving idiom.
-// AS-IS CanUseCondition (CanTriggerWhenDigivolving) is subsumed by the DigivolveAction dispatch itself
-// (only invoked for the card that is actually digivolving); AS-IS CanActivateCondition
-// (IsExistOnBattleArea + LibraryCards.Count >= 1) is subsumed by the reveal effect's own no-op-if-empty
-// behavior (SimplifiedRevealAndSelectEffect.ResolveAsync returns early when nothing is revealed) — same
-// fold as ST4_10's dropped gate.
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_074.cs
+// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_074 (BT1/Green).
+//   [When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 or higher Digimon card among
+//   them to your hand. Place the remaining cards at the bottom of your deck in any order.
+// AS-IS structure kept verbatim: inline ActivateClass, ActivateCoroutine = the bridged
+// `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect` (W3), same shape as BT1_067's [On Play] sibling.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
+using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
 public sealed class BT1_074 : CEntity_Effect
 {
@@ -25,25 +23,67 @@ public sealed class BT1_074 : CEntity_Effect
 
         if (timing == EffectTiming.WhenDigivolving)
         {
-            bool CanSelectCardCondition(HeadlessEntityId id)
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Reveal the top 3 cards of deck", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
             {
-                var revealed = new CardSource(card.Context, id, card.Controller, card.Owner);
-                return revealed.IsDigimon && revealed.Level >= 5 && revealed.HasLevel;
+                return "[When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 or higher Digimon card among them to your hand. Place the remaining cards at the bottom of your deck in any order.";
             }
 
-            cardEffects.Add(CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect(
-                card: card,
-                revealCount: 3,
-                conditions: new[]
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                if (cardSource.IsDigimon)
                 {
-                    new SimplifiedSelectCardConditionClass(
-                        canTargetCondition: CanSelectCardCondition,
-                        message: "Select 1 level 5 or higher Digimon card.",
-                        selectedTo: RevealDestination.Hand,
-                        maxCount: 1),
-                },
-                remainingTo: RevealDestination.DeckBottom,
-                description: "[When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 or higher Digimon card among them to your hand. Place the remaining cards at the bottom of your deck in any order."));
+                    if (cardSource.Level >= 5)
+                    {
+                        if (cardSource.HasLevel)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+                    revealCount: 3,
+                    simplifiedSelectCardConditions:
+                    new SimplifiedSelectCardConditionClass[]
+                    {
+                        new SimplifiedSelectCardConditionClass(
+                            canTargetCondition: CanSelectCardCondition,
+                            message: "Select 1 level 5 or higher Digimon card.",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: 1,
+                            selectCardCoroutine: null),
+                    },
+                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                    activateClass: activateClass);
+            }
         }
 
         return cardEffects;

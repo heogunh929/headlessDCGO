@@ -1,25 +1,19 @@
-// 1:1 mirror of the original BT1_067 (BT1/Green).
-//   [On Play] Reveal 3 cards from the top of your deck. Add 1 level 4 Digimon card among them to your
-//             hand. Place the remaining cards at the bottom of your deck in any order.
-//   AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay,
-//   CanActivateCondition = IsExistOnBattleArea(card) && Owner.LibraryCards.Count >= 1, ORDER=-1, ISOPTIONAL=false,
-//   ActivateCoroutine = SimplifiedRevealDeckTopCardsAndSelect(revealCount:3, SimplifiedSelectCardConditionClass
-//   (cardSource.IsDigimon && cardSource.Level == 4 && cardSource.HasLevel -> Mode.AddHand, maxCount:1),
-//   remainingCardsPlace: DeckBottom).
-//   Headless mirror: CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect (AS-IS
-//   SimplifiedRevealDeckTopCardsAndSelect) — the [On Play] play path (PlayCardAction) resolves this card's own
-//   OnEnterFieldAnyone effects directly (subject = this card), so CanTriggerOnPlay / IsExistOnBattleArea are
-//   structurally satisfied; the "library >= 1" precondition is covered by the primitive's own no-op-if-empty
-//   reveal (SimplifiedRevealAndSelectEffect.ResolveAsync: `if (revealed.Count == 0) return;`) — same fold as
-//   BT1_010/BT1_048's dropped IsExistOnBattleArea/LibraryCards gate. The AS-IS select condition checks
-//   IsDigimon && Level == 4 && HasLevel (redundant HasLevel guard kept verbatim since Level == 4 already implies
-//   a printed level, but mirrored 1:1 for fidelity).
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Green/BT1_067.cs
+// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_067 (BT1/Green).
+//   [On Play] Reveal 3 cards from the top of your deck. Add 1 level 4 Digimon card among them to your hand.
+//   Place the remaining cards at the bottom of your deck in any order.
+// AS-IS structure kept verbatim: inline ActivateClass, ActivateCoroutine = the bridged
+// `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect` (W3).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
+using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
 public sealed class BT1_067 : CEntity_Effect
 {
@@ -29,24 +23,67 @@ public sealed class BT1_067 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            bool CanSelectCardCondition(HeadlessEntityId id)
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Reveal the top 3 cards of deck", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
             {
-                var candidate = new CardSource(card.Context, id, card.Owner, card.Owner);
-                return candidate.IsDigimon && candidate.Level == 4 && candidate.HasLevel;
+                return "[On Play] Reveal 3 cards from the top of your deck. Add 1 level 4 Digimon card among them to your hand. Place the remaining cards at the bottom of your deck in any order.";
             }
 
-            var condition = new SimplifiedSelectCardConditionClass(
-                canTargetCondition: CanSelectCardCondition,
-                message: "Select 1 level 4 Digimon card.",
-                selectedTo: RevealDestination.Hand,
-                maxCount: 1);
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                if (cardSource.IsDigimon)
+                {
+                    if (cardSource.Level == 4)
+                    {
+                        if (cardSource.HasLevel)
+                        {
+                            return true;
+                        }
+                    }
+                }
 
-            cardEffects.Add(CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect(
-                card,
-                revealCount: 3,
-                conditions: new[] { condition },
-                remainingTo: RevealDestination.DeckBottom,
-                description: "[On Play] Reveal 3 cards from the top of your deck. Add 1 level 4 Digimon card among them to your hand. Place the remaining cards at the bottom of your deck in any order."));
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+                    revealCount: 3,
+                    simplifiedSelectCardConditions:
+                    new SimplifiedSelectCardConditionClass[]
+                    {
+                        new SimplifiedSelectCardConditionClass(
+                            canTargetCondition: CanSelectCardCondition,
+                            message: "Select 1 level 4 Digimon card.",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: 1,
+                            selectCardCoroutine: null),
+                    },
+                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                    activateClass: activateClass);
+            }
         }
 
         return cardEffects;
