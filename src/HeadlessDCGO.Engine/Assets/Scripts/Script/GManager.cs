@@ -46,6 +46,13 @@ public sealed class GManager
     public AutoProcessing autoProcessing =>
         HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(_context);
 
+    /// <summary>(P6C1) AS-IS <c>GManager.autoProcessing_CutIn</c> (GManager.cs:112, a field) — the SECOND
+    /// AutoProcessing component instance the play pipeline stacks/drains the BeforePayCost/AfterPayCost cut-in
+    /// effects on (its <c>StackedSkillInfos</c> must not collide with the main trigger stack). Resolves the
+    /// match-scoped mirror via <see cref="AutoProcessing.ForCutIn"/>.</summary>
+    public AutoProcessing autoProcessing_CutIn =>
+        HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.ForCutIn(_context);
+
     /// <summary>(EFFECT-MODEL REBUILD / P2) AS-IS <c>GManager.attackProcess</c> (GManager.cs:99, a field) — the
     /// attack pipeline. Resolves the match-scoped mirror <see cref="AttackProcess"/> service (context-cached via
     /// <c>AttackProcess.For</c>; its optional blockTiming/battleResolver/securityResolver default to the
@@ -123,6 +130,27 @@ public sealed class GManager
             var optionalSkill = new Assets.Scripts.Script.OptionalSkill();
             optionalSkill.AttachContext(_context);
             created = optionalSkill;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectCountEffect))
+        {
+            // (P6C1) the AS-IS digivolution-cost / count picker (PlayCardClass SelectCost,
+            // CardController.cs:534-556) — the mirror component carries the AS-IS SetUp/SetCandidates/
+            // SetPreferMin/SetIsDigivolutionCost/Activate surface (Script/SelectCountEffect.cs).
+            var selectCountEffect = new Assets.Scripts.Script.SelectCountEffect();
+            selectCountEffect.AttachContext(_context);
+            created = selectCountEffect;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectDigiXrosClass))
+        {
+            // (P6C1) the AS-IS DigiXros pre-play selection component — mirrored as its STATE surface
+            // (playCard/selectedDigicrossCards/excludedCards/Reset/SetExcludedCards); the interactive Select
+            // flow is a STOP (design item RD-P6C1-5, Script/SelectDigiXrosClass.cs).
+            created = new Assets.Scripts.Script.SelectDigiXrosClass();
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectDNACondition))
+        {
+            // (P6C1) the AS-IS DNA(jogress)-condition picker — full 1:1 mirror (Script/SelectDNACondition.cs).
+            created = new Assets.Scripts.Script.SelectDNACondition();
         }
         else
         {

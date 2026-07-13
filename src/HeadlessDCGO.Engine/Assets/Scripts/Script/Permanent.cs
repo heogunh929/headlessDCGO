@@ -174,9 +174,57 @@ public sealed class Permanent
 
     public bool IsToken => TopCard.IsToken;
 
-    public bool IsSuspended =>
-        _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
-        && i.Metadata.TryGetValue("isSuspended", out object? raw) && raw is bool b && b;
+    /// <summary>AS-IS <c>Permanent.IsSuspended</c> is a public FIELD (Permanent.cs:1956) — readable AND
+    /// assignable. Get = the sink's <c>isSuspended</c> instance flag. (P6C1) Set = the AS-IS direct-assignment
+    /// idiom (e.g. the PlayCardClass <c>playFailed</c> snapshot RESTORE, CardController.cs:945): a raw state
+    /// write on the same flag — deliberately NO CanNotSuspend/Unsuspend gate and NO OnTapped/OnUntapped
+    /// emission, exactly like the AS-IS field assignment (effect-driven suspends go through the sink's
+    /// Suspend/Unsuspend kinds instead).</summary>
+    public bool IsSuspended
+    {
+        get =>
+            _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+            && i.Metadata.TryGetValue("isSuspended", out object? raw) && raw is bool b && b;
+        set
+        {
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    ["isSuspended"] = value,
+                };
+                _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
+    /// <summary>(P6C1) AS-IS <c>Permanent.oldIsTapped_playCard</c> (Permanent.cs:45, a public auto-property):
+    /// the pre-play suspension snapshot the play pipeline stamps on every non-turn-player field permanent and
+    /// restores on a failed play (CardController.cs:432/:945; also read by BT8_102/RB1_023/BT16_046). The AS-IS
+    /// carrier is a field on the persistent Unity component; the mirror <see cref="Permanent"/> is a transient
+    /// VIEW, so the value lives in a per-match store keyed by <see cref="InstanceId"/> (same substrate pattern
+    /// as <c>CEntity_EffectControllerStore</c>). Default false, as an unset AS-IS bool field.</summary>
+    public bool oldIsTapped_playCard
+    {
+        get => _context.TryGetService(out OldIsTappedPlayCardStore? store) && store is not null
+            && store.Values.TryGetValue(InstanceId, out bool old) && old;
+        set
+        {
+            if (!_context.TryGetService(out OldIsTappedPlayCardStore? store) || store is null)
+            {
+                store = new OldIsTappedPlayCardStore();
+                _context.RegisterService(store);
+            }
+
+            store.Values[InstanceId] = value;
+        }
+    }
+
+    /// <summary>(P6C1) Per-match backing store for <see cref="oldIsTapped_playCard"/>.</summary>
+    private sealed class OldIsTappedPlayCardStore
+    {
+        public Dictionary<HeadlessEntityId, bool> Values { get; } = new Dictionary<HeadlessEntityId, bool>();
+    }
 
     /// <summary>The digivolution (under-)cards of this permanent (mirror of <c>DigivolutionCards</c>).</summary>
     public IReadOnlyList<CardSource> DigivolutionCards

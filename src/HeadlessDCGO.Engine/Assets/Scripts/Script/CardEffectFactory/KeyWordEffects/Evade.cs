@@ -48,7 +48,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("Evade", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, DataBase.EvadeEffectDiscription());
-        activateClass.SetHashString($"Evade_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Evade_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)

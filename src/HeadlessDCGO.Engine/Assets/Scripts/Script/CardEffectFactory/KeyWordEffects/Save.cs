@@ -44,7 +44,7 @@ public partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            return CardEffectCommons.CanActivateSave(hashtable, CanSelectPermanentCondition);
+            return CardEffectCommons.CanActivateSave(hashtable, card, CanSelectPermanentCondition);
         }
 
         Task ActivateCoroutine(Hashtable _hashtable)

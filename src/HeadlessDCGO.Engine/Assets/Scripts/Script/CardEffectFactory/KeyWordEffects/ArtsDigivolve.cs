@@ -8,13 +8,22 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // kind-class layer
 
 public partial class CardEffectFactory
 {
     #region Processing of [Arts Digivolve]
+    // STOP (design item RD-P6C2-10, docs/audit/rebuild_p6_cluster2_notes.md): AS-IS ArtsDigivolveEffect depends
+    // on `CardSource.CanPlayCardTargetFrame`/`Permanent.PermanentFrame` (CardSource.cs/Permanent.cs, out of this
+    // cluster's KeyWordEffects/CanUseEffects/kind-class/DataBase scope) and `ContinuousController`/the AS-IS
+    // Hashtable-ctor `PlayCardClass` (both already flagged VERBATIM-MISSING by this file's own P4 header,
+    // docs/audit/rebuild_p4_factory_missing.md — a standing gap, not newly introduced here). The declaration
+    // gate (CanUseCondition/IsExistOnExecutingArea) is real and portable; the resolution path is not, so its
+    // closures throw rather than reference the missing members.
     public static OptionResolutionClass ArtsDigivolveEffect(CardSource card)
     {
         if (card == null) return null;
@@ -25,47 +34,19 @@ public partial class CardEffectFactory
 
         bool CanUseCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnExecutingArea(card);
 
-        bool CanResolveCondition(CardSource optionCard) => CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition, true);
-
-        bool CanSelectPermanentCondition(Permanent permanent)
+        bool CanResolveCondition(CardSource optionCard)
         {
-            return CardEffectCommons.IsOwnerPermanent(permanent, card)
-                && permanent.IsDigimon
-                && card.CanPlayCardTargetFrame(permanent.PermanentFrame, false, artsDigivolutionClass, SelectCardEffect.Root.Execution);
+            throw new NotSupportedException(
+                "ArtsDigivolveEffect.CanResolveCondition: AS-IS CardSource.CanPlayCardTargetFrame/" +
+                "Permanent.PermanentFrame have no mirror — design item RD-P6C2-10, " +
+                "docs/audit/rebuild_p6_cluster2_notes.md.");
         }
 
-        IEnumerator ResolutionCoroutine(CardSource optionCard)
+        Task ResolutionCoroutine(CardSource optionCard)
         {
-            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
-
-            selectPermanentEffect.SetUp(
-                selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentCondition,
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                maxCount: 1,
-                canNoSelect: true,
-                canEndNotMax: false,
-                selectPermanentCoroutine: SelectPermanentCoroutine,
-                afterSelectPermanentCoroutine: null,
-                mode: SelectPermanentEffect.Mode.Custom,
-                cardEffect: artsDigivolutionClass);
-
-            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to Arts Digivolve.", "The opponent is selecting 1 Digimon to Arts Digivolve.");
-
-            yield return ContinuousController.instance.StartCoroutine(selectPermanentEffect.Activate());
-
-            IEnumerator SelectPermanentCoroutine(Permanent permanent)
-            {
-                yield return ContinuousController.instance.StartCoroutine(new PlayCardClass(
-                    cardSources: new List<CardSource>() { card },
-                    hashtable: null,
-                    payCost: false,
-                    targetPermanent: permanent,
-                    isTapped: false,
-                    root: SelectCardEffect.Root.Execution,
-                    activateETB: true).PlayCard());
-            }
+            throw new NotSupportedException(
+                "ArtsDigivolveEffect.ResolutionCoroutine: AS-IS ContinuousController/PlayCardClass(Hashtable ctor) " +
+                "have no mirror — design item RD-P6C2-10, docs/audit/rebuild_p6_cluster2_notes.md.");
         }
     }
     #endregion

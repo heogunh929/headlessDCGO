@@ -103,10 +103,35 @@ public sealed partial class SelectCardConditionClass
 
 /// <summary>(PRIM-W5) A material condition for a Blast-DNA digivolution (AS-IS <c>BlastDNACondition</c>).
 /// <see cref="Matches"/> preserves the original's per-material predicate 1:1; use <see cref="ByName"/> for the
-/// name-equality subset.</summary>
+/// name-equality subset.
+/// (P6C1) Extended ADDITIVELY with the AS-IS shape (DCGO KeyWordEffects/BlastDNADigivolution.cs:8-20 — a
+/// top-level class holding <c>Name</c> plus the mutable <c>Permanents</c>/<c>CardSources</c> working sets and a
+/// <c>(string name)</c> ctor) so the 1:1 <c>CardEffectFactory.BlastDNADigivolveEffect</c> mirror compiles.
+/// Existing consumers (Matches/Label/ByName) untouched; two <c>ByName</c> instances were ALREADY unequal
+/// (per-instance lambda in the primary-ctor equality), so the added mutable auto-properties do not change any
+/// observable record equality. See docs/audit/rebuild_p6_cluster1_notes.md.</summary>
 public sealed record BlastDNACondition(Func<CardSource, bool> Matches, string Label)
 {
     public static BlastDNACondition ByName(string name) => new(cs => cs.EqualsCardName(name), name);
+
+    /// <summary>(P6C1) AS-IS <c>BlastDNACondition(string name)</c> ctor (BlastDNADigivolution.cs:14-19) — the
+    /// name predicate is exactly <see cref="ByName"/>'s.</summary>
+    public BlastDNACondition(string name)
+        : this(cs => cs.EqualsCardName(name), name)
+    {
+    }
+
+    /// <summary>(P6C1) AS-IS <c>BlastDNACondition.Name</c> — the material card name (== <see cref="Label"/>;
+    /// computed, so it stays out of the record equality contract).</summary>
+    public string Name => Label;
+
+    /// <summary>(P6C1) AS-IS <c>BlastDNACondition.Permanents</c> — the matching field permanents, (re)filled by
+    /// <c>HasValidDNATargets</c> on every evaluation.</summary>
+    public List<Permanent> Permanents { get; set; } = new List<Permanent>();
+
+    /// <summary>(P6C1) AS-IS <c>BlastDNACondition.CardSources</c> — the matching hand cards, (re)filled by
+    /// <c>HasValidDNATargets</c> on every evaluation.</summary>
+    public List<CardSource> CardSources { get; set; } = new List<CardSource>();
 }
 
 // (EFFECT-MODEL REBUILD / fidelity) AS-IS <c>IgnoreRequirement</c> is NESTED inside the CardEffectCommons class

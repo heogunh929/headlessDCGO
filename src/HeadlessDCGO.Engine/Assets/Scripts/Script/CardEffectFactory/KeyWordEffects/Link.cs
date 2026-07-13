@@ -33,10 +33,10 @@ public partial class CardEffectFactory
         if (card == null) return null;
         if (!CardEffectCommons.IsOwnerTurn(card)) return null;
         if (!CardEffectCommons.IsExistOnHand(card) && !CardEffectCommons.IsExistOnBattleAreaDigimon(card)) return null;
-        if (!CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition)) return null;
+        if (!CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition)) return null;
 
         ActivateClass activateClass = new ActivateClass();
-        activateClass.SetUpICardEffect($"Link (Cost: {card.linkCondition.cost})", CanUseCondition, card);
+        activateClass.SetUpICardEffect($"Link (Cost: {card.LinkConditionOf()?.cost})", CanUseCondition, card);
         activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, true, DataBase.LinkEffectDiscription());
 
         bool CanSelectPermanentCondition(Permanent permanent)
@@ -47,7 +47,7 @@ public partial class CardEffectFactory
                 {
                     if (permanent.IsDigimon)
                     {
-                        if (card.linkCondition == null || card.linkCondition.digimonCondition(permanent))
+                        if (card.LinkConditionOf() is not { } linkCondition || linkCondition.digimonCondition(permanent))
                         {
                             return true;
                         }
@@ -62,7 +62,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsExistOnHand(card) || (CardEffectCommons.IsExistOnBattleAreaDigimon(card) && !card.IsLinked))
             {
-                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
                 {
                     if (condition == null || condition())
                     {
@@ -74,42 +74,16 @@ public partial class CardEffectFactory
             return false;
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        Task ActivateCoroutine(Hashtable _hashtable)
         {
-            Permanent selectedPermanent = null;
-
-            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
-
-            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
-
-            selectPermanentEffect.SetUp(
-                selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentCondition,
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                maxCount: maxCount,
-                canNoSelect: false,
-                canEndNotMax: false,
-                selectPermanentCoroutine: SelectPermanentCoroutine,
-                afterSelectPermanentCoroutine: null,
-                mode: SelectPermanentEffect.Mode.Custom,
-                cardEffect: activateClass);
-
-            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to link.", "The opponent is selecting 1 Digimon to link.");
-
-            await selectPermanentEffect.Activate();
-
-            async Task SelectPermanentCoroutine(Permanent permanent)
-            {
-                selectedPermanent = permanent;
-
-                await Task.CompletedTask;
-            }
-
-            if (selectedPermanent != null)
-            {
-                await new ILinkCard(true, card, selectedPermanent, activateClass).LinkCard();
-            }
+            // STOP: AS-IS ILinkCard.LinkCard() (CardController.cs:3440) — WhenWouldLink trigger window
+            // (autoProcessing_CutIn, old-model, PlayCardClass-only) + link-cost payment (GetChangedLinkCost,
+            // already a known gap — design item C2-02/MIG5-CANLINK-PAYCOST) + IPlacePermanentToLinkCards
+            // (no mirror). Heavy/unported subsystem, out of this cluster's scope — design item RD-P6C2-7.
+            throw new NotSupportedException(
+                "LinkEffect.ActivateCoroutine: AS-IS ILinkCard has no mirror (WhenWouldLink window + link-cost " +
+                "payment + IPlacePermanentToLinkCards all unported) — design item RD-P6C2-7, " +
+                "docs/audit/rebuild_p6_cluster2_notes.md.");
         }
 
         return activateClass;

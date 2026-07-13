@@ -47,7 +47,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("Barrier", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, DataBase.BarrierEffectDiscription());
-        activateClass.SetHashString($"Barrier_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Barrier_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)

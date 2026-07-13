@@ -92,6 +92,34 @@ public sealed class AutoProcessing
         return created;
     }
 
+    /// <summary>(P6C1) The per-context CUT-IN instance (AS-IS <c>GManager.autoProcessing_CutIn</c>,
+    /// GManager.cs:112 — a SECOND AutoProcessing component whose <see cref="StackedSkillInfos"/> stack the play
+    /// pipeline uses for the BeforePayCost/AfterPayCost cut-in windows, kept separate from the main trigger
+    /// stack). Cached under its own service key so it never aliases <see cref="For"/>.</summary>
+    public static AutoProcessing ForCutIn(EngineContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (context.TryGetService(out CutInInstanceHolder? holder) && holder is not null)
+        {
+            return holder.Value;
+        }
+
+        var created = new CutInInstanceHolder(new AutoProcessing(context));
+        context.RegisterService(created);
+        return created.Value;
+    }
+
+    /// <summary>(P6C1) Service-registry key wrapper for <see cref="ForCutIn"/>.</summary>
+    private sealed class CutInInstanceHolder
+    {
+        public CutInInstanceHolder(AutoProcessing value)
+        {
+            Value = value;
+        }
+
+        public AutoProcessing Value { get; }
+    }
+
     /// <summary>Request-id prefix of the link-max trim selection (AS-IS Permanent.RemoveLinkedCard(null, count)
     /// SelectCardEffect). MetadataActionProcessor routes its resolution through <see cref="ITrashLinkCards"/>
     /// (the AS-IS SelectCardEffect Mode.Discard linked-card branch, SelectCardEffect.cs:715-724).</summary>
@@ -1066,6 +1094,88 @@ public sealed class AutoProcessing
         GetSkillInfos(hashtable, timing, cardEffectCondition).ForEach(skillInfo => PutStackedSkill(skillInfo));
 
         await ActivateBackgroundEffects(hashtable, timing, cardEffectCondition);
+    }
+
+    #endregion
+
+    #region Get skillInfos of cards
+
+    // (P6C1) AS-IS AutoProcessing.cs:993-1021 — the per-CARD-LIST collection scan (the play pipeline feeds it
+    // the card being played, filtered to off-field/off-hand/off-trash/off-security roots). Same filter chain as
+    // GetSkillInfos; `cardSource.PermanentOfThisCard() == null` bridged via ICardEffect.ResolvePermanentOfThisCard
+    // (the established adaptation (2) — the mirror accessor returns a PermanentView).
+    public static List<SkillInfo> GetSkillInfosOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
+    {
+        List<SkillInfo> skillInfos = new List<SkillInfo>();
+
+        #region Effects of the card list
+        foreach (CardSource cardSource in cardSources)
+        {
+            if (ICardEffect.ResolvePermanentOfThisCard(cardSource) == null)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (!cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                skillInfos.Add(new SkillInfo(cardEffect, hashtable, timing));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        return skillInfos;
+    }
+
+    #endregion
+
+    #region Trigger effect processing
+
+    // (P6C1) AS-IS AutoProcessing.cs:18 — the skills excluded from the next drain pass.
+    public List<SkillInfo> skipSkillInfos = new List<SkillInfo>();
+
+    // (P6C1) AS-IS AutoProcessing.cs:572-600, IEnumerator→Task. The AS-IS :574 ShrinkSecurityDigimonDisplay
+    // call is UI (stripped). The empty-stack fast path is exact (the AfterPayCost drain of a play with no
+    // collected cut-in effect is a no-op). The non-empty drain hands the batch to
+    // `availableMultipleSkills.ActivateMultipleSkills(...)` (AS-IS :589-595) — the mirror has NO MultipleSkills
+    // component pool (WindowResolver is the window loop's verified temporary home, and it does not drain this
+    // stack: stage-A design item P6A-STACKED-DRAIN) — STOP, design item RD-P6C1-3
+    // (docs/audit/rebuild_p6_cluster1_notes.md). The AS-IS tail `StackSkillInfos(null, AfterEffectsActivate)`
+    // (:597) is behind the STOP.
+    public async Task TriggeredSkillProcess(bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
+    {
+        // (both parameters are consumed by the AS-IS ActivateMultipleSkills hand-off behind the STOP below)
+        if (StackedSkillInfos.Count > 0)
+        {
+            List<SkillInfo> skillInfos = StackedSkillInfos.Filter(skillInfo => skillInfo != null && !skipSkillInfos.Contains(skillInfo));
+
+            if (skillInfos.Count >= 1)
+            {
+                throw new NotSupportedException(
+                    "STOP: TriggeredSkillProcess collected stacked cut-in skills, but the AS-IS drain " +
+                    "(availableMultipleSkills.ActivateMultipleSkills, AutoProcessing.cs:589-595) has no mirror " +
+                    "MultipleSkills window yet (design item RD-P6C1-3 / P6A-STACKED-DRAIN, " +
+                    "docs/audit/rebuild_p6_cluster1_notes.md).");
+            }
+        }
+
+        await Task.CompletedTask;
+    }
+
+    #endregion
+
+    #region The same effect has already been achieved
+
+    // (P6C1) AS-IS AutoProcessing.cs:624-627 — verbatim (the play pipeline's cut-in skipCondition).
+    public static bool HasExecutedSameEffect(List<SkillInfo> skillInfos, SkillInfo skillInfo)
+    {
+        return skillInfos.Some((skillInfo1) => skillInfo1.CardEffect.IsSameEffect(skillInfo.CardEffect));
     }
 
     #endregion

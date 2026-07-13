@@ -4,42 +4,108 @@
 // CardEffectCommons.CanActivateDecode). The LIVE play-a-source-for-free path is engine plumbing in
 // DeletionReplacementTiming (DecodeOption) + DeletionReplacementGate.TryDecodePlaySourceAsync — this
 // branch is the grant/mirror layer (resolving emits GrantDecode -> hasDecode).
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
-
-using HeadlessDCGO.Engine.Headless.Effects;
-using HeadlessDCGO.Engine.Headless.Services;
-using HeadlessDCGO.Engine.Headless.State;
-
-public sealed partial class KeywordBaseBatch2Effect
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects
 {
-    private CardEffectCanResolveResult CanResolveDecode(
-        CardEffectResolveContext context,
-        CardInstanceState target)
+    using HeadlessDCGO.Engine.Headless.Effects;
+    using HeadlessDCGO.Engine.Headless.Services;
+    using HeadlessDCGO.Engine.Headless.State;
+
+    public sealed partial class KeywordBaseBatch2Effect
     {
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.RemovedFromField, out bool removedFromField)
-            || !removedFromField)
+        private CardEffectCanResolveResult CanResolveDecode(
+            CardEffectResolveContext context,
+            CardInstanceState target)
         {
-            return Failure("Decode requires a field removal event.", "removedFromField", context, target.InstanceId);
-        }
+            if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.RemovedFromField, out bool removedFromField)
+                || !removedFromField)
+            {
+                return Failure("Decode requires a field removal event.", "removedFromField", context, target.InstanceId);
+            }
 
-        if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.RemovedCardId, out HeadlessEntityId removedCardId)
-            || removedCardId != target.InstanceId)
+            if (!context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.RemovedCardId, out HeadlessEntityId removedCardId)
+                || removedCardId != target.InstanceId)
+            {
+                return Failure("Decode requires the keyword target to be removed.", "removedCardId", context, target.InstanceId);
+            }
+
+            // AS-IS !IsByBattle: Decode fires only on a non-battle field-leave (CanTriggerWhenRemoveField).
+            if (context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.DeletedByBattle, out bool deletedByBattle)
+                && deletedByBattle)
+            {
+                return Failure("Decode does not trigger on battle removal.", "deletedByBattle", context, target.InstanceId);
+            }
+
+            if (target.SourceIds.Count < 1)
+            {
+                return Failure("Decode requires at least one digivolution source to play.", "sourceIds", context, target.InstanceId);
+            }
+
+            return CardEffectCanResolveResult.Success("Decode can play a digivolution source for free.", BaseValues(context, target));
+        }
+    }
+}
+
+// (P6 cluster2, purely additive — see file header §"AS-IS mirror" note) old-model CardEffectCommons
+// Hashtable-based siblings (KeyWordEffects/Decode.cs) — a different namespace/type than the
+// KeywordBaseBatch2Effect resolver above.
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
+{
+    using System;
+    using System.Linq;
+    using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Headless.Choices;
+    using HeadlessDCGO.Engine.Headless.Effects;
+    using HeadlessDCGO.Engine.Headless.Services;
+
+    public static partial class CardEffectCommons
+    {
+        private static bool CanSelectDecodeSourceCardCondition(CardSource source, Func<CardSource, bool> sourceCondition, ICardEffect activateClass) =>
+            source.IsDigimon && sourceCondition(source) && CanPlayAsNewPermanent(cardSource: source, payCost: false, cardEffect: activateClass);
+
+        /// <summary>(P6 cluster2) AS-IS <c>CanActivateDecode</c> (KeyWordEffects/Decode.cs:16, verbatim).</summary>
+        public static bool CanActivateDecode(CardSource cardSource, Func<CardSource, bool> sourceCondition, ICardEffect activateClass) =>
+            IsExistOnBattleAreaDigimon(cardSource) &&
+            ICardEffect.ResolvePermanentOfThisCard(cardSource).DigivolutionCards.Some(source => CanSelectDecodeSourceCardCondition(source, sourceCondition, activateClass));
+
+        /// <summary>(P6 cluster2) AS-IS <c>DecodeProcess</c> (KeyWordEffects/Decode.cs:27): owner selects 1
+        /// matching digivolution card and plays it for free.</summary>
+        public static async Task DecodeProcess(CardSource cardSource, Func<CardSource, bool> sourceCondition, string[] decodeStrings, ICardEffect activateClass)
         {
-            return Failure("Decode requires the keyword target to be removed.", "removedCardId", context, target.InstanceId);
-        }
+            Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
+            var selectedCards = new System.Collections.Generic.List<CardSource>();
 
-        // AS-IS !IsByBattle: Decode fires only on a non-battle field-leave (CanTriggerWhenRemoveField).
-        if (context.EffectContext.TryGetValue(KeywordBaseBatch2ContextKeys.DeletedByBattle, out bool deletedByBattle)
-            && deletedByBattle)
-        {
-            return Failure("Decode does not trigger on battle removal.", "deletedByBattle", context, target.InstanceId);
-        }
+            var selectCardEffect = GManager.instance!.GetComponent<SelectCardEffect>();
+            selectCardEffect.SetUp(
+                canTargetCondition: source => CanSelectDecodeSourceCardCondition(source, sourceCondition, activateClass),
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                canNoSelect: () => true,
+                selectCardCoroutine: (CardSource source) => { selectedCards.Add(source); return Task.CompletedTask; },
+                afterSelectCardCoroutine: null,
+                message: $"Select 1 {decodeStrings[0]} digivolution card to play.",
+                maxCount: 1,
+                canEndNotMax: false,
+                isShowOpponent: true,
+                mode: SelectCardEffect.Mode.Custom,
+                root: SelectCardEffect.Root.Custom,
+                customRootCardList: permanent.DigivolutionCards.ToList(),
+                canLookReverseCard: true,
+                selectPlayer: cardSource.Owner,
+                cardEffect: activateClass);
+            selectCardEffect.SetUpCustomMessage(
+                $"Select 1 {decodeStrings[0]} digivolution card to play.",
+                $"The opponent is selecting 1 {decodeStrings[0]} digivolution card to play.");
+            selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
 
-        if (target.SourceIds.Count < 1)
-        {
-            return Failure("Decode requires at least one digivolution source to play.", "sourceIds", context, target.InstanceId);
-        }
+            await selectCardEffect.Activate().ConfigureAwait(false);
 
-        return CardEffectCanResolveResult.Success("Decode can play a digivolution source for free.", BaseValues(context, target));
+            await PlayPermanentCards(
+                cardSources: selectedCards,
+                sourceCard: cardSource,
+                payCost: false,
+                isTapped: false,
+                root: ChoiceZone.DigivolutionCards,
+                activateETB: true).ConfigureAwait(false);
+        }
     }
 }

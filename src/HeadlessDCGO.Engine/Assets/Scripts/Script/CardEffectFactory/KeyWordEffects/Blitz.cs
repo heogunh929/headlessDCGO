@@ -23,7 +23,7 @@ public partial class CardEffectFactory
         bool isWhenDigivolving,
         ICardEffect rootCardEffect = null)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(new List<CardSource>() { card });
+        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(card.Context, card.InstanceId, card.Owner);
 
         bool CanUseCondition()
         {

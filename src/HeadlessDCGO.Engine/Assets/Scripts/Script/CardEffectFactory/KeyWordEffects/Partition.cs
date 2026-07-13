@@ -94,8 +94,8 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             List<CardSource> sourceOneCard = new List<CardSource>();
             List<CardSource> sourceTwoCard = new List<CardSource>();
 
-            sourceOneCard = targetPermanent.DigivolutionCards.Clone();
-            sourceTwoCard = targetPermanent.DigivolutionCards.Clone();
+            sourceOneCard = targetPermanent.DigivolutionCards.ToList();
+            sourceTwoCard = targetPermanent.DigivolutionCards.ToList();
 
             #region Setup Partition Cards
 
@@ -149,7 +149,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             ActivateClass activateClass = new ActivateClass();
             activateClass.SetUpICardEffect("Partition", CanUseCondition, card);
             activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
-            activateClass.SetHashString($"Partition_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+            activateClass.SetHashString($"Partition_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
             activateClass.SetIsInheritedEffect(isInheritedEffect);
 
             string EffectDiscription()

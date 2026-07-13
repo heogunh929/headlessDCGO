@@ -58,6 +58,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 // docs/audit/effect_model_rebuild_design_2026-07-13.md §11.3).
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
+    using System.Collections;
     using System.Threading.Tasks;
     using HeadlessDCGO.Engine.Headless.Effects;
 
@@ -68,6 +69,52 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         {
             GainPierce(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
             await Task.CompletedTask;
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>CanTriggerPierce</c> (KeyWordEffects/Pierce.cs:9, verbatim): this
+        /// Digimon's battle deleted the opponent's Digimon and this Digimon alone survived.</summary>
+        public static bool CanTriggerPierce(Hashtable hashtable, Permanent piercePermanent)
+        {
+            if (piercePermanent?.TopCard is null)
+            {
+                return false;
+            }
+
+            return CanTriggerWhenDeleteOpponentDigimonByBattle(
+                hashtable,
+                winnerCondition: permanent => permanent.cardSources.Contains(piercePermanent.TopCard),
+                loserCondition: permanent => IsOpponentPermanent(permanent, piercePermanent.TopCard),
+                isOnlyWinnerSurvive: true);
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>CanActivatePierce</c> (KeyWordEffects/Pierce.cs:19, verbatim): the
+        /// current attack is this Digimon's, security still exists, and the security check has not already
+        /// been re-enabled.</summary>
+        public static bool CanActivatePierce(Permanent permanent)
+        {
+            if (permanent?.TopCard is null)
+            {
+                return false;
+            }
+
+            var attackProcess = GManager.instance!.attackProcess;
+            if (attackProcess.AttackingPermanent?.TopCard is null)
+            {
+                return false;
+            }
+
+            return IsPermanentExistsOnBattleArea(permanent)
+                && new Player(permanent.TopCard.Context, permanent.TopCard.Owner).Enemy!.SecurityCards.Count >= 1
+                && attackProcess.AttackingPermanent.cardSources.Contains(permanent.TopCard)
+                && !attackProcess.DoSecurityCheck;
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>PierceProcess</c> (KeyWordEffects/Pierce.cs:45, verbatim): re-enable
+        /// the security check for this attack.</summary>
+        public static Task PierceProcess()
+        {
+            GManager.instance!.attackProcess.DoSecurityCheck = true;
+            return Task.CompletedTask;
         }
     }
 }

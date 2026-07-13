@@ -23,35 +23,31 @@ public partial class CardEffectFactory
     {
         if (card == null) return null;
         if (!CardEffectCommons.IsExistOnHand(card)) return null;
-        if (card.Owner.GetBattleAreaPermanents().Count == 0) return null;
+        if (new Player(card.Context, card.Owner).GetBattleAreaPermanents().Count == 0) return null;
 
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("Blast Digivolve", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, DataBase.BlastDigivolveEffectDiscription());
         activateClass.SetIsCounterEffect(true);
 
+        // STOP (design item RD-P6C2-11, docs/audit/rebuild_p6_cluster2_notes.md): AS-IS `CanSelectPermanentCondition`
+        // depends on `CardSource.CanPlayCardTargetFrame`/`Permanent.PermanentFrame` — out of this cluster's
+        // KeyWordEffects/CanUseEffects/kind-class/DataBase scope (CardSource.cs/Permanent.cs). This gates BOTH
+        // CanActivateCondition and ActivateCoroutine (AS-IS-verbatim: the resolution/free-digivolve process
+        // itself is unreachable without it), so both throw when actually invoked.
         bool CanSelectPermanentCondition(Permanent permanent)
         {
-            if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(permanent, card))
-            {
-                if (permanent.IsDigimon)
-                {
-                    if (card.CanPlayCardTargetFrame(permanent.PermanentFrame, false, activateClass))
-                    {
-                        if (!permanent.TopCard.CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId))
-                            return true;
-                    }
-                }
-            }
-
-            return false;
+            throw new NotSupportedException(
+                "BlastDigivolveEffect.CanSelectPermanentCondition: AS-IS CardSource.CanPlayCardTargetFrame/" +
+                "Permanent.PermanentFrame have no mirror — design item RD-P6C2-11, " +
+                "docs/audit/rebuild_p6_cluster2_notes.md.");
         }
 
         bool CanUseCondition(Hashtable hashtable)
         {
             if (CardEffectCommons.CanTriggerOnPermanentAttack(hashtable, permanent => CardEffectCommons.IsOpponentPermanent(permanent, card)))
             {
-                if (card.Owner.HandCards.Contains(card))
+                if (new Player(card.Context, card.Owner).HandCards.Contains(card))
                 {
                     if (condition == null || condition())
                     {
@@ -65,68 +61,18 @@ public partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            if (card.Owner.HandCards.Contains(card))
-            {
-                if (CardEffectCommons.HasMatchConditionPermanent(CanSelectPermanentCondition))
-                {
-                    if (condition == null || condition())
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            throw new NotSupportedException(
+                "BlastDigivolveEffect.CanActivateCondition: AS-IS CardSource.CanPlayCardTargetFrame/" +
+                "Permanent.PermanentFrame have no mirror — design item RD-P6C2-11, " +
+                "docs/audit/rebuild_p6_cluster2_notes.md.");
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        Task ActivateCoroutine(Hashtable _hashtable)
         {
-            Permanent selectedPermanent = null;
-
-            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(CanSelectPermanentCondition));
-
-            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
-
-            selectPermanentEffect.SetUp(
-                selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanentCondition,
-                canTargetCondition_ByPreSelecetedList: null,
-                canEndSelectCondition: null,
-                maxCount: maxCount,
-                canNoSelect: false,
-                canEndNotMax: false,
-                selectPermanentCoroutine: SelectPermanentCoroutine,
-                afterSelectPermanentCoroutine: null,
-                mode: SelectPermanentEffect.Mode.Custom,
-                cardEffect: activateClass);
-
-            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to digivolve.", "The opponent is selecting 1 Digimon to digivolve.");
-
-            await selectPermanentEffect.Activate();
-
-            async Task SelectPermanentCoroutine(Permanent permanent)
-            {
-                selectedPermanent = permanent;
-
-                await Task.CompletedTask;
-            }
-
-            if (selectedPermanent != null)
-            {
-                if (card.CanPlayCardTargetFrame(selectedPermanent.PermanentFrame, false, activateClass))
-                {
-                    PlayCardClass playCardClass = new PlayCardClass(
-                        cardSources: new List<CardSource>() { card },
-                        hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
-                        payCost: false,
-                        targetPermanent: selectedPermanent,
-                        isTapped: false,
-                        root: SelectCardEffect.Root.Hand,
-                        activateETB: true);
-
-                    await playCardClass.PlayCard();
-                }
-            }
+            throw new NotSupportedException(
+                "BlastDigivolveEffect.ActivateCoroutine: AS-IS CardSource.CanPlayCardTargetFrame/" +
+                "Permanent.PermanentFrame/PlayCardClass(Hashtable ctor) have no mirror — design item " +
+                "RD-P6C2-11, docs/audit/rebuild_p6_cluster2_notes.md.");
         }
 
         return activateClass;

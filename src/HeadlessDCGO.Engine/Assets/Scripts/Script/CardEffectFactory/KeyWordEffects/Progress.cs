@@ -76,7 +76,7 @@ public partial class CardEffectFactory
             {
                 if (cardEffect.EffectSourceCard != null)
                 {
-                    if (CardEffectCommons.IsOpponentEffect(cardEffect, card))
+                    if (CardEffectCommons.IsOpponentEffect(cardEffect.EffectSourceCard, card))
                     {
                         return true;
                     }

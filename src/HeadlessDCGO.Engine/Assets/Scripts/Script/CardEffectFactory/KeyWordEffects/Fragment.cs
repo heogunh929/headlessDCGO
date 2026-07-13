@@ -45,7 +45,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect(effectName, CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDiscription);
-        activateClass.SetHashString($"Fragment_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Fragment_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)

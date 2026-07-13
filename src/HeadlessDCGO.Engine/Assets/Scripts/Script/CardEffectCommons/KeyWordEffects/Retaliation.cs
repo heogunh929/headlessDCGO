@@ -45,6 +45,9 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 // docs/audit/effect_model_rebuild_design_2026-07-13.md §11.3).
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
+    using System;
+    using System.Collections;
+    using System.Collections.Generic;
     using System.Threading.Tasks;
     using HeadlessDCGO.Engine.Headless.Effects;
 
@@ -55,6 +58,63 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         {
             GainRetaliation(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
             await Task.CompletedTask;
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>CanActivateRetaliation</c> (KeyWordEffects/Retaliation.cs:10, verbatim):
+        /// this Digimon (now in the trash) was on the losing side of the battle that just deleted it, and the
+        /// opponent's Digimon is identifiable among either side of that battle (accounting for ties).</summary>
+        public static bool CanActivateRetaliation(Hashtable hashtable)
+        {
+            List<Hashtable>? hashtables = GetHashtablesFromHashtable(hashtable);
+            if (hashtables is null)
+            {
+                return false;
+            }
+
+            foreach (Hashtable hashtable1 in hashtables)
+            {
+                CardSource? topCard = GetTopCardFromOneHashtable(hashtable1);
+                if (topCard is null || !IsExistOnTrash(topCard))
+                {
+                    continue;
+                }
+
+                IBattle? battle = GetBattleFromHashtable(hashtable);
+                Hashtable? battleHashtable = battle?.hashtable;
+                if (battleHashtable is null)
+                {
+                    continue;
+                }
+
+                List<Permanent>? loserPermanents = GetLoserPermanentsFromHashtable(battleHashtable);
+                if (loserPermanents is null || !loserPermanents.Exists(permanent => permanent.cardSources.Contains(topCard)))
+                {
+                    continue;
+                }
+
+                if (loserPermanents.Exists(permanent => IsOpponentPermanent(permanent, topCard)))
+                {
+                    return true;
+                }
+
+                List<Permanent>? winnerPermanents = GetWinnerPermanentsRealFromHashtable(battleHashtable);
+                if (winnerPermanents is not null && winnerPermanents.Exists(permanent => IsOpponentPermanent(permanent, topCard)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>RetaliationProcess</c> (KeyWordEffects/Retaliation.cs:72): delete the
+        /// opposing Digimon this card was battling. STOP — <c>DestroyPermanentsClass</c> (the AS-IS batch-delete
+        /// helper the process delegates to) has no mirror; design item RD-P6C2-2.</summary>
+        public static Task RetaliationProcess(Hashtable hashtable, ICardEffect activateClass)
+        {
+            throw new NotSupportedException(
+                "RetaliationProcess: AS-IS DestroyPermanentsClass has no mirror batch-delete primitive yet — " +
+                "design item RD-P6C2-2, docs/audit/rebuild_p6_cluster2_notes.md.");
         }
     }
 }

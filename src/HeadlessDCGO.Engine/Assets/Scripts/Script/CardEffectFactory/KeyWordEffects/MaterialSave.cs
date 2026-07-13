@@ -20,7 +20,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect($"Material Save {materialSaveCount}", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
-        activateClass.SetHashString($"MaterialSave_{card.CardID}");
+        activateClass.SetHashString($"MaterialSave_{card.CardNumber}");
 
         string EffectDiscription()
         {
@@ -29,7 +29,13 @@ public partial class CardEffectFactory
 
         bool CanSelectCardCondition(CardSource cardSource)
         {
-            return card.IsContainDigiXrosCondition(cardSource);
+            // STOP: AS-IS `card.IsContainDigiXrosCondition(cardSource)` (CardSource.cs:3422) has no mirror —
+            // CardSource.cs is out of this cluster's edit scope (heavy DigiXros-condition scan: digiXrosCondition
+            // property + IAddDigiXrosConditionEffect scan, itself unported) — design item RD-P6C2-4,
+            // docs/audit/rebuild_p6_cluster2_notes.md.
+            throw new NotSupportedException(
+                "MaterialSaveEffect.CanSelectCardCondition: AS-IS CardSource.IsContainDigiXrosCondition has no " +
+                "mirror — design item RD-P6C2-4, docs/audit/rebuild_p6_cluster2_notes.md.");
         }
 
         bool CanSelectPermanentCondition(Permanent permanent)

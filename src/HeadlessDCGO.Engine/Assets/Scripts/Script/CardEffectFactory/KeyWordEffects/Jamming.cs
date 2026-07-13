@@ -54,7 +54,7 @@ public partial class CardEffectFactory
             {
                 if (DefendingCard != null)
                 {
-                    if (DefendingCard == GManager.instance.attackProcess.SecurityDigimon)
+                    if (DefendingCard.InstanceId == GManager.instance.attackProcess.SecurityDigimon)
                     {
                         return true;
                     }

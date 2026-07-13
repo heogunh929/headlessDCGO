@@ -19,7 +19,7 @@ public partial class CardEffectFactory
     #region Trigger effect of [Retaliation] on oneself
     public static ICardEffect RetaliationSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, bool isLinkedEffect = false)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(new List<CardSource>() { card });
+        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(card.Context, card.InstanceId, card.Owner);
 
         bool CanUseCondition()
         {

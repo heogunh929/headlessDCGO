@@ -1,15 +1,30 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/BlastDNADigivolution.cs
 // (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS BlastDNADigivolution.cs factory partial.
 // AS-IS declares a top-level `BlastDNACondition` (name + Permanents + CardSources holder). The MIRROR ALREADY HAS
-// a `BlastDNACondition` (record, namespace ...CardEffectCommons — CardPortingFramework.cs), so it is NOT redeclared
-// here (its shape differs; the body field accesses are masked verbatim-missing members — see missing-log).
+// a `BlastDNACondition` (record, namespace ...CardEffectCommons — CardPortingFramework.cs); (P6C1) that record
+// now carries the AS-IS shape ADDITIVELY (Name/Permanents/CardSources + the `(string name)` ctor), so the body
+// reads it verbatim.
 // ADAPTATION (substrate only; logic verbatim):
 //   * coroutine `IEnumerator ActivateCoroutine` (has yields) -> `async Task ActivateCoroutine`; nested
 //     `IEnumerator Select*Coroutine` -> `async Task Select*Coroutine`; `yield return
 //     ContinuousController.instance.StartCoroutine(X)` -> `await X`; lone `yield return null` -> `await Task.CompletedTask;`.
 //   * selectedCardSource.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(selectedCardSource).
 //   * stripped `using UnityEngine;` / `using Photon.Pun;`.
+//   * (P6C1) `card.Owner.HandCards` (a Player list PROPERTY on the bare mirror HeadlessPlayerId) rides the
+//     established `new Player(card.Context, card.Owner).HandCards` route; `card.Owner.GetBattleAreaPermanents()`
+//     rides the PlayerIdAsIsExtensions bridge (both = the BT2_023 idiom).
+//   * (P6C1) the W4 SelectPermanentEffect.SetUp canTargetCondition is the established
+//     Func<HeadlessEntityId,bool> id idiom — `CanSelectPermanentById` adapts the VERBATIM AS-IS
+//     Permanent predicate (the BT2_097 pattern).
+//   * (P6C1) STOP (design items RD-P6C1-7/-1/-8/-2, docs/audit/rebuild_p6_cluster1_notes.md): the
+//     hand-material pick + jogress-frame play inside SelectPermanentCoroutine — SelectHandEffect (942-line
+//     component, no mirror), the field-frame model (PreferredFrame/fieldCardFrames/PermanentFrame),
+//     CardObjectController.CreateNewPermanent/AddHandCard zone statics, and CardSource.CanPlayJogress (the
+//     play-cost/requirement engine) are all unported; the AS-IS remainder is preserved as comments at the STOP.
 // Replaces the monolith's invented BlastDNADigivolveEffect.
+// (P6C1 FINDING, logged in the notes doc: tests/G9-048.SpecialPlay.Tests expects this factory to register a
+// SpecialPlayRecipe (the pre-P4 monolith behavior); the AS-IS-verbatim factory returns an ActivateClass and
+// registers nothing — that test's anchor moved, NOT a cluster-1 build item.)
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
@@ -19,6 +34,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public partial class CardEffectFactory
 {
@@ -28,7 +44,7 @@ public partial class CardEffectFactory
         if (card == null) return null;
         if (!CardEffectCommons.IsExistOnHand(card)) return null;
         if (card.Owner.GetBattleAreaPermanents().Count == 0) return null;
-        if (card.Owner.HandCards.Count < 2) return null;
+        if (new Player(card.Context, card.Owner).HandCards.Count < 2) return null;
 
         List<Permanent> fieldPermanents = new List<Permanent>();
         List<Permanent> permanentSources = new List<Permanent>();
@@ -59,7 +75,7 @@ public partial class CardEffectFactory
             foreach (BlastDNACondition DNACondition in blastDNAConditions)
             {
                 DNACondition.Permanents = fieldPermanents.Filter(permanent => permanent.TopCard.EqualsCardName(DNACondition.Name));
-                DNACondition.CardSources = card.Owner.HandCards.Filter(cardSource => cardSource.EqualsCardName(DNACondition.Name));
+                DNACondition.CardSources = new Player(card.Context, card.Owner).HandCards.Filter(cardSource => cardSource.EqualsCardName(DNACondition.Name));
 
                 permanentSources.AddRange(DNACondition.Permanents);
                 handSources.AddRange(DNACondition.CardSources);
@@ -96,6 +112,13 @@ public partial class CardEffectFactory
             return false;
         }
 
+        // (P6C1) Id-shape adapter for the W4-bridged SetUp call site (canTargetCondition takes
+        // Func<HeadlessEntityId,bool>): resolve the mirror Permanent for the candidate id (the BT2_097 idiom)
+        // and evaluate the VERBATIM AS-IS predicate above.
+        bool CanSelectPermanentById(HeadlessEntityId id) =>
+            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+            && CanSelectPermanent(new Permanent(card.Context, id, rec.OwnerId));
+
         bool CanSelectHandSource(CardSource cardSource)
         {
             return handSources.Contains(cardSource);
@@ -105,7 +128,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.CanTriggerOnPermanentAttack(hashtable, permanent => CardEffectCommons.IsOpponentPermanent(permanent, card)))
             {
-                if (card.Owner.HandCards.Contains(card))
+                if (new Player(card.Context, card.Owner).HandCards.Contains(card))
                 {
                     if (condition == null || condition())
                     {
@@ -119,7 +142,7 @@ public partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            if (card.Owner.HandCards.Contains(card))
+            if (new Player(card.Context, card.Owner).HandCards.Contains(card))
             {
                 if (HasValidDNATargets())
                 {
@@ -144,7 +167,7 @@ public partial class CardEffectFactory
 
             selectPermanentEffect.SetUp(
                 selectPlayer: card.Owner,
-                canTargetCondition: CanSelectPermanent,
+                canTargetCondition: CanSelectPermanentById,
                 canTargetCondition_ByPreSelecetedList: null,
                 canEndSelectCondition: null,
                 maxCount: maxCount,
@@ -170,87 +193,102 @@ public partial class CardEffectFactory
 
                 maxCount = Math.Min(1, handSources.Count);
 
-                SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+                // (unused until the STOP below lifts — kept as AS-IS state)
+                _ = selectedCardSource;
+                _ = (Func<CardSource, bool>)CanSelectHandSource;
 
-                selectHandEffect.SetUp(
-                    selectPlayer: card.Owner,
-                    canTargetCondition: CanSelectHandSource,
-                    canTargetCondition_ByPreSelecetedList: null,
-                    canEndSelectCondition: null,
-                    maxCount: maxCount,
-                    canNoSelect: false,
-                    canEndNotMax: false,
-                    isShowOpponent: true,
-                    selectCardCoroutine: SelectCardCoroutine,
-                    afterSelectCardCoroutine: null,
-                    mode: SelectHandEffect.Mode.Custom,
-                    cardEffect: activateClass);
-
-                selectHandEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting 1 Digimon to DNA digivolve.");
-
-                await selectHandEffect.Activate();
-            }
-
-            async Task SelectCardCoroutine(CardSource cardSource)
-            {
-                selectedCardSource = cardSource;
-
-                Permanent playedPermanent;
-                int frameID = -1;
-
-                FieldCardFrame preferredFrame = selectedCardSource.PreferredFrame();
-
-                if (preferredFrame != null)
-                {
-                    frameID = preferredFrame.FrameID;
-                }
-
-                if (0 <= frameID && frameID < card.Owner.fieldCardFrames.Count)
-                {
-                    playedPermanent = new Permanent(new List<CardSource>() { selectedCardSource }) { IsSuspended = false };
-
-                    await CardObjectController.CreateNewPermanent(playedPermanent, frameID);
-                }
-
-                int[] JogressEvoRootsFrameIDs = { 0, 0 };
-
-                if (selectedPermanent.TopCard.EqualsCardName(blastDNAConditions[0].Name))
-                {
-                    JogressEvoRootsFrameIDs[0] = selectedPermanent.PermanentFrame.FrameID;
-                    JogressEvoRootsFrameIDs[1] = ICardEffect.ResolvePermanentOfThisCard(selectedCardSource).PermanentFrame.FrameID;
-                }
-                else
-                {
-                    JogressEvoRootsFrameIDs[0] = ICardEffect.ResolvePermanentOfThisCard(selectedCardSource).PermanentFrame.FrameID;
-                    JogressEvoRootsFrameIDs[1] = selectedPermanent.PermanentFrame.FrameID;
-                }
-
-                if (card.CanPlayJogress(true))
-                {
-                    PlayCardClass playCard = new PlayCardClass(
-                        cardSources: new List<CardSource>() { card },
-                        hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
-                        payCost: true,
-                        targetPermanent: null,
-                        isTapped: false,
-                        root: SelectCardEffect.Root.Hand,
-                        activateETB: true);
-
-                    playCard.SetJogress(JogressEvoRootsFrameIDs);
-
-                    await playCard.PlayCard();
-
-                    foreach (BlastDNACondition DNACondition in blastDNAConditions)
-                    {
-                        DNACondition.Permanents = new List<Permanent>();
-                        DNACondition.CardSources = new List<CardSource>();
-                    }
-                }
-                else
-                {
-                    await CardObjectController.AddHandCard(selectedCardSource, false);
-                }
-
+                // (P6C1) STOP — the AS-IS remainder (:173-254) is the hand-material pick + the jogress-frame
+                // play, four unported subsystems deep: SelectHandEffect (942-line component — RD-P6C1-7), the
+                // field-frame model (PreferredFrame/fieldCardFrames/PermanentFrame — RD-P6C1-1),
+                // CardObjectController.CreateNewPermanent/AddHandCard + the `new Permanent(List<CardSource>)`
+                // ctor (zone-move statics — RD-P6C1-8), and CardSource.CanPlayJogress (the play-cost/
+                // requirement engine — RD-P6C1-2). AS-IS body preserved verbatim:
+                //
+                //     SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+                //
+                //     selectHandEffect.SetUp(
+                //         selectPlayer: card.Owner,
+                //         canTargetCondition: CanSelectHandSource,
+                //         canTargetCondition_ByPreSelecetedList: null,
+                //         canEndSelectCondition: null,
+                //         maxCount: maxCount,
+                //         canNoSelect: false,
+                //         canEndNotMax: false,
+                //         isShowOpponent: true,
+                //         selectCardCoroutine: SelectCardCoroutine,
+                //         afterSelectCardCoroutine: null,
+                //         mode: SelectHandEffect.Mode.Custom,
+                //         cardEffect: activateClass);
+                //
+                //     selectHandEffect.SetUpCustomMessage("Select 1 Digimon to DNA digivolve.", "The opponent is selecting 1 Digimon to DNA digivolve.");
+                //
+                //     yield return ContinuousController.instance.StartCoroutine(selectHandEffect.Activate());
+                //
+                // IEnumerator SelectCardCoroutine(CardSource cardSource)
+                // {
+                //     selectedCardSource = cardSource;
+                //
+                //     Permanent playedPermanent;
+                //     int frameID = -1;
+                //
+                //     FieldCardFrame preferredFrame = selectedCardSource.PreferredFrame();
+                //
+                //     if (preferredFrame != null)
+                //     {
+                //         frameID = preferredFrame.FrameID;
+                //     }
+                //
+                //     if (0 <= frameID && frameID < card.Owner.fieldCardFrames.Count)
+                //     {
+                //         playedPermanent = new Permanent(new List<CardSource>() { selectedCardSource }) { IsSuspended = false };
+                //
+                //         yield return ContinuousController.instance.StartCoroutine(CardObjectController.CreateNewPermanent(playedPermanent, frameID));
+                //     }
+                //
+                //     int[] JogressEvoRootsFrameIDs = { 0, 0 };
+                //
+                //     if (selectedPermanent.TopCard.EqualsCardName(blastDNAConditions[0].Name))
+                //     {
+                //         JogressEvoRootsFrameIDs[0] = selectedPermanent.PermanentFrame.FrameID;
+                //         JogressEvoRootsFrameIDs[1] = selectedCardSource.PermanentOfThisCard().PermanentFrame.FrameID;
+                //     }
+                //     else
+                //     {
+                //         JogressEvoRootsFrameIDs[0] = selectedCardSource.PermanentOfThisCard().PermanentFrame.FrameID;
+                //         JogressEvoRootsFrameIDs[1] = selectedPermanent.PermanentFrame.FrameID;
+                //     }
+                //
+                //     if (card.CanPlayJogress(true))
+                //     {
+                //         PlayCardClass playCard = new PlayCardClass(
+                //             cardSources: new List<CardSource>() { card },
+                //             hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
+                //             payCost: true,
+                //             targetPermanent: null,
+                //             isTapped: false,
+                //             root: SelectCardEffect.Root.Hand,
+                //             activateETB: true);
+                //
+                //         playCard.SetJogress(JogressEvoRootsFrameIDs);
+                //
+                //         yield return ContinuousController.instance.StartCoroutine(playCard.PlayCard());
+                //
+                //         foreach (BlastDNACondition DNACondition in blastDNAConditions)
+                //         {
+                //             DNACondition.Permanents = new List<Permanent>();
+                //             DNACondition.CardSources = new List<CardSource>();
+                //         }
+                //     }
+                //     else
+                //     {
+                //         yield return ContinuousController.instance.StartCoroutine(CardObjectController.AddHandCard(selectedCardSource, false));
+                //     }
+                // }
+                throw new NotSupportedException(
+                    "STOP: [Blast DNA Digivolve] hand-material pick + jogress-frame play — " +
+                    "SelectHandEffect / field-frame model / CardObjectController zone statics / " +
+                    "CardSource.CanPlayJogress are unported (design items RD-P6C1-7/-1/-8/-2, " +
+                    "docs/audit/rebuild_p6_cluster1_notes.md).");
             }
         }
 

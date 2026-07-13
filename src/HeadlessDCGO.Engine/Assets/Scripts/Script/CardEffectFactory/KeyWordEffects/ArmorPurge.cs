@@ -21,7 +21,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("Armor Purge", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, DataBase.ArmorPurgeEffectDiscription());
-        activateClass.SetHashString($"ArmorPurge_{card.CardID}");
+        activateClass.SetHashString($"ArmorPurge_{card.CardNumber}");
 
         bool CanUseCondition(Hashtable hashtable)
         {

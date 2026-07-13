@@ -53,6 +53,11 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 
     public static partial class CardEffectCommons
     {
+        /// <summary>(P6 cluster2) AS-IS-signature <c>CanActivateBlitz(cardSource, activateClass)</c> overload —
+        /// AS-IS itself ignores <c>activateClass</c> in this gate (Blitz.cs:10-17 reads only the card/board
+        /// state); delegates to the verified substrate <c>CanActivateBlitz(cardSource)</c> (CardEffectCommons.cs).</summary>
+        public static bool CanActivateBlitz(CardSource cardSource, ICardEffect activateClass) => CanActivateBlitz(cardSource);
+
         #region Effect process of [Blitz] (AS-IS KeyWordEffects/Blitz.cs:31)
 
         /// <summary>(BRIDGE W3) AS-IS <c>BlitzProcess(cardSource, activateClass, beforeOnAttackCoroutine)</c> —

@@ -47,7 +47,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect(effectName, CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDiscription);
-        activateClass.SetHashString($"Decoy_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Decoy_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)
@@ -61,7 +61,7 @@ public partial class CardEffectFactory
 
         bool CanUseCondition(Hashtable hashtable)
         {
-            bool CardEffectCondition(ICardEffect cardEffect) => cardEffect.EffectSourceCard.Owner == card.Owner.Enemy;
+            bool CardEffectCondition(ICardEffect cardEffect) => cardEffect.EffectSourceCard.Owner == new Player(card.Context, card.Owner).Enemy?.PlayerId;
 
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent))
             {

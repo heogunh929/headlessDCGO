@@ -19,7 +19,7 @@ public partial class CardEffectFactory
     #region Trigger effect of [Fortitude] on oneself
     public static ActivateClass FortitudeSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition)
     {
-        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(new List<CardSource>() { card });
+        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card) ?? new Permanent(card.Context, card.InstanceId, card.Owner);
 
         bool CanUseCondition()
         {
@@ -49,7 +49,7 @@ public partial class CardEffectFactory
         ActivateClass activateClass = new ActivateClass();
         activateClass.SetUpICardEffect("Fortitude", CanUseCondition, card);
         activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, DataBase.FortitudeEffectDiscription());
-        activateClass.SetHashString($"Fortitude_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetHashString($"Fortitude_{card.CardNumber}" + (isInheritedEffect ? "_inherited" : ""));
         activateClass.SetIsInheritedEffect(isInheritedEffect);
 
         if (rootCardEffect != null)

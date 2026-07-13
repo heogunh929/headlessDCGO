@@ -141,6 +141,31 @@ public sealed class Player
         }
     }
 
+    /// <summary>(P6C1) AS-IS <c>Player.LibraryCards</c> (Player.cs:514, a public list field) — this player's
+    /// deck as live <see cref="CardSource"/> views (same zone-read shape as <see cref="HandCards"/>). Consumed
+    /// by the mirror PlayCardClass root resolution (AS-IS CardController.cs:329).</summary>
+    public List<CardSource> LibraryCards
+    {
+        get
+        {
+            if (Context.ZoneMover is not IZoneStateReader zones)
+            {
+                return new List<CardSource>();
+            }
+
+            return zones.GetCards(PlayerId, ChoiceZone.Library).ToArray()
+                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
+                .ToList();
+        }
+    }
+
+    /// <summary>(P6C1) AS-IS <c>Player.MaxMemoryCost</c> (Player.cs:1127-1146): the most memory this player can
+    /// pay before the gauge pins at the opponent's +10 — AS-IS <c>PlayerID==0 ? |10 − Memory| : |Memory + 10|</c>
+    /// on the seat-absolute gauge. Re-expressed on the verified player-relative read (<see cref="MemoryForPlayer"/>,
+    /// whose sign mapping is anchored by <see cref="AddMemory"/>: AS-IS P0 gain SUBTRACTS ⇒ P0 favor = −Memory):
+    /// both AS-IS branches reduce to <c>|MemoryForPlayer + 10|</c> (favor −10 ⇒ 0 payable, favor +10 ⇒ 20).</summary>
+    public int MaxMemoryCost => Math.Abs(MemoryForPlayer + 10);
+
     /// <summary>(P6 stage A) AS-IS <c>Player.EffectList(EffectTiming)</c> (Player.cs:830) — the effects
     /// GRANTED to this player (AS-IS PermanentEffects / UntilEndBattleEffects / UntilEachTurnEndEffects /…
     /// buckets fed by GiveEffectToPlayer). The mirror has NO new-model player-grant store yet: every current
@@ -338,5 +363,15 @@ public static class PlayerIdAsIsExtensions
             ?? throw new InvalidOperationException(
                 "GetBattleAreaDigimons needs a live match context — call inside a match scope.");
         return new Player(context, player).GetBattleAreaDigimons();
+    }
+
+    /// <summary>(P6C1) AS-IS card idiom <c>card.Owner.GetBattleAreaPermanents()</c> (BlastDNADigivolution.cs:29
+    /// pattern): same ambient-context shape as <see cref="GetBattleAreaDigimons"/>.</summary>
+    public static List<Permanent> GetBattleAreaPermanents(this HeadlessPlayerId player)
+    {
+        EngineContext context = AmbientMatchContext.Current
+            ?? throw new InvalidOperationException(
+                "GetBattleAreaPermanents needs a live match context — call inside a match scope.");
+        return new Player(context, player).GetBattleAreaPermanents();
     }
 }

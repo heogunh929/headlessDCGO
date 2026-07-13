@@ -35,6 +35,9 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 // docs/audit/effect_model_rebuild_design_2026-07-13.md §11.3).
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
+    using System;
+    using System.Collections;
+    using System.Collections.Generic;
     using System.Threading.Tasks;
     using HeadlessDCGO.Engine.Headless.Effects;
 
@@ -45,6 +48,69 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         {
             GainAlliance(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
             await Task.CompletedTask;
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>CanActivateAlliance</c> (KeyWordEffects/Alliance.cs:10, verbatim).</summary>
+        public static bool CanActivateAlliance(Hashtable hashtable, CardSource card)
+        {
+            bool CanSelectPermanentCondition(Permanent permanent) =>
+                IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
+                && permanent.InstanceId != ICardEffect.ResolvePermanentOfThisCard(card)?.InstanceId
+                && CanActivateSuspendCostEffect(permanent.TopCard);
+
+            return IsExistOnBattleArea(card) && HasMatchConditionPermanent(card, CanSelectPermanentCondition);
+        }
+
+        /// <summary>(P6 cluster2) AS-IS <c>AllianceProcess</c> (KeyWordEffects/Alliance.cs:41): owner suspends 1
+        /// other Digimon; this Digimon (the attacker) gains that Digimon's DP and +1 Security Attack for the
+        /// attack.</summary>
+        public static async Task AllianceProcess(Hashtable hashtable, ICardEffect activateClass, Permanent targetPermanent, CardSource card)
+        {
+            bool CanSelectPermanentCondition(Permanent permanent) =>
+                IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
+                && permanent.InstanceId != targetPermanent.InstanceId
+                && CanActivateSuspendCostEffect(permanent.TopCard);
+
+            if (!HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+            {
+                return;
+            }
+
+            int maxCount = Math.Min(1, MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+            var selectPermanentEffect = GManager.instance!.GetComponent<SelectPermanentEffect>();
+            Permanent? selected = null;
+            selectPermanentEffect.SetUp(
+                selectPlayer: card.Owner,
+                canTargetCondition: (Headless.Services.HeadlessEntityId id) => CanSelectPermanentCondition(PermanentOf(card, id)),
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                maxCount: maxCount,
+                canNoSelect: true,
+                canEndNotMax: false,
+                selectPermanentCoroutine: (Permanent p) => { selected = p; return Task.CompletedTask; },
+                afterSelectPermanentCoroutine: null,
+                mode: SelectPermanentEffect.Mode.Custom,
+                cardEffect: activateClass);
+            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to suspend.", "The opponent is selecting 1 Digimon to suspend.");
+            await selectPermanentEffect.Activate().ConfigureAwait(false);
+
+            if (selected?.TopCard is null || !CanActivateSuspendCostEffect(selected.TopCard))
+            {
+                return;
+            }
+
+            Permanent tapPermanent = selected;
+            await new SuspendPermanentsClass(new List<Permanent> { tapPermanent }, activateClass?.EffectSourceCard?.InstanceId, isBlock: false)
+                .Tap().ConfigureAwait(false);
+
+            if (tapPermanent.TopCard is null || !tapPermanent.IsSuspended || !IsPermanentExistsOnOwnerBattleAreaDigimon(targetPermanent, card))
+            {
+                return;
+            }
+
+            int plusDp = tapPermanent.DP;
+            ChangeDigimonDP(targetPermanent, plusDp, EffectDuration.UntilEndAttack, card);
+            ChangeDigimonSAttack(targetPermanent, 1, EffectDuration.UntilEndAttack, card);
         }
     }
 }

@@ -36,14 +36,15 @@ public partial class CardEffectFactory
         async Task ActivateCoroutine(Hashtable _hashtable)
         {
             Permanent thisPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+            List<CardSource> libraryCards = new Player(card.Context, card.Owner).LibraryCards;
 
             await new SuspendPermanentsClass(
                     new List<Permanent>() { thisPermanent },
-                    CardEffectCommons.CardEffectHashtable(activateClass)).Tap();
+                    activateClass?.EffectSourceCard?.InstanceId, isBlock: false).Tap();
 
-            if(card.Owner.LibraryCards.Count > 0)
+            if (libraryCards.Count > 0)
                 await thisPermanent.AddDigivolutionCardsBottom(
-                            new List<CardSource> { card.Owner.LibraryCards[0] }, activateClass, isFacedown: true);
+                            new List<CardSource> { libraryCards[0] }, activateClass?.EffectSourceCard?.InstanceId, isFacedown: true);
         }
 
         return activateClass;

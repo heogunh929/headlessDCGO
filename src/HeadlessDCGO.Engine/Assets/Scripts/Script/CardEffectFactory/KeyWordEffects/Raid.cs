@@ -70,7 +70,7 @@ public partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            if (CardEffectCommons.CanActivateRaid(targetPermanent))
+            if (CardEffectCommons.CanActivateRaid(card, targetPermanent))
             {
                 if (condition == null || condition())
                 {
@@ -83,7 +83,7 @@ public partial class CardEffectFactory
 
         Task ActivateCoroutine(Hashtable _hashtable)
         {
-            return CardEffectCommons.RaidProcess(targetPermanent, activateClass);
+            return CardEffectCommons.RaidProcess(card, targetPermanent, activateClass);
         }
 
         return activateClass;
