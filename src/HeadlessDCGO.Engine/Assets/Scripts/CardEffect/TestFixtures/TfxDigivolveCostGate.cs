@@ -28,13 +28,19 @@ public sealed class TfxDigivolveCostGate : CEntity_Effect
 
             bool RootCondition(ChoiceZone root) => root == ChoiceZone.Hand;
 
-            effects.Add(CardEffectFactory.ChangeDigivolutionCostStaticEffect(
+            // (P6 compile fix, semantics preserved) The factory ChangeDigivolutionCostStaticEffect was re-ported
+            // to the AS-IS 1:1 shape (rootCondition: Func<SelectCardEffect.Root,bool>, returns ChangeCostClass) —
+            // but ChangeCostClass/IChangeCostEffect has no cost-engine consumer yet (design item RD-P6C1-2), while
+            // this fixture exists to exercise the DISPATCH-FIRST gate fold in
+            // ContinuousModifierGate.ResolveDigivolutionCost, which scans for DigivolutionCostGateEffect
+            // (CollectOwnGatedModifiers). Construct the gate effect directly with the same arguments the old
+            // factory forwarded, keeping the tested semantics (tests/BT23.PrimTranche3 G5_CostGate*) intact.
+            effects.Add(new DigivolutionCostGateEffect(
+                card: card,
                 changeValue: -2,
                 permanentCondition: PermanentCondition,
                 cardCondition: CardSourceCondition,
                 rootCondition: RootCondition,
-                isInheritedEffect: false,
-                card: card,
                 condition: Condition,
                 setFixedCost: false));
         }

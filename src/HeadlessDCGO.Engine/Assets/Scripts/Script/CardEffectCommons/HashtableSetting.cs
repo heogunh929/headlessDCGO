@@ -24,7 +24,10 @@ public static partial class CardEffectCommons
         {
             if (permanent.TopCard != null)
             {
-                CardSource opponentCard = GManager.instance.turnStateMachine.gameContext.ActiveCardList.Find(cardSource => cardSource.Owner == permanent.TopCard.Owner.Enemy);
+                // ADAPTATION: AS-IS `cardSource.Owner == permanent.TopCard.Owner.Enemy` (live Player.Enemy) —
+                // the mirror Owner is a HeadlessPlayerId, so the enemy id resolves via the established
+                // BT2_023 `new Player(context, owner).Enemy` bridge.
+                CardSource opponentCard = GManager.instance.turnStateMachine.gameContext.ActiveCardList.Find(cardSource => cardSource.Owner == new Player(permanent.TopCard.Context, permanent.TopCard.Owner).Enemy?.PlayerId);
 
                 if (opponentCard != null)
                 {
@@ -32,7 +35,9 @@ public static partial class CardEffectCommons
                     hashtable.Add("battle", battle);
 
                     Hashtable battleHashtable = new Hashtable();
-                    Permanent WinnerPermanent = new Permanent(permanent.cardSources);
+                    // ADAPTATION: AS-IS `new Permanent(permanent.cardSources)` (the single-arg list ctor over an
+                    // EXISTING permanent's full stack) — the mirror stack view is (context, instanceId, ownerId).
+                    Permanent WinnerPermanent = new Permanent(permanent.TopCard.Context, permanent.InstanceId, permanent.OwnerId);
                     battleHashtable.Add("WinnerPermanents", new List<Permanent>() { WinnerPermanent });
                     battleHashtable.Add("WinnerPermanents_real", new List<Permanent>() { WinnerPermanent });
                     // ADAPTATION: transient single-card permanent — new Permanent(new List<CardSource>(){ opponentCard }).
@@ -65,7 +70,9 @@ public static partial class CardEffectCommons
 
                 Hashtable hashtable1 = new Hashtable()
                 {
-                    {"Permanent", new Permanent(permanent.cardSources)}
+                    // ADAPTATION: AS-IS `new Permanent(permanent.cardSources)` (single-arg list ctor over an
+                    // EXISTING permanent's full stack) — mirror stack view = (context, instanceId, ownerId).
+                    {"Permanent", new Permanent(permanent.TopCard.Context, permanent.InstanceId, permanent.OwnerId)}
                 };
                 hashtables.Add(hashtable1);
 
@@ -118,15 +125,19 @@ public static partial class CardEffectCommons
             .Map(permanent =>
             {
                 List<CardSource> cardSources = permanent.cardSources.Clone();
-                List<string> cardNames = permanent.TopCard.CardNames.Clone();
-                List<CardColor> cardColors = permanent.TopCard.CardColors.Clone();
+                // ADAPTATION: AS-IS `.Clone()` (shallow list copy) on the mirror's IReadOnlyList surface = `.ToList()`.
+                List<string> cardNames = permanent.TopCard.CardNames.ToList();
+                // ADAPTATION: the mirror `CardSource.CardColors` is string-typed; the AS-IS payload (read back as
+                // List<CardColor> by GetFromHashtable's OnDeletion readers) is restored via CardSource.ToCardColorList.
+                List<CardColor> cardColors = CardSource.ToCardColorList(permanent.TopCard.CardColors);
 
                 Hashtable hashtableOfPermanent = new Hashtable()
                 {
                     {"Permanent", permanent},
                     {"TopCard", permanent.TopCard},
                     {"CardSources", cardSources},
-                    {"DigivolutionSources", permanent.DigivolutionCards.Clone()},
+                    // ADAPTATION: AS-IS `.Clone()` (shallow list copy) on the mirror's IReadOnlyList surface = `.ToList()`.
+                    {"DigivolutionSources", permanent.DigivolutionCards.ToList()},
                     {"CardNames", cardNames},
                     {"CardColors", cardColors},
                     {"HasSaveText", permanent.TopCard.HasSaveText},

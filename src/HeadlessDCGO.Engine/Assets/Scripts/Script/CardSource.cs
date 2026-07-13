@@ -164,29 +164,97 @@ public sealed class CardSource
         };
     }
 
-    /// <summary>(A3) The card's BASE colors (mirror of <c>BaseCardColors</c>, CardSource.cs:364-401):
-    /// printed colors transformed by every active <see cref="CardEffects.ChangeBaseCardColorClass"/> effect,
-    /// Distinct. AS-IS scans self + all field permanents — the registry's active bindings are that set.</summary>
+    // ===== (P6C3, COLOR-MODEL-DUALITY reconciliation) string <-> CardColor conversion =====================
+    // The mirror colour accessors below keep their established STRING signatures (their consumer corpus:
+    // OptionColorRequirement, BT2_099, CardEffectCommons colour predicates), while the fold now runs through
+    // the AS-IS-typed kind-class interfaces (IChange(Base)CardColorEffect transform List<CardColor>). The
+    // enum is closed (CEntity_Base.cs CardColor) and the mirror's string values are exactly the enum names,
+    // so the conversion is lossless; an unparseable string (possible only in hand-written fixtures) is
+    // dropped from the enum view rather than guessed.
+
+    /// <summary>(P6C3) The AS-IS-typed view of a colour-name list (shared with HashtableSetting's
+    /// "CardColors" payload and AddDigivolutionRequirement's enum comparison).</summary>
+    public static List<CardColor> ToCardColorList(IEnumerable<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        var colors = new List<CardColor>();
+        foreach (string name in names)
+        {
+            if (Enum.TryParse(name, ignoreCase: true, out CardColor color))
+            {
+                colors.Add(color);
+            }
+        }
+
+        return colors;
+    }
+
+    /// <summary>(P6C3) The mirror string view of an AS-IS colour list.</summary>
+    public static List<string> ToColorNames(IEnumerable<CardColor> colors)
+    {
+        ArgumentNullException.ThrowIfNull(colors);
+        return colors.Select(c => c.ToString()).ToList();
+    }
+
+    // (P6C3) AS-IS colour fold shape (CardSource.cs:364-401 BaseCardColors / :446-483 CardColors): the
+    // effects of ITSELF apply only while the card is NOT a permanent (`PermanentOfThisCard() == null`),
+    // then the effects of all field permanents apply (gameContext.Players_ForTurnPlayer scan). Substrate:
+    // `new GameContext(Context)` is the same per-match view GManager.instance.turnStateMachine.gameContext
+    // resolves to.
+    private List<CardColor> FoldColorEffects<TInterface>(List<CardColor> colors, Func<TInterface, List<CardColor>, List<CardColor>> apply)
+        where TInterface : class
+    {
+        if (PermanentOfThisCard().IsEmpty)
+        {
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
+            {
+                if (cardEffect is TInterface transform && cardEffect.CanUse(null))
+                {
+                    colors = apply(transform, colors);
+                }
+            }
+        }
+
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is TInterface transform && cardEffect.CanUse(null))
+                    {
+                        colors = apply(transform, colors);
+                    }
+                }
+            }
+        }
+
+        return colors;
+    }
+
+    /// <summary>(A3 / P6C3 re-fold) The card's BASE colors (mirror of <c>BaseCardColors</c>,
+    /// CardSource.cs:364-401): printed colors transformed by every active
+    /// <see cref="IChangeBaseCardColorEffect"/> (self while not in play + all field permanents), Distinct.</summary>
     public IReadOnlyList<string> BaseCardColors
     {
         get
         {
-            List<string> colors = ReadStrings(Definition?.Metadata, "colors").ToList();
-            colors = FoldListTransforms(colors, CardEffects.ChangeBaseCardColorClass.ChangeBaseCardColorsKey);
-            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            List<CardColor> colors = ToCardColorList(ReadStrings(Definition?.Metadata, "colors"));
+            colors = FoldColorEffects<IChangeBaseCardColorEffect>(colors, (e, c) => e.GetBaseCardColors(c, this));
+            return ToColorNames(colors.Distinct().ToList());
         }
     }
 
-    /// <summary>(A3) The card's colors (mirror of <c>CardColors</c>, CardSource.cs:446-483): seeds from the
-    /// fully-resolved <see cref="BaseCardColors"/> (base-change BEFORE change, AS-IS two-stage order), then
-    /// every active <see cref="CardEffects.ChangeCardColorClass"/> effect transforms the list, Distinct.</summary>
+    /// <summary>(A3 / P6C3 re-fold) The card's colors (mirror of <c>CardColors</c>, CardSource.cs:446-483):
+    /// seeds from the fully-resolved <see cref="BaseCardColors"/> (base-change BEFORE change, AS-IS two-stage
+    /// order), then every active <see cref="IChangeCardColorEffect"/> transforms the list, Distinct.</summary>
     public IReadOnlyList<string> CardColors
     {
         get
         {
-            List<string> colors = BaseCardColors.ToList();
-            colors = FoldListTransforms(colors, CardEffects.ChangeCardColorClass.ChangeCardColorsKey);
-            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            List<CardColor> colors = ToCardColorList(BaseCardColors);
+            colors = FoldColorEffects<IChangeCardColorEffect>(colors, (e, c) => e.GetCardColors(c, this));
+            return ToColorNames(colors.Distinct().ToList());
         }
     }
 
@@ -203,9 +271,9 @@ public sealed class CardSource
     {
         get
         {
-            List<string> colors = ReadStrings(Definition?.Metadata, OptionColorRequirementsKey).ToList();
-            colors = FoldListTransforms(colors, CardEffects.ChangeBaseCardColorClass.ChangeBaseCardColorsKey);
-            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            List<CardColor> colors = ToCardColorList(ReadStrings(Definition?.Metadata, OptionColorRequirementsKey));
+            colors = FoldColorEffects<IChangeBaseCardColorEffect>(colors, (e, c) => e.GetBaseCardColors(c, this));
+            return ToColorNames(colors.Distinct().ToList());
         }
     }
 
@@ -217,58 +285,35 @@ public sealed class CardSource
     {
         get
         {
-            List<string> colors = BaseDualCardColors.ToList();
-            colors = FoldListTransforms(colors, CardEffects.ChangeCardColorClass.ChangeCardColorsKey);
-            return colors.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            List<CardColor> colors = ToCardColorList(BaseDualCardColors);
+            colors = FoldColorEffects<IChangeCardColorEffect>(colors, (e, c) => e.GetCardColors(c, this));
+            return ToColorNames(colors.Distinct().ToList());
         }
     }
 
-    /// <summary>(A3) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604): printed traits
-    /// transformed by the card's OWN <see cref="CardEffects.ChangeTraitsClass"/> effects (AS-IS scans self
-    /// only; no Distinct).</summary>
+    /// <summary>(A3 / P6C3 re-fold) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604):
+    /// printed traits transformed by the card's OWN <see cref="IChangeTraitsEffect"/> effects
+    /// (AS-IS scans self EffectList only, ungated by permanent membership; no Distinct).</summary>
     public IReadOnlyList<string> CardTraits
     {
         get
         {
             List<string> traits = ReadStrings(Definition?.Metadata, "traits").ToList();
-            foreach (Func<CardSource, List<string>, List<string>> transform in
-                SelfTransforms<Func<CardSource, List<string>, List<string>>>(CardEffects.ChangeTraitsClass.ChangeTraitsKey))
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
             {
-                traits = transform(this, traits);
+                if (cardEffect is IChangeTraitsEffect transform && cardEffect.CanUse(null))
+                {
+                    traits = transform.ChangTraits(traits, this);
+                }
             }
 
             return traits;
         }
     }
 
-    // (A3) fold ALL active list-transform bindings for `key` over the accumulator (AS-IS field-wide scan).
-    private List<string> FoldListTransforms(List<string> accumulator, string key)
-    {
-        foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
-        {
-            if (effect.Context.Values.TryGetValue(key, out object? raw)
-                && raw is Func<CardSource, List<string>, List<string>> transform
-                && EffectConditionPasses(effect))
-            {
-                accumulator = transform(this, accumulator);
-            }
-        }
-
-        return accumulator;
-    }
-
-    // (A3) the card's OWN transform bindings for `key` (AS-IS self EffectList scan).
-    private IEnumerable<T> SelfTransforms<T>(string key)
-    {
-        foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
-            new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: InstanceId)))
-        {
-            if (effect.Context.Values.TryGetValue(key, out object? raw) && raw is T transform && EffectConditionPasses(effect))
-            {
-                yield return transform;
-            }
-        }
-    }
+    // (P6C3) The pre-flip registry-fold helpers (FoldListTransforms / SelfTransforms over the dead per-kind
+    // binding keys) are retired with the interface-scan re-folds above — no producer writes those keys since
+    // the kind-class 1:1 rebuild.
 
     // (A3) the AS-IS `cardEffect.CanUse(null)` gate — the binding's stored continuous condition.
     internal static bool EffectConditionPasses(EffectRequest effect) =>
@@ -286,28 +331,104 @@ public sealed class CardSource
     /// <summary>Continuous-binding key for an added card name (AS-IS ChangeCardNamesClass).</summary>
     public const string AddedCardNameKey = "addedCardName";
 
-    /// <summary>The card's name(s) (mirror of AS-IS <c>CardSource.BaseCardNames</c>) — the printed name, first
-    /// transformed by active <c>ChangeBaseCardName</c> effects (a REPLACE, like BaseCardColors; BT14_097 "original
-    /// name is [Sukamon]"), then extended with any names ADDED by <c>ChangeCardNames</c> effects.</summary>
+    /// <summary>(P6C3 re-fold) Mirror of AS-IS <c>CardSource.BaseCardNames</c> (CardSource.cs:1371-1436):
+    /// the printed name, transformed by active <see cref="IChangeBaseCardNameEffect"/> effects (a REPLACE;
+    /// BT14_097 "original name is [Sukamon]"). AS-IS branch structure preserved: a DIGIVOLUTION SOURCE folds
+    /// only its own non-granted effects (<see cref="EffectList_ExceptAddedEffects(EffectTiming)"/>); any other
+    /// card folds self (only while not a permanent) + all field permanents + player effects. Design item
+    /// RD-P6C3-A1: the AS-IS dual-card branch (<c>!isPermanent &amp;&amp; _cEntity_Base.IsDualCard</c> adds
+    /// <c>dualEffect</c>, the second printed name) has no mirror data carrier yet — lands with dual-card
+    /// definition data.</summary>
+    public IReadOnlyList<string> BaseCardNames
+    {
+        get
+        {
+            var baseCardNames = Definition is { } d ? new List<string> { d.Name } : new List<string>();
+
+            PermanentView thisPermanent = PermanentOfThisCard();
+            bool isPermanent = !thisPermanent.IsEmpty;
+            bool isDigivolutionCard = isPermanent && thisPermanent.DigivolutionCards.Any(under => under.InstanceId == InstanceId);
+
+            if (isDigivolutionCard)
+            {
+                foreach (ICardEffect cardEffect in EffectList_ExceptAddedEffects(EffectTiming.None))
+                {
+                    if (cardEffect is IChangeBaseCardNameEffect transform && cardEffect.CanUse(null))
+                    {
+                        baseCardNames = transform.ChangeBaseCardNames(baseCardNames, this);
+                    }
+                }
+            }
+            else
+            {
+                if (!isPermanent)
+                {
+                    foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeBaseCardNameEffect transform && cardEffect.CanUse(null))
+                        {
+                            baseCardNames = transform.ChangeBaseCardNames(baseCardNames, this);
+                        }
+                    }
+                }
+
+                foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+                {
+                    foreach (Permanent permanent in player.GetFieldPermanents())
+                    {
+                        foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                        {
+                            if (cardEffect is IChangeBaseCardNameEffect transform && cardEffect.CanUse(null))
+                            {
+                                baseCardNames = transform.ChangeBaseCardNames(baseCardNames, this);
+                            }
+                        }
+                    }
+
+                    foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeBaseCardNameEffect transform && cardEffect.CanUse(null))
+                        {
+                            baseCardNames = transform.ChangeBaseCardNames(baseCardNames, this);
+                        }
+                    }
+                }
+            }
+
+            return baseCardNames;
+        }
+    }
+
+    /// <summary>(P6C3 re-fold) Mirror of AS-IS <c>CardSource.CardNames</c> (CardSource.cs:1442-1460):
+    /// <see cref="BaseCardNames"/> extended by the card's own <see cref="IChangeCardNamesEffect"/> effects
+    /// (self <c>EffectList_ExceptAddedEffects</c> scan), Distinct. The substrate
+    /// <see cref="AddedCardNameKey"/> registry read is KEPT alongside: it is the old-model
+    /// <c>ChangeCardNamesClass</c> lowering still produced by ContinuousAndRestrictionEffects.cs
+    /// (GrantAdditionalCardName) — a new-model grant enumerates through the interface scan instead.</summary>
     public IReadOnlyList<string> CardNames
     {
         get
         {
-            // (d-remediation) BASE names = printed name transformed by ChangeBaseCardName (REPLACE), mirroring the
-            // BaseCardColors → CardColors two-stage order.
-            var names = Definition is { } d ? new List<string> { d.Name } : new List<string>();
-            names = FoldListTransforms(names, CardEffects.ChangeBaseCardNameClass.ChangeBaseCardNamesKey);
+            List<string> cardNames = BaseCardNames.ToList();
+
+            foreach (ICardEffect cardEffect in EffectList_ExceptAddedEffects(EffectTiming.None))
+            {
+                if (cardEffect is IChangeCardNamesEffect transform && cardEffect.CanUse(null))
+                {
+                    cardNames = transform.ChangeCardNames(cardNames, this);
+                }
+            }
 
             foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
                 new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: InstanceId)))
             {
                 if (effect.Context.Values.TryGetValue(AddedCardNameKey, out object? raw) && raw is string added && !string.IsNullOrWhiteSpace(added))
                 {
-                    names.Add(added);
+                    cardNames.Add(added);
                 }
             }
 
-            return names;
+            return cardNames.Distinct().ToList();
         }
     }
 
@@ -315,19 +436,22 @@ public sealed class CardSource
     /// (CEntity_Base.cs:317) — level-change folds never alter it.</summary>
     private int PrintedLevel => Definition?.Metadata is { } m && m.TryGetValue("level", out object? raw) && raw is int lv ? lv : -1;
 
-    /// <summary>(A3) The card's level (mirror of <c>Level =&gt; TreatedLevel</c>, CardSource.cs:941-975):
-    /// printed level transformed by the card's OWN <see cref="CardEffects.ChangeCardLevelClass"/> effects
-    /// (AS-IS scans self only). -1 mirrors the AS-IS no-level sentinel (1145140) — no gameplay code compares
-    /// the sentinel; all consumers guard on <see cref="HasLevel"/> first.</summary>
+    /// <summary>(A3 / P6C3 re-fold) The card's level (mirror of <c>Level =&gt; TreatedLevel</c>,
+    /// CardSource.cs:941-975): printed level transformed by the card's OWN
+    /// <see cref="IChangeCardLevelEffect"/> effects (AS-IS scans self EffectList only). -1 mirrors the AS-IS
+    /// no-level sentinel (1145140) — no gameplay code compares the sentinel; all consumers guard on
+    /// <see cref="HasLevel"/> first.</summary>
     public int Level
     {
         get
         {
             int level = PrintedLevel;
-            foreach (Func<CardSource, int, int> transform in
-                SelfTransforms<Func<CardSource, int, int>>(CardEffects.ChangeCardLevelClass.GetLevelKey))
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
             {
-                level = transform(this, level);
+                if (cardEffect is IChangeCardLevelEffect transform && cardEffect.CanUse(null))
+                {
+                    level = transform.GetCardLevel(level, this);
+                }
             }
 
             return level;
@@ -359,24 +483,44 @@ public sealed class CardSource
     // (A3) printed-data based like AS-IS CEntity_Base.HasLevel — a level-change fold does not grant a level.
     public bool HasLevel => PrintedLevel >= 0;
 
-    /// <summary>(Jogress by levels) AS-IS <c>Permanent</c> levels-for-Jogress fold (Permanent.cs:3560-3600): the
-    /// levels THIS card counts as when used as a Jogress / DNA-Digivolution material against
-    /// <paramref name="jogressCard"/> (the digivolving card). Its printed level PLUS every extra level its own
-    /// <see cref="CardEffects.AddJogressLevelsClass"/> effects contribute (self-scoped, mirroring the AS-IS
-    /// self-gated board scan). Level-based Jogress/DNA material predicates test membership in this set.</summary>
+    /// <summary>(Jogress by levels / P6C3 re-fold) 1:1 of AS-IS <c>Permanent.Levels_ForJogress(CardSource)</c>
+    /// (Permanent.cs:3554-3605): the levels THIS card's permanent counts as when used as a Jogress /
+    /// DNA-Digivolution material against <paramref name="jogressCard"/> (the digivolving card). AS-IS seeds
+    /// the MATERIAL PERMANENT's <c>Level</c> gated on <c>cardSource.HasLevel</c> (the jogress card's printed
+    /// level — verbatim AS-IS gate), then adds every level contributed by an active
+    /// <see cref="IAddJogressLevelsEffect"/> across all field permanents' and players' effects
+    /// (<c>GetJogressLevels(cardSource, this)</c>). The mirror keeps this accessor on CardSource (its
+    /// established consumer surface); the permanent identity is resolved live.</summary>
     public IReadOnlyList<int> JogressLevelsAgainst(CardSource jogressCard)
     {
         ArgumentNullException.ThrowIfNull(jogressCard);
         var levels = new List<int>();
-        if (HasLevel)
+        Permanent material = ICardEffect.ResolvePermanentOfThisCard(this) ?? new Permanent(Context, InstanceId, Owner);
+        if (jogressCard.HasLevel)
         {
-            levels.Add(Level);
+            levels.Add(material.Level);
         }
 
-        foreach (Func<CardSource, IReadOnlyList<int>> getLevels in
-            SelfTransforms<Func<CardSource, IReadOnlyList<int>>>(CardEffects.AddJogressLevelsClass.GetJogressLevelsKey))
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
         {
-            levels.AddRange(getLevels(jogressCard));
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IAddJogressLevelsEffect addLevels && cardEffect.CanUse(null))
+                    {
+                        levels.AddRange(addLevels.GetJogressLevels(jogressCard, material));
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IAddJogressLevelsEffect addLevels && cardEffect.CanUse(null))
+                {
+                    levels.AddRange(addLevels.GetJogressLevels(jogressCard, material));
+                }
+            }
         }
 
         return levels;
@@ -556,42 +700,16 @@ public sealed class CardSource
         return ContinuousRestrictionGate.EvaluateDigivolve(Context, targetPermanent.InstanceId, InstanceId).IsRestricted;
     }
 
-    /// <summary>(W6-L) Mirror of AS-IS <c>CardSource.linkCondition</c> (CardSource.cs:2727): the first
-    /// usable <c>IAddLinkConditionEffect</c>'s condition for THIS card (dispatch-first, registry fallback —
-    /// the AssemblyConditionOf pattern).</summary>
+    /// <summary>(W6-L / P6C3 re-fold) Mirror of AS-IS <c>CardSource.linkCondition</c> (CardSource.cs:2727-2741):
+    /// the first usable <see cref="IAddLinkConditionEffect"/>'s condition from THIS card's live
+    /// <see cref="EffectList(EffectTiming)"/> (which already enumerates the dispatched per-card effect class —
+    /// the pre-flip dispatch-first/registry-fallback split is superseded by the flip's enumeration model).</summary>
     public LinkCondition? LinkConditionOf()
     {
-        if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? instance) && instance is not null &&
-            Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null &&
-            CardEffectDispatch.TryCreateForCard(definition, out CEntity_Effect? entity) && entity is not null)
+        foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
         {
-            foreach (ICardEffect effect in entity.CardEffects(EffectTiming.None, this))
-            {
-                if (effect is CardEffects.AddLinkConditionClass link && link.CanUse() &&
-                    link.GetLinkCondition(this) is LinkCondition fromCard)
-                {
-                    return fromCard;
-                }
-            }
-        }
-
-        foreach (Headless.Effects.EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
-            new Headless.Services.EffectQueryContext(Headless.Runtime.ContinuousRestrictionGate.Scope)))
-        {
-            if (effect.Context.SourceEntityId != InstanceId ||
-                !effect.Context.Values.TryGetValue(CardEffects.AddLinkConditionClass.GetLinkConditionKey, out object? raw) ||
-                raw is not Func<CardSource, LinkCondition?> getCondition)
-            {
-                continue;
-            }
-
-            if (effect.Context.Values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? rawCond) &&
-                rawCond is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (getCondition(this) is LinkCondition found)
+            if (cardEffect is IAddLinkConditionEffect link && cardEffect.CanUse(null) &&
+                link.GetLinkCondition(this) is LinkCondition found)
             {
                 return found;
             }
@@ -656,41 +774,16 @@ public sealed class CardSource
         return link.digimonCondition(targetPermanent);
     }
 
-    /// <summary>(W6-F) Mirror of AS-IS <c>CardSource.appFusionCondition</c>: the first usable declared
-    /// App-Fusion condition (dispatch-first, registry fallback).</summary>
+    /// <summary>(W6-F / P6C3 re-fold) Mirror of AS-IS <c>CardSource.appFusionCondition</c>
+    /// (CardSource.cs:3005-3027 shape): the first usable <see cref="IAddAppFusionConditionEffect"/>'s
+    /// condition from THIS card's live <see cref="EffectList(EffectTiming)"/> (dispatch covered by the
+    /// flip's enumeration model).</summary>
     public AppFusionCondition? AppFusionConditionOf()
     {
-        if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? instance) && instance is not null &&
-            Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null &&
-            CardEffectDispatch.TryCreateForCard(definition, out CEntity_Effect? entity) && entity is not null)
+        foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
         {
-            foreach (ICardEffect effect in entity.CardEffects(EffectTiming.None, this))
-            {
-                if (effect is CardEffects.AddAppFusionConditionClass appfusion && appfusion.CanUse() &&
-                    appfusion.GetAppFusionCondition(this) is AppFusionCondition fromCard)
-                {
-                    return fromCard;
-                }
-            }
-        }
-
-        foreach (Headless.Effects.EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
-            new Headless.Services.EffectQueryContext(Headless.Runtime.ContinuousRestrictionGate.Scope)))
-        {
-            if (effect.Context.SourceEntityId != InstanceId ||
-                !effect.Context.Values.TryGetValue(CardEffects.AddAppFusionConditionClass.GetAppFusionConditionKey, out object? raw) ||
-                raw is not Func<CardSource, AppFusionCondition?> getCondition)
-            {
-                continue;
-            }
-
-            if (effect.Context.Values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? rawCond) &&
-                rawCond is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (getCondition(this) is AppFusionCondition found)
+            if (cardEffect is IAddAppFusionConditionEffect appfusion && cardEffect.CanUse(null) &&
+                appfusion.GetAppFusionCondition(this) is AppFusionCondition found)
             {
                 return found;
             }
@@ -709,37 +802,13 @@ public sealed class CardSource
     /// (test fixtures / registry-only setups).</summary>
     public AssemblyCondition? AssemblyConditionOf()
     {
-        if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? instance) && instance is not null &&
-            Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) && definition is not null &&
-            CardEffectDispatch.TryCreateForCard(definition, out CEntity_Effect? entity) && entity is not null)
+        // (P6C3 re-fold) AS-IS assemblyCondition (CardSource.cs:3043-3065): first usable
+        // IAddAssemblyConditionEffect from the live EffectList scan (dispatch covered by the flip's
+        // enumeration model; the pre-flip dispatch-first/registry-fallback split is superseded).
+        foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
         {
-            foreach (ICardEffect effect in entity.CardEffects(EffectTiming.None, this))
-            {
-                if (effect is CardEffects.AddAssemblyConditionClass assembly && assembly.CanUse() &&
-                    assembly.GetAssemblyCondition(this) is AssemblyCondition fromCard)
-                {
-                    return fromCard;
-                }
-            }
-        }
-
-        foreach (Headless.Effects.EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
-            new Headless.Services.EffectQueryContext(Headless.Runtime.ContinuousRestrictionGate.Scope)))
-        {
-            if (effect.Context.SourceEntityId != InstanceId ||
-                !effect.Context.Values.TryGetValue(CardEffects.AddAssemblyConditionClass.GetAssemblyConditionKey, out object? raw) ||
-                raw is not Func<CardSource, AssemblyCondition?> getCondition)
-            {
-                continue;
-            }
-
-            if (effect.Context.Values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? rawCond) &&
-                rawCond is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            if (getCondition(this) is AssemblyCondition found)
+            if (cardEffect is IAddAssemblyConditionEffect assembly && cardEffect.CanUse(null) &&
+                assembly.GetAssemblyCondition(this) is AssemblyCondition found)
             {
                 return found;
             }
@@ -747,6 +816,67 @@ public sealed class CardSource
 
         return null;
     }
+
+    /// <summary>(P6C3) AS-IS <c>CardSource.IsBeingRevealed</c> (CardSource.cs:3565, a public auto-property
+    /// on the persistent Unity component). The mirror CardSource is a transient view, so the flag lives in
+    /// instance metadata (the <c>IsSuspended</c> setter pattern). Design item RD-P6C3-A2: the AS-IS WRITERS
+    /// (the reveal pipeline stamping the flag around a reveal) are unported — until that slice lands the
+    /// flag is only ever its default false, exactly like an AS-IS card that is not mid-reveal.</summary>
+    public bool IsBeingRevealed
+    {
+        get => Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            && record.Metadata.TryGetValue("isBeingRevealed", out object? raw) && raw is true;
+        set
+        {
+            if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    ["isBeingRevealed"] = value,
+                };
+                Context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
+    /// <summary>(P6C3) AS-IS <c>CardSource.PermanentJustBeforeRemoveField</c> (CardSource.cs:3571, a public
+    /// auto-property: the permanent this card belonged to just before it left the field — read by the
+    /// OnDeletion Hashtable gates). Transient-view carrier = a per-match service store keyed by InstanceId
+    /// (the <c>Permanent.oldIsTapped_playCard</c> substrate pattern). Design item RD-P6C3-A3: the AS-IS
+    /// WRITER (CardController stamps it right before RemoveFromAllArea) belongs to the unported
+    /// CardController deletion slice — until it lands the property is null, as for an AS-IS card that never
+    /// left the field.</summary>
+    public Permanent? PermanentJustBeforeRemoveField
+    {
+        get => Context.TryGetService(out PermanentJustBeforeRemoveFieldStore? store) && store is not null
+            && store.Values.TryGetValue(InstanceId, out Permanent? permanent) ? permanent : null;
+        set
+        {
+            if (!Context.TryGetService(out PermanentJustBeforeRemoveFieldStore? store) || store is null)
+            {
+                store = new PermanentJustBeforeRemoveFieldStore();
+                Context.RegisterService(store);
+            }
+
+            store.Values[InstanceId] = value;
+        }
+    }
+
+    /// <summary>(P6C3) Per-match backing store for <see cref="PermanentJustBeforeRemoveField"/>.</summary>
+    private sealed class PermanentJustBeforeRemoveFieldStore
+    {
+        public Dictionary<HeadlessEntityId, Permanent?> Values { get; } = new Dictionary<HeadlessEntityId, Permanent?>();
+    }
+
+    /// <summary>(P6C3) AS-IS <c>CardSource.HasSaveText</c> (CardSource.cs:2181 =
+    /// <c>HasText("&lt;Save&gt;")</c>, a printed-text scan). The mirror carries no rules text; the
+    /// established mirror carrier of "&lt;Save&gt; is on this card" is the instance <c>hasSave</c> metadata
+    /// flag OR a live Save keyword grant — exactly the pair the live deletion-replacement pipeline gates on
+    /// (<see cref="Headless.Runtime.DeletionReplacementGate.TrySaveAsync"/>).</summary>
+    public bool HasSaveText =>
+        Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? saveRecord) && saveRecord is not null
+        && Headless.Runtime.DeletionReplacementGate.HasReplacementKeyword(
+            saveRecord, Headless.Runtime.DeletionReplacementGate.HasSaveKey, Headless.Runtime.ContinuousKeywordGate.Save, Context.EffectRegistry);
 }
 
 

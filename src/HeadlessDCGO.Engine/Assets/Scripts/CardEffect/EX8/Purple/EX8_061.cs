@@ -73,12 +73,18 @@ public sealed class EX8_061 : CEntity_Effect
         #region Scapegoat
         if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
         {
+            // AS-IS EX8_061.cs:37-40 (local EffectDiscription; AS-IS param spelling kept by the mirror factory).
+            string EffectDiscription()
+            {
+                return "<Scapegoat> (When this Digimon would be deleted other than by your own effects, by deleting 1 of your other Digimon, prevent that deletion.)";
+            }
+
             cardEffects.Add(CardEffectFactory.ScapegoatSelfEffect(
                 isInheritedEffect: false,
                 card: card,
                 condition: null,
                 effectName: "<Scapegoat>",
-                effectDescription: "<Scapegoat> (When this Digimon would be deleted other than by your own effects, by deleting 1 of your other Digimon, prevent that deletion.)"));
+                effectDiscription: EffectDiscription()));
         }
         #endregion
 

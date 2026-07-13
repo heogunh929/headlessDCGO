@@ -138,23 +138,35 @@ public sealed class Permanent
         }
     }
 
-    /// <summary>(A3) Mirror of <c>Permanent.Level</c> (Permanent.cs:48-102): seeds from the top card's
-    /// (already card-level-folded) level, then EVERY active <see cref="CardEffects.ChangePermanentLevelClass"/>
-    /// effect transforms it (AS-IS scans all field permanents' + players' effects — the registry's active
-    /// bindings are that set).</summary>
+    /// <summary>(A3 / P6C3 re-fold) Mirror of <c>Permanent.Level</c> (Permanent.cs:48-102): seeds from the
+    /// top card's (already card-level-folded) level, then EVERY active
+    /// <see cref="IChangePermanentLevelEffect"/> transforms it — the AS-IS scan over all field permanents'
+    /// and players' EffectList (the flip's live enumeration replaces the retired registry-key fold).
+    /// The mirror keeps its -1 no-level sentinel (AS-IS 1145140; consumers guard on HasLevel first).</summary>
     public int Level
     {
         get
         {
             int level = TopCard.Level;
-            foreach (Headless.Effects.EffectRequest effect in _context.EffectRegistry.GetContinuousEffects(
-                new Headless.Services.EffectQueryContext(Headless.Runtime.ContinuousRestrictionGate.Scope)))
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
             {
-                if (effect.Context.Values.TryGetValue(CardEffects.ChangePermanentLevelClass.GetPermanentLevelKey, out object? raw)
-                    && raw is Func<Permanent, int, int> transform
-                    && CardSource.EffectConditionPasses(effect))
+                foreach (Permanent permanent in player.GetFieldPermanents())
                 {
-                    level = transform(this, level);
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangePermanentLevelEffect transform && cardEffect.CanUse(null))
+                        {
+                            level = transform.GetPermanentLevel(level, this);
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IChangePermanentLevelEffect transform && cardEffect.CanUse(null))
+                    {
+                        level = transform.GetPermanentLevel(level, this);
+                    }
                 }
             }
 
@@ -224,6 +236,95 @@ public sealed class Permanent
     private sealed class OldIsTappedPlayCardStore
     {
         public Dictionary<HeadlessEntityId, bool> Values { get; } = new Dictionary<HeadlessEntityId, bool>();
+    }
+
+    /// <summary>(P6C3) AS-IS <c>Permanent.IsDestroyedByBattle</c> (Permanent.cs:3666, a public
+    /// auto-property the battle pipeline stamps on a battle loser and the WhenDeleteOpponentDigimon* /
+    /// Pierce gates read). Mirror carrier = the instance <c>deletedByBattle</c> metadata flag the live
+    /// substrate battle pipeline ALREADY stamps (<see cref="Headless.Runtime.BattleResolver.DeletedByBattleKey"/>)
+    /// — so a gate reading this view sees exactly the live pipeline's answer, and the Hashtable builders'
+    /// AS-IS-verbatim <c>{ IsDestroyedByBattle = true }</c> writes land on the same shared flag.</summary>
+    public bool IsDestroyedByBattle
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            && record.Metadata.TryGetValue(Headless.Runtime.BattleResolver.DeletedByBattleKey, out object? raw) && raw is true;
+        set
+        {
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    [Headless.Runtime.BattleResolver.DeletedByBattleKey] = value,
+                };
+                _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
+    /// <summary>(P6C3) 1:1 of AS-IS <c>Permanent.CanSuspend</c> (Permanent.cs:3698-3742): NO active
+    /// <see cref="ICanNotSuspendEffect"/> (scanned over every field permanent's and player's EffectList,
+    /// <c>CanUse(null)</c>-gated) forbids suspending THIS permanent. AS-IS iterates
+    /// <c>gameContext.Players</c> (seat order — an order-insensitive any-match).</summary>
+    public bool CanSuspend
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is ICanNotSuspendEffect gate && cardEffect.CanUse(null) && gate.CanNotSuspend(this))
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotSuspendEffect gate && cardEffect.CanUse(null) && gate.CanNotSuspend(this))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>(P6C3) 1:1 of AS-IS <c>Permanent.HasIceclad</c> (Permanent.cs:2540-2582): any active
+    /// <see cref="IIcecladEffect"/> on THIS permanent's or a player's EffectList answers true. AS-IS gates
+    /// each candidate with <c>CanTrigger(null)</c> (not CanUse) — preserved. NOTE the AS-IS outer
+    /// Players_ForTurnPlayer loop re-scans THIS permanent's own EffectList once per player (verbatim quirk,
+    /// result-identical) while reading each player's OWN EffectList — structure kept 1:1.</summary>
+    public bool HasIceclad
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IIcecladEffect iceclad && cardEffect.CanTrigger(null) && iceclad.HasIceclad(this))
+                    {
+                        return true;
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IIcecladEffect iceclad && cardEffect.CanTrigger(null) && iceclad.HasIceclad(this))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
     }
 
     /// <summary>The digivolution (under-)cards of this permanent (mirror of <c>DigivolutionCards</c>).</summary>

@@ -83,6 +83,17 @@ public sealed class GameContext
     public List<Permanent> PermanentsForTurnPlayer =>
         Players_ForTurnPlayer.SelectMany(player => player.GetBattleAreaPermanents()).ToList();
 
+    /// <summary>(P6 cluster3) AS-IS <c>GameContext.ActiveCardList</c> (GameContext.cs:31) — every live card
+    /// in the match (AS-IS: a mutable <c>List&lt;CardSource&gt;</c> populated at game setup). This mirror
+    /// GameContext is a stateless VIEW over <see cref="EngineContext"/>, so the list is COMPUTED: every
+    /// registered card instance from the substrate card-instance repository, as mirror
+    /// <see cref="CardSource"/> views (owner from the instance record — the established PermanentOf idiom,
+    /// KeyWordEffects/Save.cs).</summary>
+    public List<CardSource> ActiveCardList =>
+        Context.CardInstanceRepository.Snapshot()
+            .Select(record => new CardSource(Context, record.InstanceId, record.OwnerId))
+            .ToList();
+
     private List<Player> OrderedFrom(HeadlessPlayerId? first)
     {
         List<Player> seats = Players;

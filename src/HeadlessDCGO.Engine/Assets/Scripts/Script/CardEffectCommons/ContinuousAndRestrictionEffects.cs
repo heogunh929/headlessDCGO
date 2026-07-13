@@ -754,7 +754,14 @@ public sealed class PlayerScopeTriggerGrantEffect : ICardEffect
 
     public EffectBinding ToBinding(string effectId)
     {
-        EffectBinding inner = NestedEffect.ToBinding(effectId);
+        // (P6 cluster3) old-model lowering via LegacyBindingBridge (ToBinding left the ICardEffect contract);
+        // a NEW-model nested effect on this grant path has no grant store yet — STOP, design item RD-P6C3-C1.
+        if (!LegacyBindingBridge.TryToBinding(NestedEffect, effectId, out EffectBinding? inner) || inner is null)
+        {
+            throw new NotSupportedException(
+                $"PlayerScopeTriggerGrantEffect: nested '{NestedEffect.GetType().Name}' is a NEW-model effect — no legacy ToBinding lowering (design item RD-P6C3-C1).");
+        }
+
         Headless.Effects.EffectContext ctx = inner.Request.Context;
         var values = new Dictionary<string, object?>(ctx.Values, StringComparer.Ordinal)
         {

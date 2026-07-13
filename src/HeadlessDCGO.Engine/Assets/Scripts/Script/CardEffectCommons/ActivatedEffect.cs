@@ -325,7 +325,18 @@ public sealed class GrantContinuousBody : IEffectBody
     public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
     {
         ArgumentNullException.ThrowIfNull(card);
-        card.Context.EffectRegistry.Register(_continuous.ToBinding($"{card.InstanceId.Value}:grant:{_continuous.GetType().Name}"));
+        // (P6 cluster3) old-model lowering via LegacyBindingBridge (ToBinding left the ICardEffect contract);
+        // a NEW-model effect on this grant path has no grant store yet — STOP, design item RD-P6C3-C1.
+        if (!LegacyBindingBridge.TryToBinding(
+                _continuous,
+                $"{card.InstanceId.Value}:grant:{_continuous.GetType().Name}",
+                out EffectBinding? binding) || binding is null)
+        {
+            throw new NotSupportedException(
+                $"GrantContinuousBody: '{_continuous.GetType().Name}' is a NEW-model effect — no new-model grant store exists yet (design item RD-P6C3-C1).");
+        }
+
+        card.Context.EffectRegistry.Register(binding);
     }
 }
 

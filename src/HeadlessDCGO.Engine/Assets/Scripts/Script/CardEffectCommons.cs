@@ -2861,8 +2861,18 @@ public static partial class CardEffectCommons
             return;
         }
 
-        EffectBinding binding = cardEffect.ToBinding(
-            $"{card.InstanceId.Value}:addEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}");
+        // (P6 cluster3) old-model lowering via LegacyBindingBridge (ToBinding left the ICardEffect contract);
+        // a NEW-model effect on this grant path has no permanent/player grant store yet
+        // (P6A-PERMANENT-EFFECTLIST-ADDED) — STOP, design item RD-P6C3-C1.
+        if (!LegacyBindingBridge.TryToBinding(
+                cardEffect,
+                $"{card.InstanceId.Value}:addEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}",
+                out EffectBinding? binding) || binding is null)
+        {
+            throw new NotSupportedException(
+                $"AddEffectToPermanent: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model permanent grant store exists yet (design item RD-P6C3-C1).");
+        }
+
         var retargeted = new EffectContext(
             binding.Request.Context.SourcePlayerId,
             binding.Request.Context.OwnerPlayerId,
@@ -2892,8 +2902,16 @@ public static partial class CardEffectCommons
             return;
         }
 
-        EffectBinding binding = cardEffect.ToBinding(
-            $"{card.InstanceId.Value}:addSelfRemovalEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}");
+        // (P6 cluster3) old-model lowering via LegacyBindingBridge — NEW-model effect = STOP (RD-P6C3-C1).
+        if (!LegacyBindingBridge.TryToBinding(
+                cardEffect,
+                $"{card.InstanceId.Value}:addSelfRemovalEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}",
+                out EffectBinding? binding) || binding is null)
+        {
+            throw new NotSupportedException(
+                $"AddSelfRemovalEffectToPermanent: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model permanent grant store exists yet (design item RD-P6C3-C1).");
+        }
+
         var values = new Dictionary<string, object?>(binding.Request.Context.Values, StringComparer.Ordinal)
         {
             [AutoProcessingTriggerCollector.SurviveOwnLeaveKey] = true,
@@ -2932,8 +2950,16 @@ public static partial class CardEffectCommons
         // RegisterCard idempotency), so a caller that can register the SAME shape twice in one turn must make
         // the effect's own id unique at construction (e.g. AddMemoryTriggerEffect's effectIdSuffix, used by
         // MemoryGainThenScheduledReversalBody) — the registry rejects a colliding second registration loudly.
-        EffectBinding binding = cardEffect.ToBinding(
-            $"{card.InstanceId.Value}:addPlayerEffect:{Guid.NewGuid():N}");
+        // (P6 cluster3) old-model lowering via LegacyBindingBridge — NEW-model effect = STOP (RD-P6C3-C1).
+        if (!LegacyBindingBridge.TryToBinding(
+                cardEffect,
+                $"{card.InstanceId.Value}:addPlayerEffect:{Guid.NewGuid():N}",
+                out EffectBinding? binding) || binding is null)
+        {
+            throw new NotSupportedException(
+                $"AddEffectToPlayer: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model player grant store exists yet (design item RD-P6C3-C1).");
+        }
+
         EffectContext ctx = binding.Request.Context;
         var mergedValues = new Dictionary<string, object?>(ctx.Values, StringComparer.Ordinal)
         {
@@ -2961,8 +2987,16 @@ public static partial class CardEffectCommons
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(cardEffect);
-        EffectBinding binding = cardEffect.ToBinding(
-            $"{card.InstanceId.Value}:addPlayerContEffect:{Guid.NewGuid():N}");
+        // (P6 cluster3) old-model lowering via LegacyBindingBridge — NEW-model effect = STOP (RD-P6C3-C1).
+        if (!LegacyBindingBridge.TryToBinding(
+                cardEffect,
+                $"{card.InstanceId.Value}:addPlayerContEffect:{Guid.NewGuid():N}",
+                out EffectBinding? binding) || binding is null)
+        {
+            throw new NotSupportedException(
+                $"AddContinuousEffectToPlayer: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model player grant store exists yet (design item RD-P6C3-C1).");
+        }
+
         EffectContext ctx = binding.Request.Context;
 
         // (E-3) AS-IS AddEffectToPlayer stores the effect in the PLAYER's Until*Effects bucket — it is

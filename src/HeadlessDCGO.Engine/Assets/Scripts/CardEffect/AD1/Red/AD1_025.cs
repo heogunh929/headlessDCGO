@@ -29,6 +29,7 @@
 // no ported primitive exposes today. GAP = mass-mutation-then-select-over-post-mutation-board activation.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Red;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -124,10 +125,16 @@ public sealed class AD1_025 : CEntity_Effect
         if (timing == EffectTiming.None)
         {
             var addAssemblyConditionClass = new AddAssemblyConditionClass();
-            addAssemblyConditionClass.SetUpICardEffect("Assembly", () => true, card);
+            addAssemblyConditionClass.SetUpICardEffect("Assembly", CanUseCondition, card);
             addAssemblyConditionClass.SetUpAddAssemblyConditionClass(GetAssembly);
             addAssemblyConditionClass.SetNotShowUI(true);
             cardEffects.Add(addAssemblyConditionClass);
+
+            // AS-IS AD1_025.cs:223-226 — unconditional true (Hashtable-shaped CanUse gate).
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return true;
+            }
 
             AssemblyCondition? GetAssembly(CardSource cardSource)
             {

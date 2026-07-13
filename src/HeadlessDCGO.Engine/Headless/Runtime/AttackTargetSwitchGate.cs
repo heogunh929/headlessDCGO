@@ -27,43 +27,37 @@ public static class AttackTargetSwitchGate
             return false;
         }
 
+        // (P6C3, stage-B preview) Re-anchored to the ported kind-class surface: AS-IS
+        // Permanent.CanSwitchAttackTarget (Permanent.cs:3745-3792) scans every field permanent's and every
+        // player's EffectList(EffectTiming.None) for ICanNotSwitchAttackTargetEffect, gates each with
+        // CanUse(null), and asks CanNotBeSwitchAttackTarget(attacker). IsLocked == !CanSwitchAttackTarget.
+        // (The pre-flip registry-key read is dead: no producer writes those binding keys since the kind-class
+        // 1:1 rebuild.)
         var attackerView = new Permanent(context, attackerId, attacker.OwnerId);
-        foreach (EffectRequest effect in context.EffectRegistry.GetContinuousEffects(
-            new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
         {
-            if (!effect.Context.Values.TryGetValue(CanNotSwitchAttackTargetClass.CannotSwitchAttackTargetKey, out object? raw) ||
-                raw is not bool flag || !flag)
+            foreach (Permanent permanent in player.GetFieldPermanents())
             {
-                continue;
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotSwitchAttackTargetEffect gate && cardEffect.CanUse(null) &&
+                        gate.CanNotBeSwitchAttackTarget(attackerView))
+                    {
+                        return true;
+                    }
+                }
             }
 
-            if (EffectInvalidation.IsEffectsDisabled(context, effect.Context.SourceEntityId) ||
-                !ConditionPasses(effect))
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
             {
-                continue;
-            }
-
-            // The AS-IS PermanentCondition over the ATTACKER (CanNotBeSwitchAttackTarget(this)); a binding
-            // with no stored predicate locks only an explicitly targeted attacker.
-            if (effect.Context.Values.TryGetValue(CanNotSwitchAttackTargetClass.AttackerConditionKey, out object? rawCond) &&
-                rawCond is Func<Permanent, bool> attackerCondition)
-            {
-                if (attackerCondition(attackerView))
+                if (cardEffect is ICanNotSwitchAttackTargetEffect gate && cardEffect.CanUse(null) &&
+                    gate.CanNotBeSwitchAttackTarget(attackerView))
                 {
                     return true;
                 }
-            }
-            else if (effect.Context.TargetEntityIds.Contains(attackerId))
-            {
-                return true;
             }
         }
 
         return false;
     }
-
-    private static bool ConditionPasses(EffectRequest effect) =>
-        !effect.Context.Values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? raw)
-        || raw is not Func<bool> condition
-        || condition();
 }

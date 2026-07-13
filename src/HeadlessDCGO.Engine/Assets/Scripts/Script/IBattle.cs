@@ -60,7 +60,9 @@ public class IBattle
         else
             statCheck = AttackingPermanent.DP - DefendingPermanent.DP;
 
-        statCheck = Mathf.Clamp(statCheck, -1, 1);
+        // ADAPTATION: AS-IS `Mathf.Clamp(int, -1, 1)` (UnityEngine) — System.Math.Clamp is the established
+        // mirror substitute (identical int semantics; Player.cs MaxMemoryCost precedent).
+        statCheck = Math.Clamp(statCheck, -1, 1);
 
         return statCheck;
     }

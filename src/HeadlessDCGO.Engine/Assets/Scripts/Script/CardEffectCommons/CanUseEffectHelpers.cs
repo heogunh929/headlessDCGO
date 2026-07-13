@@ -6,6 +6,13 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+// (P6 cluster3) This pre-existing SUBSTRATE helper was written against the substrate record
+// `HeadlessDCGO.Engine.Headless.Effects.SkillInfo` (Definition/Context/MaxCountPerTurn/EffectId). The P6
+// AS-IS-mirror `SkillInfo` class (Script/SkillInfo.cs) landed in THIS namespace and shadows the imported
+// substrate record; the alias restores the original name resolution — zero behavior change. (An alias
+// literally named `SkillInfo` is CS0576 inside this namespace, hence the distinct name; the
+// `CanUseEffectRequest.SkillInfo` PROPERTY keeps its name, so consumers are unchanged.)
+using SubstrateSkillInfo = HeadlessDCGO.Engine.Headless.Effects.SkillInfo;
 
 public enum CanUseEffectEvaluationKind
 {
@@ -48,7 +55,7 @@ public sealed record CanUseEffectRequest
 {
     public CanUseEffectRequest(
         MatchState matchState,
-        SkillInfo skillInfo,
+        SubstrateSkillInfo skillInfo,
         TriggerConditionKind? triggerCondition = null,
         IReadOnlyList<CanUseEffectCondition>? triggerConditions = null,
         IReadOnlyList<CanUseEffectCondition>? activationConditions = null)
@@ -70,7 +77,7 @@ public sealed record CanUseEffectRequest
 
     public MatchState MatchState { get; }
 
-    public SkillInfo SkillInfo { get; }
+    public SubstrateSkillInfo SkillInfo { get; }
 
     public TriggerConditionKind? TriggerCondition { get; }
 

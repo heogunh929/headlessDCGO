@@ -15,11 +15,25 @@ public sealed class BT1_034 : CEntity_Effect
                 return CardEffectCommons.IsOwnerTurn(card);
             }
 
+            bool DefenderCondition(Permanent defender)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleArea(defender, card))
+                {
+                    if (defender.HasNoDigivolutionCards)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
             cardEffects.Add(CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
-                defenderCondition: null,
+                defenderCondition: DefenderCondition,
                 isInheritedEffect: true,
                 card: card,
-                condition: Condition));
+                condition: Condition,
+                effectName: "Can't be Blocked by a Digimon with no digivolution cards"));
         }
 
         return cardEffects;
