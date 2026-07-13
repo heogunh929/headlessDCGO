@@ -205,6 +205,16 @@ public static class CardEffectRegistrar
         {
             foreach (ICardEffect cardEffect in effect.CardEffects(timing, card))
             {
+                // (REGRESSION fix) A factory can legitimately return null from CardEffects when the card has no
+                // live board state (e.g. PierceSelfEffect returns null with no live Permanent/TopCard — Pierce.cs:44).
+                // Every AS-IS scan boundary filters nulls (mirror CEntity_EffectController.GetCardEffects:217
+                // `.Filter(x => x != null)`); this non-AS-IS enter-play registrar enumerates CardEffects directly,
+                // so it must tolerate the same nulls rather than feed them to LegacyBindingBridge.ThrowIfNull.
+                if (cardEffect is null)
+                {
+                    continue;
+                }
+
                 // Activated / choice effects are resolved via the activation flow, not auto-registered —
                 // legacy marker (IActivatedCardEffect) or new-model AS-IS contract (ActivateICardEffect) alike
                 // (AS-IS has NO enter-play registration at all: availability is the live EffectList scan,
