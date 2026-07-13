@@ -2,6 +2,8 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>(MIG5 goal-5 surface) Headless mirror of the original <c>Player</c> — the handle a card-effect
@@ -111,4 +113,133 @@ public sealed class Player
     /// <summary>(MIG5) AS-IS <c>Player.SetLose()</c> (Player.cs:119-122): mark this player as having lost —
     /// the same one-way flag <c>TerminalEvaluator</c> reads.</summary>
     public void SetLose() => Context.PlayerStatusController.MarkLose(PlayerId);
+
+    // ===== memory (bridge W4) =====
+
+    /// <summary>(bridge W4) AS-IS <c>Player.MemoryForPlayer</c> — the shared memory gauge read from THIS
+    /// player's perspective. The headless gauge is single-signed and turn-player-relative (positive favors
+    /// the turn player; <c>HeadlessMainPhaseFlow</c> re-signs <c>|memory|</c> at turn switch), so it is
+    /// negated for the non-turn player — the same mapping <c>CardEffectCommons.MemoryForPlayer(card)</c>
+    /// and <c>AceOverflowGate.MemoryDelta</c> already use.</summary>
+    public int MemoryForPlayer
+    {
+        get
+        {
+            int memory = Context.MemoryController.Current.Current;
+            return Context.TurnController.Current.TurnPlayerId == PlayerId ? memory : -memory;
+        }
+    }
+
+    /// <summary>(bridge W4, retires design item MIG5-CANADDMEMORY) AS-IS <c>Player.CanAddMemory(cardEffect)</c>
+    /// (Player.cs:1030-1075): the gauge cap (<c>MemoryForPlayer &gt;= 10</c>, :1032-1035), then the
+    /// ICannotAddMemoryEffect scan over both boards' + players' effects (:1037-1071). The mirror carrier of
+    /// that AS-IS interface is the <c>CannotAddMemoryKey</c> player-scope continuous binding
+    /// (<c>CardEffectFactory.CannotAddMemoryEffect</c>); this scan reproduces the sink's central AddMemoryKind
+    /// gain gate (<c>MatchStateMutationSink.IsPlayerRestricted</c> — private to the sink, and keyed there on
+    /// the mutation SOURCE's owner, while AS-IS keys on THIS gaining player) with the true AS-IS causing card
+    /// (<c>cardEffect.EffectSourceCard</c>) fed to a <c>CardEffectCondition</c> predicate.</summary>
+    public bool CanAddMemory(ICardEffect cardEffect)
+    {
+        if (MemoryForPlayer >= 10)
+        {
+            return false;
+        }
+
+        foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
+            new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        {
+            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
+            if (!(values.TryGetValue(RestrictionHelpers.CannotAddMemoryKey, out object? raw) && raw is true) ||
+                !(values.TryGetValue(PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scopeRaw) && scopeRaw is true))
+            {
+                continue;
+            }
+
+            bool playerMatches =
+                (values.TryGetValue(PlayerScopeContinuousHelpers.ScopeAnyPlayerKey, out object? anyRaw) && anyRaw is true) ||
+                (values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid) && pid is int id && id == PlayerId.Value);
+            if (!playerMatches)
+            {
+                continue;
+            }
+
+            // (P1-PG) AS-IS gates the scan with cardEffect1.CanUse(null) — a conditional restriction whose
+            // condition is currently false must not block the add.
+            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
+                && condRaw is Func<bool> condition && !condition())
+            {
+                continue;
+            }
+
+            // AS-IS cannotAddMemory(this, cardEffect) — the restriction's causing-effect predicate, fed the
+            // TRUE causing card. No predicate = block every add.
+            if (values.TryGetValue(RestrictionHelpers.CausingEffectPredicateKey, out object? predRaw)
+                && predRaw is Func<CardSource, bool> predicate)
+            {
+                if (cardEffect?.EffectSourceCard is { } causingCard && predicate(causingCard))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>(bridge W4) AS-IS <c>Player.AddMemory(plusMemory, cardEffect)</c> (Player.cs:1082-1123),
+    /// IEnumerator→Task: no-op on zero (:1084-1087); a GAIN (≥1) with a cause is gated by
+    /// <see cref="CanAddMemory"/> (:1089-1100); then the SHARED gauge moves in THIS player's favor (AS-IS
+    /// PlayerID==0 subtracts / else adds, :1102-1110) with the ±10 clamp (:1112-1120 — the mirror controller's
+    /// Set clamps). Headless turn-player-relative gauge ⇒ "this player's favor" = +plus for the turn player /
+    /// −plus otherwise (see <see cref="MemoryForPlayer"/>). The AS-IS trailing <c>memoryObject.SetMemory()</c>
+    /// (:1122) is UI (stripped). Applied directly on the memory controller — the AS-IS body writes the gauge
+    /// directly too; the sink's AddMemoryKind is NOT used here because its amount convention is raw
+    /// (turn-player-relative) and its gain gate keys on the mutation source's owner, not the gaining player
+    /// (see docs/audit/rebuild_bridge_w4_notes.md).</summary>
+    public Task AddMemory(int plusMemory, ICardEffect cardEffect)
+    {
+        if (plusMemory == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (plusMemory >= 1)
+        {
+            if (cardEffect != null)
+            {
+                if (!CanAddMemory(cardEffect))
+                {
+                    return Task.CompletedTask;
+                }
+            }
+        }
+
+        int delta = Context.TurnController.Current.TurnPlayerId == PlayerId ? plusMemory : -plusMemory;
+        Context.MemoryController.Add(delta);
+
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>(bridge W4) AS-IS card idiom <c>card.Owner.AddMemory(±N, activateClass)</c> (BT1_114 pattern):
+/// the mirror <c>CardSource.Owner</c> is a bare <see cref="HeadlessPlayerId"/> (no live Player handle at the
+/// call site), so the AS-IS instance call is bridged as an extension — the match context resolves from the
+/// causing effect's source card (every AS-IS caller passes the live activateClass) or the ambient match
+/// scope (the same source <c>GManager.instance</c> uses), then delegates to the mirror
+/// <see cref="Player.AddMemory"/>.</summary>
+public static class PlayerIdAsIsExtensions
+{
+    public static Task AddMemory(this HeadlessPlayerId player, int plusMemory, ICardEffect cardEffect)
+    {
+        EngineContext context = cardEffect?.EffectSourceCard?.Context
+            ?? AmbientMatchContext.Current
+            ?? throw new InvalidOperationException(
+                "AddMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
+                "or call inside a match scope.");
+        return new Player(context, player).AddMemory(plusMemory, cardEffect);
+    }
 }

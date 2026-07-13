@@ -1,19 +1,25 @@
-// 1:1 mirror of the original BT1_023 (BT1/Red) — a Digimon.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Red/BT1_023.cs
+// TRUE AS-IS-verbatim re-port (P5, bridge-complete pass). 1:1 mirror of the original BT1_023 (BT1/Red) — a Digimon.
 //   [On Play] Delete 1 of your opponent's Digimon with <Blocker>.
-//   AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay,
-//   CanActivateCondition = IsExistOnBattleArea(card) && HasMatchConditionPermanent(CanSelectPermanentCondition),
-//   CanSelectPermanentCondition = IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card) && permanent.HasBlocker,
-//   ORDER=-1 (maxCountPerTurn:null), ISOPTIONAL=false, ActivateCoroutine = SelectPermanentEffect(Mode.Destroy)
-//   with maxCount = Min(1, MatchConditionPermanentCount), canNoSelect:false, canEndNotMax:false.
-//   Headless mirror: the uniform ActivatedEffect (= AS-IS ActivateClass) with explicit CanUse/CanActivate gates
-//   (CanTriggerOnPlay / IsExistOnBattleArea / HasMatchConditionPermanent, not folded away) and
-//   body=ActivatedSelectEffect (AS-IS SelectPermanentEffect Mode.Destroy). AS-IS permanent.HasBlocker is
-//   mirrored via the self-static keyword gate (ContinuousKeywordGate).
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
+// functions. CanUseCondition/CanActivateCondition resolve via the existing bridge; AS-IS
+// `CanSelectPermanentCondition(Permanent permanent)` = `IsPermanentExistsOnOpponentBattleAreaDigimon(permanent,
+// card) && permanent.HasBlocker` is expressed over the established `Func<HeadlessEntityId,bool>` idiom (mirror
+// `Permanent` has no `HasBlocker` property; `ContinuousKeywordGate.HasKeyword(context, id, Blocker)` is the
+// existing substrate translation of that AS-IS property, same as `PermanentOfThisCard()` ->
+// `ResolvePermanentOfThisCard`).
+//
+// UNRESOLVED MEMBERS (kept verbatim, not simplified/faked; see docs/audit/rebuild_p5_cards_missing.md): AS-IS
+// `GManager.instance.GetComponent<SelectPermanentEffect>()` / full AS-IS `SetUp(...)` / `.Activate()` — same gap
+// as BT1_017 (no mirror bridge for this selection machinery; none of W1-W3 touched it). Kept in AS-IS shape.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -25,32 +31,73 @@ public sealed class BT1_023 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            const string description = "[On Play] Delete 1 of your opponent's Digimon with <Blocker>.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Delete 1 Digimon with Blocker", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            // AS-IS CanSelectPermanentCondition: IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
-            // && permanent.HasBlocker.
-            bool CanSelect(HeadlessEntityId id) =>
-                CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)
-                && ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker);
+            string EffectDiscription()
+            {
+                return "[On Play] Delete 1 of your opponent's Digimon with <Blocker>.";
+            }
 
-            // AS-IS CanUseCondition: CanTriggerOnPlay(hashtable, card).
-            bool CanUse(CardEffectResolveContext ctx) => CardEffectCommons.CanTriggerOnPlay(ctx, card);
+            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            {
+                if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
+                {
+                    if (ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker))
+                    {
+                        return true;
+                    }
+                }
 
-            // AS-IS CanActivateCondition: IsExistOnBattleArea(card) && HasMatchConditionPermanent(CanSelect).
-            bool CanActivate() =>
-                CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.HasMatchConditionPermanent(card, CanSelect);
+                return false;
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnEnterFieldAnyone,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: new ActivatedSelectEffect(
-                    card, CanSelect, maxCount: 1, canNoSelect: false, canEndNotMax: false,
-                    SelectPermanentEffect.Mode.Destroy, description),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: description));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                    // UNRESOLVED (see file header): AS-IS `GManager.instance.GetComponent<SelectPermanentEffect>()`
+                    // / full AS-IS `SetUp(...)` / `.Activate()` — no mirror bridge exists. Kept verbatim.
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+            }
         }
 
         return cardEffects;

@@ -1,23 +1,23 @@
-// 1:1 mirror of the original BT1_010 (BT1/Red) — a Tamer.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Red/BT1_010.cs
+// TRUE AS-IS-verbatim re-port (P5, bridge-complete pass). 1:1 mirror of the original BT1_010 (BT1/Red) — a Tamer.
 //   [On Play] Reveal 5 cards from the top of your deck. Add 1 Tamer card among them to your hand. Place
 //             the remaining cards at the bottom of your deck in any order.
-//   AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay,
-//   CanActivateCondition = IsExistOnBattleArea(card) && Owner.LibraryCards.Count >= 1, ORDER=-1, ISOPTIONAL=false,
-//   ActivateCoroutine = SimplifiedRevealDeckTopCardsAndSelect(revealCount:5, SimplifiedSelectCardConditionClass
-//   (IsTamer -> Mode.AddHand, maxCount:1), remainingCardsPlace: DeckBottom).
-//   Headless mirror: the uniform ActivatedEffect (= AS-IS ActivateClass) with explicit CanUse/CanActivate gates
-//   (CanTriggerOnPlay / IsExistOnBattleArea / LibraryCards >= 1, all faithfully evaluated — not folded away) and
-//   a local adapter body wrapping CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect's underlying
-//   SimplifiedRevealAndSelectEffect (AS-IS SimplifiedRevealDeckTopCardsAndSelect coroutine), which itself
-//   already no-ops when the library is empty (belt-and-braces with the explicit LibraryCards >= 1 gate).
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
+// functions, ActivateCoroutine = CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(revealCount:5,
+// SimplifiedSelectCardConditionClass(IsTamer -> Mode.AddHand, maxCount:1), remainingCardsPlace: DeckBottom) —
+// now resolves via the bridge-W3 AS-IS-signature overload (RevealLibrary.cs).
+// Substrate-only translations: IEnumerator -> Task; `yield return ContinuousController.instance.StartCoroutine(X)`
+// -> `await X`; `card.Owner.LibraryCards.Count` (AS-IS Player field) -> the mirror zone-state read
+// (`IZoneStateReader.GetCards`), the same translation the bridge's own SimplifiedRevealDeckTopCardsAndSelect
+// guard uses internally.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
-using System.Threading;
+using System.Collections;
 using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Effects;
-using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT1_010 : CEntity_Effect
@@ -28,65 +28,60 @@ public sealed class BT1_010 : CEntity_Effect
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            const string description =
-                "[On Play] Reveal 5 cards from the top of your deck. Add 1 Tamer card among them to your hand. Place the remaining cards at the bottom of your deck in any order.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Reveal the top 5 cards of deck", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            bool CanSelectCardCondition(HeadlessEntityId id)
+            string EffectDiscription()
             {
-                var candidate = new CardSource(card.Context, id, card.Owner, card.Owner);
-                return candidate.IsTamer;
+                return "[On Play] Reveal 5 cards from the top of your deck. Add 1 Tamer card among them to your hand. Place the remaining cards at the bottom of your deck in any order.";
             }
 
-            var condition = new SimplifiedSelectCardConditionClass(
-                canTargetCondition: CanSelectCardCondition,
-                message: "Select 1 Tamer card.",
-                selectedTo: RevealDestination.Hand,
-                maxCount: 1);
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                return cardSource.IsTamer;
+            }
 
-            var reveal = new SimplifiedRevealAndSelectEffect(
-                card, revealCount: 5, conditions: new[] { condition }, remainingTo: RevealDestination.DeckBottom, description: description);
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
 
-            // AS-IS CanUseCondition: CanTriggerOnPlay(hashtable, card).
-            bool CanUse(CardEffectResolveContext ctx) => CardEffectCommons.CanTriggerOnPlay(ctx, card);
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    // AS-IS `card.Owner.LibraryCards.Count >= 1` (Player field) -> mirror zone-state read.
+                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    {
+                        return true;
+                    }
+                }
 
-            // AS-IS CanActivateCondition: IsExistOnBattleArea(card) && Owner.LibraryCards.Count >= 1.
-            bool CanActivate() =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1;
+                return false;
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnEnterFieldAnyone,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: new NonInteractiveAdapterBody(reveal),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: description));
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+                    revealCount: 5,
+                    simplifiedSelectCardConditions:
+                    new SimplifiedSelectCardConditionClass[]
+                    {
+                        new SimplifiedSelectCardConditionClass(
+                            canTargetCondition: CanSelectCardCondition,
+                            message: "Select 1 Tamer card.",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: 1,
+                            selectCardCoroutine: null),
+                    },
+                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                    activateClass: activateClass
+                );
+            }
         }
 
         return cardEffects;
-    }
-
-    // Adapts an IActivatedCardEffect whose ResolveAsync(sink, cancellationToken) shape predates the uniform
-    // IEffectBody (B-5) split, so it can be driven as a non-interactive body of a hand-rolled ActivatedEffect
-    // that carries EXPLICIT CanUse/CanActivate gates (rather than the folded, gate-less AsUniformActivated
-    // wrapping CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect uses by default).
-    private sealed class NonInteractiveAdapterBody : IEffectBody
-    {
-        private readonly SimplifiedRevealAndSelectEffect _inner;
-
-        public NonInteractiveAdapterBody(SimplifiedRevealAndSelectEffect inner) => _inner = inner;
-
-        public bool IsInteractive => false;
-
-        public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-        public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected) =>
-            ApplyAsync(card, sink, selected, CancellationToken.None).AsTask().GetAwaiter().GetResult();
-
-        public ValueTask ApplyAsync(
-            CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected, CancellationToken cancellationToken) =>
-            new ValueTask(_inner.ResolveAsync(sink, cancellationToken));
     }
 }

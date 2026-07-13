@@ -1,23 +1,28 @@
-// 1:1 mirror of the original BT1_092 (BT1/Red) — an Option.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Red/BT1_092.cs
+// TRUE AS-IS-verbatim re-port (P5, bridge-complete pass). 1:1 mirror of the original BT1_092 (BT1/Red) — an Option.
 //   [Main] Trigger <Draw 2> (Draw 2 cards from your deck). Then 1 of your Digimon gets +2000 DP for the turn.
-//   AS-IS: ActivateClass on EffectTiming.OptionSkill, CanUseCondition = CanTriggerOptionMainEffect,
-//   CanActivateCondition = null (unconditional), ORDER=-1 (maxCountPerTurn:null), ISOPTIONAL=false.
-//   ActivateCoroutine: `yield return new DrawClass(card.Owner, 2, activateClass).Draw()`, THEN (only if
-//   HasMatchConditionPermanent(CanSelectPermanentCondition) — a guard INSIDE the coroutine, not a separate
-//   CanActivateCondition) a SelectPermanentEffect(Mode.Custom) with maxCount = Min(1,
-//   MatchConditionPermanentCount), canNoSelect:false, canEndNotMax:false, whose per-target coroutine calls
-//   ChangeDigimonDP(+2000, UntilEachTurnEnd). CanSelectPermanentCondition =
-//   IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card).
-//   No [Security] block exists in AS-IS for this card (Option has no security-check effect) — not ported.
-//   Headless mirror: two uniform ActivatedEffect registrations under OptionSkill, in AS-IS coroutine order —
-//   DrawBody(2) then body=ActivatedTargetBuffEffect (AS-IS SelectPermanentEffect Mode.Custom + ChangeDigimonDP)
-//   — both with explicit CanUse=CanTriggerOptionMainEffect and CanActivate=null (AS-IS passes null literally;
-//   the HasMatchConditionPermanent guard lives inside the coroutine, mirrored by the select body's own
-//   clamp-to-live-candidates no-op). BT1_096 establishes that multiple cardEffects.Add() calls under one timing
-//   resolve in registration order, matching the AS-IS single sequential coroutine.
+// AS-IS structure kept verbatim: ONE ActivateClass, CanUseCondition = CanTriggerOptionMainEffect,
+// CanActivateCondition = null (unconditional; AS-IS passes null literally, not folded away), ActivateCoroutine
+// runs `new DrawClass(card.Owner, 2, activateClass).Draw()` THEN (guarded INSIDE the coroutine by
+// HasMatchConditionPermanent, not a separate CanActivateCondition) the buff-select. `new DrawClass(...)` now
+// resolves via the mirror `DrawClass` ctor (Assets/Scripts/Script/CardController.cs) — substrate shape needs an
+// explicit `EngineContext` (AS-IS `Player` implicitly carries it) and the cause as a `HeadlessEntityId?` (AS-IS
+// passes the `ICardEffect` directly) — translated as `card.Context` / `activateClass.EffectSourceCard?.InstanceId`,
+// the same "ICardEffect -> its EffectSourceCard's id" idiom the task brief's own CanNotBeAffected example uses.
+//
+// UNRESOLVED MEMBERS (kept verbatim, not simplified/faked; see docs/audit/rebuild_p5_cards_missing.md):
+//   - `card.BaseENGCardNameFromEntity` (AS-IS CardSource.cs:1359) — no mirror equivalent (informational
+//     `effectName` argument only, not gameplay logic); same gap as BT1_094.
+//   - `GManager.instance.GetComponent<SelectPermanentEffect>()` / full AS-IS `SetUp(...)` / `.Activate()` — same
+//     gap as BT1_017/BT1_023 (no mirror bridge for this selection machinery). Kept in AS-IS shape.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Red;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -29,36 +34,65 @@ public sealed class BT1_092 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
-            const string description =
-                "[Main] Trigger <Draw 2> (Draw 2 cards from your deck). Then 1 of your Digimon gets +2000 DP for the turn.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            // AS-IS CanUseCondition: CanTriggerOptionMainEffect(hashtable, card).
-            bool CanUse(CardEffectResolveContext ctx) => CardEffectCommons.CanTriggerOptionMainEffect(ctx, card);
+            string EffectDiscription()
+            {
+                return "[Main] Trigger <Draw 2> (Draw 2 cards from your deck). Then 1 of your Digimon gets +2000 DP for the turn.";
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OptionSkill,
-                canUse: CanUse,
-                canActivate: null, // AS-IS CanActivateCondition: null.
-                body: new DrawBody(2),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: description));
+            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            {
+                return CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+            }
 
-            // AS-IS CanSelectPermanentCondition: IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card).
-            bool CanSelect(HeadlessEntityId id) => CardEffectCommons.IsOwnerBattleAreaDigimon(card, id);
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OptionSkill,
-                canUse: CanUse,
-                canActivate: null, // AS-IS CanActivateCondition: null (HasMatchConditionPermanent guards the coroutine step, not CanActivate).
-                body: new ActivatedTargetBuffEffect(
-                    card, CanSelect, maxCount: 1, ModifierHelpers.DpDeltaKey, changeValue: 2000,
-                    EffectDuration.UntilEachTurnEnd, "Select 1 Digimon that will get DP +2000."),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: description));
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 2, activateClass.EffectSourceCard?.InstanceId).Draw();
+
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                    // UNRESOLVED (see file header): AS-IS `GManager.instance.GetComponent<SelectPermanentEffect>()`
+                    // / full AS-IS `SetUp(...)` / `.Activate()` — no mirror bridge exists. Kept verbatim.
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: SelectPermanentCoroutine,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Custom,
+                        cardEffect: activateClass);
+
+                    selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will get DP +2000.", "The opponent is selecting 1 Digimon that will get DP +2000.");
+
+                    await selectPermanentEffect.Activate();
+
+                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    {
+                        await CardEffectCommons.ChangeDigimonDP(
+                            targetPermanent: permanent,
+                            changeValue: 2000,
+                            effectDuration: EffectDuration.UntilEachTurnEnd,
+                            activateClass: activateClass);
+                    }
+                }
+            }
         }
 
         return cardEffects;

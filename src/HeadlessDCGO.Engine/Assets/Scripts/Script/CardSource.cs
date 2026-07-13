@@ -276,6 +276,13 @@ public sealed class CardSource
         || raw is not Func<bool> condition
         || condition();
 
+    /// <summary>(bridge W4) AS-IS <c>CardSource.BaseENGCardNameFromEntity</c> (CardSource.cs:1359,
+    /// <c>_cEntity_Base.CardName_ENG</c>) — the PRINTED base-entity English name, UNtransformed (unlike
+    /// <see cref="CardNames"/>, no ChangeBaseCardName/ChangeCardNames folds — AS-IS reads the raw entity).
+    /// Card-corpus use: the informational <c>effectName</c> argument to <c>SetUpICardEffect</c>
+    /// (BT1_092/BT1_094 pattern).</summary>
+    public string BaseENGCardNameFromEntity => Definition?.Name ?? string.Empty;
+
     /// <summary>Continuous-binding key for an added card name (AS-IS ChangeCardNamesClass).</summary>
     public const string AddedCardNameKey = "addedCardName";
 

@@ -56,4 +56,52 @@ public sealed class GManager
     /// <summary>The live <see cref="EngineContext"/> backing this manager (substrate escape hatch for members
     /// still being ported — not an AS-IS surface).</summary>
     public EngineContext Context => _context;
+
+    /// <summary>(EFFECT-MODEL REBUILD / bridge W4) AS-IS <c>GManager.instance.GetComponent&lt;T&gt;()</c> — the
+    /// Unity idiom card effects use to reach the singleton selection-flow components living on the GManager
+    /// GameObject (<c>SelectPermanentEffect</c>/<c>SelectCardEffect</c>/…). Unity returns THE one component
+    /// instance per GameObject; each <c>SetUp(...)</c> overwrites its state, and the fields <c>SetUp</c> does
+    /// NOT reset (e.g. SelectPermanentEffect's <c>_canAttackPlayer</c>/<c>_defenderCondition</c>/<c>_isFaceUp</c>)
+    /// genuinely persist across uses in AS-IS — so the mirror is likewise ONE match-scoped instance,
+    /// context-cached exactly like <see cref="AutoProcessing.For"/> (<c>TryGetService</c>/<c>RegisterService</c>).
+    ///
+    /// Supported T (bridge W4): <see cref="Assets.Scripts.Script.SelectPermanentEffect"/> and
+    /// <see cref="Assets.Scripts.Script.SelectCardEffect"/> (the two the AS-IS-verbatim card corpus reaches via
+    /// this path today — BT1_011/017/023/092/094). Any other T throws (STOP, design item RD-W4-3 in
+    /// docs/audit/rebuild_bridge_w4_notes.md): the AS-IS <c>OptionalSkill</c> mirror file declares no type at
+    /// all (its SelectOptional yes/no flow is WindowResolver territory), and the other AS-IS components
+    /// (SelectAssemblyClass, SelectCountEffect, SelectDigiXrosClass, Effects, …) either have non-component
+    /// mirror shapes or no mirror — grow this switch as bridge batches land them, never silently.</summary>
+    public T GetComponent<T>() where T : class
+    {
+        if (_context.TryGetService(out T? existing) && existing is not null)
+        {
+            return existing;
+        }
+
+        object created;
+        if (typeof(T) == typeof(Assets.Scripts.Script.SelectPermanentEffect))
+        {
+            var selectPermanentEffect = new Assets.Scripts.Script.SelectPermanentEffect();
+            selectPermanentEffect.AttachContext(_context);
+            created = selectPermanentEffect;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectCardEffect))
+        {
+            var selectCardEffect = new Assets.Scripts.Script.SelectCardEffect();
+            selectCardEffect.AttachContext(_context);
+            created = selectCardEffect;
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"GManager.GetComponent<{typeof(T).Name}>() has no mirror component for this type yet " +
+                "(bridge W4 supports SelectPermanentEffect/SelectCardEffect; design item RD-W4-3, " +
+                "docs/audit/rebuild_bridge_w4_notes.md).");
+        }
+
+        var component = (T)created;
+        _context.RegisterService(component);
+        return component;
+    }
 }
