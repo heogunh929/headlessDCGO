@@ -1,22 +1,78 @@
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
+// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Reboot.cs
+// (EFFECT-MODEL REBUILD / P4 KeyWord SYNC slice) 1:1 mirror of the AS-IS Reboot.cs factory partial.
+// Returns the ported RebootClass kind-class (CardEffects/RebootClass.cs). Replaces the monolith's old invented
+// SelfKeywordEffect/ContinuousPlayerScopeKeywordEffect-based RebootSelfStaticEffect/RebootStaticEffect.
+// ADAPTATION (substrate only; logic verbatim): AS-IS card.PermanentOfThisCard() returns a PermanentView on the
+// mirror, not a Permanent -> bridge via ICardEffect.ResolvePermanentOfThisCard(card) (ICardEffect.cs).
 
-using HeadlessDCGO.Engine.Headless.Effects;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
-public static class Reboot
+using System;
+using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // RebootClass (kind-class layer)
+
+public partial class CardEffectFactory
 {
-    public static KeywordBaseBatch1Effect Create(
-        HeadlessEntityId sourceEntityId,
-        HeadlessEntityId? targetEntityId = null,
-        bool isInherited = false,
-        bool isLinked = false)
+    #region Static effect of [Reboot] on oneself
+    public static RebootClass RebootSelfStaticEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, bool isLinkedEffect = false)
     {
-        return KeywordBaseBatch1Factory.Create(
-            KeywordBaseBatch1Kind.Reboot,
-            sourceEntityId,
-            targetEntityId,
-            isInherited,
-            isLinked);
+        bool PermanentCondition(Permanent permanent) => permanent == ICardEffect.ResolvePermanentOfThisCard(card);
+
+        bool CanUseCondition()
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaDigimon(card))
+            {
+                if (condition == null || condition())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return RebootStaticEffect(permanentCondition: PermanentCondition, isInheritedEffect: isInheritedEffect, card: card, condition: CanUseCondition, isLinkedEffect: isLinkedEffect);
     }
+    #endregion
+
+    #region Static effect of [Reboot]
+    public static RebootClass RebootStaticEffect(Func<Permanent, bool> permanentCondition, bool isInheritedEffect, CardSource card, Func<bool> condition, bool isLinkedEffect = false)
+    {
+        string effectName = "Reboot";
+
+        RebootClass rebootClass = new RebootClass();
+        rebootClass.SetUpICardEffect(effectName, CanUseCondition, card);
+        rebootClass.SetUpRebootClass(PermanentCondition: PermanentCondition);
+
+        if (isInheritedEffect)
+        {
+            rebootClass.SetIsInheritedEffect(true);
+        }
+
+        if (isLinkedEffect)
+        {
+            rebootClass.SetIsLinkedEffect(true);
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return condition == null || condition();
+        }
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (permanentCondition == null || permanentCondition(permanent))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return rebootClass;
+    }
+    #endregion
 }

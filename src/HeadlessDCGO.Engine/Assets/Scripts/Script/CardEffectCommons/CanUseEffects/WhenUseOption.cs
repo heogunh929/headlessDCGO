@@ -1,7 +1,49 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenUseOption.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenUseOption.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "When you use an Option card" effects
+
+    public static bool CanTriggerWhenOwnerUseOption(Hashtable hashtable, Func<CardSource, bool> cardCondition, Func<int, bool> constCondition, CardSource card)
+    {
+        bool CardCondition(CardSource cardSource) => cardSource.Owner == card.Owner && (cardCondition == null || cardCondition(cardSource));
+
+        return CanTriggerWhenUseOption(hashtable, CardCondition, constCondition, card);
+    }
+    #endregion
+
+    #region Can trigger "When you or the opponent use an Option card" effects
+
+    public static bool CanTriggerWhenUseOption(Hashtable hashtable, Func<CardSource, bool> cardCondition, Func<int, bool> constCondition, CardSource card)
+    {
+        CardSource Card = GetCardFromHashtable(hashtable);
+
+        if (Card != null)
+        {
+            if (cardCondition == null || cardCondition(Card))
+            {
+                if (hashtable.ContainsKey("Cost"))
+                {
+                    if (hashtable["Cost"] is int)
+                    {
+                        int Cost = (int)hashtable["Cost"];
+
+                        if (constCondition == null || constCondition(Cost))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}

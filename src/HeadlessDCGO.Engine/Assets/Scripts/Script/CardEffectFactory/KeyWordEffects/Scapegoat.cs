@@ -1,7 +1,151 @@
-// Source: Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Scapegoat.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Scapegoat.cs
+// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Scapegoat.cs factory partial.
+// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
+// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`; stripped
+// `using UnityEngine;` / `using System.Runtime.InteropServices.WindowsRuntime;`. Replaces the monolith's
+// invented ScapegoatSelfEffect + ScapegoatStaticEffect.
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+
+public partial class CardEffectFactory
+{
+    #region Trigger effect of [Scapegoat] on oneself
+    public static ActivateClass ScapegoatSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition, string effectName, string effectDiscription, ICardEffect rootCardEffect = null, bool isLinkedEffect = false)
+    {
+        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+
+        bool CanUseCondition()
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaDigimon(card))
+            {
+                if (condition == null || condition())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return ScapegoatEffect(targetPermanent: targetPermanent, isInheritedEffect: isInheritedEffect, condition: CanUseCondition, rootCardEffect: rootCardEffect, effectName: effectName, effectDiscription: effectDiscription, card, isLinkedEffect: isLinkedEffect);
+    }
+    #endregion
+
+    #region Trigger effect of [Scapegoat]
+    public static ActivateClass ScapegoatEffect(Permanent targetPermanent, bool isInheritedEffect, Func<bool> condition, ICardEffect rootCardEffect, string effectName, string effectDiscription, CardSource card, bool isLinkedEffect = false)
+    {
+        if (targetPermanent == null) return null;
+        if (targetPermanent.TopCard == null) return null;
+        if (card == null) return null;
+
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect(effectName, CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, effectDiscription);
+        activateClass.SetHashString($"Scapegoat_{card.CardID}" + (isInheritedEffect ? "_inherited" : ""));
+        activateClass.SetIsInheritedEffect(isInheritedEffect);
+        activateClass.SetIsLinkedEffect(isLinkedEffect);
+
+        if (rootCardEffect != null)
+        {
+            activateClass.SetIsInheritedEffect(false);
+            activateClass.SetEffectSourcePermanent(targetPermanent);
+            activateClass.SetRootCardEffect(rootCardEffect);
+        }
+
+        bool CanSelectPermanentCondition(Permanent permanent) => CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) && permanent != ICardEffect.ResolvePermanentOfThisCard(card);
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if(permanent == targetPermanent)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            bool CardEffectCondition(ICardEffect cardEffect) => CardEffectCommons.IsOwnerEffect(cardEffect,card);
+
+            if (CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (CardEffectCommons.CanTriggerWhenPermanentRemoveField(hashtable, PermanentCondition))
+                {
+                    if (CardEffectCommons.IsByEffect(hashtable, CardEffectCondition))
+                        return false;
+
+                    if (condition == null || condition())
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.CanActivateScapegoat(targetPermanent, CanSelectPermanentCondition))
+            {
+                if (condition == null || condition())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            return CardEffectCommons.ScapegoatProcess(activateClass, targetPermanent, CanSelectPermanentCondition);
+        }
+
+        return activateClass;
+    }
+    #endregion
+
+    #region Static effect of [Scapegoat]
+    public static ScapegoatClass ScapegoatStaticEffect(Func<Permanent, bool> permanentCondition, bool isInheritedEffect, CardSource card, Func<bool> condition)
+    {
+        string effectName = "Scapegoat";
+
+        ScapegoatClass scapegoateClass = new ScapegoatClass();
+        scapegoateClass.SetUpICardEffect(effectName, CanUseCondition, card);
+        scapegoateClass.SetUpScapegoatClass(PermanentCondition: PermanentCondition);
+
+        if (isInheritedEffect)
+        {
+            scapegoateClass.SetIsInheritedEffect(true);
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return condition == null || condition();
+        }
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (permanentCondition == null || permanentCondition(permanent))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return scapegoateClass;
+    }
+    #endregion
+}

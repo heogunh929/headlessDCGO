@@ -1,7 +1,35 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnCardsAddedToHand.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnCardsAddedToHand.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "an effect adds a card to 1 player's hand" effect
+    public static bool CanTriggerOnHandAdded(Hashtable hashtable, Player player, Func<ICardEffect, bool> cardEffectCondition)
+    {
+        List<Player> Players = GetPlayersFromHashtable(hashtable);
+
+        if (Players != null)
+        {
+            if (Players.Contains(player))
+            {
+                ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+                if (CardEffect != null)
+                {
+                    if (cardEffectCondition == null || cardEffectCondition(CardEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}

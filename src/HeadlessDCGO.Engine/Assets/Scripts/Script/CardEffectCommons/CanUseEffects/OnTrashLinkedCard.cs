@@ -1,7 +1,71 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnTrashLinkedCard.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnTrashLinkedCard.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "When this linked card is trashed" effect
+    public static bool CanTriggerOnTrashSelfLinkedCard(Hashtable hashtable, Func<ICardEffect, bool> cardEffectCondition, CardSource card)
+    {
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (permanent.LinkedCards.Contains(card))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool CardCondition(CardSource cardSource)
+        {
+            return cardSource == card;
+        }
+
+        return CanTriggerOnTrashLinkedCard(hashtable, PermanentCondition, cardEffectCondition, CardCondition);
+    }
+    #endregion
+
+    #region Can trigger "When this linked card is trashed due to effect" effect
+    public static bool CanTriggerOnTrashLinkedCard(Hashtable hashtable, Func<Permanent, bool> permanentCondition, Func<ICardEffect, bool> cardEffectCondition, Func<CardSource, bool> cardCondition)
+    {
+        Permanent permanent = GetPermanentFromHashtable(hashtable);
+
+        if (permanent != null)
+        {
+            if (permanent.TopCard != null)
+            {
+                if (permanentCondition == null || permanentCondition(permanent))
+                {
+                    ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+                    if (CardEffect != null)
+                    {
+                        if (cardEffectCondition == null || cardEffectCondition(CardEffect))
+                        {
+                            List<CardSource> DiscardedCards = GetDiscardedCardsFromHashtable(hashtable);
+
+                            if (DiscardedCards != null)
+                            {
+                                if (DiscardedCards.Count(cardSource => cardCondition == null || cardCondition(cardSource)) >= 1)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}

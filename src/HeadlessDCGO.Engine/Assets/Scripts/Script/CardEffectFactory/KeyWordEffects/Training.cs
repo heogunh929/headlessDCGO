@@ -1,7 +1,52 @@
-// Source: Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Training.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Training.cs
+// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Training.cs factory partial.
+// ADAPTATION: coroutine `IEnumerator ActivateCoroutine` (has yields) -> `async Task ActivateCoroutine`;
+// `yield return ContinuousController.instance.StartCoroutine(X)` -> `await X`; card.PermanentOfThisCard() ->
+// ICardEffect.ResolvePermanentOfThisCard(card); stripped `using UnityEngine;`. Replaces the monolith's
+// invented TrainingEffect.
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+
+public partial class CardEffectFactory
+{
+    #region Trigger effect of [Training]
+    public static ActivateClass TrainingEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Training", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, DataBase.TrainingEffectDiscription());
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return true;
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanActivateSuspendCostEffect(card, true);
+        }
+
+        async Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            Permanent thisPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+
+            await new SuspendPermanentsClass(
+                    new List<Permanent>() { thisPermanent },
+                    CardEffectCommons.CardEffectHashtable(activateClass)).Tap();
+
+            if(card.Owner.LibraryCards.Count > 0)
+                await thisPermanent.AddDigivolutionCardsBottom(
+                            new List<CardSource> { card.Owner.LibraryCards[0] }, activateClass, isFacedown: true);
+        }
+
+        return activateClass;
+    }
+    #endregion
+}

@@ -250,3 +250,168 @@ this layer is un-masked (either add `Hashtable` gate overloads or thread a ctx t
   the OLD `AsUniformActivated`/`IEffectBody` model (which never called these same-name methods — they didn't
   exist) are unaffected; cards ported from AS-IS supply an `async Task (Hashtable, ActivateClass)` body and
   match directly. No existing caller breaks (the methods are net-new to the monolith).
+
+# Rebuild P4 — KeyWord factory SYNC batch (kind-class returns)
+
+Ported 9 AS-IS `CardEffectFactory/KeyWordEffects/*.cs` factory partials 1:1 (returning the ported kind-class),
+replacing the monolith's old mirror-invented `<Keyword>Self/StaticEffect` wrappers (deleted to avoid
+CS0111/CS0121). Files: ArtsDigivolve, Ascension, Blocker, Collision, Iceclad, Jamming, Progress, Reboot, Rush.
+
+## Build impact
+- Baseline `70 CS0246 + 274 CS0508` (344) UNCHANGED after the batch. No new CS0111/CS0121/CS0101 (no duplicate
+  types/methods). Net new declaration errors = 0 at the aggregate.
+- Only ONE error surfaces in the 9 new files: `ArtsDigivolve.cs(18): CS0246 'OptionResolutionClass'` — the AS-IS
+  return kind-class (DCGO/Assets/Scripts/Script/OptionResolutionClass.cs) is NOT YET mirror-ported.
+- All member-level references in the OTHER 8 files bind cleanly. Note: body-level SEMANTIC errors in these
+  files are SUPPRESSED by the pervasive baseline CS0508 error-type cascade (verified: a parse error IS reported,
+  but a bogus-type body reference is NOT). So the genuinely-missing members below are MASKED latent gaps found
+  by source grep, not by the compiler.
+
+## Missing `CardEffectCommons.*` / `DataBase.*` / other members (verbatim-kept per no-simplification directive)
+- `CardEffectCommons.CanTriggerAscension(Hashtable, CardSource)` — MISSING (Ascension gate). Masked.
+- `CardEffectCommons.CanActivateAscension(Hashtable, CardSource)` — MISSING (Ascension activate gate). Masked.
+- `CardEffectCommons.AscensionProcess(Hashtable, ActivateClass, CardSource)` returning `Task` — MISSING
+  (Ascension resolution coroutine; IEnumerator→Task per the ActivateClass substrate convention). Masked.
+- `DataBase.AscensionEffectDescription()` — MISSING (Ascension effect description). Masked.
+- `OptionResolutionClass` (+ instance `SetUpOptionResolutionClass(Func<CardSource,IEnumerator>, Func<CardSource,bool>)`)
+  — MISSING kind-class (ArtsDigivolve). SURFACED as CS0246. Blocks binding the rest of the ArtsDigivolve body.
+- `ContinuousController` (`.instance.StartCoroutine`) — MISSING (ArtsDigivolve coroutine runner). Masked behind
+  the OptionResolutionClass CS0246 (AS-IS coroutine substrate; kept verbatim, no Task adaptation because the
+  whole OptionResolutionClass infra is absent).
+- `PlayCardClass` (ctor + `.PlayCard()`) — MISSING (ArtsDigivolve cost-free play). Masked.
+- Present & bound (no gap): kind-classes Blocker/Collision/Iceclad/Reboot/Rush/CanNotBeDestroyedByBattle/
+  CanNotAffected/ActivateClass + their SetUp* methods; `CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect`
+  (Jamming); `GManager.instance.attackProcess.{SecurityDigimon,IsAttacking,AttackingPermanent}` (Jamming/Progress);
+  `CardEffectCommons.{IsExistOnBattleAreaDigimon,IsPermanentExistsOnBattleArea,IsExistOnBattleArea,
+  CanActivateProgress,IsOpponentEffect,IsExistOnExecutingArea,HasMatchConditionPermanent,IsOwnerPermanent}`;
+  `SelectPermanentEffect` / `SelectCardEffect.Root.Execution`; `ICardEffect.ResolvePermanentOfThisCard`.
+
+## Adaptations applied (substrate only; logic verbatim)
+- `card.PermanentOfThisCard()` (AS-IS treated as `Permanent`) → `ICardEffect.ResolvePermanentOfThisCard(card)` in
+  Blocker/Collision/Iceclad/Jamming/Reboot/Rush self-`PermanentCondition` and Progress `CardCondition`.
+- Ascension `ActivateCoroutine`: AS-IS `IEnumerator` → `Task` (mirror `ActivateClass.SetUpActivateClass` takes
+  `Func<Hashtable,Task>`; documented IEnumerator→Task coroutine adaptation).
+- Stripped `using UnityEngine;` (Ascension/Blocker/Iceclad/Jamming/Progress/Rush). No Photon/Debug/PlayLog present.
+- ArtsDigivolve kept fully verbatim (IEnumerator coroutines + ContinuousController/PlayCardClass) because its
+  OptionResolutionClass substrate model is entirely mirror-absent.
+
+## Iceclad / Progress note
+- The monolith previously had ONLY the `*SelfStaticEffect` wrapper for Iceclad and Progress (no non-self
+  `IcecladStaticEffect`/`ProgressStaticEffect`). The AS-IS files declare BOTH; the ported files ADD the non-self
+  variants (net-new, no conflict).
+
+## KEYWORD-STATICCLASS-CONSUMERS
+- NONE. The old mirror-invented `static class {Blocker,Jamming,Reboot,Rush,Progress}` (with a single `.Create`
+  method, namespace `...CardEffectFactory.KeyWordEffects`) had ZERO consumers in `src/` (`*.Create` grep = 0), so
+  overwriting them with the `partial class CardEffectFactory` port left no masked body errors.
+
+---
+
+# P4 KeyWord ASYNC batch (2026-07-13)
+
+Batch (23 files): `Alliance, ArmorPurge, Barrier, BlastDNADigivolution, BlastDigivolution, Blitz, Decode, Decoy,
+Evade, Execute, Fortitude, Fragment, Link, MaterialSave, Overclock, Partition, Pierce, Raid, Retaliation, Save,
+Scapegoat, Training, Vortex`. Each mirror `KeyWordEffects/<name>.cs` overwritten with the 1:1 AS-IS port
+(`partial class CardEffectFactory`, namespace ...CardEffectCommons). Old mirror-invented monolith methods of the
+same name removed from CardEffectFactory.cs. Build after: **68 CS0246 + 274 CS0508** (baseline 70 CS0246 + 274
+CS0508 — CS0246 fell by 2, no rise; **zero CS0111/CS0121/CS0101**, zero errors in any of the 23 ported files —
+their bodies are masked as expected).
+
+## ASYNC translation applied (ActivateClass.SetUpActivateClass takes `Func<Hashtable,Task>`)
+- Coroutine `IEnumerator ActivateCoroutine` whose body is a pure delegating `return CardEffectCommons.XProcess(...)`
+  (no yields) -> non-async `Task ActivateCoroutine` (return-type swap, body verbatim): Alliance(x2), ArmorPurge,
+  Barrier, Blitz, Decode, Decoy, Execute, Fragment, MaterialSave, Overclock, Partition, Pierce, Raid, Retaliation,
+  Save, Scapegoat, Vortex.
+- Coroutine WITH yields -> `async Task` + `await`: Evade (`await CardEffectCommons.EvadeProcess`), Fortitude
+  (`await CardEffectCommons.FortitudeProcess`), Training (`await new SuspendPermanentsClass(...).Tap()` /
+  `await ...AddDigivolutionCardsBottom(...)`), BlastDigivolution / BlastDNADigivolution / Link (nested
+  `IEnumerator Select*Coroutine` -> `async Task`; `yield return StartCoroutine(X)` -> `await X`; lone
+  `yield return null` -> `await Task.CompletedTask;`).
+- Signature param `Func<IEnumerator> beforeOnAttackCoroutine` -> `Func<Task>` (Blitz).
+
+## Auxiliary-type handling (NOT re-declared / preserved)
+- `PartitionCondition` (AS-IS top-level, Partition.cs): the MIRROR already carries it (string-typed colours) with
+  a `PartitionConditionsKey` const consumed across ~15 files. PRESERVED VERBATIM in namespace
+  ...CardEffectFactory.KeyWordEffects (block-namespace kept in the same file); the old invented `static class
+  Partition` (.Create) dropped. Ported `PartitionEffect` resolves it via `using ...KeyWordEffects;`.
+- `Decode`: AS-IS Decode.cs has NO aux type, but the mirror-invented `static class Decode.DecodeSourceConditionKey`
+  const HAS external consumers (DeletionReplacementTiming.cs, CardLeavePlayCleanup.cs). PRESERVED (const-only
+  holder) in namespace ...KeyWordEffects (block namespace); its old `.Create` dropped.
+- `BlastDNACondition` (AS-IS top-level): the mirror already has a `BlastDNACondition` record in
+  ...CardEffectCommons (CardPortingFramework.cs) with a DIFFERENT shape (Matches/Label vs Name/Permanents/
+  CardSources). NOT re-declared (would be CS0101). Ported body's `.Name/.Permanents/.CardSources` field accesses
+  are masked verbatim-missing members.
+
+## Distinct missing members referenced verbatim (EXPECTED — kept, bodies masked)
+Mutation / process helpers on `CardEffectCommons` (absent on mirror): `AllianceProcess, ArmorPurgeProcess,
+BarrierProcess, BlitzProcess, DecodeProcess, DecoyProcess, EvadeProcess, ExecuteProcess, FortitudeProcess,
+FragmentProcess, MaterialSaveProcess, OverclockProcess, PartitionProcess, PierceProcess, RaidProcess,
+RetaliationProcess, SaveProcess, ScapegoatProcess, VortexProcess`; gate helpers `CanActivate{Alliance,ArmorPurge,
+Barrier,Blitz,Decode,Decoy,Evade,Execute,Fortitude,Fragment,MaterialSave,Overclock,Partition,Pierce,Raid,
+Retaliation,Save,Scapegoat,Vortex,SuspendCostEffect}`, `CanTrigger{OnPermanentAttack,WhenPermanentRemoveField,
+Evade,Fortitude,Pierce,Partition,OnPermanentDeleted,WhenRemoveField,OnDeletion,OnAttack,WhenDigivolving,OnPlay}`,
+plus `GetAttackerFromHashtable, HasMatchConditionOwnersPermanent, IsPermanentExistsOnOwnerBattleAreaDigimon,
+IsByBattle, IsByEffect, IsOwnerEffect, IsOpponentPermanent, HasMatchConditionPermanent, MatchConditionPermanentCount,
+CardEffectHashtable`; `DataBase.<Keyword>EffectDiscription` (all); `ActivateClass.SetIsCounterEffect/
+SetEffectSourcePermanent/SetRootCardEffect`; substrate types `SelectPermanentEffect, SelectHandEffect, GManager,
+CardObjectController, PlayCardClass, ILinkCard, SuspendPermanentsClass, FieldCardFrame, SelectCardEffect(.Root),
+Utils.PluralFormSuffix`; CardSource/Permanent members `linkCondition, IsLinked, PreferredFrame, fieldCardFrames,
+CanPlayJogress, CanPlayCardTargetFrame, PermanentFrame, DigivolutionCards.Clone/Filter, HasCardColor, HasLevel,
+Level, EqualsCardName, ContainsCardName, CardNames, IsContainDigiXrosCondition, CanNotEvolve, GetBattleAreaDigimons,
+GetBattleAreaPermanents, LibraryCards, HandCards, AddDigivolutionCardsBottom, CanPlayJogress`. All are masked (no
+visible CS error) inside the ported partial-class bodies.
+
+## KEYWORD-STATICCLASS-CONSUMERS (ASYNC batch)
+- The old mirror-invented `static class {Alliance, ArmorPurge, Blitz, Overclock, Pierce, Retaliation, Vortex}`
+  (each a single `.Create`, namespace ...KeyWordEffects) had **ZERO** consumers in `src/` — safely replaced.
+- `static class Partition` (.Create): ZERO consumers — dropped (but sibling `PartitionCondition` PRESERVED).
+- `static class Decode`: its `.Create` had zero consumers (dropped), but its `DecodeSourceConditionKey` const
+  DOES have consumers (PRESERVED — see aux-type handling).
+
+## P4 FACTORY — ACTIVATED inline-mutation methods (coroutine-body factory methods)
+1:1 rewrite from AS-IS CardEffectFactory.cs of the 14 factory methods whose bodies are inline coroutines calling
+mutation helpers (excluded from the earlier timing-builder port). Coroutine->async Task
+(`yield return ContinuousController.instance.StartCoroutine(X)` -> `await X`; lone `yield return null` ->
+`await Task.CompletedTask`); `card.PermanentOfThisCard()` -> `ICardEffect.ResolvePermanentOfThisCard(card)`;
+`x.CanNotBeAffected(effect)` -> `x.CanNotBeAffected(effect.EffectSourceCard?.InstanceId)`; PlaySE/WaitForSeconds =
+UI (stripped, per mirror-wide convention).
+
+REWRITTEN in place (old mirror-invented declarative version replaced):
+- PlaySelfTamerSecurityEffect (AS-IS :148)  — async ActivateCoroutine
+- PlayMindLinkTamerFromDigivolutionCards (AS-IS :196) — async ActivateCoroutine + async SelectCardCoroutine; PermanentOfThisCard bridged
+- PlaySelfDigimonAfterBattleSecurityEffect (AS-IS :285) — 3 nested async coroutines; PermanentOfThisCard + CanNotBeAffected bridged; PlaySE/WaitForSeconds stripped; removed its now-unused DeleteTimingString helper
+- PlaceSelfDelayOptionSecurityEffect (AS-IS :512) — async ActivateCoroutine
+- ReplaceBottomSecurityWithFaceUpOptionMainEffect (AS-IS :599) — coroutine lambda returns Task
+- ReplaceTopSecurityWithFaceUpOptionMainEffect (AS-IS :622) — coroutine lambda returns Task
+- ReplaceBottomSecurityWithFaceUpOptionEffect (AS-IS :645) — IEnumerator -> async Task
+- UseRequirements (AS-IS :722) — verbatim (returns IgnoreColorConditionClass; sig now takes bare Func<CardSource,bool>)
+- GetJogressConditionClass (AS-IS :752) — verbatim (returns AddJogressConditionClass; canUseCondition is Func<Hashtable,bool>)
+- DigiXrosEffectFromNames (AS-IS :784) — verbatim (returns AddDigiXrosConditionClass)
+
+ADDED (absent on mirror):
+- ActivateMainOptionSecurityEffect (AS-IS :551) — Func<ICardEffect,IEnumerator> afterMainEffect -> Func<ICardEffect,Task>; async ActivateCoroutine
+- ReplaceTopSecurityWithFaceUpOptionEffect (AS-IS :684) — IEnumerator -> async Task
+- ActivateClassesForSharedEffects (AS-IS :828) — activateCoroutine param IEnumerator -> Task (matches the mirror timing-builder classes' signature); body verbatim (dispatches to the existing WhenMoving/OnPlay/.../Counter Class builders)
+- PlaceToSecurityEffect (AS-IS :1497) — IEnumerator ResolutionCoroutine -> async Task; returns OptionResolutionClass
+
+SKIPPED:
+- AddDetailClass (AS-IS :1523) — mirror version already AS-IS-shaped 1:1 (Func<Hashtable,bool> canUseCondition, returns AddDetailClass kind-class). No change.
+
+### Distinct genuinely-missing member introduced by this work (verbatim-kept, RED)
+- `OptionResolutionClass` (CS0246) — the kind-class returned by PlaceToSecurityEffect. No mirror declaration exists
+  (its port is a separate kind-class slice). This is the ONLY new missing type; all other substrate/mutation
+  members these bodies reference (CardEffectCommons.{CanTriggerSecurityEffect, PlayPermanentCards, IsExistOnBattleArea,
+  IsExistOnExecutingArea, CanPlayAsNewPermanent, PlaceDelayOptionCards, OptionMainEffect, OptionMainCheckHashtable,
+  CanTriggerOptionMainEffect, HasMatchConditionOwnersPermanent, HasMatchConditionOwnersBreedingPermanent,
+  IsPermanentExistsOnOwnerBattleArea, IsPermanentExistsOnBattleArea, IsOwnerTurn, IsOpponentTurn, CardEffectHashtable,
+  GetJogressConditions, GetDigiXrosConditionsFromNames}, CardObjectController.{AddHandCards, AddSecurityCard},
+  ContinuousController.{instance, nullSkillInfos}, GManager.instance.GetComponent<Effects>().CreateRecoveryEffect,
+  new DestroyPermanentsClass(...).Destroy(), SelectCardEffect.{Root.*, Mode.Custom, SetUp, ...}, IReduceSecurity,
+  IAddSecurity, ActivateClass.{SetIsSecurityEffect, SetIsInheritedEffect, SetEffectSourcePermanent, EffectName,
+  EffectDiscription, Activate}, IgnoreColorConditionClass, AddJogressConditionClass, AddDigiXrosConditionClass,
+  JogressCondition, DigiXrosCondition) already RESOLVE on the mirror (verified by clean build — zero errors on them).
+
+### Build after this slice
+65 CS0246 + 274 CS0508 (from ~68 CS0246 + 274 CS0508 baseline — CS0246 FELL by 3; the only monolith-file CS0246 are
+7x pre-existing IActivatedCardEffect on untouched declarative methods + 1x new OptionResolutionClass). No CS0111/CS0121
+duplicates. CS0508 unchanged.

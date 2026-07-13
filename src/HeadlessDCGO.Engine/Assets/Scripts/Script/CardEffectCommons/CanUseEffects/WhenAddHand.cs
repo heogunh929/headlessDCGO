@@ -1,7 +1,32 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenAddHand.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenAddHand.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "when hand cards added" effect
+    public static bool CanTriggerWhenAddHand(Hashtable hashtable, Func<Player, bool> playerCondition, Func<ICardEffect, bool> cardEffectCondition)
+    {
+        List<Player> Players = GetPlayersFromHashtable(hashtable);
+
+        if (Players != null)
+        {
+            if (Players.Count(player => playerCondition == null || playerCondition(player)) >= 1)
+            {
+                ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+                if (cardEffectCondition == null || cardEffectCondition(CardEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}

@@ -1,7 +1,24 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnUnsuspend.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnUnsuspend.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "when this permanent unsuspends" effect
+    public static bool CanTriggerWhenSelfPermanentUnsuspends(Hashtable hashtable, CardSource card)
+    {
+        return CanTriggerWhenPermanentUnsuspends(hashtable, (permanent) => permanent.cardSources.Contains(card));
+    }
+    #endregion
+
+    #region Can trigger "when permanent unsuspends" effect
+    public static bool CanTriggerWhenPermanentUnsuspends(Hashtable hashtable, Func<Permanent, bool> permanentCondition)
+    {
+        return CanTriggerWhenPermanentSuspends(hashtable, permanentCondition);
+    }
+    #endregion
+}

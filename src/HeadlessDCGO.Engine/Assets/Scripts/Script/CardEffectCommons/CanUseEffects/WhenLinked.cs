@@ -1,7 +1,81 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenLinked.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/WhenLinked.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "When card is linked" effect
+    public static bool CanTriggerWhenLinking(Hashtable hashtable, Func<Permanent, bool> permanentCondition, CardSource card)
+    {
+        if (hashtable != null)
+        {
+            Permanent Permanent = GetPermanentFromHashtable(hashtable);
+            if (Permanent != null)
+            {
+                if (Permanent.TopCard != null)
+                {
+                    if (permanentCondition == null || permanentCondition(Permanent))
+                    {
+                        ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+                        if (CardEffect != null)
+                        {
+                            CardSource cardSource = GetCardFromHashtable(hashtable);
+
+                            if (cardSource != null)
+                            {
+                                if (cardSource == card)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
+    #region Can trigger "When a card gets linked" effect
+    public static bool CanTriggerWhenLinked(Hashtable hashtable, Func<Permanent, bool> permanentCondition, Func<CardSource, bool> sourcecCondition)
+    {
+        if (hashtable != null)
+        {
+            Permanent Permanent = GetPermanentFromHashtable(hashtable);
+
+            if (Permanent != null)
+            {
+                if (Permanent.TopCard != null)
+                {
+                    if (permanentCondition == null || permanentCondition(Permanent))
+                    {
+                        ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+                        if (CardEffect != null)
+                        {
+                            CardSource cardSource = GetCardFromHashtable(hashtable);
+
+                            if (cardSource != null)
+                            {
+                                if (sourcecCondition == null || sourcecCondition(cardSource))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}

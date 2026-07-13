@@ -196,6 +196,74 @@
 
 **남은 P4/P5**: KeyWordEffects ~35(sync 기계적/async 신중, 미러 static class→partial 메서드 재구조화) → 인라인 뮤테이션 메서드(PlaySelfTamer 등) → CanTrigger* Hashtable 재조정 → 카드 274 재포팅(대부분 자동) → 4 substrate gap 상환 → P6 dispatch 컷오버(IActivatedCardEffect 제거→274 CS0508+66 CS0246 해소, masked 본문에러 표면화·순차상환) → P7 검증.
 
+### 11.5 1:1 방향성 전수 감사 (2026-07-13, 사용자 요청)
+
+기계 대조(본문 diff 전수 스윕) 결과 — **이식한 층은 검증되게 1:1로 가고 있음**:
+- **kind-클래스 73**: 본문 IDENTICAL **61** / 발산 12 = 기채움 11(구모델, task #28 예정) + ActivateClass(14줄=문서화된 coroutine→Task 어댑테이션).
+- **팩토리 partial 27/27**: 발산 **0**(IDENTICAL 5 + 문서화 어댑테이션≤8줄 22).
+- **timing 빌더**: monolith 내 AS-IS 1:1(스팟 OnPlayClass=Task delegate 교체 외 verbatim), **위치도 올바름**(AS-IS도 메인파일에 둠).
+
+**수치 교정(측정 아티팩트)**: §11의 "AS-IS 63메서드·발명 ~100"은 추출 정규식이 **제네릭 `<T>(`와 KeyWordEffects를 누락**한 과소집계였음. 정정: **AS-IS 팩토리 147종**(메인+partial+KeyWordEffects). 카드→팩토리 호출 265회 중 **진짜 발명 37종/145회**(DrawCardsEffect 19·SelectAndBuffDp 16·AddMemoryTrigger 16·SelectAndDestroy 10…), AS-IS 대응 120회. 즉 카드 재포팅 실규모=발명 145 call-site(+시그니처 변경분)+CS0508 시그니처 274.
+
+**아직 1:1 아닌 잔여(전부 기지·계획됨)**: ①기채움 kind 11(#28) ②monolith 발명 ~109종(카드가 쓰는 동안 잔존→카드 재포팅 후 제거) + AS-IS 대응 미이식 ~15(인라인 뮤테이션·KeyWordEffects) ③카드 274 구시그니처+발명호출 145 ④비-AS-IS 구모델 파일(ActivatedEffects·ContinuousAndRestrictionEffects·CardPortingFramework·*Helpers 다수, P6 은퇴) ⑤CanTrigger* Hashtable impedance(P5) ⑥네임스페이스(문서화된 안정 delta).
+
+### 11.6 팩토리 층 완료 (2026-07-13)
+
+**kind-클래스 73 완전 1:1**(#28로 기채움 11 재포팅 완료 — 72 IDENTICAL + ActivateClass async 어댑테이션).
+
+**팩토리 partial 59개(non-keyword 27 + KeyWordEffects 32) 검증 완료 1:1**: 전수 diff = IDENTICAL(≤2줄) 31 / 문서화 어댑테이션(≤12줄) 25 / 고diff 3(Partition·Decode=미러전용 aux타입 PartitionCondition·const DecodeSourceConditionKey 보존; BlastDNADigivolution=중첩 coroutine→async). **실발산 0.** + monolith 내 활성 timing 빌더 22 AS-IS 1:1(위치도 AS-IS와 동일=메인파일).
+
+**빌드 342**(68 CS0246 + 274 CS0508, CS0246가 344→342로 감소=삭제된 발명 메서드 참조 소멸). monolith 발명 메서드가 배치마다 제거되며 P6 은퇴대상 축소.
+
+**어댑테이션 규칙 확립·일관 적용**: PermanentView→`ICardEffect.ResolvePermanentOfThisCard` 브릿지 · `CanNotBeAffected(effect)`→`(effect.EffectSourceCard?.InstanceId)` · coroutine `IEnumerator`→`async Task`·`StartCoroutine(X)`→`await X` · 네임스페이스 `...CardEffectCommons` · `using ...CardEffects` · aux타입/const 보존.
+
+**팩토리 층 잔여 = 인라인 뮤테이션 메서드**(monolith: PlaySelfTamerSecurityEffect·PlayMindLinkTamer·ReplaceSecurity·ActivateMainOption 등, coroutine 본문이 mutation 헬퍼 호출 — CanTrigger*/뮤테이션헬퍼 재조정과 함께). **다음 대형 페이즈 = CanTrigger* Hashtable 재조정(P5) → 카드 재포팅(발명호출 145+시그니처 274) → 4 substrate gap → P6 dispatch 컷오버(IActivatedCardEffect 제거→masked 표면화·순차상환) → P7 검증(427+RuleAudit).**
+
+### 11.7 substrate 다리 착수 (2026-07-13, 설계+위임 모드)
+
+사용자 지시=Opus 설계·검증만, 실행은 서브에이전트. 병렬 위임(충돌 없는 파일):
+- **CanUseEffects 게이트 41파일·~69 CanTrigger*/CanActivate* 완료**(Hashtable-기반 AS-IS 1:1, 스팟 OnAttack.cs 본문 identical). 구 ctx-기반(CardEffectCommons.cs)과 **오버로드 공존**(시그니처 상이) → 팩토리의 hashtable 게이트 호출 바인딩, 구 ctx는 P6 은퇴. CS0246 68→65. **키 계약 보존**(HashtableSetting write ↔ 게이트 read, 양쪽 1:1).
+  - **⚠ 행동-fidelity 플래그(P7 상환)**: 3 게이트(CanUnsuspend·CanActivateSuspendCostEffect·CanDeclareOptionDelayEffect)는 기존 미러가 **substrate 재구현**(ContinuousRestrictionGate/DigivolutionStackReader/enteredThisTurn, AS-IS verbatim 아님). CS0111 회피 위해 P5 verbatim 중복 제거하고 substrate 버전 유지 → **행동 동일성 검증 필요**(substrate 버전이 AS-IS와 동치인지, work-list rebuild_p5_gates_missing.md). design item P5-GATE-SUBSTRATE-3.
+- **인라인 뮤테이션 팩토리 메서드**(monolith, 위임 실행 중).
+- **뮤테이션 헬퍼 = 사실상 이미 존재**(골1~7 substrate, 컴파일 authoritative 확인 — grep 과소집계였음). 실제 미싱 타입 **단 4종**(PlayCardClass·OptionResolutionClass·SkillInfo·OnEnterFieldHashtableParams, 위임 중).
+
+### 11.8 P6 dispatch 컷오버 설계 (2026-07-13)
+
+**현행 구조 파악**:
+- `CardEffectDispatch.TryCreate(cardNumber)` → 리플렉션으로 카드 `CEntity_Effect` 서브클래스 인스턴스화(`new BT1_001()`).
+- `CardEffectRegistrar.RegisterOnEnterPlay/RegisterFaceUpSecurity` → **이미 신모델 `card.CardEffects(timing)` 호출** → 결과 `ICardEffect`를 `cardEffect.ToBinding(...)`로 `EffectBinding` 변환 → `context.EffectRegistry.Register`.
+- 게이트(ContinuousKeywordGate/RestrictionGate)·`ActivatedEffectResolver`·WindowResolver가 `EffectRegistry`(EffectBinding 리스트)를 스캔.
+
+**flip 급소**: 신 `ICardEffect`(추상클래스)엔 `ToBinding` 없음 → `Registrar`의 `.ToBinding` 컴파일 불가. 이게 274 CS0508(카드 override 시그니처)과 함께 남은 선언에러의 뿌리.
+
+**P6 컷오버 설계 (AS-IS 엔진 스캔 모델로)**:
+1. **런타임 표현 교체**: `EffectBinding`(data record) → **`ICardEffect` 객체 직접 보유**(추상클래스가 상태+게이트+74인터페이스 구현을 다 가짐). registry = 활성 `ICardEffect` per (card,timing).
+2. **연속/제약 게이트**: EffectBinding 스캔 → **`ICardEffect` 객체를 74 마커 인터페이스로 `is`-스캔**(`registry.OfType<IChangeDPEffect>()...GetDP(dp,permanent)` 식) — AS-IS `GetContinuousEffects().Where(is IChangeDPEffect)` 미러.
+3. **활성 해소**: ActivatedEffectResolver/EffectBinding → **`ActivateClass.Activate(Hashtable)`** 직접 구동(Optional→Effect→Execute 순서는 파운데이션 `ActivateICardEffectExtensionClass`에 이미 이식).
+4. **은퇴**: EffectBinding·EffectRegistry(data-oriented)·ToBinding 경로·구 통합 프리미티브(ActivatedEffects/ContinuousAndRestrictionEffects ~5,300 LOC)·IActivatedCardEffect. → 59 IActivatedCardEffect CS0246 해소.
+5. **영향 파일**: EffectRegistry 참조 30·AutoProcessing 20·ActivatedEffectResolver 12·WindowResolver 11·Registrar 8·Dispatch 5 — **엔진(Headless/) 재배선, 카드 무관**.
+
+**핵심 성격**: P6은 배치-포팅이 아니라 **아키텍처 flip**(data-oriented EffectRegistry → AS-IS OOP 스캔 모델). 원자적이라 신중한 단계 설계 필요. 이걸 통과하면 **남은 에러 = 274 카드 시그니처 + masked 카드 본문(발명호출 145) = 전부 카드 층(추후 포팅)**. **행동검증(P7 427+RuleAudit)은 카드까지 green 후**.
+
+**상세 설계 (2026-07-13 심화)**: AS-IS 스캔 패턴은 **Permanent/CardSource 클래스 자체**에 있음 — `Permanent.DP`/`CardColors`/restriction 멤버가 `GetContinuousEffects().Where(cardEffect is IChangeDPEffect).ForEach(e=>dp=((IChangeDPEffect)e).GetDP(dp,this))` 식으로 활성 ICardEffect를 74인터페이스로 `is`-스캔(AS-IS Permanent.cs:2433 등). 미러 현재는 같은 멤버가 **구 게이트**(ContinuousDpGate·ContinuousModifierGate·ContinuousKeywordGate·ContinuousRestrictionGate·ContinuousImmunityGate·DeletionReplacementGate·AttackTargetSwitchGate·BattleDeletionGate·AceOverflowGate ~10개)로 질의.
+
+**flip 단계**:
+1. **registry**: `EffectRegistry`(Register(EffectBinding)/GetContinuousEffects→EffectRequest) → **활성 `ICardEffect` 객체 보유**로 교체(또는 병행 ICardEffect-registry).
+2. **Registrar**: `cardEffect.ToBinding(...)`→EffectRegistry → **`ICardEffect` 직접 등록**.
+3. **Permanent/CardSource**: `GetContinuousEffects()`(registry+inherited+linked에서 활성 ICardEffect 수집) 구현 + DP/color/restriction/immunity 멤버를 **AS-IS 74인터페이스 `is`-스캔으로 재작성**(스캔 순서·aggregation이 AS-IS와 동일해야=행동 급소).
+4. **활성 해소**: ActivatedEffectResolver/EffectBinding → **`ActivateClass.Activate(Hashtable)` 직접 구동**(Optional→Effect→Execute 파운데이션 기존).
+5. **은퇴**: 구 게이트 ~10·EffectBinding·EffectRegistry(data)·ToBinding·구 프리미티브·IActivatedCardEffect.
+**행동 급소**: §3의 상환버그(emit 반전·double-fire·batch-collapse·order-choice) 재발 방지 — 스캔/집계/해소 순서가 AS-IS와 동일해야. flip은 게이트별로 단계 실행(DP게이트→restriction→immunity…) + 각 단계 후 masked 표면화 관찰.
+
+### 11.9 "카드 제외 소규모 정리" 조사 결과 (2026-07-13) — 전부 flip-의존
+
+사용자가 (A) 카드 제외 소규모 경계 정리 선택 → 조사 결과 **정리 대상이 전부 flip-의존/masked**로, 지금 손대면 검증 불가한 dormant 코드(행동-fidelity 규율 위반). 상세:
+- **3-게이트 substrate(P5-GATE-SUBSTRATE-3)**: CanUnsuspend/CanActivateSuspendCostEffect/CanDeclareOptionDelayEffect 미러 substrate가 **구 게이트**(ContinuousRestrictionGate 등)로 판정. **행동은 동치**(구 게이트=rebuild 전 427/427 검증). AS-IS는 `permanent.IsSuspended && permanent.CanUnsuspend`(속성 스캔) → **flip 때 AS-IS 속성으로 전환**(구 게이트 은퇴와 함께). **지금 행동버그 없음** → 조치 불요, flip-time.
+- **gap3 color(COLOR-MODEL-DUALITY)**: AS-IS `CardSource.CardColors`가 `GetContinuousEffects().Filter(is IChangeCardColorEffect).GetCardColors(...)` = **신모델 스캔 = flip 자체**. 미러 string+FoldListTransforms(구 게이트). → color 재조정 = flip의 일부(GetContinuousEffects 필요). flip-time.
+- **gap1 SecurityDigimon**(id vs CardSource)·**gap2 Owner→Player**(타입 재조정, 다수 소비자): masked 본문, flip/카드와 얽힘. **gap4 implicit-bool**: 현재 사용처 0(비-이슈).
+
+**결론**: **카드 제외 엔진 작업 = 모델 층(파운데이션·kind-클래스·팩토리·게이트·미싱타입) 완료가 진짜 경계.** DP/color/restriction/immunity 스캔·3-게이트·gap 전부 **P6 flip(GetContinuousEffects+is-스캔)에 수렴**하고, flip은 구모델 은퇴↔카드 신모델 전환이라 **카드 층을 요구**. 따라서 (A)의 실질 산출 = **경계가 crisp함을 확인(행동버그 없음)+문서화**. 실제 다음 한 걸음은 flip=카드.
+
 ### 11.2 선결 해소: CARDSOURCE-EQUALITY (2026-07-13)
 
 첫 슬라이스 착수 중 **필수 선결** 발견: AS-IS 팩토리 로직이 `permanent == targetPermanent`·`LinkedCards.Contains(card)`·`EffectSourceCard == permanent.TopCard` 등 **CardSource/Permanent identity 비교**에 의존하는데, 미러는 뷰가 매 접근 새 인스턴스라 **reference equality → 절대 안 맞음**(P1 design item CARDSOURCE-EQUALITY, ICardEffect.CanActivate/IsSameEffect도 동일 의존). 이걸 먼저 해소 안 하면 포팅한 팩토리·게이트가 **조용히 틀림**(red window가 가림).

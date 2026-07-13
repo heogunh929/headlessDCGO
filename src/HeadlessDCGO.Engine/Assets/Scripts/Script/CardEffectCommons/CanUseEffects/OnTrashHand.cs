@@ -1,7 +1,42 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnTrashHand.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnTrashHand.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "When this hand card is trashed due to effect" effect
+    public static bool CanTriggerOnTrashSelfHand(Hashtable hashtable, Func<ICardEffect, bool> cardEffectCondition, CardSource card)
+    {
+        return CanTriggerOnTrashHand(hashtable, cardEffectCondition, cardSource => cardSource == card);
+    }
+    #endregion
+
+    #region Can trigger "When hand card is trashed due to effect" effect
+    public static bool CanTriggerOnTrashHand(Hashtable hashtable, Func<ICardEffect, bool> cardEffectCondition, Func<CardSource, bool> cardCondition)
+    {
+        ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+        if (CardEffect != null)
+        {
+            if (cardEffectCondition == null || cardEffectCondition(CardEffect))
+            {
+                List<CardSource> DiscardedCards = GetDiscardedCardsFromHashtable(hashtable);
+
+                if (DiscardedCards != null)
+                {
+                    if (DiscardedCards.Count(cardSource => cardCondition == null || cardCondition(cardSource)) >= 1)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}

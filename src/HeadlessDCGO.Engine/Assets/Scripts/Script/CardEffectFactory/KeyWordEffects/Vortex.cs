@@ -1,24 +1,77 @@
-// Source: Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Vortex.cs
-// AS-IS mirror of CardEffectFactory.VortexEffect — a convenience factory that builds the Vortex keyword
-// effect (KeywordBaseBatch2). 1:1 map: CanActivateVortex -> EffectDrivenAttack.GetTargets has a candidate;
-// VortexProcess (SelectAttackEffect, isVortex: targets Digimon + players, unsuspended allowed) ->
-// EffectDrivenAttack.RequestChoice/Initiate with EffectAttackOptions(AllowDigimonTarget, AllowPlayerTarget,
-// TargetUnsuspended). The S1 hub drives the declared attack through the existing AttackPipeline.
-namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
+// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/KeyWordEffects/Vortex.cs
+// (EFFECT-MODEL REBUILD / P4 KeyWord ASYNC slice) 1:1 mirror of the AS-IS Vortex.cs factory partial.
+// ADAPTATION: card.PermanentOfThisCard() -> ICardEffect.ResolvePermanentOfThisCard(card); coroutine
+// `IEnumerator ActivateCoroutine` (pure delegation) -> non-async `Task ActivateCoroutine`. Replaces the old
+// mirror-invented `static class Vortex` (.Create; ZERO consumers) plus the monolith's invented VortexSelfEffect.
 
-using HeadlessDCGO.Engine.Headless.Effects;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
-using HeadlessDCGO.Engine.Headless.Services;
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
-public static class Vortex
+using System.Collections;
+using System;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+
+public partial class CardEffectFactory
 {
-    public static KeywordBaseBatch2Effect Create(
-        HeadlessEntityId sourceEntityId,
-        HeadlessEntityId? targetEntityId = null)
+    #region Trigger effect of [Vortex] on oneself
+
+    public static ActivateClass VortexSelfEffect(bool isInheritedEffect, CardSource card, Func<bool> condition,
+        ICardEffect rootCardEffect = null)
     {
-        return KeywordBaseBatch2Factory.Create(
-            KeywordBaseBatch2Kind.Vortex,
-            sourceEntityId,
-            targetEntityId);
+        Permanent targetPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+
+        bool CanUseCondition()
+        {
+            return CardEffectCommons.IsExistOnBattleAreaDigimon(card) &&
+                   (condition == null || condition());
+        }
+
+        return VortexEffect(targetPermanent: targetPermanent, isInheritedEffect: isInheritedEffect, condition: CanUseCondition,
+            rootCardEffect: rootCardEffect, card);
     }
+
+    #endregion
+
+    #region Trigger effect of [Vortex]
+
+    public static ActivateClass VortexEffect(Permanent targetPermanent, bool isInheritedEffect, Func<bool> condition,
+        ICardEffect rootCardEffect, CardSource card)
+    {
+        if (targetPermanent == null) return null;
+        if (targetPermanent.TopCard == null) return null;
+        if (card == null) return null;
+
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Vortex", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, DataBase.VortexEffectDiscription());
+        activateClass.SetIsInheritedEffect(isInheritedEffect);
+
+        if (rootCardEffect != null)
+        {
+            activateClass.SetIsInheritedEffect(false);
+            activateClass.SetEffectSourcePermanent(targetPermanent);
+            activateClass.SetRootCardEffect(rootCardEffect);
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnBattleArea(card) &&
+                   CardEffectCommons.IsOwnerTurn(card);
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CanActivateVortex(targetPermanent.TopCard, activateClass) &&
+                   (condition == null || condition());
+        }
+
+        Task ActivateCoroutine(Hashtable hashtable)
+        {
+            return CardEffectCommons.VortexProcess(targetPermanent.TopCard, activateClass);
+        }
+
+        return activateClass;
+    }
+
+    #endregion
 }

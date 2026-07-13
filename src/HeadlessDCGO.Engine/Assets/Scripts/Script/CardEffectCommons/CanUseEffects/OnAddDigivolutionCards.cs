@@ -1,7 +1,49 @@
-// Source: Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnAddDigivolutionCards.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CanUseEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectCommons/CanUseEffects/OnAddDigivolutionCards.cs
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+public static partial class CardEffectCommons
+{
+    #region Can trigger "When digivolution card is added due to effect" effect
+    public static bool CanTriggerOnAddDigivolutionCard(Hashtable hashtable, Func<Permanent, bool> permanentCondition, Func<ICardEffect, bool> cardEffectCondition, Func<CardSource, bool> cardCondition)
+    {
+        if (hashtable != null)
+        {
+            Permanent Permanent = GetPermanentFromHashtable(hashtable);
+
+            if (Permanent != null)
+            {
+                if (Permanent.TopCard != null)
+                {
+                    if (permanentCondition == null || permanentCondition(Permanent))
+                    {
+                        ICardEffect CardEffect = GetCardEffectFromHashtable(hashtable);
+
+                        if (CardEffect != null)
+                        {
+                            if (cardEffectCondition == null || cardEffectCondition(CardEffect))
+                            {
+                                List<CardSource> CardSources = GetCardSourcesFromHashtable(hashtable);
+
+                                if (CardSources != null)
+                                {
+                                    if (CardSources.Count(cardSource => cardCondition == null || cardCondition(cardSource)) >= 1)
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+}
