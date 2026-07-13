@@ -105,6 +105,13 @@ public static class ContinuousDpGate
 
         int resolved = ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue;
 
+        // (P6 STAGE B) UNION the new-model IChangeDPEffect scan (AS-IS Permanent.DP) over the legacy binding
+        // result. Ported DP kind-classes (ChangeDPClass) implement IChangeDPEffect and register no binding, so
+        // the interface scan is their only path; legacy DP effects flow through `modifiers` (bindings) and do
+        // not implement the interface, so no double count. No-op passthrough when no new-model DP effect
+        // applies (collected empty). See RD-P6B-1 (two-pass ordering caveat) in NewModelContinuousScan.
+        resolved = Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldDp(context, cardId, resolved);
+
         // (DPBoost) AS-IS folds the per-card Boosts at the VERY end, after the NotIsUpDown group, before the final
         // >=0 clamp (Permanent.cs:653-663: `foreach (DPBoost boost in Boosts) DP += boost.DP;`).
         return Math.Max(0, resolved + DpBoostHelpers.TotalBoost(linkHost?.Metadata));

@@ -15,10 +15,18 @@ public sealed class TfxKeywords : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
+        // <Blocker> / <Jamming> are continuous statics (None timing). <Piercing> is a [When Attacking]
+        // effect — AS-IS returns it at OnDetermineDoSecurityCheck (see ST7_10), which is where
+        // Permanent.HasPierce scans; returning it at None (the pre-flip fixture) is invisible to the
+        // new-model HasPierce scan.
         if (timing == EffectTiming.None)
         {
             cardEffects.Add(CardEffectFactory.BlockerSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
             cardEffects.Add(CardEffectFactory.JammingSelfStaticEffect(isInheritedEffect: false, card: card, condition: null));
+        }
+
+        if (timing == EffectTiming.OnDetermineDoSecurityCheck)
+        {
             cardEffects.Add(CardEffectFactory.PierceSelfEffect(isInheritedEffect: false, card: card, condition: null));
         }
 

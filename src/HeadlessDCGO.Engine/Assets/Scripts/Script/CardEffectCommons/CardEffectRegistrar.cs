@@ -190,6 +190,15 @@ public static class CardEffectRegistrar
         ArgumentException.ThrowIfNullOrWhiteSpace(cardNumber);
         ArgumentNullException.ThrowIfNull(card);
 
+        // (P6 STAGE B) ATTACH the effect to the card's controller — the AS-IS setup-time AddCardEffect analog
+        // (CEntity_EffectController header MISSING.md: "any consumer that needs cEntity_Effect populated should
+        // set it on the controller"). Without this, the new-model interface scan (Permanent/CardSource
+        // EffectList → cEntity_Effect.GetCardEffects) cannot see this card's ported continuous kind-classes when
+        // the card DEFINITION does not itself dispatch to `effect` (e.g. an effect-play or a test fixture whose
+        // definition id is synthetic). For a real card RegisterCard passes the dispatch(def) result, so this is
+        // the same class GetOrCreate would have created — behaviour-neutral there, load-bearing for the flip.
+        card.cEntity_EffectController.cEntity_Effect = effect;
+
         var registered = new List<EffectBinding>();
         int index = 0;
         foreach (EffectTiming timing in AllTimings)

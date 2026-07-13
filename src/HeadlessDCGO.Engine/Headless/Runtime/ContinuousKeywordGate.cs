@@ -82,6 +82,16 @@ public static class ContinuousKeywordGate
             return true;
         }
 
+        // (P6 STAGE B) UNION the new-model interface scan (AS-IS Permanent.Has<Keyword>): a ported keyword
+        // kind-class (BlockerClass:IBlockerEffect, the Jamming CanNotBeDestroyedByBattleClass, the Pierce
+        // ActivateClass, …) registers no keyword binding, so the interface scan over live EffectList(None) is
+        // its only path. Keywords with no ported continuous interface fall through to the player-scope binding
+        // check below (design item RD-P6B-2).
+        if (Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasKeyword(context, cardId, keyword))
+        {
+            return true;
+        }
+
         // (PRIM-W2) a PLAYER-SCOPE keyword grant ("your Digimon gain <Blocker>") applies to any of the scoped
         // player's cards (optionally CardType-narrowed). Additive over the direct self/target check.
         if (cardId.IsEmpty || string.IsNullOrWhiteSpace(keyword)

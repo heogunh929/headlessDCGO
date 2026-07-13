@@ -27,7 +27,14 @@ public static class ContinuousModifierGate
         }
 
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        return ModifierHelpers.ResolveSecurityAttack(baseSecurityAttack, result.Modifiers, cardId).FinalValue;
+        int legacyResolved = ModifierHelpers.ResolveSecurityAttack(baseSecurityAttack, result.Modifiers, cardId).FinalValue;
+
+        // (P6 STAGE B) UNION the new-model IChangeSAttackEffect scan (AS-IS Permanent.Strike_AllowMinus) over
+        // the legacy binding result. Legacy SAttack effects flow through result.Modifiers (bindings); ported
+        // kind-classes (ChangeSAttackClass) implement IChangeSAttackEffect and register no binding, so the
+        // interface scan is their only path. The two representations are interface-disjoint (legacy
+        // ContinuousSelfModifierEffect is `: ICardEffect` only) — no double count.
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldSAttack(context, cardId, legacyResolved);
     }
 
     public static int ResolvePlayCost(EngineContext context, HeadlessEntityId cardId, int basePlayCost, bool canReduceCost = true)
