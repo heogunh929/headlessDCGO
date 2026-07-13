@@ -28,4 +28,10 @@ public static class DataBase
             .Replace("　", "")
             .Replace("！", "!");
     }
+
+    /// <summary>(bridge W5) 1:1 mirror of AS-IS <c>DataBase.IsXAntibodyString</c> (DataBase.cs:440): the
+    /// space/hyphen-insensitive "X Antibody" trait/name normaliser <c>CardSource.HasXAntibodyTraits</c> reads.
+    /// Verbatim (pure string helper).</summary>
+    public static bool IsXAntibodyString(string text) =>
+    !string.IsNullOrEmpty(text) && text.Replace(" ", "").Replace("-", "").ToLower() == "xantibody";
 }

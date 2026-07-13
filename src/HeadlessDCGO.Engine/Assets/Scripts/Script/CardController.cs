@@ -399,6 +399,197 @@ public class IRecovery
 
 #endregion
 
+#region Digi-Burst
+
+/// <summary>
+/// (bridge W5) 1:1 mirror of AS-IS <c>IDigiBurst</c> (CardController.cs:2114-2264): the Digi-Burst carrier a
+/// card's [Main] inlines (<c>new IDigiBurst(permanent, N, activateClass)</c>, e.g. ST4_13). AS-IS shape kept:
+/// ctor <c>(Permanent, int, ICardEffect)</c>, <c>SetUpToMaxCount</c> ("Digi-Burst up to N"),
+/// <c>CanDigiBurst</c> gate (:2135-2160 — host non-null, stack-trash immunity, then Some/Count of trashable
+/// sources vs the burst count), <c>DigiBurst</c> (:2162-2263 — the controller SELECTS which sources to discard
+/// via the W4-bridged <see cref="SelectCardEffect"/> over the stack (exact AS-IS 16-param SetUp), then the
+/// OnUseDigiburst window opens BEFORE the trash (:2228), then <see cref="ITrashDigivolutionCards"/> trashes
+/// exactly the selected cards (:2233) and <see cref="discardedCards"/> collects them (:2235; AS-IS adds ALL
+/// selected cards whether or not each was actually trashed — quirk kept)).
+///
+/// Substrate notes: AS-IS <c>ICardEffect</c> KEPT on the ctor (W4 convention); the cause id fed to the
+/// gates/carriers is <c>_cardEffect.EffectSourceCard.InstanceId</c>. <c>ImmuneFromStackTrashing(_cardEffect)</c>
+/// (:2141) = the same <see cref="RestrictionScan"/> ImmuneStackTrashingKey scan
+/// <see cref="ITrashDigivolutionCards"/> applies (self-contained-privates style). AS-IS
+/// <c>StackSkillInfos(hashtable {"Permanent", "CardEffect"}, EffectTiming.OnUseDigiburst)</c> (:2218-2228) =
+/// the OnUseDigiburst queue emit (actor = the host's controller, subject = the host permanent's top card) —
+/// the exact verified emit shape of the resolver's DigiBurstActivatedEffect path
+/// (ActivatedEffectResolver.cs:508), JOURNALED like there so a suspended resolution's replay (a later choice in
+/// the same body suspending) does not double-emit. Add-log/PlayLog (:2237-2259) = UI (stripped).
+/// </summary>
+public class IDigiBurst
+{
+    public IDigiBurst(Permanent permanent, int DigiBurstCount, ICardEffect cardEffect)
+    {
+        _permanent = permanent;
+        _digiBurstCount = DigiBurstCount;
+        _cardEffect = cardEffect;
+    }
+
+    Permanent _permanent = null!;
+    int _digiBurstCount = 0;
+    ICardEffect _cardEffect = null!;
+    bool _upToMaxCount = false;
+
+    public List<CardSource> discardedCards = new List<CardSource>();
+
+    // AS-IS :2130-2133.
+    public void SetUpToMaxCount()
+    {
+        _upToMaxCount = true;
+    }
+
+    // AS-IS :2135-2160.
+    public bool CanDigiBurst()
+    {
+        if (_permanent != null)
+        {
+            if (_permanent.TopCard != null) // mirror TopCard is never null — kept for 1:1 shape (:2139).
+            {
+                if (ImmuneFromStackTrashing()) return false; // AS-IS :2141 `_permanent.ImmuneFromStackTrashing(_cardEffect)`.
+
+                if (_upToMaxCount)
+                {
+                    if (_permanent.DigivolutionCards.Some((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(CauseEffectSourceId)))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (_permanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(CauseEffectSourceId)) >= _digiBurstCount)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS :2162-2263, IEnumerator -> Task.
+    public async Task DigiBurst()
+    {
+        if (CanDigiBurst())
+        {
+            discardedCards = new List<CardSource>();
+
+            List<CardSource> selectedCards = new List<CardSource>();
+
+            SelectCardEffect selectCardEffect = GManager.instance!.GetComponent<SelectCardEffect>();
+
+            selectCardEffect.SetUp(
+                        canTargetCondition: (cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(CauseEffectSourceId),
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: CanEndSelectCondition,
+                        canNoSelect: () => false,
+                        selectCardCoroutine: SelectCardCoroutine,
+                        afterSelectCardCoroutine: null,
+                        message: "Select digivolution cards to discard.",
+                        maxCount: _digiBurstCount,
+                        canEndNotMax: _upToMaxCount,
+                        isShowOpponent: true,
+                        mode: SelectCardEffect.Mode.Custom,
+                        root: SelectCardEffect.Root.Custom,
+                        customRootCardList: _permanent.DigivolutionCards.ToList(),
+                        canLookReverseCard: true,
+                        selectPlayer: _permanent.TopCard.Owner,
+                        cardEffect: null!);
+
+            selectCardEffect.SetUseFaceDown();
+
+            selectCardEffect.SetUpCustomMessage("Select digivolution cards to discard.", "The opponent is selecting digivolution cards to discard.");
+
+            await selectCardEffect.Activate().ConfigureAwait(false);
+
+            bool CanEndSelectCondition(List<CardSource> cardSources)
+            {
+                if (CardEffectCommons.CardEffectCommons.HasNoElement(cardSources))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+
+            async Task SelectCardCoroutine(CardSource cardSource)
+            {
+                selectedCards.Add(cardSource);
+
+                await Task.CompletedTask; // AS-IS `yield return null`.
+            }
+
+            if (selectedCards.Count >= 1)
+            {
+                #region "When use Digi-Burst" effect
+
+                // AS-IS :2218-2228 — hashtable {"Permanent": _permanent, "CardEffect": _cardEffect} →
+                // StackSkillInfos(hashtable, EffectTiming.OnUseDigiburst): the "[When you use Digi-Burst]"
+                // window opens AFTER the select, BEFORE the trash. Mirror = the journaled OnUseDigiburst queue
+                // emit (see class doc; verified shape = ActivatedEffectResolver's DigiBurstActivatedEffect).
+                EngineContext context = _permanent.TopCard.Context;
+                EmitJournaled(context, TriggerTimings.OnUseDigiburst, _permanent.TopCard.Controller, _permanent.InstanceId);
+
+                #endregion
+
+                // trash digivolution cards (AS-IS :2233; ICardEffect -> cause id, the mirror carrier's shape).
+                await new ITrashDigivolutionCards(_permanent, selectedCards, CauseEffectSourceId).TrashDigivolutionCards().ConfigureAwait(false);
+
+                foreach (CardSource cardSource in selectedCards)
+                {
+                    discardedCards.Add(cardSource);
+                }
+
+                // AS-IS :2237-2259 add log (PlayLog) = UI (stripped).
+            }
+        }
+    }
+
+    // The AS-IS `_cardEffect` threaded to the protection/immunity gates — the causing effect's source card id.
+    private HeadlessEntityId? CauseEffectSourceId => _cardEffect?.EffectSourceCard?.InstanceId;
+
+    // AS-IS Permanent.ImmuneFromStackTrashing(_cardEffect) — the same ImmuneStackTrashingKey restriction scan
+    // ITrashDigivolutionCards applies (self-contained-privates style; the continuous scan needs a cause —
+    // without one nothing matches a causing-effect-keyed immunity, as in the AS-IS null-cause scan).
+    private bool ImmuneFromStackTrashing()
+    {
+        if (CauseEffectSourceId is not { IsEmpty: false } causeId)
+        {
+            return false;
+        }
+
+        EngineContext context = _permanent.TopCard.Context;
+        return RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId);
+    }
+
+    // (bridge W5) duplicate of ActivatedEffectResolver's private EmitJournaled/RunJournaledImmediate (B-1
+    // rework, ActivatedEffectResolver.cs:997): route the immediately-applied queue emit through the
+    // uniform-cycle mutation journal so a resumed replay of this already-performed emit is SKIPPED instead of
+    // doubled. Outside a cycle this is a plain emit.
+    private static void EmitJournaled(EngineContext context, string timing, HeadlessPlayerId actor, HeadlessEntityId subject)
+    {
+        OnceFlagController.MutationReplay replay = context.OnceFlags.BeginMutationApply();
+        if (replay == OnceFlagController.MutationReplay.Skip)
+        {
+            return;
+        }
+
+        TriggerEventEmitter.Emit(context.GameEventQueue, timing, actor: actor, subject: subject);
+        if (replay == OnceFlagController.MutationReplay.Fresh)
+        {
+            context.OnceFlags.RecordFreshMutation(purelyImmediate: true);
+        }
+    }
+}
+
+#endregion
+
 #region Battle (Destroy Security)
 
 /// <summary>

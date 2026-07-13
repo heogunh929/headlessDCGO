@@ -81,6 +81,27 @@ public sealed class Player
     public List<Permanent> GetBattleAreaDigimons() =>
         GetBattleAreaPermanents().Where(permanent => permanent.IsDigimon).ToList();
 
+    /// <summary>(bridge W5) AS-IS <c>Player.HandCards</c> (Player.cs:506, a public list field) — this player's
+    /// hand as live <see cref="CardSource"/> views. Same verified zone read
+    /// <c>CardEffectCommons.HasMatchConditionOwnersHand</c> uses (IZoneStateReader Hand → CardSource per id);
+    /// the AS-IS card idiom is <c>card.Owner.HandCards…</c>, expressed on the mirror as
+    /// <c>new Player(card.Context, card.Owner).HandCards</c> (the established BT2_023 <c>.Enemy</c> route —
+    /// a bare <see cref="HeadlessPlayerId"/> cannot carry an extension PROPERTY).</summary>
+    public List<CardSource> HandCards
+    {
+        get
+        {
+            if (Context.ZoneMover is not IZoneStateReader zones)
+            {
+                return new List<CardSource>();
+            }
+
+            return zones.GetCards(PlayerId, ChoiceZone.Hand).ToArray()
+                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
+                .ToList();
+        }
+    }
+
     private List<Permanent> GetZonePermanents(ChoiceZone zone)
     {
         if (Context.ZoneMover is not IZoneStateReader zones)

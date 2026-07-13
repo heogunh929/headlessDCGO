@@ -57,6 +57,29 @@ public sealed class GManager
     /// still being ported — not an AS-IS surface).</summary>
     public EngineContext Context => _context;
 
+    /// <summary>(EFFECT-MODEL REBUILD / bridge W5) AS-IS <c>GManager.userSelectionManager</c> (GManager.cs:114,
+    /// a public field — THE one <c>UserSelectionManager</c> component instance on the GManager GameObject).
+    /// Card effects reach the mandatory labeled mode/branch pick through it
+    /// (<c>SetBoolSelection/SetIntSelection/SetBool/SetInt</c> → <c>WaitForEndSelect</c> →
+    /// <c>SelectedBoolValue/SelectedIntValue</c>, e.g. BT1_111). Mirrored as ONE match-scoped instance,
+    /// context-cached exactly like <see cref="GetComponent{T}"/> (its cross-call field state —
+    /// <c>_selectedIntValue</c> persisting after the post-wait reset — is per-instance in AS-IS too).</summary>
+    public Assets.Scripts.Script.UserSelectionManager userSelectionManager
+    {
+        get
+        {
+            if (_context.TryGetService(out Assets.Scripts.Script.UserSelectionManager? existing) && existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new Assets.Scripts.Script.UserSelectionManager();
+            created.AttachContext(_context);
+            _context.RegisterService(created);
+            return created;
+        }
+    }
+
     /// <summary>(EFFECT-MODEL REBUILD / bridge W4) AS-IS <c>GManager.instance.GetComponent&lt;T&gt;()</c> — the
     /// Unity idiom card effects use to reach the singleton selection-flow components living on the GManager
     /// GameObject (<c>SelectPermanentEffect</c>/<c>SelectCardEffect</c>/…). Unity returns THE one component

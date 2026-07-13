@@ -240,3 +240,29 @@ finishing; this is exactly the masked-body-error class the plain 59-gate cannot 
 pass is mandatory for card batches.) Permanent.cs shows exactly 1 PRE-EXISTING masked-verbatim error
 (`ChangePermanentLevelClass.GetPermanentLevelKey`, present in HEAD, untouched by this batch). Shim deleted;
 plain baseline re-confirmed at `59 error CS0246`.
+
+## 2026-07-14 — bridge W5: batch-2 finding 3 + batch-3 finding 1 RESOLVED; last 2 invented-caller cards re-ported
+
+Full notes: docs/audit/rebuild_bridge_w5_notes.md.
+
+1. `GManager.userSelectionManager` / `SelectionElement<T>` (batch-2 finding 3) — RESOLVED: mirror
+   `Script/UserSelectionManager.cs` (skeleton filled; `WaitForEndSelect` drives the ChoiceProvider
+   `ChoiceType.ModeChoice` request, the primitive whose own doc names this AS-IS class) +
+   `GManager.userSelectionManager` (match-scoped service). BT1_111's 8 shim error lines -> 0; the 4
+   `SelectionElement<>` CS0246s no longer exist in ANY build.
+2. `IDigiBurst` (batch-3 finding 1) — RESOLVED: 1:1 mirror class in Script/CardController.cs (region
+   "Digi-Burst"), AS-IS ctor `(Permanent, int, ICardEffect)`, delegating to the W4 SelectCardEffect (source
+   selection), the journaled OnUseDigiburst queue emit (resolver-verified shape), and ITrashDigivolutionCards.
+   ST4_13's 2 shim error lines -> 0.
+3. BT8_057 (E-3 witness) re-ported to the literal AS-IS body (CanNotPlayClass + inline ActivateClass /
+   IDestroySecurity); 0 shim error lines.
+4. BT9_109 (C-3 witness) re-ported to the WHOLE 5-block AS-IS body (IgnoreColorConditionClass / [Security]
+   inline ActivateClass / [Main] tuck via W4 select + MIG4 AddDigivolutionCardsBottom, retiring STOP C3-03 /
+   CanNotTrashFromDigivolutionCardsClass verbatim / [When Attacking] inherited digivolve, retiring STOP C3-04).
+   Exactly 5 explained shim error lines remain, all in the [When Attacking] block (kept verbatim + logged):
+   `SelectHandEffect` (typeless skeleton file — 2x CS0246 + 1x CS0103, plain-build-masked like batch-2's
+   SelectionElement), `CardSource.CanPlayCardTargetFrame` (declared nowhere — CS1061),
+   `PermanentView.PermanentFrame` (no frame model, MIG5-FRAME-MODEL — CS1061).
+
+Shim totals 646 -> 637 (delta fully accounted by the four files above; every other file identical).
+Plain baseline unchanged at 59 CS0246 before and after.

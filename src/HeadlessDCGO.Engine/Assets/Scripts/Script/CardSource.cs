@@ -426,6 +426,11 @@ public sealed class CardSource
     public bool EqualsTraits(string trait) => CardTraits.Any(t => string.Equals(t, trait, StringComparison.OrdinalIgnoreCase));
     public bool ContainsTraits(string fragment) => CardTraits.Any(t => t.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>(bridge W5) 1:1 mirror of AS-IS <c>CardSource.HasXAntibodyTraits</c> (CardSource.cs:1975):
+    /// <c>CardTraits.Some(DataBase.IsXAntibodyString)</c> — any trait normalising to "xantibody"
+    /// (BT9_109 "[When Attacking] … digivolve into a Digimon card with [X Antibody] in its traits").</summary>
+    public bool HasXAntibodyTraits => CardTraits.Some(DataBase.IsXAntibodyString);
+
     /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotBeAffected(cardEffect)</c> (CardSource.cs:1060,
     /// 504 card-effect call sites): whether an active <c>ICanNotAffectedEffect</c> shields THIS card from the
     /// given causing effect. Delegates to the verified <see cref="ContinuousImmunityGate.BlocksOpponentEffect"/>

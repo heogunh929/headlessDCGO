@@ -11,13 +11,12 @@
 // `new IDigiBurst(...)`) with the literal AS-IS inline `new ActivateClass()` + `new IDigiBurst(card
 // .PermanentOfThisCard(), 2, activateClass).CanDigiBurst()`/`.DigiBurst()` + `GManager.instance
 // .GetComponent<SelectPermanentEffect>()` Mode.Tap structure.
-// UNRESOLVED (batch-3, kept verbatim): AS-IS `new IDigiBurst(Permanent, int, ICardEffect)` (CardController.cs:
-// 2114) — the mirror has NO ported `IDigiBurst` class at all (a wholly undeclared type in this codebase; the
-// existing `DigiBurstActivatedEffect`/`CardEffectFactory.DigiBurstEffect` is the invented replacement this pass
-// retires, not a port of the real class). Kept verbatim per the no-invented-bridge rule; this necessarily adds
-// new CS0246 lines for `IDigiBurst` beyond the 59-count baseline (reported to the caller).
+// RESOLVED (bridge W5, was the batch-3 UNRESOLVED finding): AS-IS `new IDigiBurst(Permanent, int, ICardEffect)`
+// (CardController.cs:2114) is now the mirror `IDigiBurst` class (Script/CardController.cs region "Digi-Burst",
+// docs/audit/rebuild_bridge_w5_notes.md) at the AS-IS ctor shape.
 // Substrate translation only: IEnumerator->Task; `yield return ContinuousController.instance.StartCoroutine(X)`
-// -> `await X`; `Func<Permanent,bool> CanSelectPermanentCondition` -> the established
+// -> `await X`; `card.PermanentOfThisCard()` (used as a `Permanent`) -> `ICardEffect.ResolvePermanentOfThisCard
+// (card)` (the BT1_001 convention); `Func<Permanent,bool> CanSelectPermanentCondition` -> the established
 // `Func<HeadlessEntityId,bool>` id-shape idiom (IsOpponentBattleAreaDigimon(card, id)).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST4.Green;
 
@@ -58,9 +57,7 @@ public sealed class ST4_13 : CEntity_Effect
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    // UNRESOLVED (see file header): AS-IS `new IDigiBurst(Permanent, int, ICardEffect)` — no
-                    // mirror port of this class exists. Kept verbatim.
-                    if (new IDigiBurst(card.PermanentOfThisCard(), 2, activateClass).CanDigiBurst())
+                    if (new IDigiBurst(ICardEffect.ResolvePermanentOfThisCard(card), 2, activateClass).CanDigiBurst())
                     {
                         return true;
                     }
@@ -71,9 +68,7 @@ public sealed class ST4_13 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                // UNRESOLVED (see file header): AS-IS `new IDigiBurst(Permanent, int, ICardEffect).DigiBurst()`
-                // — no mirror port of this class exists. Kept verbatim.
-                await new IDigiBurst(card.PermanentOfThisCard(), 2, activateClass).DigiBurst();
+                await new IDigiBurst(ICardEffect.ResolvePermanentOfThisCard(card), 2, activateClass).DigiBurst();
 
                 if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
                 {

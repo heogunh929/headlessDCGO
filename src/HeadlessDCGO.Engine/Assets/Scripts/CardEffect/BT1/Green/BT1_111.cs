@@ -4,9 +4,9 @@
 //   [Security] (reuse [Main] verbatim, no afterMainEffect) -> AddActivateMainOptionSecurityEffect (bridged).
 // AS-IS structure kept verbatim: inline ActivateClass. The 2-vs-1 mode pick uses
 // `GManager.instance.userSelectionManager.SetBoolSelection(...)`/`WaitForEndSelect()`/`SelectedBoolValue` —
-// UNRESOLVED (kept verbatim, logged): the mirror `GManager` has no `userSelectionManager` field at all, and
-// no mirror `UserSelectionManager`/`SelectionElement<T>` type exists (this is a genuine gameplay CHOICE, not
-// cosmetic UI, so it is kept AS-IS-shaped rather than silently dropped/simplified).
+// RESOLVED (bridge W5, was the batch-2 UNRESOLVED finding): the mirror `UserSelectionManager`/
+// `SelectionElement<T>` (Script/UserSelectionManager.cs) + `GManager.userSelectionManager` now exist;
+// `WaitForEndSelect` drives the ChoiceProvider ModeChoice request (docs/audit/rebuild_bridge_w5_notes.md).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
 using System;
@@ -66,9 +66,6 @@ public sealed class BT1_111 : CEntity_Effect
 
                 if (canSuspend1 || canSuspend2)
                 {
-                    // UNRESOLVED (see file header): AS-IS `GManager.instance.userSelectionManager.
-                    // SetBoolSelection/SetBool/WaitForEndSelect/SelectedBoolValue` — no mirror bridge exists
-                    // for this genuine gameplay choice. Kept verbatim.
                     if (canSuspend1 && canSuspend2)
                     {
                         List<SelectionElement<bool>> selectionElements = new List<SelectionElement<bool>>()

@@ -1,19 +1,29 @@
-// (E-3 witness) BT8_057 (BT8/Green Digimon). AS-IS BT8/Green/BT8_057.cs.
-//   [None] "[All Turns] While all of your Digimon are suspended, during your opponent's turn, they can't use
-//          Option cards."  -> CanNotPlayClass (continuous ICanNotPlayCardEffect), ported 1:1 as a FIELD-static
-//          ContinuousCanNotPlayOptionEffect scanned by CanNotPlayOptionScan (this goal's witness).
-//   [Your Turn] OnUnTappedAnyone "when this Digimon becomes unsuspended during your unsuspend phase, trash the
-//          top card of your opponent's security stack."  -> ActivatedEffect(OnUnTappedAnyone) mirroring ST4_11's
-//          OnEndBattle shape: CanUse = host IsExistOnBattleArea && IsOwnerTurn && IsUnsuspendPhase (AS-IS
-//          TurnPhase == phase.Active) && CanTriggerWhenPermanentUnsuspends(self permanent); CanActivate = host on
-//          field && opponent has >= 1 security; body = TrashSecurityBody(opponent, 1, fromTop: true); no cap
-//          (AS-IS ORDER=-1), non-optional. (E3-P1-2 remediation: STOP E3-01 was unjust — all three primitives
-//          exist. The phase flow's natural unsuspend now also emits OnUntapped, so the [Your Turn] branch fires.)
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT8/Green/BT8_057.cs
+// TRUE AS-IS-verbatim re-port (bridge-W5 pass; E-3 WITNESS card — the AS-IS fidelity of BOTH halves is
+// load-bearing). 1:1 mirror of the original BT8_057 (BT8/Green Digimon).
+//   [None/All Turns] "While all of your Digimon are suspended, during your opponent's turn, they can't use
+//          Option cards." — literal AS-IS `CanNotPlayClass` + SetUpCanNotPlayClass (the ported kind-class).
+//   [Your Turn] "When this Digimon becomes unsuspended during your unsuspend phase, trash the top card of
+//          your opponent's security stack." — literal AS-IS inline `new ActivateClass()`.
+// Replaces the PREVIOUS pass's invented `CardEffectFactory.CanNotPlayOptionStaticEffect(...)` call and
+// old-model `ActivatedEffect`/`TrashSecurityBody` half with the literal AS-IS structure.
+// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// `card.Owner.GetBattleAreaDigimons()` -> the batch-3 `HeadlessPlayerId.GetBattleAreaDigimons()` extension;
+// `card.Owner.Enemy` -> `new Player(card.Context, card.Owner).Enemy` (the established BT2_023 idiom; the
+// owner-equality compares `.PlayerId`); `permanent => permanent == card.PermanentOfThisCard()` ->
+// `permanent.InstanceId == card.PermanentOfThisCard().TopInstanceId` (the established BT2_002/BT22_003
+// Permanent-vs-PermanentView identity idiom); `card.Owner.Enemy.SecurityCards.Count` ->
+// `CardEffectCommons.OpponentSecurityCount(card)` (the mirror helper documented against exactly this AS-IS
+// line); AS-IS `new IDestroySecurity(player, count, cardEffect, fromTop)` -> the MIG3-3a mirror carrier's
+// `(EngineContext, HeadlessPlayerId, int, HeadlessEntityId? cause, bool fromTop)` shape (player =
+// `CardEffectCommons.OpponentOf(card)`, cause = `activateClass.EffectSourceCard.InstanceId`).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT8.Green;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT8_057 : CEntity_Effect
 {
@@ -23,68 +33,100 @@ public sealed class BT8_057 : CEntity_Effect
 
         if (timing == EffectTiming.None)
         {
-            // AS-IS BT8_057.cs:17-56 — CanNotPlayClass. CanUseCondition = host IsExistOnBattleArea && ALL of the
-            // owner's battle-area Digimon are suspended (count == suspended-count) && it is the opponent's turn;
-            // CardCondition(source) = source.Owner == card.Owner.Enemy && source.IsOption. Ported as a FIELD
-            // static (auto-registered at enter-play) whose CanUse rides the ConditionKey gate and whose
-            // CardCondition is the option-play joint.
-            cardEffects.Add(CardEffectFactory.CanNotPlayOptionStaticEffect(
-                cardCondition: CardCondition,
-                isInheritedEffect: false,
-                card: card,
-                condition: CanUseCondition));
+            CanNotPlayClass canNotPlayClass = new CanNotPlayClass();
+            canNotPlayClass.SetUpICardEffect("Opponent can't us Option", CanUseCondition, card);
+            canNotPlayClass.SetUpCanNotPlayClass(cardCondition: CardCondition);
 
-            bool CanUseCondition()
+            cardEffects.Add(canNotPlayClass);
+
+            bool CanUseCondition(Hashtable hashtable)
             {
-                if (!CardEffectCommons.IsExistOnBattleArea(card))
+                if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    return false;
+                    if (card.Owner.GetBattleAreaDigimons().Count == card.Owner.GetBattleAreaDigimons().Count((permanent) => permanent.IsSuspended))
+                    {
+                        if (CardEffectCommons.IsOpponentTurn(card))
+                        {
+                            return true;
+                        }
+                    }
                 }
 
-                // AS-IS: card.Owner.GetBattleAreaDigimons().Count == card.Owner.GetBattleAreaDigimons()
-                // .Count(p => p.IsSuspended) — every one of the owner's battle-area Digimon is suspended.
-                int digimon = CardEffectCommons.MatchConditionOwnersPermanentCount(card, p => p.IsDigimon);
-                int suspended = CardEffectCommons.MatchConditionOwnersPermanentCount(card, p => p.IsDigimon && p.IsSuspended);
-                if (digimon != suspended)
-                {
-                    return false;
-                }
-
-                return CardEffectCommons.IsOpponentTurn(card);
+                return false;
             }
 
-            bool CardCondition(CardSource cardSource) =>
-                cardSource is not null
-                && cardSource.Owner == CardEffectCommons.OpponentOf(card)
-                && cardSource.IsOption;
+
+
+            bool CardCondition(CardSource cardSource)
+            {
+                if (cardSource != null)
+                {
+                    if (cardSource.Owner == new Player(card.Context, card.Owner).Enemy?.PlayerId)
+                    {
+                        if (cardSource.IsOption)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
         }
 
         if (timing == EffectTiming.OnUnTappedAnyone)
         {
-            // AS-IS BT8_057.cs:58-109. CanUseCondition = host IsExistOnBattleArea && IsOwnerTurn && TurnPhase ==
-            // phase.Active (the unsuspend step) && CanTriggerWhenPermanentUnsuspends(permanent == this card's
-            // permanent). The self-permanent condition mirrors ST4_11's WinnerCondition — the unsuspended subject
-            // is the top of the stack this card belongs to.
-            bool SelfPermanentCondition(Permanent permanent) =>
-                card.PermanentOfThisCard() is { TopInstanceId: var top } && !top.IsEmpty && permanent.InstanceId == top;
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Trash the top card of opponent's security", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.IsOwnerTurn(card)
-                && CardEffectCommons.IsUnsuspendPhase(card)
-                && CardEffectCommons.CanTriggerWhenPermanentUnsuspends(ctx, card, SelfPermanentCondition);
+            string EffectDiscription()
+            {
+                return "[Your Turn] When this Digimon becomes unsuspended during your unsuspend phase, trash the top card of your opponent's security stack.";
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnUnTappedAnyone,
-                canUse: CanUse,
-                // AS-IS CanActivateCondition: host on battle area && opponent security count >= 1.
-                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.OpponentSecurityCount(card) >= 1,
-                body: new TrashSecurityBody(CardEffectCommons.OpponentOf(card), 1, fromTop: true),
-                maxCountPerTurn: null, // AS-IS ORDER = -1 (uncapped).
-                isOptional: false,
-                description: "[Your Turn] When this Digimon becomes unsuspended during your unsuspend phase, trash the top card of your opponent's security stack."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Active)
+                        {
+                            if (CardEffectCommons.CanTriggerWhenPermanentUnsuspends(hashtable, permanent => permanent.InstanceId == card.PermanentOfThisCard().TopInstanceId))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.OpponentSecurityCount(card) >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new IDestroySecurity(
+                    card.Context,
+                    CardEffectCommons.OpponentOf(card),
+                    1,
+                    activateClass.EffectSourceCard.InstanceId,
+                    fromTop: true).DestroySecurity();
+            }
         }
 
         return cardEffects;
