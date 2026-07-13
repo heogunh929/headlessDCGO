@@ -340,6 +340,131 @@ public sealed class CardSource
     public bool EqualsTraits(string trait) => CardTraits.Any(t => string.Equals(t, trait, StringComparison.OrdinalIgnoreCase));
     public bool ContainsTraits(string fragment) => CardTraits.Any(t => t.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotBeAffected(cardEffect)</c> (CardSource.cs:1060,
+    /// 504 card-effect call sites): whether an active <c>ICanNotAffectedEffect</c> shields THIS card from the
+    /// given causing effect. Delegates to the verified <see cref="ContinuousImmunityGate.BlocksOpponentEffect"/>
+    /// (the immunity scan the mirror command classes already use). A null/empty cause is never blocked (AS-IS
+    /// :1062 <c>if (_cardEffect == null) return false</c>). The <c>cardEffect</c> argument is the causing effect's
+    /// source id, matching the goal-1 SwitchDefender / goal-3 causeEffectSourceId precedent.</summary>
+    public bool CanNotBeAffected(HeadlessEntityId? causeEffectSourceId)
+    {
+        if (causeEffectSourceId is not { IsEmpty: false } cause)
+        {
+            return false;
+        }
+
+        return ContinuousImmunityGate.BlocksOpponentEffect(
+            Context.EffectRegistry, Context.CardInstanceRepository, InstanceId, cause, Context);
+    }
+
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotTrashFromDigivolutionCards(cardEffect)</c>
+    /// (CardSource.cs:2478, 149 call sites): this source is protected from digivolution-stack trashing — the
+    /// in-flight <c>willBeRemoveSources</c> mark (AS-IS :2480) OR an active trash-protection effect (the static
+    /// grant flag or the continuous scan). Delegates to <see cref="TrashProtectionScan.IsProtected"/> — the same
+    /// filter <see cref="Assets.Scripts.Script.ITrashDigivolutionCards"/> applies privately, promoted to the
+    /// public AS-IS surface. The continuous scan needs a cause; without one only the marks apply.</summary>
+    public bool CanNotTrashFromDigivolutionCards(HeadlessEntityId? causeEffectSourceId)
+    {
+        if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+        {
+            // AS-IS :2480 `if (willBeRemoveSources) return true;` — the "already being removed this pass" mark
+            // (ITrashLinkCards.WillBeRemoveSourcesKey = "willBeRemoveSources").
+            if (record.Metadata.TryGetValue("willBeRemoveSources", out object? mark) && mark is true)
+            {
+                return true;
+            }
+
+            // The static-grant form of the protection (CardEffectCommons.TrashProtectedKey).
+            if (record.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? stamped) && stamped is true)
+            {
+                return true;
+            }
+        }
+
+        if (causeEffectSourceId is not { IsEmpty: false } cause)
+        {
+            return false;
+        }
+
+        return TrashProtectionScan.IsProtected(
+            Context.EffectRegistry, Context.CardInstanceRepository, Context, InstanceId, cause);
+    }
+
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.HasSameCardName(cardSource)</c> (CardSource.cs:1465):
+    /// whether ANY of <paramref name="other"/>'s (folded) names equals one of THIS card's names — AS-IS folds
+    /// <paramref name="other"/>.CardNames through THIS card's <see cref="EqualsCardName"/>.</summary>
+    public bool HasSameCardName(CardSource other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return other.CardNames.Any(name => EqualsCardName(name));
+    }
+
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanLink(PayCost, allowBreeding)</c>
+    /// (CardSource.cs:3140-3199): whether THIS card's declared <see cref="LinkCondition"/> is satisfied by at
+    /// least one owner permanent — the SAME <c>canLinkSomewhere</c> scan <see cref="CanLinkToTargetPermanent"/>
+    /// performs inline, exposed here as the AS-IS-named surface. <paramref name="allowBreeding"/> widens the
+    /// scan from owner BATTLE-area Digimon to owner BATTLE+BREEDING permanents (no Digimon filter) — the AS-IS
+    /// branch asymmetry. <paramref name="payCost"/> would add the MaxMemoryCost vs GetChangedLinkCost check
+    /// (CardSource.cs:3149/3175); no headless folded-link-cost primitive exists (design item C2-02 /
+    /// MIG5-CANLINK-PAYCOST), so <c>payCost: true</c> throws.</summary>
+    public bool CanLink(bool payCost = false, bool allowBreeding = false)
+    {
+        LinkCondition? link = LinkConditionOf();
+        if (link is null)
+        {
+            return false;
+        }
+
+        if (payCost)
+        {
+            throw new NotSupportedException(
+                "CardSource.CanLink(payCost: true) has no headless GetChangedLinkCost primitive — design item C2-02 / MIG5-CANLINK-PAYCOST.");
+        }
+
+        var zones = (IZoneStateReader)Context.ZoneMover;
+        return allowBreeding
+            ? zones.GetCards(Owner, ChoiceZone.BattleArea).Concat(zones.GetCards(Owner, ChoiceZone.BreedingArea))
+                .Any(id => link.digimonCondition(new Permanent(Context, id, Owner)))
+            : zones.GetCards(Owner, ChoiceZone.BattleArea)
+                .Any(id => CardEffectCommons.IsOwnerBattleAreaDigimon(this, id)
+                    && link.digimonCondition(new Permanent(Context, id, Owner)));
+    }
+
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.HasDigimonColor(color)</c> (CardSource.cs:1580-1585):
+    /// <see cref="HasCardColor"/> gated on <see cref="IsDigimon"/> (AS-IS <c>DigimonCardColors</c> == the card's
+    /// colours when it is a Digimon, empty otherwise).</summary>
+    public bool HasDigimonColor(string color) => IsDigimon && HasCardColor(color);
+
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.HasOptionColor(color)</c> (CardSource.cs:1587-1592):
+    /// gated on <see cref="IsOption"/>; a DUAL card (also Digimon) reads <see cref="DualCardColors"/> instead of
+    /// <see cref="CardColors"/> — the base/dual split this file already models.</summary>
+    public bool HasOptionColor(string color)
+    {
+        if (!IsOption)
+        {
+            return false;
+        }
+
+        IReadOnlyList<string> colors = IsDigimon ? DualCardColors : CardColors;
+        return colors.Any(c => string.Equals(c, color, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotEvolve(targetPermanent)</c> (CardSource.cs:1291-
+    /// 1350): whether an active <c>ICanNotDigivolveEffect</c> forbids THIS card from digivolving onto
+    /// <paramref name="targetPermanent"/> — a token on EITHER side always blocks; otherwise the joint scan.
+    /// Delegates to <see cref="ContinuousRestrictionGate.EvaluateDigivolve"/> (subject = the target evolved
+    /// onto, counterpart = this digivolving card).</summary>
+    public bool CanNotEvolve(Permanent targetPermanent)
+    {
+        ArgumentNullException.ThrowIfNull(targetPermanent);
+        if (targetPermanent.IsToken || IsToken)
+        {
+            return true;
+        }
+
+        return ContinuousRestrictionGate.EvaluateDigivolve(Context, targetPermanent.InstanceId, InstanceId).IsRestricted;
+    }
+
     /// <summary>(W6-L) Mirror of AS-IS <c>CardSource.linkCondition</c> (CardSource.cs:2727): the first
     /// usable <c>IAddLinkConditionEffect</c>'s condition for THIS card (dispatch-first, registry fallback —
     /// the AssemblyConditionOf pattern).</summary>
