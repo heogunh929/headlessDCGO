@@ -160,6 +160,58 @@ state). The full suite is the coordinator's.
   `BlockerClass.IsBlocker` — both have NO accept-all fallback, unlike most other null-means-any factories in
   this codebase) — corrected to `_ => true` / an explicit owner predicate at each call site (G9-038, G9-028).
 
+## 7b. P7 follow-up — SEC + InvertSAttack GREEN, 3 STOP (consumer outside gate scope)
+
+* **SEC-FaceUpSecuritySource — GREEN.** Two parts: (a) engine — `FoldDp` now scans FACE-UP security cards as an
+  `IChangeDPEffect` source (AS-IS Permanent.DP:542-576), gated by `SecurityFaceState.IsFaceUpInSecurity` (the
+  mirror's security-placement face flag, not the generic `CardSource.IsFlipped`). (b) fixture — `TfxSecurityDpBuff`
+  passed `permanentCondition: null`, but AS-IS `ChangeDP.cs:128` treats null as "apply to ANY battle-area Digimon"
+  of BOTH players (no owner filter on the effect source — same as the field scan), so the fixture's "your Digimon"
+  intent (test asserts the opponent is NOT buffed) had to be spelled `permanent.OwnerId == card.Owner`. `null`
+  would AS-IS-correctly buff the opponent too — the engine is faithful, the fixture was the bug. (Fixture is a
+  SEC-exclusive test fixture, not a real card / not parallel-agent-owned.)
+* **FAILb-01.InvertSAttack — GREEN.** The invert lives in `FoldSAttack` (AS-IS Permanent.Strike_AllowMinus): it
+  computes `InvertSecurityValue` (over `IInvertSAttackEffect`) and applies it to each `IChangeSAttackEffect` via
+  `ChangeSAttackClass.GetSAttack(strike, subject, invert)`. The test's SA change was a LEGACY
+  `ContinuousSelfModifierEffect` binding, resolved by `ModifierHelpers` BEFORE `FoldSAttack` runs, so the invert
+  could never flip it (design item RD-P6B-9). Fix: represent the SA change as a NEW-model `ChangeSAttackClass`
+  (via `ChangeSelfSAttackStaticEffect`) + the invert as `InvertSAttackClass` (via `InvertSelfSAttackStaticEffect`),
+  both attached to the card's controller through a multi-effect seam and the card placed on the battle area — the
+  flip's real model, where an SA-change card IS a `ChangeSAttackClass`. `FoldSAttack` folds both and the invert
+  flips the change. Assertions byte-identical. This is the RD-P6B-9 caveat closed for the pure-new-model case; a
+  genuine legacy-SA-delta + new-model-invert mix remains latent (no such card).
+
+* **RD-P6B-10 (STOP — CanNotBeDestroyed / battle & effect delete):** G9-038 "battle deletion prevented" +
+  G9-050 "Lv3 ally survives (protected set)". `CanNotBeDestroyedStaticEffect` builds `CanNotBeDestroyedClass`
+  (`ICanNotBeDestroyedEffect`, single-arg `CanNotBeDestroyed(permanent)`), which registers NO binding/replacement.
+  Consumers: battle → `Headless/Runtime/BattleDeletionGate.PreventsBattleDeletion` (reads
+  `ContinuousScopeEvaluation` Delete/Prevent replacements); effect-delete → `MatchStateMutationSink`
+  `.IsDeletionPreventedByContinuous` (reads the same replacements). AS-IS members = `Permanent.CanBeDestroyed`
+  (:3186) / `CanBeDestroyedByBattle` (:3233). Both consumers are OUTSIDE the mandated touch scope
+  (`NewModelContinuousScan.cs` + the 5 `Continuous*Gate.cs`), and neither delegates to any of those 5 gates — so
+  the new-model interface scan cannot be unioned in without editing `BattleDeletionGate.cs` /
+  `MatchStateMutationSink.cs` (or the shared `ContinuousScopeEvaluation`). Heavy-substrate → STOP.
+* **RD-P6B-11 (STOP — CanNotSuspend via the suspend mutation):** G9-050 "Lv3 ally NOT suspended (protected set)".
+  `CantSuspendStaticEffect` → `CanNotSuspendClass` (`ICanNotSuspendEffect`), registers no binding. Consumer:
+  `MatchStateMutationSink` `SuspendKind` → `HasSelfRestriction(Suspend)` → `ScopedResult` (`ContinuousScopeEvaluation`),
+  NOT `ContinuousRestrictionGate.EvaluateSuspend` (which I DID union — but the sink bypasses it). AS-IS member =
+  `Permanent.CanSuspend` (:3698). Fix needs the sink to consult `NewModelContinuousScan.CanNotSuspend` (already
+  written) or route through `EvaluateSuspend` — both edit `MatchStateMutationSink.cs`, outside scope → STOP.
+  (Note: tests that call `ContinuousRestrictionGate.Evaluate*` DIRECTLY — G9-035 CanNotBeBlocked, G9-041
+  CanNotBeAttacked, G9-050 CanNotAttack(defenderCondition), G9-027/033/038 block/attack — all PASS via my union;
+  only the mutation-sink-driven paths are blocked.)
+* **RD-P6B-12 (STOP — CanNotBeDestroyedBySkill, cause-conditional, effect delete):** G9-035 "card survives effect
+  deletion". `CanNotBeDestroyedBySkillClass` (`ICanNotBeDestroyedBySkillEffect.CanNotBeDestroyedBySkill(permanent,
+  ICardEffect)`) registers no binding. Consumer: `MatchStateMutationSink.IsDeletionPreventedByContinuous` →
+  `IsRestrictedFromCause(CannotBeDeletedBySkillKey)` → `RestrictionScan.IsRestricted` (the canonical scan the
+  gate ALSO calls — but I unioned the new-model scan at `ContinuousRestrictionGate.JointResult`, one layer ABOVE
+  `RestrictionScan`, so the sink's direct `RestrictionScan` call misses it). AS-IS member =
+  `Permanent.CanBeDestroyedBySkill` (:3309). Two blockers: (1) the union would have to move DOWN into
+  `RestrictionScan.IsRestricted` (Headless/Runtime, outside the 5 gates) to reach the sink; (2) the AS-IS
+  interface takes the causing `ICardEffect`, which the sink has only as a source-card INSTANCE id — the test's
+  unconditional (`cardEffectCondition: null`) case is evaluable with a dummy cause, a conditional one is not
+  (RD-P6B-7). Heavy-substrate + cause-object gap → STOP.
+
 ## 8. Note — session interruption
 
 Mid-session the worktree's `src/` was reset to HEAD by an external `git checkout` (concurrent to this agent),

@@ -38,33 +38,38 @@ int Resolve(int delta, int invert)
     HeadlessPlayerId P1 = new(1);
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 918);
     ctx.TurnController.Initialize(new[] { P1, new HeadlessPlayerId(2) }, P1);
+    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup); the SA
+    // change/invert effects live-gate on IsExistOnBattleAreaDigimon, so the card must be a battle-area Digimon.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("C"), "C", "C",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var id = new HeadlessEntityId("p1:C");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("C"), P1));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     var card = new CardSource(ctx, id, P1);
 
-    ctx.EffectRegistry.Register(new ContinuousSelfModifierEffect(card, ModifierHelpers.SecurityAttackDeltaKey, delta, false, null).ToBinding($"sa:{id.Value}"));
+    // (P7 stage-B SEAM) Both the SA change (ChangeSAttackClass) and the invert (InvertSAttackClass) are
+    // new-model kind-classes that register no substrate binding — the AS-IS-faithful path is FoldSAttack's
+    // LIVE `IChangeSAttackEffect` fold applying the `InvertSecurityValue` (IInvertSAttackEffect) it computes
+    // (AS-IS Permanent.Strike_AllowMinus). Under the flip an SA-change card IS a new-model ChangeSAttackClass,
+    // so representing the delta as one (not the pre-flip substrate ContinuousSelfModifierEffect binding — which
+    // ModifierHelpers resolves BEFORE FoldSAttack and the invert can therefore never flip, design item
+    // RD-P6B-9) is the faithful setup that makes the invert observable. Both attached to the card's controller
+    // via the same settable `cEntity_Effect` seam every ported card definition class uses.
+    var effects = new List<ICardEffect> { CardEffectFactory.ChangeSelfSAttackStaticEffect(delta, false, card, null) };
     if (invert != 0)
     {
-        ctx.TurnController.SetPhase(HeadlessPhase.Main);
-        // (P7 stage-B SEAM) InvertSAttackClass (Assets/Scripts/Script/CardEffects/InvertSAttackClass.cs) is a
-        // new-model kind-class with no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
-        // CardSource.EffectList -> CEntity_Effect.GetCardEffects scan NewModelContinuousScan.InvertSecurityValue
-        // (folded into FoldSAttack)/ContinuousModifierGate now perform. A synthetic test card has no
-        // CardEffectDispatch-resolvable class, so attach the built effect directly to the card's controller via
-        // the same settable `cEntity_Effect` seam every ported card definition class uses.
-        ICardEffect built = CardEffectFactory.InvertSAttackStaticEffect(
-            permanentCondition: null, changeValue: invert, isInheritedEffect: false, card, condition: null);
-        card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
+        effects.Add(CardEffectFactory.InvertSelfSAttackStaticEffect(invert, false, card, null));
     }
+
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effects);
 
     return ContinuousModifierGate.ResolveSecurityAttack(ctx, id, Base);
 }
 
 sealed class TestCardEntityEffect : CEntity_Effect
 {
-    private readonly ICardEffect _effect;
-    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+    private readonly List<ICardEffect> _effects;
+    public TestCardEntityEffect(List<ICardEffect> effects) { _effects = effects; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => _effects;
 }
