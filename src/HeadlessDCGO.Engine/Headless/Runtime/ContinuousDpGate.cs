@@ -72,10 +72,15 @@ public static class ContinuousDpGate
         // causing-effect predicate matches that modifier's source (a null predicate = immune to ALL reductions,
         // the pre-existing blanket behaviour).
         IReadOnlyList<Func<CardSource, bool>?> immunities = CollectDpMinusImmunities(context, cardId);
-        if (immunities.Count > 0)
+        // (P6 STAGE B) UNION the new-model IImmuneFromDPMinusEffect scan (AS-IS Permanent.ImmuneFromDPMinus):
+        // a ported ImmuneFromDPMinusClass registers no binding, so this live scan is its only path. A live
+        // grant found here behaves like an unconditional (null-predicate) registry immunity — it drops every
+        // DP-reducing modifier, matching the "immune to all reductions" blanket case already handled below.
+        bool newModelImmune = Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasImmuneFromDpMinus(context, cardId);
+        if (immunities.Count > 0 || newModelImmune)
         {
             modifiers = modifiers
-                .Where(modifier => !(IsDpReduction(modifier) && DpMinusImmunityApplies(context, immunities, modifier)))
+                .Where(modifier => !(IsDpReduction(modifier) && (newModelImmune || DpMinusImmunityApplies(context, immunities, modifier))))
                 .ToArray();
         }
 

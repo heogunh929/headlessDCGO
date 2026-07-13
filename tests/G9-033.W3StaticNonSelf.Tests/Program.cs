@@ -36,13 +36,14 @@ async Task RushStatic()
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    // MIGRATION-NOTE (P7 test-fix): RushStaticEffect returns RushClass, a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // ContinuousKeywordGate.HasKeyword reads only the substrate EffectRegistry, not the AS-IS live scan, so
-    // there is no buildable way to make this player-scope grant observable yet. The factory call is kept
-    // (still exercises construction); Register/ToBinding is dropped. Assertion below is UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.RushStaticEffect(null, false, new CardSource(context, src, P1), null);
+    // (P7 stage-B SEAM) RushStaticEffect returns RushClass, a new-model kind-class with no ToBinding/
+    // EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan/ContinuousKeywordGate.HasKeyword now performs (scans ALL field permanents, so a
+    // player-scope grant sourced from `src` is visible when evaluating `ally`, both P1's). Attach the built
+    // effect to the source card's controller via the same seam every ported card definition class uses.
+    var srcCard = new CardSource(context, src, P1);
+    ICardEffect built = CardEffectFactory.RushStaticEffect(null, false, srcCard, null);
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, ally, ContinuousKeywordGate.Rush), "owner's ally has Rush");
 }
 
@@ -51,10 +52,10 @@ async Task RebootStatic()
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    // MIGRATION-NOTE (P7 test-fix): see RushStatic above — RebootClass has no ToBinding/EffectRegistry
-    // bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped. Assertion
-    // below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
-    CardEffectFactory.RebootStaticEffect(null, false, new CardSource(context, src, P1), null);
+    // (P7 stage-B SEAM) see RushStatic above.
+    var srcCard = new CardSource(context, src, P1);
+    ICardEffect built = CardEffectFactory.RebootStaticEffect(null, false, srcCard, null);
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, ally, ContinuousKeywordGate.Reboot), "owner's ally has Reboot");
 }
 
@@ -66,24 +67,23 @@ async Task CanNotAttackStatic()
     var target = await Place(context, P1, "TGT");
 
     AssertTrue(!ContinuousRestrictionGate.EvaluateAttack(context, foe, target).IsRestricted, "not restricted before grant");
-    // MIGRATION-NOTE (P7 test-fix): the old (HeadlessPlayerId scope, isInheritedEffect, card, condition)
-    // short-form call no longer matches CanNotAttackStaticEffect's current signature
-    // (attackerCondition, defenderCondition, isInheritedEffect, card, condition, effectName) — the
-    // player-scope filter is now expressed as an attackerCondition predicate on Permanent.OwnerId (matching
-    // the same adaptation used in G9-023 for CanNotDigivolveStaticEffect). CanNotAttackTargetDefendingPermanentClass
-    // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED,
-    // docs/audit/rebuild_p6_stageA_notes.md); ContinuousRestrictionGate.EvaluateAttack reads only the
-    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
-    // restriction observable yet. The factory call is kept (still exercises construction); Register/
-    // ToBinding is dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands —
-    // tracked, not silently weakened.
-    CardEffectFactory.CanNotAttackStaticEffect(
+    // (P7 stage-B SEAM) the old (HeadlessPlayerId scope, isInheritedEffect, card, condition) short-form call
+    // no longer matches CanNotAttackStaticEffect's current signature (attackerCondition, defenderCondition,
+    // isInheritedEffect, card, condition, effectName) — the player-scope filter is now expressed as an
+    // attackerCondition predicate on Permanent.OwnerId (matching the same adaptation used in G9-023 for
+    // CanNotDigivolveStaticEffect). CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with
+    // no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan/ContinuousRestrictionGate now performs. Attach the built effect to the source
+    // card's controller via the same seam every ported card definition class uses.
+    var srcCard = new CardSource(context, src, P1);
+    ICardEffect built = CardEffectFactory.CanNotAttackStaticEffect(
         attackerCondition: permanent => permanent.OwnerId == P2,
         defenderCondition: null,
         isInheritedEffect: false,
-        card: new CardSource(context, src, P1),
+        card: srcCard,
         condition: null,
         effectName: "CanNotAttack");
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(context, foe, target).IsRestricted, "P2's Digimon cannot attack (player-scope)");
 }
 
@@ -93,6 +93,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 933);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -110,3 +111,10 @@ async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

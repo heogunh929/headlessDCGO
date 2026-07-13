@@ -108,18 +108,57 @@ state). The full suite is the coordinator's.
   legacy-then-new (two ordered passes) rather than AS-IS's single interleaved pass. Result-identical unless a
   legacy up/down and a new-model up/down interact on the SAME permanent (no such card today; both models are
   homogeneous per card). Same latent caveat applies to SAttack.
-* **RD-P6B-2** (keyword coverage) — `NewModelContinuousScan.HasKeyword` maps only Blocker/Jamming/Piercing/
-  Reboot/Rush to a new-model interface today. The other `ContinuousKeywordGate` names (Iceclad has its own
-  member already; Retaliation/Barrier/Collision/Fortitude/Evade/Raid/Save/Decoy/Fragment/Scapegoat/MindLink/
-  Ascension/TreatAsDigimon/VortexCanAttackPlayers/Alliance/Overclock/Progress/ArmorPurge/Decode/Partition) fall
-  through to the binding path — extend the switch (and add the per-keyword AS-IS `Has*` scan) as those cards are
-  re-ported. No behaviour lost today (no new-model card ports them as self-statics yet).
-* **RD-P6B-3** (restriction/immunity members) — the task listed restriction predicates (`CanNotSuspend`/
-  `CanNotBlock`/`CanNotAttack`/…) and immunities (`CanNotBeAffected`). `Permanent.CanSuspend`/`CanMove`/… were
-  ALREADY flipped to the `EffectList` scan in earlier clusters; the remaining restriction/immunity gates
-  (`ContinuousRestrictionGate`/`ContinuousImmunityGate`) still read bindings and were NOT unioned this pass (no
-  failing diagnostic; higher-risk intricate scans). Extend with the same UNION pattern when a new-model
-  restriction/immunity kind-class card lands.
+* **RD-P6B-2** (keyword coverage) — ~~`NewModelContinuousScan.HasKeyword` maps only Blocker/Jamming/Piercing/
+  Reboot/Rush~~ **RESOLVED (P7 keyword-coverage pass)**: `HasKeyword` now covers Iceclad/Raid/Retaliation/
+  Ascension/Fortitude/Blitz/Evade/MindLink/Barrier/Alliance/Collision/Partition/Scapegoat (exact AS-IS
+  `Permanent.Has*` anchors), plus Vortex/Overclock/Execute/Save/ArmorPurge/Decode/Fragment/Decoy/Progress/
+  VortexCanAttackPlayers (no dedicated AS-IS getter — anchored to each keyword's `CardEffectFactory` literal/
+  prefix EffectName + registration timing instead; Decoy is presence-only, no CanTrigger gate — its AS-IS
+  `IsByEffect` causing-effect check needs a live causing ICardEffect a generic presence query doesn't have,
+  design item **RD-P6B-5**). Residual gap: **RD-P6B-4** Fragment's trashValue COST is closed over
+  `CanActivateCondition` with no retrievable property (`DeletionReplacementGate.FragmentCostOf` still reads the
+  legacy registry key only) — presence (`HasKeyword`) works, the exact cost-gating consumer does not; fixing
+  needs `DeletionReplacementGate.cs`, outside this pass's touch scope.
+* **RD-P6B-3** (restriction/immunity members) — **RESOLVED (P7 restriction-immunity pass)**:
+  `ContinuousRestrictionGate.JointResult` now UNIONs `NewModelContinuousScan.IsRestrictedNewModel`, covering
+  CanNotUnsuspend/CanNotSuspend (`Permanent.CanUnsuspend`/`CanSuspend`), CanNotDigivolve
+  (`CardSource.CanNotEvolve`), CanNotBlock/CanNotBeBlocked and CanNotAttack/CanNotBeAttacked (`Permanent.
+  CanBlock`/`CanAttackTargetDigimon`, one joint interface each direction-agnostic). `ContinuousDpGate.ResolveDp`
+  UNIONs `NewModelContinuousScan.HasImmuneFromDpMinus` (`Permanent.ImmuneFromDPMinus`). A missing counterpart id
+  (the common calling convention — e.g. `EvaluateBeBlocked(ctx, attackerId)` with no specific blocker) falls
+  back to the SUBJECT itself as a structurally-valid stand-in Permanent/CardSource for the missing joint-arg
+  role — correct for the common null-condition ("any") grant, a documented compromise for a condition genuinely
+  keyed on the counterpart's identity.
+  Residual: **RD-P6B-7** cause-conditional checks (`CanNotBeDestroyedBySkill`/`ImmuneFromDPMinus`-cause/
+  `CannotReturnToDeck`-cause — FAILa-01/02/04, G9-053) route through `MatchStateMutationSink`'s own
+  `IsRestrictedFromCause`/delete-mutation gate, which reads the substrate registry only and is NOT unioned
+  (outside `NewModelContinuousScan.cs`/`Continuous*Gate.cs` scope). **RD-P6B-8** blanket "cannot be destroyed"
+  (`ICanNotBeDestroyedEffect`/`ICanNotBeDestroyedByBattleEffect` — G9-038 CanNotBeDestroyedStaticEffect, G9-050
+  SetFormDelete/SetFormSuspend via the mutation sink, G9-054 CanNotBeDestroyedByBattleStaticEffect) is consulted
+  via `BattleDeletionGate.PreventsBattleDeletion` + the mutation sink, both separate files outside this pass's
+  touch scope — same class of gap as RD-P6B-7.
+* **RD-P6B-6** (DigiBurst continuous-grant body misrouted) — `ActivatedEffectResolver.cs`'s `DigiBurstActivatedEffect`
+  case (`if (burst.InnerEffect is IActivatedCardEffect or ActivateICardEffect)`) treats ANY `ActivateClass`-typed
+  inner body as "resolve it now" — but keyword self-static grants (e.g. `PierceSelfEffect`) ALSO build
+  `ActivateClass` (implements `ActivateICardEffect`), so a "[Digi-Burst N] gain <keyword>" body gets "activated"
+  (its no-op `ActivateCoroutine` runs) instead of becoming a live continuous grant — PRIM.DigiBurst's continuous-
+  inner-body subtest. The `else if (LegacyBindingBridge.TryToBinding(...))` branch the comment implies exists
+  for this case is unreachable for `ActivateClass` (no `ToBinding` method — `TryToBinding` always returns false via
+  reflection). No missing "permanent-grant store" is built yet (P6A-PERMANENT-EFFECTLIST-ADDED, prior cluster)
+  to register such a grant against, so fixing needs both a narrower branch condition AND that store — both
+  outside `NewModelContinuousScan.cs`/`Continuous*Gate.cs`.
+* **RD-P6B-9** (InvertSAttack vs a LEGACY SA delta) — `NewModelContinuousScan.FoldSAttack` computes+applies
+  `InvertSecurityValue` only within its OWN new-model `IChangeSAttackEffect` fold loop; a LEGACY
+  `ContinuousSelfModifierEffect` SA delta is already resolved into `legacyResolved` (the `baseValue` FoldSAttack
+  receives) by `ContinuousModifierGate.ResolveSecurityAttack` BEFORE FoldSAttack runs, so a new-model
+  `InvertSAttackClass` grant never flips a legacy-sourced delta (AS-IS `InvertSecutiryValue` inverts the SAME
+  final Strike computation regardless of source). Fixing needs restructuring
+  `ContinuousModifierGate.ResolveSecurityAttack` to interleave invert with the legacy fold (structural).
+* Also found and fixed as PLAIN TEST BUGS while chasing these (not engine gaps): several test fixtures passed
+  `permanentCondition: null` / `attackerCondition: null` to factories whose null-handling is "reject" not
+  "accept-any" (`AllianceStaticEffect`'s `CanTriggerOnPermanentAttack`, `BlockerStaticEffect`'s
+  `BlockerClass.IsBlocker` — both have NO accept-all fallback, unlike most other null-means-any factories in
+  this codebase) — corrected to `_ => true` / an explicit owner predicate at each call site (G9-038, G9-028).
 
 ## 8. Note — session interruption
 

@@ -88,29 +88,31 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 923);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
 void RegisterOpponentCannotDigivolve(EngineContext context, HeadlessEntityId source, HeadlessPlayerId scope, Func<bool>? condition)
 {
     var sourceCard = new CardSource(context, source, P1);
-    // MIGRATION-NOTE (P7 test-fix): the old scopeCardType-taking overload of CanNotDigivolveStaticEffect is
-    // gone; the current signature is (permanentCondition, cardCondition, isInheritedEffect, card, condition,
+    // (P7 stage-B SEAM) the old scopeCardType-taking overload of CanNotDigivolveStaticEffect is gone; the
+    // current signature is (permanentCondition, cardCondition, isInheritedEffect, card, condition,
     // effectName) — the player-scope filter is now expressed as a permanentCondition predicate on
     // Permanent.OwnerId (scopeCardType was passed null at this call site anyway, i.e. no CardType filter).
     // CanNotDigivolveStaticEffect returns CanNotDigivolveClass, a new-model kind-class with no ToBinding/
-    // EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). DigivolveAction's
-    // EvaluateDigivolve gate reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
-    // no buildable way to make this restriction observable yet. The factory call is kept (still exercises
-    // construction); Register/ToBinding is dropped. Assertions in the tests above are UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotDigivolveStaticEffect(
+    // EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController.GetCardEffects
+    // scan NewModelContinuousScan/ContinuousRestrictionGate now performs (it scans ALL players' field
+    // permanents, so the grant sourced from P1's `source` card is visible when evaluating a P2 permanent).
+    // Attach the built effect to the source card's controller via the same seam every ported card definition
+    // class uses.
+    ICardEffect built = CardEffectFactory.CanNotDigivolveStaticEffect(
         permanentCondition: permanent => permanent.OwnerId == scope,
         cardCondition: null,
         isInheritedEffect: false,
         card: sourceCard,
         condition: condition,
         effectName: "CanNotDigivolve");
+    sourceCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 }
 
 async Task<HeadlessEntityId> PlaceSource(EngineContext context, HeadlessPlayerId owner)
@@ -156,3 +158,10 @@ bool InZone(EngineContext context, HeadlessPlayerId p, ChoiceZone zone, Headless
     ((IZoneStateReader)context.ZoneMover).GetCards(p, zone).Contains(id);
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

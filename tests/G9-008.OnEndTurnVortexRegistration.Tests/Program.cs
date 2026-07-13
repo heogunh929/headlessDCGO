@@ -48,16 +48,25 @@ Task OnEndTurnInAllTimings()
 async Task RegistersVortexOnEnter()
 {
     EngineContext context = Context();
-    var vortex = await PlaceFixtureDigimon(context, P1, "TfxVortex", suspended: false);
 
-    // Before registration, the keyword is not present (no false positive).
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(context, vortex, ContinuousKeywordGate.Vortex),
-        "Vortex not present before the card registers");
+    // (P7 stage-B finding) Under the dispatch-flip model (CEntity_EffectControllerStore, "the flip's
+    // enumeration model, replacing enter-play binding registration as the availability source" —
+    // docs/audit/rebuild_p6_stageB_notes.md), a card's cEntity_Effect is dispatched from its DEFINITION as soon
+    // as the instance/zone exist — NOT gated by a separate "CardEffectRegistrar.RegisterCard" enter-play step
+    // (that step lowers LEGACY-model effects into the substrate registry and inits per-turn use-counts; it is
+    // orthogonal to the new-model interface scan). So the keyword is already live the moment the fixture is
+    // zoned — there is no meaningful "before entering any zone" checkpoint to probe (no card instance exists
+    // yet to query). The original "absent before registration" assertion encoded the pre-flip registry-gated
+    // model and is no longer provable once Stage B's live scan landed; this test now verifies the flip-correct
+    // shape instead: live on placement, and still live (not disturbed) after enter-play registration.
+    var vortex = await PlaceFixtureDigimon(context, P1, "TfxVortex", suspended: false);
+    AssertTrue(ContinuousKeywordGate.HasKeyword(context, vortex, ContinuousKeywordGate.Vortex),
+        "Vortex is live once the fixture card is on the battle area (dispatch-based, via the OnEndTurn timing)");
 
     bool registered = CardEffectRegistrar.RegisterCard(context, vortex, P1);
-    AssertTrue(registered, "the fixture card registered effects on enter-play");
+    AssertTrue(registered, "the fixture card also registers (legacy-model) effects on enter-play");
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, vortex, ContinuousKeywordGate.Vortex),
-        "Vortex is live after enter-play registration (via the OnEndTurn timing)");
+        "Vortex is still live after enter-play registration");
 }
 
 async Task OpensEndOfTurnWindow()
@@ -78,6 +87,8 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

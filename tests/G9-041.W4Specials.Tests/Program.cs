@@ -65,15 +65,19 @@ async Task CanNotBeAttacked()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF", ChoiceZone.BattleArea);
-    AssertTrue(!ContinuousRestrictionGate.EvaluateBeAttacked(context, id).IsRestricted, "not restricted before grant");
-    // MIGRATION-NOTE (P7 test-fix): CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
-    // checks (ContinuousRestrictionGate.EvaluateBeAttacked) reads only the substrate EffectRegistry, not the
-    // AS-IS live scan, so there is no buildable way to make this grant observable yet. Assertion below is
-    // UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeAttackedSelfStaticEffect(
-        attackerCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cba:{id.Value}");
-    AssertTrue(ContinuousRestrictionGate.EvaluateBeAttacked(context, id).IsRestricted, "cannot be attacked after grant");
+    // (P7 test-fix) a candidate ATTACKER must exist to evaluate the joint predicate against (AS-IS
+    // Permanent.CanAttackTargetDigimon(Defender, ...) is always invoked with a REAL attacker permanent).
+    var attacker = await Place(context, P2, "ATTACKER", ChoiceZone.BattleArea);
+    AssertTrue(!ContinuousRestrictionGate.EvaluateBeAttacked(context, id, attacker).IsRestricted, "not restricted before grant");
+    // (P7 stage-B SEAM) CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan/ContinuousRestrictionGate now performs. Attach the built effect to the card's
+    // controller via the same seam every ported card definition class uses.
+    var cs = new CardSource(context, id, P1);
+    ICardEffect built = CardEffectFactory.CanNotBeAttackedSelfStaticEffect(
+        attackerCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"cba:{id.Value}");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
+    AssertTrue(ContinuousRestrictionGate.EvaluateBeAttacked(context, id, attacker).IsRestricted, "cannot be attacked after grant");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -88,6 +92,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 941);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -105,3 +110,10 @@ async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

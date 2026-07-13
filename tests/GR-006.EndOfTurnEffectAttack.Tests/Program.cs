@@ -170,6 +170,8 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -195,15 +197,14 @@ static void RegisterVortex(EngineContext context, HeadlessEntityId cardId, Headl
 
 void RegisterMarker(EngineContext context, HeadlessEntityId sourceId, Func<Permanent, bool>? attackerCondition)
 {
-    // MIGRATION-NOTE (P7 test-fix): VortexCanAttackPlayersClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this
-    // test checks (ContinuousKeywordGate.HasKeyword(..., ContinuousKeywordGate.VortexCanAttackPlayers),
-    // reached via EndOfTurnEffectAttack.TryOpen) reads only the substrate EffectRegistry, not this kind-class's
-    // interface (the engine's stage-B live is-scan serves real ported cards, not a synthetic fixture card),
-    // so there is no buildable way to make this grant observable yet. Assertions
-    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.VortexCanAttackPlayersStaticEffect(
-        attackerCondition, false, new CardSource(context, sourceId, P1), null, "VortexCanAttackPlayers");
+    // (P7 stage-B SEAM) VortexCanAttackPlayersClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController.GetCardEffects scan
+    // NewModelContinuousScan.HasVortexCanAttackPlayers now performs. Attach the built effect to the source
+    // card's controller via the same seam every ported card definition class uses.
+    var cs = new CardSource(context, sourceId, P1);
+    ICardEffect built = CardEffectFactory.VortexCanAttackPlayersStaticEffect(
+        attackerCondition, false, cs, null, "VortexCanAttackPlayers");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 }
 
 static MatchConfig BuildMatchConfig()
@@ -225,4 +226,13 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

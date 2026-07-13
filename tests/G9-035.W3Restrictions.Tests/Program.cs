@@ -39,13 +39,14 @@ async Task CantUnsuspend()
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(context, id).IsRestricted, "not restricted before grant");
-    // MIGRATION-NOTE (P7 test-fix): CanNotUnsuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
-    // (ContinuousRestrictionGate.EvaluateUnsuspend) reads only the substrate EffectRegistry, not the AS-IS live
-    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CantUnsuspendStaticEffect(
-        permanentCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cu:{id.Value}");
+    // (P7 stage-B SEAM) CanNotUnsuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController.GetCardEffects scan
+    // NewModelContinuousScan/ContinuousRestrictionGate now performs. Attach the built effect to the card's
+    // controller via the same seam every ported card definition class uses.
+    var cs = new CardSource(context, id, P1);
+    ICardEffect built = CardEffectFactory.CantUnsuspendStaticEffect(
+        permanentCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"cu:{id.Value}");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(context, id).IsRestricted, "does not unsuspend after grant");
 }
 
@@ -53,15 +54,17 @@ async Task CanNotBeBlocked()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    AssertTrue(!ContinuousRestrictionGate.EvaluateBeBlocked(context, id).IsRestricted, "not restricted before grant");
-    // MIGRATION-NOTE (P7 test-fix): CannotBlockClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
-    // (ContinuousRestrictionGate.EvaluateBeBlocked) reads only the substrate EffectRegistry, not the AS-IS live
-    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
-        defenderCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cbb:{id.Value}");
-    AssertTrue(ContinuousRestrictionGate.EvaluateBeBlocked(context, id).IsRestricted, "unblockable after grant");
+    // (P7 test-fix) a candidate BLOCKER must exist to evaluate the joint predicate against (AS-IS
+    // Permanent.CanBlock(AttackingPermanent) is always invoked on a REAL candidate blocker permanent — there
+    // is no "unblockable by anyone in the abstract" query without one).
+    var blocker = await Place(context, P2, "BLOCKER");
+    AssertTrue(!ContinuousRestrictionGate.EvaluateBeBlocked(context, id, blocker).IsRestricted, "not restricted before grant");
+    // (P7 stage-B SEAM) see CantUnsuspend above.
+    var cs = new CardSource(context, id, P1);
+    ICardEffect built = CardEffectFactory.CanNotBeBlockedStaticSelfEffect(
+        defenderCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"cbb:{id.Value}");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
+    AssertTrue(ContinuousRestrictionGate.EvaluateBeBlocked(context, id, blocker).IsRestricted, "unblockable after grant");
 }
 
 async Task DeleteBySkillPrevented()
@@ -105,6 +108,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 935);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -122,3 +126,10 @@ async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

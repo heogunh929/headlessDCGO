@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // FAIL-d: ChangeBaseCardName (AS-IS BT14_097 "original name is [Sukamon]") was MISSING. It REPLACES the printed
@@ -26,6 +27,14 @@ bool beforeSukamon = cs.EqualsCardName("Sukamon");
 // same seam every AS-IS card definition class, e.g. `class BT1_001 : CEntity_Effect`, uses), with no engine change.
 ICardEffect changeNameEffect = CardEffectFactory.ChangeBaseCardNameStaticEffect("Sukamon", cs);
 cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(changeNameEffect);
+
+// (P7 test-fix) The fold's `IChangeBaseCardNameEffect && cardEffect.CanUse(null)` gate recurses into
+// `CanTrigger`/`CanActivate`, which read live game state through the AS-IS process-global `GManager.instance`
+// (mirror: `AmbientMatchContext`) and gate on `DoneStartGame` (mirror proxy: phase past None/Setup — see
+// docs/audit/rebuild_p6_stageB_notes.md, section 5). A real board is always past those phases when a card
+// effect is evaluated; scope the match and advance the phase to Main to match that live condition.
+using var _ambientScope = AmbientMatchContext.Enter(context);
+context.TurnController.SetPhase(HeadlessPhase.Main);
 
 var after = new (string Name, Func<bool> Body)[]
 {

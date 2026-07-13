@@ -32,6 +32,10 @@ async Task PrintedOnly()
     var mat = Card(ctx, "MAT", level: 4);
     var examon = Card(ctx, "Examon", level: 7);
     await PlaceOnField(ctx, mat);
+    // (P7 test-fix) CanUse recurses into CanTrigger/CanActivate, which (AS-IS) read live game state through
+    // the process-global GManager.instance (mirror: AmbientMatchContext) — scope the match for the duration
+    // of the live scan, matching the pattern NewModelContinuousScan's public entry points already use.
+    using var _ambientScope1 = AmbientMatchContext.Enter(ctx);
     var levels = new CardSource(ctx, mat, P1).JogressLevelsAgainst(new CardSource(ctx, examon, P1));
     AssertSeq(new[] { 4 }, levels, "printed level 4 only (no effect registered)");
 }
@@ -43,6 +47,10 @@ async Task GainsWhenMatch()
     var examon = Card(ctx, "Examon", level: 7);
     await PlaceOnField(ctx, mat);
     RegisterJogressLevels(ctx, mat, (jc, _) => jc.CardNames.Contains("Examon") ? new List<int> { 6 } : new List<int>());
+    // (P7 test-fix) CanUse recurses into CanTrigger/CanActivate, which (AS-IS) read live game state through
+    // the process-global GManager.instance (mirror: AmbientMatchContext) — scope the match for the duration
+    // of the live scan, matching the pattern NewModelContinuousScan's public entry points already use.
+    using var _ambientScope1 = AmbientMatchContext.Enter(ctx);
     var levels = new CardSource(ctx, mat, P1).JogressLevelsAgainst(new CardSource(ctx, examon, P1));
     AssertSeq(new[] { 4, 6 }, levels, "printed 4 + treated-as 6 for Examon");
 }
@@ -54,12 +62,20 @@ async Task NoGainWhenNoMatch()
     var other = Card(ctx, "Other", level: 7);
     await PlaceOnField(ctx, mat);
     RegisterJogressLevels(ctx, mat, (jc, _) => jc.CardNames.Contains("Examon") ? new List<int> { 6 } : new List<int>());
+    using var _ambientScope2 = AmbientMatchContext.Enter(ctx);
     var levels = new CardSource(ctx, mat, P1).JogressLevelsAgainst(new CardSource(ctx, other, P1));
     AssertSeq(new[] { 4 }, levels, "printed 4 only (digivolving card is not Examon)");
 }
 
 // --- Harness ---
-EngineContext Ctx() => EngineContext.CreateDefault(randomSeed: 74);
+EngineContext Ctx()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 74);
+    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup).
+    ctx.TurnController.Initialize(new[] { P1, new HeadlessPlayerId(2) }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    return ctx;
+}
 HeadlessEntityId Card(EngineContext ctx, string cardNumber, int level)
 {
     var cards = (CardDatabase)ctx.CardRepository;

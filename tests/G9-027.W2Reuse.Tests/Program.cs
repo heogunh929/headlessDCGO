@@ -44,13 +44,14 @@ async Task ArmorPurgeGrants()
     EngineContext context = Context();
     var id = await PlaceDigimon(context, P1, "AP");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.ArmorPurge), "Armor Purge absent before grant");
-    // MIGRATION-NOTE (P7 test-fix): ArmorPurgeEffect returns ActivateClass, a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // ContinuousKeywordGate.HasKeyword reads only the substrate EffectRegistry, not the AS-IS live scan, so
-    // there is no buildable way to make this grant observable yet. The factory call is kept (still
-    // exercises construction); Register/ToBinding is dropped. Assertion below is UNCHANGED and EXPECTED TO
-    // FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.ArmorPurgeEffect(new CardSource(context, id, P1));
+    // (P7 stage-B SEAM) ArmorPurgeEffect returns ActivateClass, a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
+    // cEntity_EffectController.GetCardEffects scan NewModelContinuousScan/ContinuousKeywordGate.HasKeyword
+    // now performs. Attach the built effect to the card's controller via the same seam every ported card
+    // definition class uses.
+    var cs = new CardSource(context, id, P1);
+    ICardEffect built = CardEffectFactory.ArmorPurgeEffect(cs);
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.ArmorPurge), "Armor Purge live after grant");
 }
 
@@ -61,15 +62,14 @@ async Task CanNotAttackRestricts()
     var defender = await PlaceDigimon(context, P2, "DEF");
 
     AssertTrue(!ContinuousRestrictionGate.EvaluateAttack(context, attacker, defender).IsRestricted, "not restricted before grant");
-    // MIGRATION-NOTE (P7 test-fix): CanNotAttackSelfStaticEffect returns CanNotAttackTargetDefendingPermanentClass,
-    // a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED,
-    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousRestrictionGate.EvaluateAttack (RestrictionScan)
-    // reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to
-    // make this restriction observable yet. The factory call is kept (still exercises construction, with
-    // the now-required `effectName` argument added); Register/ToBinding is dropped. Assertion below is
-    // UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotAttackSelfStaticEffect(null, false, new CardSource(context, attacker, P1), null,
+    // (P7 stage-B SEAM) CanNotAttackSelfStaticEffect returns CanNotAttackTargetDefendingPermanentClass, a
+    // new-model kind-class with no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
+    // cEntity_EffectController scan NewModelContinuousScan/ContinuousRestrictionGate now performs. Attach the
+    // built effect to the attacker's controller via the same seam every ported card definition class uses.
+    var cs = new CardSource(context, attacker, P1);
+    ICardEffect built = CardEffectFactory.CanNotAttackSelfStaticEffect(null, false, cs, null,
         effectName: "CanNotAttack");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(context, attacker, defender).IsRestricted, "attack restricted after CanNotAttackSelf");
 }
 
@@ -95,6 +95,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 927);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -112,3 +113,10 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

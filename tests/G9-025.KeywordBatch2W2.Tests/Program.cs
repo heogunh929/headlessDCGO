@@ -58,14 +58,15 @@ async Task SelfStaticGoesLive(Func<CardSource, ICardEffect> build, string keywor
     var id = await PlaceDigimon(context, P1, "KW");
 
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} not present before grant");
-    // MIGRATION-NOTE (P7 test-fix): all of the SelfEffect/SelfStaticEffect factories under test (Rush/
-    // Retaliation/Raid/Barrier/Collision/Fortitude/Evade/Save/ArmorPurge) return new-model kind-classes
-    // (RushClass/CollisionClass/ActivateClass/etc.) with no ToBinding/EffectRegistry bridge (stage-B RED,
-    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the substrate
-    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant observable
-    // yet. The factory call is kept (still exercises construction); Register/ToBinding is dropped.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    build(new CardSource(context, id, P1));
+    // (P7 stage-B SEAM) all of the SelfEffect/SelfStaticEffect factories under test (Rush/Retaliation/Raid/
+    // Barrier/Collision/Fortitude/Evade/Save/ArmorPurge) return new-model kind-classes (RushClass/
+    // CollisionClass/ActivateClass/etc.) that register no substrate binding — the AS-IS-faithful path is the
+    // LIVE cEntity_EffectController.GetCardEffects scan NewModelContinuousScan/ContinuousKeywordGate.HasKeyword
+    // now performs (docs/audit/rebuild_p6_stageB_notes.md). Attach the built effect to the card's controller
+    // via the same seam every ported card definition class uses, per tests/FAILd-08.ChangeBaseCardName.Tests.
+    var cs = new CardSource(context, id, P1);
+    ICardEffect built = build(cs);
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} live after the SelfEffect factory");
 }
 
@@ -75,11 +76,10 @@ async Task ScopedToOwnCard()
     EngineContext context = Context();
     var self = await PlaceDigimon(context, P1, "SELF");
     var other = await PlaceDigimon(context, P1, "OTHER");
-    // MIGRATION-NOTE (P7 test-fix): see SelfStaticGoesLive above — RetaliationSelfEffect returns a
-    // new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED). Factory call kept for
-    // construction; Register/ToBinding dropped. Assertions below are UNCHANGED and EXPECTED TO FAIL until
-    // stage B lands.
-    CardEffectFactory.RetaliationSelfEffect(false, new CardSource(context, self, P1), null);
+    // (P7 stage-B SEAM) see SelfStaticGoesLive above.
+    var cs = new CardSource(context, self, P1);
+    ICardEffect built = CardEffectFactory.RetaliationSelfEffect(false, cs, null);
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, self, ContinuousKeywordGate.Retaliation), "self has Retaliation");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, other, ContinuousKeywordGate.Retaliation), "bystander does NOT have Retaliation");
 }
@@ -90,6 +90,8 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 925);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -107,3 +109,12 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

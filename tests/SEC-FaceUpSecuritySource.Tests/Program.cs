@@ -24,6 +24,8 @@ async Task<(EngineContext ctx, HeadlessEntityId field, HeadlessEntityId oppField
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 71);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     var cards = (CardDatabase)ctx.CardRepository;
 
     cards.Upsert(new CardRecord(new HeadlessEntityId("DIGI"), "DIGI", "Digi",

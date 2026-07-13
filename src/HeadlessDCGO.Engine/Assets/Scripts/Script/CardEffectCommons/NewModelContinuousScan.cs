@@ -31,6 +31,8 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using HeadlessDCGO.Engine.Headless.Bridge;
@@ -44,6 +46,26 @@ public static class NewModelContinuousScan
     {
         var gameContext = new GameContext(context);
         List<Player> players = gameContext.Players_ForTurnPlayer;
+        if (players.Count > 0)
+        {
+            return players;
+        }
+
+        return context.CardInstanceRepository.Snapshot()
+            .Select(record => record.OwnerId)
+            .Where(id => !id.IsEmpty)
+            .Distinct()
+            .Select(id => new Player(context, id))
+            .ToList();
+    }
+
+    /// <summary>AS-IS <c>gameContext.Players</c> (the FULL roster — CanSuspend/CanUnsuspend/CanNotEvolve/
+    /// CanBlock/CanAttackTargetDigimon all scan this, not the turn-first Players_ForTurnPlayer). Same isolated-
+    /// unit-context fallback as <see cref="ScanPlayers"/> (SUBSTRATE ADAPTATION 2).</summary>
+    private static List<Player> ScanAllPlayers(EngineContext context)
+    {
+        var gameContext = new GameContext(context);
+        List<Player> players = gameContext.Players;
         if (players.Count > 0)
         {
             return players;
@@ -204,6 +226,26 @@ public static class NewModelContinuousScan
             foreach (Permanent permanent in player.GetFieldPermanents())
             {
                 foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+
+            // AS-IS Permanent.DP (Permanent.cs:542-576, "Effects of face up security"): FACE-UP (!IsFlipped)
+            // security cards are ALSO scanned as an IChangeDPEffect source, between the field-permanents and
+            // player-effect regions — SEC-FaceUpSecuritySource (RD-P6B-3): the mirror previously omitted this
+            // scope entirely. SUBSTRATE: the mirror's security-specific face state is tracked by
+            // Headless.Runtime.SecurityFaceState (a dedicated `securityFaceUp` instance flag, gated on the card
+            // still being in the Security zone), NOT the generic CardSource.IsFlipped field flag — mirrors the
+            // AS-IS SetFace()/SetReverse() security-placement state.
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (!Headless.Runtime.SecurityFaceState.IsFaceUpInSecurity(context, source.InstanceId))
+                {
+                    continue;
+                }
+
+                foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
                 {
                     Collect(cardEffect);
                 }
@@ -429,6 +471,836 @@ public static class NewModelContinuousScan
         return false;
     }
 
+    // AS-IS Permanent.HasIceclad (Permanent.cs:2540-2581): IIcecladEffect && CanTrigger(null) &&
+    // HasIceclad(this), scanned over Players_ForTurnPlayer — self EffectList(None) (redundant per player in
+    // AS-IS, folded once here) + each player's EffectList(None).
+    public static bool HasIceclad(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.None))
+        {
+            if (cardEffect is IIcecladEffect iceclad && cardEffect.CanTrigger(null) && iceclad.HasIceclad(subject))
+            {
+                return true;
+            }
+        }
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IIcecladEffect iceclad && cardEffect.CanTrigger(null) && iceclad.HasIceclad(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasRaid (Permanent.cs:2687-2704): SELF EffectList(OnAllyAttack), ActivateICardEffect &&
+    // EffectName=="Raid" — no CanTrigger call (presence-only, matching AS-IS exactly).
+    public static bool HasRaid(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnAllyAttack))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.EffectName == "Raid")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.RetaliationCount (Permanent.cs:2793-2815, backing HasRetaliation:2778-2789): SELF
+    // EffectList(OnDestroyedAnyone), ActivateICardEffect && EffectName=="Retaliation" &&
+    // CanTrigger(OnDeletionCheckHashtableOfPermanent(this)).
+    public static bool HasRetaliation(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = CardEffectCommons.OnDeletionCheckHashtableOfPermanent(subject);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnDestroyedAnyone))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.EffectName == "Retaliation" && cardEffect.CanTrigger(hashtable))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasAscension (Permanent.cs:2819-2839): SELF EffectList(OnDestroyedAnyone),
+    // ActivateICardEffect && EffectName=="Ascension" && CanTrigger(OnDeletionCheckHashtableOfPermanent(this)).
+    public static bool HasAscension(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = CardEffectCommons.OnDeletionCheckHashtableOfPermanent(subject);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnDestroyedAnyone))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.EffectName == "Ascension" && cardEffect.CanTrigger(hashtable))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasFortitude (Permanent.cs:2843-2864): SELF EffectList(OnDestroyedAnyone),
+    // ActivateICardEffect && EffectName=="Fortitude" && CanTrigger(OnDeletionCheckHashtableOfPermanent(this)).
+    public static bool HasFortitude(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = CardEffectCommons.OnDeletionCheckHashtableOfPermanent(subject);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnDestroyedAnyone))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.EffectName == "Fortitude" && cardEffect.CanTrigger(hashtable))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasBlitz (Permanent.cs:2867-2890): SELF EffectList(OnEnterFieldAnyone),
+    // ActivateICardEffect && (CanTrigger(WhenDigivolutionCheckHashtableOfPermanent(this)) ||
+    // CanTrigger(OnPlayCheckHashtableOfPermanent(this))) && EffectDiscription.Contains("Blitz").
+    public static bool HasBlitz(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnEnterFieldAnyone))
+        {
+            if (cardEffect is ActivateICardEffect
+                && (cardEffect.CanTrigger(CardEffectCommons.WhenDigivolutionCheckHashtableOfPermanent(subject))
+                    || cardEffect.CanTrigger(CardEffectCommons.OnPlayCheckHashtableOfPermanent(subject)))
+                && !string.IsNullOrEmpty(cardEffect.EffectDiscription)
+                && cardEffect.EffectDiscription.Contains("Blitz"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasEvade (Permanent.cs:2894-2920): SELF EffectList(WhenPermanentWouldBeDeleted),
+    // ActivateICardEffect && CanTrigger({"Permanents":[this]}) && EffectName=="Evade".
+    public static bool HasEvade(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = new Hashtable { { "Permanents", new List<Permanent> { subject } } };
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(hashtable) && cardEffect.EffectName == "Evade")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasMindLink (Permanent.cs:2923-2946): SELF EffectList(OnDeclaration),
+    // ActivateICardEffect && CanTrigger(null) && EffectDiscription.Contains("Mind Link").
+    public static bool HasMindLink(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnDeclaration))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(null)
+                && !string.IsNullOrEmpty(cardEffect.EffectDiscription) && cardEffect.EffectDiscription.Contains("Mind Link"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasBarrier (Permanent.cs:2950-2975): SELF EffectList(WhenPermanentWouldBeDeleted),
+    // ActivateICardEffect && CanTrigger({"Permanents":[this], "battle": new IBattle(null,null,null)}) &&
+    // EffectName=="Barrier".
+    public static bool HasBarrier(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = new Hashtable
+        {
+            { "Permanents", new List<Permanent> { subject } },
+            { "battle", new IBattle(null, null, null) },
+        };
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(hashtable) && cardEffect.EffectName == "Barrier")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasAlliance (Permanent.cs:2978-3040): hashtable {"AttackingPermanent": this}; scan
+    // Players_ForTurnPlayer field permanents' + FACE-UP security's + players' EffectList(OnAllyAttack) for
+    // EffectName=="Alliance" && CanTrigger(hashtable) (no interface-type filter — matches AS-IS verbatim).
+    public static bool HasAlliance(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = new Hashtable { { "AttackingPermanent", subject } };
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.OnAllyAttack))
+                {
+                    if (cardEffect.EffectName == "Alliance" && cardEffect.CanTrigger(hashtable))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (source.IsFlipped)
+                {
+                    continue;
+                }
+
+                foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.OnAllyAttack))
+                {
+                    if (cardEffect.EffectName == "Alliance" && cardEffect.CanTrigger(hashtable))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.OnAllyAttack))
+            {
+                if (cardEffect.EffectName == "Alliance" && cardEffect.CanTrigger(hashtable))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasCollision (Permanent.cs:3043-3110): ICollisionEffect && CanTrigger(null) &&
+    // HasCollision(this), over Players_ForTurnPlayer field permanents' + FACE-UP security's + players'
+    // EffectList(OnCounterTiming).
+    public static bool HasCollision(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.OnCounterTiming))
+                {
+                    if (cardEffect is ICollisionEffect collision && cardEffect.CanTrigger(null) && collision.HasCollision(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (source.IsFlipped)
+                {
+                    continue;
+                }
+
+                foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.OnCounterTiming))
+                {
+                    if (cardEffect is ICollisionEffect collision && cardEffect.CanTrigger(null) && collision.HasCollision(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.OnCounterTiming))
+            {
+                if (cardEffect is ICollisionEffect collision && cardEffect.CanTrigger(null) && collision.HasCollision(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasPartition (Permanent.cs:3113-3130): SELF EffectList(WhenPermanentWouldBeDeleted),
+    // ActivateICardEffect && EffectName=="Partition" — no CanTrigger call (presence-only, matching AS-IS).
+    public static bool HasPartition(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.EffectName == "Partition")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.HasScapegoat (Permanent.cs:3134-3151): SELF EffectList(WhenPermanentWouldBeDeleted),
+    // ActivateICardEffect && EffectName=="<Scapegoat>" (literal, angle brackets — every real ScapegoatSelfEffect
+    // call site passes effectName:"<Scapegoat>", e.g. EX8_061/EX8_071/BT20_080/LM_043) — no CanTrigger call.
+    public static bool HasScapegoat(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.EffectName == "<Scapegoat>")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Vortex/Overclock/Execute (CardEffectFactory/KeyWordEffects/Vortex.cs, Overclock.cs, Execute.cs): AS-IS has
+    // no dedicated Permanent.Has<X> getter for these (unlike Blocker/Jamming/Reboot/Rush) — presence is only
+    // ever consulted structurally (CanActivateVortex, EndOfTurnEffectAttack.TryOpen). Each factory builds a
+    // fixed-EffectName ActivateClass registered at EffectTiming.OnEndTurn (AS-IS EX8_074 "Vortex"/"Overclock"/
+    // "Execute" regions; EndOfTurnEffectAttack.cs:62 "AS-IS cards register ExecuteSelfEffect at
+    // EffectTiming.OnEndTurn"). Their CanUseCondition(hashtable) (IsExistOnBattleArea(card) &&
+    // IsOwnerTurn(card)) reads no hashtable content, so CanTrigger(null) evaluates it exactly.
+    private static bool HasSelfEndTurnKeyword(EngineContext context, HeadlessEntityId cardId, string effectName)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.OnEndTurn))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(null) && cardEffect.EffectName == effectName)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Save/ArmorPurge (CardEffectFactory/KeyWordEffects/Save.cs, ArmorPurge.cs): deletion-replacement family,
+    // no dedicated Permanent.Has<X> getter. Fixed EffectName ("Save" / "Armor Purge"), registered at
+    // EffectTiming.WhenPermanentWouldBeDeleted (same timing as Evade/Barrier/Partition/Scapegoat above).
+    // Save's CanUseCondition is CanTriggerOnDeletion(hashtable, card) -> real gate via
+    // OnDeletionCheckHashtableOfPermanent (same builder Retaliation/Ascension/Fortitude use). ArmorPurge's is
+    // CanTriggerWhenRemoveField(hashtable, card) -> real gate via the {"Permanents":[this]} shape (Evade/Barrier).
+    public static bool HasSave(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = CardEffectCommons.OnDeletionCheckHashtableOfPermanent(subject);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(hashtable) && cardEffect.EffectName == "Save")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool HasArmorPurge(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = new Hashtable { { "Permanents", new List<Permanent> { subject } } };
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(hashtable) && cardEffect.EffectName == "Armor Purge")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Decode (CardEffectFactory/KeyWordEffects/Decode.cs): EffectName is computed as $"Decode {color}" per
+    // call site (e.g. "Decode Red/Black") — no fixed literal, so match the "Decode " prefix. CanUseCondition
+    // = IsExistOnBattleAreaDigimon && CanTriggerWhenRemoveField(hashtable, card) && !IsByBattle(hashtable); the
+    // {"Permanents":[this]} shape satisfies the first two, and the absent "battle" key makes IsByBattle false.
+    public static bool HasDecode(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = new Hashtable { { "Permanents", new List<Permanent> { subject } } };
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(hashtable)
+                && cardEffect.EffectName is not null && cardEffect.EffectName.StartsWith("Decode", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Fragment (CardEffectFactory/KeyWordEffects/Fragment.cs): EffectName is caller-supplied per call site but
+    // every real card passes a "Fragment <N>" literal (e.g. EX8_051/EX8_055/BT22_061 "Fragment <3>") — match
+    // the "Fragment" prefix (case-insensitive: a test fixture may lower-case it). CanUseCondition =
+    // IsPermanentExistsOnBattleArea && CanTriggerWhenRemoveField(hashtable, TopCard) — the {"Permanents":[this]}
+    // shape satisfies it.
+    public static bool HasFragment(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Hashtable hashtable = new Hashtable { { "Permanents", new List<Permanent> { subject } } };
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect && cardEffect.CanTrigger(hashtable)
+                && cardEffect.EffectName is not null
+                && cardEffect.EffectName.StartsWith("Fragment", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Decoy (CardEffectFactory/KeyWordEffects/Decoy.cs): EffectName is caller-supplied but every real card
+    // passes a "Decoy (<color>)" literal (e.g. BT6_064 "Decoy (Black)") — match the "Decoy" prefix. AS-IS
+    // CanUseCondition additionally requires CardEffectCommons.IsByEffect(hashtable, ...) — an OPPONENT-sourced
+    // causing effect must be present in the hashtable, which a generic presence query has no causing effect
+    // for; design item RD-P6B-5 (Decoy's presence check is therefore gate-less, like Pierce's documented
+    // compromise above — the real CanTrigger evaluation still runs at actual deletion-replacement time via the
+    // existing DeletionReplacementGate/CandidateConditions consumers).
+    public static bool HasDecoy(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect
+                && cardEffect.EffectName is not null && cardEffect.EffectName.StartsWith("Decoy", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Progress (CardEffectFactory/KeyWordEffects/Progress.cs): a CanNotAffectedClass (immunity kind-class, NOT
+    // ActivateICardEffect) with fixed EffectName "Progress", self-registered continuously (EffectTiming.None,
+    // same registration timing as the other SelfStaticEffect continuous grants in this file). Presence-only
+    // (no CanUse gate), matching the Raid/Partition/Scapegoat treatment above: AS-IS CanActivateProgress
+    // additionally requires GManager.instance.attackProcess.IsAttacking && AttackingPermanent==this — that
+    // "currently attacking" gate belongs to the LIVE immunity consumer (ProgressImmunity), not this
+    // grant-presence query (does the card HAVE Progress, vs is it live at this instant).
+    public static bool HasProgress(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.EffectList(EffectTiming.None))
+        {
+            if (cardEffect.EffectName == "Progress")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS CardEffectCommons.PermanentHasVortexCanAttackPlayers (CardEffectCommons/KeyWordEffects/Vortex.cs):
+    // scans EVERY player (gameContext.Players — NOT Players_ForTurnPlayer, unlike the other Has* members
+    // above) field permanents' + players' EffectList(None) for IVortexCanAttackPlayersEffect && CanUse(null)
+    // && VortexCanAttackPlayersPermanent(SUBJECT) (the AS-IS lambda parameter shadowing means the interface
+    // call always tests the OUTER method's subject permanent, not the per-candidate scan permanent).
+    public static bool HasVortexCanAttackPlayers(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        var gameContext = new GameContext(context);
+
+        foreach (Player player in gameContext.Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IVortexCanAttackPlayersEffect marker && cardEffect.CanUse(null)
+                        && marker.VortexCanAttackPlayersPermanent(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IVortexCanAttackPlayersEffect marker && cardEffect.CanUse(null)
+                    && marker.VortexCanAttackPlayersPermanent(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // ==================================================================================================
+    // RESTRICTION / IMMUNITY joint predicates — AS-IS Permanent.CanSuspend/CanUnsuspend/CanBlock/
+    // CanAttackTargetDigimon (Permanent.cs) + CardSource.CanNotEvolve (CardSource.cs:1291). Each scans
+    // Players (the FULL roster, not turn-first) field permanents' + players' EffectList(None) for the
+    // matching marker interface, gated by CanUse(null), joint predicate over (subject, counterpart).
+    // Mirrors RestrictionScan.IsRestricted's registry scan (Headless/Runtime/RestrictionScan.cs) — UNIONED
+    // by ContinuousRestrictionGate.JointResult, not called directly by callers.
+    // ==================================================================================================
+
+    // AS-IS Permanent.CanUnsuspend (Permanent.cs:1962-2006): ICanNotUnsuspendEffect && CanUse(null) &&
+    // CanNotUnsuspend(this) over ALL players' field permanents + players.
+    public static bool CanNotUnsuspend(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotUnsuspendEffect e && cardEffect.CanUse(null) && e.CanNotUnsuspend(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotUnsuspendEffect e && cardEffect.CanUse(null) && e.CanNotUnsuspend(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.CanSuspend (Permanent.cs:3698-3739): ICanNotSuspendEffect && CanUse(null) &&
+    // CanNotSuspend(this) over ALL players' field permanents + players.
+    public static bool CanNotSuspend(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotSuspendEffect e && cardEffect.CanUse(null) && e.CanNotSuspend(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotSuspendEffect e && cardEffect.CanUse(null) && e.CanNotSuspend(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS CardSource.CanNotEvolve(Permanent) (CardSource.cs:1291-1349): ICanNotDigivolveEffect &&
+    // CanUse(null) && CanNotEvolve(targetPermanent, this) over ALL players' field permanents + players (+
+    // self, when this card is not itself a permanent — not modelled here, subject is always a live permanent
+    // at the EvaluateDigivolve call site). `targetPermanent` = the under-card being digivolved (subject);
+    // `this` = the digivolving CardSource (counterpart). Most call sites (DigivolveAction) evaluate the
+    // TARGET-side restriction without yet knowing which specific material card is digivolving — when
+    // <paramref name="sourceEntityId"/> is empty/unresolvable, fall back to the target's OWN card as a
+    // structurally-valid (non-null) stand-in CardSource: a null-cardCondition grant (the common case — "cannot
+    // be digivolved", no source filter) evaluates correctly either way; a source-conditional grant is
+    // evaluated against the wrong source in this fallback (documented compromise, same tier as HasPierce's
+    // no-hashtable presence check above).
+    public static bool CanNotDigivolve(EngineContext context, HeadlessEntityId targetCardId, HeadlessEntityId sourceEntityId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent targetPermanent = BuildSubject(context, targetCardId);
+        HeadlessEntityId effectiveSourceId = sourceEntityId.IsEmpty ? targetCardId : sourceEntityId;
+        HeadlessPlayerId sourceOwner = context.CardInstanceRepository.TryGetInstance(effectiveSourceId, out var src) && src is not null
+            ? src.OwnerId
+            : default;
+        var sourceCard = new CardSource(context, effectiveSourceId, sourceOwner, sourceOwner);
+
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotDigivolveEffect e && cardEffect.CanUse(null) && e.CanNotEvolve(targetPermanent, sourceCard))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotDigivolveEffect e && cardEffect.CanUse(null) && e.CanNotEvolve(targetPermanent, sourceCard))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.CanBlock (Permanent.cs:2123-2210): ICannotBlockEffect && CanUse(null) &&
+    // CannotBlock(AttackingPermanent, this) over ALL players' field permanents (no immunity check — AS-IS
+    // omits it in this region) + players (immunity-gated: `!TopCard.CanNotBeAffected(cardEffect)`).
+    // Direction-agnostic: pass (attackerPermanent, blockerPermanent) — callers supply either order
+    // (EvaluateBlock: subject=blocker, counterpart=attacker; EvaluateBeBlocked: subject=attacker,
+    // counterpart=blocker).
+    private static bool CannotBlockJoint(EngineContext context, Permanent attacker, Permanent blocker)
+    {
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICannotBlockEffect e && cardEffect.CanUse(null) && e.CannotBlock(attacker, blocker))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICannotBlockEffect e && cardEffect.CanUse(null) && e.CannotBlock(attacker, blocker)
+                    && NotImmune(blocker, cardEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // A missing counterpart (the common EvaluateBlock/EvaluateBeBlocked calling convention — the caller often
+    // asks "is subject restricted at all", not against one specific pairing) falls back to the SUBJECT itself
+    // as a structurally-valid stand-in Permanent for the missing role: an attackerCondition/defenderCondition
+    // of null (the common case) accepts any counterpart including this placeholder; a condition genuinely
+    // keyed on the counterpart's identity may misevaluate against it — documented compromise, same tier as
+    // CanNotDigivolve's source fallback above.
+    public static bool CanNotBlock(EngineContext context, HeadlessEntityId blockerId, HeadlessEntityId? attackerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        HeadlessEntityId effectiveAttackerId = attackerId is { IsEmpty: false } id ? id : blockerId;
+        return CannotBlockJoint(context, BuildSubject(context, effectiveAttackerId), BuildSubject(context, blockerId));
+    }
+
+    public static bool CanNotBeBlocked(EngineContext context, HeadlessEntityId attackerId, HeadlessEntityId? blockerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        HeadlessEntityId effectiveBlockerId = blockerId is { IsEmpty: false } id ? id : attackerId;
+        return CannotBlockJoint(context, BuildSubject(context, attackerId), BuildSubject(context, effectiveBlockerId));
+    }
+
+    // AS-IS Permanent.CanAttackTargetDigimon (Permanent.cs:2214-2373, the "cannot attack THIS defender"
+    // region:2252-2301): ICanNotAttackTargetDefendingPermanentEffect && CanUse(null) &&
+    // CanNotAttackTargetDefendingPermanent(this=attacker, Defender) over ALL players' field permanents +
+    // players, immunity-gated (`!TopCard.CanNotBeAffected(cardEffect1)`, TopCard = the ATTACKER's). A null
+    // Defender (blanket "cannot attack anything") is passed through verbatim — the interface's own predicate
+    // decides whether a null defender matches.
+    private static bool CannotAttackJoint(EngineContext context, Permanent attacker, Permanent? defender)
+    {
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotAttackTargetDefendingPermanentEffect e && cardEffect.CanUse(null)
+                        && e.CanNotAttackTargetDefendingPermanent(attacker, defender) && NotImmune(attacker, cardEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotAttackTargetDefendingPermanentEffect e && cardEffect.CanUse(null)
+                    && e.CanNotAttackTargetDefendingPermanent(attacker, defender) && NotImmune(attacker, cardEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static bool CanNotAttack(EngineContext context, HeadlessEntityId attackerId, HeadlessEntityId? defenderId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent? defender = defenderId is { IsEmpty: false } id ? BuildSubject(context, id) : null;
+        return CannotAttackJoint(context, BuildSubject(context, attackerId), defender);
+    }
+
+    public static bool CanNotBeAttacked(EngineContext context, HeadlessEntityId defenderId, HeadlessEntityId? attackerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        if (attackerId is not { IsEmpty: false } id)
+        {
+            return false;
+        }
+
+        return CannotAttackJoint(context, BuildSubject(context, id), BuildSubject(context, defenderId));
+    }
+
+    // AS-IS Permanent.ImmuneFromDPMinus(ICardEffect) (Permanent.cs:703-740): IImmuneFromDPMinusEffect &&
+    // CanUse(null) && ImmuneFromDPMinus(this, cardEffect) over ALL players' field permanents + players.
+    // SUBSTRATE ADAPTATION: a LEGACY-model DP-minus reducer (ContinuousSelfModifierEffect, a data-only
+    // NumericModifier by the time ContinuousDpGate sees it) carries no live causing ICardEffect to pass —
+    // mirrors the registry path's existing CardSource-only adaptation (ContinuousDpGate.DpMinusImmunityApplies)
+    // by passing the immunity effect itself as the causing-effect argument. Correct for an unconditional grant
+    // (cardEffectCondition: null, which ignores whatever it is handed); a conditional grant gated on the REAL
+    // reducer's identity may misevaluate — documented compromise, same tier as HasPierce's no-hashtable check.
+    public static bool HasImmuneFromDpMinus(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IImmuneFromDPMinusEffect e && cardEffect.CanUse(null) && e.ImmuneFromDPMinus(subject, cardEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IImmuneFromDPMinusEffect e && cardEffect.CanUse(null) && e.ImmuneFromDPMinus(subject, cardEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Dispatch bridge used by <see cref="Headless.Runtime.ContinuousRestrictionGate.JointResult"/> to
+    /// UNION the new-model interface scan alongside the existing registry-based <c>RestrictionScan.IsRestricted</c>
+    /// (mirrors the keyword/DP/SAttack union pattern above). A <paramref name="kind"/> with no ported
+    /// interface scan returns false (the registry path still serves it).</summary>
+    public static bool IsRestrictedNewModel(EngineContext context, string kind, HeadlessEntityId subjectId, HeadlessEntityId? counterpartId) => kind switch
+    {
+        RestrictionHelpers.CannotUnsuspendKey => CanNotUnsuspend(context, subjectId),
+        RestrictionHelpers.CannotSuspendKey => CanNotSuspend(context, subjectId),
+        RestrictionHelpers.CannotDigivolveKey => CanNotDigivolve(context, subjectId, counterpartId ?? default),
+        RestrictionHelpers.CannotBlockKey => CanNotBlock(context, subjectId, counterpartId),
+        RestrictionHelpers.CannotBeBlockedKey => CanNotBeBlocked(context, subjectId, counterpartId),
+        RestrictionHelpers.CannotAttackKey => CanNotAttack(context, subjectId, counterpartId),
+        RestrictionHelpers.CannotBeAttackedKey => CanNotBeAttacked(context, subjectId, counterpartId),
+        _ => false,
+    };
+
     /// <summary>The generic keyword-name -> new-model interface bridge used by
     /// <see cref="Headless.Runtime.ContinuousKeywordGate.HasKeyword(EngineContext, HeadlessEntityId, string)"/>.
     /// Returns true iff the new-model interface scan for <paramref name="keyword"/> grants it to
@@ -441,6 +1313,29 @@ public static class NewModelContinuousScan
         "Piercing" or "Pierce" => HasPierce(context, cardId),
         "Reboot" => HasReboot(context, cardId),
         "Rush" => HasRush(context, cardId),
+        "Iceclad" => HasIceclad(context, cardId),
+        "Raid" => HasRaid(context, cardId),
+        "Retaliation" => HasRetaliation(context, cardId),
+        "Ascension" => HasAscension(context, cardId),
+        "Fortitude" => HasFortitude(context, cardId),
+        "Blitz" => HasBlitz(context, cardId),
+        "Evade" => HasEvade(context, cardId),
+        "MindLink" => HasMindLink(context, cardId),
+        "Barrier" => HasBarrier(context, cardId),
+        "Alliance" => HasAlliance(context, cardId),
+        "Collision" => HasCollision(context, cardId),
+        "Partition" => HasPartition(context, cardId),
+        "Scapegoat" => HasScapegoat(context, cardId),
+        "Vortex" => HasSelfEndTurnKeyword(context, cardId, "Vortex"),
+        "VortexCanAttackPlayers" => HasVortexCanAttackPlayers(context, cardId),
+        "Overclock" => HasSelfEndTurnKeyword(context, cardId, "Overclock"),
+        "Execute" => HasSelfEndTurnKeyword(context, cardId, "Execute"),
+        "Save" => HasSave(context, cardId),
+        "Armor Purge" => HasArmorPurge(context, cardId),
+        "Decode" => HasDecode(context, cardId),
+        "Fragment" => HasFragment(context, cardId),
+        "Decoy" => HasDecoy(context, cardId),
+        "Progress" => HasProgress(context, cardId),
         _ => false,
     };
 }

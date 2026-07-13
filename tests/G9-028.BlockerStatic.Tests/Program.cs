@@ -69,19 +69,24 @@ async Task ConditionGates()
 
 // --- Helpers -------------------------------------------------------------
 
-// MIGRATION-NOTE (P7 test-fix): BlockerStaticEffect returns a new-model kind-class (BlockerClass) with no
-// ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-// ContinuousKeywordGate.HasKeyword reads only the substrate EffectRegistry, not the AS-IS live scan, so
-// there is no buildable way to make this player-scope grant observable yet. The factory call is kept
-// (still exercises construction); Register/ToBinding is dropped. All three tests' assertions above are
-// UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-void Register(EngineContext context, HeadlessEntityId source, Func<bool>? condition) =>
-    CardEffectFactory.BlockerStaticEffect(null, false, new CardSource(context, source, P1), condition);
+// (P7 stage-B SEAM) BlockerStaticEffect returns a new-model kind-class (BlockerClass) with no
+// ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+// NewModelContinuousScan/ContinuousKeywordGate now performs. Attach the built effect to the source card's
+// controller via the same seam every ported card definition class uses. AS-IS BlockerClass.IsBlocker returns
+// false when PermanentCondition is null (no accept-all fallback — CardEffects/BlockerClass.cs:21-30), so
+// "any Digimon" must be spelled `_ => true` (matching the AllianceStaticEffect adaptation elsewhere).
+void Register(EngineContext context, HeadlessEntityId source, Func<bool>? condition)
+{
+    var cs = new CardSource(context, source, P1);
+    ICardEffect built = CardEffectFactory.BlockerStaticEffect(p => p.OwnerId == P1, false, cs, condition);
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
+}
 
 EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 928);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -99,3 +104,10 @@ async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerI
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

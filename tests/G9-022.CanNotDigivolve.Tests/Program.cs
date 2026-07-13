@@ -60,15 +60,14 @@ async Task RestrictedIllegal()
 
     // Register "this card cannot be digivolved" on the target.
     var targetCard = new CardSource(context, target, P1);
-    // MIGRATION-NOTE (P7 test-fix): CanNotDigivolveStaticSelfEffect returns CanNotDigivolveClass, a
-    // new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED,
-    // docs/audit/rebuild_p6_stageA_notes.md). DigivolveAction's EvaluateDigivolve gate reads only the
-    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
-    // restriction observable yet. The factory call is kept (still exercises construction); Register/
-    // ToBinding is dropped. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands —
-    // tracked, not silently weakened.
-    CardEffectFactory.CanNotDigivolveStaticSelfEffect(cardCondition: null, isInheritedEffect: false,
+    // (P7 stage-B SEAM) CanNotDigivolveStaticSelfEffect returns CanNotDigivolveClass, a new-model kind-class
+    // with no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
+    // cEntity_EffectController.GetCardEffects scan NewModelContinuousScan/ContinuousRestrictionGate now
+    // performs. Attach the built effect to the target card's controller via the same seam every ported card
+    // definition class uses.
+    ICardEffect builtRestricted = CardEffectFactory.CanNotDigivolveStaticSelfEffect(cardCondition: null, isInheritedEffect: false,
         card: targetCard, condition: null, effectName: "CanNotDigivolve");
+    targetCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(builtRestricted);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -85,12 +84,10 @@ async Task ConditionLifts()
     var evo = await PlaceEvolve(context, "EVO");
 
     var targetCard = new CardSource(context, target, P1);
-    // MIGRATION-NOTE (P7 test-fix): see RestrictedIllegal above — CanNotDigivolveClass has no ToBinding/
-    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands (it currently passes vacuously
-    // since the restriction was never observable to begin with, matching the "no restriction" branch).
-    CardEffectFactory.CanNotDigivolveStaticSelfEffect(cardCondition: null, isInheritedEffect: false,
+    // (P7 stage-B SEAM) see RestrictedIllegal above.
+    ICardEffect builtLifted = CardEffectFactory.CanNotDigivolveStaticSelfEffect(cardCondition: null, isInheritedEffect: false,
         card: targetCard, condition: () => false, effectName: "CanNotDigivolve");
+    targetCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(builtLifted);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -104,6 +101,7 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 922);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -139,3 +137,10 @@ bool InZone(EngineContext context, HeadlessPlayerId p, ChoiceZone zone, Headless
     ((IZoneStateReader)context.ZoneMover).GetCards(p, zone).Contains(id);
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

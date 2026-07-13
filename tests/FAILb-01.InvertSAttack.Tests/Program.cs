@@ -47,19 +47,24 @@ int Resolve(int delta, int invert)
     ctx.EffectRegistry.Register(new ContinuousSelfModifierEffect(card, ModifierHelpers.SecurityAttackDeltaKey, delta, false, null).ToBinding($"sa:{id.Value}"));
     if (invert != 0)
     {
-        // MIGRATION-NOTE (P7 test-fix): InvertSAttackClass (Assets/Scripts/Script/CardEffects/
-        // InvertSAttackClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B
-        // RED, docs/audit/rebuild_p6_stageA_notes.md). ContinuousModifierGate.ResolveSecurityAttack reads only
-        // the substrate EffectRegistry bindings, not this kind-class's IInvertSAttackEffect interface. The
-        // engine's stage-B live is-scan (CardSource.EffectList -> CEntity_Effect.GetCardEffects) IS the path for
-        // a real ported card, but it is unreachable from test code for a SYNTHETIC card: CardEffectDispatch
-        // resolves a card's CEntity_Effect subclass by reflecting over the ENGINE assembly only, keyed by card
-        // number, so this test's synthetic "C" card has no ported class to attach the grant to. There is thus no
-        // buildable way from test code alone to make this factory's grant observable. Assertions below are
-        // UNCHANGED and EXPECTED TO FAIL until a test-facing effect-injection hook exists — tracked, not silently weakened.
-        CardEffectFactory.InvertSAttackStaticEffect(
+        ctx.TurnController.SetPhase(HeadlessPhase.Main);
+        // (P7 stage-B SEAM) InvertSAttackClass (Assets/Scripts/Script/CardEffects/InvertSAttackClass.cs) is a
+        // new-model kind-class with no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
+        // CardSource.EffectList -> CEntity_Effect.GetCardEffects scan NewModelContinuousScan.InvertSecurityValue
+        // (folded into FoldSAttack)/ContinuousModifierGate now perform. A synthetic test card has no
+        // CardEffectDispatch-resolvable class, so attach the built effect directly to the card's controller via
+        // the same settable `cEntity_Effect` seam every ported card definition class uses.
+        ICardEffect built = CardEffectFactory.InvertSAttackStaticEffect(
             permanentCondition: null, changeValue: invert, isInheritedEffect: false, card, condition: null);
+        card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     }
 
     return ContinuousModifierGate.ResolveSecurityAttack(ctx, id, Base);
+}
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

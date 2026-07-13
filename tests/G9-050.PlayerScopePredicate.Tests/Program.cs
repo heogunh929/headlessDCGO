@@ -70,19 +70,25 @@ async Task FactoryPredicate()
     var lv4 = await Place(ctx, P1, "LV4", level: 4);
     var lv3 = await Place(ctx, P1, "LV3", level: 3);
 
-    // MIGRATION-NOTE (P7 test-fix): RushClass and ChangeDPClass are new-model kind-classes with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gates this test
-    // checks (ContinuousKeywordGate.HasKeyword / ContinuousDpGate.ResolveDp) read only the substrate
-    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make these grants observable yet.
-    // The factory calls are kept (exercise construction); registration is skipped since there is no bridge.
-    // Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    // (P7 stage-B SEAM) RushClass and ChangeDPClass are new-model kind-classes with no ToBinding/EffectRegistry
+    // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan/ContinuousKeywordGate/ContinuousDpGate now perform (scan ALL field permanents, so
+    // a grant sourced from `src` reaches `lv4`/`lv3`, all P1's). Attach each built effect to the source card's
+    // controller via the same seam every ported card definition class uses.
+    var srcCard = new CardSource(ctx, src, P1);
     // RushStaticEffect with a NARROWED permanentCondition (only Lv4).
-    CardEffectFactory.RushStaticEffect(p => p.Level == 4, false, new CardSource(ctx, src, P1), null);
+    ICardEffect rush = CardEffectFactory.RushStaticEffect(p => p.Level == 4, false, srcCard, null);
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(rush);
     AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, lv4, ContinuousKeywordGate.Rush), "Rush on Lv4 ally");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, lv3, ContinuousKeywordGate.Rush), "no Rush on Lv3 ally (permanentCondition honored)");
 
-    // ChangeDPStaticEffect with a NARROWED permanentCondition (only Lv4).
-    CardEffectFactory.ChangeDPStaticEffect(p => p.Level == 4, 1000, false, new CardSource(ctx, src, P1), null, () => "dp+1000");
+    // ChangeDPStaticEffect with a NARROWED permanentCondition (only Lv4) — a SECOND source card (the first's
+    // controller is already occupied by the Rush grant above; CEntity_EffectController is one-effect-slot per
+    // instance in this seam, matching the "one dispatched CEntity_Effect per card" AS-IS shape).
+    var src2 = await Place(ctx, P1, "SRC2", level: 4);
+    var src2Card = new CardSource(ctx, src2, P1);
+    ICardEffect dpBuff = CardEffectFactory.ChangeDPStaticEffect(p => p.Level == 4, 1000, false, src2Card, null, () => "dp+1000");
+    src2Card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dpBuff);
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, lv4, 4000) == 5000, "Lv4 ally +1000 DP");
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, lv3, 4000) == 4000, "Lv3 ally no DP change (permanentCondition honored)");
 }
@@ -152,12 +158,13 @@ async Task DefenderCondition()
     var lv3def = await PlaceOwner(ctx, P2, "D3", level: 3);
     var lv4def = await PlaceOwner(ctx, P2, "D4", level: 4);
     // "This Digimon cannot attack Level-3 Digimon" (defenderCondition), can still attack others.
-    // MIGRATION-NOTE (P7 test-fix): CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
-    // checks (ContinuousRestrictionGate.EvaluateAttack) reads only the substrate EffectRegistry, not the AS-IS
-    // live scan, so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED
-    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotAttackSelfStaticEffect(p => p.Level == 3, false, new CardSource(ctx, attacker, P1), null, null);
+    // (P7 stage-B SEAM) CanNotAttackTargetDefendingPermanentClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan/ContinuousRestrictionGate now performs. Attach the built effect via the same seam
+    // every ported card definition class uses.
+    var attackerCard = new CardSource(ctx, attacker, P1);
+    ICardEffect built = CardEffectFactory.CanNotAttackSelfStaticEffect(p => p.Level == 3, false, attackerCard, null, null);
+    attackerCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     AssertTrue(ContinuousRestrictionGate.EvaluateAttack(ctx, attacker, lv3def).IsRestricted, "cannot attack the Lv3 defender");
     AssertTrue(!ContinuousRestrictionGate.EvaluateAttack(ctx, attacker, lv4def).IsRestricted, "CAN attack the Lv4 defender (not over-restricted)");
@@ -182,6 +189,7 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 950);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -199,3 +207,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}
