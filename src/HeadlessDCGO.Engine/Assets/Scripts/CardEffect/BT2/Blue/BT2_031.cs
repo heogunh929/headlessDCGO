@@ -5,8 +5,10 @@
 //
 // 1:1 mirror of the original BT2_031: [Your Turn] while there is >= 1 opponent Digimon
 // with no digivolution cards on the battle area, DP +1000 and S.Attack +1 (non-inherited).
+// NAMESPACE FIX (batch 3): this file lives under BT2/Blue but declared the bare `CardEffect.BT2` namespace
+// (pre-existing bug) — corrected to `CardEffect.BT2.Blue` below.
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue;
 
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 

@@ -1,14 +1,28 @@
-// 1:1 mirror of the original BT2_044 (BT2/Green).
-//   [When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 Digimon card and
-//   1 green Tamer card among them to your hand. Place the remaining cards at the bottom of your deck in any order.
-//   -> SimplifiedRevealDeckTopCardsAndSelect (reveal 3, select Lv5 Digimon -> Hand + green Tamer -> Hand, rest -> DeckBottom)
-// Structure follows BT1_074 exactly: WhenDigivolving timing, same factory, same fold of CanUseCondition/
-// CanActivateCondition. Only the conditions and description differ.
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT2/Green/BT2_044.cs
+// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original BT2_044 (BT2/Green).
+//   [When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 Digimon card and 1 green Tamer
+//   card among them to your hand. Place the remaining cards at the bottom of your deck in any order.
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect(...)` call
+// (a CardEffectFactory-INVENTED wrapper) with the literal AS-IS inline `new ActivateClass()` structure +
+// the REAL, already-bridged `CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(revealCount:,
+// simplifiedSelectCardConditions:, remainingCardsPlace:, activateClass:)` mutation helper (RevealLibrary.cs,
+// param names/order verified 1:1 against AS-IS) — NOT the factory wrapper this batch retires.
+// Substrate translations: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// `card.Owner.LibraryCards.Count >= 1` -> `((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner,
+// ChoiceZone.Library).Count >= 1` (same zone-state-read idiom `SimplifiedRevealDeckTopCardsAndSelect` itself
+// uses internally for its own empty-library guard); `CardColor.Green` (AS-IS enum) -> `"Green"` (mirror
+// `CardSource.HasCardColor(string)` string-color idiom, already used throughout the ported corpus).
+// `SimplifiedSelectCardConditionClass(canTargetCondition:, message:, mode:, maxCount:, selectCardCoroutine:)`
+// uses the REAL AS-IS constructor overload (RevealLibrary.cs, CardSource-shape predicate + SelectCardEffect.Mode),
+// not the legacy id-shape/RevealDestination-shape constructor the old model used.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Green;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Runtime;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT2_044 : CEntity_Effect
@@ -19,36 +33,87 @@ public sealed class BT2_044 : CEntity_Effect
 
         if (timing == EffectTiming.WhenDigivolving)
         {
-            bool CanSelectCardCondition(HeadlessEntityId id)
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Reveal the top 3 cards of deck", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
             {
-                var revealed = new CardSource(card.Context, id, card.Controller, card.Owner);
-                return revealed.IsDigimon && revealed.Level == 5 && revealed.HasLevel;
+                return "[When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 Digimon card and 1 green Tamer card among them to your hand. Place the remaining cards at the bottom of your deck in any order.";
             }
 
-            bool CanSelectCardCondition1(HeadlessEntityId id)
+            bool CanSelectCardCondition(CardSource cardSource)
             {
-                var revealed = new CardSource(card.Context, id, card.Controller, card.Owner);
-                return revealed.IsTamer && revealed.HasCardColor("Green");
-            }
-
-            cardEffects.Add(CardEffectFactory.SimplifiedRevealDeckTopCardsAndSelect(
-                card: card,
-                revealCount: 3,
-                conditions: new[]
+                if (cardSource.IsDigimon)
                 {
-                    new SimplifiedSelectCardConditionClass(
-                        canTargetCondition: CanSelectCardCondition,
-                        message: "Select 1 level 5 Digimon card.",
-                        selectedTo: RevealDestination.Hand,
-                        maxCount: 1),
-                    new SimplifiedSelectCardConditionClass(
-                        canTargetCondition: CanSelectCardCondition1,
-                        message: "Select 1 green Tamer card.",
-                        selectedTo: RevealDestination.Hand,
-                        maxCount: 1),
-                },
-                remainingTo: RevealDestination.DeckBottom,
-                description: "[When Digivolving] Reveal 3 cards from the top of your deck. Add 1 level 5 Digimon card and 1 green Tamer card among them to your hand. Place the remaining cards at the bottom of your deck in any order."));
+                    if (cardSource.Level == 5)
+                    {
+                        if (cardSource.HasLevel)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanSelectCardCondition1(CardSource cardSource)
+            {
+                if (cardSource.IsTamer)
+                {
+                    if (cardSource.HasCardColor("Green"))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await CardEffectCommons.SimplifiedRevealDeckTopCardsAndSelect(
+                    revealCount: 3,
+                    simplifiedSelectCardConditions:
+                    new SimplifiedSelectCardConditionClass[]
+                    {
+                        new SimplifiedSelectCardConditionClass(
+                            canTargetCondition: CanSelectCardCondition,
+                            message: "Select 1 level 5 Digimon card.",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: 1,
+                            selectCardCoroutine: null),
+                        new SimplifiedSelectCardConditionClass(
+                            canTargetCondition: CanSelectCardCondition1,
+                            message: "Select 1 green Tamer card.",
+                            mode: SelectCardEffect.Mode.AddHand,
+                            maxCount: 1,
+                            selectCardCoroutine: null),
+                    },
+                    remainingCardsPlace: RemainingCardsPlace.DeckBottom,
+                    activateClass: activateClass
+                );
+            }
         }
 
         return cardEffects;

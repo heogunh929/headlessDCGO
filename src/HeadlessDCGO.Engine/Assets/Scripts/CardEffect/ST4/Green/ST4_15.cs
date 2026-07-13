@@ -1,20 +1,26 @@
-// Source: Assets/Scripts/CardEffect/ST4/Green/ST4_15.cs
-// 1:1 mirror of the original ST4_15 (Option):
-//   [Main]     Suspend 1 of your opponent's Digimon.                    -> SelectAndSuspendEffect (Tap, max 1)
-//   [Security] Suspend 1 of your opponent's Digimon. Then, add this     -> AddActivateMainOptionSecurityEffect
-//              card to your hand.                                          (reuse [Main]) + afterMainBody SelfToHandBody
-// NOTE (Main): select -> Tap via SelectAndSuspendEffect. AS-IS maxCount = Math.Min(1, matchCount); the
-// headless factory takes the fixed cap (1) directly (SelectPermanentEffect.BuildRequest clamps to the live
-// candidate count), matching the sibling Option ports (ST1_15/ST1_16/ST2_15/ST2_16/ST3_16).
-// NOTE (Security): the AS-IS SecuritySkill re-runs [Main] then adds this card to hand (afterMainEffect
-// callback). Mirrored via AddActivateMainOptionSecurityEffect(afterMainBody: SelfToHandBody) — the follow-up
-// body resolves right after the reused [Main] in the same SecuritySkill pass (driven live by SecurityResolver
-// -> ActivatedEffectResolver; SecuritySkill is NOT inert — it is excluded from AllTimings auto-registration
-// only, since the security-check path activates it directly, like OptionSkill).
-
+// Source: DCGO/Assets/Scripts/CardEffect/ST4/Green/ST4_15.cs
+// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original ST4_15 (ST4/Green) — an Option.
+//   [Main]     Suspend 1 of your opponent's Digimon.
+//   [Security] Suspend 1 of your opponent's Digimon. Then, add this card to your hand.
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndSuspendEffect(...)` call (an invented
+// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` +
+// `GManager.instance.GetComponent<SelectPermanentEffect>()` + `SetUp(...)` (Mode.Tap) structure (see
+// BT1_043.cs / ST4_13.cs for the identically-shaped select+Mode precedent within this batch).
+// [Security] block UNCHANGED: `CardEffectCommons.AddActivateMainOptionSecurityEffect(..., afterMainBody: new
+// SelfToHandBody())` is the established GENUINE bridge for the AS-IS "reuse [Main] then afterMainEffect"
+// SecuritySkill shape (SelfToHandBody mirrors AddThisCardToHand exactly) — already correct, not the invented
+// old-model factory family this pass retires.
+// Substrate translation only: IEnumerator->Task; `yield return ContinuousController.instance.StartCoroutine(X)`
+// -> `await X`; `Func<Permanent,bool> CanSelectPermanentCondition` -> the established
+// `Func<HeadlessEntityId,bool>` id-shape idiom (IsOpponentBattleAreaDigimon(card, id)).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST4.Green;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class ST4_15 : CEntity_Effect
@@ -25,17 +31,50 @@ public sealed class ST4_15 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Main] Suspend 1 of your opponent's Digimon.";
+            }
+
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
             }
 
-            cardEffects.Add(CardEffectFactory.SelectAndSuspendEffect(
-                card: card,
-                canTarget: CanSelectPermanentCondition,
-                maxCount: 1,
-                canEndNotMax: false,
-                description: "[Main] Suspend 1 of your opponent's Digimon."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Tap,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+            }
         }
 
         if (timing == EffectTiming.SecuritySkill)

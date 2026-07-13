@@ -1,15 +1,29 @@
-// 1:1 mirror of BT2_087 — a Tamer.
-//   [Start of Your Turn] If owner has ≤3 security cards, gain 1 memory.
+// Source: DCGO/Assets/Scripts/CardEffect/BT2/Yellow/BT2_087.cs
+// TRUE AS-IS-verbatim re-port (batch 3). 1:1 mirror of the original BT2_087 (BT2/Yellow, a Tamer).
+//   [Start of Your Turn] If you have 3 or fewer security cards, gain 1 memory.
 //   [Security] Play this Tamer.
-// AS-IS BT2_087.cs:27-52 gates: CanUseCondition = IsExistOnBattleArea(card) && IsOwnerTurn(card) &&
-// SecurityCount <= 3; CanActivateCondition = isExistOnField + battle-area membership. The battle-area guard is
-// LOAD-BEARING: AS-IS scans the hand and trash for effects too (AutoProcessing.cs:815-857) and relies on
-// CanTrigger's zone guard to filter — a guard-less mirror gains memory from the HAND once the headless bridge
-// scan covers those zones (C-5 adversarial review P0-1).
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.GainMemoryActivatedEffect(...)` call (an invented
+// helper — explicitly prohibited/retired) with the literal AS-IS inline `new ActivateClass()` structure.
+// `CardEffectFactory.PlaySelfTamerSecurityEffect` on SecuritySkill IS the real AS-IS call (verbatim, unchanged).
+// FIDELITY NOTE: the previous pass collapsed CanUseCondition/CanActivateCondition into a single flattened
+// `if` guard on the outer branch — restored as AS-IS's own two-gate split below: CanUseCondition =
+// IsExistOnBattleArea && IsOwnerTurn; CanActivateCondition = isExistOnField && (this permanent is on MY OWN
+// battle area) && SecurityCards.Count<=3 && CanAddMemory (the battle-area membership re-check is LOAD-BEARING
+// per BT2_087's own AS-IS-fidelity note: AS-IS scans hand/trash too and relies on this exact re-check).
+// Substrate translations: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// `isExistOnField(card)` (inherited static CEntity_Effect helper); `card.Owner.GetBattleAreaPermanents().
+// Contains(card.PermanentOfThisCard())` -> `new Player(card.Context, card.Owner).GetBattleAreaPermanents()
+// .Some(p => p.InstanceId == card.PermanentOfThisCard().TopInstanceId)` (Player reconstruction + the
+// established Permanent-vs-PermanentView identity idiom, see BT2_002.cs); `card.Owner.SecurityCards.Count`
+// -> `CardEffectCommons.SecurityCount(card)`; `card.Owner.CanAddMemory(activateClass)`/`card.Owner.
+// AddMemory(1, activateClass)` -> the `HeadlessPlayerId.CanAddMemory`/`AddMemory` extensions (bridge W4/PRIM).
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Yellow;
 
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
-
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT2_087 : CEntity_Effect
 {
@@ -17,15 +31,60 @@ public sealed class BT2_087 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        if (timing == EffectTiming.OnStartTurn
-            && CardEffectCommons.IsExistOnBattleArea(card)
-            && CardEffectCommons.IsOwnerTurn(card)
-            && CardEffectCommons.SecurityCount(card) <= 3)
+        if (timing == EffectTiming.OnStartTurn)
         {
-            cardEffects.Add(CardEffectFactory.GainMemoryActivatedEffect(
-                card,
-                amount: 1,
-                description: "[Start of Your Turn] If you have 3 or fewer security cards, gain 1 memory."));
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Start of Your Turn] If you have 3 or fewer security cards, gain 1 memory.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (isExistOnField(card))
+                {
+                    if (new Player(card.Context, card.Owner).GetBattleAreaPermanents().Some(p => p.InstanceId == card.PermanentOfThisCard().TopInstanceId))
+                    {
+                        if (CardEffectCommons.SecurityCount(card) <= 3)
+                        {
+                            if (card.Owner.CanAddMemory(activateClass))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (isExistOnField(card))
+                {
+                    if (card.Owner.CanAddMemory(activateClass))
+                    {
+                        await card.Owner.AddMemory(1, activateClass);
+                    }
+                }
+            }
         }
 
         if (timing == EffectTiming.SecuritySkill)

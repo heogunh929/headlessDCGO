@@ -1,15 +1,20 @@
-// 1:1 mirror of the original ST3_01 (ST3/Yellow).
+// Source: DCGO/Assets/Scripts/CardEffect/ST3/Yellow/ST3_01.cs
+// TRUE AS-IS-verbatim re-port (ST3 Yellow batch). 1:1 mirror of the original ST3_01 (ST3/Yellow).
 //   [Your Turn][Once Per Turn] When an opponent's Digimon is deleted by dropping to 0 DP, this Digimon
-//   gets +1000 DP for the turn.  -> SelfDpBuffTriggerEffect (OnDestroyedAnyone, +1000, UntilEachTurnEnd)
-// Gates restored (G10-002): [Your Turn] (condition) + opponent-Digimon-deleted (CanTriggerOnPermanentDeleted)
-// + 0-DP delete (IsDPZeroDelete, the DPZero marker) + [Once Per Turn] (maxCountPerTurn=1 + SetHashString).
-// The trigger gate reads the deleted subject from the resolve context's TriggerEntityId.
-
+//   gets +1000 DP for the turn.
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelfDpBuffTriggerEffect(...)` call (an invented
+// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure.
+// AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true), SetHashString.
+// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// `card.PermanentOfThisCard()` used as a `Permanent` argument -> `ICardEffect.ResolvePermanentOfThisCard(card)`.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
-using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class ST3_01 : CEntity_Effect
 {
@@ -19,27 +24,60 @@ public sealed class ST3_01 : CEntity_Effect
 
         if (timing == EffectTiming.OnDestroyedAnyone)
         {
-            bool Condition()
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("DP +1000", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            activateClass.SetHashString("DP+1000_ST3_01");
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
             {
-                return CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.IsOwnerTurn(card);
+                return "[Your Turn][Once Per Turn] When an opponent's Digimon is deleted by dropping to 0 DP, this Digimon gets +1000 DP for the turn.";
             }
 
-            bool TriggerGate(CardEffectResolveContext ctx)
+            bool PermanentCondition(Permanent permanent)
             {
-                return CardEffectCommons.CanTriggerOnPermanentDeleted(card, ctx, id => CardEffectCommons.IsOpponentOwnedDigimon(card, id))
-                    && CardEffectCommons.IsDPZeroDelete(card, ctx);
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
             }
 
-            cardEffects.Add(CardEffectFactory.SelfDpBuffTriggerEffect(
-                timing: EffectTiming.OnDestroyedAnyone,
-                changeValue: 1000,
-                duration: EffectDuration.UntilEachTurnEnd,
-                card: card,
-                condition: Condition,
-                description: "[Your Turn][Once Per Turn] When an opponent's Digimon is deleted by dropping to 0 DP, this Digimon gets +1000 DP for the turn.",
-                triggerGate: TriggerGate,
-                maxCountPerTurn: 1,
-                hash: "DP+1000_ST3_01"));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.CanTriggerOnPermanentDeleted(hashtable, PermanentCondition))
+                        {
+                            if (CardEffectCommons.IsDPZeroDelete(hashtable))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await CardEffectCommons.ChangeDigimonDP(
+                    targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),
+                    changeValue: 1000,
+                    effectDuration: EffectDuration.UntilEachTurnEnd,
+                    activateClass: activateClass);
+            }
         }
 
         return cardEffects;

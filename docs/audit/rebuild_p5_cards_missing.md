@@ -170,3 +170,73 @@ describe (the missing `IActivatedCardEffect` blocks body binding project-wide, a
 referenced only inside a method body). So the plain-build "59 CS0246, unchanged" gate holds, but is (as W3
 already flagged) a signatures-only check — the shim pass is what actually proves these 4 sites' declaration
 type is absent, same rigor as every other finding here.
+
+## 2026-07-14 — TRUE AS-IS-verbatim re-port, BATCH 3 (BT2 + ST1-ST4 invented-caller corpus, 54 cards) + 2 gap fixes
+
+**Gap fixes (both from this file's 2026-07-14 batch-2 findings):**
+
+1. `HeadlessPlayerId.CanAddMemory(ICardEffect)` extension added (`PlayerIdAsIsExtensions`, Script/Player.cs) —
+   the AS-IS-signature sibling of the W4 `AddMemory` extension, delegating to the same mirror
+   `Player.CanAddMemory`. Resolves the batch-2 finding-1 sites (BT1_030/035/041/076/077) and this batch's
+   BT2_010 etc.
+2. `CardEffectCommons.customPermanentMessageArray_ChangeDP` — the whole AS-IS
+   `CardEffectCommons/CustomMessage.cs` ported verbatim into the matching AS-IS-path partial (template +
+   `_ChangeDP`/`_ChangeOriginDP`/`_ChangeSAttack`, pure string helpers). Resolves batch-2 finding-2
+   (BT1_055/BT1_096/BT1_104).
+
+`userSelectionManager`/`SelectionElement<T>` (batch-2 finding-3) deliberately NOT touched — separate batch.
+
+**Cards re-ported** (invented `CardEffectFactory.*` old-model callers → literal AS-IS inline `ActivateClass`
+structure, or verified-genuine AS-IS factory calls kept): **54 files** — BT2 19 (Black 063; Blue
+002/023/025/031/095; Green 044/102; Purple 073/090/110; Red 010/012/013/091/092; Yellow 087/097/099), ST1 9
+(06/07*/08/09/11*/13/14/15/16 — *07/11 already genuine `ChangeSelfSAttackStaticEffect`, no diff), ST2 9
+(03/06/08*/09/11/12/13/14/16 — *08 already genuine), ST3 10 (01/04/05/08/09/11/13/14/15/16), ST4 7
+(03/04/10/12/13/15/16). Genuine AS-IS factory names verified against DCGO and KEPT (not rewritten):
+`RebootSelfStaticEffect`, `ChangeSelfDPStaticEffect`, `ChangeSelfSAttackStaticEffect`, `PierceSelfEffect`,
+`PlaySelfTamerSecurityEffect`, `SetMemoryTo3TamerEffect`, `BlockerSelfStaticEffect` etc.
+
+**Fidelity restorations beyond the factory-call swap** (dropped/invented by the old-model pass, restored from
+AS-IS this batch): BT2_012's `attackProcess.DefendingPermanent == null` "attacks a player" gate; BT2_087's
+CanUse/CanActivate two-gate split; BT2_097's `[Security]` `AddActivateMainOptionSecurityEffect` block (the
+sub-batch first mis-read AS-IS as OptionSkill-only — corrected against the AS-IS source, block restored) and
+its 4-conjunct select predicate (`TopCard.HasLevel` + `CanSelectBySkill`, see below); BT2_099's ENTIRE
+`EffectTiming.None` dynamic play-cost-reduction block (real `ChangeCostClass`; the prior STOP claim was
+wrong); BT2_023's `ChangeCostClass` (was invented `BeforePayCostReductionEffect`); BT2_097's invented extra
+SecuritySkill-description artifacts removed. Namespace-mismatch bugs (declared namespace ≠ folder) fixed in
+11 BT2 files (BT2_002/010/013/025/031/063/073/087/091/092/097(Blue-in-Yellow)/102/110 — set noted per file).
+
+**New mirror surfaces added (AS-IS-signature, verified-delegate only):**
+
+- `Permanent.CanSelectBySkill(ICardEffect skill)` (Script/Permanent.cs) — AS-IS Permanent.cs:1648; delegates to
+  the SAME `RestrictionScan.IsRestricted(CannotBeSelectedBySkillKey, candidate, skill.EffectSourceCard)`
+  true-scan `SelectPermanentEffect.IsUntargetableBySkill` uses, so the AS-IS card idiom
+  `permanent.CanSelectBySkill(activateClass)` inside select pre-check predicates is now expressible verbatim
+  (first caller BT2_097; preserves AS-IS's double evaluation — predicate-side AND panel-side).
+- `HeadlessPlayerId.GetBattleAreaDigimons()` extension (`PlayerIdAsIsExtensions`) — AS-IS card idiom
+  `card.Owner.GetBattleAreaDigimons()` (ST1_09), delegating to the MIG5 `Player.GetBattleAreaDigimons`.
+
+**[When Digivolving] dispatch-remap normalization** (cross-sub-batch inconsistency caught in review): AS-IS
+registers [When Digivolving] under the SHARED `EffectTiming.OnEnterFieldAnyone` (discriminated by the
+`CanTriggerWhenDigivolving` hashtable gate), but the mirror engine dispatches digivolve-time activated effects
+on the DEDICATED `WhenDigivolving` key (`DigivolveAction.cs` `ResolveAsync(..., EffectTiming.WhenDigivolving)`)
+and plays on `OnEnterFieldAnyone` — a card registered under the literal AS-IS key silently NEVER fires on
+digivolve. ST1_08/ST2_09/ST3_09 (which had followed the literal AS-IS key) were remapped to `WhenDigivolving`
+(the batch-2 BT1_025/BT1_062 convention; BT2_044/ST4_10/ST4_12 already followed it); the AS-IS gates are kept
+verbatim and each file carries a DISPATCH REMAP note.
+
+**Unresolved member kept verbatim (the batch's only one):**
+
+1. **`IDigiBurst` — wholly undeclared TYPE on the mirror** (ST4_13's [Main] Digi-Burst 2, AS-IS
+   CardController.cs:2114 `new IDigiBurst(...)`). Kept verbatim per the no-invented-bridge rule; 2 sites
+   (CS0246 under the shim). NOTE: like batch-2's `SelectionElement<>`, these CS0246s do NOT surface in the
+   plain build — masked by the same declaration-phase-error suppression (verified empirically by the ST4
+   sub-batch incl. clean obj/bin + compiler-server-off runs).
+
+**Shim-check result** (temporary `IActivatedCardEffect` shim per the W3 method): total body errors 646
+project-wide (was 657 after W4 — down, real call sites resolved). This batch's 54 card files + Player.cs +
+CustomMessage.cs contribute EXACTLY 2 error lines: the `IDigiBurst` CS0246 pair above. (A first shim pass
+caught 9 accidental `EffectDuration` CS0103s — missing `using ...Headless.Effects;` in 8 files — fixed before
+finishing; this is exactly the masked-body-error class the plain 59-gate cannot see, re-confirming the shim
+pass is mandatory for card batches.) Permanent.cs shows exactly 1 PRE-EXISTING masked-verbatim error
+(`ChangePermanentLevelClass.GetPermanentLevelKey`, present in HEAD, untouched by this batch). Shim deleted;
+plain baseline re-confirmed at `59 error CS0246`.

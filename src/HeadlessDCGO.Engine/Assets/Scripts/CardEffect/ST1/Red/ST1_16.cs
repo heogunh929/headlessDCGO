@@ -1,20 +1,26 @@
-// Source: Assets/Scripts/CardEffect/ST1/Red/ST1_16.cs
-// Decision: PORT
-// Category: CardEffect
-// Migration: Ported per-card effect (Phase 1, ST1 activated wave). Option.
-//
-// 1:1 mirror of the original ST1_16:
-//   [Main]     Delete 1 of your opponent's Digimon.        -> SelectAndDestroyEffect (OptionSkill)
-//   [Security] (use the Main effect)                        -> AddActivateMainOptionSecurityEffect
-// NOTE: the original builds an inline ActivateClass + SelectPermanentEffect; the headless uses the
-// SelectAndDestroyEffect helper (select -> Delete mutation). The interactive Option/Security ACTIVATION
-// flow (resolving these with a live choice provider) is not yet wired — these effects are resolved
-// imperatively for now (see docs/audit/card_porting_recipe.md §5). The predicate is the headless
-// entity-id form of the original Permanent predicate.
+// Source: DCGO/Assets/Scripts/CardEffect/ST1/Red/ST1_16.cs
+// TRUE AS-IS-verbatim re-port (ST1/Red batch). 1:1 mirror of the original ST1_16 (Option).
+//   [Main]     Delete 1 of your opponent's Digimon.
+//   [Security] (use the Main effect)
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndDestroyEffect(...)` call (an invented
+// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` +
+// `GManager.instance.GetComponent<SelectPermanentEffect>()` select flow (bridge W4 — see BT1_017.cs), Mode
+// = Destroy. The `[Security]` block already calls the REAL AS-IS `CardEffectCommons.
+// AddActivateMainOptionSecurityEffect(...)`, so it is left untouched.
+// AS-IS structure kept verbatim: `SetUpActivateClass(null, ...)` (CanActivateCondition IS null),
+// `canNoSelect: false, canEndNotMax: false`, `canEndSelectCondition: null`.
+// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
+// idiom (see BT1_017.cs).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST1.Red;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class ST1_16 : CEntity_Effect
@@ -25,22 +31,55 @@ public sealed class ST1_16 : CEntity_Effect
 
         if (timing == EffectTiming.OptionSkill)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Main] Delete 1 of your opponent's Digimon.";
+            }
+
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
             }
 
-            cardEffects.Add(CardEffectFactory.SelectAndDestroyEffect(
-                card: card,
-                canTarget: CanSelectPermanentCondition,
-                maxCount: 1,
-                canEndNotMax: false,
-                description: "[Main] Delete 1 of your opponent's Digimon."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+            }
         }
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: "Delete 1 Digimon");
+            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: $"Delete 1 Digimon");
         }
 
         return cardEffects;

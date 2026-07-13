@@ -1,11 +1,27 @@
-// 1:1 mirror of the original ST2_06 (ST2/Blue).
-//   [When Attacking] Trash the digivolution card at the bottom of 1 of your opponent's Digimon.
-//   -> SelectAndTrashDigivolutionEffect (OnAllyAttack, from bottom, count 1) — same as ST2_03 without the
-//   level<=5 / has-source gate on the target.
+// Source: DCGO/Assets/Scripts/CardEffect/ST2/Blue/ST2_06.cs
+// TRUE AS-IS-verbatim re-port (batch: ST2 Blue). 1:1 mirror of the original ST2_06.
+//   [When Attacking][Inherited] Trash the digivolution card at the bottom of 1 of your opponent's Digimon.
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.SelectAndTrashDigivolutionEffect(...)` call (an
+// invented helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` +
+// `GManager.instance.GetComponent<SelectPermanentEffect>()` select flow (bridge W4 — see ST1_08.cs/BT1_017.cs).
+// AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true), no SetHashString; the
+// ActivateCoroutine re-checks HasMatchConditionPermanent before selecting (unlike sibling ST2_03, which does
+// not — this AS-IS difference is preserved as-is).
+// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// AS-IS `CanSelectPermanentCondition(Permanent permanent)` -> the established `Func<HeadlessEntityId,bool>`
+// idiom (already correct in the pre-existing file: IsOpponentBattleAreaDigimon); AS-IS
+// `CardEffectCommons.HasMatchConditionPermanent(cond)` / `MatchConditionPermanentCount(cond)` (global scan, no
+// CardSource arg in AS-IS) -> mirror's `(card, condition)` overloads (same substrate adaptation already
+// established, e.g. ST1_08.cs/BT1_017.cs).
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST2.Blue;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class ST2_06 : CEntity_Effect
@@ -16,18 +32,71 @@ public sealed class ST2_06 : CEntity_Effect
 
         if (timing == EffectTiming.OnAllyAttack)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Trash 1 digivolution card", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Attacking] Trash the digivolution card at the bottom of 1 of your opponent's Digimon.";
+            }
+
             bool CanSelectPermanentCondition(HeadlessEntityId id)
             {
                 return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
             }
 
-            cardEffects.Add(CardEffectFactory.SelectAndTrashDigivolutionEffect(
-                card: card,
-                canTarget: CanSelectPermanentCondition,
-                maxCount: 1,
-                trashCount: 1,
-                fromBottom: true,
-                description: "[When Attacking] Trash the digivolution card at the bottom of 1 of your opponent's Digimon."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: SelectPermanentCoroutine,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Custom,
+                        cardEffect: activateClass);
+
+                    selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon that will trash digivolution cards.", "The opponent is selecting 1 Digimon that will trash digivolution cards.");
+
+                    await selectPermanentEffect.Activate();
+
+                    async Task SelectPermanentCoroutine(Permanent permanent)
+                    {
+                        await CardEffectCommons.TrashDigivolutionCardsFromTopOrBottom(targetPermanent: permanent, trashCount: 1, isFromTop: false, activateClass: activateClass);
+                    }
+                }
+            }
         }
 
         return cardEffects;

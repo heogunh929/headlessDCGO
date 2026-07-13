@@ -225,12 +225,14 @@ public sealed class Player
     }
 }
 
-/// <summary>(bridge W4) AS-IS card idiom <c>card.Owner.AddMemory(±N, activateClass)</c> (BT1_114 pattern):
-/// the mirror <c>CardSource.Owner</c> is a bare <see cref="HeadlessPlayerId"/> (no live Player handle at the
-/// call site), so the AS-IS instance call is bridged as an extension — the match context resolves from the
-/// causing effect's source card (every AS-IS caller passes the live activateClass) or the ambient match
-/// scope (the same source <c>GManager.instance</c> uses), then delegates to the mirror
-/// <see cref="Player.AddMemory"/>.</summary>
+/// <summary>(bridge W4; batch-3 sibling added, retires the P5-log "no CanAddMemory extension" finding) AS-IS
+/// card idiom <c>card.Owner.AddMemory(±N, activateClass)</c> (BT1_114 pattern) and its gate sibling
+/// <c>card.Owner.CanAddMemory(activateClass)</c> (BT1_030/BT1_035/BT1_041/BT1_076/BT1_077 pattern): the mirror
+/// <c>CardSource.Owner</c> is a bare <see cref="HeadlessPlayerId"/> (no live Player handle at the call site),
+/// so both AS-IS instance calls are bridged as extensions — the match context resolves from the causing
+/// effect's source card (every AS-IS caller passes the live activateClass) or the ambient match scope (the
+/// same source <c>GManager.instance</c> uses), then delegates to the mirror <see cref="Player.AddMemory"/> /
+/// <see cref="Player.CanAddMemory"/>.</summary>
 public static class PlayerIdAsIsExtensions
 {
     public static Task AddMemory(this HeadlessPlayerId player, int plusMemory, ICardEffect cardEffect)
@@ -241,5 +243,27 @@ public static class PlayerIdAsIsExtensions
                 "AddMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
                 "or call inside a match scope.");
         return new Player(context, player).AddMemory(plusMemory, cardEffect);
+    }
+
+    public static bool CanAddMemory(this HeadlessPlayerId player, ICardEffect cardEffect)
+    {
+        EngineContext context = cardEffect?.EffectSourceCard?.Context
+            ?? AmbientMatchContext.Current
+            ?? throw new InvalidOperationException(
+                "CanAddMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
+                "or call inside a match scope.");
+        return new Player(context, player).CanAddMemory(cardEffect);
+    }
+
+    /// <summary>(ST1 batch) AS-IS card idiom <c>card.Owner.GetBattleAreaDigimons()</c> (ST1_09 pattern): same
+    /// bare-<see cref="HeadlessPlayerId"/>-needs-a-live-<see cref="Player"/>-handle shape as
+    /// <see cref="AddMemory"/>/<see cref="CanAddMemory"/> above, no <c>ICardEffect</c> is available at this
+    /// AS-IS call site so the match context comes from <see cref="AmbientMatchContext.Current"/> only.</summary>
+    public static List<Permanent> GetBattleAreaDigimons(this HeadlessPlayerId player)
+    {
+        EngineContext context = AmbientMatchContext.Current
+            ?? throw new InvalidOperationException(
+                "GetBattleAreaDigimons needs a live match context — call inside a match scope.");
+        return new Player(context, player).GetBattleAreaDigimons();
     }
 }

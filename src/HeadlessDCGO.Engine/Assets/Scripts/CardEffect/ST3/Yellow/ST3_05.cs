@@ -1,10 +1,20 @@
-// 1:1 mirror of the original ST3_05 (ST3/Yellow).
+// Source: DCGO/Assets/Scripts/CardEffect/ST3/Yellow/ST3_05.cs
+// TRUE AS-IS-verbatim re-port (ST3 Yellow batch). 1:1 mirror of the original ST3_05 (ST3/Yellow).
 //   [When Attacking] If you have 4 or more security cards, gain 1 memory.
-//   -> AddMemoryTriggerEffect (OnAllyAttack, +1, condition: owner security count >= 4)
-
+// Replaces the PREVIOUS pass's old-model `CardEffectFactory.AddMemoryTriggerEffect(...)` call (an invented
+// helper with no AS-IS counterpart) with the literal AS-IS inline `new ActivateClass()` structure.
+// AS-IS structure kept verbatim: inline ActivateClass, SetIsInheritedEffect(true) (no SetHashString here).
+// Substrate translation only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`.
+// AS-IS `card.Owner.SecurityCards.Count` -> `CardEffectCommons.SecurityCount(card)` (established mirror helper,
+// its own doc comment cites this exact card). AS-IS `card.Owner.CanAddMemory(activateClass)` /
+// `card.Owner.AddMemory(1, activateClass)` resolve against the `HeadlessPlayerId` extensions (Player.cs).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST3.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class ST3_05 : CEntity_Effect
 {
@@ -14,19 +24,42 @@ public sealed class ST3_05 : CEntity_Effect
 
         if (timing == EffectTiming.OnAllyAttack)
         {
-            bool Condition()
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
             {
-                return CardEffectCommons.IsExistOnBattleArea(card) && CardEffectCommons.SecurityCount(card) >= 4;
+                return "[When Attacking] If you have 4 or more security cards, gain 1 memory.";
             }
 
-            cardEffects.Add(CardEffectFactory.AddMemoryTriggerEffect(
-                timing: EffectTiming.OnAllyAttack,
-                amount: 1,
-                isInheritedEffect: true,
-                card: card,
-                condition: Condition,
-                description: "[When Attacking] If you have 4 or more security cards, gain 1 memory.",
-                triggerGate: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card)));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.SecurityCount(card) >= 4)
+                    {
+                        if (card.Owner.CanAddMemory(activateClass))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await card.Owner.AddMemory(1, activateClass);
+            }
         }
 
         return cardEffects;

@@ -257,6 +257,26 @@ public sealed class Permanent
         return true;
     }
 
+    /// <summary>(batch-3) AS-IS <c>Permanent.CanSelectBySkill(ICardEffect skill)</c> (Permanent.cs:1648-1673):
+    /// TRUE unless some usable <c>ICanNotSelectBySkillEffect</c>'s JOINT predicate matches (this candidate,
+    /// the selecting skill's source). Delegates to the SAME verified true-scan
+    /// <c>SelectPermanentEffect.IsUntargetableBySkill</c> uses internally
+    /// (<see cref="Headless.Runtime.RestrictionScan"/> over <see cref="RestrictionHelpers.CannotBeSelectedBySkillKey"/>
+    /// — the d-remediation joint-migration carrier of AS-IS <c>ICanNotSelectBySkillEffect</c>), fed the TRUE
+    /// causing skill source (<c>skill.EffectSourceCard</c>) exactly as AS-IS threads <c>skill</c>. Added for the
+    /// verbatim card idiom <c>permanent.CanSelectBySkill(activateClass)</c> inside select pre-check predicates
+    /// (first caller BT2_097; AS-IS folds this into the same <c>CanSelectPermanentCondition</c> the
+    /// SelectPermanentEffect ALSO applies internally — both sites now evaluate the same scan, matching AS-IS's
+    /// double evaluation).</summary>
+    public bool CanSelectBySkill(ICardEffect skill)
+    {
+        return !Headless.Runtime.RestrictionScan.IsRestricted(
+            _context,
+            RestrictionHelpers.CannotBeSelectedBySkillKey,
+            InstanceId,
+            skill?.EffectSourceCard?.InstanceId ?? default);
+    }
+
     /// <summary>(MIG2) AS-IS <c>Permanent.RemoveLinkedCard(cardSource, removeCount, trashCard)</c>
     /// (Permanent.cs:1306-1348). A direct removal does NOT open the OnLinkCardDiscarded window — the batch
     /// window is <see cref="ITrashLinkCards"/>' job (CardController.cs:5314). With <paramref name="removeCount"/>
