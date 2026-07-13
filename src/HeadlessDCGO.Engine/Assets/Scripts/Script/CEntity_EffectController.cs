@@ -333,6 +333,15 @@ public static class CEntity_EffectControllerStore
         {
             controller.cEntity_Effect = effect;
         }
+        else
+        {
+            // AS-IS CEntity_EffectController.AddCardEffect attaches an EmptyEffectClass when NO ported effect
+            // type matches the card (vanilla cards) — so every card's controller ALWAYS has a non-null
+            // cEntity_Effect. The mirror previously left it null for unmatched cards, which NRE'd the
+            // GetCardEffects security/added scan (`card...cEntity_Effect.GetCardEffects`, CEntity_EffectController.cs:203,
+            // AS-IS:153 — likewise unguarded because AS-IS is never null here). Restore the AS-IS fallback.
+            controller.cEntity_Effect = new EmptyEffectClass();
+        }
 
         return controller;
     }
