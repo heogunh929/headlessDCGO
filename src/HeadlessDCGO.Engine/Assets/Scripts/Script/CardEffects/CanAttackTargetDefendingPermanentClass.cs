@@ -1,7 +1,41 @@
-// Source: Assets/Scripts/Script/CardEffects/CanAttackTargetDefendingPermanentClass.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffects/CanAttackTargetDefendingPermanentClass.cs
+// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class CanAttackTargetDefendingPermanentClass : ICardEffect, ICanAttackTargetDefendingPermanentEffect
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public class CanAttackTargetDefendingPermanentClass : ICardEffect, ICanAttackTargetDefendingPermanentEffect
+{
+    Func<Permanent, bool> AttackerCondition { get; set; }
+    Func<Permanent, bool> DefenderCondition { get; set; }
+    Func<ICardEffect, bool> CardEffectCondition { get; set; }
+    public void SetUpCanAttackTargetDefendingPermanentClass(Func<Permanent, bool> attackerCondition, Func<Permanent, bool> defenderCondition, Func<ICardEffect, bool> cardEffectCondition)
+    {
+        this.AttackerCondition = attackerCondition;
+        this.DefenderCondition = defenderCondition;
+        this.CardEffectCondition = cardEffectCondition;
+    }
+
+    public bool CanAttackTargetDefendingPermanent(Permanent Attacker, Permanent Defender, ICardEffect cardEffect)
+    {
+        if (Attacker != null && Defender != null)
+        {
+            if (Attacker.TopCard != null && Defender.TopCard != null)
+            {
+                if (AttackerCondition != null && DefenderCondition != null && CardEffectCondition != null)
+                {
+                    if (AttackerCondition(Attacker) && DefenderCondition(Defender) && CardEffectCondition(cardEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+}

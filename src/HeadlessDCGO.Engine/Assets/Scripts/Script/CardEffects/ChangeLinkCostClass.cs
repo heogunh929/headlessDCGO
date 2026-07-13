@@ -1,7 +1,59 @@
-// Source: Assets/Scripts/Script/CardEffects/ChangeLinkCostClass.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffects/ChangeLinkCostClass.cs
+// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class ChangeLinkCostClass : ICardEffect, IChangeLinkCostEffect
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+
+using System.Collections.Generic;
+using System;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public class ChangeLinkCostClass : ICardEffect, IChangeLinkCostEffect
+{
+    Func<CardSource, Permanent, int, SelectCardEffect.Root, int> _changeCostFunc { get; set; }
+    Func<CardSource, bool> _cardSourceCondition { get; set; }
+    Func<Permanent, bool> _permanentCondition { get; set; }
+    Func<SelectCardEffect.Root, bool> _rootCondition { get; set; }
+    Func<bool> _isUpDown { get; set; }
+    public void SetUpChangeLinkCostClass(Func<CardSource, Permanent, int, SelectCardEffect.Root, int> changeCostFunc, Func<CardSource, bool> cardSourceCondition, Func<Permanent, bool> permanentCondition, Func<SelectCardEffect.Root, bool> rootCondition, Func<bool> isUpDown)
+    {
+        _changeCostFunc = changeCostFunc;
+        _cardSourceCondition = cardSourceCondition;
+        _permanentCondition = permanentCondition;
+        _rootCondition = rootCondition;
+        _isUpDown = isUpDown;
+    }
+    public int GetCost(int cost, CardSource cardSource, Permanent permanent, SelectCardEffect.Root root)
+    {
+        if (cardSource != null
+            && CardCondition(cardSource)
+            && PermanentCondition(permanent)
+            && _changeCostFunc != null
+            && _rootCondition != null
+            && _rootCondition(root))
+        {
+            int newCost = _changeCostFunc(cardSource, permanent, cost, root);
+
+            cost = newCost;
+        }
+
+        return cost;
+    }
+
+    public bool CardCondition(CardSource cardSource)
+    {
+        return _cardSourceCondition != null
+            && _cardSourceCondition(cardSource);
+    }
+
+    public bool PermanentCondition(Permanent permanent)
+    {
+        return _permanentCondition != null
+            && _permanentCondition(permanent);
+    }
+
+    public bool IsUpDown()
+    {
+        return _isUpDown != null
+            && _isUpDown();
+    }
+}

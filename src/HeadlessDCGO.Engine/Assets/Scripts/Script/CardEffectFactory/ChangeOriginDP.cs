@@ -1,7 +1,99 @@
-// Source: Assets/Scripts/Script/CardEffectFactory/ChangeOriginDP.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeOriginDP.cs
+// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeOriginDP.cs factory partial.
+// Returns the ported ChangeBaseDPClass kind-class (CardEffects/ChangeBaseDPClass.cs).
+// ADAPTATION (substrate only; logic verbatim): AS-IS permanent.TopCard.CanNotBeAffected(<ICardEffect>) ->
+//   mirror CanNotBeAffected(<class>.EffectSourceCard?.InstanceId). UnityEngine/Photon stripped.
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeBaseDPClass (kind-class layer)
+
+public partial class CardEffectFactory
+{
+    #region Static effect that changes origin DP
+    public static ChangeBaseDPClass ChangeBaseDPStaticEffect<T>(Permanent targetPermanent, T changeValue, bool isInheritedEffect, CardSource card, Func<bool> condition)
+    {
+        bool CanUseCondition()
+        {
+            return CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent)
+                && (condition == null || condition());
+        }
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (permanent == targetPermanent)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return ChangeBaseDPGlobalEffect(PermanentCondition, changeValue, isInheritedEffect, card, CanUseCondition);
+    }
+    #endregion
+
+    #region Static effect that changes origin DP of Multiple Digimon
+    public static ChangeBaseDPClass ChangeBaseDPGlobalEffect<T>(Func<Permanent, bool> permanentCondition, T changeValue, bool isInheritedEffect, CardSource card, Func<bool> condition)
+    {
+        bool isInt = typeof(T) == typeof(int);
+        bool isIntFunc = typeof(T) == typeof(Func<int>);
+
+        if (!isInt && !isIntFunc) return null;
+
+        if (isInt && (int)(object)changeValue == 0) return null;
+        if (isIntFunc && changeValue as Func<int> == null) return null;
+
+        int _changeValue() => isInt ? (int)(object)changeValue : (changeValue as Func<int>)();
+        string effectName() => $"Origin DP is {_changeValue()}";
+
+        ChangeBaseDPClass changeBaseDPClass = new ChangeBaseDPClass();
+        changeBaseDPClass.SetUpICardEffect("", CanUseCondition, card);
+        changeBaseDPClass.SetUpChangeBaseDPClass(changeDPFunc: ChangeDP, permanentCondition: PermanentCondition, isUpDownFunc: _isUpDown, isMinusDPFunc: () => false);
+        changeBaseDPClass.SetIsInheritedEffect(isInheritedEffect);
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            if (condition == null || condition())
+            {
+                changeBaseDPClass.SetEffectName(effectName());
+
+                return true;
+            }
+
+            return false;
+        }
+
+        int ChangeDP(Permanent permanent, int DP)
+        {
+            if (PermanentCondition(permanent))
+            {
+                DP = _changeValue();
+            }
+
+            return DP;
+        }
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            return permanentCondition != null
+                && permanentCondition(permanent)
+                && !permanent.TopCard.CanNotBeAffected(changeBaseDPClass.EffectSourceCard?.InstanceId);  // ADAPTATION
+        }
+
+        bool _isUpDown()
+        {
+            return false;
+        }
+
+        return changeBaseDPClass;
+    }
+    #endregion
+}

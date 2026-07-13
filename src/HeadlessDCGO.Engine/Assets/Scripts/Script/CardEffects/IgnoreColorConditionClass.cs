@@ -1,7 +1,34 @@
-// Source: Assets/Scripts/Script/CardEffects/IgnoreColorConditionClass.cs
-// Decision: PORT
-// Category: CardEffect
-// Priority: HIGH
-// Migration: Port core engine source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/CardEffects/IgnoreColorConditionClass.cs
+// (EFFECT-MODEL REBUILD / kind-class) 1:1 mirror of AS-IS public class IgnoreColorConditionClass : ICardEffect, IIgnoreColorConditionEffect
+
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public class IgnoreColorConditionClass : ICardEffect, IIgnoreColorConditionEffect
+{
+    Func<CardSource, bool> _cardCondition = null;
+    public void SetUpIgnoreColorConditionClass(Func<CardSource, bool> cardCondition)
+    {
+        _cardCondition = cardCondition;
+    }
+
+    public bool IgnoreColorCondition(CardSource cardSource)
+    {
+        if (cardSource != null)
+        {
+            if (_cardCondition != null)
+            {
+                if (_cardCondition(cardSource))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+}

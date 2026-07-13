@@ -1,100 +1,187 @@
-// Source: Assets/Scripts/Script/CardEffectFactory/ChangePlayCost.cs
-// AS-IS mirror of the original CardEffectFactory play-cost factories (ChangePlayCostStaticEffect<T> /
-// MandatorySelfPlayCostReduction<T>). Structural-fidelity standard: same file location, same factory
-// names/signatures as the original; behaviour lowered onto the headless play-cost engine. The factory
-// methods are partials of the CardEffectFactory declared in CardPortingFramework.cs (CardEffectCommons
-// namespace), so this file shares that namespace even though it mirrors the original's folder location.
-//
-// The original returns a registered ChangeCostClass (IChangeCostEffect.GetCost). The headless play-cost
-// engine already pulls continuous cost modifiers from the EffectRegistry at play time
-// (PlayCardAction -> ContinuousModifierGate.ResolvePlayCost, keyed by ModifierHelpers.PlayCostDeltaKey =
-// NumericModifierMetric.PlayCost), respecting the CanReduceCost guard (the original's
-// cardSource.Owner.CanReduceCost(...)). So each factory here lowers to a continuous play-cost modifier.
-//
-// Fidelity notes (documented, not silently dropped):
-//  - The original splits "cost itself" (isChangePayingCost:false) from "paying cost"
-//    (isChangePayingCost:true). The headless RL flow resolves a SINGLE play-cost number (what playing
-//    actually costs in memory), so both lower to the same PlayCost metric — behaviour-equivalent for the
-//    one observable cost, with no separate printed-vs-paid split to diverge on.
-//  - permanentCondition is accepted for 1:1 source signature but, like ChangeDPStaticEffect, the headless
-//    evaluates the plain `condition` gate; a card needing a board-permanent gate must fold it into
-//    `condition`.
-//  - setFixedCost:true (set the cost to a value) is not yet supported — the continuous self modifier only
-//    emits an additive delta. It throws rather than silently treating "set" as "add".
+// Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangePlayCost.cs
+// (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangePlayCost.cs factory partial.
+// Returns the ported ChangeCostClass kind-class (CardEffects/ChangeCostClass.cs). Replaces the earlier
+// simplified ContinuousSelfModifierEffect-based stub (which lowered play cost onto the headless play-cost
+// engine); this restores the AS-IS ChangeCostClass authoring shape verbatim. UnityEngine/Photon stripped.
+
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
-using HeadlessDCGO.Engine.Headless.Effects;
+using System.Collections;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;  // ChangeCostClass (kind-class layer)
 
-public static partial class CardEffectFactory
+public partial class CardEffectFactory
 {
-    #region Static effect that changes play cost
-
-    /// <summary>Original: <c>ChangePlayCostStaticEffect&lt;int&gt;</c> — continuous ±play cost. Negative
-    /// <paramref name="changeValue"/> reduces, positive increases (the original's isUpDown = !setFixedCost,
-    /// so a reduction is gated by CanReduceCost — enforced downstream by ContinuousModifierGate).</summary>
-    public static ICardEffect ChangePlayCostStaticEffect(
-        int changeValue,
-        Func<Permanent, bool>? permanentCondition,
+    #region Static effect that reduces play cost
+    public static ChangeCostClass ChangePlayCostStaticEffect<T>(
+        T changeValue,
+        Func<Permanent, bool> permanentCondition,
         bool isInheritedEffect,
         CardSource card,
-        Func<bool>? condition,
+        Func<bool> condition,
         bool setFixedCost)
     {
-        if (setFixedCost)
+        bool isInt = typeof(T) == typeof(int);
+        bool isIntFunc = typeof(T) == typeof(Func<int>);
+
+        if (!isInt && !isIntFunc) return null;
+
+        if (isInt && (int)(object)changeValue == 0) return null;
+        if (isIntFunc && changeValue as Func<int> == null) return null;
+
+        int _changeValue() => isInt ? (int)(object)changeValue : (changeValue as Func<int>)();
+        bool isUpValue() => !setFixedCost && _changeValue() > 0;
+
+        string effectName()
         {
-            throw new NotSupportedException(
-                "ChangePlayCostStaticEffect(setFixedCost:true) requires a fixed-play-cost continuous metric "
-                + "that is not yet ported; only additive ±play cost is supported.");
+            if (!setFixedCost)
+            {
+                return isUpValue() ? $"Play Cost +{_changeValue()}" : $"Play Cost {_changeValue()}";
+            }
+
+            return $"Play Cost is {_changeValue()}";
+        };
+
+        ChangeCostClass changeCostClass = new ChangeCostClass();
+        changeCostClass.SetUpICardEffect(effectName(), CanUseCondition, card);
+        changeCostClass.SetUpChangeCostClass(
+            changeCostFunc: ChangeCost,
+            cardSourceCondition: (card) => true,
+            rootCondition: (card) => true,
+            isUpDown: isUpDown,
+            isCheckAvailability: () => false,
+            isChangePayingCost: () => false);
+
+        if (isInheritedEffect)
+        {
+            changeCostClass.SetIsInheritedEffect(true);
         }
 
-        return new ContinuousSelfModifierEffect(card, ModifierHelpers.PlayCostDeltaKey, changeValue, isInheritedEffect, condition);
-    }
-
-    /// <summary>Original: <c>ChangePlayCostStaticEffect&lt;Func&lt;int&gt;&gt;</c> — continuous ±play cost with
-    /// a dynamic (read-time) value.</summary>
-    public static ICardEffect ChangePlayCostStaticEffect(
-        Func<int> changeValue,
-        Func<Permanent, bool>? permanentCondition,
-        bool isInheritedEffect,
-        CardSource card,
-        Func<bool>? condition,
-        bool setFixedCost)
-    {
-        ArgumentNullException.ThrowIfNull(changeValue);
-        if (setFixedCost)
+        bool CanUseCondition(Hashtable hashtable)
         {
-            throw new NotSupportedException(
-                "ChangePlayCostStaticEffect(setFixedCost:true) requires a fixed-play-cost continuous metric "
-                + "that is not yet ported; only additive ±play cost is supported.");
+            if (condition == null || condition())
+            {
+                changeCostClass.SetEffectName(effectName());
+
+                return true;
+            }
+
+            return false;
         }
 
-        return new ContinuousSelfModifierEffect(card, ModifierHelpers.PlayCostDeltaKey, changeValue: 0, isInheritedEffect, condition, dynamicValue: changeValue);
-    }
+        int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
+        {
+            if (PermanentsCondition(targetPermanents))
+            {
+                if (!setFixedCost)
+                {
+                    Cost += _changeValue();
+                }
 
+                else
+                {
+                    Cost = _changeValue();
+                }
+            }
+
+            return Cost;
+        }
+
+        bool PermanentsCondition(List<Permanent> targetPermanents)
+        {
+            if (targetPermanents != null)
+            {
+                if (targetPermanents.Count(PermanentCondition) >= 1)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool PermanentCondition(Permanent targetPermanent)
+        {
+            if (CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                return permanentCondition == null || permanentCondition(targetPermanent);
+            }
+
+            return false;
+        }
+
+        bool isUpDown()
+        {
+            return !setFixedCost;
+        }
+
+        return changeCostClass;
+    }
     #endregion
 
     #region Mandatory Self Cost Reduction
-
-    /// <summary>Original: <c>MandatorySelfPlayCostReduction&lt;int&gt;</c> — reduce THIS card's play cost by
-    /// <paramref name="changeValue"/> (a positive magnitude; the original does <c>cost -= _changeValue()</c>).
-    /// Lowers to a continuous self play-cost modifier of <c>-changeValue</c>.</summary>
-    public static ICardEffect MandatorySelfPlayCostReduction(
-        int changeValue,
+    public static ChangeCostClass MandatorySelfPlayCostReduction<T>(
+        T changeValue,
         CardSource card,
-        Func<bool>? condition = null) =>
-        new ContinuousSelfModifierEffect(card, ModifierHelpers.PlayCostDeltaKey, -changeValue, isInheritedEffect: false, condition);
-
-    /// <summary>Original: <c>MandatorySelfPlayCostReduction&lt;Func&lt;int&gt;&gt;</c> — dynamic-magnitude self
-    /// play-cost reduction.</summary>
-    public static ICardEffect MandatorySelfPlayCostReduction(
-        Func<int> changeValue,
-        CardSource card,
-        Func<bool>? condition = null)
+        Func<bool> condition = null,
+        Func<SelectCardEffect.Root, bool> rootCondition = null
+    )
     {
-        ArgumentNullException.ThrowIfNull(changeValue);
-        return new ContinuousSelfModifierEffect(
-            card, ModifierHelpers.PlayCostDeltaKey, changeValue: 0, isInheritedEffect: false, condition, dynamicValue: () => -changeValue());
-    }
+        bool isInt = typeof(T) == typeof(int);
+        bool isIntFunc = typeof(T) == typeof(Func<int>);
 
+        if (!isInt && !isIntFunc) return null;
+
+        if (isInt && (int)(object)changeValue == 0) return null;
+        if (isIntFunc && changeValue as Func<int> == null) return null;
+
+        int _changeValue() => isInt ? (int)(object)changeValue : (changeValue as Func<int>)();
+
+        ChangeCostClass changeCostClass = new ChangeCostClass();
+        changeCostClass.SetUpICardEffect($"Play Cost -{_changeValue()}", CanUseCondition, card);
+        changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+        changeCostClass.SetNotShowUI(true);
+        return changeCostClass;
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return condition == null || condition();
+        }
+
+        int ChangeCost(CardSource cardSource, int cost, SelectCardEffect.Root root,
+                List<Permanent> targetPermanents)
+        {
+            if (CardSourceCondition(cardSource) &&
+                RootCondition(root) &&
+                PermanentsCondition(targetPermanents))
+            {
+                cost -= _changeValue();
+            }
+
+            return cost;
+        }
+
+        bool PermanentsCondition(List<Permanent> targetPermanents)
+        {
+            return targetPermanents == null || targetPermanents.Count(targetPermanent => targetPermanent != null) == 0;
+        }
+
+        bool CardSourceCondition(CardSource cardSource)
+        {
+            return cardSource == card;
+        }
+
+        bool RootCondition(SelectCardEffect.Root root)
+        {
+            return rootCondition == null || rootCondition(root);
+        }
+
+        bool isUpDown()
+        {
+            return true;
+        }
+    }
     #endregion
 }

@@ -15,7 +15,7 @@ public sealed class TfxSecurityDpBuff : CEntity_Effect
         if (timing == EffectTiming.None)
         {
             effects.Add(CardEffectFactory.ChangeDPStaticEffect(
-                permanentCondition: null, changeValue: 2000, isInheritedEffect: false, card, condition: null));
+                permanentCondition: null, changeValue: 2000, isInheritedEffect: false, card, condition: null, effectName: null));
         }
 
         return effects;

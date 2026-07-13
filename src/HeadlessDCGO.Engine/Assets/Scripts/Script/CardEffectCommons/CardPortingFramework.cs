@@ -104,18 +104,11 @@ public sealed record BlastDNACondition(Func<CardSource, bool> Matches, string La
     public static BlastDNACondition ByName(string name) => new(cs => cs.EqualsCardName(name), name);
 }
 
-/// <summary>1:1 mirror of AS-IS <c>CardEffectCommons.IgnoreRequirement</c> (CardEffectCommons.cs:11) — which
-/// part of a digivolution requirement a "digivolve into" effect waives: <c>None</c> enforces color AND level;
-/// <c>All</c> waives the whole requirement; <c>Level</c> waives level only (color still checked); <c>Color</c>
-/// waives color only (level still checked). Passed to the eligibility check (AS-IS CanPlayCardTargetFrame's
-/// <c>ignore:</c>).</summary>
-public enum IgnoreRequirement
-{
-    None,
-    All,
-    Level,
-    Color,
-}
+// (EFFECT-MODEL REBUILD / fidelity) AS-IS <c>IgnoreRequirement</c> is NESTED inside the CardEffectCommons class
+// (CardEffectCommons.cs:11), so every AS-IS reference reads `CardEffectCommons.IgnoreRequirement`. It was
+// previously a TOP-LEVEL namespace enum here, which broke that 1:1 text (a `using CardEffectCommons` binds the
+// bare `CardEffectCommons.` prefix to the class, not the namespace → CS0426). Moved to nest inside the
+// CardEffectCommons class in CardEffectCommons.cs to match AS-IS exactly.
 
 /// <summary>(#5) Which cost a <c>CannotReduceCost</c> immunity protects — the headless projection of the AS-IS
 /// <c>targetPermanentsCondition</c> (count&gt;=1 =&gt; a digivolution is happening, so only the DIGIVOLUTION cost;
