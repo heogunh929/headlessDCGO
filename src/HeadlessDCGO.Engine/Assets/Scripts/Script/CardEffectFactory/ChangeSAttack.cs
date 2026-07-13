@@ -235,7 +235,7 @@ public partial class CardEffectFactory
         invertSAttackClass.SetUpICardEffect("", CanUseCondition, card);
         invertSAttackClass.SetUpChangeSAttackClass(changeInvertFunc: InvertValue, permanentCondition: PermanentCondition);
         invertSAttackClass.SetIsInheritedEffect(isInheritedEffect);
-        invertSAttackClass.SetHashString($"InvertSecA_{card.CardID}");
+        invertSAttackClass.SetHashString($"InvertSecA_{card.CardNumber}");
         invertSAttackClass.SetIsBackgroundProcess(true);
 
         bool CanUseCondition(Hashtable hashtable)

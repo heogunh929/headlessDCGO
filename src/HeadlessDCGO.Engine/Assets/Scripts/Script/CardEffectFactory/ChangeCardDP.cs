@@ -1,13 +1,11 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectFactory/ChangeCardDP.cs
 // (EFFECT-MODEL REBUILD / P4 vertical slice) 1:1 mirror of the AS-IS ChangeCardDP.cs factory partial.
 // Returns the ported ChangeCardDPClass kind-class (CardEffects/ChangeCardDPClass.cs).
-// NOTE (diverged substrate; see docs/audit/rebuild_p4_factory_missing.md — kept VERBATIM per the
-//   no-simplification directive): AS-IS `GManager.instance.attackProcess.SecurityDigimon == cardSource`.
-//   The mirror GManager / AttackProcess exist, but AttackProcess.SecurityDigimon is a HeadlessEntityId?
-//   (AS-IS it is a CardSource), so the `== cardSource` comparison does not lower cleanly. This body-level
-//   divergence is currently MASKED: CardEffectFactory is a partial class whose monolith part carries
-//   type-level CS0246 (IActivatedCardEffect), which suppresses method-body diagnostics across all its
-//   partials; it will surface once that part binds. UnityEngine/Photon stripped.
+// NOTE (P6C3 resolution): AS-IS `GManager.instance.attackProcess.SecurityDigimon == cardSource`.
+//   The mirror AttackProcess.SecurityDigimon is a HeadlessEntityId? (AS-IS it is a live CardSource
+//   reference) — the identity comparison is expressed against cardSource.InstanceId instead, the
+//   established CardSource-identity idiom (CardSource.Equals compares InstanceId+Context). UnityEngine/
+//   Photon stripped.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
@@ -65,7 +63,7 @@ public partial class CardEffectFactory
         {
             if (cardSource != null)
             {
-                if (GManager.instance.attackProcess.SecurityDigimon == cardSource)
+                if (GManager.instance.attackProcess.SecurityDigimon == cardSource.InstanceId)
                 {
                     if (cardCondition == null || cardCondition(cardSource))
                     {

@@ -33,7 +33,7 @@ public class ChangeLinkMaxClass : ICardEffect, IChangeLinkMaxEffect
             {
                 case -1:
                     if(changedLinkMax < LinkMax)
-                        changedLinkMax = LinkMax + Mathf.Abs(changedLinkMax - LinkMax);
+                        changedLinkMax = LinkMax + Math.Abs(changedLinkMax - LinkMax);
                     break;
                 case 1:
                     if (changedLinkMax > LinkMax)

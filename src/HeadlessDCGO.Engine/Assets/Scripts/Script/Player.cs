@@ -206,6 +206,72 @@ public sealed class Player
     public bool CanReduceSecurity() =>
         Assets.Scripts.Script.SecurityRuleGateSeam.CanReduceSecurity(Context, PlayerId);
 
+    /// <summary>(P6C3) AS-IS <c>Player.CanReduceCost(targetPermanents, cardSource)</c> (Player.cs:1329-1368,
+    /// retires design item MIG5-CANREDUCECOST): the live <c>ICannotReduceCostEffect</c> scan over
+    /// <c>Players_ForTurnPlayer</c>'s field permanents' + own player-scope effect lists, <c>CanUse(null)</c>-gated
+    /// (AS-IS 1:1 — no membership/Distinct semantics to preserve, it's a short-circuit veto scan).</summary>
+    public bool CanReduceCost(List<Permanent> targetPermanents, CardSource cardSource)
+    {
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICannotReduceCostEffect cannotReduceCost && cardEffect.CanUse(null)
+                        && cannotReduceCost.CannotReduceCost(this, targetPermanents, cardSource))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICannotReduceCostEffect cannotReduceCost && cardEffect.CanUse(null)
+                    && cannotReduceCost.CannotReduceCost(this, targetPermanents, cardSource))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>(P6C3) AS-IS <c>Player.CanIgnoreDigivolutionRequirement(targetPermanent, cardSource)</c>
+    /// (Player.cs:1422-1465): the live <c>ICannotIgnoreDigivolutionConditionEffect</c> veto scan, same shape
+    /// as <see cref="CanReduceCost"/> (<c>Players_ForTurnPlayer</c>'s field permanents' + own player-scope
+    /// effect lists, <c>CanUse(null)</c>-gated).</summary>
+    public bool CanIgnoreDigivolutionRequirement(Permanent targetPermanent, CardSource cardSource)
+    {
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICannotIgnoreDigivolutionConditionEffect cannotIgnore && cardEffect.CanUse(null)
+                        && cannotIgnore.cannotIgnoreDigivolutionCondition(this, targetPermanent, cardSource))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICannotIgnoreDigivolutionConditionEffect cannotIgnore && cardEffect.CanUse(null)
+                    && cannotIgnore.cannotIgnoreDigivolutionCondition(this, targetPermanent, cardSource))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     // ===== match-status =====
 
     /// <summary>(MIG5) AS-IS <c>Player.SetLose()</c> (Player.cs:119-122): mark this player as having lost —

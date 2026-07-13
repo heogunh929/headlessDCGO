@@ -188,40 +188,22 @@ public static partial class CardEffectFactory
     }
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:645
-    // ReplaceBottomSecurityWithFaceUpOptionEffect. Replaces the old mirror-invented version.
-    // IEnumerator->async Task; StartCoroutine->await; CanNotBeAffected/PermanentOfThisCard n/a here.
-    public static async Task ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
+    // ReplaceBottomSecurityWithFaceUpOptionEffect. Zero consumers on the mirror corpus (no real card / no Tfx
+    // fixture references ReplaceBottomSecurityWithFaceUpOption{Main}Effect) — kept as the AS-IS-named entry
+    // point (matching the file's method-name-fidelity contract) rather than deleted, so a future card port of
+    // this exact text has somewhere to land. STOP (design item RD-P6C3-B1): the AS-IS body needs
+    // ContinuousController.instance (StartCoroutine host) + CardObjectController.AddHandCards/AddSecurityCard
+    // (the RD-P6C1-8/RD-P6C2-1 zone-move-statics gap, still unmodeled) + GManager.GetComponent<Effects>()
+    // (the AS-IS UI/VFX-only Effects component, cluster-1 §4 precedent — never ported headless-side). The
+    // equivalent live behavior (BT9_043's ReturnTopSecurityToHandThenUnsuspendSelfBody / IReduceSecurity /
+    // IAddSecurity sink primitives) already exists for the currently-witnessed cards; this legacy path is not
+    // on any live resolution route today.
+    public static Task ReplaceBottomSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
     {
-        if (card.Owner.SecurityCards.Count >= 1)
-        {
-            #region Add Bottom Security Card to Hand
-
-            CardSource bottomCard = card.Owner.SecurityCards.Last();
-
-            await CardObjectController.AddHandCards(new List<CardSource>() { bottomCard }, false, activateClass);
-
-            await new IReduceSecurity(
-                player: card.Owner,
-                refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
-                activateClass).ReduceSecurity();
-
-            #endregion
-        }
-
-        #region Place Face up as Bottom Security Card
-
-        if (card.Owner.CanAddSecurity(activateClass))
-        {
-            await CardObjectController.AddSecurityCard(
-                card, toTop: false, faceUp: true);
-
-            await GManager.instance.GetComponent<Effects>()
-                .CreateRecoveryEffect(card.Owner);
-
-            await new IAddSecurity(card).AddSecurity();
-        }
-
-        #endregion
+        throw new NotSupportedException(
+            "ReplaceBottomSecurityWithFaceUpOptionEffect (AS-IS CardEffectFactory.cs:645) needs " +
+            "ContinuousController.instance / CardObjectController.AddHandCards+AddSecurityCard / " +
+            "GManager.GetComponent<Effects>().CreateRecoveryEffect — unported substrate, design item RD-P6C3-B1.");
     }
 
     // (P4 KeyWord slice) TrainingEffect moved to KeyWordEffects/Training.cs (AS-IS 1:1)
@@ -434,9 +416,11 @@ public static partial class CardEffectFactory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(newName);
         var effect = new CardEffects.ChangeBaseCardNameClass();
-        effect.SetUpICardEffect("Change base card name", condition, card);
-        effect.SetUpChangeBaseCardNameClass((_, _) => new List<string> { newName });
+        effect.SetUpICardEffect("Change base card name", CanUseCondition, card);
+        effect.SetUpChangeBaseCardNamesClass((_, _) => new List<string> { newName });
         return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
     }
 
     // (P4 KeyWord slice) CollisionStaticEffect moved to KeyWordEffects/Collision.cs (AS-IS 1:1)
@@ -528,39 +512,16 @@ public static partial class CardEffectFactory
     }
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:684
-    // ReplaceTopSecurityWithFaceUpOptionEffect (ADDED — absent on mirror). IEnumerator->async Task; StartCoroutine->await.
-    public static async Task ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
+    // ReplaceTopSecurityWithFaceUpOptionEffect (ADDED — absent on mirror). Zero consumers on the mirror corpus
+    // (no real card / no Tfx fixture) — same STOP as ReplaceBottomSecurityWithFaceUpOptionEffect above, design
+    // item RD-P6C3-B1 (ContinuousController.instance / CardObjectController.AddHandCards+AddSecurityCard /
+    // GManager.GetComponent<Effects>() — unported substrate).
+    public static Task ReplaceTopSecurityWithFaceUpOptionEffect(CardSource card, ActivateClass activateClass)
     {
-        if (card.Owner.SecurityCards.Count >= 1)
-        {
-            #region Add Top Security Card to Hand
-
-            CardSource topCard = card.Owner.SecurityCards.First();
-
-            await CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass);
-
-            await new IReduceSecurity(
-                player: card.Owner,
-                refSkillInfos: ref ContinuousController.instance.nullSkillInfos,
-                activateClass).ReduceSecurity();
-
-            #endregion
-        }
-
-        #region Place Face up as Top Security Card
-
-        if (card.Owner.CanAddSecurity(activateClass))
-        {
-            await CardObjectController.AddSecurityCard(
-                card, toTop: true, faceUp: true);
-
-            await GManager.instance.GetComponent<Effects>()
-                .CreateRecoveryEffect(card.Owner);
-
-            await new IAddSecurity(card).AddSecurity();
-        }
-
-        #endregion
+        throw new NotSupportedException(
+            "ReplaceTopSecurityWithFaceUpOptionEffect (AS-IS CardEffectFactory.cs:684) needs " +
+            "ContinuousController.instance / CardObjectController.AddHandCards+AddSecurityCard / " +
+            "GManager.GetComponent<Effects>().CreateRecoveryEffect — unported substrate, design item RD-P6C3-B1.");
     }
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:196
@@ -619,7 +580,7 @@ public static partial class CardEffectFactory
                                     isShowOpponent: true,
                                     mode: SelectCardEffect.Mode.Custom,
                                     root: SelectCardEffect.Root.Custom,
-                                    customRootCardList: selectedPermanent.DigivolutionCards,
+                                    customRootCardList: selectedPermanent.DigivolutionCards.ToList(),
                                     canLookReverseCard: true,
                                     selectPlayer: card.Owner,
                                     cardEffect: activateClass);
@@ -746,6 +707,14 @@ public static partial class CardEffectFactory
     // version (and its DeleteTimingString helper). Coroutine->async Task; StartCoroutine->await;
     // card.PermanentOfThisCard()->ICardEffect.ResolvePermanentOfThisCard(card);
     // CanNotBeAffected(effect)->CanNotBeAffected(effect.EffectSourceCard?.InstanceId); PlaySE/WaitForSeconds = UI (stripped).
+    // Zero consumers on the mirror corpus (no real card / no Tfx fixture references
+    // PlaySelfDigimonAfterBattleSecurityEffect). STOP (design item RD-P6C3-B2) at ActivateCoroutine: the AS-IS
+    // body nests a SECOND delayed grant (card.Owner.UntilEndBattleEffects.Add(GetCardEffect1) — the AS-IS
+    // Player mutable EffectTiming.OnEndBattle bucket, part of the unlanded player-grant store,
+    // P6A-PLAYER-EFFECTLIST) and, conditionally, a THIRD (playedDigimon.UntilOpponentTurnEndEffects.Add —
+    // same gap on Permanent) plus a DestroyPermanentsClass batch-delete helper with no mirror. All three are
+    // out of this build-fix pass's scope; kept as the AS-IS-named entry point (method-name-fidelity contract)
+    // for a future card port instead of deleted.
     public static ICardEffect PlaySelfDigimonAfterBattleSecurityEffect(CardSource card, EffectDuration deleteDigimon = EffectDuration.UntilEndBattle)
     {
         ActivateClass activateClass = new ActivateClass();
@@ -768,160 +737,13 @@ public static partial class CardEffectFactory
             return CardEffectCommons.IsExistOnExecutingArea(card);
         }
 
-        async Task ActivateCoroutine(Hashtable _hashtable)
+        Task ActivateCoroutine(Hashtable _hashtable)
         {
-            await Task.CompletedTask;
-
-            // AS-IS :311 PlaySE(BuffSE) = UI (stripped).
-
-            #region Play Card
-            ActivateClass activateClass1 = new ActivateClass();
-            activateClass1.SetUpICardEffect("Play this card", CanUseCondition1, card);
-            activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
-            card.Owner.UntilEndBattleEffects.Add(GetCardEffect1);
-
-            string EffectDiscription1()
-            {
-                return "Play this card without paying its memory cost.";
-            }
-
-            bool CanUseCondition1(Hashtable hashtable)
-            {
-                return true;
-            }
-
-            bool CanActivateCondition1(Hashtable hashtable)
-            {
-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1, root: SelectCardEffect.Root.Security))
-                {
-                    if (!card.Owner.LibraryCards.Contains(card) && !card.Owner.SecurityCards.Contains(card))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-
-            async Task ActivateCoroutine1(Hashtable _hashtable1)
-            {
-                if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass1, root: SelectCardEffect.Root.Security))
-                {
-                    if (!card.Owner.LibraryCards.Contains(card) && !card.Owner.SecurityCards.Contains(card))
-                    {
-                        await CardEffectCommons.PlayPermanentCards(
-                            cardSources: new List<CardSource>() { card },
-                            activateClass: activateClass1,
-                            payCost: false,
-                            isTapped: false,
-                            root: SelectCardEffect.Root.Security,
-                            activateETB: true);
-
-                        if (deleteDigimon != EffectDuration.UntilEndBattle)
-                        {
-                            // AS-IS :358 WaitForSeconds(0.2f) = UI (stripped).
-
-                            #region Delete Digimon Played
-                            Permanent playedDigimon = ICardEffect.ResolvePermanentOfThisCard(card);
-
-                            ActivateClass activateClass2 = new ActivateClass();
-                            activateClass2.SetUpICardEffect("Delete this Digimon", CanUseCondition2, card);
-                            activateClass2.SetUpActivateClass(CanActivateCondition2, ActivateCoroutine2, -1, false, EffectDiscription2());
-                            activateClass2.SetEffectSourcePermanent(playedDigimon);
-                            playedDigimon.UntilOpponentTurnEndEffects.Add(GetCardEffect);
-
-                            string EffectDiscription2()
-                            {
-                                if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
-                                {
-                                    return "[End of Your Turn] Delete this Digimon.";
-                                }
-
-                                if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
-                                {
-                                    return "[End of Opponents Turn] Delete this Digimon.";
-                                }
-
-                                if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
-                                {
-                                    return "[End of Turn] Delete this Digimon.";
-                                }
-                                return "";
-                            }
-
-                            bool CanUseCondition2(Hashtable hashtable1)
-                            {
-                                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleArea(playedDigimon, playedDigimon.TopCard))
-                                {
-                                    if (deleteDigimon == EffectDuration.UntilOwnerTurnEnd)
-                                    {
-                                        return CardEffectCommons.IsOwnerTurn(card);
-                                    }
-
-                                    if (deleteDigimon == EffectDuration.UntilOpponentTurnEnd)
-                                    {
-                                        return CardEffectCommons.IsOpponentTurn(card);
-                                    }
-
-                                    if (deleteDigimon == EffectDuration.UntilEachTurnEnd)
-                                    {
-                                        return CardEffectCommons.IsOwnerTurn(card)
-                                            || CardEffectCommons.IsOpponentTurn(card);
-                                    }
-                                }
-
-                                return false;
-                            }
-
-                            bool CanActivateCondition2(Hashtable hashtable1)
-                            {
-                                if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
-                                {
-                                    if (!playedDigimon.TopCard.CanNotBeAffected(activateClass2.EffectSourceCard?.InstanceId))
-                                    {
-                                        return true;
-                                    }
-                                }
-
-                                return false;
-                            }
-
-                            async Task ActivateCoroutine2(Hashtable _hashtable1)
-                            {
-                                if (CardEffectCommons.IsPermanentExistsOnBattleArea(playedDigimon))
-                                {
-                                    await new DestroyPermanentsClass(
-                                    new List<Permanent>() { playedDigimon },
-                                    CardEffectCommons.CardEffectHashtable(activateClass2)).Destroy();
-                                }
-                            }
-
-                            ICardEffect GetCardEffect(EffectTiming _timing)
-                            {
-                                if (_timing == EffectTiming.OnEndTurn)
-                                {
-                                    return activateClass2;
-                                }
-
-                                return null;
-                            }
-                            #endregion
-                        }
-                    }
-                }
-            }
-
-            ICardEffect GetCardEffect1(EffectTiming _timing)
-            {
-                if (_timing == EffectTiming.OnEndBattle)
-                {
-                    return activateClass1;
-                }
-
-                return null;
-            }
-            #endregion
-
+            throw new NotSupportedException(
+                "PlaySelfDigimonAfterBattleSecurityEffect (AS-IS CardEffectFactory.cs:285) needs the AS-IS " +
+                "Player.UntilEndBattleEffects / Permanent.UntilOpponentTurnEndEffects mutable grant buckets " +
+                "(unlanded player/permanent-grant store, design item P6A-PLAYER-EFFECTLIST) + DestroyPermanentsClass " +
+                "— unported substrate, design item RD-P6C3-B2.");
         }
 
         return activateClass;
@@ -947,11 +769,18 @@ public static partial class CardEffectFactory
             return Condition == null || Condition();
         }
 
-        bool CanResolveCondition(CardSource optionCard) => optionCard.Owner.CanAddSecurity(placeToSecurityEffect);
+        bool CanResolveCondition(CardSource optionCard) =>
+            new Player(optionCard.Context, optionCard.Owner).CanAddSecurity(placeToSecurityEffect.EffectSourceCard?.InstanceId);
 
-        async Task ResolutionCoroutine(CardSource optionCard)
+        // Zero consumers on the mirror corpus (the new-model PlayCardsBridge.cs already reimplements this
+        // AS-IS hook resolution directly against the sink — see its own citing comments at :111/:159/:161).
+        // STOP (design item RD-P6C3-B1, same CardObjectController.AddSecurityCard gap as
+        // ReplaceTopSecurityWithFaceUpOptionEffect above) — kept as the AS-IS-named entry point.
+        Task ResolutionCoroutine(CardSource optionCard)
         {
-            await CardObjectController.AddSecurityCard(optionCard, toTop, isFaceUp);
+            throw new NotSupportedException(
+                "PlaceToSecurityEffect (AS-IS CardEffectFactory.cs:1497) needs CardObjectController.AddSecurityCard " +
+                "— unported substrate, design item RD-P6C3-B1.");
         }
     }
 
@@ -1022,7 +851,11 @@ public static partial class CardEffectFactory
 
         bool CanActivateCondition(Hashtable hashtable)
         {
-            if (card.Owner.ExecutingCards.Contains(card))
+            // AS-IS `card.Owner.ExecutingCards.Contains(card)` — the mirror re-expresses "is being resolved as
+            // an Option" as the live Execution-zone membership predicate (CardEffectCommons.IsExistOnExecutingArea,
+            // the established idiom this same file's PlaySelfDigimonAfterBattleSecurityEffect.CanActivateCondition
+            // already uses), not an AS-IS Player mutable-list read.
+            if (CardEffectCommons.IsExistOnExecutingArea(card))
             {
                 if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: card, payCost: false, cardEffect: activateClass))
                 {
@@ -1323,13 +1156,15 @@ public static partial class CardEffectFactory
     /// <paramref name="getLevels"/> maps the digivolving (Jogress) card to the extra levels this material grants;
     /// read by <see cref="CardSource.JogressLevelsAgainst"/>. Level-based material predicates then test it.</summary>
     public static ICardEffect AddJogressLevelsEffect(
-        CardSource card, Func<CardSource, IReadOnlyList<int>> getLevels, Func<bool>? condition = null,
+        CardSource card, Func<CardSource, Permanent, List<int>> getLevels, Func<bool>? condition = null,
         string name = "Also treated as additional levels for DNA Digivolution")
     {
         var effect = new CardEffects.AddJogressLevelsClass();
-        effect.SetUpICardEffect(name, condition, card);
+        effect.SetUpICardEffect(name, CanUseCondition, card);
         effect.SetUpAddJogressLevelsClass(getLevels);
         return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
     }
 
     /// <summary>(PRIM special-play) AS-IS <c>DNADigivolveWithHandOrTrashCardIntoHandOrTrash</c> — an effect-driven

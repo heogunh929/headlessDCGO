@@ -432,6 +432,27 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(P6C3) Mirror of AS-IS <c>CardSource.CardNames_DigiXros</c> (CardSource.cs:2193-2207):
+    /// <see cref="CardNames"/> extended by the card's OWN <see cref="IChangeCardNamesForDigiXrosEffect"/>
+    /// effects (AS-IS scans self <c>EffectList(EffectTiming.None)</c> only, same shape as
+    /// <see cref="CardTraits"/> — ungated by permanent membership, no re-Distinct after the fold).</summary>
+    public IReadOnlyList<string> CardNames_DigiXros
+    {
+        get
+        {
+            List<string> cardNames = CardNames.ToList();
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IChangeCardNamesForDigiXrosEffect transform && cardEffect.CanUse(null))
+                {
+                    cardNames = transform.ChangeCardNamesForDigiXros(cardNames, this);
+                }
+            }
+
+            return cardNames;
+        }
+    }
+
     /// <summary>The card's PRINTED level, or -1. AS-IS <c>HasLevel</c> is printed-data based
     /// (CEntity_Base.cs:317) — level-change folds never alter it.</summary>
     private int PrintedLevel => Definition?.Metadata is { } m && m.TryGetValue("level", out object? raw) && raw is int lv ? lv : -1;

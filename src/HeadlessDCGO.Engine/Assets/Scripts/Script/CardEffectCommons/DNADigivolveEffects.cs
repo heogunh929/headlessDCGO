@@ -75,4 +75,39 @@ public static partial class CardEffectCommons
             "docs/audit/rebuild_bridge_w3_notes.md.");
 
     #endregion
+
+    #region Create Jogress Conditions from Permanent Conditions (P6C3, AS-IS DNADigivolveEffects.cs:630-649)
+
+    /// <summary>1:1 mirror of AS-IS <c>GetJogressConditions</c> — two material-slot predicates, verbatim
+    /// (including the AS-IS quirk that <c>permanentCondition1</c>/<c>permanentCondition2</c> are used AS-IS,
+    /// UNCOMPOSED with the local <c>PermanentCondition</c>/<c>FullPermanentCondition{1,2}</c> helpers below —
+    /// those are declared but never referenced by the returned <see cref="JogressCondition"/>, dead code in the
+    /// original kept verbatim per the no-simplification rule).</summary>
+    public static JogressCondition GetJogressConditions(Func<Permanent, bool> permanentCondition1, string description1, Func<Permanent, bool> permanentCondition2, string description2, CardSource card, int cost = 0)
+    {
+        JogressConditionElement[] elements =
+        {
+            new JogressConditionElement(permanentCondition1, description1),
+            new JogressConditionElement(permanentCondition2, description2),
+        };
+
+        JogressCondition jogressCondition = new(elements, cost);
+
+        return jogressCondition;
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            return permanent != null
+                && permanent.TopCard != null
+                && permanent.TopCard.Owner == card.Owner
+                && permanent.IsDigimon
+                && CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card);
+        }
+
+        bool FullPermanentCondition1(Permanent permanent) => PermanentCondition(permanent) && permanentCondition1 != null && permanentCondition1(permanent);
+
+        bool FullPermanentCondition2(Permanent permanent) => PermanentCondition(permanent) && permanentCondition2 != null && permanentCondition2(permanent);
+    }
+
+    #endregion
 }

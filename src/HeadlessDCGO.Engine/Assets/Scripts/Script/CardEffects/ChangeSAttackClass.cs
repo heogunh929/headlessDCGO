@@ -33,7 +33,7 @@ public class ChangeSAttackClass : ICardEffect, IChangeSAttackEffect
             {
                 case -1:
                     if(changedSAttack < SAttack)
-                        changedSAttack = SAttack + Mathf.Abs(changedSAttack - SAttack);
+                        changedSAttack = SAttack + Math.Abs(changedSAttack - SAttack);
                     break;
                 case 1:
                     if (changedSAttack > SAttack)

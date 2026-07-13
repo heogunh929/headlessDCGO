@@ -75,7 +75,10 @@ public partial class CardEffectFactory
                             {
                                 if (i != j)
                                 {
-                                    if (permanent.LinkedCards.Find(x => cardConditions[j](x)))
+                                    // AS-IS `if (permanent.LinkedCards.Find(...))` relies on Unity
+                                    // MonoBehaviour's implicit-bool null check (CardSource : MonoBehaviour);
+                                    // the mirror CardSource is a plain class, so the equivalent is `!= null`.
+                                    if (permanent.LinkedCards.Find(x => cardConditions[j](x)) != null)
                                     {
                                         return true;
                                     }

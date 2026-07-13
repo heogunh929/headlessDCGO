@@ -42,7 +42,7 @@ public static class PermanentEffectFactory
         var effect = new CardEffects.CanNotSwitchAttackTargetClass();
         effect.SetUpICardEffect(
             "This Digimon's attack target can't be switched.",
-            () => CardEffectCommons.CardEffectCommons.IsExistOnBattleArea(topCard)
+            (System.Collections.Hashtable _) => CardEffectCommons.CardEffectCommons.IsExistOnBattleArea(topCard)
                 && CardEffectCommons.CardEffectCommons.IsOwnerTurn(topCard),
             topCard);
         effect.SetUpCanNotSwitchAttackTargetClass(

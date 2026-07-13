@@ -42,7 +42,7 @@ public class ChangeCostClass : ICardEffect, IChangeCostEffect
                             {
                                 if (newCost < cost)
                                 {
-                                    if (!cardSource.Owner.CanReduceCost(targetPermanents, cardSource))
+                                    if (!new Player(cardSource.Context, cardSource.Owner).CanReduceCost(targetPermanents, cardSource))
                                     {
                                         newCost = cost;
                                     }
