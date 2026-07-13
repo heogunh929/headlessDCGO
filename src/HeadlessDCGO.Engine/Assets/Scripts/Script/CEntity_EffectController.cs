@@ -301,7 +301,14 @@ public class EmptyEffectClass : CEntity_Effect
 }
 
 /// <summary>(FOUNDATION, not AS-IS) Per-match, per-card-instance store backing
-/// <see cref="CardSource.cEntity_EffectController"/> — see this file's header ("PER-INSTANCE STORE").</summary>
+/// <see cref="CardSource.cEntity_EffectController"/> — see this file's header ("PER-INSTANCE STORE").
+/// (P6 stage A) The controller's <see cref="CEntity_EffectController.cEntity_Effect"/> is now POPULATED on
+/// creation from <see cref="CardEffectDispatch.TryCreateForCard"/> — the mirror of the AS-IS setup-time
+/// reflection attach (AS-IS CEntity_EffectController.cs:179-241 <c>AddCardEffect</c>: every card GameObject
+/// carries its effect component from game start, so <c>CardSource.EffectList(timing)</c> enumerates LIVE for
+/// any card in any zone — the flip's enumeration model, replacing enter-play binding registration as the
+/// availability source). An un-ported card gets no component (the AS-IS <c>EmptyEffectClass</c> fallback is
+/// behaviourally the null component: <c>GetCardEffects_ExceptAddedEffects</c> returns empty either way).</summary>
 public static class CEntity_EffectControllerStore
 {
     private static readonly ConditionalWeakTable<EngineContext, ConcurrentDictionary<HeadlessEntityId, CEntity_EffectController>> ByContext = new();
@@ -310,6 +317,23 @@ public static class CEntity_EffectControllerStore
     {
         ConcurrentDictionary<HeadlessEntityId, CEntity_EffectController> perContext =
             ByContext.GetOrCreateValue(context);
-        return perContext.GetOrAdd(instanceId, static _ => new CEntity_EffectController());
+        return perContext.GetOrAdd(instanceId, id => Create(context, id));
+    }
+
+    private static CEntity_EffectController Create(EngineContext context, HeadlessEntityId instanceId)
+    {
+        var controller = new CEntity_EffectController();
+        if (!instanceId.IsEmpty
+            && context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance)
+            && instance is not null
+            && context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def)
+            && def is not null
+            && CardEffectDispatch.TryCreateForCard(def, out CEntity_Effect? effect)
+            && effect is not null)
+        {
+            controller.cEntity_Effect = effect;
+        }
+
+        return controller;
     }
 }

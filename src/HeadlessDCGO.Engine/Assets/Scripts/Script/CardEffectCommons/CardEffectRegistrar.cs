@@ -107,7 +107,12 @@ public static class CardEffectRegistrar
         // and wrongly cap the effect on re-entry. Reset only THIS card's counts (others untouched). A first-time
         // play removes 0.
         context.OnceFlags.ResetForCard(instance.OwnerId, instanceId);
-        RegisterOnEnterPlay(context, effect, def.CardNumber, new CardSource(context, instanceId, controller, instance.OwnerId));
+        var card = new CardSource(context, instanceId, controller, instance.OwnerId);
+        // (P6 stage A) the NEW-model per-turn cap lives on the per-instance CEntity_EffectController
+        // (UseEffectsThisTurn) — reset it alongside the legacy OnceFlags reset, mirroring the same AS-IS
+        // CardSource.Init() → InitUseCountThisTurn() anchor (CardSource re-entering play re-inits).
+        card.cEntity_EffectController.InitUseCountThisTurn();
+        RegisterOnEnterPlay(context, effect, def.CardNumber, card);
         return true;
     }
 
@@ -152,13 +157,20 @@ public static class CardEffectRegistrar
         int index = 0;
         foreach (ICardEffect cardEffect in effect.CardEffects(EffectTiming.None, card))
         {
-            if (cardEffect is IActivatedCardEffect)
+            // Activated effects never lower to a continuous request — legacy marker (IActivatedCardEffect)
+            // or new-model AS-IS contract (ActivateICardEffect) alike.
+            if (cardEffect is IActivatedCardEffect or ActivateICardEffect)
             {
                 continue;
             }
 
-            EffectBinding binding = cardEffect.ToBinding($"faceupsec:{instanceId.Value}:{def.CardNumber}:None:{index++}");
-            if (binding.HasRole(EffectQueryRole.Continuous) && binding.QueryScopes.Contains(scope, StringComparer.Ordinal))
+            // (P6 stage A) LEGACY-BRIDGE lowering only: an old-model effect still lowers to its EffectBinding
+            // (byte-identical to the pre-flip path); a NEW-model kind-class effect has no ToBinding — it is
+            // served by the live is-interface scan (stage B), so it contributes no request here.
+            if (LegacyBindingBridge.TryToBinding(cardEffect, $"faceupsec:{instanceId.Value}:{def.CardNumber}:None:{index++}", out EffectBinding? binding)
+                && binding is not null
+                && binding.HasRole(EffectQueryRole.Continuous)
+                && binding.QueryScopes.Contains(scope, StringComparer.Ordinal))
             {
                 requests.Add(binding.Request);
             }
@@ -184,15 +196,28 @@ public static class CardEffectRegistrar
         {
             foreach (ICardEffect cardEffect in effect.CardEffects(timing, card))
             {
-                // Activated / choice effects are resolved via the activation flow, not auto-registered.
-                if (cardEffect is IActivatedCardEffect)
+                // Activated / choice effects are resolved via the activation flow, not auto-registered —
+                // legacy marker (IActivatedCardEffect) or new-model AS-IS contract (ActivateICardEffect) alike
+                // (AS-IS has NO enter-play registration at all: availability is the live EffectList scan,
+                // AutoProcessing.cs:770-887).
+                if (cardEffect is IActivatedCardEffect or ActivateICardEffect)
                 {
                     continue;
                 }
 
-                EffectBinding binding = cardEffect.ToBinding($"{card.InstanceId.Value}:{cardNumber}:{timing}:{index++}");
-                context.EffectRegistry.Register(binding);
-                registered.Add(binding);
+                // (P6 stage A) LEGACY-BRIDGE lowering only: an old-model effect keeps its EffectBinding
+                // registration (byte-identical path — the stage-B gate consumers still scan the registry). A
+                // NEW-model kind-class effect (IChangeDPEffect/… over the abstract ICardEffect) has no
+                // ToBinding and registers NOTHING: its availability is the live per-card
+                // CardEffects(timing, card) enumeration, which the stage-B is-interface scan reads. Until
+                // stage B lands, new-model continuous effects are intentionally invisible to the old gates
+                // (documented RED — rebuild_p6_stageA_notes.md §5).
+                if (LegacyBindingBridge.TryToBinding(cardEffect, $"{card.InstanceId.Value}:{cardNumber}:{timing}:{index++}", out EffectBinding? binding)
+                    && binding is not null)
+                {
+                    context.EffectRegistry.Register(binding);
+                    registered.Add(binding);
+                }
             }
         }
 

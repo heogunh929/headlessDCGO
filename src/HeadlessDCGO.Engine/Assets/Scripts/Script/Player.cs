@@ -13,10 +13,12 @@ using HeadlessDCGO.Engine.Headless.Services;
 ///
 /// SCOPE: only the members with a clean, verified delegate are exposed. AS-IS Player members that have NO
 /// headless delegate (CanAddMemory — the CannotAddMemory scan is private to the mutation sink; CanReduceCost —
-/// no CannotReduceCostKey; IsEmptyFrame/IsBattleAreaFrame — no frame/slot model, zones are lists; EffectList —
-/// effects are modeled via EffectRegistry, not per-player bag lists) are deliberately NOT stubbed here (a
-/// compile-error on a missing method is a better card-port signal than a compiles-then-throws surface). Those
-/// are tracked as design items MIG5-CANADDMEMORY / MIG5-CANREDUCECOST / MIG5-FRAME-MODEL / MIG5-PLAYER-EFFECTLIST.</summary>
+/// no CannotReduceCostKey; IsEmptyFrame/IsBattleAreaFrame — no frame/slot model, zones are lists) are
+/// deliberately NOT stubbed here (a compile-error on a missing method is a better card-port signal than a
+/// compiles-then-throws surface). Those are tracked as design items MIG5-CANADDMEMORY / MIG5-CANREDUCECOST /
+/// MIG5-FRAME-MODEL. (P6 stage A: <see cref="EffectList"/> is now a REAL member — the flip's live collection
+/// scan requires the AS-IS shape — backed by the not-yet-existing new-model player-grant store, so it returns
+/// empty; design item P6A-PLAYER-EFFECTLIST supersedes MIG5-PLAYER-EFFECTLIST.)</summary>
 public sealed class Player
 {
     public Player(EngineContext context, HeadlessPlayerId playerId)
@@ -100,6 +102,56 @@ public sealed class Player
                 .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
                 .ToList();
         }
+    }
+
+    /// <summary>(P6 stage A) AS-IS <c>Player.TrashCards</c> (Player.cs:510, a public list field) — this
+    /// player's trash as live <see cref="CardSource"/> views (same zone-read shape as <see cref="HandCards"/>).
+    /// Consumed by the flip's live collection scan (AS-IS AutoProcessing.GetSkillInfos, AutoProcessing.cs:817)
+    /// and CEntity_EffectController's added-effect scan.</summary>
+    public List<CardSource> TrashCards
+    {
+        get
+        {
+            if (Context.ZoneMover is not IZoneStateReader zones)
+            {
+                return new List<CardSource>();
+            }
+
+            return zones.GetCards(PlayerId, ChoiceZone.Trash).ToArray()
+                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
+                .ToList();
+        }
+    }
+
+    /// <summary>(P6 stage A) AS-IS <c>Player.SecurityCards</c> (Player.cs:518, a public list field) — this
+    /// player's security stack as live <see cref="CardSource"/> views. Scan sites filter on
+    /// <c>IsFlipped</c> themselves (AS-IS GetSkillInfos AutoProcessing.cs:860-863, CEntity_EffectController.cs).</summary>
+    public List<CardSource> SecurityCards
+    {
+        get
+        {
+            if (Context.ZoneMover is not IZoneStateReader zones)
+            {
+                return new List<CardSource>();
+            }
+
+            return zones.GetCards(PlayerId, ChoiceZone.Security).ToArray()
+                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
+                .ToList();
+        }
+    }
+
+    /// <summary>(P6 stage A) AS-IS <c>Player.EffectList(EffectTiming)</c> (Player.cs:830) — the effects
+    /// GRANTED to this player (AS-IS PermanentEffects / UntilEndBattleEffects / UntilEachTurnEndEffects /…
+    /// buckets fed by GiveEffectToPlayer). The mirror has NO new-model player-grant store yet: every current
+    /// player-scope grant lowers to a substrate <c>EffectBinding</c> (GiveEffectToPlayer bridge → registry),
+    /// which the legacy gates read — so the NEW-model list is empty today. design item P6A-PLAYER-EFFECTLIST
+    /// (docs/audit/rebuild_p6_stageA_notes.md): port the AS-IS grant buckets when GiveEffectToPlayer flips to
+    /// storing live ICardEffects.</summary>
+    public List<ICardEffect> EffectList(EffectTiming timing)
+    {
+        _ = timing;
+        return new List<ICardEffect>();
     }
 
     private List<Permanent> GetZonePermanents(ChoiceZone zone)

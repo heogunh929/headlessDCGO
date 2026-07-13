@@ -59,6 +59,7 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -746,4 +747,362 @@ public sealed class AutoProcessing
             yield return new Permanent(_context, cardId, player);
         }
     }
+
+    // ============================================================================================================
+    // (P6 stage A) AS-IS trigger-stack half — the flip's LIVE collection primitives (no central registry: every
+    // pass re-enumerates the game state; see docs/audit/rebuild_p6_stageA_notes.md §1). 1:1 ports of AS-IS
+    // AutoProcessing.cs:24 (StackedSkillInfos) / :57-118 (PutStackedSkill) / :770-887 (GetSkillInfos) /
+    // :893-978 (ActivateBackgroundEffects) / :984-989 (StackSkillInfos). Substrate translation: coroutine →
+    // async Task, StartCoroutine(X) → await X. The stacked list is NOT yet drained by the window loop (the
+    // mirror WindowResolver collects its own queued-event seed) — design item P6A-STACKED-DRAIN; today the only
+    // engine caller is the Activate_Effect_Execute tail (StackSkillInfos(null, AfterEffectsActivate),
+    // AS-IS ICardEffect.cs:1283), and 0 ported cards return AfterEffectsActivate effects, so nothing stacks.
+    // ============================================================================================================
+
+    #region effect stack (AS-IS AutoProcessing.cs:24)
+    public List<SkillInfo> StackedSkillInfos { get; set; } = new List<SkillInfo>();
+    #endregion
+
+    #region put the effect on the stack
+
+    // AS-IS AutoProcessing.cs:57-118.
+    public void PutStackedSkill(SkillInfo skillInfo)
+    {
+        if (skillInfo == null) return;
+        if (skillInfo.CardEffect == null) return;
+        if (skillInfo.CardEffect.EffectSourceCard == null) return;
+        if (!(skillInfo.CardEffect is ActivateICardEffect)) return;
+
+        CardSource card = skillInfo.CardEffect.EffectSourceCard;
+        // ADAPTATION (2): AS-IS `card.PermanentOfThisCard()` returns a Permanent; the mirror accessor returns a
+        // PermanentView — bridge via ICardEffect.ResolvePermanentOfThisCard (null when off-field, as AS-IS).
+        Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(card);
+
+        if (!skillInfo.CardEffect.IsOptionEffect) //If explicitly set to be an option effect, override setting it to any other kind
+        {
+            //Inherited and Link effects can only ever be digimon effects
+            if (skillInfo.CardEffect.IsInheritedEffect || skillInfo.CardEffect.IsLinkedEffect)
+            {
+                skillInfo.CardEffect.SetIsDigimonEffect(true);
+            }
+            else
+            {
+                #region set the flag whether it is Digimon's effect
+                if (permanent != null)
+                {
+                    if (permanent.IsDigimon)
+                    {
+                        skillInfo.CardEffect.SetIsDigimonEffect(true);
+                    }
+                }
+
+                // ADAPTATION (gap1 SECURITYDIGIMON): AS-IS `card == GManager.instance.attackProcess.SecurityDigimon`
+                // compares CardSources; the mirror AttackProcess.SecurityDigimon is the card INSTANCE id.
+                if (GManager.instance.attackProcess.SecurityDigimon is { } securityDigimon && card.InstanceId == securityDigimon)
+                {
+                    skillInfo.CardEffect.SetIsDigimonEffect(true);
+                }
+                #endregion
+
+                #region set the flag whether it is Tamer's effect
+                if (permanent != null)
+                {
+                    if (permanent.IsTamer)
+                    {
+                        skillInfo.CardEffect.SetIsTamerEffect(true);
+                    }
+                }
+
+                else if (card.IsTamer)
+                {
+                    skillInfo.CardEffect.SetIsTamerEffect(true);
+                }
+                #endregion
+            }
+        }
+
+        #region set permanent and topCard when triggered
+        ((ActivateICardEffect)skillInfo.CardEffect).PermanentWhenTriggered = permanent;
+
+        if (permanent != null)
+        {
+            ((ActivateICardEffect)skillInfo.CardEffect).TopCardWhenTriggered = permanent.TopCard;
+        }
+        #endregion
+
+        StackedSkillInfos.Add(skillInfo);
+    }
+
+    #endregion
+
+    #region Get skill infos
+
+    // AS-IS AutoProcessing.cs:770-887 — the LIVE collection scan (players' granted effects, field permanents,
+    // trash, hand, non-flipped security), filter `is ActivateICardEffect` && !IsBackgroundProcess &&
+    // CanTrigger(hashtable).
+    public static List<SkillInfo> GetSkillInfos(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
+    {
+        List<SkillInfo> skillInfos = new List<SkillInfo>();
+
+        #region player effect
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (ICardEffect cardEffect in player.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (!cardEffect.IsBackgroundProcess)
+                    {
+                        if (cardEffect.CanTrigger(hashtable))
+                        {
+                            skillInfos.Add(new SkillInfo(cardEffect, hashtable, timing));
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Effects of permanents in play
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (!cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                skillInfos.Add(new SkillInfo(cardEffect, hashtable, timing));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Trash card effect
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (CardSource cardSource in player.TrashCards)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (!cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                skillInfos.Add(new SkillInfo(cardEffect, hashtable, timing));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Effects of cards in hand
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (CardSource cardSource in player.HandCards)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (!cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                skillInfos.Add(new SkillInfo(cardEffect, hashtable, timing));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Effects of faceup security
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (source.IsFlipped)
+                    continue;
+
+                foreach (ICardEffect cardEffect in source.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (!cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                skillInfos.Add(new SkillInfo(cardEffect, hashtable, timing));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        return skillInfos;
+    }
+
+    #endregion
+
+    #region Activate background effects
+
+    // AS-IS AutoProcessing.cs:893-978 — a background (`IsBackgroundProcess`) effect activates IMMEDIATELY at
+    // stack time: CanUse gate → RegisterUseEffectThisTurn → Activate(hashtable). Same zone scan order as
+    // GetSkillInfos minus the security region (AS-IS scans player/field/trash/hand only here).
+    public static async Task ActivateBackgroundEffects(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
+    {
+        #region Player effect
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (ICardEffect cardEffect in player.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.IsBackgroundProcess)
+                    {
+                        if (cardEffect.CanUse(hashtable))
+                        {
+                            cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+                            await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Effects of permanents in play
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanUse(hashtable))
+                            {
+                                cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Trash card effect
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (CardSource cardSource in player.TrashCards)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanUse(hashtable))
+                            {
+                                cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region Effects of cards in hand
+        foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+        {
+            foreach (CardSource cardSource in player.HandCards)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanUse(hashtable))
+                            {
+                                cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+    }
+
+    #endregion
+
+    #region Stack skillInfos
+
+    // AS-IS AutoProcessing.cs:984-989.
+    public async Task StackSkillInfos(Hashtable hashtable, EffectTiming timing, Func<ICardEffect, bool> cardEffectCondition = null)
+    {
+        GetSkillInfos(hashtable, timing, cardEffectCondition).ForEach(skillInfo => PutStackedSkill(skillInfo));
+
+        await ActivateBackgroundEffects(hashtable, timing, cardEffectCondition);
+    }
+
+    #endregion
+
+    #region Activate effect process
+
+    public ICardEffect MainProcessingEffect { get; private set; } = null;
+    List<ICardEffect> _usedCutinEffects = new List<ICardEffect>();
+
+    // AS-IS AutoProcessing.cs:1063-1088 — the stacked-skill EXECUTION entry: per-pass `CanActivate(hashtable)
+    // || IsDeclarative` gate, then Activate_Optional_Effect_Execute (the AS-IS Optional→Effect→Execute flow).
+    public async Task ActivateEffectProcess(ICardEffect cardEffect, Hashtable hashtable, bool isCheckOptional = true)
+    {
+        if (cardEffect == null) return;
+        if (!(cardEffect is ActivateICardEffect)) return;
+
+        if (cardEffect.CanActivate(hashtable) || cardEffect.IsDeclarative)
+        {
+            bool isEffectProcessing = MainProcessingEffect != null;
+
+            if (!isEffectProcessing)
+            {
+                MainProcessingEffect = cardEffect;
+
+                _usedCutinEffects = new List<ICardEffect>();
+            }
+
+            await ((ActivateICardEffect)cardEffect).Activate_Optional_Effect_Execute(hashtable, isCheckOptional);
+
+            if (!isEffectProcessing)
+            {
+                MainProcessingEffect = null;
+
+                _usedCutinEffects = new List<ICardEffect>();
+            }
+        }
+    }
+
+    #endregion
 }

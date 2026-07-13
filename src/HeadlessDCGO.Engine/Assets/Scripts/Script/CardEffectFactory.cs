@@ -162,10 +162,8 @@ public static partial class CardEffectFactory
 
     // (P4 slice) ChangeSAttackStaticEffect moved to CardEffectFactory/ChangeSAttack.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-W3) <c>ReturnToLibraryBottomDigivolutionCardsClass</c> — returns the host's own
-    /// digivolution (under-)cards to the bottom of the deck (activated).</summary>
-    public static IActivatedCardEffect ReturnToLibraryBottomDigivolutionCardsClass(CardSource card, int count) =>
-        new ReturnSelfDigivolutionCardsToDeckEffect(card, count, "Return this Digimon's digivolution cards to the bottom of the deck.");
+    // (P6 stage A retirement) mirror-invented `ReturnToLibraryBottomDigivolutionCardsClass` DELETED — 0
+    // consumers remained (grep: no card, no Tfx, no test); the AS-IS-named factory lives in the partial layer.
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:599
     // ReplaceBottomSecurityWithFaceUpOptionMainEffect. Replaces the old mirror-invented
@@ -656,11 +654,8 @@ public static partial class CardEffectFactory
 
     // (P4 slice) CanNotBeAttackedSelfStaticEffect moved to CardEffectFactory/CanNotBeAttacked.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-W4) <c>RevealLibraryClass</c> — reveals the top <paramref name="revealCount"/> cards of
-    /// the owner's deck. In the full-information headless model a pure reveal has no hidden-state change, so
-    /// this is an informational primitive; any follow-up act on the revealed cards is authored per-card.</summary>
-    public static IActivatedCardEffect RevealLibraryClass(CardSource card, int revealCount) =>
-        new InformationalRevealEffect(card, revealCount, $"Reveal the top {revealCount} card(s) of your deck.");
+    // (P6 stage A retirement) mirror-invented `RevealLibraryClass` DELETED — 0 consumers remained
+    // (grep: no card, no Tfx, no test).
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:551 ActivateMainOptionSecurityEffect
     // (ADDED — absent on mirror). Func<ICardEffect,IEnumerator>->Func<ICardEffect,Task>; IEnumerator->async Task;

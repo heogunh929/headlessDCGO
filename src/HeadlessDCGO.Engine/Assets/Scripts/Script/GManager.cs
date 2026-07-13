@@ -90,9 +90,10 @@ public sealed class GManager
     ///
     /// Supported T (bridge W4): <see cref="Assets.Scripts.Script.SelectPermanentEffect"/> and
     /// <see cref="Assets.Scripts.Script.SelectCardEffect"/> (the two the AS-IS-verbatim card corpus reaches via
-    /// this path today — BT1_011/017/023/092/094). Any other T throws (STOP, design item RD-W4-3 in
-    /// docs/audit/rebuild_bridge_w4_notes.md): the AS-IS <c>OptionalSkill</c> mirror file declares no type at
-    /// all (its SelectOptional yes/no flow is WindowResolver territory), and the other AS-IS components
+    /// this path today — BT1_011/017/023/092/094), plus (P6 stage A)
+    /// <see cref="Assets.Scripts.Script.OptionalSkill"/> (the Activate_Optional yes/no prompt,
+    /// ICardEffect.cs:1054). Any other T throws (STOP, design item RD-W4-3 in
+    /// docs/audit/rebuild_bridge_w4_notes.md): the other AS-IS components
     /// (SelectAssemblyClass, SelectCountEffect, SelectDigiXrosClass, Effects, …) either have non-component
     /// mirror shapes or no mirror — grow this switch as bridge batches land them, never silently.</summary>
     public T GetComponent<T>() where T : class
@@ -114,6 +115,14 @@ public sealed class GManager
             var selectCardEffect = new Assets.Scripts.Script.SelectCardEffect();
             selectCardEffect.AttachContext(_context);
             created = selectCardEffect;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.OptionalSkill))
+        {
+            // (P6 stage A) the AS-IS optional yes/no prompt (ICardEffect.cs:1054 Activate_Optional →
+            // OptionalSkill.SelectOptional) — now a real mirror component (Script/OptionalSkill.cs).
+            var optionalSkill = new Assets.Scripts.Script.OptionalSkill();
+            optionalSkill.AttachContext(_context);
+            created = optionalSkill;
         }
         else
         {

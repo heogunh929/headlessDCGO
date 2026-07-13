@@ -188,6 +188,134 @@ public sealed class Permanent
         }
     }
 
+    /// <summary>(P6 stage A) AS-IS <c>Permanent.cardSources</c> (Permanent.cs:880) — ALL cards of this
+    /// permanent: the top card, the digivolution sources AND the linked cards
+    /// (AS-IS <c>DigivolutionCards = cardSources.Filter(c != TopCard &amp;&amp; !LinkedCards.Contains(c))</c>,
+    /// Permanent.cs:888). Order mirrors the AS-IS list: top card at index 0 (AS-IS
+    /// <c>AddDigivolutionCardsTop</c> inserts new sources at index 1 — directly under the top), then the
+    /// digivolution sources TOP-MOST FIRST (the reverse of the substrate <see cref="DigivolutionCards"/> view,
+    /// whose stack read yields bottom→top), then the linked cards (AS-IS AddLinkCard appends). Consumed by the
+    /// flip's per-card effect-membership scans (CEntity_EffectController.GetCardEffects,
+    /// AS-IS CEntity_EffectController.cs:29-168) and gates like <c>cardSources.Contains(card)</c>.</summary>
+    public List<CardSource> cardSources
+    {
+        get
+        {
+            var all = new List<CardSource> { TopCard };
+            IReadOnlyList<CardSource> under = DigivolutionCards;
+            for (int i = under.Count - 1; i >= 0; i--)
+            {
+                all.Add(under[i]);
+            }
+
+            all.AddRange(LinkedCards);
+            return all;
+        }
+    }
+
+    // ===== (P6 stage A) AS-IS Permanent.EffectList family (Permanent.cs:1373-1573) — the flip's live
+    // per-permanent effect enumeration (consumed by AutoProcessing.GetSkillInfos, AS-IS AutoProcessing.cs:795).
+
+    /// <summary>AS-IS <c>Permanent.EffectList(EffectTiming)</c> (Permanent.cs:1373-1376).</summary>
+    public List<ICardEffect> EffectList(EffectTiming timing)
+    {
+        return EffectList_ForCard(timing, TopCard);
+    }
+
+    /// <summary>AS-IS <c>Permanent.EffectList_Added(EffectTiming)</c> (Permanent.cs:1380-1492) — the effects
+    /// GRANTED to this permanent (AS-IS UntilOwnerDrawPhase/UntilOwnerTurnEnd/UntilEachTurnEnd/…/
+    /// PermanentEffects buckets fed by GiveEffectToPermanent). The mirror has NO new-model permanent-grant
+    /// store yet: every current grant lowers to a substrate <c>EffectBinding</c> (GiveEffectToPermanent bridge
+    /// → registry) which the legacy gates read — so the NEW-model list is empty today. design item
+    /// P6A-PERMANENT-EFFECTLIST-ADDED (docs/audit/rebuild_p6_stageA_notes.md). (AS-IS tail backfills
+    /// <c>SetEffectSourceCard(TopCard)</c> + <c>SetIsInheritedEffect(false)</c> on each granted effect —
+    /// preserved here for when the store lands.)</summary>
+    public List<ICardEffect> EffectList_Added(EffectTiming timing)
+    {
+        _ = timing;
+        return new List<ICardEffect>();
+    }
+
+    /// <summary>AS-IS <c>Permanent.EffectList_ForCard(EffectTiming, CardSource)</c> (Permanent.cs:1495-1573):
+    /// the per-card membership split — a flipped source contributes nothing; a NON-top source requires a
+    /// Digimon host and contributes only its <c>IsInheritedEffect</c> effects (plus <c>IsLinkedEffect</c>
+    /// effects of a linked card); the TOP card contributes only its non-inherited, non-linked effects. Then
+    /// the granted effects (<see cref="EffectList_Added"/>) and the <c>SetEffectSourceCard</c> back-fill.</summary>
+    public List<ICardEffect> EffectList_ForCard(EffectTiming timing, CardSource _cardSource)
+    {
+        List<ICardEffect> _EffectList = new List<ICardEffect>();
+
+        if (TopCard != null && _cardSource != null)
+        {
+            foreach (CardSource cardSource in cardSources)
+            {
+                if (cardSource != null)
+                {
+                    if (!cardSource.IsFlipped)
+                    {
+                        bool isTopCard = cardSource == TopCard;
+
+                        if (!isTopCard)
+                        {
+                            if (!IsDigimon)
+                            {
+                                continue;
+                            }
+                        }
+
+                        foreach (ICardEffect cardEffect in cardSource.cEntity_EffectController.GetCardEffects(timing, cardSource))
+                        {
+                            if (cardEffect != null)
+                            {
+                                #region Entity, Inherited and Link effects
+
+                                if (cardEffect.IsInheritedEffect && !isTopCard)
+                                {
+                                    _EffectList.Add(cardEffect);
+                                    continue;
+                                }
+
+                                if (cardEffect.IsLinkedEffect && cardSource.IsLinked)
+                                {
+                                    _EffectList.Add(cardEffect);
+                                    continue;
+                                }
+
+                                if (isTopCard && !cardEffect.IsInheritedEffect && !cardEffect.IsLinkedEffect)
+                                {
+                                    _EffectList.Add(cardEffect);
+                                }
+
+                                #endregion
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in EffectList_Added(timing))
+            {
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (ICardEffect cardEffect in _EffectList)
+            {
+                if (cardEffect != null)
+                {
+                    if (cardEffect.EffectSourceCard == null)
+                    {
+                        cardEffect.SetEffectSourceCard(_cardSource);
+                    }
+                }
+            }
+        }
+
+        return _EffectList;
+    }
+
     private int BaseDp() =>
         _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
         && i.Metadata.TryGetValue("dp", out object? raw) && raw is int dp ? dp : 0;

@@ -1,5 +1,6 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -43,13 +44,20 @@ public static class ActivatedEffectResolver
     /// (<paramref name="inheritedScan"/> == true) keeps only INHERITED activated effects (AS-IS a NON-TOP source
     /// contributes only its <c>IsInheritedEffect</c> effects), a TOP scan (false — the default for every
     /// non-bridge caller: option / security / declaration / on-play / digivolve) keeps only NON-inherited effects
-    /// (AS-IS the top card contributes only its non-inherited effects). Inherited-ness lives on the uniform
-    /// <see cref="ActivatedEffect.IsInheritedEffect"/> flag; a non-uniform <see cref="IActivatedCardEffect"/>
-    /// carries no inherited flag, so it counts as NON-inherited (a top/main effect) — matching the accepted
-    /// uniform-migration gap (no non-uniform inherited activated effect is ported). Behaviour-neutral for the
-    /// default (false) path: no effect ported before this flag is inherited, so the top scan keeps them all.</summary>
+    /// (AS-IS the top card contributes only its non-inherited effects).
+    /// (P6 stage A) inherited-ness now reads the AS-IS base flag <see cref="ICardEffect.IsInheritedEffect"/> for
+    /// a NEW-model effect (cards call <c>SetIsInheritedEffect(true)</c> verbatim); the LEGACY uniform
+    /// <see cref="ActivatedEffect"/> keeps its own hiding property (read through the concrete type), and any
+    /// other legacy type carries no flag (base false = non-inherited, matching the accepted uniform-migration
+    /// gap). Linked-effect membership (AS-IS <c>IsLinkedEffect</c> branch) stays the C2-01 latent.</summary>
     private static bool MembershipKeeps(ICardEffect effect, bool inheritedScan) =>
-        (effect is ActivatedEffect ae && ae.IsInheritedEffect) == inheritedScan;
+        (effect is ActivatedEffect ae ? ae.IsInheritedEffect : effect.IsInheritedEffect) == inheritedScan;
+
+    /// <summary>(P6 stage A) Whether the effect is ACTIVATED — the legacy marker
+    /// (<see cref="IActivatedCardEffect"/>, old-model corpus) or the AS-IS contract
+    /// (<see cref="ActivateICardEffect"/>, the new-model ActivateClass/kind classes — the AS-IS collection
+    /// filter <c>is ActivateICardEffect</c>, AutoProcessing.cs:780/799/…).</summary>
+    private static bool IsActivated(ICardEffect effect) => effect is IActivatedCardEffect or ActivateICardEffect;
 
     /// <summary>(Stage 5, 3b-iii) Whether the card has ANY activated effects registered at <paramref name="timing"/>.
     /// The window's unified-seed collect uses this so an activated-effect BRIDGE marker is only synthesised for a
@@ -72,7 +80,8 @@ public static class ActivatedEffectResolver
         }
 
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
-        return effect.CardEffects(timing, card).Count > 0;
+        using var scope = Headless.Bridge.AmbientMatchContext.Enter(context);
+        return card.EffectList(timing).Count > 0;
     }
 
     /// <summary>(A-2 / RD-6) Whether the card has any ACTIVATED effect (<see cref="IActivatedCardEffect"/>)
@@ -101,10 +110,14 @@ public static class ActivatedEffectResolver
         }
 
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
-        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        // (P6 stage A) live per-card enumeration through the AS-IS surface (CardSource.EffectList →
+        // cEntity_EffectController.GetCardEffects — includes IAddSkillEffect grants + EffectSourceCard
+        // back-fill), under the ambient match scope the GManager-based scan reads.
+        using var scope = Headless.Bridge.AmbientMatchContext.Enter(context);
+        IReadOnlyList<ICardEffect> effects = card.EffectList(timing);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is IActivatedCardEffect && MembershipKeeps(effects[i], inheritedScan))
+            if (IsActivated(effects[i]) && MembershipKeeps(effects[i], inheritedScan))
             {
                 return true;
             }
@@ -152,15 +165,30 @@ public static class ActivatedEffectResolver
         }
 
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
-        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        using var scope = Headless.Bridge.AmbientMatchContext.Enter(context);
+        IReadOnlyList<ICardEffect> effects = card.EffectList(timing);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is not IActivatedCardEffect || !MembershipKeeps(effects[i], inheritedScan))
+            if (!IsActivated(effects[i]) || !MembershipKeeps(effects[i], inheritedScan))
             {
                 continue;
             }
 
-            if (effects[i] is ActivatedEffect uniform)
+            if (effects[i] is ActivateICardEffect)
+            {
+                // (P6 stage A) NEW-model per-pass re-check = AS-IS `CanActivate(hashtable)` on the stacked
+                // skill (MultipleSkills.cs:122/164-165/366) — the cap + CanActivateCondition + disabled +
+                // inherited/linked liveness, over the SAME payload the emit threaded (rebuilt per timing).
+                // PermanentWhenTriggered is not stamped on this freshly-enumerated instance (the mirror window
+                // holds markers, not effect objects — design item P6A-STAMP-PERSISTENCE), so that AS-IS
+                // same-permanent re-check is skipped by its own null guard.
+                Hashtable? hashtable = ActivatedHashtableBridge.Build(context, timing, drivingEvent!, card);
+                if (effects[i].CanActivate(hashtable!))
+                {
+                    return true;
+                }
+            }
+            else if (effects[i] is ActivatedEffect uniform)
             {
                 if (uniform.CanResolveActivateHalf()
                     && context.OnceFlags.CanActivate(
@@ -203,15 +231,27 @@ public static class ActivatedEffectResolver
         }
 
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
-        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        using var scope = Headless.Bridge.AmbientMatchContext.Enter(context);
+        IReadOnlyList<ICardEffect> effects = card.EffectList(timing);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is not IActivatedCardEffect || !MembershipKeeps(effects[i], inheritedScan))
+            if (!IsActivated(effects[i]) || !MembershipKeeps(effects[i], inheritedScan))
             {
                 continue;
             }
 
-            if (effects[i] is ActivatedEffect uniform)
+            if (effects[i] is ActivateICardEffect)
+            {
+                // (P6 stage A) NEW-model collect gate = the AS-IS GetSkillInfos filter
+                // (AutoProcessing.cs:770-887): `is ActivateICardEffect && !IsBackgroundProcess &&
+                // CanTrigger(hashtable)` — the once-per-turn cap + CanUseCondition over the emit payload.
+                Hashtable? hashtable = ActivatedHashtableBridge.Build(context, timing, drivingEvent!, card);
+                if (!effects[i].IsBackgroundProcess && effects[i].CanTrigger(hashtable!))
+                {
+                    return true;
+                }
+            }
+            else if (effects[i] is ActivatedEffect uniform)
             {
                 CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
                 if (uniform.CanResolveUseHalf(resolveCtx)
@@ -255,15 +295,26 @@ public static class ActivatedEffectResolver
         }
 
         var card = new CardSource(context, cardInstanceId, controller, instance.OwnerId);
-        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        using var scope = Headless.Bridge.AmbientMatchContext.Enter(context);
+        IReadOnlyList<ICardEffect> effects = card.EffectList(timing);
         for (int i = 0; i < effects.Count; i++)
         {
-            if (effects[i] is not IActivatedCardEffect)
+            if (!IsActivated(effects[i]))
             {
                 continue;
             }
 
-            if (effects[i] is ActivatedEffect uniform)
+            if (effects[i] is ActivateICardEffect)
+            {
+                // (P6 stage A) NEW-model declaration legal-move gate = AS-IS Permanent.CanDeclareSkillList
+                // (Permanent.cs:1618): `EffectList(OnDeclaration)` filtered to ActivateICardEffect where
+                // `CanUse(null)` — hashtable is NULL on the declaration path (also TurnStateMachine.cs:1178).
+                if (effects[i].CanUse(null!))
+                {
+                    return true;
+                }
+            }
+            else if (effects[i] is ActivatedEffect uniform)
             {
                 CardEffectResolveContext resolveCtx = BuildUniformResolveContext(uniform, drivingEvent);
                 if (uniform.CanResolve(resolveCtx)
@@ -386,7 +437,12 @@ public static class ActivatedEffectResolver
         // Build the effect list BEFORE opening the cycle: a throw here (e.g. a runtime-STOP in a card's
         // CardEffects) must not leak an open cycle (the leak would make every later resolution a non-owner —
         // no commits — and desync the journal; 2026-07-11 re-review P2-3).
-        IReadOnlyList<ICardEffect> effects = effect.CardEffects(timing, card);
+        // (P6 stage A) live enumeration through the AS-IS surface (CardSource.EffectList) under the ambient
+        // match scope; the AS-IS emit payload for this timing is rebuilt once and threaded through the
+        // gates + Activate exactly as AS-IS threads the one hashtable object.
+        using var ambientScope = Headless.Bridge.AmbientMatchContext.Enter(context);
+        Hashtable? hashtable = ActivatedHashtableBridge.Build(context, timing, drivingEvent!, card);
+        IReadOnlyList<ICardEffect> effects = card.EffectList(timing);
         if (effectFilter is not null)
         {
             // (#13) e.g. re-run only the [Main] option effect, not every OptionSkill effect.
@@ -417,7 +473,7 @@ public static class ActivatedEffectResolver
         {
             resolved = await ResolveListAsync(
                 context, effect, card, players, sink, effects, cancellationToken, drivingEvent,
-                declarative: declarative, windowDispatched: windowDispatched).ConfigureAwait(false);
+                declarative: declarative, windowDispatched: windowDispatched, hashtable: hashtable, timing: timing).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is DeferredChoicePendingException or WindowChoicePendingException)
         {
@@ -446,13 +502,78 @@ public static class ActivatedEffectResolver
         CancellationToken cancellationToken,
         GameEvent? drivingEvent = null,
         bool declarative = false,
-        bool windowDispatched = false)
+        bool windowDispatched = false,
+        Hashtable? hashtable = null,
+        EffectTiming timing = EffectTiming.None)
     {
         int resolved = 0;
         foreach (ICardEffect cardEffect in cardEffects)
         {
             switch (cardEffect)
             {
+                case ActivateICardEffect activate:
+                {
+                    // ============================================================================================
+                    // (P6 stage A) NEW-MODEL execution — the AS-IS stacked-skill sequence, collapsed to the one
+                    // marker this resolution serves (window ORDERING stays with WindowResolver = the verified
+                    // MultipleSkills mirror; EXECUTION is the AS-IS flow):
+                    //   1. collect filter — AS-IS GetSkillInfos (AutoProcessing.cs:770-887): !IsBackgroundProcess
+                    //      && CanTrigger(hashtable). A WINDOW-dispatched marker already ran it at synthesis
+                    //      (CanCollectAt) and AS-IS never re-runs CanTrigger on a stacked skill; a DIRECT path
+                    //      (option play / on-play / declaration) collects-and-executes inline, so it runs here.
+                    //      The DECLARED [Main] path gates CanUse(null) at declaration instead
+                    //      (TurnStateMachine.cs:1178, CanDeclareAt) and is stacked declarative.
+                    //   2. stack stamping — AS-IS PutStackedSkill (AutoProcessing.cs:57-118): kind flags +
+                    //      PermanentWhenTriggered/TopCardWhenTriggered snapshot (then immediately un-stack, the
+                    //      MultipleSkills.Activate `StackedSkillInfos.Remove` of the executing skill).
+                    //   3. register-before-body — AS-IS MultipleSkills.cs:358-362: SetOnProcessCallbuck(() =>
+                    //      RegisterUseEffectThisTurn), fired inside Activate_Execute AFTER the optional gate
+                    //      (ICardEffect.cs:1116-1126). The DECLARED path registered at declaration already
+                    //      (TurnStateMachine.cs:1183-1186 for MaxCountPerTurn < 100). (SkillInfos_used journal =
+                    //      design item P6A-USED-JOURNAL.)
+                    //   4. execute — AS-IS ActivateEffectProcess (AutoProcessing.cs:1063-1088):
+                    //      `CanActivate(hashtable) || IsDeclarative` → Activate_Optional_Effect_Execute.
+                    // ============================================================================================
+                    var ce = (ICardEffect)activate;
+                    if (!windowDispatched && !declarative)
+                    {
+                        if (ce.IsBackgroundProcess || !ce.CanTrigger(hashtable!))
+                        {
+                            break;
+                        }
+                    }
+
+                    AutoProcessing autoProcessing = AutoProcessing.For(context);
+                    var skillInfo = new SkillInfo(ce, hashtable!, timing);
+                    // Stamp the effect via the 1:1 PutStackedSkill and immediately un-stack
+                    // (MultipleSkills.Activate removes the executing skill from StackedSkillInfos).
+                    autoProcessing.PutStackedSkill(skillInfo);
+                    autoProcessing.StackedSkillInfos.Remove(skillInfo);
+
+                    if (declarative)
+                    {
+                        // AS-IS declared path (TurnStateMachine.cs:1178-1192): CanUse(null) was the declaration
+                        // gate; SetIsDeclarative(true) + register-use BEFORE the run; ActivateEffectProcess then
+                        // bypasses its CanActivate with IsDeclarative.
+                        ce.SetIsDeclarative(true);
+                        if (ce.MaxCountPerTurn < 100)
+                        {
+                            ce.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(ce);
+                        }
+                    }
+                    else
+                    {
+                        ce.SetOnProcessCallbuck(() =>
+                        {
+                            ce.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(ce);
+                        });
+                    }
+
+                    await autoProcessing.ActivateEffectProcess(ce, hashtable!, isCheckOptional: true).ConfigureAwait(false);
+                    resolved++;
+                    break;
+                }
+
                 case ModeChoiceEffect mode:
                 {
                     // (PRIM-P0-flow) present the mode menu (available modes only), then dispatch the chosen
@@ -466,7 +587,8 @@ public static class ActivatedEffectResolver
                         {
                             ICardEffect branch = mode.BranchFor(available, result.SelectedIds[0]);
                             resolved += await ResolveListAsync(
-                                context, effectClass, card, players, sink, new[] { branch }, cancellationToken, drivingEvent).ConfigureAwait(false);
+                                context, effectClass, card, players, sink, new[] { branch }, cancellationToken, drivingEvent,
+                                hashtable: hashtable, timing: timing).ConfigureAwait(false);
                         }
                     }
 
@@ -516,17 +638,22 @@ public static class ActivatedEffectResolver
 
                             // The Digi-Burst body is either an ACTIVATED effect (draw/delete/trash — resolve it) or
                             // a CONTINUOUS grant (e.g. "your Digimon gain <keyword>" — register it, as at enter-play).
-                            if (burst.InnerEffect is IActivatedCardEffect)
+                            if (burst.InnerEffect is IActivatedCardEffect or ActivateICardEffect)
                             {
                                 resolved += await ResolveListAsync(
-                                    context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken).ConfigureAwait(false);
+                                    context, effectClass, burst.Card, players, sink, new[] { burst.InnerEffect }, cancellationToken,
+                                    hashtable: hashtable, timing: timing).ConfigureAwait(false);
                             }
-                            else
+                            else if (LegacyBindingBridge.TryToBinding(
+                                burst.InnerEffect,
+                                $"{burst.Card.InstanceId.Value}:digiburst:{burst.InnerEffect.GetType().Name}",
+                                out EffectBinding? innerBinding) && innerBinding is not null)
                             {
                                 // Journaled + deterministic id: a resumed replay of this already-performed
-                                // registration must not register a second binding.
-                                RunJournaledImmediate(context, () => context.EffectRegistry.Register(burst.InnerEffect.ToBinding(
-                                    $"{burst.Card.InstanceId.Value}:digiburst:{burst.InnerEffect.GetType().Name}")));
+                                // registration must not register a second binding. (P6 stage A: legacy lowering
+                                // via the reflective bridge — a NEW-model continuous grant would be a stage-B
+                                // live-scan effect, no registration.)
+                                RunJournaledImmediate(context, () => context.EffectRegistry.Register(innerBinding));
                             }
                         }
                     }
@@ -610,7 +737,11 @@ public static class ActivatedEffectResolver
                             var optCard = new CardSource(context, optionId, card.Controller, optInstance.OwnerId);
                             resolved += await ResolveListAsync(
                                 context, optEffect, optCard, players, sink,
-                                optEffect.CardEffects(EffectTiming.OptionSkill, optCard), cancellationToken).ConfigureAwait(false);
+                                optEffect.CardEffects(EffectTiming.OptionSkill, optCard), cancellationToken,
+                                // (P6 stage A) the nested option [Main] runs with the AS-IS option-main payload
+                                // {Card} (HashtableSetting.cs:264-271).
+                                hashtable: CardEffectCommons.OptionMainCheckHashtable(optCard),
+                                timing: EffectTiming.OptionSkill).ConfigureAwait(false);
                         }
                     }
 
@@ -969,7 +1100,9 @@ public static class ActivatedEffectResolver
                     resolved += await ResolveListAsync(
                         context, effectClass, card, players, sink,
                         effectClass.CardEffects(EffectTiming.OptionSkill, card).Where(IsMainOptionEffect).ToList(),
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        hashtable: CardEffectCommons.OptionMainCheckHashtable(card),
+                        timing: EffectTiming.OptionSkill).ConfigureAwait(false);
                     break;
                 }
 
@@ -980,7 +1113,9 @@ public static class ActivatedEffectResolver
                     // provider (same shape as ReuseMainOptionEffect, different timing).
                     resolved += await ResolveListAsync(
                         context, effectClass, card, players, sink,
-                        effectClass.CardEffects(EffectTiming.WhenDigivolving, card), cancellationToken).ConfigureAwait(false);
+                        effectClass.CardEffects(EffectTiming.WhenDigivolving, card), cancellationToken,
+                        hashtable: CardEffectCommons.WhenDigivolvingCheckHashtableOfCard(card),
+                        timing: EffectTiming.WhenDigivolving).ConfigureAwait(false);
                     break;
                 }
 
