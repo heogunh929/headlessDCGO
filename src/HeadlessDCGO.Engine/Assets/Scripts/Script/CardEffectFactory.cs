@@ -139,14 +139,57 @@ public static partial class CardEffectFactory
     public static ICardEffect CanNotAttackJointStaticEffect(Func<CardSource, CardSource?, bool> predicate, CardSource card, Func<bool>? condition = null) =>
         new JointRestrictionEffect(card, RestrictionHelpers.CannotAttackKey, predicate, condition);
 
-    /// <summary>(PRIM-W3) <c>Gain1MemoryTamerOpponentDigimonEffect(card)</c> — "[Start of Your Main Phase] if
-    /// your opponent has a Digimon, gain 1 memory." AS-IS description is <c>[Start of Your Main Phase]</c>, so it
-    /// registers at <see cref="EffectTiming.OnStartMainPhase"/> (emitted by MetadataActionProcessor at main-phase
-    /// entry) — NOT OnStartTurn, which fires earlier during unsuspend/draw.</summary>
-    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card) =>
-        new TriggeredGainMemoryEffect(card, EffectTiming.OnStartMainPhase, amount: 1,
-            "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.",
-            extraCondition: () => CardEffectCommons.MatchConditionPermanentCount(card, id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)) > 0);
+    // (R3-F1 fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:63 Gain1MemoryTamerOpponentDigimonEffect — was the
+    // mirror-invented TriggeredGainMemoryEffect; now the uniform ActivateClass (ActivateICardEffect, visible to the
+    // AS-IS window collection). Substrate: IEnumerator->async Task, StartCoroutine->await; AS-IS `card.Owner`
+    // (Player) -> mirror HeadlessPlayerId (memory extensions) / `new Player(context, owner)` for `.Enemy`.
+    public static ICardEffect Gain1MemoryTamerOpponentDigimonEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+
+        string EffectDiscription()
+        {
+            return "[Start of Your Main Phase] If your opponent has a Digimon, gain 1 memory.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass))
+            {
+                if (CardEffectCommons.IsOwnerTurn(card))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
+            {
+                if ((new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Count ?? 0) >= 1)
+                {
+                    if (card.Owner.CanAddMemory(activateClass))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        async Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            await card.Owner.AddMemory(1, activateClass);
+        }
+
+        return activateClass;
+    }
 
     /// <summary>(PRIM-W2 #9) AS-IS <c>Gain2MemoryOptionDelayEffect(card)</c> — a [Main] &lt;Delay&gt; option: TRASH
     /// this card's own battle-area permanent to activate, and ONLY IF trashed, gain 2 memory. 1:1 via
@@ -438,13 +481,38 @@ public static partial class CardEffectFactory
     /// NOT OnStartTurn.</summary>
     public static ICardEffect Gain1MemoryTamerOwnerDigimonConditionalEffect(string effectDescription, Func<Permanent, bool>? permanentCondition, Func<bool>? condition, CardSource card)
     {
-        // (FR2) The memory gain is CONDITIONAL on the owner controlling a Digimon matching permanentCondition
-        // (AS-IS). Fold that predicate into the trigger gate so it is not gained unconditionally.
-        Func<bool>? gate = permanentCondition is null
-            ? condition
-            : () => (condition is null || condition()) && OwnerControlsMatchingDigimon(card, permanentCondition);
-        return new TriggeredGainMemoryEffect(card, EffectTiming.OnStartMainPhase, amount: 1,
-            string.IsNullOrWhiteSpace(effectDescription) ? "[Start of Your Main Phase] Gain 1 memory." : effectDescription, extraCondition: gate);
+        // (R3-F1 fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:115 Gain1MemoryTamerOwnerDigimonConditionalEffect —
+        // was the mirror-invented TriggeredGainMemoryEffect; now the uniform ActivateClass. Substrate:
+        // IEnumerator->async Task, StartCoroutine->await; `card.Owner.AddMemory/CanAddMemory/GetBattleAreaDigimons`
+        // = HeadlessPlayerId extensions. AS-IS passes non-null `condition`/`permamentCondition`; the mirror
+        // signature made both nullable, so the nullable guards below are the retained pre-existing mirror ADAPTATION
+        // (a null predicate = "no extra gate"). The empty-description default is likewise the retained mirror guard.
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+
+        string EffectDiscription() =>
+            string.IsNullOrWhiteSpace(effectDescription) ? "[Start of Your Main Phase] Gain 1 memory." : effectDescription;
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass);
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass)
+                && card.Owner.CanAddMemory(activateClass)
+                && (condition is null || condition())
+                && (permanentCondition is null || card.Owner.GetBattleAreaDigimons().Any(permanentCondition));
+        }
+
+        async Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            await card.Owner.AddMemory(1, activateClass);
+        }
+
+        return activateClass;
     }
 
     /// <summary>(FR2) Whether <paramref name="card"/>'s owner controls at least one permanent in
@@ -1250,12 +1318,10 @@ public static partial class CardEffectFactory
     public static ICardEffect DigiBurstEffect(CardSource card, int count, ICardEffect innerEffect, string description) =>
         new DigiBurstActivatedEffect(card, count, innerEffect, description);
 
-    /// <summary>A triggered "[When ...] unsuspend this Digimon" effect (e.g. ST2_11). Pass
-    /// <paramref name="maxCountPerTurn"/> = 1 (+ <paramref name="hash"/> for the original SetHashString) to
-    /// mirror a [Once Per Turn] limit — enforced by the live trigger loop via <c>OnceFlagController</c>.</summary>
-    public static ICardEffect UnsuspendSelfTriggerEffect(EffectTiming timing, CardSource card, string description, int? maxCountPerTurn = null, string? hash = null,
-        Func<CardEffectResolveContext, bool>? triggerGate = null) =>
-        new TriggeredUnsuspendSelfEffect(card, timing, description, maxCountPerTurn, hash, triggerGate);
+    // (R3-F1 fold) mirror-invented wrapper `UnsuspendSelfTriggerEffect` (returned the invented
+    // TriggeredUnsuspendSelfEffect) DELETED — 0 live consumers remained (grep: no card / Tfx / test / engine call;
+    // its former card ST2_11 was re-ported). No AS-IS same-named helper exists to fold into, so removal (not a
+    // fold) zeroes the TriggeredUnsuspendSelfEffect reference. Class removed from TriggeredEffects.cs.
 
     /// <summary>An activated "gain/lose <paramref name="amount"/> memory" skill (Option [Main] / [Security],
     /// e.g. ST2_13).</summary>
@@ -1283,17 +1349,11 @@ public static partial class CardEffectFactory
         CardSource card, Func<HeadlessEntityId, bool> canTarget, int maxCount, EffectDuration duration, bool cannotAttack, bool cannotBlock, string description) =>
         new ActivatedTargetRestrictionEffect(card, canTarget, maxCount, duration, cannotAttack, cannotBlock, description);
 
-    /// <summary>A triggered "[When ...] this Digimon gets +<paramref name="changeValue"/> DP for
-    /// <paramref name="duration"/>" effect (e.g. ST3_01).</summary>
-    public static ICardEffect SelfDpBuffTriggerEffect(
-        EffectTiming timing, int changeValue, EffectDuration duration, CardSource card, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null) =>
-        new TriggeredSelfDpBuffEffect(card, timing, changeValue, duration, condition, description, triggerGate, maxCountPerTurn, hash);
-
-    /// <summary>A triggered "[When ...] &lt;Recovery +<paramref name="amount"/> (Deck)&gt;" effect (e.g. ST3_09).</summary>
-    public static ICardEffect RecoveryTriggerEffect(EffectTiming timing, int amount, CardSource card, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null) =>
-        new RecoverTriggerEffect(card, timing, amount, condition, description, triggerGate);
+    // (R3-F1 fold) mirror-invented wrappers `SelfDpBuffTriggerEffect` (returned TriggeredSelfDpBuffEffect) and
+    // `RecoveryTriggerEffect` (returned RecoverTriggerEffect) DELETED — 0 live consumers remained (grep: no
+    // card / Tfx / test / engine call; former cards ST3_01/ST4_04/BT2_002/BT2_012 and ST3_09 were re-ported). No
+    // AS-IS same-named helper exists to fold into, so removal (not a fold) zeroes the TriggeredSelfDpBuffEffect /
+    // RecoverTriggerEffect references. Both classes removed from TriggeredEffects.cs.
 
     /// <summary>An activated "select up to <paramref name="maxCount"/> Digimon and give each
     /// +<paramref name="changeValue"/> Security Attack for <paramref name="duration"/>" effect (e.g. ST3_15 [Main]).</summary>
