@@ -60,7 +60,7 @@ async Task ST1_13_BuffViaActivation()
     Scripted(context).Enqueue(ChoiceResult.Select(mine));
     await Activate(context, P1, option);
 
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 2000), "chosen Digimon +3000 DP");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "chosen Digimon +3000 DP");
 }
 
 // --- Helpers -------------------------------------------------------------

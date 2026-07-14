@@ -78,7 +78,7 @@ async Task AllianceDeclineGrantsNothing()
     AllianceAttackBoost.ResolveChoice(s.Match.Context, ChoiceResult.Skip());
 
     AssertFalse(ReadFlag(s.Match, ally, AllianceAttackBoost.IsSuspendedKey), "declining does not suspend the ally");
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(s.Match.Context, attacker, 3000), "attacker DP unchanged");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "attacker DP unchanged");
     AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(s.Match.Context, attacker, 1), "attacker SA unchanged");
 }
 
@@ -93,7 +93,7 @@ async Task AllianceSelectBuffsAttacker()
     AllianceAttackBoost.ResolveChoice(s.Match.Context, ChoiceResult.Select(ally));
 
     AssertTrue(ReadFlag(s.Match, ally, AllianceAttackBoost.IsSuspendedKey), "the chosen ally is suspended (cost)");
-    AssertEqual(8000, ContinuousDpGate.ResolveDp(s.Match.Context, attacker, 3000), "attacker gains +ally DP (3000+5000)");
+    AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "attacker gains +ally DP (3000+5000)");
     AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(s.Match.Context, attacker, 1), "attacker gains +1 Security Attack");
 }
 
@@ -106,11 +106,11 @@ async Task AllianceBuffExpiresAtAttackEnd()
     s.Match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
     AllianceAttackBoost.RequestChoice(s.Match.Context);
     AllianceAttackBoost.ResolveChoice(s.Match.Context, ChoiceResult.Select(ally));
-    AssertEqual(8000, ContinuousDpGate.ResolveDp(s.Match.Context, attacker, 3000), "buff applied before attack end");
+    AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "buff applied before attack end");
 
     EffectDurationExpiry.ExpireAttackEnd(s.Match.Context.EffectRegistry);
 
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(s.Match.Context, attacker, 3000), "DP buff expired at attack end");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "DP buff expired at attack end");
     AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(s.Match.Context, attacker, 1), "SA buff expired at attack end");
 }
 

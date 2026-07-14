@@ -59,5 +59,5 @@ int Resolve(int dpDelta, bool dontHaveDp)
         }
     }
 
-    return ContinuousDpGate.ResolveDp(ctx, id, Base);
+    return new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, id).DP;
 }

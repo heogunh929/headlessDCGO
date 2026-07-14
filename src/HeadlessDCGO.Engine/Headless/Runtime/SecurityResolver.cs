@@ -569,8 +569,9 @@ public sealed class SecurityResolver
             return SecurityBattleOutcome.AttackerSurvived;
         }
 
-        // N-2 / D-A2: layer continuous DP effects on the attacker's DP (mirrors the field-battle path).
-        attackerDp = ContinuousDpGate.ResolveDp(context, attackerId, attackerDp);
+        // (R1-a) the attacker's effective DP is AS-IS Permanent.DP (base printed DP folded with every live
+        // IChangeDPEffect / LinkedDP / Boost), mirroring the field-battle path.
+        attackerDp = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId, attacker.OwnerId).DP;
 
         // The attacker is deleted when it does not exceed the security Digimon's DP (equal DP deletes
         // both; the security Digimon is already gone). Jamming / CanNotBeDeletedByBattle protects it —

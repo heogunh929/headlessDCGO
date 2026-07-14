@@ -45,7 +45,7 @@ async Task Dp(int level, bool expectBuff)
         scopeCardType: "Digimon", condition: null, scopeZone: null, scopePredicate: cs => cs.Level == 4);
     ctx.EffectRegistry.Register(eff.ToBinding($"psp:{src.Value}"));
 
-    int dp = ContinuousDpGate.ResolveDp(ctx, ally, 4000);
+    int dp = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, ally).DP;
     AssertTrue(dp == (expectBuff ? 5000 : 4000), $"Lv{level} ally DP == {(expectBuff ? 5000 : 4000)} (got {dp})");
 }
 
@@ -89,8 +89,8 @@ async Task FactoryPredicate()
     var src2Card = new CardSource(ctx, src2, P1);
     ICardEffect dpBuff = CardEffectFactory.ChangeDPStaticEffect(p => p.Level == 4, 1000, false, src2Card, null, () => "dp+1000");
     src2Card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dpBuff);
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, lv4, 4000) == 5000, "Lv4 ally +1000 DP");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, lv3, 4000) == 4000, "Lv3 ally no DP change (permanentCondition honored)");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, lv4).DP == 5000, "Lv4 ally +1000 DP");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, lv3).DP == 4000, "Lv3 ally no DP change (permanentCondition honored)");
 }
 
 async Task SetFormDelete()

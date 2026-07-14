@@ -44,10 +44,10 @@ async Task BouncePlayerScope()
     HeadlessEntityId mine = await Place(context, P1, "MYDIGI", "Digimon");
     AssertTrue(CardEffectRegistrar.RegisterCard(context, tamer, P1), "ST1_12 registered");
 
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 2000), "player-scope +1000 while Tamer in play");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "player-scope +1000 while Tamer in play");
 
     await ApplyLeave(context, MatchStateMutationSink.ReturnToHandKind, tamer);
-    AssertEqual(2000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 2000), "buff gone after the Tamer bounced");
+    AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "buff gone after the Tamer bounced");
 }
 
 async Task TrashSelfEffect()

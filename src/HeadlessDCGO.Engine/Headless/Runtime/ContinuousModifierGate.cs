@@ -5,7 +5,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
-/// (B-2) Sibling of <see cref="ContinuousDpGate"/> for the other numeric metrics that continuous
+/// (B-2) Sibling of <c>ContinuousDpGate</c> for the other numeric metrics that continuous
 /// effects modify: Security Attack and play / digivolution cost. Each folds in card-targeted AND
 /// player-scope continuous modifiers (via <see cref="ContinuousScopeEvaluation"/>) and resolves them
 /// over a base value, mirroring the original per-access rescans. Because the modifiers are sourced from
@@ -16,7 +16,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 public static class ContinuousModifierGate
 {
     /// <summary>Query scope used for continuous re-evaluation (shared with the other gates).</summary>
-    public const string Scope = ContinuousDpGate.Scope;
+    public const string Scope = ContinuousRestrictionGate.Scope;
 
     public static int ResolveSecurityAttack(EngineContext context, HeadlessEntityId cardId, int baseSecurityAttack)
     {

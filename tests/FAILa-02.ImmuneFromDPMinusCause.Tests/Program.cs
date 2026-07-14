@@ -59,7 +59,7 @@ async Task Run(HeadlessPlayerId reducerOwner, Func<CardSource, bool>? cardEffect
         condition: null, scopePredicate: cs => cs.InstanceId == protectedCard, scopeAnyPlayer: true)
         .ToBinding($"dpm:{reducer.Value}"));
 
-    int dp = ContinuousDpGate.ResolveDp(ctx, protectedCard, BaseDp);
+    int dp = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, protectedCard).DP;
     AssertTrue(dp == expectedDp, $"DP == {expectedDp} (got {dp}; reducer owned by {(reducerOwner == P1 ? "self" : "opponent")})");
 }
 

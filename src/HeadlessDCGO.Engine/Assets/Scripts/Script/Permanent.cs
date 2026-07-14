@@ -54,6 +54,20 @@ public sealed class Permanent
         SnapshotZone = snapshotZone;
     }
 
+    /// <summary>(R1-a) AS-IS <c>new Permanent(id)</c> — the original resolves the owning player internally from
+    /// the card object; the mirror resolves <see cref="OwnerId"/> from the instance record (falling back to the
+    /// controller/owner-less default for an abstract fixture that never registered one). Lets a DP reader spell
+    /// the AS-IS surface <c>new Permanent(context, id).DP</c> without threading an owner.</summary>
+    public Permanent(EngineContext context, HeadlessEntityId instanceId)
+        : this(
+            context ?? throw new ArgumentNullException(nameof(context)),
+            instanceId,
+            context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? rec) && rec is not null
+                ? rec.OwnerId
+                : default)
+    {
+    }
+
     public HeadlessEntityId InstanceId { get; }
 
     public HeadlessPlayerId OwnerId { get; }
@@ -91,9 +105,10 @@ public sealed class Permanent
     /// <summary>The top (battling) card of this permanent as a <see cref="CardSource"/>.</summary>
     public CardSource TopCard => new(_context, InstanceId, OwnerId);
 
-    /// <summary>(MIG2) AS-IS <c>Permanent.HasDP</c> (Permanent.cs:146-189): only a (treated-as) Digimon has DP,
-    /// and a Digi-Egg without printed DP has none. The <c>IDontHaveDPEffect</c> scan (:166-185) has no headless
-    /// producer yet — design item MIG2-DONTHAVEDP.</summary>
+    /// <summary>(R1-a) AS-IS <c>Permanent.HasDP</c> (Permanent.cs:146-189): only a (treated-as) Digimon has DP,
+    /// and a Digi-Egg without printed DP has none, and no active <c>IDontHaveDPEffect</c> strips it. The scan is
+    /// the AS-IS live enumeration over EVERY player's field permanents' EffectList (NOT ForTurnPlayer, and NO
+    /// player-level EffectList loop — verbatim AS-IS shape).</summary>
     public bool HasDP
     {
         get
@@ -108,6 +123,28 @@ public sealed class Permanent
                 return false;
             }
 
+            #region Effect of not having DP
+            foreach (Player player in new GameContext(_context).Players)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect1 is IDontHaveDPEffect)
+                        {
+                            if (cardEffect1.CanUse(null))
+                            {
+                                if (((IDontHaveDPEffect)cardEffect1).DontHaveDP(this))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            #endregion
+
             return true;
         }
     }
@@ -121,20 +158,360 @@ public sealed class Permanent
             && i.Metadata.TryGetValue("dp", out object? raw) && raw is int)
         || TopCard.HasDP;
 
-    /// <summary>(MIG2) AS-IS <c>Permanent.DP</c> (Permanent.cs:499-692): -1 when the permanent has no DP at all
-    /// (<see cref="HasDP"/> false — the <c>IsNotHavingDP</c> rule marker); a defined DP folds continuous
-    /// modifiers and clamps at 0 (:686-689).</summary>
+    /// <summary>(R1-a) AS-IS <c>Permanent.GetDP(ignorePermanent)</c> (Permanent.cs:327-497): the <see cref="DP"/>
+    /// computation with an OPTIONAL permanent whose effects are skipped (an attacker/blocker computing DP without
+    /// its own about-to-leave contribution). Identical to <see cref="DP"/> EXCEPT (a) the field-permanent loop
+    /// skips <paramref name="ignorePermanent"/>, and (b) the NotIsUpDown group is folded in
+    /// <c>OrderBy(ActivatedTime)</c> order (the <see cref="DP"/> property omits the ordering — verbatim AS-IS
+    /// quirk). ADAPTATION: AS-IS <c>TopCard.CanNotBeAffected(cardEffect)</c> → the established
+    /// <c>CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)</c> id-adaptation on the mirror CardSource.</summary>
+    public int GetDP(Permanent ignorePermanent = null)
+    {
+        int DP = -1;
+
+        if (HasDP)
+        {
+            DP = BaseDP;
+
+            #region DP By Effect
+
+            List<ICardEffect> cardEffects_ChangeDP = new List<ICardEffect>();
+
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                #region Effects of permanents in play
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    if (ignorePermanent != null)
+                    {
+                        if (permanent == ignorePermanent)
+                            continue;
+                    }
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeDPEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (((IChangeDPEffect)cardEffect).PermanentCondition(this))
+                                {
+                                    if (((IChangeDPEffect)cardEffect).IsMinusDP())
+                                    {
+                                        if (this.ImmuneFromDPMinus(cardEffect))
+                                        {
+                                            continue;
+                                        }
+                                    }
+
+                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    {
+                                        cardEffects_ChangeDP.Add(cardEffect);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Effects of face up security
+                foreach (CardSource cardSource in player.SecurityCards)
+                {
+                    if (cardSource.IsFlipped)
+                        continue;
+
+                    foreach (ICardEffect cardEffect in cardSource.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeDPEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (((IChangeDPEffect)cardEffect).PermanentCondition(this))
+                                {
+                                    if (((IChangeDPEffect)cardEffect).IsMinusDP())
+                                    {
+                                        if (this.ImmuneFromDPMinus(cardEffect))
+                                        {
+                                            continue;
+                                        }
+                                    }
+
+                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    {
+                                        cardEffects_ChangeDP.Add(cardEffect);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Player effect
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IChangeDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((IChangeDPEffect)cardEffect).PermanentCondition(this))
+                            {
+                                if (((IChangeDPEffect)cardEffect).IsMinusDP())
+                                {
+                                    if (this.ImmuneFromDPMinus(cardEffect))
+                                    {
+                                        continue;
+                                    }
+                                }
+
+                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                {
+                                    cardEffects_ChangeDP.Add(cardEffect);
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            List<ICardEffect> cardEffects_ChangeDP_isUpDown = new List<ICardEffect>();
+            List<ICardEffect> cardEffects_ChangeDP_NotIsUpDown = new List<ICardEffect>();
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDP)
+            {
+                if (cardEffect is IChangeDPEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((IChangeDPEffect)cardEffect).IsUpDown())
+                        {
+                            cardEffects_ChangeDP_isUpDown.Add(cardEffect);
+                        }
+
+                        else
+                        {
+                            cardEffects_ChangeDP_NotIsUpDown.Add(cardEffect);
+                        }
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDP_isUpDown)
+            {
+                if (cardEffect is IChangeDPEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        DP = ((IChangeDPEffect)cardEffect).GetDP(DP, this);
+                    }
+                }
+            }
+
+            DP += LinkedDP;
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDP_NotIsUpDown.OrderBy(cardEffect => cardEffect.ActivatedTime))
+            {
+                if (cardEffect is IChangeDPEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        DP = ((IChangeDPEffect)cardEffect).GetDP(DP, this);
+                    }
+                }
+            }
+            #endregion
+
+            #region DP Boosts
+            foreach (DPBoost boost in Boosts)
+            {
+                DP += boost.DP;
+            }
+            #endregion
+
+            if (DP < 0)
+            {
+                DP = 0;
+            }
+        }
+
+        return DP;
+    }
+
+    /// <summary>(R1-a) AS-IS <c>Permanent.DP</c> (Permanent.cs:499-668): -1 when the permanent has no DP at all
+    /// (<see cref="HasDP"/> false — the <c>IsNotHavingDP</c> rule marker). Otherwise seeds from <see cref="BaseDP"/>
+    /// and folds every active <c>IChangeDPEffect</c> — scanned LIVE over each turn-ordered player's field
+    /// permanents, FACE-UP security cards, and the player itself — as the isUpDown group, then <c>+= LinkedDP</c>,
+    /// then the NotIsUpDown group (NO ActivatedTime ordering here — see <see cref="GetDP"/>), then the per-card
+    /// <see cref="Boosts"/>, clamped at 0. ADAPTATION as documented on <see cref="GetDP"/>.</summary>
     public int DP
     {
         get
         {
-            if (!HasDP)
+            int DP = -1;
+
+            if (HasDP)
             {
-                return -1;
+                DP = BaseDP;
+
+                #region DP By Effect
+
+                List<ICardEffect> cardEffects_ChangeDP = new List<ICardEffect>();
+
+                foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+                {
+                    #region Effects of permanents in play
+                    foreach (Permanent permanent in player.GetFieldPermanents())
+                    {
+                        foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                        {
+                            if (cardEffect is IChangeDPEffect)
+                            {
+                                if (cardEffect.CanUse(null))
+                                {
+                                    if (((IChangeDPEffect)cardEffect).PermanentCondition(this))
+                                    {
+                                        if (((IChangeDPEffect)cardEffect).IsMinusDP())
+                                        {
+                                            if (this.ImmuneFromDPMinus(cardEffect))
+                                            {
+                                                continue;
+                                            }
+                                        }
+
+                                        if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                        {
+                                            cardEffects_ChangeDP.Add(cardEffect);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                    #region Effects of face up security
+                    foreach (CardSource cardSource in player.SecurityCards)
+                    {
+                        if (cardSource.IsFlipped)
+                            continue;
+
+                        foreach (ICardEffect cardEffect in cardSource.EffectList(EffectTiming.None))
+                        {
+                            if (cardEffect is IChangeDPEffect)
+                            {
+                                if (cardEffect.CanUse(null))
+                                {
+                                    if (((IChangeDPEffect)cardEffect).PermanentCondition(this))
+                                    {
+                                        if (((IChangeDPEffect)cardEffect).IsMinusDP())
+                                        {
+                                            if (this.ImmuneFromDPMinus(cardEffect))
+                                            {
+                                                continue;
+                                            }
+                                        }
+
+                                        if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                        {
+                                            cardEffects_ChangeDP.Add(cardEffect);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                    #region Player effect
+                    foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeDPEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (((IChangeDPEffect)cardEffect).PermanentCondition(this))
+                                {
+                                    if (((IChangeDPEffect)cardEffect).IsMinusDP())
+                                    {
+                                        if (this.ImmuneFromDPMinus(cardEffect))
+                                        {
+                                            continue;
+                                        }
+                                    }
+
+                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    {
+                                        cardEffects_ChangeDP.Add(cardEffect);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                List<ICardEffect> cardEffects_ChangeDP_isUpDown = new List<ICardEffect>();
+                List<ICardEffect> cardEffects_ChangeDP_NotIsUpDown = new List<ICardEffect>();
+
+                foreach (ICardEffect cardEffect in cardEffects_ChangeDP)
+                {
+                    if (cardEffect is IChangeDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((IChangeDPEffect)cardEffect).IsUpDown())
+                            {
+                                cardEffects_ChangeDP_isUpDown.Add(cardEffect);
+                            }
+
+                            else
+                            {
+                                cardEffects_ChangeDP_NotIsUpDown.Add(cardEffect);
+                            }
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in cardEffects_ChangeDP_isUpDown)
+                {
+                    if (cardEffect is IChangeDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            DP = ((IChangeDPEffect)cardEffect).GetDP(DP, this);
+                        }
+                    }
+                }
+
+                DP += LinkedDP;
+
+                foreach (ICardEffect cardEffect in cardEffects_ChangeDP_NotIsUpDown)
+                {
+                    if (cardEffect is IChangeDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            DP = ((IChangeDPEffect)cardEffect).GetDP(DP, this);
+                        }
+                    }
+                }
+                #endregion
+
+                #region DP Boosts
+                foreach (DPBoost boost in Boosts)
+                {
+                    DP += boost.DP;
+                }
+                #endregion
+
+                if (DP < 0)
+                {
+                    DP = 0;
+                }
             }
 
-            int resolved = ContinuousDpGate.ResolveDp(_context, InstanceId, BaseDp());
-            return resolved < 0 ? 0 : resolved;
+            return DP;
         }
     }
 
@@ -465,12 +842,248 @@ public sealed class Permanent
         return _EffectList;
     }
 
-    private int BaseDp() =>
-        _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
-        && i.Metadata.TryGetValue("dp", out object? raw) && raw is int dp ? dp : 0;
+    /// <summary>(R1-a) AS-IS <c>Permanent.BaseDP</c> (Permanent.cs:193-322): the origin DP — seeds from
+    /// <c>TopCard.BaseCardDP + TopCard.BaseDP</c> then folds every active <c>IChangeBaseDPEffect</c> (scanned LIVE
+    /// over each turn-ordered player's field permanents and the player itself — NO security-card scan, unlike
+    /// <see cref="DP"/>) as the isUpDown group, then the NotIsUpDown group in <c>OrderBy(ActivatedTime)</c> order,
+    /// clamped at 0. NO LinkedDP and NO Boosts (those are DP-only). ADAPTATION as documented on
+    /// <see cref="GetDP"/>.</summary>
+    public int BaseDP
+    {
+        get
+        {
+            int BaseDP = 0;
 
-    /// <summary>(W6-P) mirror of AS-IS <c>Permanent.BaseDP</c> — the unmodified DP (IsMinDP/IsMaxDP read it).</summary>
-    public int BaseDP => BaseDp();
+            if (HasDP)
+            {
+                BaseDP = TopCard.BaseCardDP;
+                BaseDP += TopCard.BaseDP;
+
+                #region 基礎DPを変更する効果
+
+                List<ICardEffect> cardEffects_ChangeDP = new List<ICardEffect>();
+
+                foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+                {
+                    foreach (Permanent permanent in player.GetFieldPermanents())
+                    {
+                        #region 場のパーマネントの効果
+                        foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                        {
+                            if (cardEffect is IChangeBaseDPEffect)
+                            {
+                                if (cardEffect.CanUse(null))
+                                {
+                                    if (((IChangeBaseDPEffect)cardEffect).PermanentCondition(this))
+                                    {
+                                        if (((IChangeBaseDPEffect)cardEffect).IsMinusDP())
+                                        {
+                                            if (this.ImmuneFromDPMinus(cardEffect))
+                                            {
+                                                continue;
+                                            }
+                                        }
+
+                                        if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                        {
+                                            cardEffects_ChangeDP.Add(cardEffect);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        #endregion
+                    }
+
+                    #region プレイヤーの効果
+                    foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeBaseDPEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (((IChangeBaseDPEffect)cardEffect).PermanentCondition(this))
+                                {
+                                    if (((IChangeBaseDPEffect)cardEffect).IsMinusDP())
+                                    {
+                                        if (this.ImmuneFromDPMinus(cardEffect))
+                                        {
+                                            continue;
+                                        }
+                                    }
+
+                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    {
+                                        cardEffects_ChangeDP.Add(cardEffect);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                List<ICardEffect> cardEffects_ChangeDP_isUpDown = new List<ICardEffect>();
+                List<ICardEffect> cardEffects_ChangeDP_NotIsUpDown = new List<ICardEffect>();
+
+                foreach (ICardEffect cardEffect in cardEffects_ChangeDP)
+                {
+                    if (cardEffect is IChangeBaseDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((IChangeBaseDPEffect)cardEffect).IsUpDown())
+                            {
+                                cardEffects_ChangeDP_isUpDown.Add(cardEffect);
+                            }
+
+                            else
+                            {
+                                cardEffects_ChangeDP_NotIsUpDown.Add(cardEffect);
+                            }
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in cardEffects_ChangeDP_isUpDown)
+                {
+                    if (cardEffect is IChangeBaseDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            BaseDP = ((IChangeBaseDPEffect)cardEffect).GetDP(BaseDP, this);
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in cardEffects_ChangeDP_NotIsUpDown.OrderBy(cardEffect => cardEffect.ActivatedTime))
+                {
+                    if (cardEffect is IChangeBaseDPEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            BaseDP = ((IChangeBaseDPEffect)cardEffect).GetDP(BaseDP, this);
+                        }
+                    }
+                }
+
+                #endregion
+
+                if (BaseDP < 0)
+                {
+                    BaseDP = 0;
+                }
+            }
+
+            return BaseDP;
+        }
+    }
+
+    /// <summary>(R1-a) AS-IS <c>Permanent.LinkedDP</c> (Permanent.cs:670, a <c>{ get; set; }</c> auto-property):
+    /// the accumulated DP of this permanent's attached link cards, folded into <see cref="DP"/> between the
+    /// isUpDown and NotIsUpDown groups. ADAPTATION: the AS-IS field maps to the SAME instance metadata key
+    /// (<see cref="LinkHelpers.LinkedDpKey"/>) that <see cref="LinkHelpers"/> AddLink/RemoveLink already write, so
+    /// existing link records are visible and an AS-IS <c>LinkedDP +=/-=</c> lands on the shared value.</summary>
+    public int LinkedDP
+    {
+        get =>
+            _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+                ? LinkHelpers.ReadLinkedDp(i.Metadata)
+                : 0;
+        set
+        {
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    [LinkHelpers.LinkedDpKey] = value,
+                };
+                _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
+    /// <summary>(R1-a) AS-IS <c>Permanent.Boosts</c> (Permanent.cs:672, a <c>List&lt;DPBoost&gt;</c> field) folded
+    /// into <see cref="DP"/> at the very end (<c>foreach (DPBoost boost in Boosts) DP += boost.DP</c>). ADAPTATION:
+    /// the AS-IS in-memory list maps to a read view over the id→dp instance metadata
+    /// (<see cref="DpBoostHelpers.DpBoostsKey"/>) that <see cref="DpBoostHelpers"/> AddBoost/RemoveBoost manage;
+    /// the fold only reads <c>boost.DP</c>, so the reconstructed <see cref="DPBoost"/> carries a null Condition.</summary>
+    public List<DPBoost> Boosts
+    {
+        get
+        {
+            var boosts = new List<DPBoost>();
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+                && i.Metadata.TryGetValue(DpBoostHelpers.DpBoostsKey, out object? raw)
+                && raw is IReadOnlyDictionary<string, int> map)
+            {
+                foreach (KeyValuePair<string, int> pair in map)
+                {
+                    boosts.Add(new DPBoost(pair.Key, pair.Value, null));
+                }
+            }
+
+            return boosts;
+        }
+    }
+
+    /// <summary>(R1-a) AS-IS nested <c>Permanent.DPBoost</c> (Permanent.cs:687-699): a named additive DP boost.</summary>
+    public class DPBoost
+    {
+        public DPBoost(string id, int dp, Func<bool> cond)
+        {
+            ID = id;
+            DP = dp;
+            Condition = cond;
+        }
+
+        public string ID = "";
+        public int DP = 0;
+        public Func<bool> Condition = null;
+    }
+
+    /// <summary>(R1-a) AS-IS <c>Permanent.ImmuneFromDPMinus(ICardEffect)</c> (Permanent.cs:703-742): true when
+    /// some active <c>IImmuneFromDPMinusEffect</c> (scanned LIVE over EVERY player's field permanents AND the
+    /// player itself — AS-IS iterates <c>Players</c>, seat order, an order-insensitive any-match) grants THIS
+    /// permanent immunity from <paramref name="cardEffect"/>'s DP-minus.</summary>
+    public bool ImmuneFromDPMinus(ICardEffect cardEffect)
+    {
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is IImmuneFromDPMinusEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((IImmuneFromDPMinusEffect)cardEffect1).ImmuneFromDPMinus(this, cardEffect))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect1 is IImmuneFromDPMinusEffect)
+                {
+                    if (cardEffect1.CanUse(null))
+                    {
+                        if (((IImmuneFromDPMinusEffect)cardEffect1).ImmuneFromDPMinus(this, cardEffect))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
 
     // ===== (MIG2) link / rule-process members (AS-IS Permanent.cs) =============================================
 

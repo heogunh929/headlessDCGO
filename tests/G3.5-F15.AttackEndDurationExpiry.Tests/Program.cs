@@ -40,7 +40,7 @@ async Task AttackEndExpires()
     RegisterDp(context, Boosted, dpDelta: 2000, EffectDuration.UntilEndAttack);
     RegisterDp(context, Permanent, dpDelta: 1000, duration: null);
 
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, Boosted, baseDp: 3000), "boost applies before the attack ends");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Boosted).DP, "boost applies before the attack ends");
 
     context.AttackController.DeclareAttack(Player, AttackerId, Opponent, TargetId, isDirectAttack: false);
     var pipeline = new AttackPipeline();
@@ -52,8 +52,8 @@ async Task AttackEndExpires()
         await pipeline.AdvanceAsync(context);
     }
 
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, Boosted, baseDp: 3000), "UntilEndAttack boost gone after the attack");
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, Permanent, baseDp: 3000), "permanent boost survives");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Boosted).DP, "UntilEndAttack boost gone after the attack");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Permanent).DP, "permanent boost survives");
 }
 
 void RegisterDp(EngineContext context, HeadlessEntityId cardId, int dpDelta, EffectDuration? duration)

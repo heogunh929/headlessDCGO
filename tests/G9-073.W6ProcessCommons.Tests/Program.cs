@@ -43,12 +43,12 @@ async Task TimedStatMods()
     var target = await Put(ctx, P1, "TGT", ChoiceZone.BattleArea, dp: 5000);
 
     AssertTrue(CardEffectCommons.ChangeDigimonDP(Perm(ctx, target), 2000, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "DP grant");
-    AssertEqual(7000, ContinuousDpGate.ResolveDp(ctx, target, 5000), "+2000 folded");
+    AssertEqual(7000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).DP, "+2000 folded");
     AssertTrue(CardEffectCommons.ChangeDigimonSAttack(Perm(ctx, target), 1, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "SA grant");
     AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(ctx, target, baseSecurityAttack: 1), "+1 SA folded");
 
     EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(ctx, target, 5000), "DP expired at the boundary");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).DP, "DP expired at the boundary");
     AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(ctx, target, baseSecurityAttack: 1), "SA expired");
 }
 
@@ -60,11 +60,11 @@ async Task PlayerScopeDp()
     var small = await Put(ctx, P1, "SMALL", ChoiceZone.BattleArea, level: 3);
 
     AssertTrue(CardEffectCommons.ChangeDigimonDPPlayerEffect(p => p.Level >= 6, 3000, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "grant");
-    AssertEqual(8000, ContinuousDpGate.ResolveDp(ctx, big, 5000), "matching digimon buffed");
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(ctx, small, 5000), "non-matching untouched (predicate 1:1)");
+    AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, big).DP, "matching digimon buffed");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, small).DP, "non-matching untouched (predicate 1:1)");
 
     EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(ctx, big, 5000), "expired");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, big).DP, "expired");
 }
 
 async Task HandAndPlay()

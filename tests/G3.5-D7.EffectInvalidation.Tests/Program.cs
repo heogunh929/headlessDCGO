@@ -76,11 +76,11 @@ void DisabledContinuousIsInert()
         new EffectRequest(new HeadlessEntityId("buff"), P1, "Continuous", effectContext),
         keywords: null, EffectQueryRole.Continuous, new[] { EffectInvalidation.Scope }));
 
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, boosted, baseDp: 3000), "buff applies while X is enabled");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, boosted).DP, "buff applies while X is enabled");
 
     // Disable X's effects → its continuous buff becomes inert.
     RegisterDisable(context, targets: new[] { buffSource }, scopePlayer: null);
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, boosted, baseDp: 3000), "buff inert once X is disabled");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, boosted).DP, "buff inert once X is disabled");
 }
 
 // --- E2E (loop) -----------------------------------------------------------

@@ -46,7 +46,7 @@ async Task<(EngineContext ctx, HeadlessEntityId field, HeadlessEntityId oppField
     return (ctx, field, oppField, sec);
 }
 
-int Dp(EngineContext ctx, HeadlessEntityId id) => ContinuousDpGate.ResolveDp(ctx, id, baseDp: 3000);
+int Dp(EngineContext ctx, HeadlessEntityId id) => new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, id).DP;
 
 // --- 1. Face-up security source folds into the owner's field Digimon DP (uniform continuous-source scan). ---
 {

@@ -101,7 +101,7 @@ async Task ImmuneFromDpMinus()
     var id = await Place(context, P1, "SELF");
     // A -3000 DP reduction from another source.
     context.EffectRegistry.Register(new ContinuousSelfModifierEffect(new CardSource(context, id, P1), ModifierHelpers.DpDeltaKey, -3000, false, null).ToBinding($"dp:{id.Value}"));
-    AssertEqual(1000, ContinuousDpGate.ResolveDp(context, id, 4000), "reduction applies before immunity (4000-3000)");
+    AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, id).DP, "reduction applies before immunity (4000-3000)");
     // (P7 stage-B SEAM) ImmuneFromDPMinusClass is a new-model kind-class with no ToBinding/EffectRegistry
     // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
     // NewModelContinuousScan.HasImmuneFromDpMinus/ContinuousDpGate now performs. Attach the built effect via
@@ -110,7 +110,7 @@ async Task ImmuneFromDpMinus()
     ICardEffect built = CardEffectFactory.ImmuneFromDPMinusStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"imm:{id.Value}");
     cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, id, 4000), "DP reduction ignored under immunity");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, id).DP, "DP reduction ignored under immunity");
 }
 
 async Task KeywordScoped(Func<CardSource, ICardEffect> build, string keyword)

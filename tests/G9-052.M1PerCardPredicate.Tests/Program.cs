@@ -83,7 +83,7 @@ async Task ZoneScope()
         cs => cs.Owner == P2, -2000, false, srcCard, null, $"sd:{src.Value}");
     srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
 
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemyBattle, 5000) == 5000, "enemy BATTLE-area Digimon unaffected (Security-zone scope)");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, enemyBattle).DP == 5000, "enemy BATTLE-area Digimon unaffected (Security-zone scope)");
 }
 
 static int SecurityBattleDp(EngineContext ctx, HeadlessEntityId securityCardId)
@@ -145,9 +145,9 @@ async Task BaseDpGlobal()
     // ChangeDP body does `DP = _changeValue()`, not `DP += _changeValue()`) — the AS-IS effect name and the
     // DCGO source (ChangeOriginDP.cs:66-74) confirm this byte-for-byte. The ORIGINAL assertions (`5000 + 1000`)
     // assumed an additive delta this factory does not have.
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, ownLv5, 5000) == 1000, "own Lv5 origin DP set to the fixed value");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemyLv5, 5000) == 1000, "ENEMY Lv5 too (global, not owner-only)");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemyLv4, 5000) == 5000, "enemy Lv4 unchanged (predicate)");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, ownLv5).DP == 1000, "own Lv5 origin DP set to the fixed value");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, enemyLv5).DP == 1000, "ENEMY Lv5 too (global, not owner-only)");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, enemyLv4).DP == 5000, "enemy Lv4 unchanged (predicate)");
 }
 
 async Task AddSelfCardCond()

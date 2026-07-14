@@ -51,7 +51,7 @@ async Task BattleDeletionDropsBindings()
     targetSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dpEffect);
     using (AmbientMatchContext.Enter(ctx))
     {
-        AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 4000, "precondition: the buff applies while alive");
+        AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, AllyId).DP == 4000, "precondition: the buff applies while alive");
     }
 
     await DriveAttackAsync(match);
@@ -59,7 +59,7 @@ async Task BattleDeletionDropsBindings()
     AssertTrue(InZone(ctx, P2, ChoiceZone.Trash, TargetId), "the defender was deleted by battle");
     using (AmbientMatchContext.Enter(ctx))
     {
-        AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 3000,
+        AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, AllyId).DP == 3000,
             "the dead card's buff no longer applies (bindings dropped — previously leaked)");
     }
 }
@@ -101,7 +101,7 @@ async Task SweepFinishDropsBindings()
     ICardEffect dpEffect = CardEffectFactory.ChangeDPStaticEffect(
         null, 1000, false, holderSource, null, effectName: null);
     holderSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dpEffect);
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, ally, 3000) == 4000, "precondition: buff applies");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, ally).DP == 4000, "precondition: buff applies");
 
     // Deferred deletion (pendingDeletion + declined) -> the sweep finishes it.
     SetFlags(ctx, holder, new Dictionary<string, object?>
@@ -113,7 +113,7 @@ async Task SweepFinishDropsBindings()
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
     AssertTrue(InZone(ctx, P1, ChoiceZone.Trash, holder), "the sweep finished the deferred deletion");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, ally, 3000) == 3000, "the dead card's buff no longer applies");
+    AssertTrue(new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, ally).DP == 3000, "the dead card's buff no longer applies");
 }
 
 // --- Harness ---

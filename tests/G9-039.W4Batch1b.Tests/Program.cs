@@ -47,7 +47,7 @@ async Task ChangeBaseDp()
     var ally = await Place(context, P1, "ALLY");
     using var _ambientScope = AmbientMatchContext.Enter(context);
     context.TurnController.SetPhase(HeadlessPhase.Main);
-    int before = ContinuousDpGate.ResolveDp(context, ally, 4000);
+    int before = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).DP;
     // SEAM (post-stage-B): ChangeBaseDPClass is a new-model kind-class observed via the unioned
     // NewModelContinuousScan.FoldBaseDp (AS-IS Permanent.BaseDP) — attach it to the source card's controller
     // (a player-scope grant, folded over EVERY field permanent of Players_ForTurnPlayer, not just its own).
@@ -62,7 +62,7 @@ async Task ChangeBaseDp()
     var srcSource = new CardSource(context, src, P1);
     ICardEffect effect = CardEffectFactory.ChangeBaseDPGlobalEffect(_ => true, 1000, false, srcSource, null);
     srcSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
-    int after = ContinuousDpGate.ResolveDp(context, ally, 4000);
+    int after = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).DP;
     // AS-IS ChangeBaseDPGlobalEffect ("Origin DP is {value}", CardEffectFactory/ChangeOriginDP.cs) is a SET, not
     // an add (isUpDownFunc: () => false -> ChangeDP body does `DP = _changeValue()`, not `DP += _changeValue()`)
     // — the factory's own doc-comment ("Origin DP is X") and effect name confirm this; the ORIGINAL assertion

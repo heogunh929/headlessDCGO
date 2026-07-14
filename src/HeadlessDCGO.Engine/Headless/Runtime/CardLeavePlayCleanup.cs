@@ -183,8 +183,9 @@ public static class CardLeavePlayCleanup
             return;
         }
 
-        // AS-IS permanent.DP = the EFFECTIVE value (typed modifiers + continuous effects). Fold like the
-        // battle/DP-zero readers: base (instance, else definition) + typed DpModifiers + ContinuousDpGate.
+        // (R1-a) AS-IS permanent.DP = the EFFECTIVE value: base printed DP folded LIVE with every
+        // IChangeDPEffect / LinkedDP / Boost (Permanent.DP). Stamp the just-before-remove-field snapshot from it.
+        // When no live context is available (bare-repository cleanup), fall back to the raw printed base.
         int? baseDp = ReadIntNullable(record.Metadata, BattleResolver.DpKey);
         if (baseDp is null && context is not null
             && context.CardRepository.TryGetCard(record.DefinitionId, out CardRecord? dpDefinition) && dpDefinition is not null)
@@ -194,12 +195,9 @@ public static class CardLeavePlayCleanup
 
         if (baseDp is int printedDp)
         {
-            IReadOnlyList<DpModifier> modifiers =
-                record.Metadata.TryGetValue(BattleResolver.DpModifiersKey, out object? rawMods) && rawMods is IEnumerable<DpModifier> typed
-                    ? typed.ToArray()
-                    : Array.Empty<DpModifier>();
-            int staticDp = DpCalculator.ComputeDp(printedDp, modifiers);
-            metadata[DpJustBeforeRemoveFieldKey] = context is null ? staticDp : ContinuousDpGate.ResolveDp(context, cardId, staticDp);
+            metadata[DpJustBeforeRemoveFieldKey] = context is null
+                ? printedDp
+                : new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId, record.OwnerId).DP;
         }
 
         if (context is not null)

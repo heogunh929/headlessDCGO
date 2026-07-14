@@ -16,7 +16,7 @@ using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectF
 /// <summary>
 /// A continuous numeric self-modifier (DP / security attack / cost). Lowers to a continuous-role binding
 /// targeting the source card, carrying the delta under the matching <see cref="ModifierHelpers"/> key plus
-/// optional inherited / condition markers, so <see cref="ContinuousDpGate"/> /
+/// optional inherited / condition markers, so <c>ContinuousDpGate</c> /
 /// <see cref="ContinuousModifierGate"/> fold it in automatically (with inherited / condition gating
 /// applied by <see cref="ContinuousScopeEvaluation"/>).
 /// </summary>

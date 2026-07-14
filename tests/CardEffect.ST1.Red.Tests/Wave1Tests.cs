@@ -37,10 +37,10 @@ internal static class Wave1Tests
         Register(context, new ST1_03(), "ST1_03", source);
 
         context.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(3000, ContinuousDpGate.ResolveDp(context, Top, baseDp: 2000), "owner turn: +1000");
+        AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).DP, "owner turn: +1000");
 
         context.TurnController.EndTurn();
-        AssertEqual(2000, ContinuousDpGate.ResolveDp(context, Top, baseDp: 2000), "opponent turn: no buff");
+        AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).DP, "opponent turn: no buff");
     }
 
     private static async Task ST1_01_SourceCountDp()
@@ -48,12 +48,12 @@ internal static class Wave1Tests
         (EngineContext four, HeadlessEntityId source4) = await StackOf(4);
         Register(four, new ST1_01(), "ST1_01", source4);
         four.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(3000, ContinuousDpGate.ResolveDp(four, Top, baseDp: 2000), "4 sources, owner turn: +1000");
+        AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(four, Top).DP, "4 sources, owner turn: +1000");
 
         (EngineContext two, HeadlessEntityId source2) = await StackOf(2);
         Register(two, new ST1_01(), "ST1_01", source2);
         two.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(2000, ContinuousDpGate.ResolveDp(two, Top, baseDp: 2000), "2 sources: no buff");
+        AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(two, Top).DP, "2 sources: no buff");
     }
 
     private static async Task ST1_11_DynamicSecurityAttack()
@@ -90,11 +90,11 @@ internal static class Wave1Tests
         CardEffectRegistrar.RegisterOnEnterPlay(ctx, new ST1_12(), "ST1_12", new CardSource(ctx, tamer, P1));
         ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
 
-        AssertEqual(3000, ContinuousDpGate.ResolveDp(ctx, mine, baseDp: 2000), "owner's Digimon +1000 on owner turn");
-        AssertEqual(2000, ContinuousDpGate.ResolveDp(ctx, opp, baseDp: 2000), "opponent's Digimon unaffected");
+        AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, mine).DP, "owner's Digimon +1000 on owner turn");
+        AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, opp).DP, "opponent's Digimon unaffected");
 
         ctx.TurnController.EndTurn();
-        AssertEqual(2000, ContinuousDpGate.ResolveDp(ctx, mine, baseDp: 2000), "no buff on opponent turn");
+        AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, mine).DP, "no buff on opponent turn");
     }
 
     private static async Task<(EngineContext, HeadlessEntityId)> StackOf(int sourceCount)

@@ -7,7 +7,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
 /// (F-8.5 producer) DP-zero deletion rule: a battle-area Digimon whose RESOLVED DP (printed + continuous
-/// modifiers, via <see cref="ContinuousDpGate"/>) is 0 or less is deleted. Each such card is stamped
+/// modifiers, via <c>ContinuousDpGate</c>) is 0 or less is deleted. Each such card is stamped
 /// <c>DPZero</c> on its metadata so an <c>IsDpZeroDelete</c> condition can distinguish it from a
 /// battle/effect deletion. Mirrors the AS-IS continuous "DP &lt;= 0 → delete" check.
 /// </summary>
@@ -53,7 +53,9 @@ public static class DpZeroDeletionHelpers
                     continue;
                 }
 
-                if (ContinuousDpGate.ResolveDp(context, cardId, dp) > 0)
+                // (R1-a) effective DP = AS-IS Permanent.DP (live IChangeDPEffect fold, clamped at 0).
+                _ = dp;
+                if (new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId, instance.OwnerId).DP > 0)
                 {
                     continue;
                 }

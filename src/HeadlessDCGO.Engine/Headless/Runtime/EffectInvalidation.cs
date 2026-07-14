@@ -21,7 +21,7 @@ public static class EffectInvalidation
     public const string DisableEffectsKey = "disableEffects";
 
     /// <summary>Query scope shared with the continuous gates.</summary>
-    public const string Scope = ContinuousDpGate.Scope;
+    public const string Scope = ContinuousRestrictionGate.Scope;
 
     /// <summary>Whether <paramref name="cardId"/>'s own effects are currently disabled.</summary>
     public static bool IsEffectsDisabled(EngineContext context, HeadlessEntityId cardId)

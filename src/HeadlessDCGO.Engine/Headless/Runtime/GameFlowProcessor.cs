@@ -517,8 +517,8 @@ public sealed class GameFlowProcessor
         // N-2 / D-A1: the DP<=0 deletion rule also reflects continuous DP effects (a continuous -DP that
         // drops the card to 0 deletes it), mirroring the original CanBeDestroyed-via-DP check. No-op until
         // continuous DP effects are registered.
-        int staticDp = DpCalculator.ComputeDp(baseDp, modifiers);
-        if (ContinuousDpGate.ResolveDp(context, cardId, staticDp) > 0)
+        _ = modifiers;
+        if (new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId, instance.OwnerId).DP > 0)
         {
             return false;
         }

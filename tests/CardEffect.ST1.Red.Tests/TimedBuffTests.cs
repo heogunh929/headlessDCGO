@@ -39,9 +39,9 @@ internal static class TimedBuffTests
         ChoiceResult result = await provider.ChooseAsync(request);
         effect.ApplyBuff(result.SelectedIds);
 
-        AssertEqual(5000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 2000), "+3000 DP while active");
+        AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "+3000 DP while active");
         EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1);
-        AssertEqual(2000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 2000), "buff expired at turn end");
+        AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "buff expired at turn end");
     }
 
     private static async Task ST1_13_SecuritySaBuff()
@@ -65,8 +65,8 @@ internal static class TimedBuffTests
         var effect = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)Effect(new ST1_14(), EffectTiming.OptionSkill, context)).Body;
         effect.ApplyBuff();
 
-        AssertEqual(8000, ContinuousDpGate.ResolveDp(context, security, baseDp: 1000), "Security Digimon +7000");
-        AssertEqual(1000, ContinuousDpGate.ResolveDp(context, battle, baseDp: 1000), "battle-area Digimon unaffected");
+        AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, security).DP, "Security Digimon +7000");
+        AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, battle).DP, "battle-area Digimon unaffected");
     }
 
     private static async Task ST1_14_Expiry()
@@ -77,9 +77,9 @@ internal static class TimedBuffTests
         var effect = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)Effect(new ST1_14(), EffectTiming.SecuritySkill, context)).Body;
         effect.ApplyBuff();
 
-        AssertEqual(8000, ContinuousDpGate.ResolveDp(context, security, baseDp: 1000), "+7000 while active");
+        AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, security).DP, "+7000 while active");
         EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1);
-        AssertEqual(1000, ContinuousDpGate.ResolveDp(context, security, baseDp: 1000), "expired at turn end");
+        AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, security).DP, "expired at turn end");
     }
 
     private static async Task ST1_08_DigivolveBuff()
@@ -98,7 +98,7 @@ internal static class TimedBuffTests
         ChoiceResult result = await provider.ChooseAsync(request);
         effect.ApplyBuff(result.SelectedIds);
 
-        AssertEqual(5000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 2000), "+3000 DP on the chosen Digimon");
+        AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "+3000 DP on the chosen Digimon");
     }
 
     private static async Task<(EngineContext, HeadlessEntityId, HeadlessEntityId)> SecurityAndBattleDigimon()

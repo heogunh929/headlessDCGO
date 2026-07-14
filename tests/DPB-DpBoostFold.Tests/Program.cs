@@ -19,7 +19,7 @@ void Check(bool cond, string label)
     if (!cond) { Console.Error.WriteLine($"FAIL {label}"); failures++; }
     else { Console.WriteLine($"PASS {label}"); }
 }
-int Dp() => ContinuousDpGate.ResolveDp(context, Host, baseDp: 3000);
+int Dp() => new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Host).DP;
 
 Check(Dp() == 3000, "no boost = base DP");
 

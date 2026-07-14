@@ -49,10 +49,10 @@ async Task AttachLink()
 
     // (P1-DP-5) AS-IS folds `DP += LinkedDP` into effective DP (Permanent.cs:639). Previously the headless tracked
     // LinkedDP on the host but never folded it into ContinuousDpGate.ResolveDp.
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, Host, baseDp: 3000), "LinkedDP (2000) folds into effective DP");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Host).DP, "LinkedDP (2000) folds into effective DP");
     // AS-IS injects LinkedDP BEFORE the NotIsUpDown/Set group, so a "DP becomes X" set overwrites it.
     RegisterFixedDp(context, Host, owner: P1, fixedDp: 4000);
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, Host, baseDp: 3000), "a set-DP overwrites LinkedDP (AS-IS position)");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Host).DP, "a set-DP overwrites LinkedDP (AS-IS position)");
 
     AssertFalse(InZone(context, ChoiceZone.Hand, Link1), "Link1 left the hand");
     AssertFalse(InZone(context, ChoiceZone.BattleArea, Link1), "Link1 is off-field, not on the battle area");

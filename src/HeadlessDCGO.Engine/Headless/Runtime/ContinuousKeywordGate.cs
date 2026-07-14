@@ -7,7 +7,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// <summary>
 /// (GR-005) Derives whether a card currently HAS a self-static keyword (Blocker / Jamming / Piercing) by
 /// querying the EffectRegistry at read time — the same pull pattern that makes continuous MODIFIERS work
-/// (<see cref="ContinuousModifierGate"/>, <see cref="ContinuousDpGate"/>).
+/// (<see cref="ContinuousModifierGate"/>, <c>ContinuousDpGate</c>).
 ///
 /// Why this exists: a ported <c>&lt;Blocker&gt;</c> (etc.) is registered as a keyword binding in the
 /// EffectRegistry when the card enters play. But its consumers (BlockTiming, BattleResolver, SecurityResolver)

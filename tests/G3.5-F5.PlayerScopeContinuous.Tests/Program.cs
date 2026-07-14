@@ -48,9 +48,9 @@ void PlayerScopeDpScopedToOwner()
     EngineContext context = Board();
     RegisterPlayerScopeDp(context, scopePlayer: P1, dpDelta: 1000, cardType: null);
 
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, Dig1, baseDp: 3000), "P1 Digimon boosted");
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, Tam1, baseDp: 3000), "P1 Tamer boosted");
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, Dig2, baseDp: 3000), "P2 card NOT boosted (different owner)");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Dig1).DP, "P1 Digimon boosted");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Tam1).DP, "P1 Tamer boosted");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Dig2).DP, "P2 card NOT boosted (different owner)");
 }
 
 void PlayerScopeDpCardTypeCondition()
@@ -58,9 +58,9 @@ void PlayerScopeDpCardTypeCondition()
     EngineContext context = Board();
     RegisterPlayerScopeDp(context, scopePlayer: P1, dpDelta: 2000, cardType: "Digimon");
 
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, Dig1, baseDp: 3000), "P1 Digimon matched the condition");
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, Tam1, baseDp: 3000), "P1 Tamer did not match Digimon condition");
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, Dig2, baseDp: 3000), "P2 Digimon wrong owner");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Dig1).DP, "P1 Digimon matched the condition");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Tam1).DP, "P1 Tamer did not match Digimon condition");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Dig2).DP, "P2 Digimon wrong owner");
 }
 
 void PlayerScopeRestriction()

@@ -54,10 +54,10 @@ void EachTurnEndExpires()
     EngineContext context = EngineContext.CreateDefault();
     RegisterDp(context, Card, owner: P1, dpDelta: 3000, EffectDuration.UntilEachTurnEnd);
 
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, Card, baseDp: 2000), "DP boosted before expiry");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).DP, "DP boosted before expiry");
     int removed = EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P2);
     AssertEqual(1, removed, "each-turn-end binding removed at any turn end");
-    AssertEqual(2000, ContinuousDpGate.ResolveDp(context, Card, baseDp: 2000), "DP back to base after expiry");
+    AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).DP, "DP back to base after expiry");
 }
 
 void OwnerTurnEndScope()
@@ -66,7 +66,7 @@ void OwnerTurnEndScope()
     RegisterDp(context, Card, owner: P1, dpDelta: 1000, EffectDuration.UntilOwnerTurnEnd);
 
     AssertEqual(0, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P2), "survives opponent's turn end");
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, Card, baseDp: 2000), "still applies");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).DP, "still applies");
     AssertEqual(1, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1), "expires on owner's turn end");
 }
 
@@ -90,7 +90,7 @@ void BattleAndAttendExpiry()
     AssertEqual(1, EffectDurationExpiry.ExpireAttackEnd(context.EffectRegistry), "attack-end expired");
     // permanent (null duration) survives all expiry passes
     AssertEqual(0, EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, P1), "permanent survives turn end");
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(context, new HeadlessEntityId("perm"), baseDp: 2000), "permanent still applies");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, new HeadlessEntityId("perm")).DP, "permanent still applies");
 }
 
 void UnsuspendExpiry()

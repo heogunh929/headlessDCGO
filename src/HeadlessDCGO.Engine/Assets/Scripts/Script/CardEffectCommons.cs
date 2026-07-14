@@ -4592,22 +4592,17 @@ public static partial class CardEffectCommons
             && def.IsCardType("Digimon");
     }
 
-    /// <summary>Resolved current DP of a battle-area card (base printed DP folded with continuous DP
-    /// modifiers via <see cref="ContinuousDpGate"/>). Used by DP-threshold target predicates (e.g. ST1_15
-    /// "Digimon with 4000 DP or less").</summary>
+    /// <summary>(R1-a) Resolved current DP of a battle-area card = AS-IS <c>Permanent.DP</c> (base printed DP
+    /// folded LIVE with every field / face-up-security / player IChangeDPEffect, plus LinkedDP and Boosts,
+    /// clamped at 0). Used by DP-threshold target predicates (e.g. ST1_15 "Digimon with 4000 DP or less").
+    /// Returns -1 for a card with no DP (Permanent.DP's no-DP sentinel).</summary>
     public static int CurrentDp(CardSource card, HeadlessEntityId id)
     {
         ArgumentNullException.ThrowIfNull(card);
-        int baseDp = 0;
-        if (card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null)
-        {
-            baseDp = ReadDp(instance.Metadata)
-                ?? (card.Context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? def) && def is not null
-                    ? ReadDp(def.Metadata) ?? 0
-                    : 0);
-        }
-
-        return ContinuousDpGate.ResolveDp(card.Context, id, baseDp);
+        HeadlessPlayerId owner = card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? instance) && instance is not null
+            ? instance.OwnerId
+            : card.Owner;
+        return new Permanent(card.Context, id, owner).DP;
     }
 
     private static int? ReadDp(IReadOnlyDictionary<string, object?> metadata)

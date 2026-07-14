@@ -550,6 +550,47 @@ public sealed class CardSource
     /// <summary>(W6-P) printed-data based like AS-IS <c>HasDP</c> — the card defines a DP at all.</summary>
     public bool HasDP => Definition?.Metadata.TryGetValue("dp", out object? dp) == true && dp is int;
 
+    /// <summary>(R1-a) AS-IS <c>CardSource.BaseCardDP</c> (CardSource.cs:2376: <c>=&gt; _cEntity_Base.DP</c>) — the
+    /// card's PRINTED base DP, read off the card definition. ADAPTATION: the mirror materialises the printed dp on
+    /// the card INSTANCE metadata ("dp") at creation, so this reads the instance value first (the exact seed the
+    /// engine used before this rehousing), falling back to the definition and then 0 for a dp-less abstract fixture.</summary>
+    public int BaseCardDP
+    {
+        get
+        {
+            if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? inst) && inst is not null
+                && inst.Metadata.TryGetValue("dp", out object? raw) && raw is int instanceDp)
+            {
+                return instanceDp;
+            }
+
+            return Definition?.Metadata.TryGetValue("dp", out object? def) == true && def is int printed ? printed : 0;
+        }
+    }
+
+    /// <summary>(R1-a) AS-IS <c>CardSource.BaseDP</c> (CardSource.cs:2377: <c>public int BaseDP = 0;</c>) — the
+    /// per-instance ADDITIVE base-DP field (default 0; the <c>Permanent.BaseDP</c> seed is
+    /// <c>BaseCardDP + BaseDP</c>). ADAPTATION: the AS-IS mutable field maps to instance metadata ("baseDp") on the
+    /// transient view (same substrate idiom as <c>Permanent.IsSuspended</c>); default 0 as an unset AS-IS int
+    /// field, so the seed is unchanged unless a future writer sets it.</summary>
+    public int BaseDP
+    {
+        get =>
+            Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+            && i.Metadata.TryGetValue("baseDp", out object? raw) && raw is int b ? b : 0;
+        set
+        {
+            if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    ["baseDp"] = value,
+                };
+                Context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
     /// <summary>(W6 tail) AS-IS <c>HasPlayCost</c> — the card defines a play cost.</summary>
     public bool HasPlayCost => Definition?.PlayCost is not null;
 

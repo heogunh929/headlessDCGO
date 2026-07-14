@@ -514,14 +514,11 @@ public sealed class BattleResolver
             return $"{role} '{instanceId}' has no battle DP.";
         }
 
-        // G3.5-RL-B1: effective DP = base (printed) DP combined with typed DP modifiers using the
-        // original accumulation order. With no modifiers this equals the base DP (no behavior change).
-        int staticDp = DpCalculator.ComputeDp(baseDp, ReadDpModifiers(instance.Metadata));
-
-        // N-2 / D-A1: layer continuous DP effects from other cards on top of the static DP (the original
-        // GetDP rescans every field/security/player effect each access). No-op until such effects are
-        // registered; the gate also honours DP-reduction immunity (D-A3).
-        int dp = ContinuousDpGate.ResolveDp(context, instanceId, staticDp);
+        // (R1-a) effective DP = AS-IS Permanent.DP: the base printed DP folded LIVE with every field /
+        // face-up-security / player IChangeDPEffect, plus LinkedDP and per-card Boosts, clamped at 0 (the
+        // original GetDP rescans on each access). DP-reduction immunity is honoured inside the getter.
+        _ = baseDp;
+        int dp = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, instanceId, instance.OwnerId).DP;
 
         participant = new BattleParticipant(instanceId, instance.OwnerId, instance, definition, dp);
         return null;

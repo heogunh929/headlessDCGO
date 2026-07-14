@@ -105,7 +105,7 @@ async Task Bt22003InheritedFires()
     Enqueue(ctx, ChoiceResult.Select(foe));         // mandatory select (canNoSelect:false)
 
     await Link(ctx, host, link);
-    AssertEqual(1000, ContinuousDpGate.ResolveDp(ctx, foe, baseDp: 3000),
+    AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, foe).DP,
         "the inherited BT22_003 (under the linked host) applied -2000 DP to the opponent Digimon (3000 -> 1000)");
 }
 
@@ -121,7 +121,7 @@ async Task Bt22003TopPermanentNoFire()
 
     await Link(ctx, host, link);
 
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(ctx, foe, baseDp: 3000),
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, foe).DP,
         "BT22_003 as a TOP permanent did NOT fire its inherited WhenLinked (membership) — foe DP unchanged");
 }
 
@@ -136,12 +136,12 @@ async Task Bt22003OncePerTurnCap()
 
     Enqueue(ctx, ChoiceResult.Select(foe));
     await Link(ctx, host, l1);
-    AssertEqual(1000, ContinuousDpGate.ResolveDp(ctx, foe, 3000), "first link fired -2000 DP (3000 -> 1000)");
+    AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, foe).DP, "first link fired -2000 DP (3000 -> 1000)");
 
     // Second link the SAME turn — the [Once Per Turn] cap blocks the re-fire (would stack to -4000 otherwise).
     Enqueue(ctx, ChoiceResult.Select(foe));
     await Link(ctx, host, l2);
-    AssertEqual(1000, ContinuousDpGate.ResolveDp(ctx, foe, 3000),
+    AssertEqual(1000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, foe).DP,
         "second link the same turn did NOT re-apply -2000 (Once Per Turn cap) — foe stays at 1000, not -4000-clamped");
 }
 
@@ -157,7 +157,7 @@ async Task Bt22003OpponentTurnNoFire()
 
     await Link(ctx, host, link);
 
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(ctx, foe, 3000),
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, foe).DP,
         "the [Your Turn] gate (IsOwnerTurn) rejected the link on the opponent's turn — foe DP unchanged");
 }
 

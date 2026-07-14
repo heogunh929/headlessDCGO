@@ -223,8 +223,9 @@ public static class RaidAttackSwitch
             return false;
         }
 
-        int staticDp = DpCalculator.ComputeDp(baseDp, ReadDpModifiers(instance.Metadata));
-        dp = ContinuousDpGate.ResolveDp(context, id, staticDp);
+        // (R1-a) effective DP = AS-IS Permanent.DP (live IChangeDPEffect fold).
+        _ = baseDp;
+        dp = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, id, instance.OwnerId).DP;
         return true;
     }
 

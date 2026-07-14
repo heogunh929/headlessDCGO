@@ -151,7 +151,7 @@ void RegisterDp(EngineContext context, HeadlessEntityId target, int delta)
         triggerEntityId: null, targetEntityIds: new[] { target }, values: values);
     context.EffectRegistry.Register(new EffectBinding(
         new EffectRequest(new HeadlessEntityId($"dp:{target.Value}"), P1, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousDpGate.Scope }));
+        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
 }
 
 GameEvent? FindWhenDigivolving(EngineContext context) =>

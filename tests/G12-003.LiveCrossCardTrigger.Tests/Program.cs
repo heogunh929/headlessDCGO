@@ -48,7 +48,7 @@ async Task ST3_01_Live()
     await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, self, baseDp: 4000), "self +1000 from the opponent's 0-DP delete");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, self).DP, "self +1000 from the opponent's 0-DP delete");
 }
 
 async Task ST3_01_OwnNoFire()
@@ -61,7 +61,7 @@ async Task ST3_01_OwnNoFire()
     await DpZeroDeletionHelpers.SweepAsync(context, new[] { P1, P2 });
     await new GameFlowProcessor().RunToStableAsync(context);
 
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(context, self, baseDp: 4000), "own deletion does not trigger (no buff)");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, self).DP, "own deletion does not trigger (no buff)");
 }
 
 async Task ST3_04_Live()

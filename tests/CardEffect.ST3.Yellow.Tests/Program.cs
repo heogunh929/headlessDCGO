@@ -77,7 +77,7 @@ async Task ST3_01_SelfBuff()
     AssertTrue(ba.Effect!.Definition.MaxCountPerTurn == 1, "once-per-turn cap declared");
     HeadlessEntityId foe = await MakeDeleted(a, P2, "del:foe", dpZero: true);
     AssertTrue(await ResolveDeletion(a, ba, foe), "opponent 0-DP delete fires");
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(a, sa, baseDp: 4000), "self +1000 DP for the turn");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(a, sa).DP, "self +1000 DP for the turn");
 
     // (b) NOT a 0-DP delete -> no fire.
     EngineContext b = Context(P1);
@@ -85,7 +85,7 @@ async Task ST3_01_SelfBuff()
     await PlaceDigimon(b, P1, sb, level: 4, sources: 0, dp: 4000);
     HeadlessEntityId byEffect = await MakeDeleted(b, P2, "del:eff", dpZero: false);
     AssertTrue(!await ResolveDeletion(b, Bind(b, sb), byEffect), "non-0-DP delete does NOT fire");
-    AssertEqual(4000, ContinuousDpGate.ResolveDp(b, sb, baseDp: 4000), "no buff");
+    AssertEqual(4000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(b, sb).DP, "no buff");
 
     // (c) OWN Digimon deleted by 0 DP -> no fire.
     EngineContext c = Context(P1);
@@ -209,7 +209,7 @@ async Task ST3_12_SecurityDp()
     var secDigi = new HeadlessEntityId("p1:security:SD");
     await PlaceInZone(context, P1, secDigi, ChoiceZone.Security, dp: 3000);
     Register(context, new ST3_12(), "ST3_12", tamer);
-    AssertEqual(5000, ContinuousDpGate.ResolveDp(context, secDigi, baseDp: 3000), "opponent turn: security Digimon +2000");
+    AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, secDigi).DP, "opponent turn: security Digimon +2000");
 
     // On the owner's turn the condition is false -> no buff.
     EngineContext own = Context(P1);
@@ -218,7 +218,7 @@ async Task ST3_12_SecurityDp()
     var secDigi2 = new HeadlessEntityId("p1:security:SD2");
     await PlaceInZone(own, P1, secDigi2, ChoiceZone.Security, dp: 3000);
     Register(own, new ST3_12(), "ST3_12", tamer2);
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(own, secDigi2, baseDp: 3000), "owner turn: no buff");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(own, secDigi2).DP, "owner turn: no buff");
 
     // [Security] "Play this Tamer": revealed to the trash, then played onto the battle area.
     EngineContext sec = Context(P1);
@@ -242,7 +242,7 @@ async Task ST3_13_Buff()
     await PlaceDigimon(context, P1, mine, level: 4, sources: 0, dp: 4000);
     var main = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(new ST3_13(), context, EffectTiming.OptionSkill)).Body;
     main.ApplyBuff(new[] { mine });
-    AssertEqual(7000, ContinuousDpGate.ResolveDp(context, mine, baseDp: 4000), "[Main] +3000 to my Digimon");
+    AssertEqual(7000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).DP, "[Main] +3000 to my Digimon");
 
     // [Security] +5000 player-scope to all your Digimon, plus this card returns to hand.
     EngineContext sec = Context(P1);
@@ -262,7 +262,7 @@ async Task ST3_13_Buff()
         ps.ApplyBuff();
     }
 
-    AssertEqual(9000, ContinuousDpGate.ResolveDp(sec, d1, baseDp: 4000), "[Security] +5000 to all my Digimon");
+    AssertEqual(9000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(sec, d1).DP, "[Security] +5000 to all my Digimon");
 
     AddThisCardToHandEffect hand = effects.OfType<AddThisCardToHandEffect>().Single();
     var handSink = Sink(sec);
@@ -336,7 +336,7 @@ async Task DebuffOn(EngineContext context, CEntity_Effect card, EffectTiming tim
     AssertEqual(1, request.Candidates.Count, "the opponent Digimon is the candidate");
     effect.ApplyBuff(new[] { foe });
     // (P0-DP-1) AS-IS Permanent.DP clamps the resolved DP to >=0 (`if (DP < 0) DP = 0`), so a debuff below 0 floors at 0.
-    AssertEqual(Math.Max(0, 8000 + delta), ContinuousDpGate.ResolveDp(context, foe, baseDp: 8000), $"DP {delta}");
+    AssertEqual(Math.Max(0, 8000 + delta), new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, foe).DP, $"DP {delta}");
 }
 
 // --- Helpers -------------------------------------------------------------

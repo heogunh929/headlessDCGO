@@ -74,7 +74,7 @@ async Task ST2_01_Dp()
     await PlaceDigimon(a, P2, foeA, level: 4, sources: 0);
     RegisterContinuous(a, new ST2_01(), "ST2_01", srcA);
     a.AttackController.DeclareAttack(P1, topA, P2, foeA);
-    AssertEqual(3000, ContinuousDpGate.ResolveDp(a, topA, baseDp: 2000), "battling a no-evo opponent: +1000");
+    AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(a, topA).DP, "battling a no-evo opponent: +1000");
 
     // (b) battling an opponent WITH digivolution cards -> no buff.
     EngineContext b = Context();
@@ -83,14 +83,14 @@ async Task ST2_01_Dp()
     await PlaceDigimon(b, P2, foeB, level: 4, sources: 1);
     RegisterContinuous(b, new ST2_01(), "ST2_01", srcB);
     b.AttackController.DeclareAttack(P1, topB, P2, foeB);
-    AssertEqual(2000, ContinuousDpGate.ResolveDp(b, topB, baseDp: 2000), "battling an evo opponent: no buff");
+    AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(b, topB).DP, "battling an evo opponent: no buff");
 
     // (c) NOT in a battle — even with a no-evo opponent on the board -> no buff (battle-specific, not "any opponent").
     EngineContext c = Context();
     (HeadlessEntityId topC, HeadlessEntityId srcC) = await SelfStack(c, P1, new HeadlessEntityId("p1:battle:TOP01c"));
     await PlaceDigimon(c, P2, new HeadlessEntityId("p2:battle:FOEc"), level: 4, sources: 0);
     RegisterContinuous(c, new ST2_01(), "ST2_01", srcC);
-    AssertEqual(2000, ContinuousDpGate.ResolveDp(c, topC, baseDp: 2000), "not battling: no buff");
+    AssertEqual(2000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(c, topC).DP, "not battling: no buff");
 }
 
 async Task ST2_08_SecurityAttack()
