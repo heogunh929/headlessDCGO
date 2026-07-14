@@ -791,6 +791,65 @@ public sealed class AutoProcessing
     public List<SkillInfo> StackedSkillInfos { get; set; } = new List<SkillInfo>();
     #endregion
 
+    // ============================================================================================================
+    // (R3-W1b, batch W1) AS-IS trigger-stack DRAIN half — activated DORMANT. The MultipleSkills window loop, the
+    // component pool, the cut-in accounting, TriggeredSkillProcess, HasAwaitingActivateEffects, and
+    // AutoProcessCheck. No live caller reaches the loop body: TriggeredSkillProcess's drain is gated on a
+    // NON-EMPTY StackedSkillInfos, and the three live cut-in callers (CardController.cs:2623/2887/3258) run over
+    // an EMPTY cut-in stack in every currently-exercised scenario, so availableMultipleSkills.ActivateMultipleSkills
+    // is never invoked. The live trigger window remains WindowResolver (untouched). Substrate: coroutine -> Task.
+    // ============================================================================================================
+
+    #region Skill Processing Component pool (AS-IS AutoProcessing.cs:13-54)
+
+    // AS-IS AutoProcessing.cs:14 — `public List<MultipleSkills> multipleSkills`. SUBSTRATE: the AS-IS pool is a
+    // scene-serialized fixed List (BattleScene.unity), its size NOT in source. The mirror grows the pool on demand
+    // (see availableMultipleSkills), so the window's cut-in recursion never nulls out for lack of a free component;
+    // termination is unchanged (each pass removes the resolved skill from the stack). Each MultipleSkills carries
+    // this context so its choice port binds to the same match.
+    private readonly List<MultipleSkills> _multipleSkills = new List<MultipleSkills>();
+    public List<MultipleSkills> multipleSkills => _multipleSkills;
+
+    // AS-IS AutoProcessing.cs:20-35 — the first idle component. ADAPTATION: on an exhausted pool the AS-IS returns
+    // null (a fixed-depth cap); the mirror grows a fresh idle component instead (documented substrate — the pool
+    // size is a scene value absent from source).
+    public MultipleSkills availableMultipleSkills
+    {
+        get
+        {
+            foreach (MultipleSkills _multipleSkills in multipleSkills)
+            {
+                if (!_multipleSkills.IsUsing)
+                {
+                    return _multipleSkills;
+                }
+            }
+
+            MultipleSkills created = new MultipleSkills(_context);
+            _multipleSkills.Add(created);
+            return created;
+        }
+    }
+
+    // AS-IS AutoProcessing.cs:39-53 — the innermost in-use component (deepest cut-in frame).
+    public MultipleSkills executingMultipleSkills
+    {
+        get
+        {
+            for (int i = 0; i < multipleSkills.Count; i++)
+            {
+                if (multipleSkills[multipleSkills.Count - 1 - i].IsUsing)
+                {
+                    return multipleSkills[multipleSkills.Count - 1 - i];
+                }
+            }
+
+            return null;
+        }
+    }
+
+    #endregion
+
     #region put the effect on the stack
 
     // AS-IS AutoProcessing.cs:57-118.
@@ -1190,32 +1249,112 @@ public sealed class AutoProcessing
     // (P6C1) AS-IS AutoProcessing.cs:18 — the skills excluded from the next drain pass.
     public List<SkillInfo> skipSkillInfos = new List<SkillInfo>();
 
-    // (P6C1) AS-IS AutoProcessing.cs:572-600, IEnumerator→Task. The AS-IS :574 ShrinkSecurityDigimonDisplay
-    // call is UI (stripped). The empty-stack fast path is exact (the AfterPayCost drain of a play with no
-    // collected cut-in effect is a no-op). The non-empty drain hands the batch to
-    // `availableMultipleSkills.ActivateMultipleSkills(...)` (AS-IS :589-595) — the mirror has NO MultipleSkills
-    // component pool (WindowResolver is the window loop's verified temporary home, and it does not drain this
-    // stack: stage-A design item P6A-STACKED-DRAIN) — STOP, design item RD-P6C1-3
-    // (docs/audit/rebuild_p6_cluster1_notes.md). The AS-IS tail `StackSkillInfos(null, AfterEffectsActivate)`
-    // (:597) is behind the STOP.
+    // (R3-W1b) AS-IS AutoProcessing.cs:572-600, IEnumerator→Task, StartCoroutine(X)→await X. The AS-IS :574
+    // ShrinkSecurityDigimonDisplay call is UI (stripped — see the HasAwaitingActivateEffects note). The empty-stack
+    // fast path is exact (the AfterPayCost drain of a play with no collected cut-in effect is a no-op). The
+    // non-empty drain hands the batch to `availableMultipleSkills.ActivateMultipleSkills(...)` (AS-IS :589-595 —
+    // the RD-R3W1b-01 STOP is now resolved: MultipleSkills is the live 1:1 mirror), then re-stacks the
+    // AfterEffectsActivate timing (:597). DORMANT: the cut-in stack is empty in every currently-exercised scenario.
     public async Task TriggeredSkillProcess(bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
     {
-        // (both parameters are consumed by the AS-IS ActivateMultipleSkills hand-off behind the STOP below)
         if (StackedSkillInfos.Count > 0)
         {
             List<SkillInfo> skillInfos = StackedSkillInfos.Filter(skillInfo => skillInfo != null && !skipSkillInfos.Contains(skillInfo));
 
             if (skillInfos.Count >= 1)
             {
-                throw new NotSupportedException(
-                    "STOP: TriggeredSkillProcess collected stacked cut-in skills, but the AS-IS drain " +
-                    "(availableMultipleSkills.ActivateMultipleSkills, AutoProcessing.cs:589-595) has no mirror " +
-                    "MultipleSkills window yet (design item RD-P6C1-3 / P6A-STACKED-DRAIN, " +
-                    "docs/audit/rebuild_p6_cluster1_notes.md).");
+                //Clear the list of triggering skills not included in the resolution timing
+                foreach (SkillInfo skillInfo in skillInfos)
+                {
+                    StackedSkillInfos.Remove(skillInfo);
+                }
+
+                //Process the list of skills being triggered
+                if (availableMultipleSkills != null)
+                {
+                    await availableMultipleSkills.ActivateMultipleSkills(
+                        skillInfos,
+                        this,
+                        CheckNewTriggredSkill_mainStack,
+                        skipCondition);
+                }
+
+                await StackSkillInfos(null, EffectTiming.AfterEffectsActivate);
+            }
+        }
+    }
+
+    #endregion
+
+    #region List of effects already achieved
+
+    // AS-IS AutoProcessing.cs:604-621 — the aggregate of every pool component's SkillInfos_used (the cut-in
+    // skipCondition reads it via MultipleSkills' gate: `_autoProcessing.skillInfos_used`).
+    public List<SkillInfo> skillInfos_used
+    {
+        get
+        {
+            List<SkillInfo> skillInfos_used = new List<SkillInfo>();
+
+            foreach (MultipleSkills multipleSkills in multipleSkills)
+            {
+                foreach (SkillInfo skillInfo in multipleSkills.SkillInfos_used)
+                {
+                    skillInfos_used.Add(skillInfo);
+                }
+            }
+
+            return skillInfos_used;
+        }
+    }
+
+    #endregion
+
+    #region Whether there is awaiting activate effects
+
+    // AS-IS AutoProcessing.cs:750-766 — the play pipeline's cut-in gate (CardController reads
+    // autoProcessing_CutIn.HasAwaitingActivateEffects). AS-IS :731-746 ShrinkSecurityDigimonDisplay is a
+    // UI-only coroutine (moves the security Digimon's on-screen card + runs the brainstorm animation) and is
+    // stripped throughout this half.
+    public bool HasAwaitingActivateEffects()
+    {
+        if (StackedSkillInfos.Count >= 2)
+        {
+            return true;
+        }
+
+        else if (StackedSkillInfos.Count == 1)
+        {
+            if (StackedSkillInfos[0].CardEffect.CanActivate(StackedSkillInfos[0].Hashtable))
+            {
+                return true;
             }
         }
 
-        await Task.CompletedTask;
+        return false;
+    }
+
+    #endregion
+
+    #region Automated processing checks
+
+    // AS-IS AutoProcessing.cs:122-140, IEnumerator→Task. DoneStartGame gate, then RuleProcess → RulesTiming
+    // stack → TriggeredSkillProcess(false, null). AS-IS :126 ShrinkSecurityDigimonDisplay is UI (stripped);
+    // AS-IS :128/:139 `turnStateMachine.IsSelecting = true/false` is a UI/selection-guard flag with no mirror
+    // (stripped). DORMANT: the live main loop is GameFlowProcessor.AutoProcessAsync (WindowResolver) — nothing
+    // calls this yet.
+    public async Task AutoProcessCheck(CancellationToken cancellationToken = default)
+    {
+        if (!GManager.instance.turnStateMachine.DoneStartGame) return;
+
+        //Rule processing
+        await RuleProcess(cancellationToken);
+
+        //Rule Timing
+        await StackSkillInfos(null, EffectTiming.RulesTiming);
+
+        //Trigger effect processing
+        await TriggeredSkillProcess(false, null);
     }
 
     #endregion
@@ -1261,6 +1400,33 @@ public sealed class AutoProcessing
 
                 _usedCutinEffects = new List<ICardEffect>();
             }
+        }
+    }
+
+    #endregion
+
+    #region Cut-in effect accounting (AS-IS AutoProcessing.cs:1090-1106)
+
+    // AS-IS AutoProcessing.cs:1090-1093 — VERBATIM: returns false. The real check
+    // (`_usedCutinEffects.Some(cardEffect => cardEffect.IsSameEffect(cutinEffect))`) is commented out in the
+    // original (a design-item, deliberately-disabled cut-in re-use guard); mirrored as-is.
+    public bool IsCutInEffectHasUsed(ICardEffect cutinEffect)
+    {
+        return false;// AS-IS General line 17 — _usedCutinEffects.Some(cardEffect => cardEffect.IsSameEffect(cutinEffect));
+    }
+
+    // AS-IS AutoProcessing.cs:1095-1098.
+    public bool IsCutInEffectUsedMaxCount(ICardEffect cutinEffect)
+    {
+        return _usedCutinEffects.Count(cardEffect => cardEffect.IsSameEffect(cutinEffect)) < cutinEffect.ChainActivations;
+    }
+
+    // AS-IS AutoProcessing.cs:1100-1106.
+    public void AddCutinEffect(ICardEffect cardEffect)
+    {
+        if (GManager.instance.autoProcessing.MainProcessingEffect != null)
+        {
+            _usedCutinEffects.Add(cardEffect);
         }
     }
 
