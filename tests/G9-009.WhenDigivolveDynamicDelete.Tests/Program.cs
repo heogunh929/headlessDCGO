@@ -1,8 +1,9 @@
-using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
@@ -114,12 +115,43 @@ async Task ReuseWhenDigivolving()
 
 // --- Helpers -------------------------------------------------------------
 
+// (F4 companion change) TfxWhenDigivolveDelete's delete step was re-ported old-model ActivatedEffect +
+// ActivatedSelectEffect -> new-model inline ActivateClass (a GManager SelectPermanentEffect component
+// configured directly inside the ActivateCoroutine, no separately-inspectable Body object anymore). This
+// helper used to white-box-cast effects[1] to pull out its ChoiceRequest; it now reconstructs the SAME
+// candidate predicate (verbatim from the fixture's CanDelete/DeletionMaxDp) and asks a SelectPermanentEffect
+// configured identically (maxCount 1 / canNoSelect true / Mode.Destroy) for its request — same thresholds,
+// same offered/not-offered outcomes, only the inspection route changed.
 ChoiceRequest DeleteRequest(EngineContext context, HeadlessEntityId selfId)
 {
     var card = new CardSource(context, selfId, P1);
-    // effects[0] = suspend, effects[1] = delete (the dynamic-threshold one).
-    var effects = new TfxWhenDigivolveDelete().CardEffects(EffectTiming.WhenDigivolving, card);
-    return ((ActivatedSelectEffect)((ActivatedEffect)effects[1]).Body).BuildRequest(new[] { P1, P2 });
+    int DeletionMaxDp() => CardEffectCommons.MaxDpDeleteThreshold(card,
+        8000 + 3000 * CardEffectCommons.MatchConditionPermanentCount(card,
+            id => CardEffectCommons.IsBattleAreaDigimon(card, id)
+                && CardEffectCommons.IsSuspended(card, id)
+                && id != card.InstanceId));
+    bool CanDelete(HeadlessEntityId id) =>
+        CardEffectCommons.IsOpponentBattleAreaDigimon(card, id) && CardEffectCommons.CurrentDp(card, id) <= DeletionMaxDp();
+
+    // GManager.instance resolves from the AmbientMatchContext AsyncLocal scope (null outside one) — the
+    // production ActivateCoroutine always runs inside ActivatedEffectResolver's own `AmbientMatchContext.Enter`
+    // (ActivatedEffectResolver.cs); this white-box helper calls the GManager component directly, so it must
+    // open the same scope itself.
+    using var ambientScope = AmbientMatchContext.Enter(context);
+    var select = GManager.instance!.GetComponent<SelectPermanentEffect>();
+    select.SetUp(
+        selectPlayer: P1,
+        canTargetCondition: CanDelete,
+        canTargetCondition_ByPreSelecetedList: null,
+        canEndSelectCondition: null,
+        maxCount: 1,
+        canNoSelect: true,
+        canEndNotMax: false,
+        selectPermanentCoroutine: null,
+        afterSelectPermanentCoroutine: null,
+        mode: SelectPermanentEffect.Mode.Destroy,
+        cardEffect: null!);
+    return select.BuildRequest((IZoneStateReader)context.ZoneMover, new[] { P1, P2 });
 }
 
 static bool Offered(ChoiceRequest req, HeadlessEntityId id) =>
@@ -129,6 +161,13 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (F4 companion change) Initialize() starts the match at HeadlessPhase.Setup (AS-IS pre-mulligan), which
+    // makes TurnStateMachine.DoneStartGame false. The new-model ActivateClass's base ICardEffect.CanTrigger
+    // gates ALL activation on DoneStartGame (AS-IS: no effect may trigger before the start-game sequence
+    // completes) — a gate the old-model ActivatedEffect this fixture previously used did not consult. A
+    // [When Digivolving] trigger is by definition mid-game, so advancing past Setup here is a correctness fix
+    // for the harness, not a behavior change to what is being tested.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
