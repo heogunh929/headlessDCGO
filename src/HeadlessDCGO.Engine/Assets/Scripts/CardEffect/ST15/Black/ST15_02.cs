@@ -1,46 +1,76 @@
-// 1:1 mirror of the original ST15_02 (ST15/Black) — an F1-Tier2 OnAttackTargetChanged INHERITED (anyone) witness.
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS ST15_02
+// OnAttackTargetChanged block (ST15/Black) — the F1-Tier2 OnAttackTargetChanged INHERITED (anyone) witness.
+//   [All Turns][Once Per Turn] "When an attack target is switched, gain 1 memory."
+// AS-IS: ActivateClass on OnAttackTargetChanged, SetIsInheritedEffect(true), SetHashString("Memory+1_ST15_02"),
+// ORDER=1 ([Once Per Turn]), ISOPTIONAL=false. CanUseCondition = IsExistOnBattleArea &&
+// CanTriggerOnPermanentAttackTargetSwitch(permanent => true) [ANYONE]. CanActivateCondition =
+// IsExistOnBattleArea && card.Owner.CanAddMemory(activateClass). ActivateCoroutine = card.Owner.AddMemory(1).
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.CanAddMemory(activateClass)`
+// -> `new Player(card.Context, card.Owner).CanAddMemory(activateClass)` (bridge-W4 Player handle, retires
+// MIG5-CANADDMEMORY); `card.Owner.AddMemory(1, activateClass)` -> the mirror HeadlessPlayerId extension.
 //
-// Ported effect (AS-IS ST15_02.cs:69-113, timing OnAttackTargetChanged):
-//   * [All Turns][Once Per Turn] "When an attack target is switched, gain 1 memory." — AS-IS `new ActivateClass()`
-//     with SetIsInheritedEffect(true) + SetHashString("Memory+1_ST15_02") + SetUpActivateClass(..., 1, false, ...) =
-//     maxActivationCount 1 (ONCE PER TURN), isOptional FALSE. INHERITED.
-//     CanUse (AS-IS :83-87) = IsExistOnBattleArea(card) && CanTriggerOnPermanentAttackTargetSwitch(_ => true) — ANYONE.
-//     CanActivate (AS-IS :96-100) = IsExistOnBattleArea(card). The AS-IS `card.Owner.CanAddMemory(activateClass)`
-//       disjunct is dropped — the headless sink enforces the memory cap (CannotAddMemoryKey), same as BT22_044/EX6_001.
-//     Body (AS-IS :109-111) = card.Owner.AddMemory(1) -> MemoryBody(1).
-//
-// The AS-IS timing==None (AddSelfDigivolutionRequirementStaticEffect, Koromon) and timing==OnStartMainPhase (Memory +1
-// with an IsOwnerTurn gate) effects are ORTHOGONAL to the OnAttackTargetChanged reactor under test and are
-// deliberately OMITTED (same witness scoping as the other F1 witnesses).
+// The AS-IS timing==None (AddSelfDigivolutionRequirementStaticEffect, Koromon) and timing==OnStartMainPhase
+// (Memory +1 with an IsOwnerTurn gate) effects are ORTHOGONAL to the OnAttackTargetChanged reactor under test
+// and are deliberately OMITTED (same witness scoping as the other F1 witnesses).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.ST15.Black;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class ST15_02 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region [All Turns][Once Per Turn] When an attack target is switched, gain 1 memory (OnAttackTargetChanged, INHERITED, anyone)
         if (timing == EffectTiming.OnAttackTargetChanged)
         {
-            const string desc = "[All Turns] [Once Per Turn] When an attack target is switched, gain 1 memory.";
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnAttackTargetChanged,
-                canUse: ctx => CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.CanTriggerOnPermanentAttackTargetSwitch(ctx, card, _ => true),  // anyone
-                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card),
-                body: new MemoryBody(1),
-                maxCountPerTurn: 1,       // AS-IS ORDER=1 — [Once Per Turn]
-                isOptional: false,
-                description: desc,
-                capHash: "Memory+1_ST15_02", // AS-IS SetHashString("Memory+1_ST15_02")
-                isInheritedEffect: true));    // AS-IS SetIsInheritedEffect(true)
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            activateClass.SetHashString("Memory+1_ST15_02");
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[All Turns][Once Per Turn] When an attack target is switched, gain 1 memory.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.CanTriggerOnPermanentAttackTargetSwitch(hashtable, permanent => true))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (new Player(card.Context, card.Owner).CanAddMemory(activateClass))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await card.Owner.AddMemory(1, activateClass);
+            }
         }
-        #endregion
 
         return cardEffects;
     }

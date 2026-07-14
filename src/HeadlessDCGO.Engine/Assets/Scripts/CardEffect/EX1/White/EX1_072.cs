@@ -1,15 +1,28 @@
-// (E-3 witness) EX1_072 (EX1/White Option). AS-IS EX1/White/EX1_072.cs.
+// Source: DCGO/Assets/Scripts/CardEffect/EX1/White/EX1_072.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS EX1_072
+// (EX1/White Option). (E-3 witness — the CanNotPlayOption player-grant fidelity is load-bearing.)
 //   [Main]     "Your opponent can't use Option cards until the end of their next turn."
 //   [Security] "Your opponent can't use Option cards this turn. Then, add this card to its owner's hand."
-// Both register a duration-bound CanNotPlayClass at PLAYER scope via CardEffectCommons.AddEffectToPlayer:
-// [Main] -> EffectDuration.UntilOpponentTurnEnd, [Security] -> EffectDuration.UntilEachTurnEnd. The headless
-// mirror is AddCanNotPlayOptionToPlayer (region ① player-bucket ContinuousCanNotPlayOptionEffect), scanned by
-// CanNotPlayOptionScan; the duration bucket expires via EffectDurationExpiry at the matching turn end. AS-IS
-// CardCondition(source) = source.Owner == card.Owner.Enemy && source.IsOption; CanUse = always true.
-
+// AS-IS: two ActivateClass effects. [Main] ActivateCoroutine builds a CanNotPlayClass (cardCondition =
+// source.Owner == card.Owner.Enemy && source.IsOption) and CardEffectCommons.AddEffectToPlayer(
+// UntilOpponentTurnEnd, ..., None). [Security] does the same with UntilEachTurnEnd, SetIsSecurityEffect(true),
+// THEN AddThisCardToHand(card).
+// Substrate translation: the AS-IS raw `new CanNotPlayClass()` + `AddEffectToPlayer(... , timing: None)` has NO
+// working mirror path (AddEffectToPlayer / AddContinuousEffectToPlayer lower any effect via
+// LegacyBindingBridge.TryToBinding, which throws for a new-model kind-class — RD-P6C3-C1: no new-model
+// player-grant store). The mirror carrier of exactly this AS-IS CanNotPlayOption player grant is
+// `CardEffectCommons.AddCanNotPlayOptionToPlayer(effectDuration, card, cardCondition)` (region ① player-bucket
+// ContinuousCanNotPlayOptionEffect, playerScope:true, CanUse always true — scanned by CanNotPlayOptionScan,
+// expired by EffectDurationExpiry at the matching turn end), the documented E-3 mirror. IEnumerator->Task,
+// StartCoroutine->await; `card.Owner.Enemy` -> `CardEffectCommons.OpponentOf(card)`; `AddThisCardToHand(card,
+// activateClass)` -> mirror `AddThisCardToHand(card, card)` (BT9_109 convention).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX1.White;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
 
 public sealed class EX1_072 : CEntity_Effect
@@ -18,42 +31,87 @@ public sealed class EX1_072 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // AS-IS CardCondition (shared by [Main] and [Security]): an OPTION owned by the caster's opponent.
-        bool CardCondition(CardSource cardSource) =>
-            cardSource is not null
-            && cardSource.Owner == CardEffectCommons.OpponentOf(card)
-            && cardSource.IsOption;
-
         if (timing == EffectTiming.OptionSkill)
         {
-            // AS-IS EX1_072.cs:14-56 — [Main] ActivateCoroutine: AddEffectToPlayer(UntilOpponentTurnEnd, ...,
-            // CanNotPlayClass). No-select player-scope grant, mirrored by GrantPlayerScopeRestrictionBody.
-            const string desc = "[Main] Your opponent can't use Option cards until the end of their next turn.";
-            cardEffects.Add(new ActivatedEffect(
-                card,
-                timing: EffectTiming.OptionSkill,
-                canUse: ctx => CardEffectCommons.CanTriggerOptionMainEffect(ctx, card),
-                canActivate: null,
-                body: new GrantPlayerScopeRestrictionBody(
-                    grant: c => CardEffectCommons.AddCanNotPlayOptionToPlayer(EffectDuration.UntilOpponentTurnEnd, c, CardCondition)),
-                maxCountPerTurn: null, isOptional: false, desc));
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Main] Your opponent can't use Option cards until the end of their next turn.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                CardEffectCommons.AddCanNotPlayOptionToPlayer(
+                    effectDuration: EffectDuration.UntilOpponentTurnEnd,
+                    card: card,
+                    cardCondition: CardCondition);
+
+                await Task.CompletedTask;
+
+                bool CardCondition(CardSource cardSource)
+                {
+                    if (cardSource.Owner == CardEffectCommons.OpponentOf(card))
+                    {
+                        if (cardSource.IsOption)
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+            }
         }
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            // AS-IS EX1_072.cs:58-104 — [Security] ActivateCoroutine: AddEffectToPlayer(UntilEachTurnEnd, ...,
-            // CanNotPlayClass) THEN AddThisCardToHand(card). Ported as sibling activated effects resolved in list
-            // order (grant first, then add-to-hand), the same composite shape as BT9_109's [Security].
-            const string desc = "[Security] Your opponent can't use Option cards this turn. Then, add this card to its owner's hand.";
-            cardEffects.Add(new ActivatedEffect(
-                card,
-                timing: EffectTiming.SecuritySkill,
-                canUse: ctx => CardEffectCommons.CanTriggerSecurityEffect(ctx, card),
-                canActivate: null,
-                body: new GrantPlayerScopeRestrictionBody(
-                    grant: c => CardEffectCommons.AddCanNotPlayOptionToPlayer(EffectDuration.UntilEachTurnEnd, c, CardCondition)),
-                maxCountPerTurn: null, isOptional: false, desc));
-            cardEffects.Add(new AddThisCardToHandEffect(card, "[Security] Add this card to its owner's hand."));
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Opponent can't play option and add this card to hand", CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsSecurityEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Security] Your opponent can't use Option cards this turn. Then, add this card to its owner's hand.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerSecurityEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                CardEffectCommons.AddCanNotPlayOptionToPlayer(
+                    effectDuration: EffectDuration.UntilEachTurnEnd,
+                    card: card,
+                    cardCondition: CardCondition);
+
+                await CardEffectCommons.AddThisCardToHand(card, card);
+
+                bool CardCondition(CardSource cardSource)
+                {
+                    if (cardSource.Owner == CardEffectCommons.OpponentOf(card))
+                    {
+                        if (cardSource.IsOption)
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+            }
         }
 
         return cardEffects;

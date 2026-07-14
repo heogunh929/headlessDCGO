@@ -1,70 +1,159 @@
-// Source: Assets/Scripts/CardEffect/BT2/Purple/BT2_080.cs
-// [Retaliation] (OnDestroyedAnyone)
-// [On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their
-//   memory costs. Any [On Play] effects on Digimon played with this effect don't activate.
-// AS-IS: RetaliationSelfEffect at OnDestroyedAnyone (condition:null).
-//   ActivateClass at OnEnterFieldAnyone: CanUseCondition=CanTriggerOnPlay, CanActivateCondition=
-//   IsExistOnBattleArea(card)&&HasMatchConditionOwnersCardInTrash. CanSelectCardCondition=IsDigimon&&
-//   HasCardColor(Purple)&&Level<=4&&HasLevel&&CanPlayAsNewPermanent(payCost:false). maxCount=min(2,
-//   matchingTrash,emptyBattleAreaFrames), root=Trash only, canEndNotMax=true, activateETB=false.
-//
-// Headless mirror: RetaliationSelfEffect direct port + ActivatedSelectAndPlayFromZonesEffect (Trash only),
-//   maxCount=2, canEndNotMax=true. CanTarget mirrors CanSelectCardCondition via real card accessors.
-// STOP: activateETB=false (AS-IS suppresses [On Play] effects on Digimon played by this effect) —
-//   ActivatedSelectAndPlayFromZonesEffect has no activateETB param; ETB effects will fire (partial port).
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT2/Purple/BT2_080.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the original
+// BT2_080 (BT2/Purple).
+//   [Retaliation] (OnDestroyedAnyone) -> RetaliationSelfEffect (already new-model, untouched).
+//   [On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their
+//     memory costs. Any [On Play] effects on Digimon played with this effect don't activate.
+// This RESOLVES the previous pass's `activateETB:false` STOP: the AS-IS-verbatim
+// `GManager.instance.GetComponent<SelectCardEffect>()` (Mode.Custom, Root.Trash) + `CardEffectCommons.
+// PlayPermanentCards(..., activateETB:false)` bridge (PlayCardsBridge.cs, same as BT1_044) carries the
+// suppress-[On Play] flag through 1:1. AS-IS structure kept verbatim: inline `new ActivateClass()`, ORDER=-1,
+// ISOPTIONAL=true (canNoSelect:() => true, canEndNotMax:true), the nested CanEndSelectCondition/
+// SelectCardCoroutine accumulator.
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.TrashCards` (AS-IS live
+// Player member) -> `new Player(card.Context, card.Owner).TrashCards` (established BT1_081 idiom; mirror
+// `CardSource.Owner` is a bare HeadlessPlayerId); `HasCardColor(CardColor.Purple)` -> the string overload
+// `HasCardColor("Purple")`; `GManager.instance.GetComponent<SelectCardEffect>()`/`SelectCardEffect.Mode/Root`
+// = bridge W4 verbatim (established BT1_044 idiom).
+// design item RD-R6-04 (FRAME-MODEL, inert): AS-IS caps maxCount by the owner's EMPTY battle-area frame count
+// (`fieldCardFrames.Count(f => f.IsEmptyFrame() && f.IsBattleAreaFrame())`). The mirror has no frame/slot model
+// (zones are unbounded lists — the documented MIG5-FRAME-MODEL gap), so the empty-frame reduction has no mirror
+// surface and never fires; the AS-IS `Math.Min(2, TrashCards matching)` cap is kept and the frame reduction is
+// omitted as inert substrate (NOT a game-logic simplification — the mirror imposes no frame limit to reduce by).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Purple;
 
+using System;
+using System.Collections;
+using System.Linq;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT2_080 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnDestroyedAnyone)
         {
-            cardEffects.Add(CardEffectFactory.RetaliationSelfEffect(
-                isInheritedEffect: false,
-                card: card,
-                condition: null));
+            cardEffects.Add(CardEffectFactory.RetaliationSelfEffect(isInheritedEffect: false, card: card, condition: null));
         }
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            // AS-IS CanSelectCardCondition (BT2_080.cs:31-51): IsDigimon -> HasCardColor(Purple) -> Level<=4 ->
-            // CanPlayAsNewPermanent(payCost:false) -> HasLevel.
-            bool CanSelectCardCondition(CardSource cardSource) =>
-                cardSource.IsDigimon
-                && cardSource.HasCardColor("Purple")
-                && cardSource.Level <= 4
-                && CardEffectCommons.CanPlayAsNewPermanent(cardSource, payCost: false, cardEffect: null)
-                && cardSource.HasLevel;
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Play Digimon from trash", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            bool CanTarget(HeadlessEntityId id) => CanSelectCardCondition(new CardSource(card.Context, id, card.Owner));
+            string EffectDiscription()
+            {
+                return "[On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their memory costs. Any [On Play] effects on Digimon played with this effect don't activate. ";
+            }
 
-            // STOP: activateETB=false (AS-IS suppresses [On Play] effects on Digimon played by this effect)
-            //   — ActivatedSelectAndPlayFromZonesEffect has no activateETB param; ETB effects will fire (partial port).
-            const string desc = "[On Play] You may play up to 2 level 4 or lower purple Digimon cards from your trash without paying their memory costs. Any [On Play] effects on Digimon played with this effect don't activate.";
-            cardEffects.Add(new ActivatedEffect(
-                card,
-                timing: EffectTiming.OnEnterFieldAnyone,
-                // AS-IS CanUseCondition (BT2_080.cs:53-56).
-                canUse: ctx => CardEffectCommons.CanTriggerOnPlay(ctx, card),
-                // AS-IS CanActivateCondition (BT2_080.cs:58-69).
-                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition),
-                body: new ActivatedSelectAndPlayFromZonesEffect(
-                    card,
-                    fromZones: new[] { ChoiceZone.Trash },
-                    canTarget: CanTarget,
-                    maxCount: 2,
-                    canEndNotMax: true,
-                    description: desc),
-                maxCountPerTurn: null, isOptional: false, desc)); // (B-5) AS-IS isOptional=true is folded into the body canNoSelect (canEndNotMax:true) — result-equivalent; a true 2-decision restore needs the optional-prompt protocol (deferred).
+            bool CanSelectCardCondition(CardSource cardSource)
+            {
+                if (cardSource.IsDigimon)
+                {
+                    if (cardSource.HasCardColor("Purple"))
+                    {
+                        if (cardSource.Level <= 4)
+                        {
+                            if (CardEffectCommons.CanPlayAsNewPermanent(cardSource: cardSource, payCost: false, cardEffect: activateClass))
+                            {
+                                if (cardSource.HasLevel)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionOwnersCardInTrash(card, CanSelectCardCondition))
+                {
+                    List<CardSource> selectedCards = new List<CardSource>();
+
+                    // AS-IS :77-82 — `Math.Min(2, TrashCards matching)` then reduce by empty battle-area frames.
+                    // The frame reduction is inert in the mirror (RD-R6-04, no frame model).
+                    int maxCount = Math.Min(2, new Player(card.Context, card.Owner).TrashCards.Count(CanSelectCardCondition));
+
+                    SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                    selectCardEffect.SetUp(
+                                canTargetCondition: CanSelectCardCondition,
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: CanEndSelectCondition,
+                                canNoSelect: () => true,
+                                selectCardCoroutine: SelectCardCoroutine,
+                                afterSelectCardCoroutine: null,
+                                message: "Select cards to play.",
+                                maxCount: maxCount,
+                                canEndNotMax: true,
+                                isShowOpponent: true,
+                                mode: SelectCardEffect.Mode.Custom,
+                                root: SelectCardEffect.Root.Trash,
+                                customRootCardList: null,
+                                canLookReverseCard: true,
+                                selectPlayer: card.Owner,
+                                cardEffect: activateClass);
+
+                    selectCardEffect.SetUpCustomMessage("Select cards to play.", "The opponent is selecting cards to play.");
+                    selectCardEffect.SetUpCustomMessage_ShowCard("Played Card");
+
+                    await selectCardEffect.Activate();
+
+                    bool CanEndSelectCondition(List<CardSource> cardSources)
+                    {
+                        if (CardEffectCommons.HasNoElement(cardSources))
+                        {
+                            return false;
+                        }
+
+                        return true;
+                    }
+
+                    async Task SelectCardCoroutine(CardSource cardSource)
+                    {
+                        selectedCards.Add(cardSource);
+
+                        await Task.CompletedTask;
+                    }
+
+                    await CardEffectCommons.PlayPermanentCards(
+                        cardSources: selectedCards,
+                        activateClass: activateClass,
+                        payCost: false,
+                        isTapped: false,
+                        root: SelectCardEffect.Root.Trash,
+                        activateETB: false);
+                }
+            }
         }
 
         return cardEffects;

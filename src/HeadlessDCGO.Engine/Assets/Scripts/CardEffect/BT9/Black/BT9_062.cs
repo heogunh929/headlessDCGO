@@ -1,95 +1,117 @@
-// 1:1 mirror of the original BT9_062 (BT9/Black) — the F1-Tier2 OnEndAttack INHERITED (digivolution-source) witness.
-//
-// Ported effect (AS-IS BT9_062.cs:16-89, timing OnEndAttack):
-//   * [End of Attack] "If this Digimon has [Alphamon] in its name, delete 1 of your opponent's Digimon with a play
-//     cost of 5 or less." — AS-IS `new ActivateClass()` with SetIsInheritedEffect(true) (:21) and NO SetHashString,
-//     SetUpActivateClass(..., -1, false, ...) = maxActivationCount -1 (UNCAPPED) + isOptional FALSE.
-//     This is an INHERITED effect: AS-IS Permanent.EffectList_ForCard exposes it ONLY while THIS card is a NON-TOP
-//     digivolution source of a Digimon permanent (never as a top card). Ported as a uniform ActivatedEffect with
-//     isInheritedEffect: true — the activated bridge's digivolution-source scan (WindowResolverWiring.ScanZones)
-//     collects it from under an Alphamon host and runs the resolver in inherited-scan mode; a TOP-permanent BT9_062
-//     does NOT fire it (membership). It is the OnEndAttack analogue of BT9_021 (OnAddHand), proving the shared
-//     inherited-source scan reaches the newly EventBroadcast-registered OnEndAttack timing.
-//     CanUse (AS-IS :46-49) = CanTriggerOnAttack(hashtable, card) — the self/attacker gate shared by OnEndAttack
-//       (OnEndAttack.cs:10-13 → OnAttack.cs). For an inherited source the bridge threads the attack-end event whose
-//       Subject is the HOST (top) permanent; SubjectPermanentContains passes because the host's SourceIds contain
-//       this card (AS-IS AttackingPermanent.cardSources.Contains(card)).
-//     CanActivate (AS-IS :52-64) = IsExistOnBattleArea(card) && HasMatchConditionPermanent(CanSelectPermanent) &&
-//       card.PermanentOfThisCard().TopCard.ContainsCardName("Alphamon") — the Alphamon-name gate reads the HOST's
-//       top card (an inherited source's PermanentOfThisCard() resolves to its host permanent).
-//     Body (AS-IS ActivateCoroutine :66-88) = SelectPermanentEffect(Mode.Destroy, maxCount Min(1,count),
-//       canNoSelect:false, canEndNotMax:false) over CanSelectPermanentCondition = an opponent battle-area Digimon
-//       with a printed play cost of 5 or less.
+// Source: DCGO/Assets/Scripts/CardEffect/BT9/Black/BT9_062.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [End of Attack] INHERITED
+// (digivolution-source) branch.
+//   [End of Attack] If this Digimon has [Alphamon] in its name, delete 1 of your opponent's Digimon with a play
+//   cost of 5 or less.
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpActivateClass(..., -1, false, ...) (uncapped,
+// mandatory) + SetIsInheritedEffect(true) (BT9_062.cs:16-90). Substrate translations only: IEnumerator->Task,
+// StartCoroutine->await; `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp(Mode.Destroy)
+// (bridge W4, established BT2_092 idiom); AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` supplied to
+// SetUp/MatchConditionPermanentCount as the entity-id predicate (`PermanentOf(id)` reconstruction, established
+// BT9_021 idiom); `card.PermanentOfThisCard().TopCard.ContainsCardName("Alphamon")` (the HOST top card, an
+// inherited source resolves PermanentOfThisCard to its host) -> `ICardEffect.ResolvePermanentOfThisCard(card)`.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.Black;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT9_062 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region [End of Attack] Alphamon → delete 1 opponent Digimon with cost <= 5 (timing OnEndAttack, INHERITED)
         if (timing == EffectTiming.OnEndAttack)
         {
-            const string description =
-                "[End of Attack] If this Digimon has [Alphamon] in its name, delete 1 of your opponent's Digimon with a play cost of 5 or less.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Delete 1 Digimon with 5 or less Cost", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            cardEffects.Add(activateClass);
 
-            // AS-IS CanSelectPermanentCondition (BT9_062.cs:44-58): opponent battle-area Digimon whose printed play
-            // cost is 5 or less (GetCostItself <= 5 && HasPlayCost).
-            bool CanSelectPermanent(Permanent? permanent) =>
-                permanent is not null
-                && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
-                && permanent.TopCard.GetCostItself <= 5
-                && permanent.TopCard.HasPlayCost;
+            string EffectDiscription()
+            {
+                return "[End of Attack] If this Digimon has [Alphamon] in its name, delete 1 of your opponent's Digimon with a play cost of 5 or less.";
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.TopCard.GetCostItself <= 5)
+                    {
+                        if (permanent.TopCard.HasPlayCost)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
 
             Permanent? PermanentOf(HeadlessEntityId id) =>
                 card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
                     ? new Permanent(card.Context, id, rec.OwnerId)
                     : null;
 
-            // AS-IS card.PermanentOfThisCard().TopCard.ContainsCardName("Alphamon") — the HOST top card's name (an
-            // inherited source resolves PermanentOfThisCard() to its host permanent).
-            bool HostIsAlphamon()
+            bool CanSelectPermanentById(HeadlessEntityId id)
             {
-                PermanentView host = card.PermanentOfThisCard();
-                return !host.IsEmpty
-                    && !host.TopInstanceId.IsEmpty
-                    && new CardSource(card.Context, host.TopInstanceId, card.Owner).ContainsCardName("Alphamon");
+                Permanent? permanent = PermanentOf(id);
+                return permanent is not null && CanSelectPermanentCondition(permanent);
             }
 
-            // AS-IS CanUseCondition (BT9_062.cs:46-49).
-            bool CanUse(CardEffectResolveContext ctx) => CardEffectCommons.CanTriggerOnAttack(ctx, card);
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
 
-            // AS-IS CanActivateCondition (BT9_062.cs:52-64).
-            bool CanActivate() =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanent)
-                && HostIsAlphamon();
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    {
+                        if (ICardEffect.ResolvePermanentOfThisCard(card).TopCard.ContainsCardName("Alphamon"))
+                        {
+                            return true;
+                        }
+                    }
+                }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnEndAttack,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: new SelectBody(
-                    card: card,
-                    canTarget: id => CanSelectPermanent(PermanentOf(id)),
-                    maxCount: 1,
-                    canNoSelect: false,
-                    canEndNotMax: false,
-                    mode: SelectPermanentEffect.Mode.Destroy,
-                    description: "Select 1 of your opponent's Digimon with a play cost of 5 or less to delete."),
-                maxCountPerTurn: null, // AS-IS SetUpActivateClass(..., -1, ...) = UNCAPPED (fires every attack-end)
-                isOptional: false,
-                description: description,
-                isInheritedEffect: true));
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+                }
+            }
         }
-        #endregion
 
         return cardEffects;
     }

@@ -1,15 +1,22 @@
-// Source: Assets/Scripts/CardEffect/BT2/Blue/BT2_070.cs
-// 1:1 headless mirror via the uniform ActivatedEffect (= AS-IS ActivateClass): a conditional
-// [On Deletion] draw gated on trash presence and a non-empty deck.
+// Source: DCGO/Assets/Scripts/CardEffect/BT2/Purple/BT2_070.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the original
+// BT2_070 (BT2/Purple).
 //   [On Deletion] Trigger <Draw 1>. (Draw 1 card from your deck.)
-//   -> ActivatedEffect(OnDestroyedAnyone, CanUse=CanTriggerOnDeletion [self-scope],
-//      CanActivate=on trash && library >= 1, body=DrawBody(1),
-//      maxCountPerTurn=null [AS-IS ORDER=-1], isOptional=false [AS-IS ISOPTIONAL=false]).
-namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Blue;
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + local functions. CanUseCondition =
+// CanTriggerOnDeletion; CanActivateCondition = IsExistOnTrash && owner.LibraryCards.Count >= 1; ORDER=-1,
+// ISOPTIONAL=false; ActivateCoroutine = new DrawClass(owner, 1, activateClass).Draw().
+// Substrate translations only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// `card.Owner.LibraryCards` (AS-IS live Player property) -> `new Player(card.Context, card.Owner).LibraryCards`
+// (mirror `CardSource.Owner` is a bare HeadlessPlayerId; the Player handle is reconstructed, the established
+// BT1_081 idiom); `new DrawClass(card.Owner, 1, activateClass)` -> the mirror carrier ctor
+// `(EngineContext, HeadlessPlayerId, int, HeadlessEntityId? cause)`.
+namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Purple;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT2_070 : CEntity_Effect
 {
@@ -19,11 +26,26 @@ public sealed class BT2_070 : CEntity_Effect
 
         if (timing == EffectTiming.OnDestroyedAnyone)
         {
-            bool CanActivate()
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[On Deletion] Trigger <Draw 1>. (Draw 1 card from your deck.)";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnDeletion(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnTrash(card))
                 {
-                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
                     {
                         return true;
                     }
@@ -32,15 +54,10 @@ public sealed class BT2_070 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnDestroyedAnyone,
-                canUse: ctx => CardEffectCommons.CanTriggerOnDeletion(ctx, card),
-                canActivate: CanActivate,
-                body: new DrawBody(1),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[On Deletion] Trigger <Draw 1>. (Draw 1 card from your deck.)"));
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
 
         return cardEffects;

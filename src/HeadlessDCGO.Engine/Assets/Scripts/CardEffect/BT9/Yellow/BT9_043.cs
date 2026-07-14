@@ -11,6 +11,16 @@
 //       ReturnTopSecurityToHandThenUnsuspendSelfBody (a single ReturnToHand on the top security card reproduces both
 //       the OnAddHand of AddHandCards and the OnLoseSecurity of IReduceSecurity, then self-unsuspend).
 //
+// P8 CUTOVER — STOP, design item RD-R6-03. This branch is NOT converted to the new-model ActivateClass and remains
+// old-model ActivatedEffect. The literal AS-IS ActivateCoroutine physically moves the top security card to hand via
+// `CardObjectController.AddHandCards`, which has NO mirror (documented gap RD-P6C1-8 — the async zone-move statics
+// are unported; the async coroutine path throws NotSupportedException). The mirror `IReduceSecurity` carrier is a
+// no-op for card movement (it only emits/collects OnLoseSecurity), so the async-helper path cannot reproduce the
+// security->hand move; only the sink-based IEffectBody (ReturnTopSecurityToHandThenUnsuspendSelfBody, ReturnToHandKind
+// mutation) can, and that mechanism is unavailable to a `Func<Hashtable,Task>` ActivateCoroutine. Fabricating a raw
+// sink call in card code would be an invented substrate path used by no other converted card. Kept old-model until
+// an async AddHandCards-equivalent carrier exists.
+//
 // The AS-IS timing==None self-digivolution-requirement static (:15-23) and the OnEnterFieldAnyone [When Digivolving]
 // opponent-DP-down effect (:25-82) are ORTHOGONAL to the OnEndAttack self reactor under test; they are deliberately
 // OMITTED (same witness scoping as BT9_021 / the other F1 witnesses — only the timing under test is ported).

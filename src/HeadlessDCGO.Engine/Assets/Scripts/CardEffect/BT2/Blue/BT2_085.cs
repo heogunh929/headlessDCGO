@@ -1,16 +1,25 @@
-// 1:1 mirror of ST4_14 with BT2_085's timing/trigger substituted.
-//   [Your Turn] When one of your opponent's digivolution cards is trashed, you may suspend this
-//   Tamer to gain 1 memory.
-//     -> ActivatedEffect(OnDigivolutionCardDiscarded, canUse = IsExistOnBattleArea + IsOwnerTurn +
-//        CanTriggerOnTrashDigivolutionCard(opponent-Digimon, null, null), canActivate =
-//        CanActivateSuspendCostEffect (no IsExistOnBattleArea — AS-IS omits it here),
-//        body = SuspendSelfAndGainMemoryBody(1), isOptional = true [may]).
-//   [Security] Play this Tamer.  -> PlaySelfTamerSecurityEffect
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT2/Blue/BT2_085.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the original
+// BT2_085 (BT2/Blue Tamer).
+//   [Your Turn] When one of your opponent's digivolution cards is trashed, you may suspend this Tamer to gain
+//   1 memory.
+//   [Security] Play this Tamer.  -> PlaySelfTamerSecurityEffect (already new-model, untouched).
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + local functions. CanUseCondition =
+// IsExistOnBattleArea && IsOwnerTurn && CanTriggerOnTrashDigivolutionCard(hashtable, PermanentCondition,
+// cardEffect => true, cardSource => true); CanActivateCondition = CanActivateSuspendCostEffect; ORDER=-1,
+// ISOPTIONAL=true; ActivateCoroutine = SuspendPermanentsClass(self).Tap() THEN card.Owner.AddMemory(1).
+// Substrate translations only: IEnumerator->Task, `ContinuousController.instance.StartCoroutine(X)`->`await X`;
+// `card.PermanentOfThisCard()` -> `ICardEffect.ResolvePermanentOfThisCard(card)`; `new SuspendPermanentsClass(
+// {self}, CardEffectHashtable(activateClass))` -> the mirror carrier ctor `(List<Permanent>, HeadlessEntityId?
+// cause, bool isBlock)` (cause = `activateClass.EffectSourceCard?.InstanceId`, isBlock=false — not a block-tap);
+// `card.Owner.AddMemory(1, activateClass)` -> the mirror HeadlessPlayerId extension (established BT1_081 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT2_085 : CEntity_Effect
 {
@@ -20,26 +29,55 @@ public sealed class BT2_085 : CEntity_Effect
 
         if (timing == EffectTiming.OnDigivolutionCardDiscarded)
         {
-            bool PermanentCondition(Permanent permanent) =>
-                CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.IsOwnerTurn(card)
-                && CardEffectCommons.CanTriggerOnTrashDigivolutionCard(ctx, card, PermanentCondition, null, null);
+            string EffectDiscription()
+            {
+                return "[Your Turn] When one of your opponent's digivolution cards is trashed, you may suspend this Tamer to gain 1 memory.";
+            }
 
-            bool CanActivate() =>
-                CardEffectCommons.CanActivateSuspendCostEffect(card);
+            bool PermanentCondition(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnDigivolutionCardDiscarded,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: new SuspendSelfAndGainMemoryBody(1),
-                maxCountPerTurn: null,
-                isOptional: true,
-                description: "[Your Turn] When one of your opponent's digivolution cards is trashed, you may suspend this Tamer to gain 1 memory."));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.CanTriggerOnTrashDigivolutionCard(hashtable, PermanentCondition, cardEffect => true, cardSource => true))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.CanActivateSuspendCostEffect(card))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
+
+                await new SuspendPermanentsClass(new List<Permanent>() { selectedPermanent }, activateClass.EffectSourceCard?.InstanceId, false).Tap();
+
+                await card.Owner.AddMemory(1, activateClass);
+            }
         }
 
         if (timing == EffectTiming.SecuritySkill)

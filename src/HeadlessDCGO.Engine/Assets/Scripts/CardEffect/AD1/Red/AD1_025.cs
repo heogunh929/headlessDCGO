@@ -10,12 +10,20 @@
 //     NAME-based PartitionCondition groups.
 //   * [All Turns] [Once Per Turn] "When any of your opponent's Digimon leave the battle area, trash 1 of their
 //     Option cards in the battle area and trash their top security card." — timing OnLeaveFieldAnyone ->
-//     uniform ActivatedEffect (capHash "AD1-025_AT", maxCountPerTurn 1, not optional). CanUse = IsExistOnBattleArea
-//     + CanTriggerOnPermanentLeave(IsOpponentsDigimon); CanActivate = IsExistOnBattleArea. Body =
-//     SelectDestroyThenTrashSecurityBody: (guarded) select 1 enemy Option (Mode.Destroy) then trash the enemy's
-//     top security card — the AS-IS ActivateCoroutine (AD1_025.cs:172-211) order. OnLeaveFieldAnyone is an
-//     EventBroadcast bridge timing; the N-simultaneous-leaves batch collapses to ONE reactor fire at collect
-//     (WindowResolverWiring.CollectActivatedBridgeTriggers), mirroring the AS-IS single-StackSkillInfos any-match.
+//     P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass), AS-IS ActivateCoroutine
+//     (AD1_025.cs:181-210) mirrored 1:1: SetHashString("AD1-025_AT"), ORDER=1 ([Once Per Turn]), ISOPTIONAL=false.
+//     CanUseCondition = IsExistOnBattleArea && CanTriggerOnPermanentLeave(hashtable, IsOpponentsDigimon);
+//     CanActivateCondition = IsExistOnBattleArea; ActivateCoroutine = (guarded by HasMatchConditionOpponentsPermanent)
+//     GManager SelectPermanentEffect(Mode.Destroy, maxCount 1) over enemy Options THEN IDestroySecurity(fromTop) on
+//     the opponent's security. Substrate: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>`
+//     IsEnemyOptionPermanent (`IsPermanentExistsOnOpponentBattleArea && IsOption`) -> the entity-id predicate
+//     `CardEffectCommons.IsOpponentBattleAreaOption(card, id)` (used for both HasMatchConditionOpponentsPermanent
+//     and the SelectPermanentEffect canTargetCondition); `new IDestroySecurity(player: card.Owner.Enemy, 1,
+//     activateClass, fromTop:true)` -> the MIG3-3a mirror carrier `(EngineContext, HeadlessPlayerId, int,
+//     HeadlessEntityId? cause, bool fromTop)` (player = `CardEffectCommons.OpponentOf(card)`, cause =
+//     `activateClass.EffectSourceCard?.InstanceId`). OnLeaveFieldAnyone is an EventBroadcast bridge timing; the
+//     N-simultaneous-leaves batch collapses to ONE reactor fire at collect (WindowResolverWiring.
+//     CollectActivatedBridgeTriggers), mirroring the AS-IS single-StackSkillInfos any-match.
 //   * <Assembly> ([WarGreymon] + [MetalGarurumon], -6 cost) — timing None -> AddAssemblyConditionClass.
 //
 // FIDELITY DEBT (design item D2w-25) — the [On Play]/[When Digivolving] shared effect (AS-IS AD1_025.cs:88-150,
@@ -30,9 +38,12 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Red;
 
 using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Services;
 using PartitionCondition = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects.PartitionCondition;
 
 public sealed class AD1_025 : CEntity_Effect
@@ -94,30 +105,64 @@ public sealed class AD1_025 : CEntity_Effect
         #region All Turns [Once Per Turn] (timing OnLeaveFieldAnyone)
         if (timing == EffectTiming.OnLeaveFieldAnyone)
         {
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.CanTriggerOnPermanentLeave(ctx, card, IsOpponentsDigimon);
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Trash 1 enemy option card in the battle area and 1 card from their security.", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDescription());
+            activateClass.SetHashString("AD1-025_AT");
+            cardEffects.Add(activateClass);
 
-            bool CanActivate() => CardEffectCommons.IsExistOnBattleArea(card);
+            string EffectDescription()
+            {
+                return "[All Turns] [Once Per Turn] When any of your opponent's Digimon leave the battle area, trash 1 of their Option cards in the battle area and trash their top security card.";
+            }
 
-            var body = new SelectDestroyThenTrashSecurityBody(
-                card,
-                canTarget: id => CardEffectCommons.IsOpponentBattleAreaOption(card, id),
-                securityPlayer: CardEffectCommons.OpponentOf(card),
-                securityCount: 1,
-                fromTop: true,
-                selectMessage: "Select option to trash.");
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card)
+                    && CardEffectCommons.CanTriggerOnPermanentLeave(hashtable, IsOpponentsDigimon);
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnLeaveFieldAnyone,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: body,
-                maxCountPerTurn: 1,
-                isOptional: false,
-                description: "[All Turns] [Once Per Turn] When any of your opponent's Digimon leave the battle area, trash 1 of their Option cards in the battle area and trash their top security card.",
-                capHash: "AD1-025_AT"));
+            bool IsEnemyOptionPermanent(HeadlessEntityId id)
+            {
+                return CardEffectCommons.IsOpponentBattleAreaOption(card, id);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleArea(card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsEnemyOptionPermanent))
+                {
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: IsEnemyOptionPermanent,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: 1,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    selectPermanentEffect.SetUpCustomMessage("Select option to trash.", "The opponent is selecting 1 option to trash.");
+
+                    await selectPermanentEffect.Activate();
+                }
+
+                await new IDestroySecurity(
+                    card.Context,
+                    CardEffectCommons.OpponentOf(card),
+                    1,
+                    activateClass.EffectSourceCard?.InstanceId,
+                    fromTop: true).DestroySecurity();
+            }
         }
         #endregion
 

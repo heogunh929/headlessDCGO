@@ -1,70 +1,99 @@
-// 1:1 mirror of the original BT8_092 (BT8/Black) — OnMove witness for the F1 Tier1 activated bridge (ANYONE / cross-card).
+// Source: DCGO/Assets/Scripts/CardEffect/BT8/Black/BT8_092.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [Your Turn] OnMove branch.
+//   [Your Turn] When one of your Digimon with [X-Antibody] in its traits is moved from your breeding area to your
+//   battle area, gain 1 memory and <Draw 1>.
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
+// functions. CanUseCondition/CanActivateCondition/ActivateCoroutine mirror the gold 1:1 (BT8_092.cs:15-79),
+// including the AS-IS CanActivate OR ((CanAddMemory || LibraryCards>=1)) restored verbatim, and the coroutine's
+// Draw-1-THEN-gain-1-memory order. Substrate translations only: IEnumerator->Task, StartCoroutine->await;
+// `new DrawClass(card.Owner, 1, activateClass)` -> the mirror ctor (EngineContext/HeadlessPlayerId/cause-id,
+// established BT2_070/BT1_003 idiom); `card.Owner.AddMemory(1, activateClass)`/`card.Owner.CanAddMemory(...)`
+// -> the mirror HeadlessPlayerId extensions; `card.Owner.LibraryCards` (AS-IS live Player field) ->
+// `new Player(card.Context, card.Owner).LibraryCards` (established BT1_081 Player-handle idiom).
 //
-// Ported effect (AS-IS BT8_092.cs:22-84):
-//   * [Your Turn] "When one of your Digimon with [X Antibody] in its traits is moved from your breeding area to
-//     your battle area, gain 1 memory and <Draw 1>." — timing OnMove -> uniform ActivatedEffect (mandatory,
-//     maxCountPerTurn -1 = uncapped).
-//     CanUse (AS-IS CanUseCondition, :41-59) = IsExistOnBattleArea(card) && IsOwnerTurn(card)
-//       && CanTriggerOnMove(permanent => IsPermanentExistsOnOwnerBattleAreaDigimon(permanent) && HasXAntibodyTraits).
-//       This is an ANYONE / cross-card reactor: the reacting Tamer is a DIFFERENT card than the moved Digimon, and
-//       its PermanentCondition matches the moved SUBJECT by trait (not by identity). It rides the F1 OnMove
-//       EventBroadcast bridge: headless derives OnMove from the promoted card's CardMoved (BreedingArea->BattleArea,
-//       TriggerTimingMap), threads that as the driving event, and CanTriggerOnMove reads the subject (the moved
-//       permanent) + requires it to be on the battle area (matches AS-IS IsPermanentExistsOnBattleArea).
-//     CanActivate (AS-IS CanActivateCondition, :61-77) = IsExistOnBattleArea && (Owner.CanAddMemory || Library>=1).
-//       In headless the memory-gain is sink-gated (a gain is applicable unless a CanNotAddMemory restriction blocks
-//       it), so the `CanAddMemory` disjunct is effectively true and the OR reduces to always-true — same precedent
-//       as BT1_076/BT1_077 (which drop the redundant CanAddMemory check). So CanActivate == IsExistOnBattleArea.
-//     Body (AS-IS ActivateCoroutine, :79-84) = Draw 1 THEN gain 1 memory -> CompositeBody(DrawBody(1), MemoryBody(1)).
-//
-// STOP / design item F1-M2-BT8_092-ALLYATTACK — the AS-IS second effect ([Your Turn] OnAllyAttack: "when one of your
-// black Digimon with [X Antibody] attacks, you may suspend this Tamer to place 1 [X Antibody] card from hand under
-// that Digimon as its bottom digivolution card", BT8_092.cs:87+) is NOT ported: it is a suspend-cost + place-under-
-// digivolution-source body outside the OnMove bridge under test. Deliberately omitted rather than mis-modelled; this
-// witness exercises only the OnMove EventBroadcast bridge.
+// The AS-IS second effect ([Your Turn] OnAllyAttack: suspend-cost place-under-digivolution via SelectHandEffect,
+// BT8_092.cs:82-196) remains UNPORTED — the mirror `SelectHandEffect` is a 0-type skeleton (design item RD-P8-01
+// / RD-P6C3-D2, same root gap as BT1_039). Deliberately omitted, as in the prior pass.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT8.Black;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT8_092 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region [Your Turn] When moving (timing OnMove)
         if (timing == EffectTiming.OnMove)
         {
-            const string description =
-                "[Your Turn] When one of your Digimon with [X Antibody] in its traits is moved from your breeding area to your battle area, gain 1 memory and <Draw 1>.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1 and Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            // AS-IS PermanentCondition: the moved permanent is your battle-area Digimon with the [X Antibody] trait.
-            bool PermanentCondition(Permanent permanent) =>
-                CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
-                && permanent.TopCard.EqualsTraits("X Antibody");
+            string EffectDiscription()
+            {
+                return "[Your Turn] When one of your Digimon with [X-Antibody] in its traits is moved from your breeding area to your battle area, gain 1 memory and <Draw 1>.";
+            }
 
-            // AS-IS CanUseCondition: IsExistOnBattleArea && IsOwnerTurn && CanTriggerOnMove(PermanentCondition).
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.IsOwnerTurn(card)
-                && CardEffectCommons.CanTriggerOnMove(ctx, card, PermanentCondition);
+            bool PermanentCondition(Permanent permanent)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.TopCard.HasXAntibodyTraits)
+                    {
+                        return true;
+                    }
+                }
 
-            // AS-IS CanActivateCondition: IsExistOnBattleArea && (CanAddMemory || Library>=1) — reduces to
-            // IsExistOnBattleArea in headless (memory-gain is sink-gated; BT1_076/077 precedent).
-            bool CanActivate() => CardEffectCommons.IsExistOnBattleArea(card);
+                return false;
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnMove,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: new CompositeBody(new DrawBody(1), new MemoryBody(1)),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: description));
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.CanTriggerOnMove(hashtable, PermanentCondition))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (card.Owner.CanAddMemory(activateClass))
+                    {
+                        return true;
+                    }
+
+                    if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+
+                await card.Owner.AddMemory(1, activateClass);
+            }
         }
-        #endregion
 
         return cardEffects;
     }
