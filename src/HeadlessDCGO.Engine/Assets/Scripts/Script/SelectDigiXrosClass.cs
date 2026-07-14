@@ -44,16 +44,26 @@ public class SelectDigiXrosClass
         excludedCards = excluded;
     }
 
-    // AS-IS :368-880 `IEnumerator Select(CardSource card)` — the interactive DigiXros material pick
-    // (per-element SelectCardEffect loops, maxTrashCount/maxUnderTamerCount scans, Photon RPC transport).
-    // STOP: no mirror flow yet (design item RD-P6C1-5).
+    // AS-IS :368-880 `IEnumerator Select(CardSource card)` — the interactive DigiXros material pick (per-element
+    // area-choice loop over Hand/Field/Trash/Tamer + End, each dispatching to SelectHandEffect /
+    // SelectPermanentEffect / SelectCardEffect; maxTrashCount/maxUnderTamerCount scans; ValueSelection/Photon RPC
+    // area transport). STOP (design item RD-R5-04, superseding RD-P6C1-5): two hard blockers live outside this
+    // batch's edit scope —
+    //   (1) the core gate `CanSelectDigiXros` reads `Permanent.CanSubstituteForDigiXrosCondition(card)`, which is
+    //       not on the mirror Permanent yet (Permanent.cs — a different R1 cluster); and
+    //   (2) the Hand sub-select delegates to `SelectHandEffect`, whose mirror is still a 7-line skeleton stub
+    //       (its own R5 batch owns it).
+    // The area-choice transport itself IS adaptable (ModeChoice, as SelectAppFusion/BurstDigivolution do here),
+    // and the maxTrashCount/maxUnderTamer/is* helpers are feasible against existing surfaces — this method can be
+    // completed 1:1 once (1) and (2) land. The verified headless DigiXros path meanwhile is the parameterized
+    // special-play action (SpecialPlayAction / FusionKind.DigiXros). No guess.
     public Task Select(CardSource card)
     {
         _ = card;
         throw new NotSupportedException(
-            "STOP: SelectDigiXrosClass.Select — the AS-IS interactive DigiXros material selection " +
-            "(SelectDigiXrosClass.cs:368-880) has no mirror component flow (the headless DigiXros path is the " +
-            "parameterized special-play action); design item RD-P6C1-5, docs/audit/rebuild_p6_cluster1_notes.md.");
+            "STOP: SelectDigiXrosClass.Select (AS-IS SelectDigiXrosClass.cs:368-880) — blocked by the missing " +
+            "Permanent.CanSubstituteForDigiXrosCondition (R1) and the SelectHandEffect mirror stub (R5); design " +
+            "item RD-R5-04, docs/audit/rebuild_p6_cluster1_notes.md.");
     }
 }
 
