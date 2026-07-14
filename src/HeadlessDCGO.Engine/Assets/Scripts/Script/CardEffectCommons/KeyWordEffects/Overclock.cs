@@ -100,12 +100,22 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
                         {
                             if (attacker.CanAttack(activateClass, withoutTap: true))
                             {
-                                // ADAPTATION: AS-IS SelectAttackEffect (SetWithoutTap; canAttackPlayer:()=>true;
-                                // defenderCondition:_=>false == player only) has no mirror class — the established
-                                // substrate is EffectDrivenAttack (withoutTap, player-only).
-                                Headless.Runtime.EffectDrivenAttack.RequestChoice(
-                                    cardSource.Context, attacker.InstanceId,
-                                    new Headless.Runtime.EffectAttackOptions(WithoutTap: true, AllowPlayerTarget: true, AllowDigimonTarget: false, TargetUnsuspended: false));
+                                // (R5-B) AS-IS Overclock.cs:79-91 — the in-place SelectAttackEffect mirror
+                                // (SetWithoutTap; canAttackPlayer:()=>true; defenderCondition:_=>false == player
+                                // only; SetCanNotSelectNotAttack == mandatory), replacing the R2-A
+                                // EffectDrivenAttack.RequestChoice ADAPTATION.
+                                var selectAttackEffect = GManager.instance!.GetComponent<SelectAttackEffect>();
+
+                                selectAttackEffect.SetUp(
+                                    attacker: attacker,
+                                    canAttackPlayerCondition: () => true,
+                                    defenderCondition: _ => false,
+                                    cardEffect: activateClass);
+
+                                selectAttackEffect.SetWithoutTap();
+                                selectAttackEffect.SetCanNotSelectNotAttack();
+
+                                await selectAttackEffect.Activate().ConfigureAwait(false);
                             }
                         }
                     }

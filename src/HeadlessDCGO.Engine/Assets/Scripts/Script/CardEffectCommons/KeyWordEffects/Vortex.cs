@@ -109,7 +109,8 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
         /// <summary>(R2-A) AS-IS <c>VortexProcess</c> (KeyWordEffects/Vortex.cs:56): this Digimon makes a Vortex
         /// attack — any opponent Digimon (incl. unsuspended, AS-IS <c>SetIsVortex</c> + defenderCondition:_=&gt;true),
         /// and the player only while a <c>VortexCanAttackPlayers</c> effect accepts it (snapshotted once at the
-        /// start, verbatim AS-IS). ADAPTATION: AS-IS SelectAttackEffect → the EffectDrivenAttack substrate.</summary>
+        /// start, verbatim AS-IS). (R5-B) the in-place SelectAttackEffect mirror replaces the R2-A
+        /// EffectDrivenAttack.RequestChoice ADAPTATION.</summary>
         public static async Task VortexProcess(CardSource cardSource, ICardEffect activateClass)
         {
             Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
@@ -122,12 +123,18 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 
             if (selectedPermanent.CanAttack(activateClass, isVortex: true))
             {
-                Headless.Runtime.EffectDrivenAttack.RequestChoice(
-                    cardSource.Context, selectedPermanent.InstanceId,
-                    new Headless.Runtime.EffectAttackOptions(WithoutTap: false, AllowPlayerTarget: canAttackPlayers, AllowDigimonTarget: true, TargetUnsuspended: true));
-            }
+                var selectAttackEffect = GManager.instance!.GetComponent<SelectAttackEffect>();
 
-            await Task.CompletedTask;
+                selectAttackEffect.SetUp(
+                    attacker: selectedPermanent,
+                    canAttackPlayerCondition: () => canAttackPlayers,
+                    defenderCondition: _ => true,
+                    cardEffect: activateClass);
+
+                selectAttackEffect.SetIsVortex();
+
+                await selectAttackEffect.Activate().ConfigureAwait(false);
+            }
         }
     }
 }

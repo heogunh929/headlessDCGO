@@ -24,18 +24,22 @@ public static partial class CardEffectCommons
     }
 
     /// <summary>(R2-A) AS-IS <c>ExecuteProcess</c> (KeyWordEffects/Execute.cs:18): attack (player or any Digimon,
-    /// incl. unsuspended) then self-delete at the attack's end. STOP — AS-IS appends to
-    /// <c>Permanent.UntilEndAttackEffects</c> (the restrict-defender gate + the end-of-attack DeleteSelfEffect +
-    /// the detail text), a per-attack effect list with no mirror <see cref="Permanent"/> member. R1 provides
-    /// <c>CanAttack</c> and the SelectAttackEffect step is the <c>EffectDrivenAttack</c> substrate, but the
-    /// UntilEndAttackEffects appends cannot be reproduced — design item RD-R2-01. The live Execute path is
-    /// implemented independently via <see cref="Headless.Runtime.EndOfTurnEffectAttack"/> +
-    /// <see cref="Headless.Runtime.EffectDrivenAttack"/> (SelfDeleteAtEndOfAttack).</summary>
+    /// incl. unsuspended) then self-delete at the attack's end. STOP — AS-IS interleaves THREE appends to
+    /// <c>Permanent.UntilEndAttackEffects</c> around the SelectAttackEffect step (BEFORE: the restrict-defender
+    /// gate; AFTER: the end-of-attack DeleteSelfEffect + the detail text), a per-attack effect list with no
+    /// mirror <see cref="Permanent"/> member — design item RD-R2-01 (the sole remaining blocker). (R5-B) the
+    /// SelectAttackEffect step itself now HAS an in-place mirror (<see cref="SelectAttackEffect"/>), but wiring
+    /// ONLY that step would drop the two interleaved UntilEndAttackEffects appends (a simplification) — so the
+    /// STOP stands until RD-R2-01 lands. The live Execute path is implemented independently via
+    /// <see cref="Headless.Runtime.EndOfTurnEffectAttack"/> + <see cref="Headless.Runtime.EffectDrivenAttack"/>
+    /// (SelfDeleteAtEndOfAttack).</summary>
     public static Task ExecuteProcess(CardSource cardSource, ICardEffect activateClass)
     {
         throw new NotSupportedException(
-            "ExecuteProcess: AS-IS appends the restrict-defender gate + end-of-attack self-delete + detail to " +
-            "Permanent.UntilEndAttackEffects, which has no mirror Permanent member — design item RD-R2-01. The " +
-            "live Execute attack path is EndOfTurnEffectAttack + EffectDrivenAttack (SelfDeleteAtEndOfAttack).");
+            "ExecuteProcess: AS-IS interleaves the restrict-defender gate + end-of-attack self-delete + detail as " +
+            "Permanent.UntilEndAttackEffects appends around the SelectAttackEffect step; that per-attack effect " +
+            "list has no mirror Permanent member — design item RD-R2-01. The SelectAttackEffect step now has an " +
+            "in-place mirror (R5-B), but wiring only it would drop the appends. The live Execute attack path is " +
+            "EndOfTurnEffectAttack + EffectDrivenAttack (SelfDeleteAtEndOfAttack).");
     }
 }
