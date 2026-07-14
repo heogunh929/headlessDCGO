@@ -204,7 +204,7 @@ public sealed class Permanent
                                         }
                                     }
 
-                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    if (!TopCard.CanNotBeAffected(cardEffect))
                                     {
                                         cardEffects_ChangeDP.Add(cardEffect);
                                     }
@@ -237,7 +237,7 @@ public sealed class Permanent
                                         }
                                     }
 
-                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    if (!TopCard.CanNotBeAffected(cardEffect))
                                     {
                                         cardEffects_ChangeDP.Add(cardEffect);
                                     }
@@ -265,7 +265,7 @@ public sealed class Permanent
                                     }
                                 }
 
-                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                if (!TopCard.CanNotBeAffected(cardEffect))
                                 {
                                     cardEffects_ChangeDP.Add(cardEffect);
                                 }
@@ -380,7 +380,7 @@ public sealed class Permanent
                                             }
                                         }
 
-                                        if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                        if (!TopCard.CanNotBeAffected(cardEffect))
                                         {
                                             cardEffects_ChangeDP.Add(cardEffect);
                                         }
@@ -413,7 +413,7 @@ public sealed class Permanent
                                             }
                                         }
 
-                                        if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                        if (!TopCard.CanNotBeAffected(cardEffect))
                                         {
                                             cardEffects_ChangeDP.Add(cardEffect);
                                         }
@@ -441,7 +441,7 @@ public sealed class Permanent
                                         }
                                     }
 
-                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    if (!TopCard.CanNotBeAffected(cardEffect))
                                     {
                                         cardEffects_ChangeDP.Add(cardEffect);
                                     }
@@ -703,7 +703,7 @@ public sealed class Permanent
     // Each getter is the AS-IS body verbatim (scan scope / interface / gate order / quirks preserved per getter —
     // NOT uniformised). Two established substrate adaptations apply throughout:
     //   * GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer → new GameContext(_context).Players_ForTurnPlayer
-    //   * TopCard.CanNotBeAffected(cardEffect) → TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)
+    //   * TopCard.CanNotBeAffected(cardEffect) → TopCard.CanNotBeAffected(cardEffect)
     // and one new to HasBlocker: GManager.instance.attackProcess → AttackProcess.For(_context) (the per-context
     // instance accessor). Types outside this file's namespace (ActivateClass/CannotBlockClass in ...Script.CardEffects,
     // AttackProcess in ...Script) are fully qualified to avoid importing namespaces that clash with local type names.
@@ -751,7 +751,7 @@ public sealed class Permanent
                     HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass fakeCollisionClass = new();
                     fakeCollisionClass.SetUpICardEffect("Collision", _ => true, attackingPermanent.TopCard);
 
-                    if (!TopCard.CanNotBeAffected(fakeCollisionClass.EffectSourceCard?.InstanceId))//Check can be affected by opponent's Digimon effects
+                    if (!TopCard.CanNotBeAffected(fakeCollisionClass))//Check can be affected by opponent's Digimon effects
                         return true;
                 }
             }
@@ -1841,7 +1841,7 @@ public sealed class Permanent
                                             }
                                         }
 
-                                        if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                        if (!TopCard.CanNotBeAffected(cardEffect))
                                         {
                                             cardEffects_ChangeDP.Add(cardEffect);
                                         }
@@ -1869,7 +1869,7 @@ public sealed class Permanent
                                         }
                                     }
 
-                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    if (!TopCard.CanNotBeAffected(cardEffect))
                                     {
                                         cardEffects_ChangeDP.Add(cardEffect);
                                     }
@@ -2048,7 +2048,7 @@ public sealed class Permanent
     /// itself), gated by <c>CanUse(null) &amp;&amp; !TopCard.CanNotBeAffected</c>, then clamps to [-1,1]. ADAPTATION
     /// as documented on <see cref="GetDP"/>: <c>gameContext.Players_ForTurnPlayer</c> →
     /// <c>new GameContext(_context).Players_ForTurnPlayer</c>; <c>TopCard.CanNotBeAffected(cardEffect)</c> →
-    /// <c>TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)</c>; <c>Mathf.Clamp</c> →
+    /// <c>TopCard.CanNotBeAffected(cardEffect)</c>; <c>Mathf.Clamp</c> →
     /// <c>Math.Clamp</c>.</summary>
     public int InvertSecutiryValue
     {
@@ -2069,7 +2069,7 @@ public sealed class Permanent
                         {
                             if (cardEffect.CanUse(null))
                             {
-                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                if (!TopCard.CanNotBeAffected(cardEffect))
                                 {
                                     cardEffects_InvertStrike.Add(cardEffect);
                                 }
@@ -2086,7 +2086,7 @@ public sealed class Permanent
                     {
                         if (cardEffect.CanUse(null))
                         {
-                            if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                            if (!TopCard.CanNotBeAffected(cardEffect))
                             {
                                 cardEffects_InvertStrike.Add(cardEffect);
                             }
@@ -2131,7 +2131,7 @@ public sealed class Permanent
                         {
                             if (cardEffect.CanUse(null))
                             {
-                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                if (!TopCard.CanNotBeAffected(cardEffect))
                                 {
                                     if (((IChangeSAttackEffect)cardEffect).isUpDown() == CalculateOrder.UpDownValue)
                                     {
@@ -2151,7 +2151,7 @@ public sealed class Permanent
                     {
                         if (cardEffect.CanUse(null))
                         {
-                            if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                            if (!TopCard.CanNotBeAffected(cardEffect))
                             {
                                 if (((IChangeSAttackEffect)cardEffect).isUpDown() == CalculateOrder.UpDownValue)
                                 {
@@ -2230,7 +2230,7 @@ public sealed class Permanent
                             {
                                 if (cardEffect.CanUse(null))
                                 {
-                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    if (!TopCard.CanNotBeAffected(cardEffect))
                                     {
                                         cardEffects_ChangeDirectStrike.Add(cardEffect);
                                     }
@@ -2250,7 +2250,7 @@ public sealed class Permanent
                         {
                             if (cardEffect.CanUse(null))
                             {
-                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                if (!TopCard.CanNotBeAffected(cardEffect))
                                 {
                                     cardEffects_ChangeDirectStrike.Add(cardEffect);
                                 }
@@ -2475,7 +2475,7 @@ public sealed class Permanent
     //   * GManager.instance.turnStateMachine.gameContext.{Players,Players_ForTurnPlayer,TurnPlayer}
     //       → new GameContext(_context).{Players,Players_ForTurnPlayer,TurnPlayer}
     //   * GManager.instance.attackProcess → HeadlessDCGO.Engine.Assets.Scripts.Script.AttackProcess.For(_context)
-    //   * TopCard.CanNotBeAffected(cardEffect) → TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)
+    //   * TopCard.CanNotBeAffected(cardEffect) → TopCard.CanNotBeAffected(cardEffect)
     //   * TopCard.Owner is a HeadlessPlayerId here (AS-IS: a Player) → new Player(_context, TopCard.Owner) for the
     //     Player surface (Enemy / Get{Battle,Breeding}AreaPermanents); Player comparisons compare .PlayerId.
     //   * Frame model absent (design item RD-P6C1-1 / MIG5-FRAME-MODEL): AS-IS `PermanentFrame.IsBattleAreaFrame()`
@@ -2767,7 +2767,7 @@ public sealed class Permanent
                     {
                         if (((ICannotBlockEffect)cardEffect).CannotBlock(AttackingPermanent, this))
                         {
-                            if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                            if (!TopCard.CanNotBeAffected(cardEffect))
                             {
                                 return false;
                             }
@@ -2841,7 +2841,7 @@ public sealed class Permanent
                             {
                                 if (((ICanNotAttackTargetDefendingPermanentEffect)cardEffect1).CanNotAttackTargetDefendingPermanent(this, Defender))
                                 {
-                                    if (!TopCard.CanNotBeAffected(cardEffect1.EffectSourceCard?.InstanceId))
+                                    if (!TopCard.CanNotBeAffected(cardEffect1))
                                     {
                                         return false;
                                     }
@@ -2864,7 +2864,7 @@ public sealed class Permanent
                         {
                             if (((ICanNotAttackTargetDefendingPermanentEffect)cardEffect1).CanNotAttackTargetDefendingPermanent(this, Defender))
                             {
-                                if (!TopCard.CanNotBeAffected(cardEffect1.EffectSourceCard?.InstanceId))
+                                if (!TopCard.CanNotBeAffected(cardEffect1))
                                 {
                                     return false;
                                 }
@@ -3036,7 +3036,7 @@ public sealed class Permanent
     {
         if (this.TopCard != null)
         {
-            if (this.TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+            if (this.TopCard.CanNotBeAffected(cardEffect))
             {
                 return false;
             }

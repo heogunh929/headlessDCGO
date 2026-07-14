@@ -455,14 +455,14 @@ public class IDigiBurst
 
                 if (_upToMaxCount)
                 {
-                    if (_permanent.DigivolutionCards.Some((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(CauseEffectSourceId)))
+                    if (_permanent.DigivolutionCards.Some((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect)))
                     {
                         return true;
                     }
                 }
                 else
                 {
-                    if (_permanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(CauseEffectSourceId)) >= _digiBurstCount)
+                    if (_permanent.DigivolutionCards.Count((cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect)) >= _digiBurstCount)
                     {
                         return true;
                     }
@@ -485,7 +485,7 @@ public class IDigiBurst
             SelectCardEffect selectCardEffect = GManager.instance!.GetComponent<SelectCardEffect>();
 
             selectCardEffect.SetUp(
-                        canTargetCondition: (cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(CauseEffectSourceId),
+                        canTargetCondition: (cardSource) => !cardSource.CanNotTrashFromDigivolutionCards(_cardEffect),
                         canTargetCondition_ByPreSelecetedList: null,
                         canEndSelectCondition: CanEndSelectCondition,
                         canNoSelect: () => false,

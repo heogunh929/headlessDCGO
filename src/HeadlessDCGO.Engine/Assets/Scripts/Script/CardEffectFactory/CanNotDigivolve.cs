@@ -85,7 +85,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnField(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(canNotEvolveClass.EffectSourceCard?.InstanceId))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(canNotEvolveClass))  // ADAPTATION (2)
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

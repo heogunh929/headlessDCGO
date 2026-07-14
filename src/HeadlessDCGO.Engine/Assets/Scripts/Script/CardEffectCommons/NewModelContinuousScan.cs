@@ -116,7 +116,7 @@ public static class NewModelContinuousScan
     // top card) cannot be immune; treat as affectable, matching the AS-IS null-guarded property bodies.
     private static bool NotImmune(Permanent subject, ICardEffect cardEffect) =>
         subject.TopCard is null
-        || !subject.TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId);
+        || !subject.TopCard.CanNotBeAffected(cardEffect);
 
     // (R1-b) Security Attack (FoldSAttack) was rehoused into the AS-IS reader Permanent.Strike_AllowMinus /
     // Strike / SecurityAttackChanges and its gate consumer (ContinuousModifierGate.ResolveSecurityAttack) removed,
@@ -1677,7 +1677,7 @@ public static class NewModelContinuousScan
         }
 
         ICardEffect causingEffect = BuildCausingEffectStandIn(context, causingSourceId);
-        if (subject.TopCard.CanNotBeAffected(causingEffect.EffectSourceCard?.InstanceId))
+        if (subject.TopCard.CanNotBeAffected(causingEffect))
         {
             return true;
         }

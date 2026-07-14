@@ -105,7 +105,7 @@ public sealed class BT1_113 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                     {
-                        if (!permanent.TopCard.CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId))
+                        if (!permanent.TopCard.CanNotBeAffected(activateClass))
                         {
                             return true;
                         }

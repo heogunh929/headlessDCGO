@@ -139,7 +139,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(changeSAttackClass.EffectSourceCard?.InstanceId))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(changeSAttackClass))  // ADAPTATION (2)
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {
@@ -264,7 +264,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(invertSAttackClass.EffectSourceCard?.InstanceId))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(invertSAttackClass))  // ADAPTATION (2)
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

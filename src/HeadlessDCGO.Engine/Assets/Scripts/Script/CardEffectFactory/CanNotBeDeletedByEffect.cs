@@ -47,7 +47,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnField(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(canNotBeDestroyedBySkillClass.EffectSourceCard?.InstanceId))
+                if (!permanent.TopCard.CanNotBeAffected(canNotBeDestroyedBySkillClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

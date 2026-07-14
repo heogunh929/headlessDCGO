@@ -60,7 +60,10 @@ Task CanNotBeAffectedNoImmunity()
     HeadlessEntityId card = Place(context, "C", new Dictionary<string, object?>());
     HeadlessEntityId src = Place(context, "SRC", new Dictionary<string, object?>());
     var cs = new CardSource(context, card, P1, P1);
-    AssertFalse(cs.CanNotBeAffected(src), "no immunity registered -> not blocked");
+    // (R1-e) CanNotBeAffected now takes the causing ICardEffect (AS-IS). With no immunity registered the scan
+    // never dereferences the cause, so any non-null effect exercises the "not blocked" path.
+    var cause = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ChangeCardDPClass();
+    AssertFalse(cs.CanNotBeAffected(cause), "no immunity registered -> not blocked");
     return Task.CompletedTask;
 }
 

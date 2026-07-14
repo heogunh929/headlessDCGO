@@ -85,7 +85,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(attacker))
             {
-                if (!attacker.TopCard.CanNotBeAffected(canNotAttackClass.EffectSourceCard?.InstanceId))  // ADAPTATION (2)
+                if (!attacker.TopCard.CanNotBeAffected(canNotAttackClass))  // ADAPTATION (2)
                 {
                     if (attackerCondition == null || attackerCondition(attacker))
                     {

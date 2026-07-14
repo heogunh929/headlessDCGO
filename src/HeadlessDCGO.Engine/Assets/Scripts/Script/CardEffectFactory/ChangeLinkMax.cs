@@ -129,7 +129,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(changeLinkMaxClass.EffectSourceCard?.InstanceId))  // ADAPTATION (2)
+                if (!permanent.TopCard.CanNotBeAffected(changeLinkMaxClass))  // ADAPTATION (2)
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

@@ -35,7 +35,7 @@ public partial class CardEffectFactory
         {
             if (CardEffectCommons.IsPermanentExistsOnBattleArea(permanent))
             {
-                if (!permanent.TopCard.CanNotBeAffected(canNotUnsuspendClass.EffectSourceCard?.InstanceId))
+                if (!permanent.TopCard.CanNotBeAffected(canNotUnsuspendClass))
                 {
                     if (permanentCondition == null || permanentCondition(permanent))
                     {

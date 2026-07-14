@@ -4,7 +4,7 @@
 //   * coroutine `IEnumerator ActivateCoroutine` (has yields) -> `async Task ActivateCoroutine`; nested
 //     `IEnumerator SelectPermanentCoroutine` -> `async Task`; `yield return StartCoroutine(X)` -> `await X`;
 //     lone `yield return null` -> `await Task.CompletedTask;`.
-//   * permanent.TopCard.CanNotBeAffected(activateClass) -> .CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId).
+//   * permanent.TopCard.CanNotBeAffected(activateClass) -> .CanNotBeAffected(activateClass).
 //   * stripped `using UnityEngine;`. Replaces the monolith's invented BlastDigivolveEffect.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;

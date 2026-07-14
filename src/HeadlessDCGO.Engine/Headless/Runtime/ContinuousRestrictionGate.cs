@@ -20,7 +20,11 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// (R1-d) 잔존 사유: the AS-IS Permanent restriction predicates (CanUnsuspend/CanSuspend/CanBeDestroyed*)
 /// now live on the mirror <c>Permanent</c> getters and their consumers were rewired to them. What REMAINS
 /// here is NOT R1-d's:
-///  * EvaluateDigivolve — AS-IS <c>CardSource.CanNotEvolve</c> = R1-e (CardSource) 몫.
+///  * EvaluateDigivolve — AS-IS <c>CardSource.CanNotEvolve</c>: (R1-e) CanNotEvolve is now an AS-IS-literal
+///    ICanNotDigivolveEffect scan on the mirror CardSource and no longer delegates here. 잔존=R2 몫: the surviving
+///    EvaluateDigivolve call sites are the DigivolveAction / fusion pipeline legality checks (플레이 파이프라인
+///    내부 판정) + ActivatedEffects / CardEffectCommons rule-process filters + BT1_078 (card) — they fold away as
+///    those consumers are rehoused in R2.
 ///  * EvaluateAttack / EvaluateBeAttacked / EvaluateBlock / EvaluateBeBlocked — AS-IS Permanent.CanAttack(
 ///    TargetDigimon)/CanBlock, but consumed by the attack/block FLOW validators (AttackPermanentAction /
 ///    BlockTiming) at fine-grained points; folding them back into the monolithic Permanent.CanAttack/CanBlock

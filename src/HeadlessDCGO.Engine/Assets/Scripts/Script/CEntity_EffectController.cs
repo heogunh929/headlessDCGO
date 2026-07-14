@@ -124,7 +124,7 @@ public class CEntity_EffectController
                                                 // immunity bindings by (see this file's DESIGN ITEM
                                                 // CARDSOURCE-EQUALITY in ICardEffect.cs). Adapted to that existing
                                                 // shape rather than referencing a non-existent overload.
-                                                if (!card.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                                if (!card.CanNotBeAffected(cardEffect))
                                                     GetCardEffects = ((IAddSkillEffect)cardEffect).GetCardEffect(card, GetCardEffects, timing);
                                             }
                                         }

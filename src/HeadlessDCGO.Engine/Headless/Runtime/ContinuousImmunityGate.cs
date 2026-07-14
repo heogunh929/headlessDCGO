@@ -86,8 +86,11 @@ public static class ContinuousImmunityGate
         return false;
     }
 
-    // (R1-d) 잔존=R1-e 몫: this gate is the mirror of AS-IS CardSource.CanNotBeAffected (a CardSource effect-
-    // immunity predicate), consumed almost entirely through CardSource.CanNotBeAffected. Its AS-IS-literal
-    // rehousing belongs to the CardSource region (R1-e), so it is untouched by R1-d (which owns the Permanent
-    // restriction/immunity predicates only).
+    // (R1-e) CardSource.CanNotBeAffected has been rehoused to an AS-IS-literal ICanNotAffectedEffect scan and no
+    // longer delegates here (its only remaining reference to this type is a doc <see cref>). 잔존=R2 몫: the surviving
+    // BlocksOpponentEffect call sites are all R2 rule/pipeline judgements — MatchStateMutationSink (effect-mutation
+    // application), CardController (deletion/return/bounce pipelines), CardEffectCommons (rule-process game logic),
+    // BlockTiming, ProgressImmunity — plus the producer factories that still register into the registry Scope. They
+    // fold away as those consumers are rehoused to `permanent.TopCard.CanNotBeAffected(cardEffect)` in R2; this file
+    // cannot be deleted until then.
 }

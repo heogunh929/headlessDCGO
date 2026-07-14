@@ -77,7 +77,7 @@ public sealed class BT1_086 : CEntity_Effect
             {
                 if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (permanent.DigivolutionCards.Count(cardSource => !cardSource.CanNotTrashFromDigivolutionCards(activateClass.EffectSourceCard?.InstanceId)) >= 1)
+                    if (permanent.DigivolutionCards.Count(cardSource => !cardSource.CanNotTrashFromDigivolutionCards(activateClass)) >= 1)
                     {
                         return true;
                     }

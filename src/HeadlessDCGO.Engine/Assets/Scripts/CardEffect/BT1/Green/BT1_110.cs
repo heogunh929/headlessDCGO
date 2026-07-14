@@ -95,7 +95,7 @@ public sealed class BT1_110 : CEntity_Effect
                 {
                     if (!permanent.HasBlocker)
                     {
-                        if (!permanent.TopCard.CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId))
+                        if (!permanent.TopCard.CanNotBeAffected(activateClass))
                         {
                             return true;
                         }

@@ -85,7 +85,7 @@ public partial class CardEffectFactory
         {
             return permanentCondition != null
                 && permanentCondition(permanent)
-                && !permanent.TopCard.CanNotBeAffected(changeBaseDPClass.EffectSourceCard?.InstanceId);  // ADAPTATION
+                && !permanent.TopCard.CanNotBeAffected(changeBaseDPClass);  // ADAPTATION
         }
 
         bool _isUpDown()

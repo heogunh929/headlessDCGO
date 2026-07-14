@@ -291,6 +291,46 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(R1-e) AS-IS <c>CardSource.MatchColorRequirement</c> (CardSource.cs:255-321): whether an OPTION
+    /// card's colour requirement is satisfied — an active <see cref="IIgnoreColorConditionEffect"/> waives it
+    /// (<see cref="IgnoreColorConditionActive"/>, AS-IS inlines the same three ignore-scan regions), otherwise
+    /// EVERY colour the card requires (<see cref="DualCardColors"/> when it is also a Digimon, else
+    /// <see cref="CardColors"/>) must be present on SOME owner field permanent whose top card is a permanent.
+    /// A non-Option card trivially matches. ADAPTATION: <c>Owner.GetFieldPermanents()</c> =
+    /// <c>new Player(Context, Owner).GetFieldPermanents()</c>; <c>TopCard.IsPermanent</c> = the extension
+    /// <c>TopCard.IsPermanent()</c>.</summary>
+    public bool MatchColorRequirement
+    {
+        get
+        {
+            if (IsOption)
+            {
+                // "ignore color requirement" effects (AS-IS inlines the permanents/players/itself scan =
+                // IgnoreColorConditionActive).
+                if (IgnoreColorConditionActive())
+                {
+                    return true;
+                }
+
+                IReadOnlyList<string> colorsToCheck = IsDigimon ? DualCardColors : CardColors;
+
+                bool matchColorRequirement = colorsToCheck.Every(cardColor =>
+                    new Player(Context, Owner).GetFieldPermanents().Some(permanent =>
+                        // AS-IS TopCard.IsPermanent (_cEntity_Base.IsPermanent) = the printed permanent-type flag
+                        // = PlayCardClass.IsPermanent extension body, inlined to avoid a cross-namespace using.
+                        (permanent.TopCard.IsDigimon || permanent.TopCard.IsTamer || permanent.TopCard.IsDigiEgg)
+                        && permanent.TopCard.CardColors.Contains(cardColor)));
+
+                if (!matchColorRequirement)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
     /// <summary>(A3 / P6C3 re-fold) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604):
     /// printed traits transformed by the card's OWN <see cref="IChangeTraitsEffect"/> effects
     /// (AS-IS scans self EffectList only, ungated by permanent membership; no Distinct).</summary>
@@ -372,6 +412,9 @@ public sealed class CardSource
                     }
                 }
 
+                // (R1-e order fix) AS-IS runs the permanents pass ACROSS BOTH players first, THEN the players pass
+                // (CardSource.cs:1411-1427) — two separate passes, not interleaved per-player.
+                // the effects of permanents
                 foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
                 {
                     foreach (Permanent permanent in player.GetFieldPermanents())
@@ -384,7 +427,11 @@ public sealed class CardSource
                             }
                         }
                     }
+                }
 
+                // the effects of players
+                foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+                {
                     foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
                     {
                         if (cardEffect is IChangeBaseCardNameEffect transform && cardEffect.CanUse(null))
@@ -399,34 +446,22 @@ public sealed class CardSource
         }
     }
 
-    /// <summary>(P6C3 re-fold) Mirror of AS-IS <c>CardSource.CardNames</c> (CardSource.cs:1442-1460):
-    /// <see cref="BaseCardNames"/> extended by the card's own <see cref="IChangeCardNamesEffect"/> effects
-    /// (self <c>EffectList_ExceptAddedEffects</c> scan), Distinct. The substrate
-    /// <see cref="AddedCardNameKey"/> registry read is KEPT alongside: it is the old-model
-    /// <c>ChangeCardNamesClass</c> lowering still produced by ContinuousAndRestrictionEffects.cs
-    /// (GrantAdditionalCardName) — a new-model grant enumerates through the interface scan instead.</summary>
+    /// <summary>(R1-e) AS-IS <c>CardSource.CardNames</c> (CardSource.cs:1442-1459): <see cref="BaseCardNames"/>
+    /// (cloned) transformed by the card's own <see cref="IChangeCardNamesEffect"/> effects — the AS-IS scan of
+    /// <c>EffectList_ExceptAddedEffects</c> (non-null, IChangeCardNamesEffect, <c>CanUse(null)</c>), then Distinct.
+    /// The pre-R1-e <see cref="AddedCardNameKey"/> registry read is DROPPED: AS-IS has no such branch — an added
+    /// card name is an <see cref="IChangeCardNamesEffect"/> already enumerated by the scan.</summary>
     public IReadOnlyList<string> CardNames
     {
         get
         {
-            List<string> cardNames = BaseCardNames.ToList();
+            List<string> cardNames = BaseCardNames.ToList(); // AS-IS BaseCardNames.Clone() (mirror BaseCardNames is IReadOnlyList)
 
-            foreach (ICardEffect cardEffect in EffectList_ExceptAddedEffects(EffectTiming.None))
-            {
-                if (cardEffect is IChangeCardNamesEffect transform && cardEffect.CanUse(null))
-                {
-                    cardNames = transform.ChangeCardNames(cardNames, this);
-                }
-            }
-
-            foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
-                new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: InstanceId)))
-            {
-                if (effect.Context.Values.TryGetValue(AddedCardNameKey, out object? raw) && raw is string added && !string.IsNullOrWhiteSpace(added))
-                {
-                    cardNames.Add(added);
-                }
-            }
+            // the effects of itself
+            EffectList_ExceptAddedEffects(EffectTiming.None)
+                .Filter(cardEffect => cardEffect != null)
+                .Filter(cardEffect => cardEffect is IChangeCardNamesEffect && cardEffect.CanUse(null))
+                .ForEach(cardEffect => cardNames = ((IChangeCardNamesEffect)cardEffect).ChangeCardNames(cardNames, this));
 
             return cardNames.Distinct().ToList();
         }
@@ -591,6 +626,65 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(R1-e) AS-IS <c>CardSource.CardDP</c> (CardSource.cs:2383-2443): the card's live DP — printed
+    /// <see cref="BaseCardDP"/> + the additive <see cref="BaseDP"/>, transformed by every usable
+    /// <see cref="IChangeCardDPEffect"/> whose <c>CardCondition(this)</c> holds (scan of all field permanents' then
+    /// all players' effects, TURN player first). AS-IS applies the <c>IsUpDown</c> (relative) effects first, then the
+    /// non-IsUpDown (absolute) effects, and clamps at 0. Returns -1 clamped to 0 when the card has no printed DP.
+    /// ADAPTATION: <c>gameContext.Players_ForTurnPlayer</c> = <c>new GameContext(Context).Players_ForTurnPlayer</c>.</summary>
+    public int CardDP
+    {
+        get
+        {
+            int cardDP = -1;
+
+            if (HasDP)
+            {
+                cardDP = BaseCardDP;
+                cardDP += BaseDP;
+
+                // card effects that change card DP
+                List<ICardEffect> changeCardDPCardEffects = new List<ICardEffect>();
+
+                // the effects of permanents
+                changeCardDPCardEffects = changeCardDPCardEffects
+                    .Concat(
+                    new GameContext(Context).Players_ForTurnPlayer
+                        .Map(player => player.GetFieldPermanents())
+                        .Flat()
+                        .Map(permanent => permanent.EffectList(EffectTiming.None))
+                        .Flat()
+                        .Filter(cardEffect => cardEffect is IChangeCardDPEffect && cardEffect.CanUse(null)
+                            && ((IChangeCardDPEffect)cardEffect).CardCondition(this)))
+                        .ToList();
+
+                // the effects of players
+                changeCardDPCardEffects = changeCardDPCardEffects
+                    .Concat(
+                    new GameContext(Context).Players_ForTurnPlayer
+                        .Map(player => player.EffectList(EffectTiming.None))
+                        .Flat()
+                        .Filter(cardEffect => cardEffect is IChangeCardDPEffect && cardEffect.CanUse(null)
+                            && ((IChangeCardDPEffect)cardEffect).CardCondition(this)))
+                        .ToList();
+
+                List<ICardEffect> cardEffects_ChangeDP_IsUpDown = changeCardDPCardEffects
+                    .Filter(cardEffect => ((IChangeCardDPEffect)cardEffect).IsUpDown());
+
+                List<ICardEffect> cardEffects_ChangeDP_NotIsUpDown = changeCardDPCardEffects
+                    .Filter(cardEffect => !((IChangeCardDPEffect)cardEffect).IsUpDown());
+
+                cardEffects_ChangeDP_IsUpDown
+                    .ForEach(cardEffect => cardDP = ((IChangeCardDPEffect)cardEffect).GetDP(cardDP, this));
+
+                cardEffects_ChangeDP_NotIsUpDown
+                    .ForEach(cardEffect => cardDP = ((IChangeCardDPEffect)cardEffect).GetDP(cardDP, this));
+            }
+
+            return Math.Max(0, cardDP);
+        }
+    }
+
     /// <summary>(W6 tail) AS-IS <c>HasPlayCost</c> — the card defines a play cost.</summary>
     public bool HasPlayCost => Definition?.PlayCost is not null;
 
@@ -637,54 +731,126 @@ public sealed class CardSource
     /// (BT9_109 "[When Attacking] … digivolve into a Digimon card with [X Antibody] in its traits").</summary>
     public bool HasXAntibodyTraits => CardTraits.Some(DataBase.IsXAntibodyString);
 
-    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotBeAffected(cardEffect)</c> (CardSource.cs:1060,
-    /// 504 card-effect call sites): whether an active <c>ICanNotAffectedEffect</c> shields THIS card from the
-    /// given causing effect. Delegates to the verified <see cref="ContinuousImmunityGate.BlocksOpponentEffect"/>
-    /// (the immunity scan the mirror command classes already use). A null/empty cause is never blocked (AS-IS
-    /// :1062 <c>if (_cardEffect == null) return false</c>). The <c>cardEffect</c> argument is the causing effect's
-    /// source id, matching the goal-1 SwitchDefender / goal-3 causeEffectSourceId precedent.</summary>
-    public bool CanNotBeAffected(HeadlessEntityId? causeEffectSourceId)
+    /// <summary>(R1-e) AS-IS <c>CardSource.CanNotBeAffected(ICardEffect _cardEffect)</c> (CardSource.cs:1060-1110):
+    /// whether an active <see cref="ICanNotAffectedEffect"/> shields THIS card from the given causing effect. A null
+    /// cause is never blocked (AS-IS :1062). The AS-IS three-region scan (all field permanents' effects → all
+    /// players' effects → THIS card's own effects while not a permanent), gated by <c>CanUse(null)</c> and
+    /// <c>CanNotAffect(this, _cardEffect)</c>. ADAPTATION: <c>gameContext.Players</c> (full roster) =
+    /// <c>new GameContext(Context).Players</c>. Rehoused from the mirror <see cref="ContinuousImmunityGate"/>
+    /// delegation to this AS-IS-literal scan.</summary>
+    public bool CanNotBeAffected(ICardEffect _cardEffect)
     {
-        if (causeEffectSourceId is not { IsEmpty: false } cause)
+        if (_cardEffect == null) return false;
+
+        // the effects of permanents
+        if (new GameContext(Context).Players
+            .Map(player => player.GetFieldPermanents())
+            .Flat()
+            .Map(permanent => permanent.EffectList(EffectTiming.None))
+            .Flat()
+            .Some(cardEffect => cardEffect is ICanNotAffectedEffect
+                && cardEffect.CanUse(null)
+                && ((ICanNotAffectedEffect)cardEffect).CanNotAffect(this, _cardEffect)))
         {
-            return false;
+            return true;
         }
 
-        return ContinuousImmunityGate.BlocksOpponentEffect(
-            Context.EffectRegistry, Context.CardInstanceRepository, InstanceId, cause, Context);
+        // the effects of players
+        if (new GameContext(Context).Players
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotAffectedEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotAffectedEffect)cardEffect).CanNotAffect(this, _cardEffect)))
+        {
+            return true;
+        }
+
+        // the effects of itself
+        if (PermanentOfThisCard().IsEmpty)
+        {
+            if (EffectList(EffectTiming.None)
+                    .Some(cardEffect => cardEffect is ICanNotAffectedEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotAffectedEffect)cardEffect).CanNotAffect(this, _cardEffect)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
-    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotTrashFromDigivolutionCards(cardEffect)</c>
-    /// (CardSource.cs:2478, 149 call sites): this source is protected from digivolution-stack trashing — the
-    /// in-flight <c>willBeRemoveSources</c> mark (AS-IS :2480) OR an active trash-protection effect (the static
-    /// grant flag or the continuous scan). Delegates to <see cref="TrashProtectionScan.IsProtected"/> — the same
-    /// filter <see cref="Assets.Scripts.Script.ITrashDigivolutionCards"/> applies privately, promoted to the
-    /// public AS-IS surface. The continuous scan needs a cause; without one only the marks apply.</summary>
-    public bool CanNotTrashFromDigivolutionCards(HeadlessEntityId? causeEffectSourceId)
+    /// <summary>(R1-e) AS-IS <c>CardSource.willBeRemoveSources</c> (CardSource.cs:2472, a public bool field): the
+    /// "already being removed from sources this pass" mark. ADAPTATION: the AS-IS mutable field maps to instance
+    /// metadata (the <see cref="BaseDP"/> transient-view idiom); default false as an unset AS-IS bool field.</summary>
+    public bool willBeRemoveSources
     {
-        if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+        get =>
+            Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? i) && i is not null
+            && i.Metadata.TryGetValue("willBeRemoveSources", out object? raw) && raw is true;
+        set
         {
-            // AS-IS :2480 `if (willBeRemoveSources) return true;` — the "already being removed this pass" mark
-            // (ITrashLinkCards.WillBeRemoveSourcesKey = "willBeRemoveSources").
-            if (record.Metadata.TryGetValue("willBeRemoveSources", out object? mark) && mark is true)
+            if (Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
             {
-                return true;
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    ["willBeRemoveSources"] = value,
+                };
+                Context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
             }
+        }
+    }
 
-            // The static-grant form of the protection (CardEffectCommons.TrashProtectedKey).
-            if (record.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? stamped) && stamped is true)
+    /// <summary>(R1-e) AS-IS <c>CardSource.CanNotTrashFromDigivolutionCards(ICardEffect _cardEffect)</c>
+    /// (CardSource.cs:2478-2529): this source is protected from digivolution-stack trashing — the in-flight
+    /// <see cref="willBeRemoveSources"/> mark (AS-IS :2480) OR a usable <see cref="ICanNotTrashFromDigivolutionCardsEffect"/>
+    /// across the AS-IS three-region scan (all field permanents → all players → THIS card while not a permanent),
+    /// gated by <c>CanUse(null)</c> and <c>CanNotTrashFromDigivolutionCards(this, _cardEffect)</c>. Rehoused from the
+    /// mirror <see cref="TrashProtectionScan"/> delegation to this AS-IS-literal scan; AS-IS has no separate
+    /// static-grant flag branch (the static grant is an effect enumerated by the scan).</summary>
+    public bool CanNotTrashFromDigivolutionCards(ICardEffect _cardEffect)
+    {
+        if (willBeRemoveSources)
+            return true;
+
+        // the effects of permanents
+        if (new GameContext(Context).Players
+            .Map(player => player.GetFieldPermanents())
+            .Flat()
+            .Map(permanent => permanent.EffectList(EffectTiming.None))
+            .Flat()
+            .Some(cardEffect => cardEffect is ICanNotTrashFromDigivolutionCardsEffect
+            && cardEffect.CanUse(null)
+            && ((ICanNotTrashFromDigivolutionCardsEffect)cardEffect).CanNotTrashFromDigivolutionCards(this, _cardEffect)))
+        {
+            return true;
+        }
+
+        // the effects of players
+        if (new GameContext(Context).Players
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotTrashFromDigivolutionCardsEffect
+                && cardEffect.CanUse(null)
+                && ((ICanNotTrashFromDigivolutionCardsEffect)cardEffect).CanNotTrashFromDigivolutionCards(this, _cardEffect)))
+        {
+            return true;
+        }
+
+        // the effects of itself
+        if (PermanentOfThisCard().IsEmpty)
+        {
+            if (EffectList(EffectTiming.None)
+                    .Some(cardEffect => cardEffect is ICanNotTrashFromDigivolutionCardsEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotTrashFromDigivolutionCardsEffect)cardEffect).CanNotTrashFromDigivolutionCards(this, _cardEffect)))
             {
                 return true;
             }
         }
 
-        if (causeEffectSourceId is not { IsEmpty: false } cause)
-        {
-            return false;
-        }
-
-        return TrashProtectionScan.IsProtected(
-            Context.EffectRegistry, Context.CardInstanceRepository, Context, InstanceId, cause);
+        return false;
     }
 
     /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.HasSameCardName(cardSource)</c> (CardSource.cs:1465):
@@ -746,20 +912,62 @@ public sealed class CardSource
         return colors.Any(c => string.Equals(c, color, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.CanNotEvolve(targetPermanent)</c> (CardSource.cs:1291-
-    /// 1350): whether an active <c>ICanNotDigivolveEffect</c> forbids THIS card from digivolving onto
-    /// <paramref name="targetPermanent"/> — a token on EITHER side always blocks; otherwise the joint scan.
-    /// Delegates to <see cref="ContinuousRestrictionGate.EvaluateDigivolve"/> (subject = the target evolved
-    /// onto, counterpart = this digivolving card).</summary>
+    /// <summary>(R1-e) AS-IS <c>CardSource.CanNotEvolve(Permanent targetPermanent)</c> (CardSource.cs:1291-1353):
+    /// whether an active <see cref="ICanNotDigivolveEffect"/> forbids THIS card from digivolving onto
+    /// <paramref name="targetPermanent"/> — a token on EITHER side always blocks; otherwise the AS-IS three-region
+    /// scan (all field permanents → all players → THIS card while not a permanent), gated by <c>CanUse(null)</c>
+    /// and <c>CanNotEvolve(targetPermanent, this)</c>. Rehoused from the mirror
+    /// <see cref="ContinuousRestrictionGate.EvaluateDigivolve"/> delegation to this AS-IS-literal scan.</summary>
     public bool CanNotEvolve(Permanent targetPermanent)
     {
         ArgumentNullException.ThrowIfNull(targetPermanent);
-        if (targetPermanent.IsToken || IsToken)
+        if (targetPermanent.IsToken)
         {
             return true;
         }
 
-        return ContinuousRestrictionGate.EvaluateDigivolve(Context, targetPermanent.InstanceId, InstanceId).IsRestricted;
+        if (IsToken)
+        {
+            return true;
+        }
+
+        // card effects that can't digivolve — the effects of permanents
+        if (new GameContext(Context).Players
+            .Map(player => player.GetFieldPermanents())
+            .Flat()
+            .Map(permanent => permanent.EffectList(EffectTiming.None))
+            .Flat()
+            .Some(cardEffect => cardEffect is ICanNotDigivolveEffect
+                && cardEffect.CanUse(null)
+                && ((ICanNotDigivolveEffect)cardEffect).CanNotEvolve(targetPermanent, this)))
+        {
+            return true;
+        }
+
+        // the effects of players
+        if (new GameContext(Context).Players
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotDigivolveEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotDigivolveEffect)cardEffect).CanNotEvolve(targetPermanent, this)))
+        {
+            return true;
+        }
+
+        // the effects of itself
+        if (PermanentOfThisCard().IsEmpty)
+        {
+            if (EffectList(EffectTiming.None)
+                    .Some(cardEffect => cardEffect is ICanNotDigivolveEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotDigivolveEffect)cardEffect).CanNotEvolve(targetPermanent, this)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>(W6-L / P6C3 re-fold) Mirror of AS-IS <c>CardSource.linkCondition</c> (CardSource.cs:2727-2741):
@@ -939,6 +1147,13 @@ public sealed class CardSource
         Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? saveRecord) && saveRecord is not null
         && Headless.Runtime.DeletionReplacementGate.HasReplacementKeyword(
             saveRecord, Headless.Runtime.DeletionReplacementGate.HasSaveKey, Headless.Runtime.ContinuousKeywordGate.Save, Context.EffectRegistry);
+
+    // (R1-e boundary) The AS-IS printed-cost engine — CardSource.EvoCosts's BaseEvoCostsFromEntity projection,
+    // CostList, PayingCost/GetPayingCostWithBaseCost, GetChangedLinkCost's value fold — is NOT rehoused here: it
+    // needs the EvoCost value type + _cEntity_Base.EvoCosts card data and drives the play/digivolve cost pipeline
+    // (PlayCardClass STOP RD-P6C1-2, DigivolutionCostHelpers/LinkHelpers) = R2 몫 (플레이 파이프라인 내부 판정).
+    // What R1-e keeps on CardSource is the READ-layer scan portion: the added-requirement scan below
+    // (AddedDigivolutionCosts) + IgnoreColorConditionActive + MatchColorRequirement.
 
     // ===== (RD-P6B-15) added digivolution requirement — AS-IS CardSource.EvoCosts / CostList ==============
     // AS-IS CardSource.EvoCosts (DCGO CardSource.cs:534-611) + CostList (:617-627). The ADDED-requirement
