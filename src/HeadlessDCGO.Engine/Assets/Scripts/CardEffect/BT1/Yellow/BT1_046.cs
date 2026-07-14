@@ -1,31 +1,51 @@
-// Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_046.cs
-// 1:1 headless mirror via the uniform ActivatedEffect (= AS-IS ActivateClass): a conditional
-// [When Attacking] draw gated on battle-area presence, a non-empty deck, and a hand size cap.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_046.cs
+// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
+// BT1_046 (BT1/Yellow) — inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local functions.
 //   [When Attacking] Trigger <Draw 1>. (Draw 1 card from your deck.)
-//   -> ActivatedEffect(OnAllyAttack, CanUse=CanTriggerOnAttack [self-scope],
-//      CanActivate=on battle area && library >= 1 && hand <= 4, body=DrawBody(1),
-//      maxCountPerTurn=null [AS-IS ORDER=-1], isOptional=false [AS-IS ISOPTIONAL=false]).
+// AS-IS: ActivateClass on OnAllyAttack, CanUseCondition = CanTriggerOnAttack, CanActivateCondition =
+//   IsExistOnBattleArea && card.Owner.LibraryCards.Count >= 1 && card.Owner.HandCards.Count <= 4, ORDER=-1,
+//   ISOPTIONAL=false, ActivateCoroutine = new DrawClass(card.Owner, 1, activateClass).Draw().
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.LibraryCards`/`HandCards`
+//   -> `new Player(card.Context, card.Owner).LibraryCards`/`.HandCards` (established BT2_023 idiom); DrawClass
+//   ctor -> mirror (EngineContext, HeadlessPlayerId, count, cause) shape (BT1_003/BT1_029 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT1_046 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnAllyAttack)
         {
-            bool CanActivate()
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Attacking] Trigger <Draw 1>. (Draw 1 card from your deck.)";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
                     {
-                        if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Hand).Count <= 4)
+                        if (new Player(card.Context, card.Owner).HandCards.Count <= 4)
                         {
                             return true;
                         }
@@ -35,15 +55,10 @@ public sealed class BT1_046 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnAllyAttack,
-                canUse: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card),
-                canActivate: CanActivate,
-                body: new DrawBody(1),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[When Attacking] Trigger <Draw 1>. (Draw 1 card from your deck.)"));
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
 
         return cardEffects;

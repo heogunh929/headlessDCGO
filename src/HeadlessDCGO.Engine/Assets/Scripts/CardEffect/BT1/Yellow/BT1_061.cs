@@ -1,19 +1,24 @@
-// Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_061.cs
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_061.cs
+// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
+// BT1_061 — inline `new ActivateClass()` + local functions.
 //   [On Play] 2 of your opponent's Digimon get -3000 DP for the turn.
-// 1:1 mirror of the AS-IS BT1_061: ActivateClass on OnEnterFieldAnyone. CanUseCondition = CanTriggerOnPlay.
-//   CanActivateCondition = IsExistOnBattleArea(card) && HasMatchConditionPermanent(CanSelectPermanentCondition),
-//   CanSelectPermanentCondition = IsPermanentExistsOnOpponentBattleAreaDigimon. ORDER=-1, ISOPTIONAL=false.
-//   ActivateCoroutine: maxCount = Min(2, MatchConditionPermanentCount); SelectPermanentEffect.SetUp(mode: Custom,
-//   maxCount, canNoSelect:false, canEndNotMax:false) — a MANDATORY pick of exactly min(2, available) opponent
-//   Digimon (canEndNotMax:false forces minCount == maxCount, i.e. never fewer than 2 when 2+ are legal). Per
-//   selected permanent: CardEffectCommons.ChangeDigimonDP(changeValue: -3000, UntilEachTurnEnd) (current-DP delta).
-// Headless mirror: uniform ActivatedEffect + SelectBody(Mode.Custom, maxCount:2, canEndNotMax:false — the
-//   mandatory-multi-pick the DP-buff factory couldn't express) with the AS-IS SelectPermanentCoroutine follow-up
-//   wired via SelectBody.onEachSelected -> ChangeDigimonDP(-3000) on each picked id.
+// AS-IS: ActivateClass on OnEnterFieldAnyone, CanUseCondition = CanTriggerOnPlay, CanActivateCondition =
+//   IsExistOnBattleArea && HasMatchConditionPermanent(CanSelectPermanentCondition). CanSelectPermanentCondition =
+//   IsPermanentExistsOnOpponentBattleAreaDigimon. ORDER=-1, ISOPTIONAL=false. ActivateCoroutine: maxCount =
+//   Min(2, MatchConditionPermanentCount); SelectPermanentEffect.SetUp(mode: Custom, canNoSelect:false,
+//   canEndNotMax:false, selectPermanentCoroutine); per selected permanent CardEffectCommons.ChangeDigimonDP(
+//   permanent, -3000, UntilEachTurnEnd, activateClass).
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; AS-IS `Func<Permanent,bool>` ->
+//   `Func<HeadlessEntityId,bool>` idiom (IsOpponentBattleAreaDigimon); `GManager.instance.GetComponent<
+//   SelectPermanentEffect>()` -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -21,38 +26,71 @@ public sealed class BT1_061 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            bool CanSelect(HeadlessEntityId id) => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("DP -3000", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnEnterFieldAnyone,
-                canUse: ctx => CardEffectCommons.CanTriggerOnPlay(ctx, card),
-                canActivate: () => CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.HasMatchConditionPermanent(card, CanSelect),
-                body: new SelectBody(
-                    card: card,
-                    canTarget: CanSelect,
-                    maxCount: 2,
+            string EffectDiscription()
+            {
+                return "[On Play] 2 of your opponent's Digimon get -3000 DP for the turn.";
+            }
+
+            bool CanSelectPermanentCondition(HeadlessEntityId id)
+            {
+                return CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                int maxCount = Math.Min(2, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentCondition));
+
+                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: CanSelectPermanentCondition,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
                     canNoSelect: false,
                     canEndNotMax: false,
+                    selectPermanentCoroutine: SelectPermanentCoroutine,
+                    afterSelectPermanentCoroutine: null,
                     mode: SelectPermanentEffect.Mode.Custom,
-                    description: "[On Play] 2 of your opponent's Digimon get -3000 DP for the turn.",
-                    // Resolve the selected OPPONENT target's real owner from the repository — `card.Owner` (self) would
-                    // build a Permanent whose OwnerId mismatches the zone owner and ChangeDigimonStat's battle-area
-                    // guard would silently reject it (no modifier registered). AS-IS `new Permanent(id)` resolves owner
-                    // internally. (Same latent bug class as BT1_054/BT22_003; surfaced by the WhenLinked witness.)
-                    onEachSelected: id => CardEffectCommons.ChangeDigimonDP(
-                        new Permanent(card.Context, id,
-                            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? tgtRec) && tgtRec is not null
-                                ? tgtRec.OwnerId : card.Owner),
-                        changeValue: -3000, EffectDuration.UntilEachTurnEnd, card)),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[On Play] 2 of your opponent's Digimon get -3000 DP for the turn."));
+                    cardEffect: activateClass);
+
+                selectPermanentEffect.SetUpCustomMessage("Select Digimon to DP -3000.", "The opponent is selecting Digimon to DP -3000.");
+
+                await selectPermanentEffect.Activate();
+
+                async Task SelectPermanentCoroutine(Permanent permanent)
+                {
+                    await CardEffectCommons.ChangeDigimonDP(targetPermanent: permanent, changeValue: -3000, effectDuration: EffectDuration.UntilEachTurnEnd, activateClass: activateClass);
+                }
+            }
         }
 
         return cardEffects;

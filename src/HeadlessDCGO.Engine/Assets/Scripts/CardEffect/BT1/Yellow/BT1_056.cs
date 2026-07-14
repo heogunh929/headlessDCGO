@@ -1,3 +1,8 @@
+// R6-A CUTOVER STOP (design item RD-R6-01, same root cause as RD-P8-01): kept in old-model ActivatedEffect. The
+// AS-IS ActivateCoroutine's "from hand" branch uses `GManager.instance.GetComponent<SelectHandEffect>()` (Mode.Custom
+// hand select), but the mirror Script/SelectHandEffect.cs is still a 7-line skeleton (no class body, no SetUp/Mode) —
+// unchanged by R1~R3. Substituting SelectCardEffect(Root.Hand) is invention (rejected precedent BT9_109/BT1_039).
+// Left as ActivatedEffect + ActivatedSelectAndPlayFromZonesEffect until SelectHandEffect is ported (Opus-gated).
 // Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_056.cs
 //   [On Play] You may play 1 [Tinkermon] from your hand or recycle bin without paying its memory cost.
 // AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone.

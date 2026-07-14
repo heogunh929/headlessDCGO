@@ -1,34 +1,71 @@
-// Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_049.cs
-// 1:1 headless mirror via the uniform ActivatedEffect (= AS-IS ActivateClass): a
-// [Your Turn] triggered draw gated on an opponent's Digimon being deleted by dropping to 0 DP.
-//   [Your Turn] When an opponent's Digimon is deleted by dropping to 0 DP, trigger <Draw 1>
-//   (Draw 1 card from your deck).
-//   -> ActivatedEffect(OnDestroyedAnyone,
-//      CanUse=on battle area && owner's turn && CanTriggerOnPermanentDeleted(opponent's Digimon) && IsDPZeroDelete,
-//      CanActivate=on battle area && library >= 1, body=DrawBody(1),
-//      maxCountPerTurn=null [AS-IS ORDER=-1], isOptional=false [AS-IS ISOPTIONAL=false]).
-// AS-IS also sets SetIsInheritedEffect(true); the uniform ActivatedEffect primitive does not model
-// inherited-effect (buried-under-digivolution) firing — same accepted gap as the sibling BT1_006 port.
-
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_049.cs
+// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
+// BT1_049 (BT1/Yellow) — inline `new ActivateClass()` + SetIsInheritedEffect(true) + local functions.
+//   [Your Turn] When an opponent's Digimon is deleted by dropping to 0 DP, trigger <Draw 1> (Draw 1 card from
+//   your deck).
+// AS-IS: ActivateClass on OnDestroyedAnyone, SetIsInheritedEffect(true). PermanentCondition =
+//   IsPermanentExistsOnOpponentBattleAreaDigimon. CanUseCondition = IsExistOnBattleArea && IsOwnerTurn &&
+//   CanTriggerOnPermanentDeleted(hashtable, PermanentCondition) && IsDPZeroDelete(hashtable). CanActivateCondition
+//   = IsExistOnBattleArea && card.Owner.LibraryCards.Count >= 1. ORDER=-1, ISOPTIONAL=false. ActivateCoroutine =
+//   new DrawClass(card.Owner, 1, activateClass).Draw().
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.LibraryCards` ->
+//   `new Player(card.Context, card.Owner).LibraryCards`; DrawClass ctor -> mirror shape.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT1_049 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnDestroyedAnyone)
         {
-            bool CanActivate()
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Your Turn] When an opponent's Digimon is deleted by dropping to 0 DP, trigger <Draw 1> (Draw 1 card from your deck).";
+            }
+
+            bool PermanentCondition(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.CanTriggerOnPermanentDeleted(hashtable, PermanentCondition))
+                        {
+                            if (CardEffectCommons.IsDPZeroDelete(hashtable))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
                     {
                         return true;
                     }
@@ -37,18 +74,10 @@ public sealed class BT1_049 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnDestroyedAnyone,
-                canUse: ctx => CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.IsOwnerTurn(card)
-                    && CardEffectCommons.CanTriggerOnPermanentDeleted(card, ctx, id => CardEffectCommons.IsOpponentOwnedDigimon(card, id))
-                    && CardEffectCommons.IsDPZeroDelete(card, ctx),
-                canActivate: CanActivate,
-                body: new DrawBody(1),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[Your Turn] When an opponent's Digimon is deleted by dropping to 0 DP, trigger <Draw 1> (Draw 1 card from your deck)."));
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
 
         return cardEffects;

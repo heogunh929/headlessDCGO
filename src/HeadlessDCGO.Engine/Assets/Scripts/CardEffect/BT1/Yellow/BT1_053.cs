@@ -1,58 +1,98 @@
-// Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_053.cs
-// 1:1 headless mirror via the uniform ActivatedEffect (= AS-IS ActivateClass):
-//   [Your Turn] When you play a level 3 yellow Digimon, if this Digimon is suspended, trigger <Draw 1>
-//   (Draw 1 card from your deck).
-// AS-IS: ActivateClass on EffectTiming.OnEnterFieldAnyone.
-//   CanUseCondition   = IsExistOnBattleArea(card) && IsOwnerTurn(card)
-//                        && CanTriggerOnPermanentPlay(hashtable, PermanentCondition)
-//   PermanentCondition(permanent) = IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
-//                        && permanent.TopCard.CardColors.Contains(Yellow) && permanent.TopCard.HasLevel
-//                        && permanent.TopCard.Level == 3
-//   CanActivateCondition = IsExistOnBattleArea(card) && card.PermanentOfThisCard().IsSuspended
-//                        && card.Owner.LibraryCards.Count >= 1
-//   ORDER = -1 (no once-per-turn cap) -> maxCountPerTurn: null. ISOPTIONAL = false.
-//   ActivateCoroutine = DrawClass(card.Owner, 1, activateClass).Draw() -> DrawBody(1).
-// Headless mirror: CanTriggerOnPermanentPlay(ctx, card, PermanentCondition) evaluates the entered permanent
-// (the headless Permanent view backed by the engine, PRIM-W5-0) exactly like AS-IS; the suspended check reads
-// the top card of this card's own permanent (PermanentOfThisCard().TopInstanceId) via the verbatim IsSuspended
-// mirror; the library count check reads the owner's Library zone directly.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_053.cs
+// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
+// BT1_053 (BT1/Yellow) — inline `new ActivateClass()` + local functions.
+//   [Your Turn] When you play a level 3 yellow Digimon, if this Digimon is suspended, trigger <Draw 1> (Draw 1
+//   card from your deck).
+// AS-IS: ActivateClass on OnEnterFieldAnyone. PermanentCondition = IsPermanentExistsOnOwnerBattleAreaDigimon &&
+//   TopCard.CardColors.Contains(Yellow) && TopCard.HasLevel && TopCard.Level == 3. CanUseCondition =
+//   IsExistOnBattleArea && IsOwnerTurn && CanTriggerOnPermanentPlay(hashtable, PermanentCondition).
+//   CanActivateCondition = IsExistOnBattleArea && card.PermanentOfThisCard().IsSuspended &&
+//   card.Owner.LibraryCards.Count >= 1. ORDER=-1, ISOPTIONAL=false. ActivateCoroutine =
+//   new DrawClass(card.Owner, 1, activateClass).Draw().
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `TopCard.CardColors.Contains(
+//   CardColor.Yellow)` -> `TopCard.HasCardColor("Yellow")` (mirror string colors); `card.PermanentOfThisCard()`
+//   -> `ICardEffect.ResolvePermanentOfThisCard(card)`; `card.Owner.LibraryCards` -> `new Player(...).LibraryCards`.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT1_053 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnEnterFieldAnyone)
         {
-            bool PermanentCondition(Permanent permanent) =>
-                CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
-                && permanent.TopCard.HasCardColor("Yellow")
-                && permanent.TopCard.HasLevel
-                && permanent.TopCard.Level == 3;
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
 
-            bool CanActivate() =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.IsSuspended(card, card.PermanentOfThisCard().TopInstanceId)
-                && ((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1;
+            string EffectDiscription()
+            {
+                return "[Your Turn] When you play a level 3 yellow Digimon, if this Digimon is suspended, trigger <Draw 1> (Draw 1 card from your deck).";
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnEnterFieldAnyone,
-                canUse: ctx =>
-                    CardEffectCommons.IsExistOnBattleArea(card)
-                    && CardEffectCommons.IsOwnerTurn(card)
-                    && CardEffectCommons.CanTriggerOnPermanentPlay(ctx, card, PermanentCondition),
-                canActivate: CanActivate,
-                body: new DrawBody(1),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[Your Turn] When you play a level 3 yellow Digimon, if this Digimon is suspended, trigger <Draw 1> (Draw 1 card from your deck)."));
+            bool PermanentCondition(Permanent permanent)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.TopCard.HasCardColor("Yellow"))
+                    {
+                        if (permanent.TopCard.HasLevel)
+                        {
+                            if (permanent.TopCard.Level == 3)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (CardEffectCommons.IsOwnerTurn(card))
+                    {
+                        if (CardEffectCommons.CanTriggerOnPermanentPlay(hashtable, PermanentCondition))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (ICardEffect.ResolvePermanentOfThisCard(card).IsSuspended)
+                    {
+                        if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
 
         return cardEffects;

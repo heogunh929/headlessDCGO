@@ -1,3 +1,9 @@
+// R6-A CUTOVER STOP (design item RD-R6-02): kept in old-model ActivatedEffect. The AS-IS ActivateCoroutine adds a
+// player-scope end-of-turn "-3 memory" via `card.Owner.UntilEachTurnEndEffects.Add(GetCardEffect)` — a live
+// Player-field list that has NO mirror surface (Player.UntilEachTurnEndEffects does not exist as a settable list),
+// and routing it through AddEffectToPlayer would break the AS-IS list-stacking semantics (attack twice = -6). Same
+// new-model player-scope EoT grant-store gap as BT1_090 (RD-P6C3-C1). Left as ActivatedEffect +
+// MemoryGainThenScheduledReversalBody (unique-id stacking-safe reversal). Engine-file change is Opus-gated.
 // 1:1 mirror of the original BT1_021 (BT1/Red) — a Digimon.
 //   [When Attacking] Gain 3 memory. At end of turn lose 3 memory.
 // AS-IS (BT1_021.cs): ONE ActivateClass on OnAllyAttack — CanUseCondition = CanTriggerOnAttack (:22-25),

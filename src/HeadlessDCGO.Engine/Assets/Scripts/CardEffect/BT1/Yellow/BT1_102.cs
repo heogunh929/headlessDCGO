@@ -1,40 +1,55 @@
-// Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_102.cs
-// 1:1 mirror of the original BT1_102 (BT1/Yellow) — an Option.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_102.cs — an Option.
+// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [Main] branch; the
+// [Security] branch already reuses [Main] via AddActivateMainOptionSecurityEffect (unchanged).
 //   [Main] Trigger <Draw 1> (Draw 1 card from your deck) for every 2 security cards you have.
-//     -> ActivatedEffect(OptionSkill, CanUse=CanTriggerOptionMainEffect, CanActivate=null [AS-IS
-//        CanActivateCondition is literally `null` — no extra gate beyond CanUse],
-//        body=DrawBody(SecurityCount(card) / 2) — the count is recomputed fresh each time CardEffects()
-//        is invoked at resolution (ActivatedEffectResolver.ResolveCardEffectsAsync calls
-//        effect.CardEffects(timing, card) right before resolving), matching the AS-IS
-//        ActivateCoroutine reading `card.Owner.SecurityCards.Count / 2` at activation time.
-//        maxCountPerTurn=null [AS-IS ORDER=-1], isOptional=false [AS-IS ISOPTIONAL=false]).
-//   [Security] (use the Main effect) -> AddActivateMainOptionSecurityEffect
+// AS-IS: ActivateClass on OptionSkill, CanUseCondition = CanTriggerOptionMainEffect, CanActivateCondition = null,
+//   ORDER=-1, ISOPTIONAL=false. ActivateCoroutine = new DrawClass(card.Owner, card.Owner.SecurityCards.Count / 2,
+//   activateClass).Draw() — the draw count is read at activation time.
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.SecurityCards` ->
+//   `new Player(card.Context, card.Owner).SecurityCards`; DrawClass ctor -> mirror shape.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT1_102 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OptionSkill)
         {
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OptionSkill,
-                canUse: ctx => CardEffectCommons.CanTriggerOptionMainEffect(ctx, card),
-                canActivate: null,
-                body: new DrawBody(CardEffectCommons.SecurityCount(card) / 2),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[Main] Trigger <Draw 1> (Draw 1 card from your deck) for every 2 security cards you have."));
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(card.BaseENGCardNameFromEntity, CanUseCondition, card);
+            activateClass.SetUpActivateClass(null, ActivateCoroutine, -1, false, EffectDiscription());
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Main] Trigger <Draw 1> (Draw 1 card from your deck) for every 2 security cards you have.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOptionMainEffect(hashtable, card);
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, new Player(card.Context, card.Owner).SecurityCards.Count / 2, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
 
         if (timing == EffectTiming.SecuritySkill)
         {
-            CardEffectCommons.AddActivateMainOptionSecurityEffect(card: card, cardEffects: ref cardEffects, effectName: "Draw cards");
+            CardEffectCommons.AddActivateMainOptionSecurityEffect(
+                card: card,
+                cardEffects: ref cardEffects,
+                effectName: $"Draw cards");
         }
 
         return cardEffects;

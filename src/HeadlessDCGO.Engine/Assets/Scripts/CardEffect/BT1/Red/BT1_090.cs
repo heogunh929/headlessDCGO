@@ -1,3 +1,10 @@
+// R6-A CUTOVER STOP (design item RD-R6-02): kept in old-model ActivatedEffect. The AS-IS ActivateCoroutine
+// registers a NESTED new-model ActivateClass ("Memory -2") at player scope via CardEffectCommons.AddEffectToPlayer(
+// UntilEachTurnEnd, ..., OnEndTurn). The mirror AddEffectToPlayer accepts ONLY old-model effects (LegacyBindingBridge
+// .TryToBinding needs ToBinding; a new-model ActivateClass has none -> NotSupportedException, RD-P6C3-C1). No new-model
+// player-scope EoT grant store exists yet, so the AS-IS "gain now + register one-shot reversal at end of turn" cannot
+// be faithfully mirrored as ActivateClass. Left as ActivatedEffect + MemoryGainThenScheduledReversalBody (unique-id
+// stacking-safe reversal). Engine-file change (new-model player grant store) is Opus-gated; not invented here.
 // Source: Assets/Scripts/CardEffect/BT1/Red/BT1_090.cs — an Option (single timing).
 //   [Main] Gain 2 memory. At end of turn, lose 2 memory.
 // 1:1 mirror of the AS-IS BT1_090 [Main] (OptionSkill): ActivateClass(CanUseCondition = CanTriggerOptionMainEffect,

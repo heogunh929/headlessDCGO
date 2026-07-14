@@ -1,31 +1,52 @@
-// Source: Assets/Scripts/CardEffect/BT1/Yellow/BT1_006.cs
-// 1:1 headless mirror via the uniform ActivatedEffect (= AS-IS ActivateClass): a conditional
-// [When Attacking] draw gated on the owner's security-stack size and a non-empty deck.
+// Source: DCGO/Assets/Scripts/CardEffect/BT1/Yellow/BT1_006.cs
+// P8/R6-A CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass). 1:1 mirror of the AS-IS
+// BT1_006 (BT1/Yellow) — inline `new ActivateClass()` + SetIsInheritedEffect(true) + local functions.
 //   [When Attacking] If you have 5 or more security cards, trigger <Draw 1> (Draw 1 card from your deck).
-//   -> ActivatedEffect(OnAllyAttack, CanUse=CanTriggerOnAttack [self-scope],
-//      CanActivate=on battle area && SecurityCount>=5 && library not empty, body=DrawBody(1),
-//      maxCountPerTurn=null [AS-IS ORDER=-1], isOptional=false [AS-IS ISOPTIONAL=false]).
+// AS-IS: ActivateClass on OnAllyAttack, SetIsInheritedEffect(true). CanUseCondition = CanTriggerOnAttack.
+//   CanActivateCondition = IsExistOnBattleArea && card.Owner.SecurityCards.Count >= 5 &&
+//   card.Owner.LibraryCards.Count >= 1. ORDER=-1, ISOPTIONAL=false. ActivateCoroutine =
+//   new DrawClass(card.Owner, 1, activateClass).Draw().
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `card.Owner.SecurityCards`/
+//   `LibraryCards` -> `new Player(card.Context, card.Owner)...`; DrawClass ctor -> mirror shape.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Yellow;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Choices;
-using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class BT1_006 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnAllyAttack)
         {
-            bool CanActivate()
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[When Attacking] If you have 5 or more security cards, trigger <Draw 1> (Draw 1 card from your deck).";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.CanTriggerOnAttack(hashtable, card);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
             {
                 if (CardEffectCommons.IsExistOnBattleArea(card))
                 {
-                    if (CardEffectCommons.SecurityCount(card) >= 5)
+                    if (new Player(card.Context, card.Owner).SecurityCards.Count >= 5)
                     {
-                        if (((IZoneStateReader)card.Context.ZoneMover).GetCards(card.Owner, ChoiceZone.Library).Count >= 1)
+                        if (new Player(card.Context, card.Owner).LibraryCards.Count >= 1)
                         {
                             return true;
                         }
@@ -35,15 +56,10 @@ public sealed class BT1_006 : CEntity_Effect
                 return false;
             }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnAllyAttack,
-                canUse: ctx => CardEffectCommons.CanTriggerOnAttack(ctx, card),
-                canActivate: CanActivate,
-                body: new DrawBody(1),
-                maxCountPerTurn: null,
-                isOptional: false,
-                description: "[When Attacking] If you have 5 or more security cards, trigger <Draw 1> (Draw 1 card from your deck)."));
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
 
         return cardEffects;
