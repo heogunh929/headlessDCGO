@@ -159,7 +159,7 @@ public sealed class SecurityResolver
             // AS-IS (CardController.cs:4108-4184) resolves AutoProcessCheck + the stacked OnSecurityCheck
             // skills BEFORE the security-Digimon battle (:4177). The queued emit drained only after the
             // whole loop, so a checked-card trigger that buffs the attacker resolved too late.
-            await ResolveSecurityCheckWindowAsync(context, defendingPlayerId, checkedCardId, cancellationToken).ConfigureAwait(false);
+            await ResolveSecurityCheckWindowAsync(context, attackingPlayerId, attackerId, defendingPlayerId, checkedCardId, cancellationToken).ConfigureAwait(false);
 
             // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
             // security skill). No-op for cards with no ported SecuritySkill effect.
@@ -361,24 +361,37 @@ public sealed class SecurityResolver
     // (P8) same seam as the OnStartBattle/OnKnockOut windows: collect the subject-scoped triggers and
     // resolve them through the scheduler before the loop proceeds to the security-Digimon battle.
     private static async Task ResolveSecurityCheckWindowAsync(
-        EngineContext context, HeadlessPlayerId defendingPlayerId, HeadlessEntityId checkedCardId, CancellationToken cancellationToken)
+        EngineContext context, HeadlessPlayerId attackingPlayerId, HeadlessEntityId attackerId,
+        HeadlessPlayerId defendingPlayerId, HeadlessEntityId checkedCardId, CancellationToken cancellationToken)
     {
-        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        // (C2 seam 7) Mirror the AS-IS security-check window (CardController.cs:3948-3957 collect + :3982-3985
+        // IReduceSecurity ref-merge → :5448 + :4108-4117 PutStackedSkill / AutoProcessCheck) on the mirror trigger
+        // stack, replacing the legacy RunSecurityCheckWindowAsync unified-seed drive. The revealed card was already
+        // moved Security->Trash by the loop; its {AttackingPermanent, Card} OnSecurityCheck payload is drawn from the
+        // attack context (attackerId, now threaded through — AS-IS put both AttackingPermanent AND the broken card in
+        // the hashtable). GetSkillInfos collects the OnSecurityCheck reactors onto the main stack; IReduceSecurity
+        // (null-collector emit-now branch) stacks the player's OnLoseSecurity reactors onto the SAME stack — AS-IS
+        // batches OnSecurityCheck + the per-card OnLoseSecurity into one resolution, reproduced here by co-stacking
+        // before a single AutoProcessCheck. The revealed card's own [Security] activated effect + the security-Digimon
+        // battle continue in the loop; the DeferredActivations parks are unchanged. (Residual: an INTERACTIVE
+        // OnSecurityCheck reactor suspends the mirror window but the enclosing security loop position is not itself
+        // resumable — rare; the legacy FIFO path did not suspend at all. Documented as RD-C2-SECCHECK-INTERACTIVE.)
+        using AmbientMatchContext.Scope _secCheckScope = AmbientMatchContext.Enter(context);
+        var autoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+
+        var checkPayload = new System.Collections.Hashtable
         {
-            [AutoProcessingTriggerCollector.TriggerTimingKey] = TriggerTimings.OnSecurityCheck,
-            [AutoProcessingTriggerCollector.SourceEntityIdKey] = checkedCardId,
+            { "AttackingPermanent", new Permanent(context, attackerId, attackingPlayerId) },
+            { "Card", new CardSource(context, checkedCardId, defendingPlayerId, defendingPlayerId) },
         };
-        var gameEvent = new GameEvent(0, GameEventType.StateChanged, $"Timing window: {TriggerTimings.OnSecurityCheck}", metadata)
-        {
-            Actor = defendingPlayerId,
-            Subject = checkedCardId,
-            Cause = TriggerTimings.OnSecurityCheck,
-        };
-        // (F1-M1 P1-2) resolve through the UNIFIED security-check window so the revealed card's ACTIVATED
-        // OnLoseSecurity is collected + merged with OnSecurityCheck (AS-IS IReduceSecurity(ref triggeredSkillInfos)
-        // merges the per-card OnLoseSecurity into the same resolution), not dropped by a scheduler-only drain.
-        await Effects.WindowResolverWiring.RunSecurityCheckWindowAsync(context, gameEvent, cancellationToken)
-            .ConfigureAwait(false);
+        Assets.Scripts.Script.AutoProcessing
+            .GetSkillInfos(checkPayload, EffectTiming.OnSecurityCheck)
+            .ForEach(skillInfo => autoProcessing.PutStackedSkill(skillInfo));
+
+        await new Assets.Scripts.Script.IReduceSecurity(context, defendingPlayerId, refCollector: null, cardEffect: null)
+            .ReduceSecurity(cancellationToken).ConfigureAwait(false);
+
+        await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
     }
 
     private static string? ValidateSecurityCheck(

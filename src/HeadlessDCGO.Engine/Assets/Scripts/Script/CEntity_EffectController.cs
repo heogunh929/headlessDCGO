@@ -320,6 +320,22 @@ public static class CEntity_EffectControllerStore
         return perContext.GetOrAdd(instanceId, id => Create(context, id));
     }
 
+    /// <summary>(C2) AS-IS turn-boundary use-count reset (TurnStateMachine.cs:3204-3208: every
+    /// <c>gameContext.ActiveCardList</c> card's <c>cEntity_EffectController.InitUseCountThisTurn()</c>). The
+    /// mirror walks every controller that EXISTS for this match — a card whose controller was never created has
+    /// no recorded uses, so the set is equivalent. Called by the turn advance alongside the legacy OnceFlags
+    /// reset; before the C2 flip the new-model per-instance caps were not load-bearing, so this reset was absent.</summary>
+    public static void ResetUseCountsForTurn(EngineContext context)
+    {
+        if (ByContext.TryGetValue(context, out ConcurrentDictionary<HeadlessEntityId, CEntity_EffectController>? perContext))
+        {
+            foreach (CEntity_EffectController controller in perContext.Values)
+            {
+                controller.InitUseCountThisTurn();
+            }
+        }
+    }
+
     private static CEntity_EffectController Create(EngineContext context, HeadlessEntityId instanceId)
     {
         var controller = new CEntity_EffectController();

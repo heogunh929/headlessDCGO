@@ -46,6 +46,7 @@ async Task UncappedBatchCollapse()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 31);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (C2 harness phase fix) DoneStartGame gate
     ctx.MemoryController.Set(0);
     var cards = (CardDatabase)ctx.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("TfxOnLeaveFieldCounter"), "TfxOnLeaveFieldCounter", "LeaveCounter",
@@ -59,10 +60,7 @@ async Task UncappedBatchCollapse()
     var d2 = await Foe(ctx, "L2");
     var d3 = await Foe(ctx, "L3");
 
-    long batch = ctx.NextDeletionBatchId();
-    await Delete(ctx, P2, d1, batch);
-    await Delete(ctx, P2, d2, batch);
-    await Delete(ctx, P2, d3, batch);
+    await DeleteBatchViaSink(ctx, d1, d2, d3);
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
     // P1 (reactor owner) is the turn player; -1 memory on a turn-player owner reads as -1 on the turn-relative axis.
@@ -80,10 +78,7 @@ async Task BatchCollapse()
     int before = SecurityCount(ctx, P2);
 
     // Delete all three opponent Digimon in ONE batch (no drive between moves), then settle.
-    long batch = ctx.NextDeletionBatchId();
-    await Delete(ctx, P2, d1, batch);
-    await Delete(ctx, P2, d2, batch);
-    await Delete(ctx, P2, d3, batch);
+    await DeleteBatchViaSink(ctx, d1, d2, d3);
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
     AssertEqual(before - 1, SecurityCount(ctx, P2),
@@ -98,7 +93,7 @@ async Task AnyMatchNegative()
     await Security(ctx, P2, 3);
     int p2Before = SecurityCount(ctx, P2);
 
-    await Delete(ctx, P1, own, ctx.NextDeletionBatchId());
+    await DeleteBatchViaSink(ctx, own);
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
     AssertEqual(p2Before, SecurityCount(ctx, P2),
@@ -114,12 +109,12 @@ async Task OncePerTurnCap()
     int before = SecurityCount(ctx, P2);
 
     // Batch 1 — fires (security -1).
-    await Delete(ctx, P2, d1, ctx.NextDeletionBatchId());
+    await DeleteBatchViaSink(ctx, d1);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before - 1, SecurityCount(ctx, P2), "first leave batch fired");
 
     // Batch 2 same turn — the [Once Per Turn] cap (capHash AD1-025_AT) blocks the re-fire.
-    await Delete(ctx, P2, d2, ctx.NextDeletionBatchId());
+    await DeleteBatchViaSink(ctx, d2);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before - 1, SecurityCount(ctx, P2), "second leave batch the same turn did NOT re-fire (per-turn cap)");
 }
@@ -132,14 +127,16 @@ async Task ResetsNextTurn()
     await Security(ctx, P2, 3);
     int before = SecurityCount(ctx, P2);
 
-    await Delete(ctx, P2, d1, ctx.NextDeletionBatchId());
+    await DeleteBatchViaSink(ctx, d1);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before - 1, SecurityCount(ctx, P2), "first turn's leave batch fired");
 
-    // AS-IS InitUseCountThisTurn — the per-turn cap resets on the new turn.
+    // AS-IS InitUseCountThisTurn — the per-turn cap resets on the new turn (C2: the new-model per-instance
+    // cap lives on CEntity_EffectController.UseEffectsThisTurn; the real turn advance resets both).
     ctx.OnceFlags.ResetForTurn(turnSequence: 1, turnPlayerId: P1);
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(ctx);
 
-    await Delete(ctx, P2, d2, ctx.NextDeletionBatchId());
+    await DeleteBatchViaSink(ctx, d2);
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(before - 2, SecurityCount(ctx, P2), "after the per-turn reset a new leave batch fires again");
 }
@@ -155,7 +152,7 @@ async Task OptionDestroyAndSecurity()
     // The enemy Option is a valid destroy target, so AD1_025 offers the select — pick the Option.
     ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(option));
 
-    await Delete(ctx, P2, digimon, ctx.NextDeletionBatchId());
+    await DeleteBatchViaSink(ctx, digimon);
     await new GameFlowProcessor().RunToStableAsync(ctx);
 
     AssertTrue(InTrash(ctx, P2, option), "the selected enemy Option was destroyed (moved to trash)");
@@ -168,6 +165,7 @@ async Task<EngineContext> Setup()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 25);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (C2 harness phase fix) DoneStartGame gate
     var cards = (CardDatabase)ctx.CardRepository;
     // The REAL AD1_025 dispatches by card number = class name.
     cards.Upsert(new CardRecord(new HeadlessEntityId("AD1_025"), "AD1_025", "Omnimon",
@@ -210,12 +208,28 @@ async Task Security(EngineContext ctx, HeadlessPlayerId owner, int count)
 // OnLeaveFieldAnyone/OnDeletion from a field->Trash move now (an unmarked move is a top-swap/no-trigger
 // trash), so this test's simulated deletions stamp it — one shared id per SIMULTANEOUS batch, mirroring
 // "one Destroy() call == one batch".
-async Task Delete(EngineContext ctx, HeadlessPlayerId owner, HeadlessEntityId id, long batchId) =>
-    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.BattleArea, ChoiceZone.Trash,
-        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.DeletionBatchIdKey] = batchId,
-        }));
+// (C2 harness retarget) The pre-flip helper performed a RAW ZoneMover move stamped with a batch id and relied on
+// the retired CardMoved-derivation bridge to open the leave window. Post-flip the deletion window opens at the
+// REAL deletion seam (MatchStateMutationSink DeleteKind, decision-4 collect-before-removal transport), so the
+// witness drives that seam: one call = one sink flush = one delete batch (same intent, real mechanism).
+async Task DeleteBatchViaSink(EngineContext ctx, params HeadlessEntityId[] targets)
+{
+    var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
+        ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
+        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+    foreach (HeadlessEntityId target in targets)
+    {
+        sink.Apply(new HeadlessDCGO.Engine.Headless.Effects.EffectMutation(
+            HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.DeleteKind,
+            new HeadlessEntityId("effect:deleter"),
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.TargetEntityIdKey] = target.Value,
+            }));
+    }
+
+    await sink.FlushAsync();
+}
 
 int SecurityCount(EngineContext ctx, HeadlessPlayerId owner) =>
     ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, ChoiceZone.Security).Count;

@@ -122,7 +122,7 @@ async Task Bt9043OptionalFires()
 
     // Answer the "You may" yes (the effect's stable EffectId with capHash). The body is non-interactive, so no
     // further target select is needed.
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{attacker.Value}:ae:Unsuspend_BT9_043")));
+    Enqueue(ctx, ChoiceResult.Select(attacker) /* (C2) mirror OptionalSkill candidate = the source card instance id */);
 
     await Attack(ctx, attacker);
 
@@ -156,7 +156,7 @@ async Task Bt9043OncePerTurnCap()
     await Security(ctx, P2, 2);                              // (MIG2) two attacks — no game-over mid-attack
 
     // First attack this turn: accept the optional → one security card goes to hand (2 -> 1).
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{attacker.Value}:ae:Unsuspend_BT9_043")));
+    Enqueue(ctx, ChoiceResult.Select(attacker) /* (C2) mirror OptionalSkill candidate = the source card instance id */);
     await Attack(ctx, attacker);
     AssertEqual(1, ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Security).Count, "first attack fired (security 2 -> 1)");
 
@@ -164,7 +164,7 @@ async Task Bt9043OncePerTurnCap()
     // accept the optional. Re-suspend (the first fire unsuspended it) so CanActivate's zone/existence half is fine and
     // only the cap can stop the re-fire.
     SetSuspended(ctx, attacker, true);
-    Enqueue(ctx, ChoiceResult.Select(new HeadlessEntityId($"{attacker.Value}:ae:Unsuspend_BT9_043")));
+    Enqueue(ctx, ChoiceResult.Select(attacker) /* (C2) mirror OptionalSkill candidate = the source card instance id */);
     await Attack(ctx, attacker);
     AssertEqual(1, ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Security).Count,
         "second attack the same turn did NOT re-fire (Once Per Turn cap) — security stayed at 1");
@@ -237,6 +237,7 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (C2 harness phase fix) DoneStartGame gate
     return ctx;
 }
 

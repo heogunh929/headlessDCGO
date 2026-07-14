@@ -331,6 +331,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         /// <summary>null until the first delete thunk resolves it; then: true = EVERY entry parks as a
         /// pending deletion (some entry has a PRE option), false = every entry moves immediately.</summary>
         public bool? DeferAll;
+
+        /// <summary>(C2 decision-4) set once the immediate (non-deferred) path has opened this batch's collect-
+        /// before-removal OnDestroyedAnyone / OnLeaveFieldAnyone window, so a multi-entry batch stacks the dead
+        /// cards' reactors ONCE (AS-IS single DestroyPermanentsClass StackSkillInfos pair), not per entry.</summary>
+        public bool OnDeletionWindowOpened;
     }
 
     private sealed record StagedDelete(EffectMutation Mutation, HeadlessEntityId TargetId);
@@ -713,6 +718,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         _pendingAsync.Clear();
         // (R2-P1-1) the staged delete thunks hold their batch by reference; detach it so a post-flush Apply
         // opens a NEW batch (a reused sink = a new resolution step) instead of extending the executed one.
+        DeleteBatch? flushedDeleteBatch = _currentDeleteBatch;
         _currentDeleteBatch = null;
         // (F1-Tier1) the staged discard thunks captured their batch id by value; clear the cache so a reused sink
         // (a new resolution step) opens a FRESH discard batch rather than collapsing into the flushed one.
@@ -722,6 +728,32 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             cancellationToken.ThrowIfCancellationRequested();
             await operation(cancellationToken).ConfigureAwait(false);
+        }
+
+        // (C2 decision-4 batch sequencing — the SequenceByMinimumBatch analogue at THIS feeder) AS-IS resolves
+        // each delete-PROCESS's OnDeletion window before the next process runs (each pick's RuleProcess →
+        // TriggeredSkillProcess; stage 4's per-Destroy inline resolution). Two sink flushes with no drain between
+        // them (a state-based sweep pass; a direct-sink resolution step) would otherwise CO-STACK two batches into
+        // ONE drained window — surfacing a cross-batch order choice AS-IS never offers. So when THIS flush opened
+        // a deletion window and NO enclosing window drain will run it (executingMultipleSkills == null — a nested
+        // flush inside a window pick defers to that pick's PassTail, the AS-IS position), drain it here, once,
+        // before returning to the caller. A choice suspension propagates as the normal pause contract.
+        if (flushedDeleteBatch is { OnDeletionWindowOpened: true } && _context is not null)
+        {
+            using AmbientMatchContext.Scope _drainScope = AmbientMatchContext.Enter(_context);
+            var drainAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(_context);
+            if (drainAutoProcessing.executingMultipleSkills is null && drainAutoProcessing.StackedSkillInfos.Count > 0)
+            {
+                try
+                {
+                    await drainAutoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception drainEx) when (drainEx is WindowChoicePendingException or Runtime.DeferredChoicePendingException)
+                {
+                    // The window suspended for an agent choice — the FLUSH itself is complete (every move ran);
+                    // the parked window resumes via ResumeSuspendedWindowsAsync when the pending choice resolves.
+                }
+            }
         }
     }
 
@@ -1097,6 +1129,53 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             }
 
             batch.DeferAll = defer;
+        }
+
+        // (C2 decision-4 deletion transport) The universal effect-deletion path is this sink (the mirror
+        // DestroyPermanentsClass.Destroy() inline OnDeletion pair is reached by only 2 cards). Reproduce that pair
+        // here: BEFORE any field->Trash move, COLLECT-BEFORE-REMOVAL the dead cards' OnDestroyedAnyone /
+        // OnLeaveFieldAnyone reactors onto the mirror trigger stack, ONCE per delete-batch (AS-IS
+        // CardController.cs:3736-3756 / mirror :3490/:3502). Immediate (non-deferred) batch = no member has a PRE
+        // replacement option, so EVERY still-present entry dies -> the survivor set is the whole batch. The main
+        // loop's AutoProcessCheck drains the stack afterwards (the SkillInfo heap holds the pre-removal card data,
+        // so the reactors resolve even though the cards are then in the trash). Member derivation (decision #4):
+        // cardEffect = null (the sink threads only the causing source id, RD-C1-CARDEFFECT-IDTHREAD); battle = null
+        // (the effect-delete path never sets DeletedByBattleKey — that is BattleResolver's); isDPZero rides
+        // mutation.Values (the DP-zero sweep stamps IsDpZeroKey on its cause). The sink SELF-ENTERS the ambient
+        // match scope with its own context (nest-safe save/restore) so every flush path — RunToStable, an effect
+        // body, or a direct-sink caller — opens the window against THIS match.
+        if (batch.DeferAll is false && !batch.OnDeletionWindowOpened && _context is not null)
+        {
+            using AmbientMatchContext.Scope _deletionScope = AmbientMatchContext.Enter(_context);
+            batch.OnDeletionWindowOpened = true;
+            var deadPermanents = new List<Permanent>();
+            bool anyDpZero = false;
+            if (_zoneMover is IZoneStateReader preRemovalZones)
+            {
+                foreach (StagedDelete staged in batch.Entries)
+                {
+                    if (_repository.TryGetInstance(staged.TargetId, out CardInstanceRecord? dead) && dead is not null
+                        && (preRemovalZones.GetCards(dead.OwnerId, ChoiceZone.BattleArea).Contains(staged.TargetId)
+                            || preRemovalZones.GetCards(dead.OwnerId, ChoiceZone.BreedingArea).Contains(staged.TargetId)))
+                    {
+                        deadPermanents.Add(new Permanent(_context, staged.TargetId, dead.OwnerId));
+                        anyDpZero |= ReadBool(staged.Mutation.Values, IsDpZeroKey);
+                    }
+                }
+            }
+
+            if (deadPermanents.Count > 0)
+            {
+                var deletionAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(_context);
+                // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509) —
+                // two builder calls, not one shared instance.
+                await deletionAutoProcessing.StackSkillInfos(
+                    CardEffectCommons.OnDeletionHashtable(deadPermanents, cardEffect: null!, battle: null!, anyDpZero),
+                    EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+                await deletionAutoProcessing.StackSkillInfos(
+                    CardEffectCommons.OnDeletionHashtable(deadPermanents, cardEffect: null!, battle: null!, anyDpZero),
+                    EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+            }
         }
 
         if (!_repository.TryGetInstance(targetId, out CardInstanceRecord? record) || record is null)

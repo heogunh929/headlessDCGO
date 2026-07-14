@@ -32,6 +32,11 @@ public sealed class BattleResolver
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // (C2) The whole battle resolution runs under the ambient match scope: the mirror R1 getters it reads
+        // (HasRetaliation/HasPierce via Permanent.EffectList) resolve GManager.instance, which a direct-call
+        // harness does not otherwise scope. Nest-safe under RunToStableAsync's outer Enter.
+        using AmbientMatchContext.Scope _battleScope = AmbientMatchContext.Enter(context);
+
         HeadlessAttackState attack = context.AttackController.Current;
         BattleParticipant? attacker = null;
         BattleParticipant? defender = null;
@@ -46,14 +51,27 @@ public sealed class BattleResolver
             return BattleResolutionResult.Failure(validationFailure, attack);
         }
 
-        // G8-003: SYNCHRONOUS OnStartBattle window. Only engaged when such effects are registered (so the
-        // common no-effect battle is byte-for-byte unchanged): resolve each participant's
-        // [On Start of Battle] effect BEFORE the DP comparison, then recompute participant DP, so a
-        // battle-start DP change actually affects the outcome.
-        if (context.EffectRegistry.GetEffectsForTiming(TriggerTimings.OnStartBattle).Count > 0)
+        // (C2 seam 6) SYNCHRONOUS OnStartBattle window — AS-IS CardController.Battle :4553-4557 (payload) / :4600
+        // (AutoProcessCheck). The legacy registry gate (`GetEffectsForTiming(OnStartBattle).Count > 0`) is REMOVED:
+        // the mirror always builds the AS-IS `{AttackingPermanent, DefendingPermanent, DefendingCard}` payload and
+        // drains it through GetSkillInfos → PutStackedSkill → AutoProcessCheck (an empty scan for the common
+        // no-effect battle is byte-for-byte unchanged, so it stays cheap). Then re-read both participants so a
+        // battle-start DP change affects the outcome. AutoProcessCheck here mirrors AS-IS's mid-battle rule pass at
+        // :4600. Runs under RunToStableAsync's AmbientMatchContext scope.
         {
-            await ResolveStartBattleWindowAsync(context, attacker!.OwnerId, attacker!.InstanceId, cancellationToken).ConfigureAwait(false);
-            await ResolveStartBattleWindowAsync(context, defender!.OwnerId, defender!.InstanceId, cancellationToken).ConfigureAwait(false);
+            using AmbientMatchContext.Scope _startBattleScope = AmbientMatchContext.Enter(context);
+            var startAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+            var startBattlePayload = new System.Collections.Hashtable
+            {
+                { "AttackingPermanent", new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attacker!.InstanceId, attacker!.OwnerId) },
+                { "DefendingPermanent", new Assets.Scripts.Script.CardEffectCommons.Permanent(context, defender!.InstanceId, defender!.OwnerId) },
+                { "DefendingCard", new Assets.Scripts.Script.CardEffectCommons.CardSource(context, defender!.InstanceId, defender!.OwnerId, defender!.OwnerId) },
+            };
+            Assets.Scripts.Script.AutoProcessing
+                .GetSkillInfos(startBattlePayload, Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnStartBattle)
+                .ForEach(skillInfo => startAutoProcessing.PutStackedSkill(skillInfo));
+            await startAutoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+
             if (context.ZoneMover is IZoneStateReader startReader)
             {
                 if (TryReadParticipant(context, startReader, attacker!.OwnerId, attacker!.InstanceId, "Attacker", out BattleParticipant? a2) is null && a2 is not null) attacker = a2;
@@ -187,6 +205,33 @@ public sealed class BattleResolver
         {
             MarkDeletedByBattle(context, participant);
             await ResolveKnockOutWindowAsync(context, participant, cancellationToken).ConfigureAwait(false);
+        }
+
+        // (C2 decision-4 battle deletion transport) mirror AS-IS DestroyPermanentsClass(LoserPermanents)'s inline
+        // OnDeletion pair (CardController.cs:4705 → :3736-3756): BEFORE the loser field->Trash moves (phase 2, all
+        // losers still on the battle area), collect-before-removal every loser's OnDestroyedAnyone /
+        // OnLeaveFieldAnyone reactor onto the mirror stack — ONE hashtable list for BOTH losers (AS-IS single
+        // LoserPermanents list). Drained by the main loop's AutoProcessCheck after the battle step. Member
+        // derivation: cardEffect = null (no live effect on a battle deletion); battle = null (ADAPTATION — the
+        // mirror carries the battle cause as the loser's `deletedByBattle` instance flag set by MarkDeletedByBattle,
+        // not an IBattle payload object; battle rehousing remains non-scope); isDPZero = false (a battle loss is not
+        // the DP-zero rule). Runs under RunToStableAsync's AmbientMatchContext scope.
+        if (deleted.Count > 0)
+        {
+            using AmbientMatchContext.Scope _loserScope = AmbientMatchContext.Enter(context);
+            var loserPermanents = deleted
+                .Select(p => new Assets.Scripts.Script.CardEffectCommons.Permanent(context, p.InstanceId, p.OwnerId))
+                .ToList();
+            var battleAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+            // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509).
+            await battleAutoProcessing.StackSkillInfos(
+                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                    loserPermanents, cardEffect: null!, battle: null!, isDPZero: false),
+                Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+            await battleAutoProcessing.StackSkillInfos(
+                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                    loserPermanents, cardEffect: null!, battle: null!, isDPZero: false),
+                Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
         }
 
         // (D-1 / VR-8) AS-IS deletes EVERY battle loser in ONE DestroyPermanentsClass(LoserPermanents) call
@@ -429,46 +474,27 @@ public sealed class BattleResolver
     // (P1) resolve the dead card's OnKnockOut triggers synchronously BEFORE its bindings drop (AS-IS:
     // battle → TriggeredSkillProcess → security; the dead card's effects run during its own deletion
     // processing, then lapse).
-    private static async Task ResolveKnockOutWindowAsync(EngineContext context, BattleParticipant participant, CancellationToken cancellationToken)
+    private static Task ResolveKnockOutWindowAsync(EngineContext context, BattleParticipant participant, CancellationToken cancellationToken)
     {
-        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        // (C2 decision-1) OnKnockOut is a headless-invented LATENT window: AS-IS has NO StackSkillInfos(OnKnockOut)
+        // (battle-loser deletion is sink-owned via DestroyPermanentsClass — the loser's OnDestroyedAnyone runs
+        // there, transported by decision-4 above), and 0 ported cards react to OnKnockOut (F1-DEAD-KNOCKOUT). The
+        // mechanism is swapped off the legacy WindowResolver to the mirror stack: GetSkillInfos(OnKnockOut) →
+        // PutStackedSkill (STACK-ONLY — draining is deferred to the main loop's AutoProcessCheck, NOT resolved here,
+        // because a mid-FinalizeAsync AutoProcessCheck would run the state-based sweep and prematurely DP-zero the
+        // battle losers before phase-2 moves them). With 0 reactors this is a no-op today; ADAPTATION documented
+        // until battle rehousing.
         {
-            [AutoProcessingTriggerCollector.TriggerTimingKey] = TriggerTimings.OnKnockOut,
-            [AutoProcessingTriggerCollector.SourceEntityIdKey] = participant.InstanceId,
-        };
-        var gameEvent = new GameEvent(0, GameEventType.StateChanged, $"Timing window: {TriggerTimings.OnKnockOut}", metadata)
-        {
-            Actor = participant.OwnerId,
-            Subject = participant.InstanceId,
-            Cause = TriggerTimings.OnKnockOut,
-        };
-        // (Stage 5, Phase 2) resolve through the WindowResolver — behaviourally equivalent to the legacy
-        // CollectAndEnqueueAll + ResolveAllAsync for this subject-scoped sync window (FIFO, no order prompt).
-        await WindowResolverWiring.RunSyncWindowAsync(
-            context, gameEvent, () => new AutoProcessingTriggerCollector(context.EffectRegistry), cancellationToken)
-            .ConfigureAwait(false);
-    }
+            using AmbientMatchContext.Scope _knockOutScope = AmbientMatchContext.Enter(context);
+            var autoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+            Assets.Scripts.Script.AutoProcessing
+                .GetSkillInfos(new System.Collections.Hashtable(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnKnockOut)
+                .ForEach(skillInfo => autoProcessing.PutStackedSkill(skillInfo));
+        }
 
-    // (G8-003) Resolve the subject's OnStartBattle effects synchronously through the scheduler (the same
-    // collector path the game loop uses), scoped to the subject so only its window fires.
-    private static async Task ResolveStartBattleWindowAsync(
-        EngineContext context, HeadlessPlayerId actor, HeadlessEntityId subject, CancellationToken cancellationToken)
-    {
-        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [AutoProcessingTriggerCollector.TriggerTimingKey] = TriggerTimings.OnStartBattle,
-            [AutoProcessingTriggerCollector.SourceEntityIdKey] = subject,
-        };
-        var gameEvent = new GameEvent(0, GameEventType.StateChanged, $"Timing window: {TriggerTimings.OnStartBattle}", metadata)
-        {
-            Actor = actor,
-            Subject = subject,
-            Cause = TriggerTimings.OnStartBattle,
-        };
-        // (Stage 5, Phase 2) resolve through the WindowResolver (equivalent to the legacy sync path).
-        await WindowResolverWiring.RunSyncWindowAsync(
-            context, gameEvent, () => new AutoProcessingTriggerCollector(context.EffectRegistry), cancellationToken)
-            .ConfigureAwait(false);
+        _ = participant;
+        _ = cancellationToken;
+        return Task.CompletedTask;
     }
 
     private static string? TryReadParticipant(

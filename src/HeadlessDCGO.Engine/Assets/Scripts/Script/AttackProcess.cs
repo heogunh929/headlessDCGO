@@ -630,45 +630,13 @@ public sealed class AttackProcess
         HeadlessAttackState attack = _context.AttackController.Current;
         if (attack.AttackingPlayerId is HeadlessPlayerId turnPlayer)
         {
-            // Scheduler half — bound [On End Attack] effects (the AS-IS StackSkillInfos collection over registered
-            // IHeadlessCardEffect bindings), with mandatory ordering + optional prompts (#6).
-            var hook = new EndAttackTriggerHook(
-                new AutoProcessingTriggerCollector(_context.EffectRegistry),
-                mandatoryOrdering: null,
-                registry: _context.EffectRegistry);
-            EndAttackTriggerHookResult result = hook.Process(
-                attack,
-                attack.AttackCount,
-                _context.EffectScheduler,
-                turnPlayer,
-                attack.DefendingPlayerId);
-            enqueued = result.EnqueuedMandatoryCount;
-
-            if (result.MandatoryOrder is { } order)
-            {
-                foreach (Headless.Rules.TimingWindowTrigger trigger in order.UnknownPlayerTriggers)
-                {
-                    _context.EffectScheduler.Enqueue(trigger.Request, trigger.Mode);
-                    enqueued++;
-                }
-
-                foreach (HeadlessPlayerId? owner in new[] { (HeadlessPlayerId?)turnPlayer, attack.DefendingPlayerId })
-                {
-                    if (owner is not { } controller || controller.IsEmpty)
-                    {
-                        continue;
-                    }
-
-                    Headless.Rules.TimingWindowTrigger[] forPlayer = order.DeferredOptionalTriggers
-                        .Where(trigger => trigger.Request.ControllerId == controller)
-                        .ToArray();
-                    if (forPlayer.Length > 0)
-                    {
-                        _context.OptionalPromptQueue.EnqueuePrompt(forPlayer, controller);
-                        enqueued += forPlayer.Length;
-                    }
-                }
-            }
+            // (C2 / design item F1-ENDATTACK-HOOK RETIRED) The scheduler-half EndAttackTriggerHook is REMOVED at the
+            // flip: it collected bound OnEndAttack reactors onto the EffectScheduler off-queue, which — now that the
+            // queued OnEndAttack event drives the MIRROR window (SkillWindowSupply → GetSkillInfos(OnEndAttack) on the
+            // main stack) — would DOUBLE-FIRE a reactor found by both halves. The unified mirror path (supply-converted
+            // OnEndAttack emit + inline main-stack drain) owns both halves now; the WindowResolverWiring.cs OnEndAttack
+            // scheduler-skip guard that existed only to bridge the hook is likewise superseded (dead after the flip).
+            // enqueued stays 0 (no scheduler enqueue), carried through AttackAdvanceResult unchanged.
 
             // AS-IS :478-481 — [On End Attack] fires ONLY while the attacker is still alive
             // (`AttackingPermanent != null && AttackingPermanent.TopCard != null`). Activated half: the
@@ -863,14 +831,16 @@ public sealed class AttackProcess
                 subject: attackerId,
                 extraMetadata: switchMetadata);
 
-            // (C1b design item RD-C1-ATTACK-BGFX) AS-IS AttackProcess.cs:560-562
-            // StackSkillInfos(attackSwitchWindow, OnBlockAnyone) — the main-instance insert is DEFERRED to C2, same
-            // class as C1's OnAllyAttack/OnEndAttack deferral: StackSkillInfos immediately runs ActivateBackgroundEffects
-            // (enumerating GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer), which the AttackProcess
-            // unit harnesses that exercise SwitchDefender (G3.5-A3.BlockerSuspend / G2G-002.Block.timing /
-            // F1-Tier2-OnBlockAnyone) do NOT set up — they already NRE pre-insert (verified: the block harnesses stay
-            // red with the insert DISABLED). C2 lands `await ...StackSkillInfos(attackSwitchWindow, OnBlockAnyone)` here
-            // once the ambient context is reconciled. Async host + payload (attackSwitchWindow) are landed now.
+            // (C2 seam-carrier) AS-IS AttackProcess.cs:560-562 StackSkillInfos(attackSwitchWindow, OnBlockAnyone) —
+            // NOW ENABLED. SkillWindowSupply GAP-drops OnBlockAnyone (RDW-02), so this inline insert at the AS-IS emit
+            // position is the SOLE window opener; the coexisting emit above is drained and GAP-dropped (no double).
+            // Guarded on GManager.instance for direct-call AttackProcess harnesses with no ambient scope (the live
+            // path runs under RunToStableAsync's AmbientMatchContext scope).
+            {
+                using AmbientMatchContext.Scope _onBlockScope = AmbientMatchContext.Enter(_context);
+                await GManager.instance!.autoProcessing
+                    .StackSkillInfos(attackSwitchWindow, EffectTiming.OnBlockAnyone).ConfigureAwait(false);
+            }
         }
 
         // AS-IS :566-582 — death checks: the attacker or the new defender died during the block sequence ->
@@ -899,11 +869,15 @@ public sealed class AttackProcess
                 subject: attackerId,
                 extraMetadata: switchMetadata);
 
-            // (C1b design item RD-C1-ATTACK-BGFX) AS-IS AttackProcess.cs:622-624
-            // StackSkillInfos(attackSwitchWindow, OnAttackTargetChanged) — DEFERRED to C2 for the same BGFX reason as
-            // the OnBlockAnyone insert above; it reuses the SAME shared hashtable (AS-IS reuses it, so the IsBlock key
-            // rides along when isBlock was true). C2 lands `await ...StackSkillInfos(attackSwitchWindow,
-            // OnAttackTargetChanged)` here. Async host + payload landed now.
+            // (C2 seam-carrier) AS-IS AttackProcess.cs:622-624 StackSkillInfos(attackSwitchWindow,
+            // OnAttackTargetChanged) — NOW ENABLED (reuses the SAME shared hashtable, so the IsBlock key rides along
+            // when isBlock was true, as AS-IS). SkillWindowSupply GAP-drops this timing (RDW-02), so the inline insert
+            // is the sole opener; the coexisting emit is GAP-dropped.
+            {
+                using AmbientMatchContext.Scope _onSwitchScope = AmbientMatchContext.Enter(_context);
+                await GManager.instance!.autoProcessing
+                    .StackSkillInfos(attackSwitchWindow, EffectTiming.OnAttackTargetChanged).ConfigureAwait(false);
+            }
         }
     }
 

@@ -45,6 +45,11 @@ public class AttackPipeline
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // (C2) the mirror attack stages read R1 getters (HasRaid/HasRetaliation via Permanent.EffectList), which
+        // resolve GManager.instance — self-enter the ambient match scope so a direct-call harness works too
+        // (nest-safe under RunToStableAsync's outer Enter).
+        using Bridge.AmbientMatchContext.Scope _attackScope = Bridge.AmbientMatchContext.Enter(context);
+
         ScriptAttackProcess attackProcess = ScriptAttackProcess.For(context, _blockTiming, _battleResolver, _securityResolver);
         return await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
     }

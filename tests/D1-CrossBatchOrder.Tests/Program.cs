@@ -110,6 +110,7 @@ async Task<EngineContext> Setup(int reactorCount)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 41);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (C2 harness phase fix) DoneStartGame gate
     ctx.MemoryController.Set(0);
     var cards = (CardDatabase)ctx.CardRepository;
     // Uncapped [All Turns] OnLeaveFieldAnyone reactor: -1 memory per fire, NO once-per-turn cap so the observable

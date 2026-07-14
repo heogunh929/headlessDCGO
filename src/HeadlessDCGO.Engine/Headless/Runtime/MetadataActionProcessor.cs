@@ -500,23 +500,36 @@ public sealed class MetadataActionProcessor : IActionProcessor
             // re-pauses on the next iteration); running the stack to exhaustion clears the parked window.
             if (pendingRequest.Type == ChoiceType.WindowChoice)
             {
+                // (C2 seam 2) A trigger-window ORDER / optional pick resumes the SUSPENDED mirror window. Decode the
+                // agent's answer into the SkillInfo-currency key (RequestId == SkillWindowChoiceKey.Offered; each
+                // selected candidate id is "cardInstanceId#ordinal"; empty selection = decline), record it on the
+                // DEEPEST in-flight MultipleSkills continuation (the one whose port opened this choice), clear the
+                // pending choice, then resume the suspended chain deepest-first — the port replays the recorded answer
+                // at that choice point, so the loop advances. A further order/body choice re-suspends (a new pending
+                // choice; RunToStable re-pauses). Runs under an ambient scope (ResumeSuspendedWindowsAsync reads
+                // GManager.instance through the mirror window loop).
+                using AmbientMatchContext.Scope _windowScope = AmbientMatchContext.Enter(context);
+                Assets.Scripts.Script.AutoProcessing windowAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
                 string windowKey = context.ChoiceController.Current.RequestId?.Value ?? string.Empty;
-                context.WindowResolution.RecordAnswer(windowKey, result);
-                HeadlessChoiceState windowChoice = context.ChoiceController.ResolveChoice(result);
-
-                if (context.WindowResolution.Pending is { } windowContinuation)
+                if (windowAutoProcessing.executingMultipleSkills is { } deepestWindow)
                 {
-                    Effects.WindowResolverDeps windowDeps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context);
-                    Effects.WindowRunResult windowRun = await new Effects.WindowResolver()
-                        .DriveAsync(windowContinuation, windowDeps, cancellationToken).ConfigureAwait(false);
-                    if (windowRun == Effects.WindowRunResult.Completed)
-                    {
-                        context.WindowResolution.Clear();
-                    }
+                    deepestWindow.Continuation.RecordAnswer(
+                        new Effects.SkillWindowChoiceKey(windowKey), DecodeWindowAnswer(result));
+                }
+
+                HeadlessChoiceState windowChoice = context.ChoiceController.ResolveChoice(result);
+                try
+                {
+                    await windowAutoProcessing.ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception windowEx) when (windowEx is Effects.WindowChoicePendingException or DeferredChoicePendingException)
+                {
+                    // The resumed window suspended again (a further order/body choice) — normal pause; the new
+                    // choice is pending and a later ResolveChoice re-enters this same seam.
                 }
 
                 Dictionary<string, object?> windowMetadata = MetadataWithChoice(action, windowChoice);
-                windowMetadata["windowResolved"] = !context.WindowResolution.HasPending;
+                windowMetadata["windowResolved"] = windowAutoProcessing.executingMultipleSkills is null;
                 return ActionProcessResult.Success("Window choice resolved.", windowMetadata);
             }
 
@@ -549,17 +562,20 @@ public sealed class MetadataActionProcessor : IActionProcessor
                     }
                 }
 
-                // (MIG2 review P1-2) the trim selection may have SUSPENDED a trigger window (the F3 between-picks
-                // rule pass parked this choice mid-window) — re-drive the parked continuation now that the trim is
-                // applied, exactly like the WindowChoice resume path.
-                if (context.WindowResolution.Pending is { } linkTrimContinuation)
+                // (C2 seam 3) the trim is a between-picks (F3) rule pass that may have parked mid-window: apply the
+                // side-effect above (ITrashLinkCards) first, then resume the suspended mirror window deepest-first —
+                // the same resume the WindowChoice path uses (there is no order answer to record; the pass head
+                // re-runs and re-evaluates the now-trimmed board).
+                using (AmbientMatchContext.Scope _linkTrimScope = AmbientMatchContext.Enter(context))
                 {
-                    Effects.WindowResolverDeps linkTrimDeps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context);
-                    Effects.WindowRunResult linkTrimRun = await new Effects.WindowResolver()
-                        .DriveAsync(linkTrimContinuation, linkTrimDeps, cancellationToken).ConfigureAwait(false);
-                    if (linkTrimRun == Effects.WindowRunResult.Completed)
+                    try
                     {
-                        context.WindowResolution.Clear();
+                        await Assets.Scripts.Script.AutoProcessing.For(context)
+                            .ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception linkTrimEx) when (linkTrimEx is Effects.WindowChoicePendingException or DeferredChoicePendingException)
+                    {
+                        // Re-suspended — normal pause (see the WindowChoice seam).
                     }
                 }
 
@@ -733,18 +749,43 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 // trigger window now continues — the just-finished body was one pick; re-drive to resolve the
                 // REMAINING stack (its own cut-ins are drained as the next pick resolves). A further suspend re-parks
                 // the window (pausing the loop again); running to exhaustion clears it.
-                if (context.WindowResolution.Pending is { } resumedWindow)
+                // (C2 seam 4) if this activation was a WINDOW body-suspend, the parked mirror window continues — the
+                // just-finished body was one pick; resume the suspended chain to resolve the REMAINING stack (its own
+                // cut-ins drain as the next pick resolves). A further suspend re-parks the window.
+                using (AmbientMatchContext.Scope _resumeScope = AmbientMatchContext.Enter(context))
                 {
-                    Effects.WindowResolverDeps resumeDeps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context);
-                    Effects.WindowRunResult resumeRun = await new Effects.WindowResolver()
-                        .DriveAsync(resumedWindow, resumeDeps, cancellationToken).ConfigureAwait(false);
-                    if (resumeRun == Effects.WindowRunResult.Completed)
+                    try
                     {
-                        context.WindowResolution.Clear();
+                        await Assets.Scripts.Script.AutoProcessing.For(context)
+                            .ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception resumeEx2) when (resumeEx2 is Effects.WindowChoicePendingException or DeferredChoicePendingException)
+                    {
+                        // Re-suspended — normal pause (see the WindowChoice seam).
                     }
                 }
 
                 return ActionProcessResult.Success("Choice resolved; activation resumed.", MetadataWithChoice(action, choice));
+            }
+
+            // (C2 seam 4b) A mirror-window BODY pick that opened a NON-window choice (SelectCard / count / …) suspends
+            // via the MultipleSkills continuation's in-flight pick, NOT DeferredActivations. Its answer was just
+            // recorded by ResolveChoice above; resume the suspended window so the in-flight body REPLAYS it (through
+            // the ResolveWithinCycle deferred-choice provider) and the pass finishes. No-op when no window is parked.
+            if (Assets.Scripts.Script.AutoProcessing.For(context).executingMultipleSkills is not null)
+            {
+                using AmbientMatchContext.Scope _bodyResumeScope = AmbientMatchContext.Enter(context);
+                try
+                {
+                    await Assets.Scripts.Script.AutoProcessing.For(context)
+                        .ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception bodyEx) when (bodyEx is Effects.WindowChoicePendingException or DeferredChoicePendingException)
+                {
+                    // Re-suspended — normal pause (see the WindowChoice seam).
+                }
+
+                return ActionProcessResult.Success("Choice resolved; window body resumed.", MetadataWithChoice(action, choice));
             }
 
             return ActionProcessResult.Success("Choice resolved.", MetadataWithChoice(action, choice));
@@ -763,6 +804,27 @@ public sealed class MetadataActionProcessor : IActionProcessor
     {
         HeadlessChoiceState choice = context.ChoiceController.ClearChoice();
         return ActionProcessResult.Success("Choice cleared.", MetadataWithChoice(action, choice));
+    }
+
+    /// <summary>(C2 seam 2) Decode a mirror-window ORDER pick from the agent's <see cref="ChoiceResult"/> into the
+    /// SkillInfo-currency <see cref="Effects.SkillWindowAnswer"/>. The <see cref="AgentSkillWindowChoicePort"/>
+    /// offers candidates whose id is "cardInstanceId#ordinal"; an empty selection is a decline (the AS-IS -1 skip
+    /// sentinel).</summary>
+    private static Effects.SkillWindowAnswer DecodeWindowAnswer(ChoiceResult result)
+    {
+        if (result.SelectedIds is not { Count: > 0 } selected)
+        {
+            return Effects.SkillWindowAnswer.Decline;
+        }
+
+        string token = selected[0].Value;
+        int hash = token.LastIndexOf('#');
+        if (hash <= 0 || !int.TryParse(token[(hash + 1)..], out int ordinal))
+        {
+            return Effects.SkillWindowAnswer.Decline;
+        }
+
+        return Effects.SkillWindowAnswer.Pick(new HeadlessEntityId(token[..hash]), ordinal);
     }
 
     // G3.5-RL-A2: read an agent-supplied selection from a ResolveChoice action.
@@ -1011,6 +1073,9 @@ public sealed class MetadataActionProcessor : IActionProcessor
         // the [Start of Turn] window is emitted for the NEW turn player (drained by the caller's RunToStable).
         // F-4: a new turn begins — reset the once-per-turn use counts (original InitUseCountThisTurn).
         context.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId);
+        // (C2) AS-IS TurnStateMachine.cs:3204-3208 — reset every card's NEW-model per-turn use counts
+        // (cEntity_EffectController.UseEffectsThisTurn) alongside the legacy OnceFlags reset.
+        Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(context);
         // Reset player-scoped per-turn counters (AS-IS TurnStateMachine resets Player.DigivolveCount_ThisTurn etc.).
         context.PlayerTurnCounters.ResetForTurn();
         // F-1.7: any leftover one-shot "until cost is calculated" modifiers expire at the turn boundary

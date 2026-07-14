@@ -38,6 +38,12 @@ public sealed class GameFlowProcessor
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // (C2 seam 1) The whole stable loop runs under the ambient match scope so every ported routine reached
+        // through it (the state-based deletion sweep's decision-4 transport, the attack pipeline's inline
+        // StackSkillInfos inserts, AutoProcessCheck's mirror scan) resolves GManager.instance to THIS match.
+        // AmbientMatchContext.Enter is save/restore-nested, so the inner Enter in AutoProcessAsync is a no-op.
+        using AmbientMatchContext.Scope _loopScope = AmbientMatchContext.Enter(context);
+
         bool progressedAny = false;
         int resolvedTotal = 0;
         int iterations = 0;
@@ -309,8 +315,36 @@ public sealed class GameFlowProcessor
                             {
                                 [Effects.MatchStateMutationSink.DeletionBatchIdKey] = context.NextDeletionBatchId(),
                             };
-                        // The deletion markers/windows were processed when the deletion was deferred —
-                        // finishing it is the removal. (P1) leave-play cleanup before the move: snapshot the
+                        // (C2 decision-4 deferred-delete transport) The sink DEFERRED this deletion (a member had a
+                        // PRE would-be-deleted replacement option) so it did NOT open the OnDeletion window at
+                        // Destroy() time — the survivor set is known only now (this card DECLINED its replacement and
+                        // still dies). Mirror AS-IS's post-PRE StackSkillInfos(OnDestroyed/OnLeaveField) pair here,
+                        // collect-before-removal, while the top card is still on the field (before DiscardEvoRoots +
+                        // the move). cardEffect = null, battle = null, isDPZero from the card's stamped flag. NOTE
+                        // (design item RD-C2-DEFERRED-DELETE-BATCH): a MULTI-card deferred batch finalizes per-card
+                        // here, so an anyone-scoped reactor could over-fire vs the AS-IS single LoserPermanents-style
+                        // batch window — the single-card deferred case (the common Evade/Scapegoat/Fragment/Decoy
+                        // decline) is exact; the rare multi-card-deferred collapse is a documented residual.
+                        if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? dyingRecord) && dyingRecord is not null)
+                        {
+                            using AmbientMatchContext.Scope _deferredScope = AmbientMatchContext.Enter(context);
+                            bool dyingDpZero = dyingRecord.Metadata.TryGetValue(Effects.MatchStateMutationSink.IsDpZeroKey, out object? dz) && dz is true;
+                            var deferredAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+                            // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509).
+                            System.Collections.Hashtable DeferredOnDeletion() =>
+                                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                                    new List<Assets.Scripts.Script.CardEffectCommons.Permanent>
+                                    {
+                                        new(context, cardId, dyingRecord.OwnerId),
+                                    },
+                                    cardEffect: null!, battle: null!, dyingDpZero);
+                            await deferredAutoProcessing.StackSkillInfos(
+                                DeferredOnDeletion(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+                            await deferredAutoProcessing.StackSkillInfos(
+                                DeferredOnDeletion(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+                        }
+
+                        // (P1) leave-play cleanup before the move: snapshot the
                         // post-deletion keywords, then drop the dead card's bindings (previously leaked).
                         ClearPendingDeletion(context, cardId);
                         CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, cardId);
@@ -614,46 +648,84 @@ public sealed class GameFlowProcessor
         EngineContext context,
         CancellationToken cancellationToken)
     {
+        // (C2 seam 1 — window SkillInfo cutover) Drive the MIRROR trigger stack instead of the legacy
+        // CollectUnifiedSeed + WindowResolver. The AS-IS routines (ported into Assets/Scripts/Script) open their
+        // trigger windows by calling `autoProcessing.StackSkillInfos(hashtable, timing)` inline at their emit
+        // positions (the C1 R-timing inserts + the decision-4 deletion transport + the attack-family inserts);
+        // those accumulate on the mirror stack DURING routine execution. Here we (a) convert each drained
+        // GameEvent into the AS-IS (Hashtable, EffectTiming) supply calls the SkillWindowSupply layer can faithfully
+        // reconstruct (the M-timing / turn-boundary cluster — everything else GAP-drops, opened by an inline insert
+        // instead), (b) A3-sequence them into minimum-batch passes, and (c) stack + `AutoProcessCheck` per pass
+        // (decision #2 granularity), so N cards of one Destroy() collapse into one window while an independent later
+        // batch resolves in the next pass. AutoProcessCheck = RuleProcess -> RulesTiming stack ->
+        // TriggeredSkillProcess (AS-IS AutoProcessing.cs:122-140), which drains the mirror stack through the live
+        // MultipleSkills window loop. A body/order/optional choice suspends inside the loop (the choice port opens a
+        // ChoiceController request and throws WindowChoicePendingException); the pending choice pauses RunToStable
+        // and the next ResolveChoice resumes via AutoProcessing.ResumeSuspendedWindowsAsync (MetadataActionProcessor
+        // seams). GManager.instance resolves off AmbientMatchContext, so the whole drive runs under an Enter scope.
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Assets.Scripts.Script.AutoProcessing autoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+
         context.GameEventQueue.SyncFrom(context.ZoneMover.Events);
         IReadOnlyList<GameEvent> pendingEvents = context.GameEventQueue.DrainPending();
 
-        // (Stage 5, 3b-iii) Build the UNIFIED window seed — the SCHEDULER mutation triggers PLUS the ACTIVATED
-        // effect-bridge markers — WITHOUT collect-time gate/cap (those move to the window's per-pass Gate +
-        // commit-time Consume), then drive the re-entrant window loop (AS-IS
-        // MultipleSkills.ActivateMultipleSkills_OnePlayer): the controlling player orders simultaneous effects,
-        // optionals confirm inline (yes/no), the once-use is consumed at commit, each body resolves through the
-        // scheduler OR ActivatedEffectResolver, state-based rule-processing runs BETWEEN picks (F3), and
-        // newly-emitted events recurse as cut-ins. A body / order / optional choice suspends the window; it is
-        // parked in WindowResolution and the pending choice pauses RunToStable (resumed by the next ResolveChoice).
-        IReadOnlyList<TimingWindowTrigger> seed =
-            Effects.WindowResolverWiring.CollectUnifiedSeed(context, pendingEvents);
-        if (seed.Count == 0)
+        var entries = new List<Effects.SkillWindowSupplyEntry>();
+        foreach (GameEvent gameEvent in pendingEvents)
         {
-            // No triggers this pass — still drain any pre-enqueued scheduler request (one enqueued outside the
-            // window pipeline) so nothing is stranded, matching the legacy ResolveAllAsync drain.
-            IReadOnlyList<EffectResult> drained = await context.EffectScheduler
-                .ResolveAllAsync(cancellationToken).ConfigureAwait(false);
-            return (drained.Count(result => result.Resolved), 0);
+            entries.AddRange(Effects.SkillWindowSupply.ConvertEvent(context, gameEvent));
         }
 
-        var run = new Effects.WindowResolverWiring.LiveWindowRun();
-        Effects.WindowResolverDeps deps = Effects.WindowResolverWiring.BuildLiveMainLoopDeps(context, run);
-        Effects.WindowContinuation continuation = Effects.WindowResolver.CreateContinuation(seed);
-        Effects.WindowRunResult result = await new Effects.WindowResolver()
-            .DriveAsync(continuation, deps, cancellationToken).ConfigureAwait(false);
+        // Progress signal for RunToStable: any drained event OR any skill already inline-stacked at entry is work
+        // (so the loop re-iterates); a pass with no events and an empty stack that resolves nothing returns 0 and
+        // RunToStable settles. AutoProcessCheck itself may emit events (a resolved body mutating state), which the
+        // NEXT iteration picks up — so the loop does not settle prematurely while real work is emitting.
+        int stackedAtEntry = autoProcessing.StackedSkillInfos.Count;
 
-        if (result == Effects.WindowRunResult.Suspended)
+        IReadOnlyList<IReadOnlyList<Effects.SkillWindowSupplyEntry>> passes =
+            Effects.SkillWindowSupply.SequenceByMinimumBatch(entries);
+
+        // (C2 pause contract) A window ORDER choice (AgentSkillWindowChoicePort) / a body's agent choice opens a
+        // ChoiceController request and THROWS to unwind the mirror loop's C# stack — that is the normal headless
+        // suspension, not an error. Catch it here: the choice is already pending (so RunToStable pauses on the
+        // next iteration) and the suspended MultipleSkills chain resumes via ResumeSuspendedWindowsAsync when the
+        // agent answers (MetadataActionProcessor seams).
+        try
         {
-            context.WindowResolution.Suspend(continuation);
+            if (passes.Count == 0)
+            {
+                // No supply-converted windows this pass — still drain any inline-stacked skills (R/deletion/attack
+                // inserts) and run the rule / RulesTiming pass once through the mirror AutoProcessCheck.
+                await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                foreach (IReadOnlyList<Effects.SkillWindowSupplyEntry> pass in passes)
+                {
+                    foreach (Effects.SkillWindowSupplyEntry entry in pass)
+                    {
+                        await autoProcessing.StackSkillInfos(entry.Hashtable, entry.Timing).ConfigureAwait(false);
+                    }
+
+                    await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
-        else
+        catch (Exception ex) when (ex is Effects.WindowChoicePendingException or DeferredChoicePendingException)
         {
-            context.WindowResolution.Clear();
+            // Suspended for an agent choice — the drained work IS progress; RunToStable pauses on the pending choice.
+            return (0, Math.Max(1, pendingEvents.Count + stackedAtEntry));
         }
 
-        // `collected` = seed size: a non-empty seed IS work (even a pass that fully fizzles registers progress so
-        // RunToStable re-iterates once and then settles when the drained queue yields an empty seed).
-        return (run.Progress, seed.Count);
+        // Also drain any pre-enqueued scheduler request (one enqueued outside the window pipeline) so nothing is
+        // stranded, matching the legacy ResolveAllAsync drain (still used by non-window scheduler enqueues).
+        IReadOnlyList<EffectResult> drained = await context.EffectScheduler
+            .ResolveAllAsync(cancellationToken).ConfigureAwait(false);
+
+        // Progress = supply-converted windows (entries) + inline-stacked skills at entry. A drained event that
+        // matched NO supply timing and stacked nothing is NOT work (so RunToStable settles instead of looping on a
+        // non-matching event) — mirrors the old `seed.Count == 0 => no progress` fixpoint.
+        int collected = entries.Count + stackedAtEntry;
+        return (drained.Count(result => result.Resolved), collected);
     }
 
     /// <summary>
