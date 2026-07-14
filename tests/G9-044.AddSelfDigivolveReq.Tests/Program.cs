@@ -121,25 +121,22 @@ async Task NoLevelSourceRejected()
     AssertTrue(!result.IsSuccess, "AS-IS: a configured gate requires HasLevel — a no-level source is rejected");
 }
 
-// STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope; same root cause as
-// G9-024.AddDigivolutionRequirement's AddedLegal): AddSelfDigivolutionRequirementStaticEffect returns
-// AddDigivolutionRequirementClass (ICardEffect, IAddDigivolutionRequirementEffect —
-// GetEvoCost(Permanent, CardSource, IgnoreRequirement, bool)), the REAL AS-IS mechanism mirroring
-// CardSource.EvoCosts/CostList's live IAddDigivolutionRequirementEffect scan (DCGO CardSource.cs:534-590).
-// DigivolveAction's added-requirement consumer (MatchesAddedDigivolutionRequirement /
-// TryGetAddedDigivolutionCost / OwnAddedRequirementRequests) reads a DIFFERENT, older legacy shape
-// (AddedDigivolutionRequirementEffect / AddedDigivolutionRequirementPredicateEffect, registry-key-based) — the
-// two were never unified. Wiring the new-model GetEvoCost scan in needs an edit to DigivolveAction.cs, which is
-// NOT a Headless/Runtime/*Gate.cs file (this pass's touch scope: NewModelContinuousScan.cs + *Gate.cs +
-// MatchStateMutationSink.cs only) — a plain private static consumer, no Gate indirection to union into. Not
-// forced; assertions depending on the added requirement being seen (AddedPredicateLegal, DynamicCost,
-// ExactLevelGate, MinLevelGate) are left failing. NoEffectIllegal/NonMatchingIllegal/NoLevelSourceRejected
-// pass regardless (they assert "illegal", which coincidentally holds when the grant is entirely unobserved
-// too — same "false green" caveat as G9-024).
-void RegisterLeveled(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate, int level = -1, int minLevel = -1, int maxLevel = -1) =>
-    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+// SEAM (RD-P6B-15): AddSelfDigivolutionRequirementStaticEffect returns AddDigivolutionRequirementClass
+// (IAddDigivolutionRequirementEffect — GetEvoCost(Permanent, CardSource, IgnoreRequirement, bool)), the REAL
+// AS-IS mechanism (color / level-range / permanentCondition / cardCondition / cost all gated in the closure).
+// It registers no binding, so the mirror observes it via the AS-IS live interface scan CardSource.EvoCosts/
+// CostList (mirror CardSource.AddedDigivolutionCosts, DCGO CardSource.cs:534-627), which DigivolveAction now
+// UNIONs into MatchesAddedDigivolutionRequirement / TryGetAddedDigivolutionCost. Attach the built effect to the
+// evolving card's controller (AS-IS EvoCosts' "effects of itself" region scans EffectList(None) on the still-in-
+// hand card). The added path's cost (digivolutionCost / costEquation) then applies over the printed cost.
+void RegisterLeveled(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate, int level = -1, int minLevel = -1, int maxLevel = -1)
+{
+    var card = new CardSource(ctx, evo, P1);
+    ICardEffect eff = CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: predicate, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null, level: level, minLevel: minLevel, maxLevel: maxLevel);
+        card: card, condition: null, level: level, minLevel: minLevel, maxLevel: maxLevel);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
+}
 
 // --- Helpers -------------------------------------------------------------
 
@@ -150,11 +147,12 @@ async Task DynamicCost()
     var target = await PlaceBase(ctx, "BLUE5", color: "Blue", level: 5);
     var evo = await PlaceEvolve(ctx, "EVO", requirement: "Red@4", cost: 2);
     // Added path with a DYNAMIC cost (costEquation) that overrides the fixed digivolutionCost: 3.
-    // MIGRATION-NOTE (P7 test-fix): see RegisterLeveled's note above — AddDigivolutionRequirementClass has no
-    // ToBinding/EffectRegistry bridge yet; the factory call is kept, registration is skipped.
-    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // (RD-P6B-15 seam) attach to the evolving card's controller so the new-model GetEvoCost scan observes it.
+    var evoCard = new CardSource(ctx, evo, P1);
+    ICardEffect dynEff = CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: p => p.Level == 5, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null, costEquation: () => 6);
+        card: evoCard, condition: null, costEquation: () => 6);
+    evoCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dynEff);
 
     var atFixed = await new DigivolveAction().ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 3), ctx);
     AssertTrue(!atFixed.IsSuccess, "fixed cost (3) is rejected — costEquation() overrides it");
@@ -163,17 +161,22 @@ async Task DynamicCost()
     AssertTrue(result.IsSuccess, $"legal at the dynamic cost 6 ({result.Message})");
 }
 
-// MIGRATION-NOTE (P7 test-fix): see RegisterLeveled's note above — AddDigivolutionRequirementClass has no
-// ToBinding/EffectRegistry bridge yet; the factory call is kept, registration is skipped.
-void Register(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate) =>
-    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+// (RD-P6B-15 seam) attach to the evolving card's controller so the new-model GetEvoCost scan observes it.
+void Register(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate)
+{
+    var card = new CardSource(ctx, evo, P1);
+    ICardEffect eff = CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: predicate, digivolutionCost: 3, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, evo, P1), condition: null);
+        card: card, condition: null);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
+}
 
 EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 944);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-P6B-15 seam) live phase so ICardEffect.CanUse's DoneStartGame gate passes for the new-model scan.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -208,3 +211,12 @@ bool InZone(EngineContext ctx, HeadlessPlayerId p, HeadlessEntityId id) =>
     ((IZoneStateReader)ctx.ZoneMover).GetCards(p, ChoiceZone.BattleArea).Contains(id);
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the seam every ported card definition class uses to surface its printed
+// effect list to CardSource.EffectList → CEntity_Effect.CardEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

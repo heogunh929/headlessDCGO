@@ -356,6 +356,231 @@ public static class NewModelContinuousScan
     }
 
     // ==================================================================================================
+    // Link Max — AS-IS Permanent.LinkedMax (Permanent.cs:896-1039). Collect IChangeLinkMaxEffect over
+    // Players_ForTurnPlayer field permanents' EffectList(None) + FACE-UP (!IsFlipped) security cards'
+    // EffectList(None) + players' EffectList(None), gated by PermanentCondition(this) && CanUse(null) &&
+    // !TopCard.CanNotBeAffected, then split by isUpDown() and fold in the order UpToConstant -> UpDownValue ->
+    // DownToConstant, calling GetLinkMax(Max, this, InvertSecutiryValue). AS-IS base is a constant 1; here the
+    // legacy-resolved value (base metadata + legacy binding modifiers, LinkHelpers.ResolveLinkedMax) is the
+    // baseValue we fold onto — the two representations are interface-disjoint so the union double-counts
+    // nothing (RD-P6B-16).
+    // ==================================================================================================
+    public static int FoldLinkedMax(EngineContext context, HeadlessEntityId cardId, int baseValue)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        int invert = InvertSecurityValue(context, subject);
+
+        var collected = new List<IChangeLinkMaxEffect>();
+        void Collect(ICardEffect cardEffect)
+        {
+            if (cardEffect is IChangeLinkMaxEffect linkMax
+                && linkMax.PermanentCondition(subject)
+                && cardEffect.CanUse(null)
+                && NotImmune(subject, cardEffect))
+            {
+                collected.Add(linkMax);
+            }
+        }
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+
+            // AS-IS "Effects of face up security" (Permanent.cs:930-953): FACE-UP security cards are scanned
+            // as an IChangeLinkMaxEffect source too (same SecurityFaceState face-state gate as FoldDp).
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (!Headless.Runtime.SecurityFaceState.IsFaceUpInSecurity(context, source.InstanceId))
+                {
+                    continue;
+                }
+
+                foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                Collect(cardEffect);
+            }
+        }
+
+        // AS-IS split into UpToConstant / UpDownValue / DownToConstant and fold in that order.
+        int max = baseValue;
+        foreach (CalculateOrder order in new[] { CalculateOrder.UpToConstant, CalculateOrder.UpDownValue, CalculateOrder.DownToConstant })
+        {
+            foreach (IChangeLinkMaxEffect effect in collected)
+            {
+                if (effect.isUpDown() == order)
+                {
+                    max = effect.GetLinkMax(max, subject, invert);
+                }
+            }
+        }
+
+        return max;
+    }
+
+    // ==================================================================================================
+    // Link Cost — AS-IS CardSource.GetChangedLinkCost (CardSource.cs:3267-3331). Collect IChangeLinkCostEffect
+    // over Players_ForTurnPlayer field permanents (EXCLUDING this card's own permanent) + players' + THIS
+    // card's own EffectList(None), gated by CanUse(null) && CardCondition(this) && PermanentCondition(target),
+    // then fold the NotIsUpDown() group first, then the IsUpDown() group, calling GetCost(cost, this, target,
+    // root); clamp >= 0. AS-IS seeds Cost from linkCondition.cost — here the caller (LinkHelpers.ResolveLinkCost)
+    // supplies the base cost it is folding, and the new-model interface scan is UNIONed onto the legacy binding
+    // fold (interface-disjoint, no double-count; RD-P6B-16). SUBSTRATE: the mirror's real cost call sites supply
+    // no target permanent / SelectCardEffect.Root (the link-play orchestration RD-P6C2-7 is unported), so
+    // targetPermanentId defaults empty (an unconditional PermanentCondition — the common shape — still applies).
+    // ==================================================================================================
+    public static int FoldLinkCost(EngineContext context, HeadlessEntityId cardId, int baseValue, HeadlessEntityId targetPermanentId = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+
+        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(cardId, out var inst) && inst is not null
+            ? inst.OwnerId
+            : default;
+        CardSource cardSource = new(context, cardId, owner);
+        Permanent targetPermanent = new(context, targetPermanentId.IsEmpty ? cardId : targetPermanentId, owner);
+        PermanentView ownPermanent = cardSource.PermanentOfThisCard();
+
+        var collected = new List<IChangeLinkCostEffect>();
+        void Collect(ICardEffect cardEffect)
+        {
+            if (cardEffect is IChangeLinkCostEffect linkCost
+                && cardEffect.CanUse(null)
+                && linkCost.CardCondition(cardSource)
+                && linkCost.PermanentCondition(targetPermanent))
+            {
+                collected.Add(linkCost);
+            }
+        }
+
+        // (AS-IS region 1) the effects of permanents — EXCLUDING this card's own permanent.
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                if (!ownPermanent.IsEmpty && permanent.InstanceId == ownPermanent.TopInstanceId)
+                {
+                    continue;
+                }
+
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+        }
+
+        // (AS-IS region 2) the effects of players.
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                Collect(cardEffect);
+            }
+        }
+
+        // (AS-IS region 3) the effects of itself.
+        foreach (ICardEffect cardEffect in cardSource.EffectList(EffectTiming.None))
+        {
+            Collect(cardEffect);
+        }
+
+        int cost = baseValue;
+        foreach (IChangeLinkCostEffect effect in collected.Where(e => !e.IsUpDown()))
+        {
+            cost = effect.GetCost(cost, cardSource, targetPermanent, SelectCardEffect.Root.None);
+        }
+
+        foreach (IChangeLinkCostEffect effect in collected.Where(e => e.IsUpDown()))
+        {
+            cost = effect.GetCost(cost, cardSource, targetPermanent, SelectCardEffect.Root.None);
+        }
+
+        return Math.Max(0, cost);
+    }
+
+    // ==================================================================================================
+    // Card DP (security-Digimon battle DP) — AS-IS CardSource.CardDP (CardSource.cs:2383-2443). Collect
+    // IChangeCardDPEffect over Players_ForTurnPlayer field permanents' EffectList(None) + players'
+    // EffectList(None), gated by CanUse(null) && CardCondition(this), then fold the IsUpDown() group FIRST,
+    // then the NotIsUpDown() group (CardSource.cs:2432-2436 — note the order is the REVERSE of DP), calling
+    // GetDP(cardDP, this). AS-IS seeds cardDP = BaseCardDP + BaseDP; here the caller (SecurityResolver) supplies
+    // the security Digimon's already-resolved battle DP as baseValue and this new-model interface scan is
+    // UNIONed onto the legacy securityCardDpDelta fold (interface-disjoint; RD-P6B-18). AS-IS ChangeCardDPClass.
+    // CardCondition additionally gates on GManager.instance.attackProcess.SecurityDigimon == this — the caller
+    // MUST have set attackProcess.SecurityDigimon to `cardId` (the card IS the revealed security Digimon), which
+    // SecurityResolver does before invoking this fold. Clamp >= 0 (AS-IS Math.Max(0, cardDP)).
+    // ==================================================================================================
+    public static int FoldCardDp(EngineContext context, HeadlessEntityId cardId, int baseValue)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(cardId, out var inst) && inst is not null
+            ? inst.OwnerId
+            : default;
+        CardSource subject = new(context, cardId, owner);
+
+        var collected = new List<IChangeCardDPEffect>();
+        void Collect(ICardEffect cardEffect)
+        {
+            if (cardEffect is IChangeCardDPEffect cardDp
+                && cardEffect.CanUse(null)
+                && cardDp.CardCondition(subject))
+            {
+                collected.Add(cardDp);
+            }
+        }
+
+        // (AS-IS region 1) the effects of permanents.
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+        }
+
+        // (AS-IS region 2) the effects of players.
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                Collect(cardEffect);
+            }
+        }
+
+        // AS-IS folds the IsUpDown() group first, then the rest (CardSource.cs:2432-2436).
+        int cardDpValue = baseValue;
+        foreach (IChangeCardDPEffect effect in collected.Where(e => e.IsUpDown()))
+        {
+            cardDpValue = effect.GetDP(cardDpValue, subject);
+        }
+
+        foreach (IChangeCardDPEffect effect in collected.Where(e => !e.IsUpDown()))
+        {
+            cardDpValue = effect.GetDP(cardDpValue, subject);
+        }
+
+        return Math.Max(0, cardDpValue);
+    }
+
+    // ==================================================================================================
     // Play cost — AS-IS CardSource.GetChangedCostItselef (CardSource.cs:775-858, the "not-paying" group,
     // IChangeCostEffect.IsChangePayingCost()==false) THEN CardSource.GetChangedPayingCost (:864-930, the
     // "paying" group, IsChangePayingCost()==true) — CardSource.cs:741/743 runs BOTH sequentially over the

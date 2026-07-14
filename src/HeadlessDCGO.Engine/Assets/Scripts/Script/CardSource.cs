@@ -898,6 +898,113 @@ public sealed class CardSource
         Context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? saveRecord) && saveRecord is not null
         && Headless.Runtime.DeletionReplacementGate.HasReplacementKeyword(
             saveRecord, Headless.Runtime.DeletionReplacementGate.HasSaveKey, Headless.Runtime.ContinuousKeywordGate.Save, Context.EffectRegistry);
+
+    // ===== (RD-P6B-15) added digivolution requirement — AS-IS CardSource.EvoCosts / CostList ==============
+    // AS-IS CardSource.EvoCosts (DCGO CardSource.cs:534-611) + CostList (:617-627). The ADDED-requirement
+    // portion only — the three `IAddDigivolutionRequirementEffect` scan regions (players' EffectList, all
+    // field permanents' EffectList, and THIS card's own EffectList while it is not a permanent / is a source
+    // of its own permanent). For each usable effect, `GetEvoCost(targetPermanent, this, ignore,
+    // checkAvailability)` is evaluated 1:1; a return >= 0 is a matching added digivolution path at that memory
+    // cost (the closure itself gates color / level-range / permanentCondition / cardCondition, exactly like
+    // the AS-IS AddDigivolutionRequirementClass). The printed `BaseEvoCostsFromEntity` region of AS-IS EvoCosts
+    // is NOT mirrored here — that is the mirror's own EvolutionCondition / DigivolutionCostHelpers path
+    // (DigivolveAction). The new-model kind-class registers no binding, so this live interface scan is the
+    // ONLY way the added path becomes observable; DigivolveAction UNIONs it with its legacy
+    // AddedDigivolutionRequirementEffect (registry-key) consumer.
+
+    /// <summary>(RD-P6B-15) The memory costs of every ADDED digivolution path (AS-IS
+    /// <c>CardSource.EvoCosts</c>/<c>CostList</c>, the <c>IAddDigivolutionRequirementEffect</c> scan) for
+    /// digivolving THIS card onto <paramref name="targetPermanent"/> (each entry = a usable effect whose
+    /// <c>GetEvoCost</c> returned &gt;= 0). Empty = no added path applies.</summary>
+    public List<int> AddedDigivolutionCosts(Permanent targetPermanent, CardEffectCommons.IgnoreRequirement ignore, bool checkAvailability)
+    {
+        var costs = new List<int>();
+
+        void Collect(IEnumerable<ICardEffect> effects)
+        {
+            foreach (ICardEffect cardEffect in effects)
+            {
+                if (cardEffect is IAddDigivolutionRequirementEffect requirement && cardEffect.CanUse(null))
+                {
+                    int cost = requirement.GetEvoCost(targetPermanent, this, ignore, checkAvailability);
+                    if (cost >= 0)
+                    {
+                        costs.Add(cost);
+                    }
+                }
+            }
+        }
+
+        // (AS-IS region 1) the effects of players — the mirror player-grant store is empty today
+        // (design item P6A-PLAYER-EFFECTLIST), so this contributes nothing until GiveEffectToPlayer flips.
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            Collect(player.EffectList(EffectTiming.None));
+        }
+
+        // (AS-IS region 2) the effects of all field permanents (both players, turn-player first).
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                Collect(permanent.EffectList(EffectTiming.None));
+            }
+        }
+
+        // (AS-IS region 3) the effects of ITSELF — only while this card is not a permanent, or is a
+        // digivolution source of its own permanent (AS-IS `PermanentOfThisCard() == null ||
+        // PermanentOfThisCard().DigivolutionCards.Contains(this)`).
+        PermanentView thisPermanent = PermanentOfThisCard();
+        if (thisPermanent.IsEmpty || thisPermanent.DigivolutionCards.Any(under => under.InstanceId == InstanceId))
+        {
+            Collect(EffectList(EffectTiming.None));
+        }
+
+        return costs;
+    }
+
+    // ===== (RD-P6B-17) ignore-color requirement — AS-IS CardSource.MatchColorRequirement scan ============
+    // AS-IS CardSource.MatchColorRequirement (DCGO CardSource.cs:261-303), the IIgnoreColorConditionEffect
+    // regions: whether an active "ignore color requirement" effect (UseRequirements -> IgnoreColorConditionClass)
+    // waives THIS card's color requirement. Scans gameContext.Players (FULL roster) field permanents' +
+    // players' + this card's OWN EffectList(None) for IIgnoreColorConditionEffect, gated by CanUse(null) &&
+    // IgnoreColorCondition(this) — any match => waived. The new-model kind-class registers no binding, so this
+    // live interface scan is the only way it becomes observable; DigivolveAction's color-ignore check UNIONs it
+    // with its legacy IgnoreColorRequirementKey consumer.
+
+    /// <summary>(RD-P6B-17) Whether an active <see cref="IIgnoreColorConditionEffect"/> waives THIS card's
+    /// colour requirement (AS-IS <c>CardSource.MatchColorRequirement</c>'s ignore-colour scan).</summary>
+    public bool IgnoreColorConditionActive()
+    {
+        bool Some(IEnumerable<ICardEffect> effects) =>
+            effects.Any(cardEffect => cardEffect is IIgnoreColorConditionEffect ignore
+                && cardEffect.CanUse(null)
+                && ignore.IgnoreColorCondition(this));
+
+        // (AS-IS region 1) the effects of permanents.
+        foreach (Player player in new GameContext(Context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                if (Some(permanent.EffectList(EffectTiming.None)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        // (AS-IS region 2) the effects of players — the mirror player-grant store is empty today.
+        foreach (Player player in new GameContext(Context).Players)
+        {
+            if (Some(player.EffectList(EffectTiming.None)))
+            {
+                return true;
+            }
+        }
+
+        // (AS-IS region 3) the effects of itself.
+        return Some(EffectList(EffectTiming.None));
+    }
 }
 
 

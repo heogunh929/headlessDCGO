@@ -19,12 +19,9 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("MindLink -> HasKeyword(MindLink) live after grant", MindLink),
-    ("ChangeSelfLinkMax +1 -> linkedMaxDelta carried in continuous values", () =>
-        FlagCarried(id => CardEffectFactory.ChangeSelfLinkMaxStaticEffect(1, false, id, null), ModifierHelpers.LinkedMaxDeltaKey)),
-    ("GrantedReduceLinkCost 2 -> linkCostDelta carried in continuous values", () =>
-        FlagCarried(id => CardEffectFactory.GrantedReduceLinkCostClass(id, 2, cardSourceCondition: _ => true, permanentCondition: _ => true, rootCondition: _ => true), ModifierHelpers.LinkCostDeltaKey)),
-    ("UseRequirements -> ignoreColorRequirement flag read by the digivolve gate", () =>
-        FlagCarried(id => CardEffectFactory.UseRequirements(id, cardCondition: _ => true), DigivolveAction.IgnoreColorRequirementKey)),
+    ("ChangeSelfLinkMax +1 -> effective link max raised (ResolveLinkedMax)", LinkMax),
+    ("GrantedReduceLinkCost 2 -> effective link cost lowered (ResolveLinkCost)", LinkCost),
+    ("UseRequirements -> ignore-color active (read by the digivolve color gate)", UseReq),
 };
 
 var failures = new List<string>();
@@ -51,31 +48,46 @@ async Task MindLink()
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.MindLink), "MindLink live after grant");
 }
 
-async Task FlagCarried(Func<CardSource, ICardEffect> build, string expectedKey)
+// SEAM (RD-P6B-16/17): ChangeLinkMaxClass / ChangeLinkCostClass / IgnoreColorConditionClass are new-model
+// kind-classes (IChangeLinkMaxEffect.GetLinkMax / IChangeLinkCostEffect.GetCost / IIgnoreColorConditionEffect.
+// IgnoreColorCondition — no ToBinding). Their REAL consumers now UNION the AS-IS live interface scan:
+// LinkHelpers.ResolveLinkedMax (AS-IS Permanent.LinkedMax) / ResolveLinkCost (AS-IS CardSource.GetChangedLinkCost)
+// and DigivolveAction's color-ignore check (AS-IS CardSource.MatchColorRequirement). Observe through those
+// consumers (the earlier raw-registry check was the wrong layer — a new-model grant registers no binding).
+// Each grant is attached to the card's controller via the standard CEntity_Effect seam.
+
+async Task LinkMax()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    ICardEffect builtEffect = build(new CardSource(context, id, P1));
-    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope):
-    // ChangeLinkMaxClass/ChangeLinkCostClass/IgnoreColorConditionClass are real new-model kind-classes
-    // (IChangeLinkMaxEffect.GetLinkMax / IChangeLinkCostEffect.GetCost / IIgnoreColorConditionEffect.
-    // IgnoreColorCondition — no ToBinding). Their REAL consumers are LinkHelpers.ResolveLinkedMax/
-    // ResolveLinkCost (Headless/Runtime/LinkHelpers.cs, folds ContinuousScopeEvaluation's LEGACY modifiers
-    // only — see G9-056.M4LinkUnseal, same root cause) and DigivolveAction's ignore-color-requirement check
-    // (Headless/Runtime/DigivolveAction.cs, same class as G9-024/G9-044's added-requirement gap). Neither
-    // LinkHelpers.cs nor DigivolveAction.cs is a Headless/Runtime/*Gate.cs file (nor does
-    // ContinuousScopeEvaluation.cs, the shared modifier source, match that glob) — this pass's mandated touch
-    // scope is NewModelContinuousScan.cs + *Gate.cs + MatchStateMutationSink.cs only, with no Gate-level
-    // indirection to union a new-model fold through to reach these consumers. The raw-registry check below
-    // (unchanged from the pre-diagnosis version) was ALREADY testing the wrong layer regardless — even a
-    // Gate-level fix would not change what THIS assertion observes. Not forced; left failing.
-    if (LegacyBindingBridge.TryToBinding(builtEffect, $"eff:{expectedKey}:{id.Value}", out var builtBinding) && builtBinding is not null)
-        context.EffectRegistry.Register(builtBinding);
+    var card = new CardSource(context, id, P1);
+    ICardEffect eff = CardEffectFactory.ChangeSelfLinkMaxStaticEffect(1, false, card, null);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
+    AssertTrue(LinkHelpers.ResolveLinkedMax(context, id) == LinkHelpers.DefaultLinkedMax + 1, "effective link max raised by +1");
+}
 
-    bool carried = context.EffectRegistry
-        .GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope, targetEntityId: id))
-        .Any(effect => effect.Context.Values.ContainsKey(expectedKey));
-    AssertTrue(carried, $"a continuous binding on the card carries '{expectedKey}'");
+async Task LinkCost()
+{
+    EngineContext context = Context();
+    var id = await Place(context, P1, "SELF");
+    var card = new CardSource(context, id, P1);
+    ICardEffect eff = CardEffectFactory.GrantedReduceLinkCostClass(card, 2, cardSourceCondition: _ => true, permanentCondition: _ => true, rootCondition: _ => true);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
+    AssertTrue(LinkHelpers.ResolveLinkCost(context, id, 3) == 1, "effective link cost 3 - 2 == 1");
+}
+
+async Task UseReq()
+{
+    EngineContext context = Context();
+    var id = await Place(context, P1, "SELF");
+    var card = new CardSource(context, id, P1);
+    // UseRequirements' CanUse requires the owner control a Digimon/Tamer matching cardCondition — the placed
+    // SELF Digimon satisfies `_ => true`, so ignore-color is active. IgnoreColorCondition(this) == (this == card),
+    // so it waives THIS card's colour requirement (the digivolve color gate reads exactly this member).
+    ICardEffect eff = CardEffectFactory.UseRequirements(card, cardCondition: _ => true);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
+    using var _scope = AmbientMatchContext.Enter(context);
+    AssertTrue(card.IgnoreColorConditionActive(), "ignore-color requirement active for this card");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -84,6 +96,8 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 937);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-P6B-16/17 seam) live phase so ICardEffect.CanUse's DoneStartGame gate passes for the new-model scans.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -101,3 +115,12 @@ async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the seam every ported card definition class uses to surface its printed
+// effect list to CardSource.EffectList → CEntity_Effect.CardEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

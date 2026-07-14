@@ -17,8 +17,7 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("ChangeBaseDPGlobal +1000 -> baseDpDelta applies to owner's Digimon (player-scope)", ChangeBaseDp),
     ("InvertSAttack -> invertSecurityAttackDelta carried", InvertSAttack),
-    ("ChangeLinkMaxStatic +1 -> linkedMaxDelta carried (player-scope)", () =>
-        CarriedScoped(c => CardEffectFactory.ChangeLinkMaxStaticEffect(null, 1, false, c, null), ModifierHelpers.LinkedMaxDeltaKey)),
+    ("ChangeLinkMaxStatic +1 -> effective link max raised on owner's ally (player-scope)", LinkMaxScoped),
     ("Collision -> owner's ally has Collision", () => Keyword(c => CardEffectFactory.CollisionStaticEffect(null, false, c, null), ContinuousKeywordGate.Collision)),
     // (K1) un-flattened: the marker is its OWN keyword (player-target eligibility), NOT a Vortex grant.
     ("VortexCanAttackPlayers -> owner's ally has the marker (not Vortex)", () => Keyword(c => CardEffectFactory.VortexCanAttackPlayersStaticEffect(null, false, c, null, "vortex-marker"), ContinuousKeywordGate.VortexCanAttackPlayers)),
@@ -188,29 +187,23 @@ async Task InvertSAttack()
     AssertEqual(1, withInvert, "invertSecurityAttackDelta carried: the +2 increase is flipped to a decrease (3 -> 1)");
 }
 
-async Task CarriedScoped(Func<CardSource, ICardEffect> build, string key)
+// SEAM (RD-P6B-16): ChangeLinkMaxClass is a new-model kind-class (IChangeLinkMaxEffect.GetLinkMax, no
+// ToBinding). LinkHelpers.ResolveLinkedMax now UNIONs the AS-IS Permanent.LinkedMax interface scan
+// (NewModelContinuousScan.FoldLinkedMax) — a player-scope grant (null permanentCondition = any battle-area
+// permanent) folds over EVERY field permanent, so it raises the ally's effective link max too. Attach the
+// grant to SRC's controller and observe through the real consumer (the earlier raw-registry PlayerScopeCarries
+// check was the wrong layer — a new-model grant registers no binding).
+async Task LinkMaxScoped()
 {
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC");
     var ally = await Place(context, P1, "ALLY");
-    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope; same root cause
-    // as G9-037.W3LinkColor / G9-056.M4LinkUnseal): ChangeLinkMaxClass is a real new-model kind-class
-    // (IChangeLinkMaxEffect.GetLinkMax, no ToBinding). Its REAL consumer, LinkHelpers.ResolveLinkedMax
-    // (Headless/Runtime/LinkHelpers.cs), folds only ContinuousScopeEvaluation's legacy registry modifiers;
-    // LinkHelpers.cs is not a Headless/Runtime/*Gate.cs file (this pass's touch scope), so no union is
-    // reachable from here. The raw-registry PlayerScopeCarries check below was already the wrong layer
-    // regardless. Not forced; left failing.
-    build(new CardSource(context, src, P1));
-    AssertTrue(PlayerScopeCarries(context, ally, key), $"'{key}' carried onto owner's ally (player-scope)");
-}
-
-bool PlayerScopeCarries(EngineContext context, HeadlessEntityId cardId, string key)
-{
-    context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? inst);
-    CardRecord card = context.CardRepository.GetCard(inst!.DefinitionId);
-    return HeadlessDCGO.Engine.Headless.Effects.PlayerScopeContinuousHelpers
-        .CollectApplicable(context.EffectRegistry, ContinuousRestrictionGate.Scope, inst.OwnerId, card)
-        .Any(e => e.Context.Values.ContainsKey(key));
+    using var _scope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var srcSource = new CardSource(context, src, P1);
+    ICardEffect effect = CardEffectFactory.ChangeLinkMaxStaticEffect(null, 1, false, srcSource, null);
+    srcSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
+    AssertEqual(LinkHelpers.DefaultLinkedMax + 1, LinkHelpers.ResolveLinkedMax(context, ally), "owner's ally effective link max +1 (player-scope)");
 }
 
 async Task Keyword(Func<CardSource, ICardEffect> build, string keyword)

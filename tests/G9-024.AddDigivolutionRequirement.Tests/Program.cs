@@ -58,20 +58,14 @@ async Task AddedLegal()
     var evo = await PlaceEvolve(context, "EVO", printed: "Green@4");
 
     var evoCard = new CardSource(context, evo, P1);
-    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope):
-    // AddSelfDigivolutionRequirementStaticEffect returns AddDigivolutionRequirementClass
-    // (ICardEffect, IAddDigivolutionRequirementEffect — GetEvoCost(Permanent, CardSource, IgnoreRequirement,
-    // bool)), the REAL AS-IS mechanism (mirrors CardSource.EvoCosts/CostList's IAddDigivolutionRequirementEffect
-    // scan, DCGO CardSource.cs:534-590). DigivolveAction's added-requirement consumer
-    // (MatchesAddedDigivolutionRequirement / TryGetAddedDigivolutionCost / OwnAddedRequirementRequests) instead
-    // reads a DIFFERENT, older legacy shape (AddedDigivolutionRequirementEffect /
-    // AddedDigivolutionRequirementPredicateEffect, registry-key-based: AddedEvolutionConditionKey /
-    // AddedEvolutionPredicateKey) — the two were never unified. Unioning the new-model
-    // IAddDigivolutionRequirementEffect.GetEvoCost scan in requires editing DigivolveAction.cs, which is NOT a
-    // Headless/Runtime/*Gate.cs file (this pass's mandated touch scope covers NewModelContinuousScan.cs +
-    // *Gate.cs + MatchStateMutationSink.cs only) — a plain private static consumer, no Gate indirection exists
-    // to union into instead. Not forced; left failing.
-    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // SEAM (RD-P6B-15): AddSelfDigivolutionRequirementStaticEffect returns AddDigivolutionRequirementClass
+    // (IAddDigivolutionRequirementEffect — GetEvoCost(Permanent, CardSource, IgnoreRequirement, bool)), the
+    // REAL AS-IS mechanism. It registers no binding, so the mirror observes it via the AS-IS live interface
+    // scan CardSource.EvoCosts/CostList (mirror CardSource.AddedDigivolutionCosts, DCGO CardSource.cs:534-627),
+    // which DigivolveAction now UNIONs into its added-requirement consumer (MatchesAddedDigivolutionRequirement
+    // / TryGetAddedDigivolutionCost). Attach the built effect to the evolving card's controller (AS-IS EvoCosts'
+    // "effects of itself" region scans EffectList(None) while the card is not yet a permanent — a hand card).
+    ICardEffect addedReq = CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: null,
         digivolutionCost: 2,
         ignoreDigivolutionRequirement: false,
@@ -79,6 +73,7 @@ async Task AddedLegal()
         condition: null,
         cardColor: CardColor.Red,
         level: 4);
+    evoCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(addedReq);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -95,12 +90,11 @@ async Task ConditionGates()
     var evo = await PlaceEvolve(context, "EVO", printed: "Green@4");
 
     var evoCard = new CardSource(context, evo, P1);
-    // NOTE: same STOP as AddedLegal above (DigivolveAction.cs is not a *Gate.cs touch-scope file) — this
-    // assertion PASSES, but for the WRONG reason today: the grant is entirely unobserved regardless of
-    // `condition`, so "illegal" holds whether or not the false condition is honoured (the same
-    // "false green" class flagged elsewhere in this pass — protection never firing looks identical to
-    // "correctly not granted"). Not a false claim of fidelity; left as a documented coincidental pass.
-    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // SEAM (RD-P6B-15): now that the added requirement is observed end-to-end, this test genuinely exercises
+    // the `condition` gate — a false condition makes AddDigivolutionRequirementClass.CanUse(null) return false
+    // (CanUseCondition), so the added path is NOT collected by CardSource.AddedDigivolutionCosts and the
+    // digivolve stays illegal for the RIGHT reason.
+    ICardEffect addedReq = CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: null,
         digivolutionCost: 2,
         ignoreDigivolutionRequirement: false,
@@ -108,6 +102,7 @@ async Task ConditionGates()
         condition: () => false,
         cardColor: CardColor.Red,
         level: 4);
+    evoCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(addedReq);
 
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
@@ -121,6 +116,10 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 924);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-P6B-15 seam) AS-IS ICardEffect.CanUse gates on TurnStateMachine.DoneStartGame (phase past None/Setup).
+    // The new-model added-requirement scan honours it exactly like every continuous member — a real board is in
+    // Main, so set the live phase (the legacy registry path this suite's controls exercise is unaffected).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
@@ -156,3 +155,12 @@ bool InZone(EngineContext context, HeadlessPlayerId p, ChoiceZone zone, Headless
     ((IZoneStateReader)context.ZoneMover).GetCards(p, zone).Contains(id);
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class uses to surface its
+// printed effect list to CardSource.EffectList → CEntity_Effect.CardEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

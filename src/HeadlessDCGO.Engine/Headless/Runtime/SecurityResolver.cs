@@ -697,7 +697,30 @@ public sealed class SecurityResolver
         // generic continuous DP effects (ContinuousDpGate: DP-boosts/reductions, reduction-immunity, LinkedDP)
         // do NOT touch a security Digimon's battle DP. The previous ContinuousDpGate.ResolveDp fold (D-A2)
         // wrongly leaked those permanent-DP effects into the security battle; removed to mirror CardDP.
+
+        // (RD-P6B-18) UNION the NEW-model IChangeCardDPEffect scan (AS-IS CardSource.CardDP): a new-model
+        // ChangeCardDPClass (ChangeSecurityDigimonCardDPStaticEffect) registers no binding, so the legacy
+        // securityCardDpDelta fold above never sees it. AS-IS CardDP's CardCondition gates on
+        // attackProcess.SecurityDigimon == this — the revealed card IS that security Digimon, so establish it
+        // before the fold (nested ambient enter is safe; FoldCardDp clamps >= 0). Interface-disjoint from the
+        // legacy fold, so no double-count.
+        using (AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context))
+        {
+            Assets.Scripts.Script.AttackProcess.For(context).SecurityDigimon = cardId;
+            securityDp = Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldCardDp(context, cardId, securityDp);
+        }
+
         return true;
+    }
+
+    /// <summary>(RD-P6B-18) Public accessor for a security Digimon's resolved battle DP (base DP + DP modifiers +
+    /// the legacy securityCardDpDelta fold + the new-model IChangeCardDPEffect scan, AS-IS CardSource.CardDP).
+    /// The production security-battle path uses <see cref="TryReadSecurityDigimonDp"/> directly; this exposes the
+    /// same computation for callers/tests that read a security Digimon's battle DP outside the loop.</summary>
+    public static bool TryGetSecurityDigimonBattleDp(EngineContext context, HeadlessEntityId cardId, out int securityDp)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return TryReadSecurityDigimonDp(context, cardId, out securityDp);
     }
 
     private static bool TryReadDp(

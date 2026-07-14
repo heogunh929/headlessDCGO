@@ -69,9 +69,14 @@ public static class LinkHelpers
             : DefaultLinkedMax;
 
         Assets.Scripts.Script.CardEffectCommons.ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, hostId);
-        return Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
+        int legacyResolved = Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
             new Assets.Scripts.Script.CardEffectCommons.NumericModifierRequest(
                 Assets.Scripts.Script.CardEffectCommons.NumericModifierMetric.LinkedMax, baseMax, result.Modifiers, hostId)).FinalValue;
+
+        // (RD-P6B-16) UNION the new-model IChangeLinkMaxEffect scan (AS-IS Permanent.LinkedMax): a
+        // ChangeLinkMaxClass registers no binding, so the legacy modifier fold above never sees it. The two
+        // representations are interface-disjoint — fold the new-model interface scan onto the legacy result.
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkedMax(context, hostId, legacyResolved);
     }
 
     /// <summary>(M-4) The EFFECTIVE link cost: <paramref name="baseCost"/> folded with continuous
@@ -84,7 +89,11 @@ public static class LinkHelpers
         int resolved = Assets.Scripts.Script.CardEffectCommons.ModifierHelpers.Evaluate(
             new Assets.Scripts.Script.CardEffectCommons.NumericModifierRequest(
                 Assets.Scripts.Script.CardEffectCommons.NumericModifierMetric.LinkCost, baseCost, result.Modifiers, cardId)).FinalValue;
-        return Math.Max(0, resolved);
+
+        // (RD-P6B-16) UNION the new-model IChangeLinkCostEffect scan (AS-IS CardSource.GetChangedLinkCost): a
+        // ChangeLinkCostClass (GrantedReduceLinkCostClass) registers no binding. Interface-disjoint from the
+        // legacy fold — apply the new-model scan onto the legacy result; FoldLinkCost clamps >= 0.
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkCost(context, cardId, resolved);
     }
 
     /// <summary>

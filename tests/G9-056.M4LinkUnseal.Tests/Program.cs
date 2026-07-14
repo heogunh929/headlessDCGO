@@ -33,13 +33,13 @@ async Task LinkMax()
 {
     EngineContext ctx = Ctx();
     var host = await Place(ctx, "HOST");
-    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope): ChangeLinkMaxClass
-    // is a real new-model kind-class (IChangeLinkMaxEffect.GetLinkMax, no ToBinding). Its consumer,
-    // LinkHelpers.ResolveLinkedMax (Headless/Runtime/LinkHelpers.cs), folds ONLY ContinuousScopeEvaluation's
-    // legacy registry modifiers — LinkHelpers.cs is not a Headless/Runtime/*Gate.cs file (this pass's mandated
-    // touch scope: NewModelContinuousScan.cs + *Gate.cs + MatchStateMutationSink.cs only), so a new-model
-    // IChangeLinkMaxEffect fold cannot be unioned in without editing it. Not forced; left failing.
-    CardEffectFactory.ChangeSelfLinkMaxStaticEffect(2, false, new CardSource(ctx, host, P1), null);
+    // SEAM (RD-P6B-16): ChangeLinkMaxClass is a new-model kind-class (IChangeLinkMaxEffect.GetLinkMax, no
+    // ToBinding). LinkHelpers.ResolveLinkedMax now UNIONs the AS-IS Permanent.LinkedMax interface scan
+    // (NewModelContinuousScan.FoldLinkedMax) onto its legacy modifier fold. Attach the built effect to the
+    // host's controller — a self-scope grant folded over the owner's field permanents (which include the host).
+    var hostCard = new CardSource(ctx, host, P1);
+    ICardEffect eff = CardEffectFactory.ChangeSelfLinkMaxStaticEffect(2, false, hostCard, null);
+    hostCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
     AssertTrue(LinkHelpers.ResolveLinkedMax(ctx, host) == LinkHelpers.DefaultLinkedMax + 2, $"effective link max == {LinkHelpers.DefaultLinkedMax + 2}");
 }
 
@@ -54,10 +54,15 @@ async Task LinkCost()
 {
     EngineContext ctx = Ctx();
     var card = await Place(ctx, "CARD");
-    // STOP: same root cause as LinkMax() above — LinkHelpers.ResolveLinkCost (Headless/Runtime/LinkHelpers.cs,
-    // not a *Gate.cs file) folds only legacy registry modifiers; ChangeLinkCostClass
-    // (IChangeLinkCostEffect.GetCost) has no ToBinding bridge and cannot be unioned in from touch scope.
-    CardEffectFactory.GrantedReduceLinkCostClass(new CardSource(ctx, card, P1), 2, null, null, null);
+    // SEAM (RD-P6B-16): ChangeLinkCostClass (IChangeLinkCostEffect.GetCost, no ToBinding). LinkHelpers.
+    // ResolveLinkCost now UNIONs the AS-IS CardSource.GetChangedLinkCost interface scan
+    // (NewModelContinuousScan.FoldLinkCost). Attach the built effect to the card's controller. NOTE: the
+    // conditions were `null, null, null` — AS-IS ChangeLinkCostClass.CardCondition/PermanentCondition return
+    // FALSE for a null predicate (never "any"), so a null grant never applies (AS-IS-false setup); a real card
+    // passes `_ => true` (as G9-037 does). Corrected to the AS-IS "applies to any" predicates.
+    var cardSource = new CardSource(ctx, card, P1);
+    ICardEffect eff = CardEffectFactory.GrantedReduceLinkCostClass(cardSource, 2, _ => true, _ => true, _ => true);
+    cardSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
     AssertTrue(LinkHelpers.ResolveLinkCost(ctx, card, 3) == 1, "effective link cost 3 - 2 == 1");
 }
 
@@ -65,8 +70,10 @@ async Task LinkCostClamp()
 {
     EngineContext ctx = Ctx();
     var card = await Place(ctx, "CARD");
-    // STOP: same root cause as LinkCost() above.
-    CardEffectFactory.GrantedReduceLinkCostClass(new CardSource(ctx, card, P1), 5, null, null, null);
+    // SEAM (RD-P6B-16): same as LinkCost() — attach + AS-IS "any" predicates; FoldLinkCost clamps >= 0.
+    var cardSource = new CardSource(ctx, card, P1);
+    ICardEffect eff = CardEffectFactory.GrantedReduceLinkCostClass(cardSource, 5, _ => true, _ => true, _ => true);
+    cardSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
     AssertTrue(LinkHelpers.ResolveLinkCost(ctx, card, 3) == 0, "3 - 5 clamps to 0");
 }
 
@@ -76,6 +83,8 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 956);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-P6B-16 seam) live phase so ICardEffect.CanUse's DoneStartGame gate passes for the new-model scan.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -93,3 +102,12 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, string tag)
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the seam every ported card definition class uses to surface its printed
+// effect list to CardSource.EffectList → CEntity_Effect.CardEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

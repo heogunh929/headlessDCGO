@@ -286,3 +286,52 @@ state). The full suite is the coordinator's.
 
 Mid-session the worktree's `src/` was reset to HEAD by an external `git checkout` (concurrent to this agent),
 wiping all Stage-B edits and deleting the new file; they were re-applied identically and re-verified green.
+
+## 9. P9 continuous-VALUE consumer union — RD-P6B-15/16/17/18 RESOLVED
+
+The P7/P8 passes STOPed these four as "consumer outside the `*Gate.cs` touch scope". The coordinator then
+EXPANDED the touch scope to the real value-member consumers (`DigivolveAction.cs`, `LinkHelpers.cs`,
+`SecurityResolver.cs`, and the mirror `CardSource` value members). Re-derived each AS-IS value member's
+interface scan 1:1 and unioned the new-model interface scan into the real consumer — preferring, per AS-IS, to
+scan INSIDE the `CardSource`/`Permanent` value member so the consumer picks it up automatically. All six target
+tests (G9-024/037/039/044/052/056) now GREEN; engine `error CS` count 0; regression sample (G2E-002 digivolve,
+G2G-004 security, G3.5-D1 piercing-security, G3.5-D1L link, G3.5-D8 cost-reduction, G3.5-DA56, G3.5-F53,
+FAILa-06, FAILd-06, FAILb-01, FAILa-02, G3.5-N2, F1-Tier2-WhenLinked, C2-AceSourceLinkTrash, DPB, G9-050/054/038)
+all pass.
+
+* **RD-P6B-15 — RESOLVED.** Added mirror `CardSource.AddedDigivolutionCosts(Permanent, IgnoreRequirement, bool)`
+  = the ADDED-requirement portion of AS-IS `CardSource.EvoCosts`/`CostList` (CardSource.cs:534-627): scans
+  `IAddDigivolutionRequirementEffect` over the players' + all field permanents' + (while not-a-permanent / a
+  source of its own permanent) this card's own `EffectList(None)`, calling `GetEvoCost(target, this, ignore,
+  checkAvailability)` — a return >= 0 is a matching path at that memory cost (color/level-range/permanent/card
+  conditions all gated inside the closure). `DigivolveAction.MatchesAddedDigivolutionRequirement` and
+  `TryGetAddedDigivolutionCost` now UNION it (min cost, AS-IS `CostList.Min()`), interface-disjoint from the
+  legacy `AddedEvolutionPredicateKey` consumer. Witness: G9-024 (3/3), G9-044 (7/7), G9-052.AddSelfCardCond.
+* **RD-P6B-16 — RESOLVED.** Added `NewModelContinuousScan.FoldLinkedMax` (AS-IS `Permanent.LinkedMax`,
+  Permanent.cs:896-1039: field permanents + FACE-UP security + players, `PermanentCondition && CanUse &&
+  !CanNotBeAffected`, split UpToConstant→UpDownValue→DownToConstant, `GetLinkMax(Max, this, InvertSecurityValue)`)
+  and `FoldLinkCost` (AS-IS `CardSource.GetChangedLinkCost`, CardSource.cs:3267-3331: field permanents excl own +
+  players + self, `CanUse && CardCondition && PermanentCondition`, NotIsUpDown then IsUpDown, `GetCost`, clamp
+  >= 0). `LinkHelpers.ResolveLinkedMax`/`ResolveLinkCost` now UNION them onto their legacy modifier folds.
+  Witness: G9-037 (LinkMax/LinkCost), G9-039 (player-scope LinkMax), G9-056 (3/3). NOTE: G9-056's `null,null,null`
+  conditions were AS-IS-false (ChangeLinkCostClass.CardCondition/PermanentCondition return false for a null
+  predicate — never "any"); corrected to `_ => true` as G9-037 already does and every real card does.
+* **RD-P6B-17 — RESOLVED.** Added mirror `CardSource.IgnoreColorConditionActive()` = AS-IS
+  `CardSource.MatchColorRequirement`'s `IIgnoreColorConditionEffect` scan (CardSource.cs:261-303: gameContext.
+  Players full roster field permanents + players + self, `CanUse && IgnoreColorCondition(this)`).
+  `DigivolveAction.CanIgnoreColorRequirement` now UNIONs it. Witness: G9-037.UseRequirements, G9-052.UseReq.
+* **RD-P6B-18 — RESOLVED.** Added `NewModelContinuousScan.FoldCardDp` = the `IChangeCardDPEffect` fold of AS-IS
+  `CardSource.CardDP` (CardSource.cs:2383-2443: field permanents + players, `CanUse && CardCondition(this)`,
+  IsUpDown group first then NotIsUpDown, `GetDP(cardDP, this)`, clamp >= 0). AS-IS `ChangeCardDPClass.CardCondition`
+  gates on `attackProcess.SecurityDigimon == this`, so `SecurityResolver.TryReadSecurityDigimonDp` sets
+  `AttackProcess.For(context).SecurityDigimon = cardId` (the revealed card IS the security Digimon) then UNIONs
+  `FoldCardDp` onto its legacy `securityCardDpDelta` fold. Exposed a `TryGetSecurityDigimonBattleDp` public
+  accessor for the same computation. Witness: G9-052.EnemySecurity/OwnSecurity/ZoneScope (battle-area DP stays on
+  the Permanent.DP pipeline, untouched — the CardDP getter is security-battle-only).
+
+Substrate note (all four): `ICardEffect.CanUse` reads game state through `GManager.instance` (AmbientMatchContext)
+and gates on `TurnStateMachine.DoneStartGame` (phase past None/Setup) — each consumer entry point enters the
+match scope (nested-safe) and each test sets `TurnController.SetPhase(HeadlessPhase.Main)`, exactly as every
+other CanUse-gated continuous member/test in the suite. Each test attaches its constructed new-model effect to a
+card's controller via the standard `cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect)`
+seam so the AS-IS `EffectList(None)` interface scan observes it.

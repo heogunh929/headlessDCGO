@@ -573,7 +573,21 @@ public sealed class DigivolveAction
         HasContinuousFlag(context, playerId, cardId, IgnoreDigivolutionRequirementKey);
 
     private static bool CanIgnoreColorRequirement(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId) =>
-        HasContinuousFlag(context, playerId, cardId, IgnoreColorRequirementKey);
+        HasContinuousFlag(context, playerId, cardId, IgnoreColorRequirementKey)
+        || NewModelIgnoreColorActive(context, playerId, cardId);
+
+    /// <summary>(RD-P6B-17) The new-model IIgnoreColorConditionEffect scan (AS-IS CardSource.MatchColorRequirement,
+    /// mirror <see cref="Assets.Scripts.Script.CardEffectCommons.CardSource.IgnoreColorConditionActive"/>) —
+    /// UseRequirements builds an IgnoreColorConditionClass that registers no binding, so the legacy
+    /// IgnoreColorRequirementKey flag never carries it.</summary>
+    private static bool NewModelIgnoreColorActive(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId)
+    {
+        // (substrate adaptation 3) CanUse reads GManager.instance via AmbientMatchContext — enter the match scope
+        // so the disable-check does not NRE outside a live match loop (nested enter is safe).
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        var card = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId, playerId);
+        return card.IgnoreColorConditionActive();
+    }
 
     /// <summary>(d-remediation, true-scan) AS-IS <c>Player.CanIgnoreDigivolutionRequirement</c>: SCAN every field
     /// permanent's effects (1:1 with the original nested foreach) and, for each usable
@@ -657,7 +671,38 @@ public sealed class DigivolveAction
             }
         }
 
+        // (RD-P6B-15) UNION the new-model IAddDigivolutionRequirementEffect scan (AS-IS CardSource.CostList) —
+        // AddDigivolutionRequirementClass registers no binding, so the legacy loop above never sees it. The
+        // added path's own cost is its GetEvoCost return (color/level/predicate all gated in the closure);
+        // AS-IS PayingCost uses costList.Min() when the printed path fails.
+        List<int> newModelCosts = NewModelAddedDigivolutionCosts(context, cardId, playerId, targetInstanceId, targetOwner);
+        if (newModelCosts.Count > 0)
+        {
+            cost = newModelCosts.Min();
+            return true;
+        }
+
         return false;
+    }
+
+    /// <summary>(RD-P6B-15) The new-model added-requirement costs for digivolving <paramref name="cardId"/>
+    /// onto the target permanent, via the AS-IS <c>CardSource.EvoCosts</c>/<c>CostList</c> interface scan
+    /// (<see cref="Assets.Scripts.Script.CardEffectCommons.CardSource.AddedDigivolutionCosts"/>). Registered
+    /// legacy grants are read by the loop above; this reaches new-model <c>AddDigivolutionRequirementClass</c>
+    /// grants (which register no binding).</summary>
+    private static List<int> NewModelAddedDigivolutionCosts(
+        EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId,
+        HeadlessEntityId targetInstanceId, HeadlessPlayerId targetOwner)
+    {
+        // (substrate adaptation 3, per NewModelContinuousScan) CanUse/CanTrigger/IsDisabled read game state
+        // through GManager.instance, which the mirror resolves from AmbientMatchContext — enter the match scope
+        // so the disable-check (CheckEffectDisabledClass reads GManager.instance...gameContext.Players) does not
+        // NRE outside a live match loop. Nested enter is safe (in real play the digivolve already runs inside one).
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        var evolvingCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, playerId, playerId);
+        var targetPermanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetInstanceId, targetOwner);
+        return evolvingCard.AddedDigivolutionCosts(
+            targetPermanent, Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.IgnoreRequirement.None, checkAvailability: false);
     }
 
     private static bool MatchesAddedDigivolutionRequirement(
@@ -679,7 +724,9 @@ public sealed class DigivolveAction
             }
         }
 
-        return false;
+        // (RD-P6B-15) UNION the new-model IAddDigivolutionRequirementEffect scan (AS-IS CardSource.EvoCosts):
+        // any matching added path (GetEvoCost >= 0) makes the target a legal digivolution source.
+        return NewModelAddedDigivolutionCosts(context, cardId, playerId, targetInstanceId, targetOwner).Count > 0;
     }
 
     /// <summary>(C5-witness / EX8_061) The MOVING card's OWN added-requirement statics. A card declaring

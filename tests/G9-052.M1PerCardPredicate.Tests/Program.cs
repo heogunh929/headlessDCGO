@@ -37,23 +37,20 @@ async Task EnemySecurity()
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var ownSec = await Place(ctx, P1, "OWNSEC", ChoiceZone.Security);
     var enemySec = await Place(ctx, P2, "ENEMYSEC", ChoiceZone.Security);
-    // "Your opponent's Security Digimon get -2000 DP" — predicate selects the enemy (source owner is P1).
-    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope):
-    // ChangeSecurityDigimonCardDPStaticEffect returns ChangeCardDPClass (IChangeCardDPEffect.GetDP(int,
-    // CardSource) — note CardSource, NOT Permanent). Its AS-IS consumer is a SEPARATE property,
-    // CardSource.CardDP (DCGO CardSource.cs:2383), NOT Permanent.DP — ContinuousDpGate.ResolveDp (this test's
-    // observation point) mirrors Permanent.DP, a different getter entirely. The mirror's real CardDP-shaped
-    // consumer is SecurityResolver.cs's security-battle DP fold (Headless/Runtime/SecurityResolver.cs:694,
-    // explicitly documented there as "a SEPARATE fold... NOT the permanent-DP pipeline", reading only the
-    // legacy SecurityCardDpDeltaKey registry key) — neither SecurityResolver.cs nor ContinuousDpGate.cs's
-    // Permanent.DP path is the right union target for this new-model grant; the correct target
-    // (SecurityResolver.cs) is not a Headless/Runtime/*Gate.cs file, outside this pass's touch scope. Not
-    // forced; left failing (querying ResolveDp here was already the wrong observation point regardless).
-    CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
-        cs => cs.Owner == P2, -2000, false, new CardSource(ctx, src, P1), null, $"sd:{src.Value}");
+    // SEAM (RD-P6B-18): "Your opponent's Security Digimon get -2000 DP" — ChangeSecurityDigimonCardDPStaticEffect
+    // returns ChangeCardDPClass (IChangeCardDPEffect, no ToBinding). Its AS-IS consumer is CardSource.CardDP
+    // (DCGO CardSource.cs:2383) — the security-Digimon BATTLE DP, NOT Permanent.DP — mirrored by
+    // SecurityResolver's security-battle DP fold, which now UNIONs the new-model IChangeCardDPEffect scan
+    // (NewModelContinuousScan.FoldCardDp). AS-IS CardDP.CardCondition gates on attackProcess.SecurityDigimon ==
+    // this, which SecurityResolver establishes per revealed card. Attach the grant to SRC's controller and
+    // observe through the real consumer (TryGetSecurityDigimonBattleDp). cardCondition selects the enemy (P2).
+    var srcCard = new CardSource(ctx, src, P1);
+    ICardEffect eff = CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
+        cs => cs.Owner == P2, -2000, false, srcCard, null, $"sd:{src.Value}");
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
 
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemySec, 5000) == 3000, "enemy Security -2000");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, ownSec, 5000) == 5000, "own Security unchanged (right player)");
+    AssertTrue(SecurityBattleDp(ctx, enemySec) == 3000, "enemy Security -2000");
+    AssertTrue(SecurityBattleDp(ctx, ownSec) == 5000, "own Security unchanged (right player)");
 }
 
 async Task OwnSecurity()
@@ -62,14 +59,14 @@ async Task OwnSecurity()
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var ownSec = await Place(ctx, P1, "OWNSEC", ChoiceZone.Security);
     var enemySec = await Place(ctx, P2, "ENEMYSEC", ChoiceZone.Security);
-    // STOP: same root cause as EnemySecurity() above (ChangeCardDPClass's real AS-IS consumer is
-    // CardSource.CardDP / SecurityResolver.cs, not Permanent.DP / ContinuousDpGate — and SecurityResolver.cs
-    // is not a *Gate.cs touch-scope file).
-    CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
-        cs => cs.Owner == P1, 2000, false, new CardSource(ctx, src, P1), null, $"sd:{src.Value}");
+    // SEAM (RD-P6B-18): same consumer as EnemySecurity() — cardCondition selects the owner (P1).
+    var srcCard = new CardSource(ctx, src, P1);
+    ICardEffect eff = CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
+        cs => cs.Owner == P1, 2000, false, srcCard, null, $"sd:{src.Value}");
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
 
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, ownSec, 5000) == 7000, "own Security +2000");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemySec, 5000) == 5000, "enemy Security unchanged");
+    AssertTrue(SecurityBattleDp(ctx, ownSec) == 7000, "own Security +2000");
+    AssertTrue(SecurityBattleDp(ctx, enemySec) == 5000, "enemy Security unchanged");
 }
 
 async Task ZoneScope()
@@ -77,12 +74,22 @@ async Task ZoneScope()
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var enemyBattle = await Place(ctx, P2, "ENEMYBATTLE", ChoiceZone.BattleArea);
-    // NOTE: same STOP as EnemySecurity()/OwnSecurity() above. This assertion PASSES, but coincidentally — the
-    // grant is unobserved either way, so "unaffected" holds regardless of whether the zone-scope is honoured.
-    CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
-        cs => cs.Owner == P2, -2000, false, new CardSource(ctx, src, P1), null, $"sd:{src.Value}");
+    // SEAM (RD-P6B-18): the security-Digimon CardDP grant must NOT touch a BATTLE-area Digimon's DP — that DP is
+    // Permanent.DP (ContinuousDpGate.ResolveDp), a different pipeline that does not fold IChangeCardDPEffect at
+    // all (AS-IS CardDP is the security-battle-only getter). Attach the grant and confirm the battle Digimon is
+    // untouched via the permanent-DP consumer.
+    var srcCard = new CardSource(ctx, src, P1);
+    ICardEffect eff = CardEffectFactory.ChangeSecurityDigimonCardDPStaticEffect(
+        cs => cs.Owner == P2, -2000, false, srcCard, null, $"sd:{src.Value}");
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
 
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, enemyBattle, 5000) == 5000, "enemy BATTLE-area Digimon unaffected (Security-zone scope)");
+}
+
+static int SecurityBattleDp(EngineContext ctx, HeadlessEntityId securityCardId)
+{
+    SecurityResolver.TryGetSecurityDigimonBattleDp(ctx, securityCardId, out int dp);
+    return dp;
 }
 
 async Task UseReq()
@@ -97,18 +104,19 @@ async Task UseReq()
             await PlaceLevel(ctx, P1, "MATCH", ChoiceZone.BattleArea, level: 5);
         }
 
-        // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope; same root
-        // cause as G9-037.W3LinkColor's UseRequirements subtest): IgnoreColorConditionClass is a real
-        // new-model kind-class (IIgnoreColorConditionEffect.IgnoreColorCondition, no ToBinding). Its consumer
-        // is DigivolveAction's ignore-color-requirement check (Headless/Runtime/DigivolveAction.cs,
-        // CanIgnoreColorRequirement / IgnoreColorRequirementKey) — not a Headless/Runtime/*Gate.cs file, so no
-        // union is reachable from this pass's touch scope. The raw-registry query below was already the wrong
-        // layer regardless. Not forced; left failing.
-        CardEffectFactory.UseRequirements(new CardSource(ctx, src, P1), cs => cs.Level == 5);
+        // SEAM (RD-P6B-17): IgnoreColorConditionClass (IIgnoreColorConditionEffect.IgnoreColorCondition, no
+        // ToBinding). Its consumer, DigivolveAction's color-ignore check, now UNIONs the AS-IS live scan
+        // CardSource.MatchColorRequirement (mirror CardSource.IgnoreColorConditionActive). UseRequirements'
+        // CanUse gates on the owner controlling a Digimon/Tamer matching cardCondition (Level==5), so the
+        // ignore is active only when the Lv5 MATCH is present. Attach to SRC's controller and observe through
+        // the value member (IgnoreColorCondition(this) == this==SRC, so it waives SRC's own colour requirement).
+        var srcCard = new CardSource(ctx, src, P1);
+        ICardEffect eff = CardEffectFactory.UseRequirements(srcCard, cs => cs.Level == 5);
+        srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
 
-        bool active = ContinuousScopeEvaluation
-            .ApplicableEffects(ctx, ContinuousRestrictionGate.Scope, src)
-            .Any(e => e.Context.Values.TryGetValue(DigivolveAction.IgnoreColorRequirementKey, out object? v) && v is true);
+        using var _scope = AmbientMatchContext.Enter(ctx);
+        ctx.TurnController.SetPhase(HeadlessPhase.Main);
+        bool active = srcCard.IgnoreColorConditionActive();
         AssertTrue(active == hasMatch, $"ignore-color active == {hasMatch} (cardCondition gate honored)");
     }
 }
@@ -146,27 +154,31 @@ async Task AddSelfCardCond()
 {
     EngineContext ctx = Ctx();
     var src = await PlaceNamed(ctx, P1, "SRC", "Sourcemon", ChoiceZone.BattleArea);
+    var target = await PlaceLevel(ctx, P1, "TARGET", ChoiceZone.BattleArea, level: 4); // any under-card (permanentCondition = _ => true)
     var match = await PlaceNamed(ctx, P1, "MATCH", "UlforceVeedramon", ChoiceZone.Hand);
     var nonMatch = await PlaceNamed(ctx, P1, "OTHER", "Agumon", ChoiceZone.Hand);
-    // "Your UlforceVeedramon cards can digivolve from <permanentCondition>" — cardCondition targets other cards.
-    // STOP: same root cause as G9-024.AddDigivolutionRequirement/G9-044.AddSelfDigivolveReq —
-    // AddDigivolutionRequirementClass is a real new-model kind-class (IAddDigivolutionRequirementEffect.
-    // GetEvoCost) whose AS-IS consumer (CardSource.EvoCosts/CostList) has no mirror equivalent wired into
-    // DigivolveAction at all; DigivolveAction's OWN added-requirement consumer reads a different legacy key
-    // (AddedEvolutionPredicateKey, from AddedDigivolutionRequirementPredicateEffect) that this factory never
-    // produces. DigivolveAction.cs is not a Headless/Runtime/*Gate.cs file — outside this pass's touch scope.
-    // Not forced; left failing.
-    CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
+    // SEAM (RD-P6B-15): "Your UlforceVeedramon cards can digivolve from <permanentCondition>" — the grant is on
+    // SRC (a field permanent) with cardCondition selecting WHICH cards RECEIVE it. AddDigivolutionRequirementClass
+    // (IAddDigivolutionRequirementEffect.GetEvoCost) registers no binding, so it is observed via the AS-IS live
+    // scan CardSource.EvoCosts (mirror CardSource.AddedDigivolutionCosts): region 2 scans field permanents' (incl
+    // SRC) EffectList; GetEvoCost's cardCondition gates the receiving card (this == the querying card). Attach to
+    // SRC's controller and observe through the value member for MATCH vs the non-matching OTHER.
+    var srcCard = new CardSource(ctx, src, P1);
+    ICardEffect eff = CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: _ => true, digivolutionCost: 0, ignoreDigivolutionRequirement: false,
-        card: new CardSource(ctx, src, P1), condition: null, cardCondition: cs => cs.EqualsCardName("UlforceVeedramon"));
+        card: srcCard, condition: null, cardCondition: cs => cs.EqualsCardName("UlforceVeedramon"));
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(eff);
 
-    AssertTrue(HasAddedReq(ctx, match), "added requirement reaches the matching (UlforceVeedramon) card");
-    AssertTrue(!HasAddedReq(ctx, nonMatch), "added requirement does NOT reach a non-matching card (cardCondition honored)");
+    using var _scope = AmbientMatchContext.Enter(ctx);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    var targetPerm = new Permanent(ctx, target, P1);
+    AssertTrue(HasAddedReq(ctx, match, targetPerm), "added requirement reaches the matching (UlforceVeedramon) card");
+    AssertTrue(!HasAddedReq(ctx, nonMatch, targetPerm), "added requirement does NOT reach a non-matching card (cardCondition honored)");
 }
 
-bool HasAddedReq(EngineContext ctx, HeadlessEntityId cardId) =>
-    ContinuousScopeEvaluation.ApplicableEffects(ctx, ContinuousRestrictionGate.Scope, cardId)
-        .Any(e => e.Context.Values.ContainsKey(DigivolveAction.AddedEvolutionPredicateKey));
+bool HasAddedReq(EngineContext ctx, HeadlessEntityId cardId, Permanent targetPermanent) =>
+    new CardSource(ctx, cardId, P1).AddedDigivolutionCosts(
+        targetPermanent, CardEffectCommons.IgnoreRequirement.None, checkAvailability: false).Count > 0;
 
 async Task<HeadlessEntityId> PlaceNamed(EngineContext ctx, HeadlessPlayerId owner, string tag, string name, ChoiceZone zone)
 {
@@ -200,6 +212,8 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 952);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (RD-P6B-15/17/18 seam) live phase so ICardEffect.CanUse's DoneStartGame gate passes for the new-model scans.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
