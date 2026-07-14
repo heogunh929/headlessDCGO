@@ -123,6 +123,14 @@ public sealed class GManager
             selectCardEffect.AttachContext(_context);
             created = selectCardEffect;
         }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectHandEffect))
+        {
+            // (R5-A) the AS-IS hand-select component (Script/SelectHandEffect.cs) — the HAND-scoped sibling of
+            // SelectCardEffect, reached the same GetComponent<>() way by the AS-IS-verbatim card corpus.
+            var selectHandEffect = new Assets.Scripts.Script.SelectHandEffect();
+            selectHandEffect.AttachContext(_context);
+            created = selectHandEffect;
+        }
         else if (typeof(T) == typeof(Assets.Scripts.Script.OptionalSkill))
         {
             // (P6 stage A) the AS-IS optional yes/no prompt (ICardEffect.cs:1054 Activate_Optional →
@@ -151,6 +159,29 @@ public sealed class GManager
         {
             // (P6C1) the AS-IS DNA(jogress)-condition picker — full 1:1 mirror (Script/SelectDNACondition.cs).
             created = new Assets.Scripts.Script.SelectDNACondition();
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectAttackEffect))
+        {
+            // (R5-B) the AS-IS attack-target picker (Script/SelectAttackEffect.cs, full 1:1 mirror —
+            // Overclock/Vortex processes reach it via this path, KeyWordEffects/Overclock.cs:79).
+            var selectAttackEffect = new Assets.Scripts.Script.SelectAttackEffect();
+            selectAttackEffect.AttachContext(_context);
+            created = selectAttackEffect;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectAppFusionEffect))
+        {
+            // (R5-C) the AS-IS App-Fusion link picker (Script/SelectAppFusionEffect.cs, full 1:1 mirror).
+            var selectAppFusionEffect = new Assets.Scripts.Script.SelectAppFusionEffect();
+            selectAppFusionEffect.AttachContext(_context);
+            created = selectAppFusionEffect;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectBurstDigivolutionEffect))
+        {
+            // (R5-C) the AS-IS Burst-digivolution picker (Script/SelectBurstDigivolutionEffect.cs, partial —
+            // SelectTamer/BounceTamer/AddTrashTopCardAtTurnEnd are STOP RD-R5-01/02/03).
+            var selectBurstDigivolutionEffect = new Assets.Scripts.Script.SelectBurstDigivolutionEffect();
+            selectBurstDigivolutionEffect.AttachContext(_context);
+            created = selectBurstDigivolutionEffect;
         }
         else
         {
