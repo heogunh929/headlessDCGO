@@ -107,14 +107,74 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             return false;
         }
 
-        /// <summary>(P6 cluster2) AS-IS <c>RetaliationProcess</c> (KeyWordEffects/Retaliation.cs:72): delete the
-        /// opposing Digimon this card was battling. STOP — <c>DestroyPermanentsClass</c> (the AS-IS batch-delete
-        /// helper the process delegates to) has no mirror; design item RD-P6C2-2.</summary>
-        public static Task RetaliationProcess(Hashtable hashtable, ICardEffect activateClass)
+        /// <summary>(R2-B) AS-IS <c>RetaliationProcess</c> (KeyWordEffects/Retaliation.cs:72): delete the
+        /// opposing Digimon this card was battling (winner side; on a tie, the other loser side). RD-P6C2-2
+        /// resolved. ADAPTATION: AS-IS's terminal <c>new DestroyPermanentsClass(destroyTargetPermanents,
+        /// CardEffectHashtable(activateClass)).Destroy()</c> has no standalone mirror class — the mirror exposes
+        /// that exact deletion pipeline through the <c>…AndProcessAccordingToResult</c> family (AS-IS's own
+        /// <c>DeletePeremanentAndProcessAccordingToResult</c>, CardEffectCommons.cs:463, is literally
+        /// <c>new DestroyPermanentsClass(targets, hashtable).Destroy()</c> + IsDestroyed dispatch), so the
+        /// terminal batch-delete is issued via that verified substrate with no success/failure continuation —
+        /// behaviourally identical to bare <c>Destroy()</c>. Structure/order otherwise verbatim with AS-IS.</summary>
+        public static async Task RetaliationProcess(Hashtable hashtable, ICardEffect activateClass)
         {
-            throw new NotSupportedException(
-                "RetaliationProcess: AS-IS DestroyPermanentsClass has no mirror batch-delete primitive yet — " +
-                "design item RD-P6C2-2, docs/audit/rebuild_p6_cluster2_notes.md.");
+            if (hashtable != null)
+            {
+                List<Hashtable>? hashtables = GetHashtablesFromHashtable(hashtable);
+
+                if (hashtables != null)
+                {
+                    foreach (Hashtable hashtable1 in hashtables)
+                    {
+                        if (hashtable1 != null)
+                        {
+                            CardSource? topCard = GetTopCardFromOneHashtable(hashtable1);
+
+                            if (topCard != null)
+                            {
+                                if (IsByBattle(hashtable))
+                                {
+                                    IBattle? battle = GetBattleFromHashtable(hashtable);
+
+                                    if (battle != null)
+                                    {
+                                        Hashtable? battleHashtable = battle.hashtable;
+
+                                        if (battleHashtable != null)
+                                        {
+                                            List<Permanent>? winnerPermanents = GetWinnerPermanentsRealFromHashtable(battleHashtable);
+
+                                            if (winnerPermanents != null)
+                                            {
+                                                List<Permanent> destroyTargetPermanents = winnerPermanents.Filter(permanent => IsOpponentPermanent(permanent, topCard));
+
+                                                if (destroyTargetPermanents.Count >= 1)
+                                                {
+                                                    await DeletePeremanentAndProcessAccordingToResult(destroyTargetPermanents, activateClass, successProcess: null, failureProcess: null).ConfigureAwait(false);
+                                                }
+                                                else // In case of tie there is no winner permanents but the other loser permanent is the target
+                                                {
+                                                    List<Permanent>? loserPermanents = GetLoserPermanentsFromHashtable(battleHashtable);
+
+                                                    if (loserPermanents != null)
+                                                    {
+                                                        destroyTargetPermanents = loserPermanents.Filter(permanent => IsOpponentPermanent(permanent, topCard));
+
+                                                        if (destroyTargetPermanents.Count >= 1)
+                                                        {
+                                                            await DeletePeremanentAndProcessAccordingToResult(destroyTargetPermanents, activateClass, successProcess: null, failureProcess: null).ConfigureAwait(false);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

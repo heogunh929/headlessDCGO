@@ -1,9 +1,7 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Decoy.cs
-// (P6 cluster2) 1:1 port. CanActivateDecoy is a genuine STOP: AS-IS depends on
-// `Permanent.CanBeDestroyedBySkill` (the general "is this permanent immune to effect-deletion right now"
-// immunity scan, Permanent.cs:3309) which the mirror Permanent has not ported (heavy scan subsystem, out of
-// this cluster's KeyWordEffects/CanUseEffects/kind-class file scope) — design item RD-P6C2-3. DecoyProcess
-// itself does not need that scan (its `permanent` argument is already resolved), so it is fully ported.
+// (P6 cluster2) 1:1 port. (R2-B) CanActivateDecoy STOP RESOLVED — R1-d ported
+// `Permanent.CanBeDestroyedBySkill` (Permanent.cs:3035, AS-IS Permanent.cs:3309-3365), so the AS-IS body is
+// now portable verbatim (design item RD-P6C2-3 closed). DecoyProcess was already fully ported.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
@@ -12,13 +10,20 @@ using System.Threading.Tasks;
 
 public static partial class CardEffectCommons
 {
-    /// <summary>AS-IS <c>CanActivateDecoy</c> (KeyWordEffects/Decoy.cs:10). STOP — see file header,
-    /// design item RD-P6C2-3.</summary>
+    /// <summary>AS-IS <c>CanActivateDecoy</c> (KeyWordEffects/Decoy.cs:10, verbatim — R2-B, RD-P6C2-3 resolved
+    /// via R1-d <c>Permanent.CanBeDestroyedBySkill</c>): this Digimon is on the battle area and is not currently
+    /// immune to effect-deletion.</summary>
     public static bool CanActivateDecoy(Permanent permanent, ICardEffect activateClass)
     {
-        throw new NotSupportedException(
-            "CanActivateDecoy: AS-IS Permanent.CanBeDestroyedBySkill has no mirror immunity-scan primitive yet — " +
-            "design item RD-P6C2-3, docs/audit/rebuild_p6_cluster2_notes.md.");
+        if (IsPermanentExistsOnBattleArea(permanent))
+        {
+            if (permanent.CanBeDestroyedBySkill(activateClass))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>AS-IS <c>DecoyProcess</c> (KeyWordEffects/Decoy.cs:25): delete this Digimon, then (if

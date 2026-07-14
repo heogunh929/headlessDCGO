@@ -26,8 +26,13 @@ public static partial class CardEffectCommons
         CanActivateOnDeletion(hashtable, card);
 
     /// <summary>AS-IS <c>AscensionProcess</c> (KeyWordEffects/Ascension.cs:29): owner chooses whether to place
-    /// this deleted card as the top security card. STOP — <c>CardObjectController.AddSecurityCard</c> (the
-    /// AS-IS zone-move performing the placement) has no mirror; design item RD-P6C2-1.</summary>
+    /// this deleted card as the top security card. STOP (design item RD-P6C2-1). (R2-B) The
+    /// <c>card.Owner.CanAddSecurity</c> gate and the Yes/No <c>userSelectionManager.SetBoolSelection</c>/
+    /// <c>WaitForEndSelect</c>/<c>SelectedBoolValue</c> selection now all have mirror substrate — the remaining
+    /// gap is only <c>CardObjectController.AddSecurityCard(card, true)</c> (RemoveFromAllArea + DigiEgg/Token
+    /// branches + Insert-at-security-top + IAddSecurity emit): a whole CardObjectController zone-move helper,
+    /// which is a CardController-region re-housing (R2 CardController / zone-move), out of R2-B's keyword-Process
+    /// scope — porting only part of it would be simplification. Kept STOP, gap narrowed.</summary>
     public static Task AscensionProcess(Hashtable hashtable, ICardEffect activateClass, CardSource card)
     {
         throw new NotSupportedException(

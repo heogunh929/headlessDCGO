@@ -1,8 +1,9 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Fragment.cs
-// (P6 cluster2) 1:1 port. CanActivateFragment is a genuine STOP (Permanent.CanBeDestroyedBySkill immunity
-// scan has no mirror — same gap as Decoy, design item RD-P6C2-3). FragmentProcess IS fully portable: its
-// own selection (SelectCardEffect) + trash of the resulting list maps directly onto the verified substrate
-// primitive DigivolutionStackHelpers.TrashSpecificSourcesAsync, whose own doc header cites
+// (P6 cluster2) 1:1 port. (R2-B) CanActivateFragment STOP RESOLVED — R1-d ported
+// `Permanent.CanBeDestroyedBySkill` (Permanent.cs:3035, same gap as Decoy), so the AS-IS body is portable
+// verbatim (design item RD-P6C2-3 closed). FragmentProcess was already fully ported: its own selection
+// (SelectCardEffect) + trash of the resulting list maps directly onto the verified substrate primitive
+// DigivolutionStackHelpers.TrashSpecificSourcesAsync, whose own doc header cites
 // "AS-IS ITrashDigivolutionCards(permanent, selectedCards, …)" as its exact behavioural model.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
@@ -14,13 +15,21 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 
 public static partial class CardEffectCommons
 {
-    /// <summary>AS-IS <c>CanActivateFragment</c> (KeyWordEffects/Fragment.cs:7). STOP — see file header,
-    /// design item RD-P6C2-3.</summary>
+    /// <summary>AS-IS <c>CanActivateFragment</c> (KeyWordEffects/Fragment.cs:7, verbatim — R2-B, RD-P6C2-3
+    /// resolved via R1-d <c>Permanent.CanBeDestroyedBySkill</c>): this Digimon is on the battle area, is not
+    /// currently immune to effect-deletion, and has at least <paramref name="trashValue"/> digivolution
+    /// sources to trash.</summary>
     public static bool CanActivateFragment(Permanent permanent, int trashValue, ICardEffect activateClass)
     {
-        throw new NotSupportedException(
-            "CanActivateFragment: AS-IS Permanent.CanBeDestroyedBySkill has no mirror immunity-scan primitive " +
-            "yet — design item RD-P6C2-3, docs/audit/rebuild_p6_cluster2_notes.md.");
+        if (IsPermanentExistsOnBattleArea(permanent))
+        {
+            if (permanent.CanBeDestroyedBySkill(activateClass))
+            {
+                return permanent.DigivolutionCards.Count >= trashValue;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>AS-IS <c>FragmentProcess</c> (KeyWordEffects/Fragment.cs:22): select exactly
