@@ -156,63 +156,9 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
 }
 
 
-/// <summary>(PRIM-W2) A triggered "set your memory to <see cref="TargetMemory"/> if it is
-/// &lt;= <see cref="Threshold"/>" effect — the Tamer memory-setter family (AS-IS SetMemoryTo3TamerEffect:
-/// "[Start of Your Turn] If you have 2 or less memory, set your memory to 3."). Auto-registered under its
-/// timing (OnStartTurn); resolves only on the owner's turn (mirrors IsOwnerTurn) and only when the current
-/// memory is at or below the threshold, emitting a SetMemory mutation.</summary>
-public sealed class TriggeredSetMemoryEffect : ICardEffect, IHeadlessCardEffect
-{
-    public TriggeredSetMemoryEffect(CardSource card, EffectTiming timing, int targetMemory, int threshold, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        TargetMemory = targetMemory;
-        Threshold = threshold;
-        string trigger = EffectTimings.ToTriggerName(timing);
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId($"{card.InstanceId.Value}:setmemory:{trigger}"), card.InstanceId, description, trigger, isOptional: false);
-    }
-
-    public CardSource Card { get; }
-
-    public int TargetMemory { get; }
-
-    public int Threshold { get; }
-
-    public CardEffectDefinition Definition { get; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(mutations);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // AS-IS IsOwnerTurn + "2 or less memory" gate.
-        if (Card.Context.TurnController.Current.TurnPlayerId != Card.Owner
-            || Card.Context.MemoryController.Current.Current > Threshold)
-        {
-            return ValueTask.FromResult(EffectResult.Success("Set-memory condition not met; no change."));
-        }
-
-        mutations.Apply(new EffectMutation(
-            MatchStateMutationSink.SetMemoryKind,
-            Definition.SourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = TargetMemory }));
-        return ValueTask.FromResult(EffectResult.Success($"Set memory to {TargetMemory}."));
-    }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
-        return new EffectBinding(
-            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
-            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
-    }
-}
+// (R3-F1b fold) TriggeredSetMemoryEffect DELETED — its sole factory (CardEffectFactory.SetMemoryTo3TamerEffect)
+// is now the AS-IS 1:1 ActivateClass port (DCGO CardEffectFactory.cs:11). Zero remaining constructions in src or
+// tests (G9-026 references the class name only in a stale comment, not a construction).
 
 
 /// <summary>(PRIM-W3) A triggered "gain <see cref="Amount"/> memory (if <see cref="ExtraCondition"/> holds)"

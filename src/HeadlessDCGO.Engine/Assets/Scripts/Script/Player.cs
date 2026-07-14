@@ -566,6 +566,34 @@ public sealed class Player
 
         return Task.CompletedTask;
     }
+
+    /// <summary>(F1b) AS-IS <c>Player.SetFixedMemory(Memory, cardEffect)</c> (Player.cs:990-1026),
+    /// IEnumerator→Task: when this write would RAISE this player's memory (<c>MemoryForPlayer &lt; Memory</c>,
+    /// :992) and a causing effect is supplied, the gain must pass <see cref="CanAddMemory"/> or the whole write
+    /// is skipped (:994-1002, AS-IS <c>yield break</c>); otherwise the SHARED gauge is SET so this player's
+    /// memory reads <paramref name="Memory"/>. AS-IS stores the seat-absolute gauge (PlayerID==0 ⇒ −Memory /
+    /// else +Memory, :1005-1013); the mirror gauge is turn-player-relative (see <see cref="MemoryForPlayer"/>),
+    /// so it stores +Memory for the turn player / −Memory otherwise — the same mapping <see cref="AddMemory"/>
+    /// uses. The AS-IS ±10 clamp (:1015-1023) is applied by the controller's <c>Set</c> (Clamp — same reliance
+    /// as <see cref="AddMemory"/>); the trailing <c>memoryObject.SetMemory()</c> (:1025) is UI (stripped).</summary>
+    public Task SetFixedMemory(int Memory, ICardEffect cardEffect)
+    {
+        if (MemoryForPlayer < Memory)
+        {
+            if (cardEffect != null)
+            {
+                if (!CanAddMemory(cardEffect))
+                {
+                    return Task.CompletedTask;
+                }
+            }
+        }
+
+        int gauge = Context.TurnController.Current.TurnPlayerId == PlayerId ? Memory : -Memory;
+        Context.MemoryController.Set(gauge);
+
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>(bridge W4; batch-3 sibling added, retires the P5-log "no CanAddMemory extension" finding) AS-IS
@@ -586,6 +614,20 @@ public static class PlayerIdAsIsExtensions
                 "AddMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
                 "or call inside a match scope.");
         return new Player(context, player).AddMemory(plusMemory, cardEffect);
+    }
+
+    /// <summary>(F1b) AS-IS card idiom <c>card.Owner.SetFixedMemory(N, activateClass)</c> (SetMemoryTo3TamerEffect
+    /// / BT17_101 pattern): the bare <see cref="HeadlessPlayerId"/> is bridged to the mirror
+    /// <see cref="Player.SetFixedMemory"/> the same way as <see cref="AddMemory"/> — the match context comes from
+    /// the causing effect's source card (every AS-IS caller passes the live activateClass) or the ambient scope.</summary>
+    public static Task SetFixedMemory(this HeadlessPlayerId player, int Memory, ICardEffect cardEffect)
+    {
+        EngineContext context = cardEffect?.EffectSourceCard?.Context
+            ?? AmbientMatchContext.Current
+            ?? throw new InvalidOperationException(
+                "SetFixedMemory needs a live match context — pass the causing ICardEffect (AS-IS activateClass) " +
+                "or call inside a match scope.");
+        return new Player(context, player).SetFixedMemory(Memory, cardEffect);
     }
 
     public static bool CanAddMemory(this HeadlessPlayerId player, ICardEffect cardEffect)

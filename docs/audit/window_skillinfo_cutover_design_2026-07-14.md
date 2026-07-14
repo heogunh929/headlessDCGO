@@ -127,5 +127,17 @@
 - **F4 = 부분 종결(2026-07-15, 코디네이터 BT9_043 AS-IS :84-136 verbatim 대조 통과)**: BT9_043 재포팅(RD-R6-03 해소 — AddHandCards+IReduceSecurity+IUnsuspendPermanents 3-call AS-IS 리터럴, 복합 body 발명 청산)·TfxWhenDigivolveDelete 재포팅(+G9-009 white-box 캐스트 교체). STOP: BT1_021/BT1_090(R6P-EOT-PLAYER-EFFECTLIST — C 배치 동승으로 재스코프)·BT1_109(아래 시스템 발견으로 revert)·TfxBeforePayCost(PlayCardAction:425-427이 구모델 SuspendCostReductionEffect 하드캐스트 — EX8_074/RD-R6-07 결합, C 배치 판정 필요).
 - **시스템 발견(F4, 컷오버 전체 위험 항목)**: 신모델 `ICardEffect.CanTrigger` 1차 게이트=`DoneStartGame`(ICardEffect.cs:385-397, Setup phase 통과 필요) — **bare-Initialize 테스트 하네스에서 신모델 효과가 조용히 미발화**(구모델 ActivatedEffect는 이 게이트 미경유라 기존 테스트가 통과해 왔음). BT1_109 재포팅이 이 때문에 red→revert. 함의: ①구모델→신모델 전환 카드의 기존 테스트는 하네스가 phase를 Main으로 전진시키는지 먼저 확인 ②C 배치 컷오버 후 witness 전면에 동일 리스크 — **V 배치 검증 항목으로 등재**(하네스 phase-전진 감사).
 
+- **W2 = 검수 통과(2026-07-15)**: 공급층(SkillWindowSupply.cs, 휴면)+대응표(`window_supply_correspondence_2026-07-15.md`)+자체 테스트 19체크. **핵심 판정: AS-IS 창 페이로드는 대부분 emit 지점 인라인 구축** → 이벤트-변환으로 재구성 가능한 것은 공격 계열 3타이밍뿐(OnAllyAttack/OnCounterTiming/OnEndAttack, plain attack), 나머지 ~40타이밍=GAP(RDW-01..06, 조작 금지·정직 미처리). A3 최소-batch 피더는 구 FilterToMinimumBatch와 파리티(전역 단조 batch-id 전제). **함의: C 배치의 정공법=미러의 AS-IS 위치에 StackSkillInfos 재배치**(이벤트 보강 아님) → C를 C-pre(HashtableSetting 인라인 빌더 byte-동일 미러+pre-removal 스냅샷 헬퍼, 순수 additive 휴면)와 C(단일 플립)로 분할.
+- **F1b = 검수 통과(2026-07-15, 코디네이터 AS-IS Player.cs:990-1026 대조)**: Player.SetFixedMemory 1:1(게이트 순서 verbatim·게이지 turn-relative 매핑=AddMemory 기존 ADAPTATION·±10 클램프=MemoryController.Set 위임[적대리뷰 확인 표적])+SetMemoryTo3TamerEffect fold+TriggeredSetMemoryEffect 삭제. STOP: PlaySelfAtEndOfBattle 생성사이트(AS-IS PlaySelfDigimonAfterBattleSecurityEffect가 Permanent.UntilOpponentTurnEndEffects[W3]+Player.UntilEndBattleEffects 창-드레인[C] 의존 — RD-P6C3-B2와 동일 계열).
+
+## 5.6 authorized-red 원장 (C 배치에서 하네스 재조준/은퇴 예정)
+fold된 ActivateClass는 은퇴 대상 registry-lowering(ToBinding) 경로가 없음 — 그 경로를 직접 구동하는 테스트가 red. 행동 손실 아님(live 발화는 activated-bridge 경유 유지). 발명 프리미티브를 유지해 green을 사는 것은 fidelity-over-coverage 위반이므로 red 수용:
+- G9-034.GainMemory 2/3 (F1 fold: Gain1MemoryTamerOpponentDigimonEffect → ActivateClass, "no ToBinding bridge")
+- G9-026.SetMemoryTamer 4/4 (F1b fold: SetMemoryTo3TamerEffect)
+- (기존 baseline red 별도: MIG2-RuleProcess 2·G3.5-005.AttackPipeline 5·Stage5-ActivatedBridge 1·RD6-EndTurnSequence 4·F1-Tier2-OnEndAttack 10[NRE 조사항목]·BT1.StopRemainder 4·FAILa-10 1)
+
+## 5.7 병렬 배치 운영 규칙 추가 (이 세션 사고 교훈)
+- 서브에이전트는 **git reset/checkout/stash 절대 금지**(공유 워크트리 — F1b의 clean-HEAD 비교 reset이 타 배치 미커밋 작업을 일시 소실시킬 뻔함). baseline 비교는 `git show HEAD:<file>` 또는 임시 디렉토리 복사로.
+
 ## 6. 승계 design item (이 골에서 손대지 않음, 명기만)
 RD9-87(탭 미-sink) · 시큐리티 다중효과 선택루프 부재 · IDontBattle player-scope 절반 · MIG1-KEYWORD-RELOCATE · MIG1-EXECUTE-RELOCATE · MIG1-BEFOREONATTACK · F1-ENDATTACK-LIVENESS · RD-R5-01/02/03/04 · RD-R6-07(EX8_074) · **키워드 창-재하우징 18종(진실표, R2 5클러스터 골)**.

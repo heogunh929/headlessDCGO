@@ -876,11 +876,58 @@ public static partial class CardEffectFactory
 
     // (P4 KeyWord slice) BlockerStaticEffect moved to KeyWordEffects/Blocker.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-W2) Original: <c>SetMemoryTo3TamerEffect(card)</c> — "[Start of Your Turn] If you have
-    /// 2 or less memory, set your memory to 3." (Tamer memory-setter). Triggered on OnStartTurn.</summary>
-    public static ICardEffect SetMemoryTo3TamerEffect(CardSource card) =>
-        new TriggeredSetMemoryEffect(card, EffectTiming.OnStartTurn, targetMemory: 3, threshold: 2,
-            "[Start of Your Turn] If you have 2 or less memory, set your memory to 3.");
+    // (R3-F1b fold) AS-IS 1:1 port of DCGO CardEffectFactory.cs:11 SetMemoryTo3TamerEffect — was the
+    // mirror-invented TriggeredSetMemoryEffect; now the uniform ActivateClass (ActivateICardEffect, visible to the
+    // AS-IS window collection). Substrate: IEnumerator->async Task, StartCoroutine->await; AS-IS `card.Owner`
+    // (Player) -> mirror HeadlessPlayerId (CanAddMemory/SetFixedMemory extensions) / `new Player(context, owner)`
+    // for `.MemoryForPlayer` (BT1_054 idiom). EffectDiscription byte-identical to AS-IS.
+    public static ICardEffect SetMemoryTo3TamerEffect(CardSource card)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Set Memory to 3", CanUseCondition, card);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+
+        string EffectDiscription()
+        {
+            return "[Start of Your Turn] If you have 2 or less memory, set your memory to 3.";
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaTrigger(card, activateClass))
+            {
+                if (CardEffectCommons.IsOwnerTurn(card))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            if (CardEffectCommons.IsExistOnBattleAreaActivate(card, activateClass))
+            {
+                if (new Player(card.Context, card.Owner).MemoryForPlayer <= 2)
+                {
+                    if (card.Owner.CanAddMemory(activateClass))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        async Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            await card.Owner.SetFixedMemory(3, activateClass);
+        }
+
+        return activateClass;
+    }
 
     // (P4 KeyWord slice) ArmorPurgeEffect moved to KeyWordEffects/ArmorPurge.cs (AS-IS 1:1)
 
