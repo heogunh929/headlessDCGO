@@ -92,8 +92,8 @@ public static class ContinuousRestrictionGate
 
     // (R1-d) EvaluateUnsuspend / EvaluateSuspend REMOVED — AS-IS Permanent.CanUnsuspend / Permanent.CanSuspend
     // are now housed on the mirror getters and their consumers read `permanent.CanUnsuspend` / `permanent.CanSuspend`
-    // directly. NewModelContinuousScan.CanNotSuspend survives as the DELETION/SUSPEND sink (MatchStateMutationSink)
-    // consults it directly (R2 몫).
+    // directly. (R2-D) the last laggard, MatchStateMutationSink's SuspendKind case, was rewired to the getter too,
+    // so NewModelContinuousScan.CanNotSuspend was DELETED (no remaining consumer).
 
     // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
     // (W6-G) blocker-conditional form supported (AS-IS GainCanNotBeBlocked defenderCondition, embedded in the joint predicate).

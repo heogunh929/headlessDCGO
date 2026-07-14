@@ -25,6 +25,21 @@ using HeadlessDCGO.Engine.Headless.State;
 /// </list>
 /// Async vocabulary (zone moves, draw, memory) is W2-follow: those need a deferred flush with the
 /// engine context and are not yet handled here — they are recorded as unsupported.
+///
+/// (R2-D) 잔류=존이동 적용 substrate; 룰 판정은 전부 미러 호출. Every game-RULE judgment this sink makes is
+/// delegated to its AS-IS home rather than duplicated locally: the no-arg immunity/restriction judgments read
+/// the mirror Permanent getters directly (SuspendKind → !Permanent.CanSuspend; effect-delete general immunity →
+/// !Permanent.CanBeDestroyed()); the cause-conditional and player-scope judgments read the shared substrate seams
+/// the mirror CardController / CardEffectCommons themselves consult (RestrictionScan / IsRestrictedByCauseNewModel,
+/// ContinuousImmunityGate.BlocksOpponentEffect = CardSource.CanNotBeAffected). What remains sink-local is pure
+/// zone-move APPLICATION substrate — repository Upsert, IZoneMover calls, metadata/batch-id stamping and CardMoved
+/// event emission. STOPs (R3): (RD-R2-02) the cause-conditional deletion/return/de-digivolve/stack-trash immunity
+/// cannot rewire to Permanent.CanBeDestroyedBySkill(effect) / CardSource.CanNotBeAffected(effect) because an
+/// EffectMutation carries only the causing SOURCE entity id, not the live ICardEffect those getters take — needs
+/// the mirror DestroyPermanentsClass to thread the real cardEffect; (RD-R2-03) the player-security judgment stays
+/// the authoritative scan here because the mirror Player.CanAddSecurity is a stub (MIG3-CANADDSECURITY); (RD-R2-04)
+/// the deletion-replacement WINDOW pipeline (DeletionReplacementTiming/Gate option queue, batch-defer, Fortitude,
+/// DestroyPermanentsClass window order) is R3 per bigbang §3-R2 and stays intact below.
 /// </summary>
 public sealed class MatchStateMutationSink : IEffectMutationSink
 {
@@ -493,13 +508,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case SuspendKind:
                 // (PRIM-W4 CantSuspendStaticEffect) a continuous "cannot suspend" restriction blocks it.
-                // (RD-P6B-11 resolved) UNION the new-model interface scan (AS-IS Permanent.CanSuspend, Permanent.cs:3698)
-                // — a ported CantSuspendStaticEffect (CanNotSuspendClass:ICanNotSuspendEffect) registers no legacy
-                // binding/replacement, so HasSelfRestriction (registry-backed, via ScopedResult) alone cannot see it.
-                // ContinuousRestrictionGate.EvaluateSuspend already unions it, but this sink consults
-                // HasSelfRestriction directly (bypassing that gate), so union it here too.
+                // (R2-D) the new-model interface scan is now read through its AS-IS home — the mirror
+                // Permanent.CanSuspend getter (AS-IS Permanent.CanSuspend, the ICanNotSuspendEffect scan over all
+                // players' field permanents + players). This replaces the former NewModelContinuousScan.CanNotSuspend
+                // helper call (byte-identical scan) with the getter, matching the established R1-d consumers
+                // (CardController / CardEffectCommons read `permanent.CanSuspend` directly). The legacy registry arm
+                // (HasSelfRestriction, via ScopedResult) stays UNIONed unchanged — a ported CantSuspendStaticEffect
+                // registers no legacy binding, so the getter catches what the registry misses (and vice-versa),
+                // symmetric with the deletion path below (BattleDeletionGate keeps the same two-arm union).
                 if (HasSelfRestriction(targetId, CannotRestrictionKind.Suspend)
-                    || (_context is not null && Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.CanNotSuspend(_context, targetId)))
+                    || (_context is not null && !new Assets.Scripts.Script.CardEffectCommons.Permanent(_context, targetId).CanSuspend))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -1430,12 +1448,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             }
         }
 
-        // (RD-P6B-10 resolved) UNION the new-model general "cannot be destroyed" scan (AS-IS Permanent.CanBeDestroyed,
-        // Permanent.cs:3186) — same union BattleDeletionGate.PreventsBattleDeletion performs; a ported
-        // CanNotBeDestroyedStaticEffect registers no legacy replacement so ScopedResult (registry-backed) alone
+        // (R2-D) the new-model general "cannot be destroyed" scan is now read through its AS-IS home — the mirror
+        // Permanent.CanBeDestroyed() getter (AS-IS Permanent.CanBeDestroyed, the ICanNotBeDestroyedEffect scan over
+        // all players' field permanents + players), replacing the former NewModelContinuousScan.HasCanNotBeDestroyed
+        // helper (byte-identical scan). Same two-arm UNION BattleDeletionGate.PreventsBattleDeletion performs — a
+        // ported CanNotBeDestroyedStaticEffect registers no legacy replacement so the ScopedResult arm above alone
         // cannot see it. NOTE: battle-only immunity (ICanNotBeDestroyedByBattleEffect) is battle-path-only
-        // (BattleDeletionGate) and intentionally NOT consulted here (this is the effect-delete path).
-        if (_context is not null && Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasCanNotBeDestroyed(_context, cardId))
+        // (BattleDeletionGate) and intentionally NOT consulted here (this is the effect-delete path). The
+        // cause-conditional CanBeDestroyedBySkill(effect) is NOT rewireable here — the sink holds only the causing
+        // source's entity id, not the live ICardEffect the getter needs (STOP RD-R2-02); it stays on the shared
+        // RestrictionScan || IsRestrictedByCauseNewModel seam below.
+        if (_context is not null && !new Assets.Scripts.Script.CardEffectCommons.Permanent(_context, cardId).CanBeDestroyed())
         {
             return true;
         }

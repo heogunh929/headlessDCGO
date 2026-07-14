@@ -1356,38 +1356,9 @@ public static class NewModelContinuousScan
     // (R1-d) CanNotUnsuspend REMOVED — AS-IS Permanent.CanUnsuspend is housed on the mirror Permanent getter
     // and its consumers read `permanent.CanUnsuspend` directly.
 
-    // AS-IS Permanent.CanSuspend (Permanent.cs:3698-3739): ICanNotSuspendEffect && CanUse(null) &&
-    // CanNotSuspend(this) over ALL players' field permanents + players.
-    public static bool CanNotSuspend(EngineContext context, HeadlessEntityId cardId)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
-        Permanent subject = BuildSubject(context, cardId);
-
-        foreach (Player player in ScanAllPlayers(context))
-        {
-            foreach (Permanent permanent in player.GetFieldPermanents())
-            {
-                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
-                {
-                    if (cardEffect is ICanNotSuspendEffect e && cardEffect.CanUse(null) && e.CanNotSuspend(subject))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
-            {
-                if (cardEffect is ICanNotSuspendEffect e && cardEffect.CanUse(null) && e.CanNotSuspend(subject))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
+    // (R2-D) CanNotSuspend REMOVED — AS-IS Permanent.CanSuspend is housed on the mirror Permanent getter and its
+    // last consumer, MatchStateMutationSink's SuspendKind case, now reads `!permanent.CanSuspend` directly (the
+    // getter is the byte-identical ICanNotSuspendEffect scan). No remaining callers.
 
     // AS-IS CardSource.CanNotEvolve(Permanent) (CardSource.cs:1291-1349): ICanNotDigivolveEffect &&
     // CanUse(null) && CanNotEvolve(targetPermanent, this) over ALL players' field permanents + players (+
