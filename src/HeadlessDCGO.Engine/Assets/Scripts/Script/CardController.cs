@@ -3162,4 +3162,241 @@ public class IBattle
         return statCheck;
     }
 }
+
+#region Destroy permanents
+
+/// <summary>
+/// (R3-A) 1:1 mirror of AS-IS <c>DestroyPermanentsClass</c> (CardController.cs:3648-3874): the effect/rule
+/// deletion pipeline over a list of permanents. Ctor takes the target list + the causing <c>Hashtable</c>
+/// (from which the LIVE causing <c>ICardEffect</c>, <c>IBattle</c>, and DP-zero flag are read exactly as AS-IS —
+/// <see cref="CardEffectCommons.GetCardEffectFromHashtable"/> / <see cref="CardEffectCommons.GetBattleFromHashtable"/>
+/// / <see cref="CardEffectCommons.IsDPZeroDelete"/>). <see cref="Destroy"/> performs, in AS-IS order: filter by the
+/// causing effect's per-target immunity (<c>!TopCard.CanNotBeAffected(cardEffect)</c> AND
+/// <c>CanBeDestroyedBySkill(cardEffect)</c> — this is the RD-R2-02 resolution: the real ICardEffect is threaded into
+/// those getters, no more source-id-only cause seam) → mark willBeRemoveField on all → PRE cut-in windows
+/// (WhenPermanentWouldBeDeleted / WhenRemoveField, the owner's would-be-deleted replacements: Evade/Fragment/Decoy/…)
+/// → fix survivors (willBeRemoveField still true) → POST windows (OnDestroyedAnyone / OnLeaveFieldAnyone) → record
+/// the "just before deletion" parameters → per-permanent trash (DiscardEvoRoots the sources, RemoveField the top off
+/// the field, AddTrashCard the top).
+///
+/// Substrate/ADAPTATION: IEnumerator→Task; ShowDeleteEffect/HideDeleteEffect/ShrinkSecurityDigimonDisplay/
+/// ShowCardEffect/DestroyPermanentEffect/PlayLog = UI (stripped). The AS-IS
+/// <c>autoProcessing_CutIn.HasAwaitingActivateEffects()</c> gate is a private method on the AutoProcessing surface
+/// (owned by the parallel R3-B batch — read-only here), so it is inlined verbatim over the public
+/// <c>StackedSkillInfos</c> (AS-IS AutoProcessing.cs:750-766); when R3-B lands HasAwaitingActivateEffects the call
+/// can replace this local. Window drive uses the existing mirror <c>autoProcessing</c>/<c>autoProcessing_CutIn</c>
+/// surface (R3-B's home); the cut-in DRAIN (TriggeredSkillProcess) still routes to R3-B's MultipleSkills STOP
+/// (RD-P6C1-3) for a batch that actually stacked a would-be-deleted replacement — an existing R3-B design item, not
+/// a new one here. NOTE (R3-A cutover): the LIVE effect-delete path is still MatchStateMutationSink.ApplyDelete —
+/// routing the sink's Delete emission through this class (bigbang §3-R2, item 4) is blocked until R3-B lands the
+/// cut-in drain (else every replacement-window deletion would throw) and is tracked as design item RD-R3-01.
+/// </summary>
+public class DestroyPermanentsClass
+{
+    public DestroyPermanentsClass(List<Permanent> destroyTargetPermanents, Hashtable hashtable, bool notShowCards = false)
+    {
+        _destroytargetPermanents = destroyTargetPermanents.Clone();
+        _hashtable = hashtable;
+        _notShowCards = notShowCards;
+    }
+
+    public bool IsDestroyed(Permanent permanent)
+    {
+        return DestroyedPermanents.Contains(permanent);
+    }
+
+    List<Permanent> _destroytargetPermanents = new List<Permanent>();
+    public List<Permanent> DestroyedPermanents { get; private set; } = new List<Permanent>();
+    Hashtable _hashtable = null;
+    bool _notShowCards = false;
+
+    public async Task Destroy(CancellationToken cancellationToken = default)
+    {
+        if (_destroytargetPermanents == null) return;
+
+        ICardEffect cardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+        IBattle battle = CardEffectCommons.GetBattleFromHashtable(_hashtable);
+        bool isDPZero = CardEffectCommons.IsDPZeroDelete(_hashtable);
+
+        _destroytargetPermanents = _destroytargetPermanents.Filter(permanent =>
+        permanent != null
+        && permanent.TopCard != null
+        && (cardEffect == null ||
+        (!permanent.TopCard.CanNotBeAffected(cardEffect)
+        && permanent.CanBeDestroyedBySkill(cardEffect))));
+
+        if (_destroytargetPermanents.Count == 0) return;
+
+        _destroytargetPermanents.ForEach(permanent => permanent.willBeRemoveField = true);
+
+        #region cut in effect
+
+        // "When permanents would be deleted" effect
+
+        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _destroytargetPermanents,
+                cardEffect,
+                battle
+            ),
+            EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
+
+        // "When permanents would remove field" effect
+        await GManager.instance.autoProcessing_CutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                _destroytargetPermanents,
+                cardEffect,
+                battle
+            ),
+            EffectTiming.WhenRemoveField).ConfigureAwait(false);
+
+        if (HasAwaitingActivateEffects(GManager.instance.autoProcessing_CutIn))
+        {
+            // AS-IS ShowDeleteEffect / ShrinkSecurityDigimonDisplay / HideDeleteEffect = UI (stripped).
+
+            // cut in effect process
+            await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        // fix delete target permanents
+        List<Permanent> destroyTargetPermanents_Fixed = _destroytargetPermanents.Filter(permanent =>
+            permanent != null
+            && permanent.TopCard != null
+            && permanent.willBeRemoveField);
+
+        #region "When permanents are deleted" effect
+
+        await GManager.instance.autoProcessing
+            .StackSkillInfos(CardEffectCommons.OnDeletionHashtable(
+                destroyTargetPermanents_Fixed,
+                cardEffect,
+                battle,
+                isDPZero
+                ),
+                EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+
+        #endregion
+
+        #region "When permanents leave the battle area" effect
+
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            CardEffectCommons.OnDeletionHashtable(
+                destroyTargetPermanents_Fixed,
+                cardEffect,
+                battle,
+                isDPZero
+            ),
+            EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+
+        #endregion
+
+        #region record parameters just before deletion
+
+        foreach (Permanent permanent in destroyTargetPermanents_Fixed)
+        {
+            permanent.DPJustBeforeRemoveField = permanent.DP;
+
+            if (permanent.TopCard.HasLevel)
+            {
+                permanent.LevelJustBeforeRemoveField = permanent.Level;
+            }
+
+            if (permanent.TopCard.HasPlayCost)
+            {
+                permanent.CostJustBeforeRemoveField = permanent.TopCard.GetCostItself;
+            }
+
+            permanent.CardNamesJustBeforeRemoveField = new List<string>(permanent.TopCard.CardNames);
+            permanent.CardTraitsJustBeforeRemoveField = new List<string>(permanent.TopCard.CardTraits);
+
+            foreach (CardSource cardSource in permanent.cardSources)
+            {
+                cardSource.PermanentJustBeforeRemoveField = permanent;
+            }
+        }
+
+        #endregion
+
+        // AS-IS "add log" (:3787-3805) + "show cards" (:3807-3816) = UI / PlayLog (stripped).
+
+        #region trash permanent cards
+
+        foreach (Permanent permanent in destroyTargetPermanents_Fixed)
+        {
+            #region record wheter to be deleted by battle
+
+            if (battle != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    if (CardEffectCommons.GetLoserPermanentsFromHashtable(battle.hashtable).Contains(permanent))
+                        permanent.IsDestroyedByBattle = true;
+                }
+            }
+
+            #endregion
+
+            #region record used effect
+
+            if (permanent.TopCard != null)
+            {
+                permanent.DestroyingEffect = cardEffect;
+            }
+
+            #endregion
+
+            // AS-IS DestroyPermanentEffect (:3844) = UI (stripped).
+
+            await permanent.DiscardEvoRoots(cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            CardSource topCard = permanent.TopCard;
+
+            await CardObjectController.RemoveField(permanent, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            await CardObjectController.AddTrashCard(topCard, cancellationToken).ConfigureAwait(false);
+
+            DestroyedPermanents.Add(permanent);
+        }
+
+        #endregion
+
+        #region hide icon
+
+        foreach (Permanent permanent in _destroytargetPermanents)
+        {
+            if (permanent != null)
+            {
+                if (permanent.TopCard != null)
+                {
+                    permanent.willBeRemoveField = false;
+                }
+            }
+        }
+
+        #endregion
+    }
+
+    // (R3-A) AS-IS AutoProcessing.HasAwaitingActivateEffects (AutoProcessing.cs:750-766), inlined verbatim over the
+    // public StackedSkillInfos because the AS-IS method lives on the R3-B-owned AutoProcessing surface (read-only).
+    private static bool HasAwaitingActivateEffects(AutoProcessing autoProcessing)
+    {
+        if (autoProcessing.StackedSkillInfos.Count >= 2)
+        {
+            return true;
+        }
+        else if (autoProcessing.StackedSkillInfos.Count == 1)
+        {
+            if (autoProcessing.StackedSkillInfos[0].CardEffect.CanActivate(autoProcessing.StackedSkillInfos[0].Hashtable))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+#endregion
 }

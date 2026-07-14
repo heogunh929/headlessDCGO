@@ -1627,6 +1627,108 @@ public sealed class Permanent
         }
     }
 
+    // ===== (R3-A) DestroyPermanentsClass deletion-snapshot members (AS-IS Permanent.cs public fields the
+    // Destroy() sequence marks/records). The five "JustBeforeRemoveField" carriers are backed by the SAME
+    // instance-metadata keys the substrate CardLeavePlayCleanup snapshot writes/reads (Runtime.CardLeavePlayCleanup),
+    // so the mirror DestroyPermanentsClass writer and every OnDeletion reader agree on one carrier — no invention.
+    // willBeRemoveField / DestroyingEffect use per-match stores (the PermanentJustBeforeRemoveFieldStore pattern). =====
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.willBeRemoveField</c> (a transient bool the Destroy() PRE cut-in reads to
+    /// decide which marked permanents actually leave). Instance-metadata flag (the <c>IsBeingRevealed</c> pattern).</summary>
+    public bool willBeRemoveField
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            && record.Metadata.TryGetValue("willBeRemoveField", out object? raw) && raw is true;
+        set
+        {
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    ["willBeRemoveField"] = value,
+                };
+                _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.DestroyingEffect</c> (the ICardEffect that deleted this permanent, read by
+    /// OnDeletion responses). Per-match store keyed by InstanceId (the PermanentJustBeforeRemoveFieldStore pattern) —
+    /// holds the live effect reference like the AS-IS auto-property.</summary>
+    public ICardEffect? DestroyingEffect
+    {
+        get => _context.TryGetService(out DestroyingEffectStore? store) && store is not null
+            && store.Values.TryGetValue(InstanceId, out ICardEffect? effect) ? effect : null;
+        set
+        {
+            if (!_context.TryGetService(out DestroyingEffectStore? store) || store is null)
+            {
+                store = new DestroyingEffectStore();
+                _context.RegisterService(store);
+            }
+
+            store.Values[InstanceId] = value;
+        }
+    }
+
+    private sealed class DestroyingEffectStore
+    {
+        public Dictionary<HeadlessEntityId, ICardEffect?> Values { get; } = new Dictionary<HeadlessEntityId, ICardEffect?>();
+    }
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.DPJustBeforeRemoveField</c> (default -1). Backed by the substrate
+    /// snapshot key so OnDeletion DP-comparison predicates read the same value the writer stamped.</summary>
+    public int DPJustBeforeRemoveField
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            ? CardLeavePlayCleanup.DpJustBeforeRemoveField(record.Metadata) : -1;
+        set => WriteJustBeforeKey(CardLeavePlayCleanup.DpJustBeforeRemoveFieldKey, value);
+    }
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.LevelJustBeforeRemoveField</c> (default -1; consumers gate on &gt; 0).</summary>
+    public int LevelJustBeforeRemoveField
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            ? CardLeavePlayCleanup.LevelJustBeforeRemoveField(record.Metadata) : -1;
+        set => WriteJustBeforeKey(CardLeavePlayCleanup.LevelJustBeforeRemoveFieldKey, value);
+    }
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.CostJustBeforeRemoveField</c> (default -1).</summary>
+    public int CostJustBeforeRemoveField
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            ? CardLeavePlayCleanup.CostJustBeforeRemoveField(record.Metadata) : -1;
+        set => WriteJustBeforeKey(CardLeavePlayCleanup.CostJustBeforeRemoveFieldKey, value);
+    }
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.CardNamesJustBeforeRemoveField</c> (default empty).</summary>
+    public List<string> CardNamesJustBeforeRemoveField
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            ? CardLeavePlayCleanup.CardNamesJustBeforeRemoveField(record.Metadata).ToList() : new List<string>();
+        set => WriteJustBeforeKey(CardLeavePlayCleanup.CardNamesJustBeforeRemoveFieldKey, value?.ToArray() ?? Array.Empty<string>());
+    }
+
+    /// <summary>(R3-A) AS-IS <c>Permanent.CardTraitsJustBeforeRemoveField</c> (default empty).</summary>
+    public List<string> CardTraitsJustBeforeRemoveField
+    {
+        get => _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null
+            ? CardLeavePlayCleanup.CardTraitsJustBeforeRemoveField(record.Metadata).ToList() : new List<string>();
+        set => WriteJustBeforeKey(CardLeavePlayCleanup.CardTraitsJustBeforeRemoveFieldKey, value?.ToArray() ?? Array.Empty<string>());
+    }
+
+    private void WriteJustBeforeKey(string key, object? value)
+    {
+        if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+        {
+            var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+            {
+                [key] = value,
+            };
+            _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+        }
+    }
+
     /// <summary>(P6C3) 1:1 of AS-IS <c>Permanent.CanSuspend</c> (Permanent.cs:3698-3742): NO active
     /// <see cref="ICanNotSuspendEffect"/> (scanned over every field permanent's and player's EffectList,
     /// <c>CanUse(null)</c>-gated) forbids suspending THIS permanent. AS-IS iterates

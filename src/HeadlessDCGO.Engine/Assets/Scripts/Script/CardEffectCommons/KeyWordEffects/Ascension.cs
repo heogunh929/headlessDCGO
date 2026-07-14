@@ -25,18 +25,36 @@ public static partial class CardEffectCommons
     public static bool CanActivateAscension(Hashtable hashtable, CardSource card) =>
         CanActivateOnDeletion(hashtable, card);
 
-    /// <summary>AS-IS <c>AscensionProcess</c> (KeyWordEffects/Ascension.cs:29): owner chooses whether to place
-    /// this deleted card as the top security card. STOP (design item RD-P6C2-1). (R2-B) The
-    /// <c>card.Owner.CanAddSecurity</c> gate and the Yes/No <c>userSelectionManager.SetBoolSelection</c>/
-    /// <c>WaitForEndSelect</c>/<c>SelectedBoolValue</c> selection now all have mirror substrate — the remaining
-    /// gap is only <c>CardObjectController.AddSecurityCard(card, true)</c> (RemoveFromAllArea + DigiEgg/Token
-    /// branches + Insert-at-security-top + IAddSecurity emit): a whole CardObjectController zone-move helper,
-    /// which is a CardController-region re-housing (R2 CardController / zone-move), out of R2-B's keyword-Process
-    /// scope — porting only part of it would be simplification. Kept STOP, gap narrowed.</summary>
-    public static Task AscensionProcess(Hashtable hashtable, ICardEffect activateClass, CardSource card)
+    /// <summary>(R3-A) 1:1 of AS-IS <c>AscensionProcess</c> (KeyWordEffects/Ascension.cs:29-51): the owner of a
+    /// deleted card with &lt;Ascension&gt; chooses whether to place it as the top security card. RD-P6C2-1 RESOLVED:
+    /// the last gap — <c>CardObjectController.AddSecurityCard(card, true)</c> — now exists (mirror
+    /// <see cref="CardObjectController.AddSecurityCard"/>, R3-A). ADAPTATION: AS-IS <c>card.Owner.CanAddSecurity(x)</c>
+    /// (Player method) → <c>new Player(card.Context, card.Owner).CanAddSecurity(x.EffectSourceCard?.InstanceId)</c>
+    /// (mirror <c>card.Owner</c> is a <c>HeadlessPlayerId</c>); the bool selection is the verified W5 substrate
+    /// (SetBoolSelection/WaitForEndSelect/SelectedBoolValue, BT1_111 precedent). unused <paramref name="hashtable"/>
+    /// kept for AS-IS surface parity.</summary>
+    public static async Task AscensionProcess(Hashtable hashtable, ICardEffect activateClass, CardSource card)
     {
-        throw new NotSupportedException(
-            "AscensionProcess: AS-IS CardObjectController.AddSecurityCard(card, true) has no mirror zone-move " +
-            "primitive yet — design item RD-P6C2-1, docs/audit/rebuild_p6_cluster2_notes.md.");
+        _ = hashtable; // AS-IS AscensionProcess never reads its hashtable param.
+        if (new Player(card.Context, card.Owner).CanAddSecurity(activateClass?.EffectSourceCard?.InstanceId))
+        {
+            string selectPlayerMessage = "Will you place this card in security?";
+            string notSelectPlayerMessage = "The opponent is choosing if they will use Ascension.";
+
+            List<SelectionElement<bool>> command_SelectCommands = new List<SelectionElement<bool>>()
+            {
+                new SelectionElement<bool>(message: $"Yes", value: true, spriteIndex: 0),
+                new SelectionElement<bool>(message: $"No", value: false, spriteIndex: 1),
+            };
+
+            GManager.instance.userSelectionManager.SetBoolSelection(selectionElements: command_SelectCommands, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+
+            await GManager.instance.userSelectionManager.WaitForEndSelect();
+
+            if (GManager.instance.userSelectionManager.SelectedBoolValue)
+            {
+                await CardObjectController.AddSecurityCard(card, true);
+            }
+        }
     }
 }

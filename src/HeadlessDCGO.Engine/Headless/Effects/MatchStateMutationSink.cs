@@ -33,13 +33,19 @@ using HeadlessDCGO.Engine.Headless.State;
 /// the mirror CardController / CardEffectCommons themselves consult (RestrictionScan / IsRestrictedByCauseNewModel,
 /// ContinuousImmunityGate.BlocksOpponentEffect = CardSource.CanNotBeAffected). What remains sink-local is pure
 /// zone-move APPLICATION substrate — repository Upsert, IZoneMover calls, metadata/batch-id stamping and CardMoved
-/// event emission. STOPs (R3): (RD-R2-02) the cause-conditional deletion/return/de-digivolve/stack-trash immunity
-/// cannot rewire to Permanent.CanBeDestroyedBySkill(effect) / CardSource.CanNotBeAffected(effect) because an
-/// EffectMutation carries only the causing SOURCE entity id, not the live ICardEffect those getters take — needs
-/// the mirror DestroyPermanentsClass to thread the real cardEffect; (RD-R2-03) the player-security judgment stays
-/// the authoritative scan here because the mirror Player.CanAddSecurity is a stub (MIG3-CANADDSECURITY); (RD-R2-04)
-/// the deletion-replacement WINDOW pipeline (DeletionReplacementTiming/Gate option queue, batch-defer, Fortitude,
-/// DestroyPermanentsClass window order) is R3 per bigbang §3-R2 and stays intact below.
+/// event emission. STOPs (R3): (RD-R2-02) RESOLVED AT ITS AS-IS HOME (R3-A): the mirror
+/// <see cref="Assets.Scripts.Script.DestroyPermanentsClass"/> now exists and threads the LIVE causing ICardEffect
+/// (read from its Hashtable via CardEffectCommons.GetCardEffectFromHashtable) into the AS-IS per-target immunity
+/// filter <c>!TopCard.CanNotBeAffected(cardEffect) &amp;&amp; permanent.CanBeDestroyedBySkill(cardEffect)</c> — no more
+/// source-id-only cause seam. The LIVE sink Delete path below still uses the local RestrictionScan /
+/// IsRestrictedByCauseNewModel seam; routing ApplyDelete's emission THROUGH DestroyPermanentsClass (bigbang §3-R2
+/// item 4) is deferred as design item RD-R3-01 — blocked until the parallel R3-B batch lands the mirror cut-in
+/// DRAIN (AutoProcessing.TriggeredSkillProcess, RD-P6C1-3): until then a would-be-deleted replacement window would
+/// throw, and the deletion-replacement machine below is still co-consumed by BattleResolver / SecurityResolver
+/// (out of R3-A scope). (RD-R2-03) the player-security judgment stays the authoritative scan here because the
+/// mirror Player.CanAddSecurity is a stub (MIG3-CANADDSECURITY); (RD-R2-04 / RD-R3-01) the deletion-replacement
+/// WINDOW pipeline (DeletionReplacementTiming/Gate option queue, batch-defer, Fortitude, DestroyPermanentsClass
+/// window order) stays intact below = the live path until the RD-R3-01 cutover.
 /// </summary>
 public sealed class MatchStateMutationSink : IEffectMutationSink
 {
