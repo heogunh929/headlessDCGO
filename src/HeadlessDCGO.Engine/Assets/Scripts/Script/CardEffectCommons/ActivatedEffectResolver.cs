@@ -464,6 +464,37 @@ public static class ActivatedEffectResolver
             effects = effects.Where(e => e is not ReuseWhenDigivolvingEffect).ToList();
         }
 
+        return await ResolveWithinCycleAsync(
+            context, sink,
+            () => ResolveListAsync(
+                context, effect, card, players, sink, effects, cancellationToken, drivingEvent,
+                declarative: declarative, windowDispatched: windowDispatched, hashtable: hashtable, timing: timing),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>(R3-W1b step a) The resolver's VERIFIED per-resolution suspend/resume cycle, extracted as a
+    /// substrate wrapper so the rehoused trigger window (AS-IS <c>MultipleSkills</c>, which resolves ONE
+    /// stacked skill per pick) reuses the IDENTICAL lifecycle instead of re-inventing it:
+    /// <list type="bullet">
+    /// <item><c>IDeferredChoiceCoordinator.BeginResolution</c> / <c>CompleteResolution</c> — the W7 deferred-choice
+    /// cycle (a <c>ChooseAsync</c> that suspends replays its answer on the re-invocation);</item>
+    /// <item><c>OnceFlags.BeginUniformCycle</c> — the register-before-body transaction: consumes staged during the
+    /// run are kept across a suspend (replayed) and committed once on completion, BEFORE the sink flush so windows
+    /// opened by the flushed events read committed caps;</item>
+    /// <item>on a <c>DeferredChoicePendingException</c> / <c>WindowChoicePendingException</c> the (fresh, unflushed)
+    /// sink is NOT flushed and the cycle is SUSPENDED (nothing partially applied) — the caller treats it as pending
+    /// and re-invokes once the agent answers; any other throw ABORTS the cycle.</item>
+    /// </list>
+    /// The caller holds the <see cref="AmbientMatchContext"/> scope and owns the <paramref name="sink"/> (so the
+    /// same sink flushes exactly once here); <paramref name="resolveEffects"/> runs the body (a full effect list for
+    /// <see cref="ResolveAsync"/>, or a single stacked skill for the window). Behaviour-identical to the former
+    /// in-line cycle in <see cref="ResolveAsync"/>.</summary>
+    internal static async Task<int> ResolveWithinCycleAsync(
+        EngineContext context,
+        MatchStateMutationSink sink,
+        Func<Task<int>> resolveEffects,
+        CancellationToken cancellationToken)
+    {
         var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
         coordinator?.BeginResolution();
         bool cycleOwner = context.OnceFlags.BeginUniformCycle();
@@ -471,9 +502,7 @@ public static class ActivatedEffectResolver
         int resolved;
         try
         {
-            resolved = await ResolveListAsync(
-                context, effect, card, players, sink, effects, cancellationToken, drivingEvent,
-                declarative: declarative, windowDispatched: windowDispatched, hashtable: hashtable, timing: timing).ConfigureAwait(false);
+            resolved = await resolveEffects().ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is DeferredChoicePendingException or WindowChoicePendingException)
         {
