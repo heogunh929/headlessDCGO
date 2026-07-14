@@ -796,7 +796,7 @@ public sealed class AttackProcess
     /// EX8_050, BT18_073, …). Runs the FULL AS-IS sequence: guards -> retarget -> (block) blocker suspend +
     /// OnBlockAnyone -> attacker/defender death checks -> OnAttackTargetChanged (emitted HERE, centralized —
     /// design item F1-ATC-EMIT-CENTRALIZE resolved).</summary>
-    public Task SwitchDefender(
+    public async Task SwitchDefender(
         HeadlessEntityId? causeEffectSourceId,
         bool isBlock,
         HeadlessEntityId? newDefendingPermanentId)
@@ -806,17 +806,17 @@ public sealed class AttackProcess
         // AS-IS :516-519 — guards: live attacker, live new defender (when any), CanSwitchAttackTarget.
         if (attack.AttackerId is not HeadlessEntityId attackerId || !AttackerAlive())
         {
-            return Task.CompletedTask;
+            return;
         }
 
         if (newDefendingPermanentId is HeadlessEntityId newDefender && !PermanentAlive(newDefender))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         if (AttackTargetSwitchGate.IsLocked(_context, attackerId))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         HeadlessEntityId? oldDefendingPermanentId = attack.TargetId;
@@ -835,6 +835,22 @@ public sealed class AttackProcess
         // carried in full on both emits below (no payload reduction).
         Dictionary<string, object?> switchMetadata = SwitchEventMetadata(causeEffectSourceId, newDefendingPermanentId, isBlock);
 
+        // (C1b) AS-IS AttackProcess.cs:536-545 — the StackSkillInfos window hashtable, built ONCE (capturing the
+        // permanents post-retarget) and SHARED by both emits below, exactly like AS-IS. CardEffect is null here:
+        // both mirror callers (BlockTiming block-select, RaidAttackSwitch redirect) pass a null cause — the AS-IS
+        // block path also passes null, and the card-redirect live-effect loss is the pre-existing RaidAttackSwitch
+        // null-cause substrate gap (F1-ATC-EMIT-CENTRALIZE / RDW-05), NOT a C1b re-thread target (no card call site).
+        var attackSwitchWindow = new System.Collections.Hashtable
+        {
+            { "AttackingPermanent", AttackingPermanent },
+            { "DefendingPermanent", DefendingPermanent },
+            { "CardEffect", null },
+        };
+        if (isBlock)
+        {
+            attackSwitchWindow.Add("IsBlock", isBlock); // AS-IS :544 — the IsBlock key present only on the block path.
+        }
+
         // AS-IS :547-564 — block: suspend the blocker, then the [When Blocking] window (OnBlockAnyone). The gate
         // reads the ATTACKER (CanTriggerOnAttack over AttackingPermanent) — subject = the attacker.
         if (isBlock && newDefendingPermanentId is HeadlessEntityId suspendTarget)
@@ -846,6 +862,15 @@ public sealed class AttackProcess
                 actor: attack.AttackingPlayerId,
                 subject: attackerId,
                 extraMetadata: switchMetadata);
+
+            // (C1b design item RD-C1-ATTACK-BGFX) AS-IS AttackProcess.cs:560-562
+            // StackSkillInfos(attackSwitchWindow, OnBlockAnyone) — the main-instance insert is DEFERRED to C2, same
+            // class as C1's OnAllyAttack/OnEndAttack deferral: StackSkillInfos immediately runs ActivateBackgroundEffects
+            // (enumerating GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer), which the AttackProcess
+            // unit harnesses that exercise SwitchDefender (G3.5-A3.BlockerSuspend / G2G-002.Block.timing /
+            // F1-Tier2-OnBlockAnyone) do NOT set up — they already NRE pre-insert (verified: the block harnesses stay
+            // red with the insert DISABLED). C2 lands `await ...StackSkillInfos(attackSwitchWindow, OnBlockAnyone)` here
+            // once the ambient context is reconciled. Async host + payload (attackSwitchWindow) are landed now.
         }
 
         // AS-IS :566-582 — death checks: the attacker or the new defender died during the block sequence ->
@@ -853,13 +878,13 @@ public sealed class AttackProcess
         if (!AttackerAlive())
         {
             _context.AttackController.ClearBlockingFlag("Attacker died during the switch.");
-            return Task.CompletedTask;
+            return;
         }
 
         if (newDefendingPermanentId is HeadlessEntityId defenderCheck && !PermanentAlive(defenderCheck))
         {
             _context.AttackController.ClearBlockingFlag("New defender died during the switch.");
-            return Task.CompletedTask;
+            return;
         }
 
         // AS-IS :584-617 — target arrows: stripped.
@@ -873,9 +898,13 @@ public sealed class AttackProcess
                 actor: attack.AttackingPlayerId,
                 subject: attackerId,
                 extraMetadata: switchMetadata);
-        }
 
-        return Task.CompletedTask;
+            // (C1b design item RD-C1-ATTACK-BGFX) AS-IS AttackProcess.cs:622-624
+            // StackSkillInfos(attackSwitchWindow, OnAttackTargetChanged) — DEFERRED to C2 for the same BGFX reason as
+            // the OnBlockAnyone insert above; it reuses the SAME shared hashtable (AS-IS reuses it, so the IsBlock key
+            // rides along when isBlock was true). C2 lands `await ...StackSkillInfos(attackSwitchWindow,
+            // OnAttackTargetChanged)` here. Async host + payload landed now.
+        }
     }
 
     // ===== Substrate helpers ======================================================================================

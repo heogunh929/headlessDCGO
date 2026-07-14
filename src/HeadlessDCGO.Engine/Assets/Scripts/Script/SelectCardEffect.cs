@@ -592,14 +592,14 @@ public sealed class SelectCardEffect
                             List<IDiscardHand> discardHands = _targetCards
                                 .Select(targetCard => new IDiscardHand(targetCard))
                                 .ToList();
-                            await new IDiscardHands(discardHands, causeId).DiscardHands().ConfigureAwait(false);
+                            await new IDiscardHands(discardHands, causeId, _cardEffect).DiscardHands().ConfigureAwait(false);
                         }
                         else if (Commons.IsExistLinked(cardSource))
                         {
                             await new ITrashLinkCards(
                                 ICardEffect.ResolvePermanentOfThisCard(cardSource),
                                 new List<CardSource> { cardSource },
-                                causeId).TrashLinkCards().ConfigureAwait(false);
+                                causeId, _cardEffect).TrashLinkCards().ConfigureAwait(false);
                         }
                         // After IsExistLinked, this would be digivolution cards, or topcard which should have
                         // been disbarred by selection condition. (AS-IS comment kept.)
@@ -608,7 +608,7 @@ public sealed class SelectCardEffect
                             await new ITrashDigivolutionCards(
                                 ICardEffect.ResolvePermanentOfThisCard(cardSource),
                                 new List<CardSource> { cardSource },
-                                causeId).TrashDigivolutionCards().ConfigureAwait(false);
+                                causeId, _cardEffect).TrashDigivolutionCards().ConfigureAwait(false);
                         }
                         else
                         {

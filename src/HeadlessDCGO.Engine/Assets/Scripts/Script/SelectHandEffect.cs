@@ -281,7 +281,7 @@ public sealed class SelectHandEffect
                 // AS-IS :899-902 — one IDiscardHands call over the whole selected list (one shared discard batch id).
                 if (discardHands.Count > 0)
                 {
-                    await new IDiscardHands(discardHands, causeId).DiscardHands().ConfigureAwait(false);
+                    await new IDiscardHands(discardHands, causeId, _cardEffect).DiscardHands().ConfigureAwait(false);
                 }
             }
 

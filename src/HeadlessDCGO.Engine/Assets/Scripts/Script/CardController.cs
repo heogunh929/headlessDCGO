@@ -52,7 +52,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// </summary>
 public class IDiscardHands
 {
-    public IDiscardHands(List<IDiscardHand> discardHands, HeadlessEntityId? causeEffectSourceId)
+    public IDiscardHands(List<IDiscardHand> discardHands, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
     {
         foreach (IDiscardHand discardHand in discardHands)
         {
@@ -60,10 +60,15 @@ public class IDiscardHands
         }
 
         _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
     }
 
     List<IDiscardHand> discardHands { get; set; } = new List<IDiscardHand>();
     readonly HeadlessEntityId? _causeEffectSourceId;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD) AS-IS `ICardEffect cardEffect` re-threaded ALONGSIDE the cause id (the id
+    // still stamps the substrate move; the live effect feeds the AS-IS window hashtable). null on rule-process
+    // paths exactly like the AS-IS null cardEffect.
+    readonly ICardEffect? _cardEffect;
     public bool HasDiscarded { get; set; }
 
     public async Task DiscardHands(CancellationToken cancellationToken = default)
@@ -97,6 +102,14 @@ public class IDiscardHands
         {
             // AS-IS :42-60 "[When cards are trashed from hand]" — the Hand->Trash moves above already derive
             // OnDiscardHand (batch-collapsed on the shared id); a manual emit here would double-fire.
+
+            // (C1b) AS-IS CardController.cs:42-56 — drained from C2 flip. StackSkillInfos({"DiscardedCards",
+            // discardedCards}, {"CardEffect", cardEffect}, OnDiscardHand). Live _cardEffect re-threaded from the
+            // in-scope Select* callers (RD-C1-CARDEFFECT-IDTHREAD); carrier zone-derivation stays (main inert).
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable { { "DiscardedCards", discardedCards }, { "CardEffect", _cardEffect } },
+                EffectTiming.OnDiscardHand).ConfigureAwait(false);
+
             HasDiscarded = true;
         }
 
@@ -545,8 +558,9 @@ public class IDigiBurst
 
                 #endregion
 
-                // trash digivolution cards (AS-IS :2233; ICardEffect -> cause id, the mirror carrier's shape).
-                await new ITrashDigivolutionCards(_permanent, selectedCards, CauseEffectSourceId).TrashDigivolutionCards().ConfigureAwait(false);
+                // trash digivolution cards (AS-IS :2233 `new ITrashDigivolutionCards(_permanent, selectedCards,
+                // _cardEffect)`; cause id stamps the substrate move, the live _cardEffect feeds the window hashtable).
+                await new ITrashDigivolutionCards(_permanent, selectedCards, CauseEffectSourceId, _cardEffect).TrashDigivolutionCards().ConfigureAwait(false);
 
                 foreach (CardSource cardSource in selectedCards)
                 {
@@ -1048,11 +1062,12 @@ public class IMassDegeneration
 /// </summary>
 public class ITrashDigivolutionCards
 {
-    public ITrashDigivolutionCards(Permanent permanent, List<CardSource> trashTargetCards, HeadlessEntityId? causeEffectSourceId)
+    public ITrashDigivolutionCards(Permanent permanent, List<CardSource> trashTargetCards, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
     {
         _permanent = permanent;
         _trashTargetCards = trashTargetCards is null ? null : new List<CardSource>(trashTargetCards);
         _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
     }
 
     public bool IsTrashed(CardSource cardSource) => TrashedCards.Any(trashed => trashed.InstanceId == cardSource.InstanceId);
@@ -1061,6 +1076,9 @@ public class ITrashDigivolutionCards
     List<CardSource>? _trashTargetCards;
     public List<CardSource> TrashedCards { get; } = new();
     readonly HeadlessEntityId? _causeEffectSourceId;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD) AS-IS `ICardEffect cardEffect` re-threaded alongside the cause id. AS-IS
+    // REQUIRES a live cause here (:5151 early-exit on null) — the id gate below already enforces that.
+    readonly ICardEffect? _cardEffect;
 
     public async Task TrashDigivolutionCards(CancellationToken cancellationToken = default)
     {
@@ -1109,6 +1127,22 @@ public class ITrashDigivolutionCards
         List<CardSource> trashDigivolutionCardsFixed = _trashTargetCards
             .Where(cs => cs != null && ReadWillBeRemoveSources(context, cs.InstanceId))
             .ToList();
+
+        // (C1b) AS-IS CardController.cs:5206-5215 — drained from C2 flip. StackSkillInfos({"CardEffect", cardEffect},
+        // {"Permanent", permanentTargetFixed}, {"DiscardedCards", trashDigivolutionCardsFixed},
+        // OnDigivolutionCardDiscarded), fired BEFORE the removal (AS-IS :5215 precedes AceOverflow :5219). Live
+        // _cardEffect re-threaded from the in-scope IDigiBurst + SelectCardEffect callers (RD-C1-CARDEFFECT-IDTHREAD).
+        // Design item RD-C1b-DIGIDISCARD-POS: the CARRIER emit for this timing lives in
+        // DigivolutionStackHelpers.TrashSpecificSourcesAsync (Headless substrate), a position divergence from the
+        // AS-IS in-class :5215 emit — position re-housing is out of C1b scope (main-instance insert here is inert).
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            new System.Collections.Hashtable
+            {
+                { "CardEffect", _cardEffect },
+                { "Permanent", permanentTargetFixed },
+                { "DiscardedCards", trashDigivolutionCardsFixed },
+            },
+            EffectTiming.OnDigivolutionCardDiscarded).ConfigureAwait(false);
 
         // AS-IS :5202-5234: OnDigivolutionCardDiscarded window + AceOverflow (over the ORIGINAL unfixed list,
         // :5219 — see the goal-3 memory quirk note) + physical removal loop — the substrate helper owns all
@@ -1185,13 +1219,14 @@ public class ITrashLinkCards
     /// trash targets before the (dead) would-discard cut-in, re-filtered after, cleared per removal.</summary>
     public const string WillBeRemoveSourcesKey = "willBeRemoveSources";
 
-    public ITrashLinkCards(Permanent permanent, List<CardSource> trashTargetCards, HeadlessEntityId? causeEffectSourceId)
+    public ITrashLinkCards(Permanent permanent, List<CardSource> trashTargetCards, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
     {
         _permanent = permanent;
 
         _trashTargetCards = trashTargetCards is null ? null : new List<CardSource>(trashTargetCards);
 
         _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
     }
 
     public bool IsTrashed(CardSource cardSource)
@@ -1203,6 +1238,9 @@ public class ITrashLinkCards
     List<CardSource>? _trashTargetCards = new();
     public List<CardSource> TrashedLinkCards = new();
     readonly HeadlessEntityId? _causeEffectSourceId;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD) AS-IS `ICardEffect cardEffect` re-threaded alongside the cause id — null on
+    // the rule-process paths (AutoProcessing DigimonLackLinkCondition), exactly like the AS-IS null cardEffect.
+    readonly ICardEffect? _cardEffect;
 
     public async Task TrashLinkCards(CancellationToken cancellationToken = default)
     {
@@ -1274,6 +1312,19 @@ public class ITrashLinkCards
             actor: permanentTarget_Fixed.OwnerId,
             subject: permanentTarget_Fixed.InstanceId,
             extraMetadata: extraMetadata);
+
+        // (C1b) AS-IS CardController.cs:5314-5327 — drained from C2 flip. StackSkillInfos({"CardEffect", cardEffect},
+        // {"Permanent", permanentTarget_Fixed}, {"DiscardedCards", trashLinkCards_Fixed}, OnLinkCardDiscarded). Live
+        // _cardEffect re-threaded from the in-scope SelectCardEffect caller (RD-C1-CARDEFFECT-IDTHREAD); the carrier
+        // Emit above stays (main inert). The MetadataActionProcessor caller passes id-only (off-limits this batch).
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            new System.Collections.Hashtable
+            {
+                { "CardEffect", _cardEffect },
+                { "Permanent", permanentTarget_Fixed },
+                { "DiscardedCards", trashLinkCards_Fixed },
+            },
+            EffectTiming.OnLinkCardDiscarded).ConfigureAwait(false);
         #endregion
 
         // AS-IS :5332 `new AceOverflowClass(_trashTargetCards).Overflow()` — (MIG3-3a) now the mirror class
