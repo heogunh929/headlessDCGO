@@ -170,7 +170,7 @@ public static class DeletionReplacementGate
             if (candidateId == target.InstanceId ||
                 !repository.TryGetInstance(candidateId, out CardInstanceRecord? decoy) ||
                 decoy is null ||
-                !HasDecoy(decoy, candidateId, target, effectRegistry, context) ||
+                !HasDecoy(decoy, candidateId, target, effectRegistry, context, deleterId) ||
                 ReadFlag(decoy.Metadata, CannotBeDeletedKey) ||
                 (candidateCondition is not null && !candidateCondition(decoy)))
             {
@@ -457,10 +457,21 @@ public static class DeletionReplacementGate
     // against the PROTECTED target (AS-IS Decoy.cs CanSelectPermanentCondition — e.g. "Decoy ([Bagra
     // Army])" only redirects deletions of Bagra Army Digimon). Context-less callers (sink defer superset)
     // treat a stored predicate as passing; the context-aware choice paths evaluate strictly.
-    private static bool HasDecoy(CardInstanceRecord decoy, HeadlessEntityId decoyId, CardInstanceRecord target, EffectRegistry? effectRegistry, EngineContext? context) =>
+    // (RD-P6B-14 partial resolution) UNION NewModelContinuousScan.DecoyAcceptsSubject — the real AS-IS-shaped
+    // joint (holder, candidate) scan (Decoy.cs CanUseCondition, evaluated via CanTrigger over the exact
+    // hashtable shape the live WhenPermanentWouldBeDeleted window builds) for a ported new-model DecoySelfEffect
+    // grant (ActivateClass, no ToBinding — KeywordGrantAcceptsSubject's registry-only scan can never see it).
+    // Context-less callers keep the EXACT prior behaviour (this union is gated on `context is not null`,
+    // matching KeywordGrantAcceptsSubject's own existing strict-vs-superset switch) — no behaviour change for
+    // the sink's defer decision.
+    private static bool HasDecoy(
+        CardInstanceRecord decoy, HeadlessEntityId decoyId, CardInstanceRecord target, EffectRegistry? effectRegistry, EngineContext? context,
+        HeadlessEntityId causingSourceId = default) =>
         ReadFlag(decoy.Metadata, HasDecoyKey)
         || (effectRegistry is not null && ContinuousKeywordGate.KeywordGrantAcceptsSubject(
-                effectRegistry, decoyId, ContinuousKeywordGate.Decoy, target.InstanceId, target.OwnerId, context));
+                effectRegistry, decoyId, ContinuousKeywordGate.Decoy, target.InstanceId, target.OwnerId, context))
+        || (context is not null && Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.DecoyAcceptsSubject(
+                context, decoyId, target.InstanceId, target.OwnerId, causingSourceId));
 
     // (D1) AS-IS Decoy protects only DIGIMON permanents (IsPermanentExistsOnOwnerBattleAreaDigimon on the
     // protected candidate). Checkable only with a context (CardRepository lookup); context-less callers keep
@@ -473,9 +484,20 @@ public static class DeletionReplacementGate
     // (M-4) Same seal as Decoy for the other deletion-replacement keywords: the metadata flag is only ever set
     // in tests, and there is no keyword->metadata bridge, so the live keyword grant (Fragment/Scapegoat/Save)
     // must be recognised here for the mechanism to fire in production.
+    // (RD-P6B-14 RESOLVED) This method (and every caller up through DeletionReplacementTiming.PreOptions) has
+    // no EngineContext parameter to thread — only an EffectRegistry — so it could previously reach ONLY
+    // ContinuousKeywordGate.HasKeyword(EffectRegistry,…) (the pure-legacy-registry overload), never the
+    // EngineContext-aware union that also consults NewModelContinuousScan.HasKeyword (a ported new-model
+    // keyword kind-class registers no binding, so the registry-only overload can never see it). Reach that
+    // union WITHOUT threading a context parameter through every call site (out of this pass's touch scope —
+    // DeletionReplacementTiming.cs is not a *Gate.cs file) via AmbientMatchContext.Current — the same
+    // AsyncLocal handle NewModelContinuousScan's own methods self-scope from, and the substrate's designed
+    // "GManager.instance without parameter-threading" mechanism. A caller that already entered the match's
+    // ambient scope (real gameplay, or a test that does so explicitly) is covered for free.
     internal static bool HasReplacementKeyword(CardInstanceRecord record, string metadataFlag, string keyword, EffectRegistry? effectRegistry) =>
         ReadFlag(record.Metadata, metadataFlag)
-        || (effectRegistry is not null && ContinuousKeywordGate.HasKeyword(effectRegistry, record.InstanceId, keyword));
+        || (effectRegistry is not null && ContinuousKeywordGate.HasKeyword(effectRegistry, record.InstanceId, keyword))
+        || (AmbientMatchContext.Current is EngineContext ambient && ContinuousKeywordGate.HasKeyword(ambient, record.InstanceId, keyword));
 
 
     public static IReadOnlyList<HeadlessEntityId> FindDecoyRedirectCandidates(

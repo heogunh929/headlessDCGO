@@ -58,18 +58,19 @@ async Task AddedLegal()
     var evo = await PlaceEvolve(context, "EVO", printed: "Green@4");
 
     var evoCard = new CardSource(context, evo, P1);
-    // MIGRATION-NOTE (P7 test-fix): the old (color, level, isInheritedEffect, card, condition) short-form
-    // overload of the *Requirement factory is gone; the current signatures are the AS-IS verbose
-    // AddDigivolutionRequirementStaticEffect(permanentCondition, cardCondition, ignoreDigivolutionRequirement,
-    // digivolutionCost, isInheritedEffect, card, condition, effectName, ..., cardColor, level, ...) or the
-    // self-scoped AddSelfDigivolutionRequirementStaticEffect wrapper used here (cardCondition defaults to
-    // "this card"). digivolutionCost: 2 matches the card's fixedDigivolutionCost/the memoryCost paid below.
-    // AddDigivolutionRequirementClass is a new-model kind-class with no ToBinding/EffectRegistry bridge
-    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). DigivolveAction's evaluation reads only the
-    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
-    // observable yet. The factory call is kept (still exercises construction); Register/ToBinding is
-    // dropped. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
-    // silently weakened.
+    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope):
+    // AddSelfDigivolutionRequirementStaticEffect returns AddDigivolutionRequirementClass
+    // (ICardEffect, IAddDigivolutionRequirementEffect — GetEvoCost(Permanent, CardSource, IgnoreRequirement,
+    // bool)), the REAL AS-IS mechanism (mirrors CardSource.EvoCosts/CostList's IAddDigivolutionRequirementEffect
+    // scan, DCGO CardSource.cs:534-590). DigivolveAction's added-requirement consumer
+    // (MatchesAddedDigivolutionRequirement / TryGetAddedDigivolutionCost / OwnAddedRequirementRequests) instead
+    // reads a DIFFERENT, older legacy shape (AddedDigivolutionRequirementEffect /
+    // AddedDigivolutionRequirementPredicateEffect, registry-key-based: AddedEvolutionConditionKey /
+    // AddedEvolutionPredicateKey) — the two were never unified. Unioning the new-model
+    // IAddDigivolutionRequirementEffect.GetEvoCost scan in requires editing DigivolveAction.cs, which is NOT a
+    // Headless/Runtime/*Gate.cs file (this pass's mandated touch scope covers NewModelContinuousScan.cs +
+    // *Gate.cs + MatchStateMutationSink.cs only) — a plain private static consumer, no Gate indirection exists
+    // to union into instead. Not forced; left failing.
     CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: null,
         digivolutionCost: 2,
@@ -94,9 +95,11 @@ async Task ConditionGates()
     var evo = await PlaceEvolve(context, "EVO", printed: "Green@4");
 
     var evoCard = new CardSource(context, evo, P1);
-    // MIGRATION-NOTE (P7 test-fix): see AddedLegal above — AddDigivolutionRequirementClass has no
-    // ToBinding/EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding
-    // dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
+    // NOTE: same STOP as AddedLegal above (DigivolveAction.cs is not a *Gate.cs touch-scope file) — this
+    // assertion PASSES, but for the WRONG reason today: the grant is entirely unobserved regardless of
+    // `condition`, so "illegal" holds whether or not the false condition is honoured (the same
+    // "false green" class flagged elsewhere in this pass — protection never firing looks identical to
+    // "correctly not granted"). Not a false claim of fidelity; left as a documented coincidental pass.
     CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: null,
         digivolutionCost: 2,

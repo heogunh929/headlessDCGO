@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -70,33 +71,56 @@ void UnportedAliasIsNoOp()
 void RegisterCardUsesAlias()
 {
     EngineContext context = Context();
+    using var _ambientScope = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("ST2_07def"), "ST2_07", "Grizzlymon",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["effectClass"] = "ST1_06" }, CardType: "Digimon"));
     var id = new HeadlessEntityId("p1:battle:ST2_07");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("ST2_07def"), P1));
+    // TEST-BUG FIX: BlockerSelfStaticEffect's CanUseCondition requires IsExistOnBattleAreaDigimon(card), and
+    // NewModelContinuousScan.HasBlocker only scans field permanents (Player.GetFieldPermanents()) — a card
+    // instance that is never actually moved onto the battle area is neither, so the original assertion
+    // (checking the legacy registry) coincidentally never exercised this gap. Place it for real.
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
 
     AssertTrue(CardEffectRegistrar.RegisterCard(context, id, P1), "alias card registered");
-    AssertTrue(context.EffectRegistry.GetKeywordEffects("Blocker").Count >= 1, "ST2_07 gained <Blocker> via ST1_06");
+    // SEAM/observation fix: <Blocker> (BT1_06's BlockerSelfStaticEffect) is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge — GetKeywordEffects("Blocker") (the legacy substrate registry) can never
+    // see it. The AS-IS-faithful observation point is the unioned ContinuousKeywordGate.HasKeyword (which
+    // reads the card's live dispatched CEntity_Effect via NewModelContinuousScan.HasBlocker), the same gate
+    // every other keyword-presence test in this pass uses.
+    AssertTrue(HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.HasKeyword(
+        context, id, HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.Blocker), "ST2_07 gained <Blocker> via ST1_06");
 }
 
 void RegisterCardNonAliasUnchanged()
 {
     EngineContext context = Context();
+    using var _ambientScope = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     // effectClass equals the card number, as for normal loaded cards — must behave identically.
     cards.Upsert(new CardRecord(new HeadlessEntityId("ST1_06def"), "ST1_06", "Grizzlymon",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["effectClass"] = "ST1_06" }, CardType: "Digimon"));
     var id = new HeadlessEntityId("p1:battle:ST1_06");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("ST1_06def"), P1));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
 
     AssertTrue(CardEffectRegistrar.RegisterCard(context, id, P1), "non-alias card registered");
-    AssertTrue(context.EffectRegistry.GetKeywordEffects("Blocker").Count >= 1, "ST1_06 gained <Blocker>");
+    AssertTrue(HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.HasKeyword(
+        context, id, HeadlessDCGO.Engine.Headless.Runtime.ContinuousKeywordGate.Blocker), "ST1_06 gained <Blocker>");
 }
 
 // --- Helpers -------------------------------------------------------------
 
-EngineContext Context() => EngineContext.CreateDefault(randomSeed: 901);
+EngineContext Context()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 901);
+    context.TurnController.Initialize(new[] { P1, new HeadlessPlayerId(2) }, P1);
+    // (P7 test-fix pattern) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past
+    // None/Setup) unconditionally — without this the new-model HasKeyword scan trivially returns false.
+    context.TurnController.SetPhase(HeadlessDCGO.Engine.Headless.Runtime.HeadlessPhase.Main);
+    return context;
+}
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T expected, T actual, string label)

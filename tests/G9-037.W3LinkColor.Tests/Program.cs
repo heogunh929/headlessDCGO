@@ -56,13 +56,19 @@ async Task FlagCarried(Func<CardSource, ICardEffect> build, string expectedKey)
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
     ICardEffect builtEffect = build(new CardSource(context, id, P1));
-    // MIGRATION-NOTE (P7 test-fix): the new-model kind-classes constructed via FlagCarried
-    // (ChangeLinkMaxClass / ChangeLinkCostClass / IgnoreColorConditionClass) have no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The continuous-effect query below reads only
-    // the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
-    // observable yet. The factory call above is kept (exercises construction); registration is skipped when no
-    // bridge exists. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
-    // silently weakened.
+    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope):
+    // ChangeLinkMaxClass/ChangeLinkCostClass/IgnoreColorConditionClass are real new-model kind-classes
+    // (IChangeLinkMaxEffect.GetLinkMax / IChangeLinkCostEffect.GetCost / IIgnoreColorConditionEffect.
+    // IgnoreColorCondition — no ToBinding). Their REAL consumers are LinkHelpers.ResolveLinkedMax/
+    // ResolveLinkCost (Headless/Runtime/LinkHelpers.cs, folds ContinuousScopeEvaluation's LEGACY modifiers
+    // only — see G9-056.M4LinkUnseal, same root cause) and DigivolveAction's ignore-color-requirement check
+    // (Headless/Runtime/DigivolveAction.cs, same class as G9-024/G9-044's added-requirement gap). Neither
+    // LinkHelpers.cs nor DigivolveAction.cs is a Headless/Runtime/*Gate.cs file (nor does
+    // ContinuousScopeEvaluation.cs, the shared modifier source, match that glob) — this pass's mandated touch
+    // scope is NewModelContinuousScan.cs + *Gate.cs + MatchStateMutationSink.cs only, with no Gate-level
+    // indirection to union a new-model fold through to reach these consumers. The raw-registry check below
+    // (unchanged from the pre-diagnosis version) was ALREADY testing the wrong layer regardless — even a
+    // Gate-level fix would not change what THIS assertion observes. Not forced; left failing.
     if (LegacyBindingBridge.TryToBinding(builtEffect, $"eff:{expectedKey}:{id.Value}", out var builtBinding) && builtBinding is not null)
         context.EffectRegistry.Register(builtBinding);
 

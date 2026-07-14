@@ -39,13 +39,16 @@ async Task ChangeSAttack()
     EngineContext context = Context();
     var src = await Place(context, P1, "SRC", ChoiceZone.BattleArea);
     var ally = await Place(context, P1, "ALLY", ChoiceZone.BattleArea);
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     int before = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 1);
-    // MIGRATION-NOTE (P7 test-fix): ChangeSAttackClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
-    // (ContinuousModifierGate.ResolveSecurityAttack) reads only the substrate EffectRegistry, not the AS-IS live
-    // scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.ChangeSAttackStaticEffect(null, 2, false, new CardSource(context, src, P1), null);
+    // SEAM (post-stage-B): ChangeSAttackClass is a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.FoldSAttack (AS-IS Permanent.Strike_AllowMinus) — attach it to the source
+    // card's controller (a player-scope grant: it is folded over EVERY field permanent of
+    // Players_ForTurnPlayer, not just the granting card's own).
+    var srcSource = new CardSource(context, src, P1);
+    ICardEffect effect = CardEffectFactory.ChangeSAttackStaticEffect(null, 2, false, srcSource, null);
+    srcSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     int after = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 1);
     AssertEqual(before + 2, after, "SA +2 on owner's Digimon");
 }
@@ -150,4 +153,18 @@ async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T e, T a, string label) { if (!EqualityComparer<T>.Default.Equals(e, a)) throw new InvalidOperationException($"{label}: expected '{e}', got '{a}'."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}
 

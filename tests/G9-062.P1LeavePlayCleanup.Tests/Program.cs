@@ -39,21 +39,29 @@ async Task BattleDeletionDropsBindings()
     (DcgoMatch match, EngineContext ctx) = await BattleSetup(attackerDp: 5000, targetDp: 3000);
 
     // The doomed defender grants "+1000 DP to the owner's Digimon" (player-scope) — alive it buffs the ally.
-    // MIGRATION-NOTE (P7 test-fix): ChangeDPStaticEffect returns ChangeDPClass (Script/CardEffects/ChangeDPClass.cs),
-    // a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // The gate this test checks (ContinuousDpGate.ResolveDp, via ContinuousScopeEvaluation over the substrate
-    // EffectRegistry) reads only registered EffectRequest bindings, not the AS-IS live CardSource.EffectList scan,
-    // so there is no buildable way to make this grant observable yet. Assertions below are UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.ChangeDPStaticEffect(
-        null, 1000, false, new CardSource(ctx, TargetId, P2), null, effectName: null);
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 4000, "precondition: the buff applies while alive");
+    // SEAM (post-stage-B): ChangeDPStaticEffect returns ChangeDPClass (Script/CardEffects/ChangeDPClass.cs), a
+    // new-model kind-class observed via the unioned NewModelContinuousScan.FoldDp (already unioned into
+    // ContinuousDpGate.ResolveDp) — attach it to the defender's own controller. Once the defender leaves the
+    // battle area, ScanPlayers'/GetFieldPermanents' live scan naturally stops seeing it (no separate "binding
+    // drop" needed for a new-model grant — it was never registered to a substrate the drop-cleanup removes
+    // from; it just falls out of the live scan's scope).
+    var targetSource = new CardSource(ctx, TargetId, P2);
+    ICardEffect dpEffect = CardEffectFactory.ChangeDPStaticEffect(
+        null, 1000, false, targetSource, null, effectName: null);
+    targetSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dpEffect);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 4000, "precondition: the buff applies while alive");
+    }
 
     await DriveAttackAsync(match);
 
     AssertTrue(InZone(ctx, P2, ChoiceZone.Trash, TargetId), "the defender was deleted by battle");
-    AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 3000,
-        "the dead card's buff no longer applies (bindings dropped — previously leaked)");
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        AssertTrue(ContinuousDpGate.ResolveDp(ctx, AllyId, 3000) == 3000,
+            "the dead card's buff no longer applies (bindings dropped — previously leaked)");
+    }
 }
 
 async Task BattleDeletionSnapshotsKeywords()
@@ -61,13 +69,13 @@ async Task BattleDeletionSnapshotsKeywords()
     (DcgoMatch match, EngineContext ctx) = await BattleSetup(attackerDp: 5000, targetDp: 3000);
 
     // Keyword-granted Ascension (no metadata flag) — must survive the binding drop via the snapshot.
-    // MIGRATION-NOTE (P7 test-fix): AscensionSelfEffect returns an ActivateClass (Script/CardEffects/ActivateClass.cs),
-    // a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // The gate this test checks (ContinuousKeywordGate.HasKeyword / DeletionReplacementGate.HasAscensionKey
-    // snapshot) reads only the substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there
-    // is no buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
-    // until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.AscensionSelfEffect(false, new CardSource(ctx, TargetId, P2), null);
+    // SEAM (post-stage-B): AscensionSelfEffect returns an ActivateClass (Script/CardEffects/ActivateClass.cs),
+    // a new-model kind-class observed via the unioned NewModelContinuousScan.HasAscension (already unioned
+    // into ContinuousKeywordGate.HasKeyword, which CardLeavePlayCleanup.SnapshotPostReplacementKeywords already
+    // calls with the context-aware overload) — attach it to the defender's own controller.
+    var targetSource = new CardSource(ctx, TargetId, P2);
+    ICardEffect ascensionEffect = CardEffectFactory.AscensionSelfEffect(false, targetSource, null);
+    targetSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(ascensionEffect);
 
     await DriveAttackAsync(match);
 
@@ -84,12 +92,15 @@ async Task SweepFinishDropsBindings()
     EngineContext ctx = Ctx();
     var holder = await Place(ctx, P1, "HOLDER", dp: 3000);
     var ally = await Place(ctx, P1, "ALLY", dp: 3000);
-    // MIGRATION-NOTE (P7 test-fix): ChangeDPStaticEffect is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See BattleDeletionDropsBindings() above for the
-    // full rationale. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
-    // silently weakened.
-    CardEffectFactory.ChangeDPStaticEffect(
-        null, 1000, false, new CardSource(ctx, holder, P1), null, effectName: null);
+    using var _ambientScope = AmbientMatchContext.Enter(ctx);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    // SEAM (post-stage-B): ChangeDPStaticEffect is a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.FoldDp — see BattleDeletionDropsBindings() above for the full rationale; attach
+    // it to the holder's own controller.
+    var holderSource = new CardSource(ctx, holder, P1);
+    ICardEffect dpEffect = CardEffectFactory.ChangeDPStaticEffect(
+        null, 1000, false, holderSource, null, effectName: null);
+    holderSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(dpEffect);
     AssertTrue(ContinuousDpGate.ResolveDp(ctx, ally, 3000) == 4000, "precondition: buff applies");
 
     // Deferred deletion (pendingDeletion + declined) -> the sweep finishes it.
@@ -198,3 +209,17 @@ static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

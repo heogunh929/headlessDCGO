@@ -39,6 +39,11 @@ async Task Offered(string tag, Func<bool, CardSource, Func<bool>?, ICardEffect> 
     // cEntity_EffectController scan DeletionReplacementGate.HasReplacementKeyword -> ContinuousKeywordGate.
     // HasKeyword -> NewModelContinuousScan.HasEvade/HasBarrier now performs. Attach the built effect via the
     // same seam every ported card definition class uses.
+    // (RD-P6B-14 fix) DeletionReplacementTiming.PreOptions' public signature has no EngineContext parameter to
+    // thread down to HasReplacementKeyword — the union reaches it via AmbientMatchContext.Current instead (the
+    // same AsyncLocal handle NewModelContinuousScan's own methods self-scope from); enter it here, matching a
+    // real match's ambient scope.
+    using var _ambientScope = AmbientMatchContext.Enter(ctx);
     var cs = new CardSource(ctx, id, P1);
     ICardEffect built = factory(false, cs, null);
     cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
@@ -80,11 +85,15 @@ async Task FragmentTrashValueGates()
         });
         // (P7 SEAM) FragmentSelfEffect returns ActivateClass, a new-model kind-class with no ToBinding/
         // EffectRegistry bridge — HasReplacementKeyword -> ContinuousKeywordGate.HasKeyword ->
-        // NewModelContinuousScan.HasFragment now performs the LIVE scan, so attach the built effect via the
-        // same seam every ported card definition class uses. NOTE (design item RD-P6B-4, pre-existing,
-        // DeletionReplacementGate.cs — out of this pass's touch scope): FragmentCostOf still reads ONLY the
-        // legacy EffectRegistry keyword-binding value for the trashValue cost, not this live scan, so the
-        // FragmentCostOf assertion below remains red for a pure new-model grant.
+        // NewModelContinuousScan.HasFragment now performs the LIVE scan (via AmbientMatchContext.Current, since
+        // PreOptions has no context parameter to thread through), so attach the built effect via the same seam
+        // every ported card definition class uses. STOP (design item RD-P6B-4, pre-existing,
+        // DeletionReplacementGate.cs — out of this pass's touch scope): FragmentCostOf reads ONLY the legacy
+        // EffectRegistry keyword-binding value for the trashValue cost — a bare ActivateClass has no retrievable
+        // "trashValue" property (it is closed over FragmentEffect's CanActivateCondition/ActivateCoroutine
+        // closures, same encapsulation tier as Decoy's CanSelectPermanentCondition) — so FragmentCostOf still
+        // returns the fallback (1) for a pure new-model grant; the FragmentCostOf assertion below remains red.
+        using var _ambientScope = AmbientMatchContext.Enter(ctx);
         var fragCard = new CardSource(ctx, id, P1);
         ICardEffect builtFragment = CardEffectFactory.FragmentSelfEffect(
             false, fragCard, null, trashValue: 3, effectName: "fragment-test", effectDiscription: "fragment-test");

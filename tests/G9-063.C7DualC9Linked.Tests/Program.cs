@@ -70,27 +70,37 @@ async Task LinkedEffectGate()
     EngineContext ctx = Ctx();
     var host = await Place(ctx, P1, "HOST");
     var link = await OffField(ctx, P1, "LINK");
+    using var _ambientScope = AmbientMatchContext.Enter(ctx);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
 
-    // The LINK card carries "Collision" flagged isLinkedEffect — AS-IS it applies only while linked.
-    // MIGRATION-NOTE (P7 test-fix): CollisionSelfStaticEffect returns CollisionClass
-    // (Script/CardEffects/CollisionClass.cs), a new-model kind-class with no ToBinding/EffectRegistry bridge
-    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
-    // (ContinuousKeywordGate.HasKeyword) reads only the substrate EffectRegistry, not the AS-IS live
-    // CardSource.EffectList scan, so there is no buildable way to make this grant observable yet. Assertions
-    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CollisionSelfStaticEffect(
-        false, new CardSource(ctx, link, P1), null, isLinkedEffect: true);
+    // The LINK card carries "Collision" flagged isLinkedEffect — AS-IS it applies only while linked, and the
+    // grant is observed on the HOST permanent's keyword state (Permanent.EffectList/EffectList_ForCard scans
+    // the HOST's cardSources, which include its LinkedCards — Permanent.cs:1532), NOT on the link card's own
+    // id (a link card is never itself a field permanent / GetFieldPermanents() member — the original assertion
+    // queried the wrong subject).
+    // SEAM (post-stage-B) + factory choice: CollisionSelfStaticEffect's CanUseCondition gates on
+    // CardEffectCommons.IsExistOnBattleAreaDigimon(card) — for a LINK card (never itself a top/under card of a
+    // stack), CardSource.PermanentOfThisCard() (CardSource.cs:79-92, matches top-card/under-card membership
+    // ONLY, not LinkedCards) resolves EMPTY, so that gate can never pass — a genuine mirror gap in
+    // PermanentOfThisCard's membership check, outside this pass's touch scope (CardSource.cs). Use the general
+    // CollisionStaticEffect (Collision.cs) instead: its CanUseCondition is a bare `condition == null ||
+    // condition()` with no field-existence gate, matching a linked grant's real shape (AS-IS cards pass
+    // isLinkedEffect:true through the SAME general per-keyword factories, e.g. RaidSelfEffect/BT21_009).
+    var linkSource = new CardSource(ctx, link, P1);
+    ICardEffect effect = CardEffectFactory.CollisionStaticEffect(
+        permanentCondition: p => p.InstanceId == host, isInheritedEffect: false, card: linkSource, condition: null, isLinkedEffect: true);
+    linkSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, link, ContinuousKeywordGate.Collision),
+    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, host, ContinuousKeywordGate.Collision),
         "not linked -> the linked effect is inactive");
 
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, link, ChoiceZone.None, ChoiceZone.Hand));
     await LinkHelpers.AddLinkCardAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host, link, ChoiceZone.Hand);
-    AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, link, ContinuousKeywordGate.Collision),
+    AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, host, ContinuousKeywordGate.Collision),
         "linked -> the effect is active (AS-IS Permanent.cs:1532)");
 
     await LinkHelpers.RemoveLinkCardAsync(ctx.CardInstanceRepository, ctx.ZoneMover, host, link);
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, link, ContinuousKeywordGate.Collision),
+    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, host, ContinuousKeywordGate.Collision),
         "link broken -> the effect stops (live gate, no removal event needed)");
 }
 
@@ -128,3 +138,17 @@ Task<HeadlessEntityId> OffField(EngineContext ctx, HeadlessPlayerId owner, strin
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

@@ -37,7 +37,9 @@ public static class ContinuousModifierGate
         return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldSAttack(context, cardId, legacyResolved);
     }
 
-    public static int ResolvePlayCost(EngineContext context, HeadlessEntityId cardId, int basePlayCost, bool canReduceCost = true)
+    public static int ResolvePlayCost(
+        EngineContext context, HeadlessEntityId cardId, int basePlayCost, bool canReduceCost = true,
+        IReadOnlyList<HeadlessEntityId>? targetPermanentIds = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         if (cardId.IsEmpty)
@@ -50,7 +52,15 @@ public static class ContinuousModifierGate
         // reductions off, mirroring ContinuousDpGate's DP-reduction immunity. (#5) This is the PLAY-cost path,
         // so a DIGIVOLUTION-only immunity must NOT apply here.
         bool effectiveCanReduce = canReduceCost && !CostReductionImmune(context, cardId, result, isDigivolution: false);
-        return ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+        int legacyResolved = ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+
+        // (P6 STAGE B) UNION the new-model IChangeCostEffect fold (AS-IS CardSource.GetChangedCostItselef +
+        // GetChangedPayingCost) over the legacy binding result — same disjoint-interface union as SAttack/DP.
+        // `targetPermanentIds` threads real battle-area permanents through for the target-permanent-conditioned
+        // shape (ChangePlayCostStaticEffect's PermanentsCondition) — absent at the real call sites today (no
+        // caller builds an evolution-target list for a plain play), so it defaults to none.
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldPlayCost(
+            context, cardId, legacyResolved, canReduceCost: effectiveCanReduce, targetPermanentIds: targetPermanentIds);
     }
 
     public static int ResolveDigivolutionCost(
@@ -77,7 +87,20 @@ public static class ContinuousModifierGate
         IReadOnlyList<NumericModifier> modifiers = ownGated.Count == 0
             ? result.Modifiers
             : result.Modifiers.Concat(ownGated).ToArray();
-        return ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+        int legacyResolved = ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+
+        // (P6 STAGE B) UNION the new-model IChangeCostEffect fold — AS-IS's digivolution-cost path folds the
+        // SAME CardSource.GetChangedCostItselef/GetChangedPayingCost IChangeCostEffect scan as the play-cost
+        // path (CardSource.cs:741/743, called uniformly for both play and evolve; `isEvolution` only branches
+        // the DigiXros/Assembly special-cost regions, not this scan). ChangeDigivolutionCostStaticEffect always
+        // builds isChangePayingCost:true (ChangeDigivolutionCost.cs), so it folds in FoldPlayCost's second
+        // (paying) group. `digivolveTargetPermanentId` is the AS-IS "digivolving FROM" target permanent
+        // (PermanentsCondition needs a real matching battle/breeding-area permanent — CardEffectCommons.
+        // IsPermanentExistsOnField, a superset of IsPermanentExistsOnBattleArea covering breeding too; passing
+        // it here as the sole target is correct for the common single-target case).
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldPlayCost(
+            context, cardId, legacyResolved, canReduceCost: effectiveCanReduce,
+            targetPermanentIds: digivolveTargetPermanentId.IsEmpty ? null : new[] { digivolveTargetPermanentId });
     }
 
     /// <summary>(D-8 / #5) Whether a continuous "cost cannot be reduced" restriction targets the card for the

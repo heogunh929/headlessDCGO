@@ -121,15 +121,21 @@ async Task NoLevelSourceRejected()
     AssertTrue(!result.IsSuccess, "AS-IS: a configured gate requires HasLevel — a no-level source is rejected");
 }
 
-// MIGRATION-NOTE (P7 test-fix): AddDigivolutionRequirementClass (the kind-class AS-IS
-// AddSelfDigivolutionRequirementStaticEffect constructs) is a new-model kind-class with no
-// ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this project's
-// tests check (DigivolveAction's added-requirement scan, ContinuousScopeEvaluation.ApplicableEffects over
-// ContinuousRestrictionGate.Scope) reads only the substrate EffectRegistry, not the AS-IS live scan, so there is
-// no buildable way to make this grant observable yet. The factory call is kept (exercises construction);
-// registration is skipped since there is no bridge. Assertions across this file that depend on the added
-// requirement being seen are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
-// weakened.
+// STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope; same root cause as
+// G9-024.AddDigivolutionRequirement's AddedLegal): AddSelfDigivolutionRequirementStaticEffect returns
+// AddDigivolutionRequirementClass (ICardEffect, IAddDigivolutionRequirementEffect —
+// GetEvoCost(Permanent, CardSource, IgnoreRequirement, bool)), the REAL AS-IS mechanism mirroring
+// CardSource.EvoCosts/CostList's live IAddDigivolutionRequirementEffect scan (DCGO CardSource.cs:534-590).
+// DigivolveAction's added-requirement consumer (MatchesAddedDigivolutionRequirement /
+// TryGetAddedDigivolutionCost / OwnAddedRequirementRequests) reads a DIFFERENT, older legacy shape
+// (AddedDigivolutionRequirementEffect / AddedDigivolutionRequirementPredicateEffect, registry-key-based) — the
+// two were never unified. Wiring the new-model GetEvoCost scan in needs an edit to DigivolveAction.cs, which is
+// NOT a Headless/Runtime/*Gate.cs file (this pass's touch scope: NewModelContinuousScan.cs + *Gate.cs +
+// MatchStateMutationSink.cs only) — a plain private static consumer, no Gate indirection to union into. Not
+// forced; assertions depending on the added requirement being seen (AddedPredicateLegal, DynamicCost,
+// ExactLevelGate, MinLevelGate) are left failing. NoEffectIllegal/NonMatchingIllegal/NoLevelSourceRejected
+// pass regardless (they assert "illegal", which coincidentally holds when the grant is entirely unobserved
+// too — same "false green" caveat as G9-024).
 void RegisterLeveled(EngineContext ctx, HeadlessEntityId evo, Func<Permanent, bool> predicate, int level = -1, int minLevel = -1, int maxLevel = -1) =>
     CardEffectFactory.AddSelfDigivolutionRequirementStaticEffect(
         permanentCondition: predicate, digivolutionCost: 3, ignoreDigivolutionRequirement: false,

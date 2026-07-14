@@ -55,14 +55,16 @@ async Task SelfStaticGoesLive(Func<CardSource, ICardEffect> build, string keywor
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} not present before the factory registers it");
 
     var source = new CardSource(context, id, P1);
-    // MIGRATION-NOTE (P7 test-fix): the SelfEffect factories under test (RebootSelfStaticEffect /
-    // AllianceSelfEffect / OverclockSelfEffect / VortexSelfEffect) all return new-model kind-classes
-    // (RebootClass / ActivateClass) with no ToBinding/EffectRegistry bridge (stage-B RED, see
-    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the substrate
-    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant observable
-    // yet. The factory call is kept (still exercises construction); Register/ToBinding is dropped.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    build(source);
+    // SEAM (post-stage-B): the SelfEffect factories under test (RebootSelfStaticEffect / AllianceSelfEffect /
+    // OverclockSelfEffect / VortexSelfEffect) return new-model kind-classes with no ToBinding/EffectRegistry
+    // bridge — they are observed instead via the AS-IS live scan (NewModelContinuousScan.HasKeyword, unioned
+    // into ContinuousKeywordGate.HasKeyword). That scan reads cEntity_EffectController.GetCardEffects, so the
+    // built effect must be attached to the card's controller the same way a real `CEntity_Effect`-derived card
+    // definition class does.
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var effect = build(source);
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, keyword), $"{keyword} is live after the SelfEffect factory registers it");
 }
@@ -74,13 +76,12 @@ async Task VortexSelfEffectOpensWindow()
     await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
 
     var source = new CardSource(context, vortex, P1);
-    // MIGRATION-NOTE (P7 test-fix): VortexSelfEffect returns ActivateClass, a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this
-    // test checks (EndOfTurnEffectAttack.TryOpen -> ContinuousKeywordGate.HasKeyword) reads only the
-    // substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant
-    // observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
-    // not silently weakened.
-    CardEffectFactory.VortexSelfEffect(false, source, null);
+    // SEAM (post-stage-B): VortexSelfEffect returns ActivateClass, a new-model kind-class observed via the
+    // unioned NewModelContinuousScan.HasSelfEndTurnKeyword scan; attach it to the controller.
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var effect = CardEffectFactory.VortexSelfEffect(false, source, null);
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
     AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opens for a card granted Vortex via VortexSelfEffect");
     AssertEqual(ChoiceType.EffectAttack, context.ChoiceController.PendingRequest!.Type, "an effect-attack choice is pending");
@@ -93,13 +94,13 @@ async Task ScopedToOwnCard()
     var bystander = await PlaceDigimon(context, P1, "BYST", dp: 4000, suspended: false);
 
     var source = new CardSource(context, alliance, P1);
-    // MIGRATION-NOTE (P7 test-fix): AllianceSelfEffect returns a new-model kind-class (ActivateClass, via
-    // the ICardEffect declared return type) with no ToBinding/EffectRegistry bridge (stage-B RED,
-    // docs/audit/rebuild_p6_stageA_notes.md). ContinuousKeywordGate.HasKeyword reads only the substrate
-    // EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this grant observable
-    // yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently
-    // weakened.
-    CardEffectFactory.AllianceSelfEffect(false, source, null);
+    // SEAM (post-stage-B): AllianceSelfEffect returns a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.HasAlliance scan; attach it to the GRANTING card's controller only (the
+    // bystander's controller is untouched, proving the scope is per-card, not global).
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var effect = CardEffectFactory.AllianceSelfEffect(false, source, null);
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, alliance, ContinuousKeywordGate.Alliance), "the granting card HAS Alliance");
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, bystander, ContinuousKeywordGate.Alliance), "a bystander does NOT get Alliance");
@@ -132,4 +133,18 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

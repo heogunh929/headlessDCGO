@@ -56,6 +56,14 @@ async Task GateBlocks()
     AssertEqual(handBefore, HandCount(ctx, P1), "the inner effect did NOT resolve (no draw)");
 }
 
+// STOP (RD-P6B-6, docs/audit/rebuild_p6_stageB_notes.md §7, already diagnosed pre-existing gap):
+// ActivatedEffectResolver's DigiBurstActivatedEffect case ("if InnerEffect is IActivatedCardEffect or
+// ActivateICardEffect -> resolve it now") treats ANY ActivateClass-typed inner body as "activate immediately"
+// — but a keyword self-static grant (e.g. PierceSelfEffect) ALSO builds ActivateClass, so a "[Digi-Burst N]
+// gain <keyword>" continuous-grant body gets wrongly "activated" (its no-op ActivateCoroutine runs) instead of
+// becoming a live continuous grant. Fixing needs BOTH a narrower branch condition in ActivatedEffectResolver.cs
+// AND a permanent-grant store (P6A-PERMANENT-EFFECTLIST-ADDED, not built yet) — both outside
+// NewModelContinuousScan.cs/*Gate.cs/MatchStateMutationSink.cs touch scope. Not forced; left failing.
 async Task ContinuousInner()
 {
     EngineContext ctx = Ctx();

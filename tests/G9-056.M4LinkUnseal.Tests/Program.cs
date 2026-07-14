@@ -33,12 +33,12 @@ async Task LinkMax()
 {
     EngineContext ctx = Ctx();
     var host = await Place(ctx, "HOST");
-    // MIGRATION-NOTE (P7 test-fix): ChangeLinkMaxClass (Script/CardEffects/ChangeLinkMaxClass.cs) is a new-model
-    // kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // The gate this test checks (LinkHelpers.ResolveLinkedMax, via ContinuousScopeEvaluation over the substrate
-    // EffectRegistry) reads only registered EffectRequest bindings, not the AS-IS live CardSource.EffectList scan,
-    // so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED
-    // TO FAIL until stage B lands — tracked, not silently weakened.
+    // STOP (post-stage-B re-diagnosis, per task brief — heavy-substrate, outside touch scope): ChangeLinkMaxClass
+    // is a real new-model kind-class (IChangeLinkMaxEffect.GetLinkMax, no ToBinding). Its consumer,
+    // LinkHelpers.ResolveLinkedMax (Headless/Runtime/LinkHelpers.cs), folds ONLY ContinuousScopeEvaluation's
+    // legacy registry modifiers — LinkHelpers.cs is not a Headless/Runtime/*Gate.cs file (this pass's mandated
+    // touch scope: NewModelContinuousScan.cs + *Gate.cs + MatchStateMutationSink.cs only), so a new-model
+    // IChangeLinkMaxEffect fold cannot be unioned in without editing it. Not forced; left failing.
     CardEffectFactory.ChangeSelfLinkMaxStaticEffect(2, false, new CardSource(ctx, host, P1), null);
     AssertTrue(LinkHelpers.ResolveLinkedMax(ctx, host) == LinkHelpers.DefaultLinkedMax + 2, $"effective link max == {LinkHelpers.DefaultLinkedMax + 2}");
 }
@@ -54,12 +54,9 @@ async Task LinkCost()
 {
     EngineContext ctx = Ctx();
     var card = await Place(ctx, "CARD");
-    // MIGRATION-NOTE (P7 test-fix): ChangeLinkCostClass (Script/CardEffects/ChangeLinkCostClass.cs) is a
-    // new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // The gate this test checks (LinkHelpers.ResolveLinkCost, via ContinuousScopeEvaluation over the substrate
-    // EffectRegistry) reads only registered EffectRequest bindings, not the AS-IS live CardSource.EffectList scan,
-    // so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED
-    // TO FAIL until stage B lands — tracked, not silently weakened.
+    // STOP: same root cause as LinkMax() above — LinkHelpers.ResolveLinkCost (Headless/Runtime/LinkHelpers.cs,
+    // not a *Gate.cs file) folds only legacy registry modifiers; ChangeLinkCostClass
+    // (IChangeLinkCostEffect.GetCost) has no ToBinding bridge and cannot be unioned in from touch scope.
     CardEffectFactory.GrantedReduceLinkCostClass(new CardSource(ctx, card, P1), 2, null, null, null);
     AssertTrue(LinkHelpers.ResolveLinkCost(ctx, card, 3) == 1, "effective link cost 3 - 2 == 1");
 }
@@ -68,9 +65,7 @@ async Task LinkCostClamp()
 {
     EngineContext ctx = Ctx();
     var card = await Place(ctx, "CARD");
-    // MIGRATION-NOTE (P7 test-fix): ChangeLinkCostClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See LinkCost() above for the full rationale.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+    // STOP: same root cause as LinkCost() above.
     CardEffectFactory.GrantedReduceLinkCostClass(new CardSource(ctx, card, P1), 5, null, null, null);
     AssertTrue(LinkHelpers.ResolveLinkCost(ctx, card, 3) == 0, "3 - 5 clamps to 0");
 }

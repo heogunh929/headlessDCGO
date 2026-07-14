@@ -298,6 +298,171 @@ public static class NewModelContinuousScan
     }
 
     // ==================================================================================================
+    // Base DP — AS-IS Permanent.BaseDP (Permanent.cs:193-322): the SAME shape as DP's IChangeDPEffect scan
+    // (field permanents + players' EffectList(None), PermanentCondition(this) && CanUse(null) &&
+    // !CanNotBeAffected, IsUpDown() group first then the rest) but over IChangeBaseDPEffect, NO face-up
+    // security scope (the BaseDP getter has no such region) and NO LinkedDP/DPBoost tail (those are DP-only).
+    // Parity note: mirrors FoldDp's simplification tier — the AS-IS IsMinusDP()+ImmuneFromDPMinus per-effect
+    // skip is not modelled here either (same as FoldDp above; no card exercises new-model BaseDP-minus +
+    // immunity together today).
+    // ==================================================================================================
+    public static int FoldBaseDp(EngineContext context, HeadlessEntityId cardId, int baseValue)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        var collected = new List<IChangeBaseDPEffect>();
+        void Collect(ICardEffect cardEffect)
+        {
+            if (cardEffect is IChangeBaseDPEffect baseDp
+                && baseDp.PermanentCondition(subject)
+                && cardEffect.CanUse(null)
+                && NotImmune(subject, cardEffect))
+            {
+                collected.Add(baseDp);
+            }
+        }
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                Collect(cardEffect);
+            }
+        }
+
+        // AS-IS folds the IsUpDown() group first, then the rest (Permanent.cs:290-310).
+        int baseDpValue = baseValue;
+        foreach (IChangeBaseDPEffect effect in collected.Where(e => e.IsUpDown()))
+        {
+            baseDpValue = effect.GetDP(baseDpValue, subject);
+        }
+
+        foreach (IChangeBaseDPEffect effect in collected.Where(e => !e.IsUpDown()))
+        {
+            baseDpValue = effect.GetDP(baseDpValue, subject);
+        }
+
+        return baseDpValue;
+    }
+
+    // ==================================================================================================
+    // Play cost — AS-IS CardSource.GetChangedCostItselef (CardSource.cs:775-858, the "not-paying" group,
+    // IChangeCostEffect.IsChangePayingCost()==false) THEN CardSource.GetChangedPayingCost (:864-930, the
+    // "paying" group, IsChangePayingCost()==true) — CardSource.cs:741/743 runs BOTH sequentially over the
+    // SAME running Cost. Each group collects IChangeCostEffect over Players_ForTurnPlayer field permanents'
+    // EffectList(None) + players' EffectList(None) + (when the card is NOT itself a live permanent —
+    // PermanentOfThisCard() empty) its OWN EffectList(None), gated by CanUse(null) && CardCondition(this) &&
+    // !(IsCheckAvailability() && !checkAvailability) && the matching IsChangePayingCost(); within a group,
+    // fold the NotIsUpDown() effects first, then the IsUpDown() effects (CardSource.cs:843-853 / 918-928),
+    // calling GetCost(cost, this, root, targetPermanents) — AS-IS ChangeCostClass.GetCost ALREADY re-derives
+    // the "can this reduction apply" veto live via Player.CanReduceCost(targetPermanents, cardSource) (a real
+    // ICannotReduceCostEffect scan, ported 1:1), so no separate immunity plumbing is needed here for that
+    // part. SUBSTRATE: the mirror's real cost call sites (PlayCardAction/DigivolveAction) supply no
+    // `targetPermanents` at all (no evolution-target modelling at those choke points yet) — an optional
+    // targetPermanentIds lets a caller thread real battle-area permanents through for the (real-caller-less
+    // today) target-permanent-conditioned shape (CardEffectFactory.ChangePlayCostStaticEffect's
+    // PermanentsCondition), defaulting to the empty list a plain play genuinely supplies. `canReduceCost`
+    // mirrors the SAME external "can this metric be reduced at all" knob the legacy numeric-modifier fold
+    // already exposes (ContinuousModifierGate's `effectiveCanReduce`) — applied here on top of (not instead
+    // of) the live GetCost veto, so both representations honour one uniform caller-supplied signal.
+    // ==================================================================================================
+    public static int FoldPlayCost(
+        EngineContext context,
+        HeadlessEntityId cardId,
+        int baseValue,
+        bool checkAvailability = false,
+        bool canReduceCost = true,
+        IReadOnlyList<HeadlessEntityId>? targetPermanentIds = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+
+        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(cardId, out var inst) && inst is not null
+            ? inst.OwnerId
+            : default;
+        CardSource cardSource = new(context, cardId, owner);
+
+        List<Permanent> targetPermanents = (targetPermanentIds ?? Array.Empty<HeadlessEntityId>())
+            .Select(id => new Permanent(context, id, owner))
+            .ToList();
+
+        bool cardIsNotAPermanent = cardSource.PermanentOfThisCard().IsEmpty;
+
+        List<IChangeCostEffect> CollectGroup(bool isChangePayingCost)
+        {
+            var collected = new List<IChangeCostEffect>();
+            void Collect(ICardEffect cardEffect)
+            {
+                if (cardEffect is IChangeCostEffect changeCost
+                    && cardEffect.CanUse(null)
+                    && changeCost.CardCondition(cardSource)
+                    && !(changeCost.IsCheckAvailability() && !checkAvailability)
+                    && changeCost.IsChangePayingCost() == isChangePayingCost)
+                {
+                    collected.Add(changeCost);
+                }
+            }
+
+            foreach (Player player in ScanPlayers(context))
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        Collect(cardEffect);
+                    }
+                }
+
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+
+            if (cardIsNotAPermanent)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(EffectTiming.None))
+                {
+                    Collect(cardEffect);
+                }
+            }
+
+            return collected;
+        }
+
+        int Fold(int cost, bool isChangePayingCost)
+        {
+            List<IChangeCostEffect> group = CollectGroup(isChangePayingCost);
+            foreach (IChangeCostEffect changeCost in group.Where(e => !e.IsUpDown()).Concat(group.Where(e => e.IsUpDown())))
+            {
+                int newCost = changeCost.GetCost(cost, cardSource, SelectCardEffect.Root.None, targetPermanents);
+                if (changeCost.IsUpDown() && newCost < cost && !canReduceCost)
+                {
+                    newCost = cost;
+                }
+
+                cost = newCost;
+            }
+
+            return cost;
+        }
+
+        int result = Fold(baseValue, isChangePayingCost: false);
+        result = Fold(result, isChangePayingCost: true);
+        return Math.Max(0, result);
+    }
+
+    // ==================================================================================================
     // Keyword derivations — each mirrors its AS-IS Permanent.Has* property EXACTLY (scope, timing,
     // interface, gate predicate). Returns true iff SOME live new-model effect grants the keyword.
     // ==================================================================================================
@@ -975,6 +1140,68 @@ public static class NewModelContinuousScan
         return false;
     }
 
+    // (RD-P6B-14 partial resolution — Decoy joint scan) AS-IS Decoy.cs CanUseCondition is a JOINT (holder,
+    // candidate) predicate embedded in the trigger's own hashtable-driven check — NOT a simple presence-on-
+    // the-holder scan like HasDecoy above: `IsPermanentExistsOnBattleArea(targetPermanent=holder) &&
+    // CanTriggerWhenPermanentRemoveField(hashtable, CanSelectPermanentCondition) && IsByEffect(hashtable,
+    // CardEffectCondition)`, where CanSelectPermanentCondition(permanent) = `permanent != holder &&
+    // IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card) && (permanentCondition == null ||
+    // permanentCondition(permanent))` and CardEffectCondition(cardEffect) = `cardEffect.EffectSourceCard.Owner
+    // == holder-owner's Enemy`. Both `CanSelectPermanentCondition` and the causing-effect condition are
+    // closures with no retrievable property on the built ActivateClass (same closure-encapsulation tier as
+    // HasFragment's trashValue, RD-P6B-4) — but AS-IS itself only ever evaluates them THROUGH
+    // `cardEffect.CanTrigger(hashtable)` (which invokes the stored CanUseCondition delegate), so building the
+    // EXACT hashtable shape the real WhenPermanentWouldBeDeleted window populates (`{"Permanents": [protected
+    // target]}` — GetPermanentsFromHashtable's key — plus `{"CardEffect": causingEffect}` —
+    // GetCardEffectFromHashtable's key, CanUseEffects/OnDeletion.cs / GetFromHashtable.cs) and calling
+    // CanTrigger on it exercises the closures faithfully without needing to extract them. This is a joint scan
+    // (holder AND candidate), not a per-holder presence flag.
+    // <paramref name="causingSourceId"/> empty means "the caller has not yet resolved the deleting effect"
+    // (e.g. FindDecoyRedirectCandidates enumerates BEFORE the deferred deletion names its deleter — AS-IS
+    // decides that separately, at defer time, per DeletionReplacementGate's own doc comment) — the by-enemy-
+    // effect condition is (and always was) validated OUTSIDE this scan by every caller (FindDecoyRedirect's own
+    // `deleter.OwnerId == target.OwnerId` guard; FindDecoyRedirectCandidates' caller gates on the separately-
+    // computed DecoyEligibleKey marker), so a synthetic enemy-owned stand-in here — trivially satisfying
+    // IsByEffect — is a safe stand-in for "some enemy effect, already independently confirmed", not a
+    // weakening: it lets THIS scan isolate the part it uniquely owns (the permanentCondition joint predicate).
+    public static bool DecoyAcceptsSubject(
+        EngineContext context, HeadlessEntityId decoyId, HeadlessEntityId targetId, HeadlessPlayerId targetOwner, HeadlessEntityId causingSourceId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent decoySubject = BuildSubject(context, decoyId);
+        Permanent targetPermanent = new(context, targetId, targetOwner);
+        ICardEffect causingEffect;
+        if (!causingSourceId.IsEmpty)
+        {
+            causingEffect = BuildCausingEffectStandIn(context, causingSourceId);
+        }
+        else
+        {
+            HeadlessPlayerId enemyOwner = new Player(context, targetOwner).Enemy?.PlayerId ?? default;
+            CardSource syntheticEnemySource = new(context, new HeadlessEntityId("$decoy-synthetic-cause"), enemyOwner);
+            causingEffect = new CausingEffectStandIn(syntheticEnemySource);
+        }
+
+        Hashtable hashtable = new Hashtable
+        {
+            { "Permanents", new List<Permanent> { targetPermanent } },
+            { "CardEffect", causingEffect },
+        };
+
+        foreach (ICardEffect cardEffect in decoySubject.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+        {
+            if (cardEffect is ActivateICardEffect
+                && cardEffect.EffectName is not null && cardEffect.EffectName.StartsWith("Decoy", StringComparison.OrdinalIgnoreCase)
+                && cardEffect.CanTrigger(hashtable))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     // Progress (CardEffectFactory/KeyWordEffects/Progress.cs): a CanNotAffectedClass (immunity kind-class, NOT
     // ActivateICardEffect) with fixed EffectName "Progress", self-registered continuously (EffectTiming.None,
     // same registration timing as the other SelfStaticEffect continuous grants in this file). Presence-only
@@ -1029,6 +1256,52 @@ public static class NewModelContinuousScan
             {
                 if (cardEffect is IVortexCanAttackPlayersEffect marker && cardEffect.CanUse(null)
                     && marker.VortexCanAttackPlayersPermanent(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.IsDigimon (Permanent.cs:3438-3510), the ITreatAsDigimonEffect region only — the native
+    // CardType/DigiEgg/flip fast path is handled by ContinuousKeywordGate.IsDigimon BEFORE it falls through to
+    // HasKeyword(TreatAsDigimon). Scans (a) the subject's OWN TopCard EffectList(None) first (a self grant —
+    // e.g. an Option that treats itself as a Digimon), THEN (b) Players_ForTurnPlayer's field permanents'
+    // EffectList_Added(None) (AS-IS uses EffectList_Added here specifically — "EffectList_forCard checks
+    // IsDigimon and this causes a stack overflow") + players' EffectList(None). Gate: ITreatAsDigimonEffect &&
+    // CanTrigger(null) && IsDigimon(subject).
+    public static bool HasTreatAsDigimon(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (ICardEffect cardEffect in subject.TopCard.EffectList(EffectTiming.None))
+        {
+            if (cardEffect is ITreatAsDigimonEffect treat && cardEffect.CanTrigger(null) && treat.IsDigimon(subject))
+            {
+                return true;
+            }
+        }
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList_Added(EffectTiming.None))
+                {
+                    if (cardEffect is ITreatAsDigimonEffect treat && cardEffect.CanTrigger(null) && treat.IsDigimon(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ITreatAsDigimonEffect treat && cardEffect.CanTrigger(null) && treat.IsDigimon(subject))
                 {
                     return true;
                 }
@@ -1606,6 +1879,7 @@ public static class NewModelContinuousScan
         "Fragment" => HasFragment(context, cardId),
         "Decoy" => HasDecoy(context, cardId),
         "Progress" => HasProgress(context, cardId),
+        "TreatAsDigimon" => HasTreatAsDigimon(context, cardId),
         _ => false,
     };
 }

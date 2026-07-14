@@ -107,8 +107,13 @@ public static class ContinuousDpGate
         // Both clamps are load-bearing: the intermediate BaseDP floor changes the value a later current-DP buff
         // adds onto (base 1000, -3000 base-minus, +2000 buff => AS-IS clamp(-2000)=0, +2000 = 2000; not -2000+2000=0).
         // The DontHaveDp (-1 NoDpValue) case returned earlier, so a 0-floor here never clobbers the no-DP sentinel.
-        int effectiveBase = Math.Max(0, ModifierHelpers.Evaluate(
-            new NumericModifierRequest(NumericModifierMetric.BaseDp, baseDp, modifiers, cardId)).FinalValue);
+        int baseDpFolded = ModifierHelpers.Evaluate(
+            new NumericModifierRequest(NumericModifierMetric.BaseDp, baseDp, modifiers, cardId)).FinalValue;
+
+        // (P6 STAGE B) UNION the new-model IChangeBaseDPEffect scan (AS-IS Permanent.BaseDP) over the legacy
+        // binding result — same disjoint-interface union as the current-DP path below.
+        baseDpFolded = Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldBaseDp(context, cardId, baseDpFolded);
+        int effectiveBase = Math.Max(0, baseDpFolded);
 
         int resolved = ModifierHelpers.ResolveDp(effectiveBase, modifiers, cardId).FinalValue;
 

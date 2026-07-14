@@ -42,17 +42,19 @@ Task StaticReduces()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    // MIGRATION-NOTE (P7 test-fix): ChangeDigivolutionCostStaticEffect returns ChangeCostClass, a new-model
-    // kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-    // ContinuousModifierGate.ResolveDigivolutionCost reads only the substrate EffectRegistry (via
-    // ContinuousScopeEvaluation), not the AS-IS live scan, so there is no buildable way to make this grant
-    // observable yet. The factory call is kept (still exercises construction); Register/ToBinding is
-    // dropped. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not
-    // silently weakened.
-    CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, permanentCondition: null, cardCondition: null,
+    HeadlessEntityId target = PlaceBattleTarget(context, "TGT");
+    // SEAM (post-stage-B): ChangeDigivolutionCostStaticEffect returns ChangeCostClass, a new-model kind-class
+    // observed via the unioned NewModelContinuousScan.FoldPlayCost (already unioned into
+    // ContinuousModifierGate.ResolveDigivolutionCost) — attach it to the card's own controller. Its
+    // PermanentsCondition needs >=1 real matching battle/breeding-area permanent (CardEffectCommons.
+    // IsPermanentExistsOnField), threaded through as the digivolveTargetPermanentId.
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    ICardEffect effect = CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, permanentCondition: null, cardCondition: null,
         rootCondition: null, isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
-    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
+    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5, digivolveTargetPermanentId: target);
     AssertEqual(3, cost, "digivolution cost 5 - 2 = 3");
     return Task.CompletedTask;
 }
@@ -61,13 +63,14 @@ Task DynamicReduces()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    // MIGRATION-NOTE (P7 test-fix): see StaticReduces above — ChangeCostClass has no ToBinding/
-    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
-    CardEffectFactory.ChangeDigivolutionCostStaticEffect(() => -3, permanentCondition: null, cardCondition: null,
+    HeadlessEntityId target = PlaceBattleTarget(context, "TGT");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    ICardEffect effect = CardEffectFactory.ChangeDigivolutionCostStaticEffect(() => -3, permanentCondition: null, cardCondition: null,
         rootCondition: null, isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
-    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
+    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5, digivolveTargetPermanentId: target);
     AssertEqual(2, cost, "digivolution cost 5 - 3 = 2 (dynamic)");
     return Task.CompletedTask;
 }
@@ -76,13 +79,14 @@ Task ConditionGates()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    // MIGRATION-NOTE (P7 test-fix): see StaticReduces above — ChangeCostClass has no ToBinding/
-    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
-    CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, permanentCondition: null, cardCondition: null,
+    HeadlessEntityId target = PlaceBattleTarget(context, "TGT");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    ICardEffect effect = CardEffectFactory.ChangeDigivolutionCostStaticEffect(-2, permanentCondition: null, cardCondition: null,
         rootCondition: null, isInheritedEffect: false, card: card, condition: () => false, setFixedCost: false);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
-    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
+    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5, digivolveTargetPermanentId: target);
     AssertEqual(5, cost, "false condition -> no reduction");
     return Task.CompletedTask;
 }
@@ -91,13 +95,14 @@ Task PositiveRaises()
 {
     EngineContext context = Context();
     var card = Place(context, "EVO");
-    // MIGRATION-NOTE (P7 test-fix): see StaticReduces above — ChangeCostClass has no ToBinding/
-    // EffectRegistry bridge (stage-B RED). Factory call kept for construction; Register/ToBinding dropped.
-    // Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands.
-    CardEffectFactory.ChangeDigivolutionCostStaticEffect(2, permanentCondition: null, cardCondition: null,
+    HeadlessEntityId target = PlaceBattleTarget(context, "TGT");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    ICardEffect effect = CardEffectFactory.ChangeDigivolutionCostStaticEffect(2, permanentCondition: null, cardCondition: null,
         rootCondition: null, isInheritedEffect: false, card: card, condition: null, setFixedCost: false);
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
-    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5);
+    int cost = ContinuousModifierGate.ResolveDigivolutionCost(context, card.InstanceId, baseDigivolutionCost: 5, digivolveTargetPermanentId: target);
     AssertEqual(7, cost, "digivolution cost 5 + 2 = 7");
     return Task.CompletedTask;
 }
@@ -121,8 +126,36 @@ CardSource Place(EngineContext context, string tag)
     return new CardSource(context, id, P1);
 }
 
+// A real battle-area permanent for ChangeDigivolutionCostStaticEffect's PermanentsCondition (AS-IS requires
+// >=1 matching CardEffectCommons.IsPermanentExistsOnField target — the "digivolving FROM" permanent).
+HeadlessEntityId PlaceBattleTarget(EngineContext context, string tag)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId(tag);
+    cards.Upsert(new CardRecord(defId, tag, tag, new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"p1:battle:{tag}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, P1,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000 }));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
+    return id;
+}
+
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

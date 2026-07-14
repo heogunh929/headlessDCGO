@@ -106,12 +106,20 @@ async Task RemovesBindings()
     EngineContext ctx = Ctx();
     var tamer = await Place(ctx, P1, "TAMER", cardType: "Tamer");
     var digimon = await Place(ctx, P1, "DIGIMON", level: 4);
-    // MIGRATION-NOTE (P7 test-fix): BlockerClass (Script/CardEffects/BlockerClass.cs) is a new-model kind-class
-    // with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this
-    // test checks (ContinuousKeywordGate.HasKeyword) reads only the substrate EffectRegistry, not the AS-IS live
-    // CardSource.EffectList scan, so there is no buildable way to make this grant observable yet. Assertions
-    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.BlockerSelfStaticEffect(false, new CardSource(ctx, tamer, P1), null);
+    using var _ambientScope = AmbientMatchContext.Enter(ctx);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    // SEAM (post-stage-B): BlockerClass (Script/CardEffects/BlockerClass.cs) is a new-model kind-class observed
+    // via the unioned NewModelContinuousScan.HasBlocker (already unioned into ContinuousKeywordGate.HasKeyword)
+    // — attach it to the tamer's own controller.
+    // NOTE: BlockerSelfStaticEffect's CanUseCondition gates on CardEffectCommons.IsExistOnBattleAreaDigimon
+    // (AS-IS 1:1) — a bare Tamer (no TreatAsDigimon grant) is never a "Digimon", so that factory would be
+    // permanently inert here. Use the general BlockerStaticEffect (no Digimon gate, AS-IS Blocker.cs) with an
+    // explicit self-targeting permanentCondition instead — same keyword grant, without requiring the granting
+    // card to itself be judged a Digimon.
+    var tamerSource = new CardSource(ctx, tamer, P1);
+    ICardEffect effect = CardEffectFactory.BlockerStaticEffect(
+        p => p.InstanceId == tamer, false, tamerSource, null);
+    tamerSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, tamer, ContinuousKeywordGate.Blocker), "precondition: the binding is live");
 
     AssertTrue(await new MindLinkClass(new Permanent(ctx, tamer, P1), null, null).MindLink(digimon), "MindLink applied");
@@ -126,6 +134,13 @@ async Task PlaysTamerBack()
     var digimon = await Place(ctx, P1, "DIGIMON", level: 4);
     AssertTrue(await new MindLinkClass(new Permanent(ctx, tamer, P1), null, null).MindLink(digimon), "MindLink applied");
 
+    // STOP (RD-P6C2, per task brief): CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards now returns a
+    // new-model ActivateClass (post-rebuild), so the pre-existing `(ActivatedEffect)...).Body` cast throws
+    // InvalidCastException — a factory-repoint issue (the factory's return type moved to the new kind-class
+    // layer, but this call site still expects the OLD ActivatedEffect/ActivatedPlayFromUnderEffect shape).
+    // Fixing requires re-pointing the factory (or this call site) to whatever the new model's equivalent
+    // playback body/type is — outside NewModelContinuousScan.cs / Headless/Runtime/*Gate.cs /
+    // MatchStateMutationSink.cs (this pass's touch scope). Not forced; left failing, documented here.
     var playBack = (ActivatedPlayFromUnderEffect)((ActivatedEffect)CardEffectFactory.PlayMindLinkTamerFromDigivolutionCards(
         new CardSource(ctx, tamer, P1), cardName: "TAMER", effectDescription: "")).Body;
     ChoiceRequest request = playBack.BuildRequest(new[] { P1 });
@@ -205,3 +220,17 @@ IReadOnlyList<HeadlessEntityId> Sources(EngineContext ctx, HeadlessEntityId host
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

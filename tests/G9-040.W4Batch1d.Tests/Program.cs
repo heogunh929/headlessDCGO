@@ -38,12 +38,14 @@ async Task CantSuspend()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // MIGRATION-NOTE (P7 test-fix): CanNotSuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The suspend mutation gate this test checks
-    // reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
-    // grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
-    // not silently weakened.
-    CardEffectFactory.CantSuspendStaticEffect(null, false, new CardSource(context, id, P1), null, $"cs:{id.Value}");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    // SEAM (post-stage-B): CanNotSuspendClass is a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.CanNotSuspend (RD-P6B-11, MatchStateMutationSink's SuspendKind case) — attach it
+    // to the card's own controller.
+    var source = new CardSource(context, id, P1);
+    ICardEffect effect = CardEffectFactory.CantSuspendStaticEffect(null, false, source, null, $"cs:{id.Value}");
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     await ApplyKind(context, id, MatchStateMutationSink.SuspendKind);
     AssertTrue(!ReadBool(context, id, "isSuspended"), "not suspended (blocked)");
 }
@@ -52,12 +54,14 @@ async Task CannotReturnToHand()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // MIGRATION-NOTE (P7 test-fix): CannotReturnToHandClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The bounce mutation
-    // gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
-    // buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until
-    // stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CannotReturnToHandStaticEffect(null, null, false, new CardSource(context, id, P1), null, $"crh:{id.Value}");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    // SEAM (post-stage-B): CannotReturnToHandClass is a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.HasCannotReturnToHand (RD-P6B-12, MatchStateMutationSink.IsRestrictedFromCause) —
+    // attach it to the card's own controller.
+    var source = new CardSource(context, id, P1);
+    ICardEffect effect = CardEffectFactory.CannotReturnToHandStaticEffect(null, null, false, source, null, $"crh:{id.Value}");
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     await ApplyKind(context, id, MatchStateMutationSink.ReturnToHandKind);
     AssertTrue(InBattle(context, P1, id), "stays in play (bounce blocked)");
 }
@@ -66,13 +70,15 @@ async Task CannotReturnToDeck()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // MIGRATION-NOTE (P7 test-fix): CannotReturnToLibraryClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The deck-return
-    // mutation gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there
-    // is no buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL
-    // until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CannotReturnToDeckStaticEffect(
-        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"crd:{id.Value}");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    // SEAM (post-stage-B): CannotReturnToLibraryClass is a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.HasCannotReturnToLibrary (RD-P6B-12, MatchStateMutationSink.IsRestrictedFromCause)
+    // — attach it to the card's own controller.
+    var source = new CardSource(context, id, P1);
+    ICardEffect effect = CardEffectFactory.CannotReturnToDeckStaticEffect(
+        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: source, condition: null, effectName: $"crd:{id.Value}");
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     await ApplyKind(context, id, MatchStateMutationSink.ReturnToDeckBottomKind);
     AssertTrue(InBattle(context, P1, id), "stays in play (deck-return blocked)");
 }
@@ -81,12 +87,20 @@ async Task CanNotBeDestroyedByBattle()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedByBattleClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test
-    // checks (BattleDeletionGate.PreventsBattleDeletion) reads only the substrate EffectRegistry, not the AS-IS
-    // live scan, so there is no buildable way to make this grant observable yet. Assertion below is UNCHANGED
-    // and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(null, null, false, new CardSource(context, id, P1), null, $"cbdb:{id.Value}");
+    using var _ambientScope = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    // SEAM (post-stage-B): CanNotBeDestroyedByBattleClass is a new-model kind-class observed via the unioned
+    // NewModelContinuousScan.HasCanNotBeDestroyedByBattle (RD-P6B-10, BattleDeletionGate.PreventsBattleDeletion)
+    // — attach it to the card's own controller.
+    // TEST-BUG FIX: CanNotBeDestroyedByBattleClass.CanNotBeDestroyedByBattle (AS-IS 1:1,
+    // CanNotBeDestroyedByBattleClass.cs) is gated by `if (_canNotBeDestroyedByBattleCondition != null)` FIRST —
+    // unlike most other factories' PermanentCondition, a NULL condition here means "never protects" (the whole
+    // predicate short-circuits to false), not "accept unconditionally". A real card always supplies a concrete
+    // predicate; pass an explicit accept-all `(p, a, d, dc) => true` instead of null.
+    var source = new CardSource(context, id, P1);
+    ICardEffect effect = CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
+        (p, a, d, dc) => true, null, false, source, null, $"cbdb:{id.Value}");
+    source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(context, id), "battle deletion prevented");
     // effect deletion still applies
     await ApplyKind(context, id, MatchStateMutationSink.DeleteKind);
@@ -125,8 +139,13 @@ async Task ApplyKind(EngineContext context, HeadlessEntityId target, string kind
     await sink.FlushAsync();
 }
 
+// TEST-BUG FIX: the sink's `context:` parameter was omitted, so `_context` stayed null and every new-model
+// union in MatchStateMutationSink that gates on `_context is not null` (SuspendKind -> CanNotSuspend,
+// IsRestrictedFromCause -> HasCannotReturnToHand/HasCannotReturnToLibrary) silently never fired — passing it
+// costs nothing for the legacy-only paths this suite ALSO exercises (they never read `_context`).
 MatchStateMutationSink Sink(EngineContext context) => new(
-    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue,
+    context: context);
 
 bool ReadBool(EngineContext context, HeadlessEntityId id, string key) =>
     context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null &&
@@ -165,3 +184,17 @@ async Task<HeadlessEntityId> Register(EngineContext context, HeadlessPlayerId ow
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
+// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+
+    public TestCardEntityEffect(ICardEffect effect)
+    {
+        _effect = effect;
+    }
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

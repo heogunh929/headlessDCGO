@@ -40,8 +40,13 @@ async Task KeywordRecognised()
     var enemyDeleter = await Place(ctx, P2, "ENEMY");
     GrantDecoy(ctx, holder);
 
+    // (RD-P6B-14 fix) pass context: the union (DeletionReplacementGate.HasDecoy ->
+    // NewModelContinuousScan.DecoyAcceptsSubject) needs a live EngineContext to build Permanent/CardSource
+    // views and evaluate the joint (holder, candidate) predicate — the same strict-vs-superset switch
+    // KeywordGrantAcceptsSubject already used (context-less callers keep the prior safe-superset behaviour,
+    // see PredicateWithoutContextSuperset below).
     var targetRec = Rec(ctx, target);
-    var redirect = DeletionReplacementGate.FindDecoyRedirect((ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, targetRec, enemyDeleter, effectRegistry: ctx.EffectRegistry);
+    var redirect = DeletionReplacementGate.FindDecoyRedirect((ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, targetRec, enemyDeleter, effectRegistry: ctx.EffectRegistry, context: ctx);
     AssertTrue(redirect == holder, "the Decoy-keyword holder is found as the redirect");
 }
 
@@ -103,14 +108,22 @@ async Task PredicateMismatchNoRedirect()
 
 async Task PredicateWithoutContextSuperset()
 {
+    // STOP (structural, not a Gate-touch-scope limitation): the "superset" design assumes a LEGACY registry
+    // binding already proves the grant EXISTS (so a missing context only relaxes the PREDICATE check, per
+    // KeywordGrantAcceptsSubject). DecoySelfEffect is a new-model ActivateClass with no such binding — its
+    // very EXISTENCE is only observable via a live EffectList scan (NewModelContinuousScan.DecoyAcceptsSubject
+    // / HasDecoy), which itself needs a real EngineContext to construct Permanent/CardSource views. There is
+    // no way to prove presence at all without a context, so the deliberate "keep context-less callers' exact
+    // prior behaviour" contract (this pass's design choice, preserving the sink's real safe-superset defer
+    // semantics unchanged) cannot also un-seal a new-model grant here — doing so would require dropping the
+    // context-gate entirely, changing behaviour for every OTHER context-less caller too (not a scoped fix).
+    // Left failing, documented rather than forced.
     EngineContext ctx = Ctx();
     var target = await Place(ctx, P1, "TARGET", level: 3);
     var holder = await Place(ctx, P1, "HOLDER", level: 3);
     var enemyDeleter = await Place(ctx, P2, "ENEMY");
     GrantDecoy(ctx, holder, p => p.Level == 4);
 
-    // Context-less = the sink's defer decision (documented safe superset): a stored predicate passes;
-    // the context-aware choice paths re-evaluate strictly (previous test).
     var redirect = DeletionReplacementGate.FindDecoyRedirect(
         (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
         effectRegistry: ctx.EffectRegistry);

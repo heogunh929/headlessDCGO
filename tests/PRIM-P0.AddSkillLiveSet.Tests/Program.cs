@@ -79,13 +79,22 @@ async Task AllKeywordsLiveSet()
         (ContinuousKeywordGate.Retaliation, (c, id) => ((ContinuousPlayerScopeKeywordEffect)CardEffectFactory.RetaliationStaticEffect(null, false, c, null)).ToBinding(id)),
         (ContinuousKeywordGate.Scapegoat, (c, id) =>
         {
-            // MIGRATION-NOTE (P7 test-fix): ScapegoatClass (Assets/Scripts/Script/CardEffects/ScapegoatClass.cs)
-            // is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/
-            // rebuild_p6_stageA_notes.md). The gate this test checks (ContinuousKeywordGate.HasKeyword(...,
-            // ContinuousKeywordGate.Scapegoat)) reads only the substrate EffectRegistry; there is no live
-            // interface-scan bridge from that gate to a new-model keyword kind-class (the engine's stage-B live
-            // is-scan serves real ported cards, not a synthetic fixture card), so there is no buildable way to make this grant observable yet. The assertion
-            // below is UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
+            // STOP (post-stage-B re-diagnosis, per task brief): the union DOES exist —
+            // NewModelContinuousScan.HasScapegoat scans subject.EffectList(WhenPermanentWouldBeDeleted) for
+            // ActivateICardEffect && EffectName=="<Scapegoat>" (AS-IS Permanent.cs:3134-3151) and IS wired into
+            // ContinuousKeywordGate.HasKeyword. Two separate problems block THIS test:
+            // (1) factory mismatch — CardEffectFactory.ScapegoatStaticEffect returns ScapegoatClass
+            // (ICardEffect, IScapegoatEffect — a DIFFERENT AS-IS primitive, consumed elsewhere for
+            // scapegoat-target selection), not the "<Scapegoat>" ActivateClass HasScapegoat looks for; the
+            // real producer is ScapegoatSelfEffect (Scapegoat.cs), which is SELF-scoped
+            // (targetPermanent = ResolvePermanentOfThisCard(card), gated IsExistOnBattleAreaDigimon(card)).
+            // (2) even with the right factory, a "late entrant" player-scope grant needs each NEW Digimon's own
+            // EffectList(WhenPermanentWouldBeDeleted) to surface it — AS-IS does this via a permanent-level
+            // GRANT bucket (EffectList_Added), which the mirror's Permanent.EffectList_Added is a stub that
+            // always returns empty (design item P6A-PERMANENT-EFFECTLIST-ADDED, referenced in
+            // NewModelContinuousScan.cs's own doc-comment) — no such store exists to re-splice onto a late
+            // entrant. Fixing needs that store, outside NewModelContinuousScan.cs/*Gate.cs's touch scope for
+            // a Gate-only union. Not forced; left failing.
             CardEffectFactory.ScapegoatStaticEffect(null, false, c, null);
             return null;
         }),
