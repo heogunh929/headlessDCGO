@@ -11,7 +11,7 @@ public static class TfxQueryMappingSmoke
     public static bool VerifyMappings(CardSource card)
     {
         // 키워드 보유
-        bool hasReboot = ContinuousKeywordGate.HasKeyword(card.Context, card.InstanceId, "Reboot");
+        bool hasReboot = new Permanent(card.Context, card.InstanceId).HasReboot;
         // 트래시 수 (자기 / 상대)
         var zones = (IZoneStateReader)card.Context.ZoneMover;
         int trashCount = zones.GetCards(card.Owner, ChoiceZone.Trash).Count;

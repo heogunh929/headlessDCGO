@@ -136,7 +136,7 @@ public sealed class BattleResolver
         {
             if (IsConfirmedDoomed(context, dead.InstanceId) &&
                 (HasFlag(dead, HasRetaliationKey)
-                    || ContinuousKeywordGate.HasKeyword(context, dead.InstanceId, ContinuousKeywordGate.Retaliation)) &&
+                    || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, dead.InstanceId).HasRetaliation) &&
                 !ReadInstanceFlag(context, dead.InstanceId, RetaliationFiredKey) &&
                 !IsStillPendingDeletion(context, opponent.InstanceId) &&
                 IsOnBattleArea(context, opponent))
@@ -227,7 +227,7 @@ public sealed class BattleResolver
         // lives as a registry keyword binding, not the hasPiercing metadata flag — derive it too.
         bool piercing = attackerSurvives && defenderDeletedNow
             && (HasFlag(attacker, HasPiercingKey)
-                || ContinuousKeywordGate.HasKeyword(context, attacker.InstanceId, ContinuousKeywordGate.Piercing));
+                || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attacker.InstanceId).HasPierce);
 
         EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");
@@ -504,7 +504,7 @@ public sealed class BattleResolver
         }
 
         // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
-        if (!IsDigimon(definition) && !ContinuousKeywordGate.IsDigimon(context, instanceId))
+        if (!IsDigimon(definition) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, instanceId).IsDigimon)
         {
             return $"{role} '{instanceId}' is not a Digimon.";
         }

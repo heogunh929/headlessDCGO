@@ -197,7 +197,7 @@ public static class RaidAttackSwitch
         // (S1) The Raid keyword is granted as a live continuous keyword (RaidSelfEffect → SelfKeywordByNameEffect);
         // the hasRaid metadata flag is only set by the GrantRaid mutation, which the keyword grant never emits. Read
         // the live keyword directly (AS-IS evaluates the keyword at attack time), else Raid is inert.
-        if (ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Raid))
+        if (new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasRaid)
         {
             return true;
         }
@@ -213,7 +213,7 @@ public static class RaidAttackSwitch
         if (!context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? card) ||
             card is null ||
             // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
-            (!IsDigimon(card) && !ContinuousKeywordGate.IsDigimon(context, id)))
+            (!IsDigimon(card) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, id).IsDigimon))
         {
             return false;
         }

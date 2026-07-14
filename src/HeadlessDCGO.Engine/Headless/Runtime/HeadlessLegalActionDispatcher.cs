@@ -125,7 +125,7 @@ public sealed class HeadlessLegalActionDispatcher
         // Digimon OR a Digi-Egg (Permanent.cs:3448) — so an egg PASSES this guard; a Tamer/Option is blocked here.
         // The egg's own move restriction is the DP<=0 rule below (1:1 with AS-IS's two-part guard).
         if (!definition.IsCardType("Digimon")
-            && !ContinuousKeywordGate.IsDigimon(context, cardId))
+            && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId).IsDigimon)
         {
             return false;
         }

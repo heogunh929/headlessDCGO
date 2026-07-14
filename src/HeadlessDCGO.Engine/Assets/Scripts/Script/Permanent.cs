@@ -1,5 +1,6 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using System.Collections; // (R1-c) Hashtable — AS-IS HasBlitz/HasEvade/HasBarrier/HasAlliance CanTrigger builders.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -553,15 +554,1003 @@ public sealed class Permanent
 
     public bool HasNoDigivolutionCards => DigivolutionCards.Count == 0;
 
-    /// <summary>(MIG2) AS-IS <c>Permanent.IsDigimon</c> (Permanent.cs:3438-3511) via the K4 chokepoint:
-    /// face-down is never a Digimon; printed Digimon OR Digi-Egg is; else the live TreatAsDigimon
-    /// (<c>ITreatAsDigimonEffect</c>) keyword scan decides.</summary>
-    public bool IsDigimon => ContinuousKeywordGate.IsDigimon(_context, InstanceId);
+    #region トークンかどうか
+    /// <summary>(R1-c) AS-IS <c>Permanent.IsToken</c> (Permanent.cs:3416-3430).</summary>
+    public bool IsToken
+    {
+        get
+        {
+            if (TopCard != null)
+            {
+                if (TopCard.IsToken)
+                {
+                    return true;
+                }
+            }
 
-    /// <summary>(MIG2) AS-IS <c>Permanent.IsTamer</c> (Permanent.cs:3515-3532): a face-down top is not a Tamer.</summary>
-    public bool IsTamer => !TopCard.IsFlipped && TopCard.IsTamer;
+            return false;
+        }
+    }
+    #endregion
 
-    public bool IsToken => TopCard.IsToken;
+    #region Is a Digimon card
+    /// <summary>(R1-c) AS-IS <c>Permanent.IsDigimon</c> (Permanent.cs:3438-3511) — the single chokepoint: a
+    /// face-down top is NOT a Digimon; a printed Digimon OR Digi-Egg IS; else an active
+    /// <c>ITreatAsDigimonEffect</c> accepts it — first over the TOP card's own effects, then over each
+    /// turn-ordered player's field permanents (scanned via <see cref="EffectList_Added"/>, NOT
+    /// <see cref="EffectList"/>, because the latter re-checks IsDigimon and would stack-overflow — AS-IS
+    /// comment preserved) and the player itself. ADAPTATION:
+    /// <c>gameContext.Players_ForTurnPlayer</c> → <c>new GameContext(_context).Players_ForTurnPlayer</c>.</summary>
+    public bool IsDigimon
+    {
+        get
+        {
+            if (TopCard != null)
+            {
+                if (TopCard.IsFlipped)
+                    return false;
+
+                if (TopCard.IsDigimon || TopCard.IsDigiEgg)
+                {
+                    return true;
+                }
+
+                #region Effect on TopCard
+                foreach (ICardEffect cardEffect in TopCard.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ITreatAsDigimonEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((ITreatAsDigimonEffect)cardEffect).IsDigimon(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Effect of treating it as a Digimon
+                foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+                {
+                    foreach (Permanent permanent in player.GetFieldPermanents())
+                    {
+                        #region Effects of permanents in play
+                        foreach (ICardEffect cardEffect in permanent.EffectList_Added(EffectTiming.None))//This can never be EffectList, as EffectList_forCard checks Isdigimon and this causes a stack overflow
+                        {
+                            if (cardEffect is ITreatAsDigimonEffect)
+                            {
+                                if (cardEffect.CanTrigger(null))
+                                {
+                                    if (((ITreatAsDigimonEffect)cardEffect).IsDigimon(this))
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        #endregion
+                    }
+
+                    #region player effect
+                    foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is ITreatAsDigimonEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((ITreatAsDigimonEffect)cardEffect).IsDigimon(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Is a Tamer card
+    /// <summary>(R1-c) AS-IS <c>Permanent.IsTamer</c> (Permanent.cs:3515-3532): a face-down top is not a Tamer.</summary>
+    public bool IsTamer
+    {
+        get
+        {
+            if (TopCard != null)
+            {
+                if (TopCard.IsFlipped)
+                    return false;
+
+                if (TopCard.IsTamer)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Is an Option card
+    /// <summary>(R1-c) AS-IS <c>Permanent.IsOption</c> (Permanent.cs:3536-3550): a DualCard is never an option
+    /// while it is a permanent.</summary>
+    public bool IsOption
+    {
+        get
+        {
+            if (TopCard != null)
+            {
+                if (TopCard.IsOption && !TopCard.IsDigimon) //DualCard is never an option while it is a permanent
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    // ===== (R1-c) keyword-predicate getters (AS-IS Permanent.cs) ==============================================
+    // Each getter is the AS-IS body verbatim (scan scope / interface / gate order / quirks preserved per getter —
+    // NOT uniformised). Two established substrate adaptations apply throughout:
+    //   * GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer → new GameContext(_context).Players_ForTurnPlayer
+    //   * TopCard.CanNotBeAffected(cardEffect) → TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)
+    // and one new to HasBlocker: GManager.instance.attackProcess → AttackProcess.For(_context) (the per-context
+    // instance accessor). Types outside this file's namespace (ActivateClass/CannotBlockClass in ...Script.CardEffects,
+    // AttackProcess in ...Script) are fully qualified to avoid importing namespaces that clash with local type names.
+
+    #region Unblockable
+    /// <summary>(R1-c) AS-IS <c>Permanent.IsUnblockable</c> (Permanent.cs:2376-2393).</summary>
+    public bool IsUnblockable
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.CannotBlockClass)
+                {
+                    if (cardEffect.EffectName == "Unblockable")
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Blocker
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasBlocker</c> (Permanent.cs:2397-2482): the attacking-Digimon-Collision
+    /// short-circuit, then an <c>IBlockerEffect</c> scan over each turn-ordered player's field permanents,
+    /// face-up security, and the player itself.</summary>
+    public bool HasBlocker
+    {
+        get
+        {
+            #region if attacking digimon has collision
+            if (HeadlessDCGO.Engine.Assets.Scripts.Script.AttackProcess.For(_context).ActiveAttack() && CardEffectCommons.IsPermanentExistsOnBattleArea(this))
+            {
+                Permanent attackingPermanent = HeadlessDCGO.Engine.Assets.Scripts.Script.AttackProcess.For(_context).AttackingPermanent;
+
+                if (attackingPermanent != null
+                    && attackingPermanent.TopCard !=null
+                    && attackingPermanent.TopCard.Owner != TopCard.Owner
+                    && attackingPermanent.HasCollision)
+                {
+                    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass fakeCollisionClass = new();
+                    fakeCollisionClass.SetUpICardEffect("Collision", _ => true, attackingPermanent.TopCard);
+
+                    if (!TopCard.CanNotBeAffected(fakeCollisionClass.EffectSourceCard?.InstanceId))//Check can be affected by opponent's Digimon effects
+                        return true;
+                }
+            }
+            #endregion
+
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                #region Effects of permanents in play
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IBlockerEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((IBlockerEffect)cardEffect).IsBlocker(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Effects of faceup security
+                foreach (CardSource source in player.SecurityCards)
+                {
+                    if (source.IsFlipped)
+                        continue;
+
+                    foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IBlockerEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((IBlockerEffect)cardEffect).IsBlocker(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IBlockerEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((IBlockerEffect)cardEffect).IsBlocker(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Jamming
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasJamming</c> (Permanent.cs:2486-2536): an
+    /// <c>ICanNotBeDestroyedByBattleEffect</c> named "Jamming" (with its PermanentCondition) over each
+    /// turn-ordered player's field permanents and the player (NO security scan — AS-IS omits it).</summary>
+    public bool HasJamming
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region 場のパーマネントの効果
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is ICanNotBeDestroyedByBattleEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (cardEffect.EffectName == "Jamming")
+                                {
+                                    if (((ICanNotBeDestroyedByBattleEffect)cardEffect).PermanentCondition(this))
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeDestroyedByBattleEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (cardEffect.EffectName == "Jamming")
+                            {
+                                if (((ICanNotBeDestroyedByBattleEffect)cardEffect).PermanentCondition(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Ice Clad
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasIceclad</c> (Permanent.cs:2540-2581): an <c>IIcecladEffect</c> scan.
+    /// QUIRK preserved: the first inner loop iterates <c>EffectList(None)</c> (THIS permanent's own effects,
+    /// re-scanned once per turn-player), NOT the player's field permanents.</summary>
+    public bool HasIceclad
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                #region Ice clad permanent effects
+                foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IIcecladEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((IIcecladEffect)cardEffect).HasIceclad(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Ice clad Player Effects
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IIcecladEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((IIcecladEffect)cardEffect).HasIceclad(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Whether this permanent has Pierce
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasPierce</c> (Permanent.cs:2585-2613): a Digimon whose own
+    /// <c>OnDetermineDoSecurityCheck</c> effects include an active "Pierce"/"Piercing" ActivateICardEffect.</summary>
+    public bool HasPierce
+    {
+        get
+        {
+            if (IsDigimon)
+            {
+                foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnDetermineDoSecurityCheck))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.CanTrigger(CardEffectCommons.PierceCheckHashtableOfPermanent(this)))
+                        {
+                            if (cardEffect.EffectName == "Pierce")
+                            {
+                                return true;
+                            }
+
+                            if (cardEffect.EffectName == "Piercing")
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Reboot
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasReboot</c> (Permanent.cs:2617-2683): an <c>IRebootEffect</c> scan over
+    /// each turn-ordered player's field permanents, face-up security, and the player.</summary>
+    public bool HasReboot
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region 場のパーマネントの効果
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IRebootEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((IRebootEffect)cardEffect).HasReboot(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region Effects of faceup security
+                foreach (CardSource source in player.SecurityCards)
+                {
+                    if (source.IsFlipped)
+                        continue;
+
+                    foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IRebootEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((IRebootEffect)cardEffect).HasReboot(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IRebootEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((IRebootEffect)cardEffect).HasReboot(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Raid
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasRaid</c> (Permanent.cs:2687-2704): a "Raid" ActivateICardEffect among
+    /// this permanent's own <c>OnAllyAttack</c> effects.</summary>
+    public bool HasRaid
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.OnAllyAttack))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.EffectName == "Raid")
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Rush
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasRush</c> (Permanent.cs:2708-2774): an <c>IRushEffect</c> scan over each
+    /// turn-ordered player's field permanents, face-up security, and the player.</summary>
+    public bool HasRush
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region 場のパーマネントの効果
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IRushEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((IRushEffect)cardEffect).HasRush(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region Effects of Face-up Security
+                foreach (CardSource source in player.SecurityCards)
+                {
+                    if (source.IsFlipped)
+                        continue;
+
+                    foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IRushEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((IRushEffect)cardEffect).HasRush(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IRushEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((IRushEffect)cardEffect).HasRush(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Retaliation
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasRetaliation</c> (Permanent.cs:2778-2789).</summary>
+    public bool HasRetaliation
+    {
+        get
+        {
+            if (RetaliationCount >= 1)
+            {
+                return true;
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Retaliation Count
+    /// <summary>(R1-c) AS-IS <c>Permanent.RetaliationCount</c> (Permanent.cs:2793-2815): the count of active
+    /// "Retaliation" ActivateICardEffects among this permanent's own <c>OnDestroyedAnyone</c> effects.</summary>
+    public int RetaliationCount
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnDestroyedAnyone))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.EffectName == "Retaliation")
+                    {
+                        if (cardEffect.CanTrigger(CardEffectCommons.OnDeletionCheckHashtableOfPermanent(this)))
+                        {
+                            count++;
+                        }
+                    }
+                }
+            }
+
+            return count;
+        }
+    }
+    #endregion
+
+    #region HasAscension
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasAscension</c> (Permanent.cs:2819-2839).</summary>
+    public bool HasAscension
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnDestroyedAnyone))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.EffectName == "Ascension")
+                    {
+                        if (cardEffect.CanTrigger(CardEffectCommons.OnDeletionCheckHashtableOfPermanent(this)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Fortitude
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasFortitude</c> (Permanent.cs:2843-2863).</summary>
+    public bool HasFortitude
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnDestroyedAnyone))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.EffectName == "Fortitude")
+                    {
+                        if (cardEffect.CanTrigger(CardEffectCommons.OnDeletionCheckHashtableOfPermanent(this)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Blitz
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasBlitz</c> (Permanent.cs:2867-2890): a permanent whose own
+    /// <c>OnEnterFieldAnyone</c> effects include one that triggers under the WhenDigivolution OR OnPlay check
+    /// and whose description contains "Blitz".</summary>
+    public bool HasBlitz
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnEnterFieldAnyone))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(CardEffectCommons.WhenDigivolutionCheckHashtableOfPermanent(this)) || cardEffect.CanTrigger(CardEffectCommons.OnPlayCheckHashtableOfPermanent(this)))
+                    {
+                        if (!string.IsNullOrEmpty(cardEffect.EffectDiscription))
+                        {
+                            if (cardEffect.EffectDiscription.Contains("Blitz"))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Evade
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasEvade</c> (Permanent.cs:2894-2919).</summary>
+    public bool HasEvade
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    Hashtable hashtable = new Hashtable()
+                    {
+                        {"Permanents", new List<Permanent>() { this }}
+                    };
+
+                    if (cardEffect.CanTrigger(hashtable))
+                    {
+                        if (cardEffect.EffectName == "Evade")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Mind Link
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasMindLink</c> (Permanent.cs:2923-2946).</summary>
+    public bool HasMindLink
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnDeclaration))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(null))
+                    {
+                        if (!String.IsNullOrEmpty(cardEffect.EffectDiscription))
+                        {
+                            if (cardEffect.EffectDiscription.Contains("Mind Link"))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Barrier
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasBarrier</c> (Permanent.cs:2950-2974).</summary>
+    public bool HasBarrier
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    Hashtable hashtable = new Hashtable();
+                    hashtable.Add("Permanents", new List<Permanent>() { this });
+                    hashtable.Add("battle", new IBattle(null, null, null));
+
+                    if (cardEffect.CanTrigger(hashtable))
+                    {
+                        if (cardEffect.EffectName == "Barrier")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Alliance
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasAlliance</c> (Permanent.cs:2978-3039): a "Alliance"
+    /// <c>OnAllyAttack</c> effect (triggered with this as AttackingPermanent) over each turn-ordered player's
+    /// field permanents, face-up security, and the player.</summary>
+    public bool HasAlliance
+    {
+        get
+        {
+            Hashtable hashtable = new Hashtable(){
+                {"AttackingPermanent", this}
+            };
+
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region Permanent Effects
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.OnAllyAttack))
+                    {
+                        if (cardEffect.EffectName == "Alliance")
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region Effects of faceup security
+                foreach (CardSource source in player.SecurityCards)
+                {
+                    if (source.IsFlipped)
+                        continue;
+
+                    foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.OnAllyAttack))
+                    {
+                        if (cardEffect.EffectName == "Alliance")
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Player Effects
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.OnAllyAttack))
+                {
+                    if (cardEffect.EffectName == "Alliance")
+                    {
+                        if (cardEffect.CanTrigger(hashtable))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Collision
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasCollision</c> (Permanent.cs:3043-3108): an <c>ICollisionEffect</c>
+    /// scan over each turn-ordered player's <c>OnCounterTiming</c> field permanents, face-up security, and the
+    /// player.</summary>
+    public bool HasCollision
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region Permanent Effects
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.OnCounterTiming))
+                    {
+                        if (cardEffect is ICollisionEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((ICollisionEffect)cardEffect).HasCollision(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region Effects of faceup security
+                foreach (CardSource source in player.SecurityCards)
+                {
+                    if (source.IsFlipped)
+                        continue;
+
+                    foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.OnCounterTiming))
+                    {
+                        if (cardEffect is ICollisionEffect)
+                        {
+                            if (cardEffect.CanTrigger(null))
+                            {
+                                if (((ICollisionEffect)cardEffect).HasCollision(this))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Player Effects
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.OnCounterTiming))
+                {
+                    if (cardEffect is ICollisionEffect)
+                    {
+                        if (cardEffect.CanTrigger(null))
+                        {
+                            if (((ICollisionEffect)cardEffect).HasCollision(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Partition
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasPartition</c> (Permanent.cs:3113-3129).</summary>
+    public bool HasPartition
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.EffectName == "Partition")
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region Has Scapegoat
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasScapegoat</c> (Permanent.cs:3134-3151).</summary>
+    public bool HasScapegoat
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.WhenPermanentWouldBeDeleted))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.EffectName == "<Scapegoat>")
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
+
+    #region 消滅時効化を持つか
+    /// <summary>(R1-c) AS-IS <c>Permanent.HasOnDeletionEffect</c> (Permanent.cs:3155-3178).</summary>
+    public bool HasOnDeletionEffect
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in EffectList(EffectTiming.OnDestroyedAnyone))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(CardEffectCommons.OnDeletionCheckHashtableOfPermanent(this)))
+                    {
+                        if (!string.IsNullOrEmpty(cardEffect.EffectDiscription))
+                        {
+                            if (cardEffect.IsOnDeletion)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    }
+    #endregion
 
     /// <summary>AS-IS <c>Permanent.IsSuspended</c> is a public FIELD (Permanent.cs:1956) — readable AND
     /// assignable. Get = the sink's <c>isSuspended</c> instance flag. (P6C1) Set = the AS-IS direct-assignment
@@ -669,38 +1658,6 @@ public sealed class Permanent
             }
 
             return true;
-        }
-    }
-
-    /// <summary>(P6C3) 1:1 of AS-IS <c>Permanent.HasIceclad</c> (Permanent.cs:2540-2582): any active
-    /// <see cref="IIcecladEffect"/> on THIS permanent's or a player's EffectList answers true. AS-IS gates
-    /// each candidate with <c>CanTrigger(null)</c> (not CanUse) — preserved. NOTE the AS-IS outer
-    /// Players_ForTurnPlayer loop re-scans THIS permanent's own EffectList once per player (verbatim quirk,
-    /// result-identical) while reading each player's OWN EffectList — structure kept 1:1.</summary>
-    public bool HasIceclad
-    {
-        get
-        {
-            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
-            {
-                foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
-                {
-                    if (cardEffect is IIcecladEffect iceclad && cardEffect.CanTrigger(null) && iceclad.HasIceclad(this))
-                    {
-                        return true;
-                    }
-                }
-
-                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
-                {
-                    if (cardEffect is IIcecladEffect iceclad && cardEffect.CanTrigger(null) && iceclad.HasIceclad(this))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
         }
     }
 

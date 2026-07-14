@@ -438,7 +438,7 @@ public sealed class SecurityResolver
         }
 
         // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
-        if (!IsDigimon(attackerCard) && !ContinuousKeywordGate.IsDigimon(context, attack.AttackerId.Value))
+        if (!IsDigimon(attackerCard) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attack.AttackerId.Value).IsDigimon)
         {
             return $"Attacker '{attack.AttackerId.Value}' is not a Digimon.";
         }
@@ -573,7 +573,7 @@ public sealed class SecurityResolver
             HasFlag(attacker.Metadata, attackerCard.Metadata, BattleResolver.PreventBattleDeletionKey) ||
             // (GR-005) a self-static <Jamming> lives as a registry keyword binding, not the
             // preventBattleDeletion metadata flag — derive it so a Jamming attacker survives the security battle.
-            ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Jamming) ||
+            new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasJamming ||
             BattleDeletionGate.PreventsBattleDeletion(context, attackerId))
         {
             return SecurityBattleOutcome.AttackerSurvived;

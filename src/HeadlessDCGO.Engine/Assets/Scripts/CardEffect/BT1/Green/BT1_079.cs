@@ -5,8 +5,8 @@
 // AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpICardEffect/SetUpActivateClass + local
 // functions, SetIsInheritedEffect(true) (AS-IS BT1_079.cs:19). Substrate translations only: IEnumerator->Task,
 // StartCoroutine->await; the AS-IS `Func<Permanent,bool> CanSelectPermanentCondition` is expressed as the
-// established `Func<HeadlessEntityId,bool>` idiom; AS-IS `permanent.HasBlocker` -> the self-static keyword
-// gate `ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker)`, negated for
+// established `Func<HeadlessEntityId,bool>` idiom; AS-IS `permanent.HasBlocker` -> (R1-c) the rehoused
+// getter `new Permanent(card.Context, id).HasBlocker`, negated for
 // "without <Blocker>"; `GManager.instance.GetComponent<SelectPermanentEffect>()` -> bridge W4.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
 
@@ -42,7 +42,7 @@ public sealed class BT1_079 : CEntity_Effect
             {
                 if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
                 {
-                    if (!ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker))
+                    if (!new Permanent(card.Context, id).HasBlocker)
                     {
                         return true;
                     }

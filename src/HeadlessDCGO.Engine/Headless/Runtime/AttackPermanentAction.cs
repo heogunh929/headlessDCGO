@@ -208,7 +208,7 @@ public sealed class AttackPermanentAction
         }
 
         // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
-        if (!IsDigimon(attackerCard) && !ContinuousKeywordGate.IsDigimon(context, attackerId))
+        if (!IsDigimon(attackerCard) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).IsDigimon)
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not a Digimon.");
         }
@@ -221,7 +221,7 @@ public sealed class AttackPermanentAction
         if (turn.Phase != HeadlessPhase.Main)
         {
             bool hasBlitz = ReadBool(attacker.Metadata, HasBlitzKey) || ReadBool(attackerCard.Metadata, HasBlitzKey)
-                || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Blitz);
+                || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasBlitz;
             if (turn.Phase != HeadlessPhase.MemoryPass || !hasBlitz)
             {
                 return AttackPermanentValidation.Illegal(
@@ -268,7 +268,7 @@ public sealed class AttackPermanentAction
 
         if (ReadBool(attacker.Metadata, EnteredThisTurnKey)
             && !ReadBool(attacker.Metadata, HasRushKey) && !ReadBool(attackerCard.Metadata, HasRushKey)
-            && !ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Rush))
+            && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasRush)
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' entered this turn and has no rush.");
         }
@@ -303,7 +303,7 @@ public sealed class AttackPermanentAction
         }
 
         // (K4) a Tamer "also treated as a Digimon" is attackable (AS-IS Permanent.IsDigimon).
-        if (!IsDigimon(targetCard) && !ContinuousKeywordGate.IsDigimon(context, targetId.Value))
+        if (!IsDigimon(targetCard) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetId.Value).IsDigimon)
         {
             return AttackPermanentValidation.Illegal($"Attack target '{targetId}' is not a Digimon.");
         }

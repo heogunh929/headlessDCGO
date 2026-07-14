@@ -160,7 +160,7 @@ public static class OverclockEffect
 
     // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
     private static bool IsDigimon(EngineContext context, CardInstanceRecord instance) =>
-        ContinuousKeywordGate.IsDigimon(context, instance.InstanceId);
+        new Assets.Scripts.Script.CardEffectCommons.Permanent(context, instance.InstanceId).IsDigimon;
 
     // S3 trait read: collect the instance + definition trait values (trait/traits/cardTraits keys) and match
     // the required trait case-insensitively (empty required trait = no trait gate, token-only).

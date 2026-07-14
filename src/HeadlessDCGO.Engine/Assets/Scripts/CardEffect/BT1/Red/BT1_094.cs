@@ -48,7 +48,7 @@ public sealed class BT1_094 : CEntity_Effect
             {
                 if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
                 {
-                    if (ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker))
+                    if (new Permanent(card.Context, id).HasBlocker)
                     {
                         return true;
                     }

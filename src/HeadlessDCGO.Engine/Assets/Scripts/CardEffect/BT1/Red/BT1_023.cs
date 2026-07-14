@@ -5,9 +5,7 @@
 // functions. CanUseCondition/CanActivateCondition resolve via the existing bridge; AS-IS
 // `CanSelectPermanentCondition(Permanent permanent)` = `IsPermanentExistsOnOpponentBattleAreaDigimon(permanent,
 // card) && permanent.HasBlocker` is expressed over the established `Func<HeadlessEntityId,bool>` idiom (mirror
-// `Permanent` has no `HasBlocker` property; `ContinuousKeywordGate.HasKeyword(context, id, Blocker)` is the
-// existing substrate translation of that AS-IS property, same as `PermanentOfThisCard()` ->
-// `ResolvePermanentOfThisCard`).
+// (R1-c) rehoused: `permanent.HasBlocker` is now the AS-IS getter `new Permanent(context, id).HasBlocker`).
 //
 // UNRESOLVED MEMBERS (kept verbatim, not simplified/faked; see docs/audit/rebuild_p5_cards_missing.md): AS-IS
 // `GManager.instance.GetComponent<SelectPermanentEffect>()` / full AS-IS `SetUp(...)` / `.Activate()` — same gap
@@ -45,7 +43,7 @@ public sealed class BT1_023 : CEntity_Effect
             {
                 if (CardEffectCommons.IsOpponentBattleAreaDigimon(card, id))
                 {
-                    if (ContinuousKeywordGate.HasKeyword(card.Context, id, ContinuousKeywordGate.Blocker))
+                    if (new Permanent(card.Context, id).HasBlocker)
                     {
                         return true;
                     }

@@ -236,7 +236,7 @@ public sealed class HeadlessEarlyPhaseFlow
         bool belongsToTurnPlayer = record.OwnerId == turnPlayerId;
         bool canReboot = allowReboot
             && (ReadBool(record.Metadata, "hasReboot")
-                || ContinuousKeywordGate.HasKeyword(context, cardId, ContinuousKeywordGate.Reboot));
+                || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId).HasReboot);
         if (!ignoreOwner && !belongsToTurnPlayer && !canReboot)
         {
             return false;

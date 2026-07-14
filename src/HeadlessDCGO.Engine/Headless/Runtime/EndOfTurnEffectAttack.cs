@@ -79,7 +79,7 @@ public static class EndOfTurnEffectAttack
             if (execute &&
                 ReadFlag(inst.Metadata, "enteredThisTurn") &&
                 !ReadFlag(inst.Metadata, "hasRush") &&
-                !ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Rush))
+                !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, id).HasRush)
             {
                 continue;
             }

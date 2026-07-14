@@ -220,7 +220,7 @@ public static class AllianceAttackBoost
         }
 
         if (ReadFlag(attacker.Metadata, HasAllianceKey)
-            || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Alliance)) // GR-005 C-group seal
+            || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasAlliance) // (R1-c) AS-IS Permanent.HasAlliance read
         {
             return true;
         }
@@ -232,7 +232,7 @@ public static class AllianceAttackBoost
 
     // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
     private static bool IsDigimon(EngineContext context, CardInstanceRecord instance) =>
-        ContinuousKeywordGate.IsDigimon(context, instance.InstanceId);
+        new Assets.Scripts.Script.CardEffectCommons.Permanent(context, instance.InstanceId).IsDigimon;
 
     private static bool TryReadDigimonDp(EngineContext context, HeadlessEntityId id, CardInstanceRecord instance, out int dp)
     {

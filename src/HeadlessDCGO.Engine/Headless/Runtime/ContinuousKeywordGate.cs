@@ -4,6 +4,21 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
+// (R1-c) PARTIAL SURVIVOR. The keyword-PRESENCE READ getters (HasBlocker/HasJamming/HasPierce/HasReboot/
+// HasRush/HasBlitz/HasRetaliation/HasAlliance/HasCollision/HasRaid + IsDigimon) are now AS-IS getters on
+// Permanent.cs, and their READ consumers (attack/block/battle/raid/security/early-phase/end-of-turn-Rush)
+// were rewired to `new Permanent(ctx,id).HasX` / `.IsDigimon`. What REMAINS here is R2's job, not a read:
+//   * const strings + HasKeyword — consumed by keyword PROCESSES with no getter (Overclock/Vortex/Execute/
+//     Progress/VortexCanAttackPlayers: EndOfTurnEffectAttack, OverclockEffect, ProgressImmunity) and by the
+//     GRANT-registration layer (CardEffectFactory/CardEffectCommons/ContinuousAndRestrictionEffects register
+//     keyword bindings under these names).
+//   * HasKeyword(EffectRegistry,…) + KeywordGrantAcceptsSubject + the deletion-replacement flag consts
+//     (Fortitude/Barrier/Evade/Ascension/Scapegoat/Fragment/Save/Decode/Partition/ArmorPurge/Decoy) —
+//     consumed by the DELETION-REPLACEMENT machinery (DeletionReplacementGate/DeletionReplacementTiming,
+//     CardLeavePlayCleanup, CardSource save-check). Those keyword Processes / deletion rules are R2 — this
+//     gate stays until R2 rehouses them. NewModelContinuousScan's keyword-scan methods stay for the same
+//     reason (HasKeyword still unions them for the R2 consumers).
+//
 /// <summary>
 /// (GR-005) Derives whether a card currently HAS a self-static keyword (Blocker / Jamming / Piercing) by
 /// querying the EffectRegistry at read time — the same pull pattern that makes continuous MODIFIERS work

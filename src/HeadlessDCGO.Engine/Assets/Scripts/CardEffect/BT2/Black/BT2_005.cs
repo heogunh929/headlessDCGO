@@ -24,7 +24,7 @@ public sealed class BT2_005 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (ContinuousKeywordGate.HasKeyword(card.Context, card.InstanceId, "Reboot"))
+                        if (new Permanent(card.Context, card.InstanceId).HasReboot)
                         {
                             return true;
                         }

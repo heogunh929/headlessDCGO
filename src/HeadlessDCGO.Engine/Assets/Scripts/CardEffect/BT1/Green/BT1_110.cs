@@ -7,7 +7,7 @@
 // (AS-IS `Player.Enemy`, a live object) -> `new Player(card.Context, card.Owner).Enemy` (mirror `CardSource.
 // Owner` is a bare `HeadlessPlayerId`), then runs `new SuspendPermanentsClass(list, cause, isBlock:false).Tap()`
 // directly (bridged 1:1, HeadlessEntityId? cause instead of Hashtable). `!permanent.HasBlocker` -> the
-// established id-shape keyword check (`ContinuousKeywordGate.HasKeyword`, no Permanent-shape sibling exists).
+// (R1-c) the rehoused `permanent.HasBlocker` getter (permanent is a Permanent).
 // `!permanent.TopCard.CanNotBeAffected(activateClass)` -> `CanNotBeAffected(HeadlessEntityId?)` fed the
 // causing effect's source card id (the established `ICardEffect -> EffectSourceCard.InstanceId` idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Green;
@@ -93,7 +93,7 @@ public sealed class BT1_110 : CEntity_Effect
             {
                 if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
                 {
-                    if (!ContinuousKeywordGate.HasKeyword(card.Context, permanent.InstanceId, ContinuousKeywordGate.Blocker))
+                    if (!permanent.HasBlocker)
                     {
                         if (!permanent.TopCard.CanNotBeAffected(activateClass.EffectSourceCard?.InstanceId))
                         {

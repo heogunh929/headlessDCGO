@@ -5,8 +5,7 @@
 // AS-IS structure kept verbatim: both timing==EffectTiming.None blocks use the REAL AS-IS
 // `CardEffectFactory.RebootSelfStaticEffect`/`ChangeSelfSAttackStaticEffect` calls (verified present in
 // DCGO CardEffectFactory — not old-model inventions), so no inline ActivateClass restructuring is needed here.
-// `card.PermanentOfThisCard().HasReboot` -> `ContinuousKeywordGate.HasKeyword(card.Context, card.InstanceId,
-// "Reboot")` (established bridge, Headless.Runtime.ContinuousKeywordGate).
+// `card.PermanentOfThisCard().HasReboot` -> (R1-c) the rehoused `new Permanent(card.Context, card.InstanceId).HasReboot`.
 // NAMESPACE FIX: this file lives under BT2/Black but previously declared the bare `CardEffect.BT2` namespace
 // (pre-existing bug, same class as BT2_002/BT2_010) — corrected to `CardEffect.BT2.Black` below.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT2.Black;
@@ -33,7 +32,7 @@ public sealed class BT2_063 : CEntity_Effect
                 {
                     if (CardEffectCommons.IsOwnerTurn(card))
                     {
-                        if (ContinuousKeywordGate.HasKeyword(card.Context, card.InstanceId, "Reboot"))
+                        if (new Permanent(card.Context, card.InstanceId).HasReboot)
                         {
                             return true;
                         }

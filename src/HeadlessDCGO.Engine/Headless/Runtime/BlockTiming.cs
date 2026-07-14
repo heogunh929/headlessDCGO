@@ -57,7 +57,7 @@ public sealed class BlockTiming
         // Collision is inert.
         bool attackerHasCollision = ReadBool(attacker.Metadata, HasCollisionKey) ||
             ReadBool(attackerCard.Metadata, HasCollisionKey) ||
-            ContinuousKeywordGate.HasKeyword(context, attack.AttackerId.Value, ContinuousKeywordGate.Collision);
+            new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attack.AttackerId.Value).HasCollision;
 
         return zoneReader
             .GetCards(attack.DefendingPlayerId.Value, ChoiceZone.BattleArea)
@@ -230,7 +230,7 @@ public sealed class BlockTiming
         ArgumentNullException.ThrowIfNull(blockerCard);
         if (blocker.OwnerId != attack.DefendingPlayerId ||
             // (K4) type judgement via the central chokepoint (AS-IS Permanent.IsDigimon incl. TreatAsDigimon).
-            (!IsDigimon(blockerCard) && !ContinuousKeywordGate.IsDigimon(context, blockerId)) ||
+            (!IsDigimon(blockerCard) && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, blockerId).IsDigimon) ||
             ReadBool(blocker.Metadata, IsSuspendedKey) ||
             !ReadBool(blocker.Metadata, CanSuspendKey, defaultValue: true) ||
             ReadBool(blocker.Metadata, CannotBlockKey) ||
@@ -239,7 +239,7 @@ public sealed class BlockTiming
             !(HasBlocker(context, attack, blocker, blockerCard, attackerHasCollision)
                 // (GR-005) a self-static <Blocker> lives as a registry keyword binding, not the hasBlocker
                 // metadata flag — derive it from the registry so ported blockers actually block in live play.
-                || ContinuousKeywordGate.HasKeyword(context, blockerId, ContinuousKeywordGate.Blocker)))
+                || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, blockerId).HasBlocker))
         {
             return null;
         }
@@ -298,7 +298,7 @@ public sealed class BlockTiming
         }
 
         return !(ReadBool(attacker.Metadata, HasCollisionKey) || ReadBool(attackerCard.Metadata, HasCollisionKey)
-            || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Collision));
+            || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasCollision);
     }
 
     private static bool TryReadInstanceAndCard(
