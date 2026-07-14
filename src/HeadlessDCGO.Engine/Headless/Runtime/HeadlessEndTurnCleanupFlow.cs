@@ -121,6 +121,27 @@ public sealed class HeadlessEndTurnCleanupFlow
             new Assets.Scripts.Script.CardEffectCommons.Player(context, nonTurnPlayerId.Value).UntilOpponentTurnEndEffects = new();
         }
 
+        // (W3 / P6A-PERMANENT-EFFECTLIST-ADDED) AS-IS EndPhase reset of the PERMANENT-scope duration buckets
+        // (TurnStateMachine.cs:3183-3201): every field permanent's UntilEachTurnEndEffects drops; the ending (turn)
+        // player's permanents drop UntilOwnerTurnEndEffects; the non-turn player's permanents drop
+        // UntilOpponentTurnEndEffects. Reassigning a fresh list = AS-IS `= new List<…>()`. The buckets are dormant
+        // today (no live writer until batch C), so this is behavior-neutral — it makes the store correct for cutover.
+        foreach (CardInstanceRecord record in FieldCardInstances(context))
+        {
+            var permanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, record.InstanceId, record.OwnerId);
+            permanent.UntilEachTurnEndEffects = new();
+
+            if (turnPlayerId.HasValue && record.OwnerId == turnPlayerId.Value)
+            {
+                permanent.UntilOwnerTurnEndEffects = new();
+            }
+
+            if (nonTurnPlayerId.HasValue && record.OwnerId == nonTurnPlayerId.Value)
+            {
+                permanent.UntilOpponentTurnEndEffects = new();
+            }
+        }
+
         return new EndTurnCleanupResult(
             Applied: true,
             Reason: "EndTurnCleanup",

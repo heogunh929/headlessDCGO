@@ -1807,18 +1807,208 @@ public sealed class Permanent
         return EffectList_ForCard(timing, TopCard);
     }
 
-    /// <summary>AS-IS <c>Permanent.EffectList_Added(EffectTiming)</c> (Permanent.cs:1380-1492) — the effects
-    /// GRANTED to this permanent (AS-IS UntilOwnerDrawPhase/UntilOwnerTurnEnd/UntilEachTurnEnd/…/
-    /// PermanentEffects buckets fed by GiveEffectToPermanent). The mirror has NO new-model permanent-grant
-    /// store yet: every current grant lowers to a substrate <c>EffectBinding</c> (GiveEffectToPermanent bridge
-    /// → registry) which the legacy gates read — so the NEW-model list is empty today. design item
-    /// P6A-PERMANENT-EFFECTLIST-ADDED (docs/audit/rebuild_p6_stageA_notes.md). (AS-IS tail backfills
-    /// <c>SetEffectSourceCard(TopCard)</c> + <c>SetIsInheritedEffect(false)</c> on each granted effect —
-    /// preserved here for when the store lands.)</summary>
+    /// <summary>(W3 / P6A-PERMANENT-EFFECTLIST-ADDED resolved) AS-IS <c>Permanent.EffectList_Added(EffectTiming)</c>
+    /// (Permanent.cs:1380-1492) VERBATIM — the effects GRANTED to this permanent, held in the per-duration buckets
+    /// (<see cref="UntilOwnerDrawPhaseEffects"/> … <see cref="UntilEndAttackEffects"/>) fed by
+    /// <see cref="CardEffectCommons.AddEffectToPermanent"/>. Each bucket holds a <c>Func&lt;EffectTiming,ICardEffect&gt;</c>
+    /// (the <see cref="CardEffectCommons.GetCardEffectByEffectTiming"/> selector) that yields its effect ONLY when
+    /// re-queried at the grant timing (else null), so a bucket surfaces its effect only at that timing. The buckets
+    /// are enumerated in the AS-IS order, each non-null result added, then null-filtered, then each surviving effect's
+    /// null <c>EffectSourceCard</c> is back-filled with <see cref="TopCard"/> and <c>SetIsInheritedEffect(false)</c> is
+    /// stamped. The buckets are backed by a match-scoped <see cref="PermanentEffectListStore"/> (the Permanent is a
+    /// per-access VIEW; see the bucket properties). Consumed via <see cref="EffectList_ForCard"/> →
+    /// <see cref="EffectList(EffectTiming)"/> by the live continuous scans (which query timing None / continuous
+    /// timings — an activated grant selected at e.g. OnEndBattle yields null there and is not surfaced) and by the
+    /// mirror <c>AutoProcessing.GetSkillInfos</c> window collection (the intended consumer).</summary>
     public List<ICardEffect> EffectList_Added(EffectTiming timing)
     {
-        _ = timing;
-        return new List<ICardEffect>();
+        List<ICardEffect> _EffectList = new List<ICardEffect>();
+
+        if (TopCard != null)
+        {
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOwnerDrawPhaseEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOwnerTurnEndEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilEachTurnEndEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOpponentTurnEndEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilEndBattleEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOwnerTurnStartEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilNextUntapEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in PermanentEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilEndAttackEffects)
+            {
+                ICardEffect cardEffect = GetCardEffect(timing);
+
+                if (cardEffect != null)
+                {
+                    _EffectList.Add(cardEffect);
+                }
+            }
+
+            _EffectList = _EffectList.Filter(cardEffect => cardEffect != null);
+
+            foreach (ICardEffect cardEffect in _EffectList)
+            {
+                if (cardEffect != null)
+                {
+                    if (cardEffect.EffectSourceCard == null)
+                    {
+                        cardEffect.SetEffectSourceCard(TopCard);
+                    }
+
+                    cardEffect.SetIsInheritedEffect(false);
+                }
+            }
+        }
+
+        return _EffectList;
+    }
+
+    // ===== (W3 / P6A-PERMANENT-EFFECTLIST-ADDED) AS-IS Permanent duration buckets (Permanent.cs:1575-1608) — the
+    // per-permanent granted-effect store fed by CardEffectCommons.AddEffectToPermanent and enumerated by
+    // EffectList_Added above. AS-IS these are plain public settable list FIELDS on the persistent Permanent; the
+    // mirror Permanent is a transient per-access VIEW (a fresh instance on every access, keyed on the top-card
+    // InstanceId — see the Equals note), so a per-instance field would not survive across two views of the same
+    // permanent. Backed by a match-scoped store keyed by (EngineContext, top-card InstanceId) — the same substrate
+    // pattern as CEntity_EffectControllerStore / PlayerEffectListStore. The get returns the LIVE list (so `.Add(...)`
+    // appends AS-IS-verbatim); the set REPLACES it (the AS-IS turn-end / attack-end cleanups reassign a fresh
+    // `new List<…>()`). ADAPTATION: substrate backing only — names, element type, and merge order are AS-IS 1:1.
+    // NOTE: keyed on the top-card InstanceId, so a permanent whose top changes (de-digivolve) sees a fresh (empty)
+    // holder — the same across-time identity boundary documented on Equals; AS-IS grants outlive a top change on the
+    // persistent object. No current caller relies on that edge (only same-turn OnEndBattle grants exist today).
+
+    /// <summary>AS-IS <c>Permanent.UntilOwnerTurnEndEffects</c> (Permanent.cs:1575).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilOwnerTurnEndEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilOwnerTurnEndEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilOwnerDrawPhaseEffects</c> (Permanent.cs:1579).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerDrawPhaseEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilOwnerDrawPhaseEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilOwnerDrawPhaseEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilEachTurnEndEffects</c> (Permanent.cs:1583).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilEachTurnEndEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilEachTurnEndEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilOpponentTurnEndEffects</c> (Permanent.cs:1587).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilOpponentTurnEndEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilOpponentTurnEndEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilEndBattleEffects</c> (Permanent.cs:1591).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilEndBattleEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilEndBattleEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilEndAttackEffects</c> (Permanent.cs:1595).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilEndAttackEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilEndAttackEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilEndAttackEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilOwnerTurnStartEffects</c> (Permanent.cs:1599).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnStartEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilOwnerTurnStartEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilOwnerTurnStartEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.UntilNextUntapEffects</c> (Permanent.cs:1603).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilNextUntapEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).UntilNextUntapEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).UntilNextUntapEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.PermanentEffects</c> (Permanent.cs:1607).</summary>
+    public List<Func<EffectTiming, ICardEffect>> PermanentEffects
+    {
+        get => PermanentEffectListStore.Get(_context, InstanceId).PermanentEffects;
+        set => PermanentEffectListStore.Get(_context, InstanceId).PermanentEffects = value;
     }
 
     /// <summary>AS-IS <c>Permanent.EffectList_ForCard(EffectTiming, CardSource)</c> (Permanent.cs:1495-1573):
@@ -3601,6 +3791,36 @@ public sealed class Permanent
         }
 
         return Headless.Choices.ChoiceZone.None;
+    }
+}
+
+/// <summary>(W3 / P6A-PERMANENT-EFFECTLIST-ADDED) Match-scoped backing for the AS-IS <see cref="Permanent"/> duration
+/// buckets (Permanent.cs:1575-1608). AS-IS they are plain settable list fields on the persistent Permanent; the mirror
+/// Permanent is a transient view, so the live lists live here keyed by (EngineContext, top-card InstanceId) — the same
+/// substrate pattern as <c>CEntity_EffectControllerStore</c> and <c>PlayerEffectListStore</c>. Each permanent's holder
+/// is created lazily with empty lists (AS-IS field initialisers).</summary>
+internal sealed class PermanentEffectLists
+{
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerDrawPhaseEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilEndAttackEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnStartEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilNextUntapEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> PermanentEffects = new();
+}
+
+internal static class PermanentEffectListStore
+{
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        EngineContext, System.Collections.Concurrent.ConcurrentDictionary<HeadlessEntityId, PermanentEffectLists>> ByContext = new();
+
+    public static PermanentEffectLists Get(EngineContext context, HeadlessEntityId instanceId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return ByContext.GetOrCreateValue(context).GetOrAdd(instanceId, static _ => new PermanentEffectLists());
     }
 }
 

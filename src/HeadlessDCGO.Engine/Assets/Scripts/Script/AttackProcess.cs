@@ -729,6 +729,23 @@ public sealed class AttackProcess
         // UntilEndAttackEffects). This is the AS-IS expiry POSITION: after the [On End Attack] window resolved.
         EffectDurationExpiry.ExpireAttackEnd(_context.EffectRegistry);
 
+        // (W3 / P6A-PERMANENT-EFFECTLIST-ADDED) AS-IS :489-495 — the same reset for the NEW-model per-permanent
+        // grant store: `foreach permanent in field: permanent.UntilEndAttackEffects = new List<…>()`. Dormant today
+        // (no live writer until batch C), so behavior-neutral — it keeps the store correct for cutover.
+        if (_context.ZoneMover is IZoneStateReader cleanupZones)
+        {
+            foreach (HeadlessPlayerId playerId in _context.TurnController.Current.PlayerOrder)
+            {
+                foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea })
+                {
+                    foreach (HeadlessEntityId topId in cleanupZones.GetCards(playerId, zone).ToArray())
+                    {
+                        new Permanent(_context, topId, playerId).UntilEndAttackEffects = new();
+                    }
+                }
+            }
+        }
+
         // AS-IS :501 OffTargetArrow — stripped.
 
         if (_context.AttackController.Current.AttackerId is HeadlessEntityId attackerId)

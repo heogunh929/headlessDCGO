@@ -2844,46 +2844,10 @@ public static partial class CardEffectCommons
     public static Task DNADigivolveWithHandOrTrashCardIntoHandOrTrash(CardSource sourceCard) =>
         throw new NotSupportedException("DNA-with-temporary-material is not modeled — STOP (strong model).");
 
-    /// <summary>AS-IS <c>AddEffectToPermanent(targetPermanent, effectDuration, card, cardEffect, timing)</c>
-    /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:11, verbatim verified): register ANY ICardEffect on the
-    /// target with a duration. The AS-IS owner-relative bucket swap (an "UntilOpponentTurnEnd" grant lands
-    /// in the bucket that expires at the SOURCE owner's opponent's turn end regardless of the target's
-    /// owner) is absorbed by the port's controller-relative duration expiry (proved in G9-067). The binding
-    /// is re-registered with the duration tag and re-targeted at the permanent.</summary>
-    public static void AddEffectToPermanent(
-        Permanent? targetPermanent, EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-        _ = timing;   // the AS-IS timing selects the getCardEffect wrapper; headless bindings self-describe.
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
-        {
-            return;
-        }
-
-        // (P6 cluster3) old-model lowering via LegacyBindingBridge (ToBinding left the ICardEffect contract);
-        // a NEW-model effect on this grant path has no permanent/player grant store yet
-        // (P6A-PERMANENT-EFFECTLIST-ADDED) — STOP, design item RD-P6C3-C1.
-        if (!LegacyBindingBridge.TryToBinding(
-                cardEffect,
-                $"{card.InstanceId.Value}:addEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}",
-                out EffectBinding? binding) || binding is null)
-        {
-            throw new NotSupportedException(
-                $"AddEffectToPermanent: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model permanent grant store exists yet (design item RD-P6C3-C1).");
-        }
-
-        var retargeted = new EffectContext(
-            binding.Request.Context.SourcePlayerId,
-            binding.Request.Context.OwnerPlayerId,
-            binding.Request.Context.SourceEntityId,
-            binding.Request.Context.TriggerEntityId,
-            targetEntityIds: new[] { targetPermanent.InstanceId },
-            values: binding.Request.Context.Values);
-        card.Context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, retargeted),
-            binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
-    }
+    // AS-IS AddEffectToPermanent(targetPermanent, effectDuration, card, cardEffect, timing) lives at its AS-IS path
+    // in the sibling partial file CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs (mirror-into-asis-file
+    // rule) — W3 resolved RD-P6C3-C1 there (AS-IS duration-bucket store for new-model effects; the OLD-model
+    // registry-lowering path is preserved there as the batch-C transitional).
 
     /// <summary>(PRIM-P0 B.O.5-tail) AS-IS temp <c>AddEffectToPermanent</c> for a SELF-[On Deletion] grant — the
     /// nested effect must fire ON the target's OWN removal (e.g. EX8_059 "1 Digimon gains '[On Deletion] ...'
