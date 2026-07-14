@@ -166,17 +166,196 @@ public sealed class Player
     /// both AS-IS branches reduce to <c>|MemoryForPlayer + 10|</c> (favor −10 ⇒ 0 payable, favor +10 ⇒ 20).</summary>
     public int MaxMemoryCost => Math.Abs(MemoryForPlayer + 10);
 
-    /// <summary>(P6 stage A) AS-IS <c>Player.EffectList(EffectTiming)</c> (Player.cs:830) — the effects
-    /// GRANTED to this player (AS-IS PermanentEffects / UntilEndBattleEffects / UntilEachTurnEndEffects /…
-    /// buckets fed by GiveEffectToPlayer). The mirror has NO new-model player-grant store yet: every current
-    /// player-scope grant lowers to a substrate <c>EffectBinding</c> (GiveEffectToPlayer bridge → registry),
-    /// which the legacy gates read — so the NEW-model list is empty today. design item P6A-PLAYER-EFFECTLIST
-    /// (docs/audit/rebuild_p6_stageA_notes.md): port the AS-IS grant buckets when GiveEffectToPlayer flips to
-    /// storing live ICardEffects.</summary>
+    // ===== (R6-P / RD-R6-02) AS-IS Player effect-list buckets (Player.cs:918-946) — the effects GRANTED to
+    // this player, fed by CardEffectCommons.AddEffectToPlayer. AS-IS these are plain public settable list
+    // FIELDS on the (persistent) Player object; the mirror Player is a transient per-access VIEW (a fresh
+    // instance on every resolve), so a per-instance field would not survive across two views of the same seat.
+    // Backed by a match-scoped store keyed by (EngineContext, PlayerId) — the same idea as
+    // CEntity_EffectControllerStore / TurnStateMachine._isExecutingStore. The get returns the LIVE list (so
+    // `.Add(getEffect)` appends AS-IS-verbatim); the set REPLACES it (AS-IS EndTurn cleanup reassigns a fresh
+    // `new List<…>()`). ADAPTATION: substrate backing only — names, semantics, and merge order are AS-IS 1:1.
+
+    /// <summary>AS-IS <c>Player.PermanentEffects</c> (Player.cs:918).</summary>
+    public List<Func<EffectTiming, ICardEffect>> PermanentEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).PermanentEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).PermanentEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilEndBattleEffects</c> (Player.cs:922).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilEndBattleEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilEndBattleEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilEachTurnEndEffects</c> (Player.cs:926).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilEachTurnEndEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilEachTurnEndEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilOwnerTurnEndEffects</c> (Player.cs:930).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerTurnEndEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerTurnEndEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilOwnerActivePhaseEffects</c> (Player.cs:934).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerActivePhaseEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerActivePhaseEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilOwnerActivePhaseEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilOpponentTurnEndEffects</c> (Player.cs:938).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilOpponentTurnEndEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilOpponentTurnEndEffects = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilCalculateFixedCostEffect</c> (Player.cs:942).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilCalculateFixedCostEffect
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilCalculateFixedCostEffect;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilCalculateFixedCostEffect = value;
+    }
+
+    /// <summary>AS-IS <c>Player.UntilSecurityCheckEndEffects</c> (Player.cs:946).</summary>
+    public List<Func<EffectTiming, ICardEffect>> UntilSecurityCheckEndEffects
+    {
+        get => PlayerEffectListStore.Get(Context, PlayerId).UntilSecurityCheckEndEffects;
+        set => PlayerEffectListStore.Get(Context, PlayerId).UntilSecurityCheckEndEffects = value;
+    }
+
+    /// <summary>(R6-P / RD-R6-02) AS-IS <c>Player.EffectList(EffectTiming)</c> (Player.cs:830-914) — merge every
+    /// player-grant bucket, keeping each delegate that yields a non-null effect at <paramref name="timing"/>, in
+    /// the AS-IS bucket order (Permanent, UntilEndBattle, UntilEachTurnEnd, UntilOwnerTurnEnd, UntilOwnerActivePhase,
+    /// UntilSecurityCheckEnd, UntilOpponentTurnEnd, UntilCalculateFixedCost), then AS-IS back-fills a null
+    /// EffectSourceCard on each with the player's first owned non-token active card (Player.cs:898-911). Consumed by
+    /// the live mirror <c>AutoProcessing.GetSkillInfos</c> (AutoProcessing.cs:871+, the BeforePayCost pay-cost path
+    /// runs it live via CardController.PayCost) and the continuous scans in Permanent/CardSource.</summary>
     public List<ICardEffect> EffectList(EffectTiming timing)
     {
-        _ = timing;
-        return new List<ICardEffect>();
+        List<ICardEffect> PlayerEffects = new List<ICardEffect>();
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in PermanentEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilEndBattleEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilEachTurnEndEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOwnerTurnEndEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOwnerActivePhaseEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilSecurityCheckEndEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilOpponentTurnEndEffects)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (Func<EffectTiming, ICardEffect> GetCardEffect in UntilCalculateFixedCostEffect)
+        {
+            if (GetCardEffect(timing) != null)
+            {
+                PlayerEffects.Add(GetCardEffect(timing));
+            }
+        }
+
+        foreach (ICardEffect cardEffect in PlayerEffects)
+        {
+            if (cardEffect.EffectSourceCard == null)
+            {
+                // AS-IS Player.cs:902 GManager.instance.turnStateMachine.gameContext.ActiveCardList — every live card.
+                foreach (CardSource cardSource in new GameContext(Context).ActiveCardList)
+                {
+                    if (cardSource.Owner == PlayerId && !cardSource.IsToken)
+                    {
+                        cardEffect.SetEffectSourceCard(cardSource);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return PlayerEffects;
+    }
+
+    /// <summary>(R6-P / RD-R6-02) AS-IS <c>Player.MaxDP_DeleteEffect(maxDP, cardEffect)</c> (Player.cs:1377-1416):
+    /// fold every active <c>IChangeDPDeleteEffectMaxDPEffect</c> over each turn-ordered player's field permanents'
+    /// and own player-scope effect lists (<c>CanUse(null)</c>-gated), applying <c>GetMaxDP(_maxDP, cardEffect)</c> —
+    /// the ceiling on a "delete a Digimon with DP ≤ maxDP" effect. AS-IS 1:1 (Players_ForTurnPlayer scan order).</summary>
+    public int MaxDP_DeleteEffect(int maxDP, ICardEffect cardEffect)
+    {
+        int _maxDP = maxDP;
+
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is IChangeDPDeleteEffectMaxDPEffect changeMax && cardEffect1.CanUse(null))
+                    {
+                        _maxDP = changeMax.GetMaxDP(_maxDP, cardEffect);
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect1 is IChangeDPDeleteEffectMaxDPEffect changeMax && cardEffect1.CanUse(null))
+                {
+                    _maxDP = changeMax.GetMaxDP(_maxDP, cardEffect);
+                }
+            }
+        }
+
+        return _maxDP;
     }
 
     private List<Permanent> GetZonePermanents(ChoiceZone zone)
@@ -439,5 +618,34 @@ public static class PlayerIdAsIsExtensions
             ?? throw new InvalidOperationException(
                 "GetBattleAreaPermanents needs a live match context — call inside a match scope.");
         return new Player(context, player).GetBattleAreaPermanents();
+    }
+}
+
+/// <summary>(R6-P / RD-R6-02) Match-scoped backing for the AS-IS <see cref="Player"/> effect-list buckets. AS-IS
+/// they are plain settable list fields on the persistent Player; the mirror Player is a transient view, so the
+/// live lists live here keyed by (EngineContext, PlayerId) — the same substrate pattern as
+/// <c>CEntity_EffectControllerStore</c> and <c>TurnStateMachine._isExecutingStore</c>. Each seat's holder is
+/// created lazily with empty lists (AS-IS field initialisers).</summary>
+internal sealed class PlayerEffectLists
+{
+    public List<Func<EffectTiming, ICardEffect>> PermanentEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilEndBattleEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilEachTurnEndEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerTurnEndEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilOwnerActivePhaseEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilOpponentTurnEndEffects = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilCalculateFixedCostEffect = new();
+    public List<Func<EffectTiming, ICardEffect>> UntilSecurityCheckEndEffects = new();
+}
+
+internal static class PlayerEffectListStore
+{
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<
+        EngineContext, System.Collections.Concurrent.ConcurrentDictionary<HeadlessPlayerId, PlayerEffectLists>> ByContext = new();
+
+    public static PlayerEffectLists Get(EngineContext context, HeadlessPlayerId playerId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        return ByContext.GetOrCreateValue(context).GetOrAdd(playerId, static _ => new PlayerEffectLists());
     }
 }

@@ -1,9 +1,11 @@
-// R6-A CUTOVER STOP (design item RD-R6-02): kept in old-model ActivatedEffect. The AS-IS ActivateCoroutine adds a
-// player-scope end-of-turn "-3 memory" via `card.Owner.UntilEachTurnEndEffects.Add(GetCardEffect)` — a live
-// Player-field list that has NO mirror surface (Player.UntilEachTurnEndEffects does not exist as a settable list),
-// and routing it through AddEffectToPlayer would break the AS-IS list-stacking semantics (attack twice = -6). Same
-// new-model player-scope EoT grant-store gap as BT1_090 (RD-P6C3-C1). Left as ActivatedEffect +
-// MemoryGainThenScheduledReversalBody (unique-id stacking-safe reversal). Engine-file change is Opus-gated.
+// R6-P CUTOVER STOP (design item RD-R6-02 member gap RESOLVED; residual = R6P-EOT-PLAYER-EFFECTLIST): kept in
+// old-model ActivatedEffect. The AS-IS ActivateCoroutine adds a player-scope end-of-turn "-3 memory" via
+// `card.Owner.UntilEachTurnEndEffects.Add(GetCardEffect)`. That Player list is now a REAL settable mirror member
+// (Player.UntilEachTurnEndEffects + GetCardEffectByEffectTiming + 5-param AddEffectToPlayer list-storage, RD-R6-02) —
+// stacking-preserving (attack twice = two -3 delegates). BUT the live OnEndTurn window does not yet enumerate
+// player.EffectList (R3 trigger-window rehousing, design item R6P-EOT-PLAYER-EFFECTLIST), so a bucket-stored reversal
+// would be INERT. Kept as the WORKING ActivatedEffect + MemoryGainThenScheduledReversalBody (live DelayedOneShot
+// binding the window collects); re-porting to list-storage now would REGRESS the EoT loss to a no-op.
 // 1:1 mirror of the original BT1_021 (BT1/Red) — a Digimon.
 //   [When Attacking] Gain 3 memory. At end of turn lose 3 memory.
 // AS-IS (BT1_021.cs): ONE ActivateClass on OnAllyAttack — CanUseCondition = CanTriggerOnAttack (:22-25),

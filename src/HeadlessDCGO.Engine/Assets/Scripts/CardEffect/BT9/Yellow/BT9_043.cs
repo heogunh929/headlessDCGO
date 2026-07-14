@@ -11,15 +11,16 @@
 //       ReturnTopSecurityToHandThenUnsuspendSelfBody (a single ReturnToHand on the top security card reproduces both
 //       the OnAddHand of AddHandCards and the OnLoseSecurity of IReduceSecurity, then self-unsuspend).
 //
-// P8 CUTOVER — STOP, design item RD-R6-03. This branch is NOT converted to the new-model ActivateClass and remains
-// old-model ActivatedEffect. The literal AS-IS ActivateCoroutine physically moves the top security card to hand via
-// `CardObjectController.AddHandCards`, which has NO mirror (documented gap RD-P6C1-8 — the async zone-move statics
-// are unported; the async coroutine path throws NotSupportedException). The mirror `IReduceSecurity` carrier is a
-// no-op for card movement (it only emits/collects OnLoseSecurity), so the async-helper path cannot reproduce the
-// security->hand move; only the sink-based IEffectBody (ReturnTopSecurityToHandThenUnsuspendSelfBody, ReturnToHandKind
-// mutation) can, and that mechanism is unavailable to a `Func<Hashtable,Task>` ActivateCoroutine. Fabricating a raw
-// sink call in card code would be an invented substrate path used by no other converted card. Kept old-model until
-// an async AddHandCards-equivalent carrier exists.
+// R6-P — STOP (design item RD-R6-03 primitive RESOLVED; conversion deferred pending witness re-validation). The
+// mirror `CardObjectController.AddHandCards` NOW EXISTS (AS-IS 1:1: the RemoveFromAllArea withdraw + AddToHandAsync
+// insert with a shared add-hand batch id / cause so the ->Hand CardMoved derives one OnAddHand; RD-P6C1-8 closed), so
+// the AS-IS async ActivateCoroutine (AddHandCards + IReduceSecurity + IUnsuspendPermanents) is now structurally
+// portable as a new-model ActivateClass. A drafted new-model conversion compiles cleanly, but the OnEndAttack witness
+// (tests/F1-Tier2-OnEndAttack.Tests) is RED on this worktree for an unrelated pre-existing reason (a gameContext-null
+// NRE in the attack pipeline's raid check, failing the whole suite incl. the trivial Tfx probe), so the security->hand
+// OnLoseSecurity-derivation / OnAddHand behaviour cannot be validated here. Per the project's witness discipline the
+// card is kept on its VALIDATED old-model ActivatedEffect + ReturnTopSecurityToHandThenUnsuspendSelfBody until the
+// witness runs green and confirms the AddHandCards-driven path.
 //
 // The AS-IS timing==None self-digivolution-requirement static (:15-23) and the OnEnterFieldAnyone [When Digivolving]
 // opponent-DP-down effect (:25-82) are ORTHOGONAL to the OnEndAttack self reactor under test; they are deliberately

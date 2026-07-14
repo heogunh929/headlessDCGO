@@ -196,6 +196,118 @@ public static class CardObjectController
 
     #endregion
 
+    #region add cards to hand
+
+    /// <summary>(R6-P / RD-R6-03, retires RD-P6C1-8) 1:1 of AS-IS <c>CardObjectController.AddHandCards</c>
+    /// (CardObjectController.cs:559-623): move a list of cards into their owners' hands. Control flow is AS-IS
+    /// VERBATIM — drop the cards already in hand; if ANY came from trash open the "[When a card is returned from
+    /// the trash to the hand]" (OnReturnCardsToHandFromTrash) window on the surviving list; strip token views;
+    /// route DigiEggs to the library bottom (AS-IS QUIRK preserved: the <c>eggCards.Count &lt;= 0</c> guard means
+    /// this only ever runs on an EMPTY list — an inert AS-IS call, mirrored verbatim); charge the added cards'
+    /// ACE overflow; add each; then, past game start, open the "[When the number of cards in hand increases]"
+    /// (OnAddHand) window. ADAPTATION: OnAddHand is not a manual StackSkillInfos here — the mirror derives it from
+    /// each card's ->Hand CardMoved stamped with a SHARED add-hand batch id (so a multi-card add collapses to one
+    /// reactor fire, AS-IS's single StackSkillInfos) + the CAUSE effect id (AS-IS <c>{"CardEffect", …}</c>, so a
+    /// non-effect add does not fire the gate) — the same zone-derived convention <see cref="AddSecurityCard"/>
+    /// uses for OnAddSecurity.</summary>
+    public static async Task AddHandCards(List<CardSource> cardSources, bool isDraw, ICardEffect? cardEffect, CancellationToken cancellationToken = default)
+    {
+        if (cardSources.Count == 0)
+        {
+            return;
+        }
+
+        EngineContext context = cardSources[0].Context;
+
+        // AS-IS :563 whether any subject currently sits in trash (drives the return-from-trash window).
+        bool isFromTrash = cardSources.Any(cardSource => CardEffectCommons.CardEffectCommons.IsExistOnTrash(cardSource));
+
+        // AS-IS :565 drop the cards already in their owner's hand.
+        cardSources = cardSources
+            .Where(cardSource => cardSource != null
+                && !new Player(context, cardSource.Owner).HandCards.Any(c => c.InstanceId == cardSource.InstanceId))
+            .ToList();
+
+        if (isFromTrash)
+        {
+            // AS-IS :567-579 StackSkillInfos(OnReturnCardsToHandFromTrash) with {"CardSources", cardSources}.
+            var hashtable = new System.Collections.Hashtable { { "CardSources", cardSources } };
+            await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnReturnCardsToHandFromTrash).ConfigureAwait(false);
+        }
+
+        // AS-IS :582-588 tokens vanish (removed from all areas) rather than entering hand.
+        foreach (CardSource cardSource in cardSources)
+        {
+            if (cardSource.IsToken)
+            {
+                await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        List<CardSource> eggCards = cardSources.Where(cardSource => cardSource.IsDigiEgg).ToList();
+        List<CardSource> addedCards = cardSources.Where(cardSource => !cardSource.IsDigiEgg && !cardSource.IsToken).ToList();
+
+        // AS-IS :593-594 QUIRK — the guard is `eggCards.Count <= 0`, so AddLibraryBottomCards runs ONLY on an empty
+        // list (an inert call). Mirrored verbatim: a DigiEgg among returned cards is silently dropped (no hand, no
+        // library) exactly as AS-IS, so nothing is done here.
+
+        if (addedCards.Count <= 0)
+        {
+            return;
+        }
+
+        // AS-IS :598 the added cards' ACE overflow (memory swing on an ACE leaving the field to hand).
+        await new AceOverflowClass(addedCards).Overflow(cancellationToken).ConfigureAwait(false);
+
+        // AS-IS :600-603 add each. One SHARED add-hand batch id across the list = AS-IS's single
+        // StackSkillInfos(OnAddHand); the cause id gates the derived window (AS-IS {"CardEffect", …}).
+        long addHandBatchId = context.NextAddHandBatchId();
+        HeadlessEntityId? cause = cardEffect?.EffectSourceCard?.InstanceId;
+        if (cause is { IsEmpty: true })
+        {
+            cause = null;
+        }
+
+        foreach (CardSource cardSource in addedCards)
+        {
+            await AddHandCard(cardSource, isDraw, addHandBatchId, cause, cancellationToken).ConfigureAwait(false);
+        }
+
+        // AS-IS :605-621 the OnAddHand window (past game start) is now derived from the ->Hand CardMoveds above.
+    }
+
+    /// <summary>(R6-P / RD-R6-03) 1:1 of AS-IS <c>CardObjectController.AddHandCard</c> (CardObjectController.cs:625-636+):
+    /// place ONE card into its owner's hand — face it up, and if it is not already there withdraw it from wherever
+    /// it sits and insert it (non-tokens only; a token was already removed by the caller). AS-IS
+    /// <c>Owner.HandCards.Add</c> = the zone mover's ->Hand insert; everything after (:638+ Instantiate/animation/
+    /// AlignHand/SE) is UI (stripped). The batch/cause ids stamp the derived OnAddHand window (see
+    /// <see cref="AddHandCards"/>).</summary>
+    private static async Task AddHandCard(
+        CardSource cardSource, bool isDraw, long addHandBatchId, HeadlessEntityId? causeEffectId, CancellationToken cancellationToken)
+    {
+        _ = isDraw; // AS-IS gates only the (stripped) draw VFX/SE.
+
+        // AS-IS :628 SetFace() — a card entering hand is face-up.
+        SecurityFaceState.Stamp(cardSource.Context.CardInstanceRepository, cardSource.InstanceId, faceUp: true);
+
+        var owner = new Player(cardSource.Context, cardSource.Owner);
+        if (!owner.HandCards.Any(c => c.InstanceId == cardSource.InstanceId))
+        {
+            // AS-IS :632 RemoveFromAllArea then :636 HandCards.Add — the withdraw + the ->Hand insert.
+            await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+
+            if (!cardSource.IsToken)
+            {
+                await cardSource.Context.ZoneMover.AddToHandAsync(
+                    cardSource.Owner, cardSource.InstanceId,
+                    addHandBatchId: addHandBatchId, causeEffectId: causeEffectId,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    #endregion
+
     /// <summary>The concrete zone <paramref name="cardId"/> currently sits in for <paramref name="owner"/> (or
     /// <see cref="ChoiceZone.None"/> if none) — the live fromZone a card's unknown AS-IS origin needs (mirror of
     /// the Permanent.CurrentZoneOf substrate helper).</summary>

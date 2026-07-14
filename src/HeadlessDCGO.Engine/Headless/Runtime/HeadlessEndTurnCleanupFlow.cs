@@ -100,6 +100,27 @@ public sealed class HeadlessEndTurnCleanupFlow
 
         PromoteBurstMarkers(context, turnPlayerId, cleanedCardIds, removedKeys);
 
+        // (R6-P / RD-R6-02) AS-IS EndPhase reset of the PLAYER-scope effect buckets (TurnStateMachine.cs:3175-3201),
+        // the player half of the same turn-end clears the card loop above does for permanent metadata: UntilEachTurnEnd
+        // + UntilCalculateFixedCost drop for EVERY player; UntilOwnerTurnEnd for the ending (turn) player; and
+        // UntilOpponentTurnEnd for the non-turn player. Reassigning a fresh list = AS-IS `= new List<…>()`.
+        foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
+        {
+            var player = new Assets.Scripts.Script.CardEffectCommons.Player(context, playerId);
+            player.UntilEachTurnEndEffects = new();
+            player.UntilCalculateFixedCostEffect = new();
+        }
+
+        if (turnPlayerId.HasValue)
+        {
+            new Assets.Scripts.Script.CardEffectCommons.Player(context, turnPlayerId.Value).UntilOwnerTurnEndEffects = new();
+        }
+
+        if (nonTurnPlayerId.HasValue)
+        {
+            new Assets.Scripts.Script.CardEffectCommons.Player(context, nonTurnPlayerId.Value).UntilOpponentTurnEndEffects = new();
+        }
+
         return new EndTurnCleanupResult(
             Applied: true,
             Reason: "EndTurnCleanup",

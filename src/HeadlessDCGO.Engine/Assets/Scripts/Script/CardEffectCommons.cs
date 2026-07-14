@@ -2972,6 +2972,63 @@ public static partial class CardEffectCommons
             oneShotRequest, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, duration: null));
     }
 
+    /// <summary>AS-IS <c>CardEffectCommons.GetCardEffectByEffectTiming(timing, cardEffect)</c>
+    /// (CardEffectCommons.cs:1402): the deferred selector that yields <paramref name="cardEffect"/> only when
+    /// re-queried at <paramref name="timing"/> (else null) — the delegate the AS-IS Player buckets store.</summary>
+    public static Func<EffectTiming, ICardEffect> GetCardEffectByEffectTiming(EffectTiming timing, ICardEffect cardEffect)
+        => (_timing) => _timing == timing ? cardEffect : null!;
+
+    /// <summary>(R6-P / RD-R6-02) AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect)</c>
+    /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:57) — the LIST-STORAGE half: append the effect (as a deferred
+    /// <see cref="GetCardEffectByEffectTiming"/> selector) into the owner's AS-IS duration bucket, VERBATIM. Unlike
+    /// the 4-arg <see cref="AddEffectToPlayer(EffectDuration, CardSource, ICardEffect, EffectTiming)"/> (which lowers
+    /// an OLD-model effect to a fire-once registry binding — the pre-R3 substrate that the live OnEndTurn window
+    /// still enumerates), this overload stores the effect object itself, so a NEW-model <c>ActivateClass</c> needs no
+    /// <c>ToBinding</c>. AS-IS 1:1 (the <c>getCardEffect ??=</c> default and the per-duration switch, including the
+    /// <c>UntilOwnerActivePhase</c> Enemy redirect). LIVENESS: the buckets are read by <c>Player.EffectList</c>,
+    /// consumed live where the mirror runs AS-IS <c>GetSkillInfos</c> (the BeforePayCost / UntilCalculateFixedCost
+    /// pay-cost path). The OnEndTurn window does NOT yet enumerate <c>player.EffectList</c> (it collects from the
+    /// registry / card scan — design item R6P-EOT-PLAYER-EFFECTLIST, R3 trigger-window rehousing), so a bucket-stored
+    /// OnEndTurn reactor is inert until that lands; OnEndTurn EoT cards therefore stay on the 4-arg binding path.</summary>
+    public static void AddEffectToPlayer(
+        EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing,
+        Func<EffectTiming, ICardEffect> getCardEffect)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(cardEffect);
+
+        Player player = new Player(card.Context, card.Owner);
+
+        getCardEffect ??= GetCardEffectByEffectTiming(timing: timing, cardEffect: cardEffect);
+
+        switch (effectDuration)
+        {
+            case EffectDuration.UntilOpponentTurnEnd:
+                player.UntilOpponentTurnEndEffects.Add(getCardEffect);
+                break;
+
+            case EffectDuration.UntilOwnerTurnEnd:
+                player.UntilOwnerTurnEndEffects.Add(getCardEffect);
+                break;
+
+            case EffectDuration.UntilEachTurnEnd:
+                player.UntilEachTurnEndEffects.Add(getCardEffect);
+                break;
+
+            case EffectDuration.UntilEndBattle:
+                player.UntilEndBattleEffects.Add(getCardEffect);
+                break;
+
+            case EffectDuration.UntilOwnerActivePhase:
+                player.Enemy!.UntilOwnerActivePhaseEffects.Add(getCardEffect);
+                break;
+
+            case EffectDuration.UntilCalculateFixedCost:
+                player.UntilCalculateFixedCostEffect.Add(getCardEffect);
+                break;
+        }
+    }
+
     /// <summary>(E-3) AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing)</c> for a CONTINUOUS
     /// (non-fire-once) player-bucket effect — the shape <see cref="AddEffectToPlayer"/> does NOT cover (that
     /// overload registers a fire-then-clear delayed trigger via DelayedOneShotKey). Here the effect is a

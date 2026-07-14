@@ -1,15 +1,17 @@
 // Source: Assets/Scripts/CardEffect/EX8/Green/EX8_074.cs
 //
 // P8 CUTOVER STOP / design item RD-R6-07: the activated effects here stay in the OLD MODEL (ActivatedEffect +
-// headless bodies) and are NOT re-housed as new-model ActivateClass. The AS-IS ActivateCoroutines depend on three
-// infra surfaces that have NO mirror: (1) #1 [When Would be Played] cost reduction builds a runtime ChangeCostClass
-// and registers it via `card.Owner.UntilCalculateFixedCostEffect.Add(...)` — the player-scoped play-cost-effect
-// store is un-ported ("no mirror surface yet", SelectCardEffect.cs:363) — plus `PayingCost`/`CanReduceCost`; (2) #5
-// [When Digivolving] delete gates on `card.Owner.MaxDP_DeleteEffect(dp, activateClass)` — the raise-able DP-delete
-// cap is exposed only as the static `MaxDpDeleteThreshold(card, base)`, not the AS-IS instance method; (3) #6
-// [All Turns] reuse gates on `CanTriggerOnPermanentPlay(hashtable, ...)` which has no mirror overload. A faithful
-// new-model coroutine cannot be written without inventing these, so the card keeps the "혼용/잔여" old-model
-// representation (SuspendCostReductionEffect / ActivatedSelectEffect / ReuseWhenDigivolvingEffect) documented below.
+// headless bodies) and are NOT re-housed as new-model ActivateClass. (R6-P update) Two of the three original member
+// gaps are now CLOSED: (2) `card.Owner.MaxDP_DeleteEffect(dp, activateClass)` is now the AS-IS instance method on the
+// mirror Player (Player.cs, RD-R6-02), and (3) `CanTriggerOnPermanentPlay(hashtable, permanentCondition, root)` has a
+// mirror Hashtable overload (CanUseEffects/PermanentEnterField/OnPlay.cs). The RESIDUAL blocker is (1) #1 [When Would
+// be Played] cost reduction: it builds a runtime ChangeCostClass and registers it via
+// `card.Owner.UntilCalculateFixedCostEffect.Add(...)` — the player bucket now EXISTS (RD-R6-02) and is read live at the
+// pay-cost path (AutoProcessing.GetSkillInfos), but the surrounding cost pipeline (`PayingCost` / `CanReduceCost` /
+// ChangeCostClass evaluation) is R2-C STOP — plus every ActivateCoroutine here drives SelectPermanentEffect /
+// SelectCardEffect, whose mirror `.Activate()` is the R5 stub. A faithful new-model coroutine still cannot be written
+// without those, so the card keeps the "혼용/잔여" old-model representation (SuspendCostReductionEffect /
+// ActivatedSelectEffect / ReuseWhenDigivolvingEffect) documented below.
 // 1:1 headless mirror of the original EX8_074 (DCGO/Assets/Scripts/CardEffect/EX8/Green/EX8_074.cs), region
 // for region. The original keys [When Digivolving] / [All Turns] under OnEnterFieldAnyone with gates; the
 // headless idiom uses the dedicated WhenDigivolving timing (for the [When Digivolving] body) and
