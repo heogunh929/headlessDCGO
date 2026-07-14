@@ -100,7 +100,7 @@ async Task ST2_08_SecurityAttack()
     await PlaceDigimon(context, P2, new HeadlessEntityId("p2:battle:NOEVO8"), level: 3, sources: 0);
     RegisterContinuous(context, new ST2_08(), "ST2_08", source);
 
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, top, baseSecurityAttack: 1), "opponent has a no-evo Digimon: SA +1");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, top).Strike, "opponent has a no-evo Digimon: SA +1");
 }
 
 async Task ST2_03_Trash()

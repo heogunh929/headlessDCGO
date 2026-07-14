@@ -45,7 +45,7 @@ void SecurityAttackBoost()
 {
     EngineContext context = Board();
     RegisterModifier(context, Card, ModifierHelpers.SecurityAttackDeltaKey, 1, duration: null);
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Card, baseSecurityAttack: 1), "+1 security attack");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "+1 security attack");
 }
 
 void PlayCostReduce()
@@ -71,9 +71,9 @@ void SecurityAttackDurationExpires()
     EngineContext context = Board();
     RegisterModifier(context, Card, ModifierHelpers.SecurityAttackDeltaKey, 2, EffectDuration.UntilEachTurnEnd);
 
-    AssertEqual(3, ContinuousModifierGate.ResolveSecurityAttack(context, Card, baseSecurityAttack: 1), "boost before expiry");
+    AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "boost before expiry");
     EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1);
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, Card, baseSecurityAttack: 1), "back to base after expiry");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "back to base after expiry");
 }
 
 void PlayerScopeSecurityAttack()
@@ -87,8 +87,8 @@ void PlayerScopeSecurityAttack()
     };
     Register(context, "pscope:sa:p1", P1, Array.Empty<HeadlessEntityId>(), values, duration: null);
 
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Card, baseSecurityAttack: 1), "P1 card boosted by player-scope");
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, new HeadlessEntityId("p2:main:O1"), baseSecurityAttack: 1), "P2 card unaffected");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "P1 card boosted by player-scope");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, new HeadlessEntityId("p2:main:O1")).Strike, "P2 card unaffected");
 }
 
 // --- Helpers -------------------------------------------------------------

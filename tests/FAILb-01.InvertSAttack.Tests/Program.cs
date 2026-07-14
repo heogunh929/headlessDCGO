@@ -64,7 +64,7 @@ int Resolve(int delta, int invert)
 
     card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effects);
 
-    return ContinuousModifierGate.ResolveSecurityAttack(ctx, id, Base);
+    return new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, id).Strike;
 }
 
 sealed class TestCardEntityEffect : CEntity_Effect

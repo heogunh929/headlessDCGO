@@ -56,11 +56,11 @@ async Task TrashSelfEffect()
     HeadlessEntityId card = await Place(context, P1, "ST7_10", "Digimon");
     AssertTrue(CardEffectRegistrar.RegisterCard(context, card, P1), "ST7_10 registered");
 
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, card, baseSecurityAttack: 1), "SA +1 while in play");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, card).Strike, "SA +1 while in play");
     AssertTrue(context.EffectRegistry.GetKeywordEffects("Piercing").Count >= 1, "Piercing while in play");
 
     await ApplyLeave(context, MatchStateMutationSink.TrashCardKind, card);
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, card, baseSecurityAttack: 1), "SA gone after trash");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, card).Strike, "SA gone after trash");
     AssertTrue(context.EffectRegistry.GetKeywordEffects("Piercing").Count == 0, "Piercing gone after trash");
 }
 
@@ -69,10 +69,10 @@ async Task ReturnToDeck()
     EngineContext context = Board();
     HeadlessEntityId card = await Place(context, P1, "ST7_10", "Digimon");
     AssertTrue(CardEffectRegistrar.RegisterCard(context, card, P1), "ST7_10 registered");
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, card, baseSecurityAttack: 1), "SA +1 while in play");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, card).Strike, "SA +1 while in play");
 
     await ApplyLeave(context, MatchStateMutationSink.ReturnToDeckTopKind, card);
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, card, baseSecurityAttack: 1), "SA gone after return-to-deck");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, card).Strike, "SA gone after return-to-deck");
 }
 
 // --- Helpers -------------------------------------------------------------

@@ -906,20 +906,11 @@ public sealed class AttackProcess
             return 1;
         }
 
-        int baseStrike = 1;
-        if (attacker.Metadata.TryGetValue(SecurityResolver.StrikeKey, out object? raw) && raw is not null)
-        {
-            baseStrike = raw switch
-            {
-                int intValue => Math.Max(0, intValue),
-                long longValue when longValue is >= int.MinValue and <= int.MaxValue => Math.Max(0, (int)longValue),
-                string text when int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) => Math.Max(0, parsed),
-                _ => 1
-            };
-        }
-
-        // C-18 Alliance: fold in continuous Security-Attack modifiers (UntilEndAttack +1).
-        return Math.Max(0, ContinuousModifierGate.ResolveSecurityAttack(_context, id, baseStrike));
+        // (R1-b) number of security cards checked = AS-IS Permanent.Strike: a constant-1 seed folded LIVE with
+        // every applicable IChangeSAttackEffect (bucketed UpToConstant → UpDownValue → DownToConstant), clamped
+        // at 0 inside the getter (Permanent.Strike → Strike_AllowMinus). The metadata StrikeKey base is not an
+        // AS-IS concept (AS-IS hardcodes the 1 seed); discarded per the R1-a base-discard precedent.
+        return new Permanent(_context, id, attacker.OwnerId).Strike;
     }
 
     // AS-IS :99 `new Permanent(AttackingPermanent.cardSources)` — the declaration-time stack snapshot (top +

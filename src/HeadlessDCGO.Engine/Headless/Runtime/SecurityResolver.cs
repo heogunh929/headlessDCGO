@@ -477,19 +477,12 @@ public sealed class SecurityResolver
 
     private static int ReadStrike(EngineContext context, CardInstanceRecord attacker, CardRecord attackerCard)
     {
-        int baseStrike = 1;
-        if (TryReadInt(attacker.Metadata, StrikeKey, out int instanceStrike))
-        {
-            baseStrike = Math.Max(0, instanceStrike);
-        }
-        else if (TryReadInt(attackerCard.Metadata, StrikeKey, out int cardStrike))
-        {
-            baseStrike = Math.Max(0, cardStrike);
-        }
-
-        // C-18 Alliance: fold in continuous Security-Attack modifiers (e.g. Alliance's +1 UntilEndAttack)
-        // so the number of security cards checked reflects the buff.
-        return Math.Max(0, ContinuousModifierGate.ResolveSecurityAttack(context, attacker.InstanceId, baseStrike));
+        // (R1-b) number of security cards checked = AS-IS Permanent.Strike: a constant-1 seed folded LIVE with
+        // every applicable IChangeSAttackEffect, clamped at 0 inside the getter (Permanent.Strike →
+        // Strike_AllowMinus). The metadata StrikeKey base is not an AS-IS concept (AS-IS hardcodes the 1 seed);
+        // discarded per the R1-a base-discard precedent.
+        _ = attackerCard;
+        return new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attacker.InstanceId, attacker.OwnerId).Strike;
     }
 
     private static bool TryReadInt(

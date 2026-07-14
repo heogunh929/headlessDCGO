@@ -54,11 +54,11 @@ async Task SecuritySkillFires()
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, defenderDigimon, ChoiceZone.None, ChoiceZone.BattleArea));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.None, ChoiceZone.BattleArea));
 
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, defenderDigimon, baseSecurityAttack: 1), "no buff before the check");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, defenderDigimon).Strike, "no buff before the check");
 
     await new SecurityResolver().RunSecurityCheckLoopAsync(context, zones, P1, attacker, P2, strike: 1);
 
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, defenderDigimon, baseSecurityAttack: 1), "owner's Digimon got SA +1 from the security skill");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, defenderDigimon).Strike, "owner's Digimon got SA +1 from the security skill");
 }
 
 static void AssertEqual<T>(T expected, T actual, string label)

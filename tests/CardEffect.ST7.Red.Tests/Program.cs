@@ -42,8 +42,8 @@ void SecurityAttackPlusOne()
 {
     EngineContext context = Board();
     Register(context);
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Card, baseSecurityAttack: 1), "base 1 + 1 = 2 security attack");
-    AssertEqual(3, ContinuousModifierGate.ResolveSecurityAttack(context, Card, baseSecurityAttack: 2), "base 2 + 1 = 3 security attack");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "base 1 + 1 = 2 security attack");
+    AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Card).Strike, "base 2 + 1 = 3 security attack");
 }
 
 void PiercingRegistered()

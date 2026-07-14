@@ -52,9 +52,9 @@ internal static class TimedBuffTests
         var effect = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)Effect(new ST1_13(), EffectTiming.SecuritySkill, context)).Body;
         effect.ApplyBuff();
 
-        AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, mine, baseSecurityAttack: 1), "SA +1 while active");
+        AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).Strike, "SA +1 while active");
         EffectDurationExpiry.ExpireTurnEnd(context.EffectRegistry, endingTurnPlayerId: P1);
-        AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, mine, baseSecurityAttack: 1), "buff expired at owner turn end");
+        AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, mine).Strike, "buff expired at owner turn end");
     }
 
     private static async Task ST1_14_SecurityZoneScope()

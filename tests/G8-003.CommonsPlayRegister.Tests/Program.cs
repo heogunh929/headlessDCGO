@@ -54,7 +54,7 @@ async Task CommonsPlayRegisters()
 
     AssertTrue(((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(Played),
         "ST7_10 played onto the field via PlayPermanentCards");
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Played, baseSecurityAttack: 1),
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Played).Strike,
         "SA +1 auto-active after the commons effect-play");
     AssertTrue(context.EffectRegistry.GetKeywordEffects("Piercing").Count >= 1,
         "Piercing auto-registered after the commons effect-play");
@@ -78,7 +78,7 @@ async Task ReEntryIsIdempotent()
 
     AssertTrue(((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(Played),
         "ST7_10 re-played onto the field");
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Played, baseSecurityAttack: 1),
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Played).Strike,
         "SA +1 applied exactly once after re-entry (not doubled by a stale duplicate binding)");
 }
 

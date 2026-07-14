@@ -28,7 +28,7 @@ internal static class Wave1Tests
     {
         (EngineContext context, HeadlessEntityId source) = await StackOf(1);
         Register(context, new ST1_07(), "ST1_07", source);
-        AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Top, baseSecurityAttack: 1), "inherited SA +1 on top");
+        AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Top).Strike, "inherited SA +1 on top");
     }
 
     private static async Task ST1_03_OwnerTurnDp()
@@ -61,12 +61,12 @@ internal static class Wave1Tests
         (EngineContext four, _) = await StackOf(4);
         Register(four, new ST1_11(), "ST1_11", Top);
         four.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(3, ContinuousModifierGate.ResolveSecurityAttack(four, Top, baseSecurityAttack: 1), "4 sources -> +2 SA");
+        AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(four, Top).Strike, "4 sources -> +2 SA");
 
         (EngineContext one, _) = await StackOf(1);
         Register(one, new ST1_11(), "ST1_11", Top);
         one.TurnController.Initialize(new[] { P1, P2 }, P1);
-        AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(one, Top, baseSecurityAttack: 1), "1 source -> count 0 -> base");
+        AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(one, Top).Strike, "1 source -> count 0 -> base");
     }
 
     private static async Task ST1_12_PlayerScopeDp()

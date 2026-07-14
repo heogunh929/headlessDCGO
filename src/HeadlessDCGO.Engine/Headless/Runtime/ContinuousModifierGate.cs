@@ -18,25 +18,11 @@ public static class ContinuousModifierGate
     /// <summary>Query scope used for continuous re-evaluation (shared with the other gates).</summary>
     public const string Scope = ContinuousRestrictionGate.Scope;
 
-    public static int ResolveSecurityAttack(EngineContext context, HeadlessEntityId cardId, int baseSecurityAttack)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (cardId.IsEmpty)
-        {
-            return baseSecurityAttack;
-        }
-
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        int legacyResolved = ModifierHelpers.ResolveSecurityAttack(baseSecurityAttack, result.Modifiers, cardId).FinalValue;
-
-        // (P6 STAGE B) UNION the new-model IChangeSAttackEffect scan (AS-IS Permanent.Strike_AllowMinus) over
-        // the legacy binding result. Legacy SAttack effects flow through result.Modifiers (bindings); ported
-        // kind-classes (ChangeSAttackClass) implement IChangeSAttackEffect and register no binding, so the
-        // interface scan is their only path. The two representations are interface-disjoint (legacy
-        // ContinuousSelfModifierEffect is `: ICardEffect` only) — no double count.
-        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldSAttack(context, cardId, legacyResolved);
-    }
-
+    // (R1-b) The Security-Attack surface (ResolveSecurityAttack) was rehoused into the AS-IS reader
+    // Permanent.Strike / Strike_AllowMinus / SecurityAttackChanges — consumers now read `new Permanent(...).Strike`
+    // directly and the gate method was removed. The remaining ResolvePlayCost / ResolveDigivolutionCost members
+    // are the play/digivolution-cost cluster, which belongs to CardSource (AS-IS CardSource.CanPayCost /
+    // GetChangedCostItselef / GetChangedPayingCost) and is rehoused in R1-d — this file stays until then.
     public static int ResolvePlayCost(
         EngineContext context, HeadlessEntityId cardId, int basePlayCost, bool canReduceCost = true,
         IReadOnlyList<HeadlessEntityId>? targetPermanentIds = null)

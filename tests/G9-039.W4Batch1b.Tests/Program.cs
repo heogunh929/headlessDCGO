@@ -178,10 +178,10 @@ async Task InvertSAttack()
     var srcSource = new CardSource(context, src, P1);
     var effects = new List<ICardEffect> { CardEffectFactory.ChangeSAttackStaticEffect(null, 2, false, srcSource, null) };
     srcSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effects);
-    int withoutInvert = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 3);
+    int withoutInvert = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).Strike;
 
     effects.Add(CardEffectFactory.InvertSAttackStaticEffect(null, 1, false, srcSource, null));
-    int withInvert = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 3);
+    int withInvert = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).Strike;
 
     AssertEqual(5, withoutInvert, "no invert: +2 raises 3 -> 5");
     AssertEqual(1, withInvert, "invertSecurityAttackDelta carried: the +2 increase is flipped to a decrease (3 -> 1)");

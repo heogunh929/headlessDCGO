@@ -118,62 +118,10 @@ public static class NewModelContinuousScan
         subject.TopCard is null
         || !subject.TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId);
 
-    // ==================================================================================================
-    // Security Attack — AS-IS Permanent.Strike_AllowMinus (Permanent.cs:1817-1930). Collect
-    // IChangeSAttackEffect over Players_ForTurnPlayer's field permanents + players, gated by
-    // PermanentCondition(this) && CanUse(null) && !CanNotBeAffected, then fold split by isUpDown() in the
-    // order UpToConstant -> UpDownValue -> DownToConstant, GetSAttack(Strike, this, InvertSecutiryValue).
-    // ==================================================================================================
-    public static int FoldSAttack(EngineContext context, HeadlessEntityId cardId, int baseValue)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
-        Permanent subject = BuildSubject(context, cardId);
-        int invert = InvertSecurityValue(context, subject);
-
-        var collected = new List<IChangeSAttackEffect>();
-        void Collect(ICardEffect cardEffect)
-        {
-            if (cardEffect is IChangeSAttackEffect sattack
-                && sattack.PermanentCondition(subject)
-                && cardEffect.CanUse(null)
-                && NotImmune(subject, cardEffect))
-            {
-                collected.Add(sattack);
-            }
-        }
-
-        foreach (Player player in ScanPlayers(context))
-        {
-            foreach (Permanent permanent in player.GetFieldPermanents())
-            {
-                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
-                {
-                    Collect(cardEffect);
-                }
-            }
-
-            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
-            {
-                Collect(cardEffect);
-            }
-        }
-
-        // AS-IS split into UpToConstant / UpDownValue / DownToConstant and fold in that order.
-        int strike = baseValue;
-        foreach (CalculateOrder order in new[] { CalculateOrder.UpToConstant, CalculateOrder.UpDownValue, CalculateOrder.DownToConstant })
-        {
-            foreach (IChangeSAttackEffect effect in collected)
-            {
-                if (effect.isUpDown() == order)
-                {
-                    strike = effect.GetSAttack(strike, subject, invert);
-                }
-            }
-        }
-
-        return strike;
-    }
+    // (R1-b) Security Attack (FoldSAttack) was rehoused into the AS-IS reader Permanent.Strike_AllowMinus /
+    // Strike / SecurityAttackChanges and its gate consumer (ContinuousModifierGate.ResolveSecurityAttack) removed,
+    // so the FoldSAttack union path was deleted. InvertSecurityValue below is RETAINED because FoldLinkedMax
+    // (AS-IS Permanent.LinkedMax) still folds with the same InvertSecutiryValue.
 
     // AS-IS Permanent.InvertSecutiryValue (Permanent.cs:1670-1729): fold IInvertSAttackEffect over
     // Players_ForTurnPlayer field permanents + players (CanUse(null) && !CanNotBeAffected), clamp [-1,1].

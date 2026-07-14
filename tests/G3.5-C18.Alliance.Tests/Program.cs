@@ -79,7 +79,7 @@ async Task AllianceDeclineGrantsNothing()
 
     AssertFalse(ReadFlag(s.Match, ally, AllianceAttackBoost.IsSuspendedKey), "declining does not suspend the ally");
     AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "attacker DP unchanged");
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(s.Match.Context, attacker, 1), "attacker SA unchanged");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).Strike, "attacker SA unchanged");
 }
 
 async Task AllianceSelectBuffsAttacker()
@@ -94,7 +94,7 @@ async Task AllianceSelectBuffsAttacker()
 
     AssertTrue(ReadFlag(s.Match, ally, AllianceAttackBoost.IsSuspendedKey), "the chosen ally is suspended (cost)");
     AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "attacker gains +ally DP (3000+5000)");
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(s.Match.Context, attacker, 1), "attacker gains +1 Security Attack");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).Strike, "attacker gains +1 Security Attack");
 }
 
 async Task AllianceBuffExpiresAtAttackEnd()
@@ -111,7 +111,7 @@ async Task AllianceBuffExpiresAtAttackEnd()
     EffectDurationExpiry.ExpireAttackEnd(s.Match.Context.EffectRegistry);
 
     AssertEqual(3000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).DP, "DP buff expired at attack end");
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(s.Match.Context, attacker, 1), "SA buff expired at attack end");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(s.Match.Context, attacker).Strike, "SA buff expired at attack end");
 }
 
 async Task AllianceFlipsBattle()

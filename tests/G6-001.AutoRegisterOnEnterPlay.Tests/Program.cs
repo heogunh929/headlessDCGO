@@ -50,7 +50,7 @@ void DispatchReflection()
 async Task PlayActivatesEffects()
 {
     EngineContext context = await PlayST7_10();
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Battle(), baseSecurityAttack: 1), "SA +1 active after play");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Battle()).Strike, "SA +1 active after play");
     // (P6 STAGE B) The flip retires keyword EffectBindings (a ported <Pierce> is a new-model ActivateClass that
     // registers NO binding — stage A stopped registering activated effects). The flip-correct query for keyword
     // presence is the interface scan ContinuousKeywordGate.HasKeyword (new-model HasPierce), which verifies the
@@ -70,7 +70,7 @@ async Task DeleteRemovesEffects()
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = onField.Value }));
     await sink.FlushAsync();
 
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, onField, baseSecurityAttack: 1), "SA buff gone after delete");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, onField).Strike, "SA buff gone after delete");
     // (P6 STAGE B) new-model interface-scan equivalent of the old GetKeywordEffects binding-count==0 check.
     AssertTrue(!ContinuousKeywordGate.HasKeyword(context, onField, "Piercing"), "Piercing gone after delete");
 }

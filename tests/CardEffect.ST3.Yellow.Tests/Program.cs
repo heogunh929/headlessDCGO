@@ -295,7 +295,7 @@ async Task ST3_15_SecurityAttack()
     await PlaceDigimon(context, P2, foe, level: 4, sources: 0, dp: 4000);
     var main = (ActivatedTargetBuffEffect)((ActivatedEffect)Activated(new ST3_15(), context, EffectTiming.OptionSkill)).Body;
     main.ApplyBuff(new[] { foe });
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(context, foe, baseSecurityAttack: 4), "[Main] SA 4 - 3 = 1");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, foe).Strike, "[Main] SA 4 - 3 = 1");
 
     // [Security] -1 Security Attack to ALL opponent Digimon (opponent-scoped player buff).
     EngineContext sec = Context(P1);
@@ -304,7 +304,7 @@ async Task ST3_15_SecurityAttack()
     var opt = new HeadlessEntityId("p1:security:OPT15");
     var ps = (ActivatedPlayerScopeBuffEffect)((ActivatedEffect)new ST3_15().CardEffects(EffectTiming.SecuritySkill, new CardSource(sec, opt, P1)).Single()).Body;
     ps.ApplyBuff();
-    AssertEqual(3, ContinuousModifierGate.ResolveSecurityAttack(sec, foe2, baseSecurityAttack: 4), "[Security] all opponents SA 4 - 1 = 3");
+    AssertEqual(3, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(sec, foe2).Strike, "[Security] all opponents SA 4 - 1 = 3");
 }
 
 async Task ST3_16_Debuff()

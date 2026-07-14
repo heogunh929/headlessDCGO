@@ -60,7 +60,7 @@ async Task EffectPlayRegisters()
     await context.EffectScheduler.ResolveAllAsync();
 
     AssertTrue(((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(Played), "ST7_10 played onto the field");
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(context, Played, baseSecurityAttack: 1), "SA +1 auto-active after the effect-play");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, Played).Strike, "SA +1 auto-active after the effect-play");
     // (P6 STAGE B) new-model interface-scan for keyword presence (the flip retires the keyword EffectBinding
     // the old GetKeywordEffects("Piercing") check read — a ported <Pierce> registers no binding).
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, Played, "Piercing"), "Piercing auto-active after the effect-play");

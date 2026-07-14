@@ -1085,6 +1085,309 @@ public sealed class Permanent
         return false;
     }
 
+    #region Number of sheets to undergo security check
+    /// <summary>(R1-b) AS-IS <c>Permanent.InvertSecutiryValue</c> (Permanent.cs:1670-1729): folds every active
+    /// <c>IInvertSAttackEffect</c> (scanned LIVE over each turn-ordered player's field permanents AND the player
+    /// itself), gated by <c>CanUse(null) &amp;&amp; !TopCard.CanNotBeAffected</c>, then clamps to [-1,1]. ADAPTATION
+    /// as documented on <see cref="GetDP"/>: <c>gameContext.Players_ForTurnPlayer</c> →
+    /// <c>new GameContext(_context).Players_ForTurnPlayer</c>; <c>TopCard.CanNotBeAffected(cardEffect)</c> →
+    /// <c>TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)</c>; <c>Mathf.Clamp</c> →
+    /// <c>Math.Clamp</c>.</summary>
+    public int InvertSecutiryValue
+    {
+        get
+        {
+            int Invert = 0;
+
+            List<ICardEffect> cardEffects_InvertStrike = new List<ICardEffect>();
+
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region Effects of permanents in play
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IInvertSAttackEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                {
+                                    cardEffects_InvertStrike.Add(cardEffect);
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region player effect
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IInvertSAttackEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                            {
+                                cardEffects_InvertStrike.Add(cardEffect);
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            foreach (ICardEffect cardEffect in cardEffects_InvertStrike)
+            {
+                Invert = ((IInvertSAttackEffect)cardEffect).InversionValue(this, Invert);
+            }
+
+            return Math.Clamp(Invert, -1, 1);
+        }
+    }
+
+    /// <summary>(R1-b) AS-IS <c>Permanent.SecurityAttackChanges</c> (Permanent.cs:1731-1802): the list of DELTA
+    /// values contributed by each active <c>IChangeSAttackEffect</c> whose <c>isUpDown()==UpDownValue</c> (scanned
+    /// LIVE over each turn-ordered player's field permanents + the player, gated by
+    /// <c>CanUse(null) &amp;&amp; !TopCard.CanNotBeAffected</c>), each measured as <c>GetSAttack(1,this,0) - 1</c>
+    /// when non-zero. ADAPTATION as documented on <see cref="InvertSecutiryValue"/>.</summary>
+    public List<int> SecurityAttackChanges
+    {
+        get
+        {
+            List<int> SecurityAttackChanges = new List<int>();
+
+            int Strike = 1;
+
+            List<ICardEffect> cardEffects_ChangeDirectStrike = new List<ICardEffect>();
+
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region 場のパーマネントの効果
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeSAttackEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                {
+                                    if (((IChangeSAttackEffect)cardEffect).isUpDown() == CalculateOrder.UpDownValue)
+                                    {
+                                        cardEffects_ChangeDirectStrike.Add(cardEffect);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IChangeSAttackEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                            {
+                                if (((IChangeSAttackEffect)cardEffect).isUpDown() == CalculateOrder.UpDownValue)
+                                {
+                                    cardEffects_ChangeDirectStrike.Add(cardEffect);
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDirectStrike)
+            {
+                if (cardEffect is IChangeSAttackEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        int Strike1 = ((IChangeSAttackEffect)cardEffect).GetSAttack(Strike, this, 0);
+
+                        if (Strike1 != Strike)
+                        {
+                            SecurityAttackChanges.Add(Strike1 - Strike);
+                        }
+                    }
+                }
+            }
+
+            return SecurityAttackChanges;
+        }
+    }
+
+    /// <summary>(R1-b) AS-IS <c>Permanent.HasSecurityAttackChanges</c> (Permanent.cs:1805-1815): false for a
+    /// non-Digimon, else true when <see cref="SecurityAttackChanges"/> has at least one entry.</summary>
+    public bool HasSecurityAttackChanges
+    {
+        get
+        {
+            if (!IsDigimon)
+            {
+                return false;
+            }
+
+            return SecurityAttackChanges.Count >= 1;
+        }
+    }
+
+    /// <summary>(R1-b) AS-IS <c>Permanent.Strike_AllowMinus</c> (Permanent.cs:1818-1936): the number of security
+    /// cards checked (allowing a negative intermediate). Seeds a constant <c>1</c>, collects every active
+    /// <c>IChangeSAttackEffect</c> (scanned LIVE over each turn-ordered player's field permanents + the player)
+    /// gated by <c>PermanentCondition(this) &amp;&amp; CanUse(null) &amp;&amp; !TopCard.CanNotBeAffected</c> — note the
+    /// PermanentCondition-FIRST gate order (asymmetric vs <see cref="SecurityAttackChanges"/>, preserved verbatim) —
+    /// then splits by <c>isUpDown()</c> and folds in the order UpToConstant → UpDownValue → DownToConstant, each via
+    /// <c>GetSAttack(Strike,this,InvertSecutiryValue)</c>. ADAPTATION as documented on
+    /// <see cref="InvertSecutiryValue"/>.</summary>
+    public int Strike_AllowMinus
+    {
+        get
+        {
+            int Strike = 1;
+
+            #region Effect of changing the number of sheets to undergo security check
+
+            List<ICardEffect> cardEffects_ChangeDirectStrike = new List<ICardEffect>();
+
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region Effects of permanents in play
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IChangeSAttackEffect)
+                        {
+                            if (((IChangeSAttackEffect)cardEffect).PermanentCondition(this))
+                            {
+                                if (cardEffect.CanUse(null))
+                                {
+                                    if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                    {
+                                        cardEffects_ChangeDirectStrike.Add(cardEffect);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region player effect
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IChangeSAttackEffect)
+                    {
+                        if (((IChangeSAttackEffect)cardEffect).PermanentCondition(this))
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                                {
+                                    cardEffects_ChangeDirectStrike.Add(cardEffect);
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            List<ICardEffect> cardEffects_ChangeDirectStrike_UpToConstant = new List<ICardEffect>();
+            List<ICardEffect> cardEffects_ChangeDirectStrike_UpDownValue = new List<ICardEffect>();
+            List<ICardEffect> cardEffects_ChangeDirectStrike_DownToConstant = new List<ICardEffect>();
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDirectStrike)
+            {
+                if (cardEffect is IChangeSAttackEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        switch (((IChangeSAttackEffect)cardEffect).isUpDown())
+                        {
+                            case CalculateOrder.UpToConstant:
+                                cardEffects_ChangeDirectStrike_UpToConstant.Add(cardEffect);
+                                break;
+
+                            case CalculateOrder.UpDownValue:
+                                cardEffects_ChangeDirectStrike_UpDownValue.Add(cardEffect);
+                                break;
+
+                            case CalculateOrder.DownToConstant:
+                                cardEffects_ChangeDirectStrike_DownToConstant.Add(cardEffect);
+                                break;
+                        }
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDirectStrike_UpToConstant)
+            {
+                if (cardEffect is IChangeSAttackEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        Strike = ((IChangeSAttackEffect)cardEffect).GetSAttack(Strike, this, InvertSecutiryValue);
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDirectStrike_UpDownValue)
+            {
+                if (cardEffect is IChangeSAttackEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        Strike = ((IChangeSAttackEffect)cardEffect).GetSAttack(Strike, this, InvertSecutiryValue);
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in cardEffects_ChangeDirectStrike_DownToConstant)
+            {
+                if (cardEffect is IChangeSAttackEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        Strike = ((IChangeSAttackEffect)cardEffect).GetSAttack(Strike, this, InvertSecutiryValue);
+                    }
+                }
+            }
+            #endregion
+
+            return Strike;
+        }
+    }
+
+    /// <summary>(R1-b) AS-IS <c>Permanent.Strike</c> (Permanent.cs:1938-1951): <see cref="Strike_AllowMinus"/>
+    /// clamped at 0.</summary>
+    public int Strike
+    {
+        get
+        {
+            int Strike = Strike_AllowMinus;
+
+            if (Strike < 0)
+            {
+                Strike = 0;
+            }
+
+            return Strike;
+        }
+    }
+    #endregion
+
     // ===== (MIG2) link / rule-process members (AS-IS Permanent.cs) =============================================
 
     /// <summary>(MIG2) AS-IS <c>Permanent.LinkedCards</c> (Permanent.cs:1041) as live views (newest first —

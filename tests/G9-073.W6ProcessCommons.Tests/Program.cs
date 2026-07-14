@@ -45,11 +45,11 @@ async Task TimedStatMods()
     AssertTrue(CardEffectCommons.ChangeDigimonDP(Perm(ctx, target), 2000, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "DP grant");
     AssertEqual(7000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).DP, "+2000 folded");
     AssertTrue(CardEffectCommons.ChangeDigimonSAttack(Perm(ctx, target), 1, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "SA grant");
-    AssertEqual(2, ContinuousModifierGate.ResolveSecurityAttack(ctx, target, baseSecurityAttack: 1), "+1 SA folded");
+    AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).Strike, "+1 SA folded");
 
     EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).DP, "DP expired at the boundary");
-    AssertEqual(1, ContinuousModifierGate.ResolveSecurityAttack(ctx, target, baseSecurityAttack: 1), "SA expired");
+    AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).Strike, "SA expired");
 }
 
 async Task PlayerScopeDp()

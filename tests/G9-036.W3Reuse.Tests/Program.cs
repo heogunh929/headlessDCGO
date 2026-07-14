@@ -41,7 +41,7 @@ async Task ChangeSAttack()
     var ally = await Place(context, P1, "ALLY", ChoiceZone.BattleArea);
     using var _ambientScope = AmbientMatchContext.Enter(context);
     context.TurnController.SetPhase(HeadlessPhase.Main);
-    int before = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 1);
+    int before = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).Strike;
     // SEAM (post-stage-B): ChangeSAttackClass is a new-model kind-class observed via the unioned
     // NewModelContinuousScan.FoldSAttack (AS-IS Permanent.Strike_AllowMinus) — attach it to the source
     // card's controller (a player-scope grant: it is folded over EVERY field permanent of
@@ -49,7 +49,7 @@ async Task ChangeSAttack()
     var srcSource = new CardSource(context, src, P1);
     ICardEffect effect = CardEffectFactory.ChangeSAttackStaticEffect(null, 2, false, srcSource, null);
     srcSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
-    int after = ContinuousModifierGate.ResolveSecurityAttack(context, ally, 1);
+    int after = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).Strike;
     AssertEqual(before + 2, after, "SA +2 on owner's Digimon");
 }
 
