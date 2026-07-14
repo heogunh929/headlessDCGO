@@ -1135,6 +1135,56 @@ public sealed class AutoProcessing
 
     #endregion
 
+    #region Activate background effects of cards
+
+    // (R3-B) AS-IS AutoProcessing.cs:1024-1049 — the per-CARD-LIST analogue of ActivateBackgroundEffects: a
+    // background (`IsBackgroundProcess`) effect of an OFF-FIELD card (PermanentOfThisCard()==null) activates
+    // IMMEDIATELY at stack time (CanUse gate → RegisterUseEffectThisTurn → Activate). Same filter chain as
+    // GetSkillInfosOfCards; the AS-IS `PermanentOfThisCard() == null` off-field guard is bridged via
+    // ICardEffect.ResolvePermanentOfThisCard (the established adaptation (2) — the mirror accessor returns a
+    // PermanentView). Pure live re-enumeration — reads NO EffectRegistry/PendingEffect/EffectBinding.
+    public static async Task ActivateBackgroundEffectsOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
+    {
+        #region Effect of card list
+        foreach (CardSource cardSource in cardSources)
+        {
+            if (ICardEffect.ResolvePermanentOfThisCard(cardSource) == null)
+            {
+                foreach (ICardEffect cardEffect in cardSource.EffectList(timing).Filter(cardEffect => cardEffectCondition == null || cardEffectCondition(cardEffect)))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.IsBackgroundProcess)
+                        {
+                            if (cardEffect.CanUse(hashtable))
+                            {
+                                cardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(cardEffect);
+                                await ((ActivateICardEffect)cardEffect).Activate(hashtable);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+    }
+
+    #endregion
+
+    #region Stack skillInfos of cards
+
+    // (R3-B) AS-IS AutoProcessing.cs:1053-1058, IEnumerator→Task, StartCoroutine(X)→await X. Live re-enumeration:
+    // collect the card-list triggers (GetSkillInfosOfCards) onto the stack, then activate this list's background
+    // effects. NO EffectRegistry read — the AS-IS live GetSkillInfosOfCards scan is the sole source.
+    public async Task StackSkillInfosOfCards(Hashtable hashtable, EffectTiming timing, List<CardSource> cardSources, Func<ICardEffect, bool> cardEffectCondition = null)
+    {
+        GetSkillInfosOfCards(hashtable, timing, cardSources, cardEffectCondition).ForEach(skillInfo => PutStackedSkill(skillInfo));
+
+        await ActivateBackgroundEffectsOfCards(hashtable, timing, cardSources, cardEffectCondition);
+    }
+
+    #endregion
+
     #region Trigger effect processing
 
     // (P6C1) AS-IS AutoProcessing.cs:18 — the skills excluded from the next drain pass.
