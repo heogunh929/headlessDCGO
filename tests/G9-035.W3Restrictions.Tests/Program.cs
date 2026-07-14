@@ -38,7 +38,7 @@ async Task CantUnsuspend()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(context, id).IsRestricted, "not restricted before grant");
+    AssertTrue(new Permanent(context, id).CanUnsuspend, "not restricted before grant");
     // (P7 stage-B SEAM) CanNotUnsuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
     // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController.GetCardEffects scan
     // NewModelContinuousScan/ContinuousRestrictionGate now performs. Attach the built effect to the card's
@@ -47,7 +47,7 @@ async Task CantUnsuspend()
     ICardEffect built = CardEffectFactory.CantUnsuspendStaticEffect(
         permanentCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"cu:{id.Value}");
     cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
-    AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(context, id).IsRestricted, "does not unsuspend after grant");
+    AssertTrue(!new Permanent(context, id).CanUnsuspend, "does not unsuspend after grant");
 }
 
 async Task CanNotBeBlocked()

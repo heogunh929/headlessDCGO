@@ -1353,38 +1353,8 @@ public static class NewModelContinuousScan
     // by ContinuousRestrictionGate.JointResult, not called directly by callers.
     // ==================================================================================================
 
-    // AS-IS Permanent.CanUnsuspend (Permanent.cs:1962-2006): ICanNotUnsuspendEffect && CanUse(null) &&
-    // CanNotUnsuspend(this) over ALL players' field permanents + players.
-    public static bool CanNotUnsuspend(EngineContext context, HeadlessEntityId cardId)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
-        Permanent subject = BuildSubject(context, cardId);
-
-        foreach (Player player in ScanAllPlayers(context))
-        {
-            foreach (Permanent permanent in player.GetFieldPermanents())
-            {
-                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
-                {
-                    if (cardEffect is ICanNotUnsuspendEffect e && cardEffect.CanUse(null) && e.CanNotUnsuspend(subject))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
-            {
-                if (cardEffect is ICanNotUnsuspendEffect e && cardEffect.CanUse(null) && e.CanNotUnsuspend(subject))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
+    // (R1-d) CanNotUnsuspend REMOVED — AS-IS Permanent.CanUnsuspend is housed on the mirror Permanent getter
+    // and its consumers read `permanent.CanUnsuspend` directly.
 
     // AS-IS Permanent.CanSuspend (Permanent.cs:3698-3739): ICanNotSuspendEffect && CanUse(null) &&
     // CanNotSuspend(this) over ALL players' field permanents + players.
@@ -1827,8 +1797,9 @@ public static class NewModelContinuousScan
     /// interface scan returns false (the registry path still serves it).</summary>
     public static bool IsRestrictedNewModel(EngineContext context, string kind, HeadlessEntityId subjectId, HeadlessEntityId? counterpartId) => kind switch
     {
-        RestrictionHelpers.CannotUnsuspendKey => CanNotUnsuspend(context, subjectId),
-        RestrictionHelpers.CannotSuspendKey => CanNotSuspend(context, subjectId),
+        // (R1-d) CannotUnsuspendKey/CannotSuspendKey arms removed — AS-IS Permanent.CanUnsuspend/CanSuspend are
+        // housed on the mirror getters; the suspend/unsuspend gate methods were retired. CanNotSuspend below is
+        // still called DIRECTLY by the deletion/suspend sink (R2), so its method survives.
         RestrictionHelpers.CannotDigivolveKey => CanNotDigivolve(context, subjectId, counterpartId ?? default),
         RestrictionHelpers.CannotBlockKey => CanNotBlock(context, subjectId, counterpartId),
         RestrictionHelpers.CannotBeBlockedKey => CanNotBeBlocked(context, subjectId, counterpartId),

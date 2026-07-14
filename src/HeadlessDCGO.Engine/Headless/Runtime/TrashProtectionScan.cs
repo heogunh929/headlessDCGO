@@ -14,6 +14,10 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// (<see cref="DigivolutionStackHelpers"/>) consults it, while the DELETION path (AS-IS
 /// <c>Permanent.DiscardEvoRoots</c>, no keyword check) bypasses protection entirely (honorProtection: false).
 ///
+/// (R1-d) 잔존=R1-e 몫: this scan mirrors AS-IS <c>CardSource.CanNotTrashFromDigivolutionCards</c> (a CardSource
+/// immunity predicate), not a Permanent restriction/immunity — its rehousing belongs to the CardSource region
+/// (R1-e), so it is untouched here.
+///
 /// The joint mirrors AS-IS <c>CanNotTrashFromDigivolutionCards(cardSource, cardEffect)</c> = CardCondition(source)
 /// ∧ CardEffectCondition(effect) ∧ !source.IsFlipped, collapsed to
 /// <c>Func&lt;CardSource sourceBeingTrashed, CardSource causingEffectSource, bool&gt;</c> (the AS-IS ICardEffect

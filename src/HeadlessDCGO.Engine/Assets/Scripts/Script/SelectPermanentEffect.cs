@@ -430,11 +430,9 @@ public sealed class SelectPermanentEffect
                 {
                     if (permanent.TopCard.Owner != _cardEffect.EffectSourceCard.Owner && permanent.TopCard.Owner != _selectPlayer)
                     {
-                        // AS-IS permanent.CanSelectBySkill(_cardEffect) — the CannotBeSelectedBySkill joint scan
-                        // (same key/scan the legacy BuildRequest route uses), cause = the real effect source.
-                        if (Headless.Runtime.RestrictionScan.IsRestricted(
-                                context, RestrictionHelpers.CannotBeSelectedBySkillKey,
-                                permanent.InstanceId, _cardEffect.EffectSourceCard.InstanceId))
+                        // (R1-d) AS-IS permanent.CanSelectBySkill(_cardEffect) — now the mirror Permanent getter
+                        // (AS-IS-literal ICanNotSelectBySkillEffect EffectList scan), was the unioned registry scan.
+                        if (!permanent.CanSelectBySkill(_cardEffect))
                         {
                             return false;
                         }

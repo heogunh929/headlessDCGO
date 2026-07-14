@@ -104,9 +104,9 @@ async Task PlayerScopeGrants()
 
     SetMeta(ctx, small, "isSuspended", true);
     CardEffectCommons.GainCanNotUnsuspendPlayerEffect(null, EffectDuration.UntilOpponentTurnEnd, V(ctx, src));
-    AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(ctx, small).IsRestricted, "player-wide unsuspend lock");
+    AssertTrue(!new Permanent(ctx, small).CanUnsuspend, "player-wide unsuspend lock");
     EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
-    AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(ctx, small).IsRestricted, "expired");
+    AssertTrue(new Permanent(ctx, small).CanUnsuspend, "expired");
 }
 
 async Task Tokens()

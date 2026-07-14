@@ -227,8 +227,8 @@ public sealed class HeadlessEarlyPhaseFlow
             record is null ||
             !ReadBool(record.Metadata, "isSuspended") ||
             (!ignoreCanUnsuspend && ReadBool(record.Metadata, "canUnsuspend", defaultValue: true) == false) ||
-            // (PRIM-W3) continuous "does not unsuspend" restriction (CantUnsuspendStaticEffect).
-            (!ignoreCanUnsuspend && ContinuousRestrictionGate.EvaluateUnsuspend(context, cardId).IsRestricted))
+            // (R1-d) continuous "does not unsuspend" restriction — AS-IS Permanent.CanUnsuspend (mirror getter).
+            (!ignoreCanUnsuspend && !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId).CanUnsuspend))
         {
             return false;
         }

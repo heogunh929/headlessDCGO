@@ -96,7 +96,7 @@ async Task GrantRestrictionBody()
 {
     (EngineContext ctx, HeadlessEntityId self) = Board();
     var card = new CardSource(ctx, self, P1);
-    AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(ctx, self).IsRestricted, "not restricted before the grant");
+    AssertTrue(new Permanent(ctx, self).CanUnsuspend, "not restricted before the grant");
 
     // CantUnsuspendStaticEffect gained a leading permanentCondition parameter (AS-IS shape) — scope it to
     // THIS card (self-grant), matching the CanNotAttackSelfStaticEffect/CanNotBeBlockedStaticSelfEffect
@@ -107,7 +107,7 @@ async Task GrantRestrictionBody()
         maxCountPerTurn: null, isOptional: false, "[Main] grant: this Digimon can't unsuspend");
 
     await Resolve(ctx, e);
-    AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(ctx, self).IsRestricted, "restricted after the [Main] grant resolved (continuous binding registered)");
+    AssertTrue(!new Permanent(ctx, self).CanUnsuspend, "restricted after the [Main] grant resolved (continuous binding registered)");
 }
 
 async Task SelectDestroyBody()

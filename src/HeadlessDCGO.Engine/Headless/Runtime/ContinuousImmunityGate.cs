@@ -85,4 +85,9 @@ public static class ContinuousImmunityGate
         // mirrors AS-IS by reporting no immunity rather than inventing an owner-comparison heuristic AS-IS lacks.
         return false;
     }
+
+    // (R1-d) 잔존=R1-e 몫: this gate is the mirror of AS-IS CardSource.CanNotBeAffected (a CardSource effect-
+    // immunity predicate), consumed almost entirely through CardSource.CanNotBeAffected. Its AS-IS-literal
+    // rehousing belongs to the CardSource region (R1-e), so it is untouched by R1-d (which owns the Permanent
+    // restriction/immunity predicates only).
 }

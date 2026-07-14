@@ -16,6 +16,17 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// The gate queries continuous-role registry bindings only (card/instance metadata restrictions are
 /// already enforced by the action validators), so it is a pure no-op until continuous effects are
 /// registered (Phase 4 card pool).
+///
+/// (R1-d) 잔존 사유: the AS-IS Permanent restriction predicates (CanUnsuspend/CanSuspend/CanBeDestroyed*)
+/// now live on the mirror <c>Permanent</c> getters and their consumers were rewired to them. What REMAINS
+/// here is NOT R1-d's:
+///  * EvaluateDigivolve — AS-IS <c>CardSource.CanNotEvolve</c> = R1-e (CardSource) 몫.
+///  * EvaluateAttack / EvaluateBeAttacked / EvaluateBlock / EvaluateBeBlocked — AS-IS Permanent.CanAttack(
+///    TargetDigimon)/CanBlock, but consumed by the attack/block FLOW validators (AttackPermanentAction /
+///    BlockTiming) at fine-grained points; folding them back into the monolithic Permanent.CanAttack/CanBlock
+///    is the attack/block flow restructure = R2/R3 몫 (leave the scan wiring intact until then).
+///  * EvaluateDeleteBySkill — AS-IS Permanent.CanBeDestroyedBySkill, but consumed by the deletion machine
+///    (MatchStateMutationSink) = R2 몫.
 /// </summary>
 public static class ContinuousRestrictionGate
 {
@@ -75,14 +86,10 @@ public static class ContinuousRestrictionGate
         HeadlessEntityId? sourceEntityId = null) =>
         JointResult(context, RestrictionHelpers.CannotDigivolveKey, targetCardId, sourceEntityId, "cannotDigivolve", "digivolve");
 
-    // (PRIM-W3) Continuous "does not unsuspend" restriction — consulted by the Unsuspend step.
-    public static CannotRestrictionResult EvaluateUnsuspend(EngineContext context, HeadlessEntityId targetId) =>
-        JointResult(context, RestrictionHelpers.CannotUnsuspendKey, targetId, null, "cannotUnsuspend", "unsuspend");
-
-    // (W6-P) Continuous "cannot suspend" restriction — the AS-IS Permanent.CanSuspend gate half of
-    // CanActivatePermanentSuspendCostEffect.
-    public static CannotRestrictionResult EvaluateSuspend(EngineContext context, HeadlessEntityId targetId) =>
-        JointResult(context, RestrictionHelpers.CannotSuspendKey, targetId, null, "cannotSuspend", "suspend");
+    // (R1-d) EvaluateUnsuspend / EvaluateSuspend REMOVED — AS-IS Permanent.CanUnsuspend / Permanent.CanSuspend
+    // are now housed on the mirror getters and their consumers read `permanent.CanUnsuspend` / `permanent.CanSuspend`
+    // directly. NewModelContinuousScan.CanNotSuspend survives as the DELETION/SUSPEND sink (MatchStateMutationSink)
+    // consults it directly (R2 몫).
 
     // (PRIM-W3) Continuous "cannot be blocked" restriction on the attacker — consulted when enumerating blockers.
     // (W6-G) blocker-conditional form supported (AS-IS GainCanNotBeBlocked defenderCondition, embedded in the joint predicate).

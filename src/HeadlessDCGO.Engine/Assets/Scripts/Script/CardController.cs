@@ -1623,7 +1623,7 @@ public class SuspendPermanentsClass
                 {
                     if (permanent.IsSuspended) return false;
 
-                    if (ContinuousRestrictionGate.EvaluateSuspend(context, permanent.InstanceId).IsRestricted) return false; // !CanSuspend
+                    if (!permanent.CanSuspend) return false; // (R1-d) AS-IS !Permanent.CanSuspend (was the unioned gate)
 
                     if (_causeEffectSourceId is { IsEmpty: false } cause)
                     {

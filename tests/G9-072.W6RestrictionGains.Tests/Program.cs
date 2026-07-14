@@ -94,11 +94,11 @@ async Task UnsuspendLock()
     SetMeta(ctx, target, "isSuspended", true);
 
     CardEffectCommons.GainCantUnsuspendUntilOpponentTurnEnd(Perm(ctx, target), V(ctx, src));
-    AssertTrue(ContinuousRestrictionGate.EvaluateUnsuspend(ctx, target).IsRestricted, "unsuspend locked");
+    AssertTrue(!new Permanent(ctx, target).CanUnsuspend, "unsuspend locked");
     AssertTrue(!CardEffectCommons.CanUnsuspend(Perm(ctx, target)), "CanUnsuspend predicate agrees");
 
     EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
-    AssertTrue(!ContinuousRestrictionGate.EvaluateUnsuspend(ctx, target).IsRestricted, "expired at the boundary");
+    AssertTrue(new Permanent(ctx, target).CanUnsuspend, "expired at the boundary");
 }
 
 async Task SuspendLock()

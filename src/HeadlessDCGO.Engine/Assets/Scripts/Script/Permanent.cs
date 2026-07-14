@@ -2388,17 +2388,302 @@ public sealed class Permanent
         _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? p) && p is not null
             && p.Metadata.TryGetValue(GameFlowProcessor.IsPlayedOptionPermanentKey, out object? played) && played is true;
 
-    /// <summary>(MIG2) AS-IS <c>Permanent.CanBeDestroyed()</c> (Permanent.cs:3186-3229): no active
-    /// <c>ICanNotBeDestroyedEffect</c> protects this permanent — the same Delete/Prevent replacement set the
-    /// mutation sink consults (<c>IsDeletionPreventedByContinuous</c>), evaluated predicate-side so the DP-0
-    /// rule never re-selects a protected Digimon.</summary>
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanBeDestroyed()</c> (Permanent.cs:3186-3229): TRUE unless some usable
+    /// <c>ICanNotBeDestroyedEffect</c> (scanned over every turn-ordered player's field permanents and the player
+    /// itself, <c>CanUse(null)</c>-gated) protects THIS permanent. Established substrate ADAPTATION:
+    /// <c>gameContext.Players_ForTurnPlayer</c> → <c>new GameContext(_context).Players_ForTurnPlayer</c>.</summary>
     public bool CanBeDestroyed()
     {
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(
-            _context, ContinuousRestrictionGate.Scope, InstanceId);
-        foreach (ReplacementEffect replacement in result.Replacements)
+        #region 消滅しない効果
+        foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
         {
-            if (replacement.EventKind == ReplacementEventKind.Delete && replacement.ActionKind == ReplacementActionKind.Prevent)
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                #region 場のパーマネントの効果
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeDestroyedEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotBeDestroyedEffect)cardEffect).CanNotBeDestroyed(this))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            #region プレイヤーの効果
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotBeDestroyedEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((ICanNotBeDestroyedEffect)cardEffect).CanNotBeDestroyed(this))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+        #endregion
+
+        return true;
+    }
+
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanSelectBySkill(ICardEffect skill)</c> (Permanent.cs:1648-1673):
+    /// TRUE unless some usable <c>ICanNotSelectBySkillEffect</c>'s JOINT predicate <c>CanNotSelectBySkill(this,
+    /// skill)</c> matches, scanned over every player's field permanents' <c>EffectList(None)</c>. AS-IS iterates
+    /// <c>gameContext.Players</c> (FULL roster, seat order) — an order-insensitive any-match. ADAPTATION:
+    /// <c>gameContext.Players</c> → <c>new GameContext(_context).Players</c>.</summary>
+    public bool CanSelectBySkill(ICardEffect skill)
+    {
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            #region Effects of field permanents
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotSelectBySkillEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotSelectBySkillEffect)cardEffect).CanNotSelectBySkill(this, skill))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+
+        return true;
+    }
+
+    // ===== (R1-d) restriction / immunity predicate getters (AS-IS Permanent.cs) ================================
+    // Each member is the AS-IS body verbatim (scan scope / interface / gate order / quirk preserved per member —
+    // NOT uniformised). Established substrate ADAPTATIONs applied throughout (same as the R1-b/R1-c clusters):
+    //   * GManager.instance.turnStateMachine.gameContext.{Players,Players_ForTurnPlayer,TurnPlayer}
+    //       → new GameContext(_context).{Players,Players_ForTurnPlayer,TurnPlayer}
+    //   * GManager.instance.attackProcess → HeadlessDCGO.Engine.Assets.Scripts.Script.AttackProcess.For(_context)
+    //   * TopCard.CanNotBeAffected(cardEffect) → TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId)
+    //   * TopCard.Owner is a HeadlessPlayerId here (AS-IS: a Player) → new Player(_context, TopCard.Owner) for the
+    //     Player surface (Enemy / Get{Battle,Breeding}AreaPermanents); Player comparisons compare .PlayerId.
+    //   * Frame model absent (design item RD-P6C1-1 / MIG5-FRAME-MODEL): AS-IS `PermanentFrame.IsBattleAreaFrame()`
+    //     → CardEffectCommons.IsPermanentExistsOnBattleArea(this) (zone membership); AS-IS `isBreedingAreaFrame()`
+    //     → GetBreedingAreaPermanents() membership; the `fieldCardFrames` empty-battle-slot capacity check has no
+    //     mirror (design item RD-P6C1-2) — the established no-capacity convention (BT1_089) omits it.
+    //   * AS-IS `EnterFieldTurnCount == TurnCount` (summoning sickness) → the established `enteredThisTurn` boolean
+    //     substrate flag (MatchStateMutationSink.EnteredThisTurnKey), read via EnteredThisTurn below.
+
+    #region 宣言可能な起動型効果があるか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanDeclareSkill()</c> (Permanent.cs:1613).</summary>
+    public bool CanDeclareSkill() => CanDeclareSkillList().Count > 0;
+    #endregion
+
+    #region 宣言可能な起動型効果リスト
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanDeclareSkillList()</c> (Permanent.cs:1617-1636): the usable
+    /// <c>OnDeclaration</c> activated effects of this permanent's top card.</summary>
+    public List<ICardEffect> CanDeclareSkillList()
+    {
+        List<ICardEffect> CanDeclareSkillList = new List<ICardEffect>();
+
+        if (TopCard != null)
+        {
+            foreach (ICardEffect _cardEffect in EffectList(EffectTiming.OnDeclaration))
+            {
+                if (_cardEffect is ActivateICardEffect)
+                {
+                    if (_cardEffect.CanUse(null))
+                    {
+                        CanDeclareSkillList.Add(_cardEffect);
+                    }
+                }
+            }
+        }
+
+        return CanDeclareSkillList;
+    }
+    #endregion
+
+    /// <summary>(R1-d) The mirror carrier of AS-IS <c>Permanent.EnterFieldTurnCount == TurnCount</c> (summoning
+    /// sickness): the established <c>enteredThisTurn</c> boolean metadata flag stamped by the play/move/fusion
+    /// paths (<see cref="Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey"/>) and read verbatim by the
+    /// existing attack validator. TRUE == entered the field this turn (AS-IS EnterFieldTurnCount == TurnCount).</summary>
+    private bool EnteredThisTurn =>
+        _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? e) && e is not null
+        && e.Metadata.TryGetValue(Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey, out object? raw) && raw is true;
+
+    #region Whether this permanent can unsuspend
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanUnsuspend</c> (Permanent.cs:1962-2006): TRUE unless a usable
+    /// <c>ICanNotUnsuspendEffect</c> (over every player's field permanents and the player) forbids it.</summary>
+    public bool CanUnsuspend
+    {
+        get
+        {
+            foreach (Player player in new GameContext(_context).Players)
+            {
+                #region Effects of field permanents
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is ICanNotUnsuspendEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (((ICanNotUnsuspendEffect)cardEffect).CanNotUnsuspend(this))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+                #endregion
+
+                #region Effects of players
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotUnsuspendEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotUnsuspendEffect)cardEffect).CanNotUnsuspend(this))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            return true;
+        }
+    }
+    #endregion
+
+    #region このパーマネントが移動できるかどうか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanMove</c> (Permanent.cs:2010-2086). Frame ADAPTATIONs per the section
+    /// header (breeding-frame → GetBreedingAreaPermanents membership; empty-battle-slot capacity check omitted,
+    /// RD-P6C1-2).</summary>
+    public bool CanMove
+    {
+        get
+        {
+            if (TopCard != null)
+            {
+                #region the effects of permanents
+                if (new GameContext(_context).Players
+                    .Map(player => player.GetFieldPermanents())
+                    .Flat()
+                    .Map(permanent => permanent.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Some(cardEffect => cardEffect is ICanNotMoveEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotMoveEffect)cardEffect).CanNotMove(TopCard, null)))
+                {
+                    return false;
+                }
+                #endregion
+
+                #region the effects of players
+                if (new GameContext(_context).Players
+                        .Map(player => player.EffectList(EffectTiming.None))
+                        .Flat()
+                        .Some(cardEffect => cardEffect is ICanNotMoveEffect
+                            && cardEffect.CanUse(null)
+                            && ((ICanNotMoveEffect)cardEffect).CanNotMove(TopCard, null)))
+                {
+                    return false;
+                }
+                #endregion
+
+                #region the effects of itself
+                // (AS-IS-dead) `this == null` is Unity's destroyed-object check; a plain mirror instance is never
+                // null, so this branch is inert — preserved verbatim for structural fidelity.
+                if (this == null)
+                {
+                    if (EffectList(EffectTiming.None)
+                            .Some(cardEffect => cardEffect is ICanNotMoveEffect
+                                && cardEffect.CanUse(null)
+                                && ((ICanNotMoveEffect)cardEffect).CanNotMove(TopCard, null)))
+                    {
+                        return false;
+                    }
+                }
+                #endregion
+
+                // ADAPTATION: AS-IS TopCard.PermanentOfThisCard().PermanentFrame.isBreedingAreaFrame() → this
+                // permanent's membership in the owner's breeding area (frame model absent, RD-P6C1-1).
+                if (new Player(_context, TopCard.Owner).GetBreedingAreaPermanents().Contains(this))
+                {
+                    if (!new Player(_context, TopCard.Owner).GetBreedingAreaPermanents().Contains(this))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (new Player(_context, TopCard.Owner).GetBreedingAreaPermanents().Count > 0)
+                        return false;
+                }
+
+                if (!IsDigimon)
+                    return false;
+
+                if (TopCard.IsDigiEgg && DP <= 0)
+                    return false;
+
+                // ADAPTATION: AS-IS `TurnPlayer.fieldCardFrames.Count(empty && battleArea) == 0 → false` — the
+                // frame-capacity model has no mirror (RD-P6C1-2); the established no-capacity convention (BT1_089)
+                // treats a battle slot as always available, so this guard is omitted.
+            }
+            else
+            {
+                return false;
+            }
+
+            return true;
+        }
+    }
+    #endregion
+
+    #region このパーマネントが攻撃できるかどうか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanAttack</c> (Permanent.cs:2090-2119).</summary>
+    public bool CanAttack(ICardEffect cardEffect, bool withoutTap = false, bool isVortex = false, bool isExecute = false)
+    {
+        // can not attack with empty cards
+        if (TopCard == null)
+        {
+            return false;
+        }
+
+        // can not attack during opponent's turn
+        if (TopCard.Owner != new GameContext(_context).TurnPlayer?.PlayerId)
+        {
+            return false;
+        }
+
+        //Can not attack during another attack
+        if (HeadlessDCGO.Engine.Assets.Scripts.Script.AttackProcess.For(_context).IsAttacking)
+            return false;
+
+        // can not attack to player
+        if (!CanAttackTargetDigimon(null, cardEffect, withoutTap, isVortex, isExecute))
+        {
+            // can not attack to opponent's Digimon
+            if (new Player(_context, TopCard.Owner).Enemy!.GetFieldPermanents().Count((permanent) => CanAttackTargetDigimon(permanent, cardEffect, withoutTap, isVortex, isExecute)) == 0)
             {
                 return false;
             }
@@ -2406,26 +2691,508 @@ public sealed class Permanent
 
         return true;
     }
+    #endregion
 
-    /// <summary>(batch-3) AS-IS <c>Permanent.CanSelectBySkill(ICardEffect skill)</c> (Permanent.cs:1648-1673):
-    /// TRUE unless some usable <c>ICanNotSelectBySkillEffect</c>'s JOINT predicate matches (this candidate,
-    /// the selecting skill's source). Delegates to the SAME verified true-scan
-    /// <c>SelectPermanentEffect.IsUntargetableBySkill</c> uses internally
-    /// (<see cref="Headless.Runtime.RestrictionScan"/> over <see cref="RestrictionHelpers.CannotBeSelectedBySkillKey"/>
-    /// — the d-remediation joint-migration carrier of AS-IS <c>ICanNotSelectBySkillEffect</c>), fed the TRUE
-    /// causing skill source (<c>skill.EffectSourceCard</c>) exactly as AS-IS threads <c>skill</c>. Added for the
-    /// verbatim card idiom <c>permanent.CanSelectBySkill(activateClass)</c> inside select pre-check predicates
-    /// (first caller BT2_097; AS-IS folds this into the same <c>CanSelectPermanentCondition</c> the
-    /// SelectPermanentEffect ALSO applies internally — both sites now evaluate the same scan, matching AS-IS's
-    /// double evaluation).</summary>
-    public bool CanSelectBySkill(ICardEffect skill)
+    #region このパーマネントが対象の攻撃パーマネントをブロックできるかどうか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanBlock</c> (Permanent.cs:2123-2210). Frame check ADAPTATION per the
+    /// section header. NOTE the AS-IS asymmetry preserved: the field-permanent Unblockable scan does NOT apply
+    /// the CanNotBeAffected guard, only the player-effect scan does.</summary>
+    public bool CanBlock(Permanent AttackingPermanent)
     {
-        return !Headless.Runtime.RestrictionScan.IsRestricted(
-            _context,
-            RestrictionHelpers.CannotBeSelectedBySkillKey,
-            InstanceId,
-            skill?.EffectSourceCard?.InstanceId ?? default);
+        if (TopCard == null)
+        {
+            return false;
+        }
+
+        if (!IsDigimon)
+        {
+            return false;
+        }
+
+        if (IsSuspended)
+        {
+            return false;
+        }
+
+        if (!CanSuspend)
+        {
+            return false;
+        }
+
+        // ADAPTATION: AS-IS `if (PermanentFrame != null) { if (!IsBattleAreaFrame()) return false; }` (frame model
+        // absent) → this permanent must be on the battle area.
+        if (!CardEffectCommons.IsPermanentExistsOnBattleArea(this))
+        {
+            return false;
+        }
+
+        if (!AttackingPermanent.IsDigimon)
+            return false;
+
+        if (!AttackingPermanent.CanSwitchAttackTarget)
+            return false;
+
+        #region "Unblockable" effect
+
+        #region Effects of permanents in play
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICannotBlockEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICannotBlockEffect)cardEffect).CannotBlock(AttackingPermanent, this))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #region player effect
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICannotBlockEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((ICannotBlockEffect)cardEffect).CannotBlock(AttackingPermanent, this))
+                        {
+                            if (!TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
+        #endregion
+
+
+
+        return true;
     }
+    #endregion
+
+    #region 対象のパーマネントを攻撃できるか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanAttackTargetDigimon</c> (Permanent.cs:2214-2372). Frame check and
+    /// summoning-sickness (EnterFieldTurnCount → EnteredThisTurn) ADAPTATIONs per the section header.</summary>
+    public bool CanAttackTargetDigimon(Permanent? Defender, ICardEffect cardEffect, bool withoutTap = false, bool isVortex = false, bool isExecute = false)
+    {
+        if (TopCard != null)
+        {
+            if (!IsDigimon)
+            {
+                return false;
+            }
+
+            if (!withoutTap)
+            {
+                if (IsSuspended)
+                {
+                    return false;
+                }
+
+                if (!CanSuspend)
+                {
+                    return false;
+                }
+            }
+
+            // ADAPTATION: AS-IS `if (PermanentFrame != null) { if (!IsBattleAreaFrame()) return false; }`.
+            if (!CardEffectCommons.IsPermanentExistsOnBattleArea(this))
+            {
+                return false;
+            }
+
+            // ADAPTATION: AS-IS `if (EnterFieldTurnCount == TurnCount)` → the enteredThisTurn substrate flag.
+            if (EnteredThisTurn)
+            {
+                if (!HasRush && !isVortex)
+                {
+                    return false;
+                }
+            }
+
+            #region 「対象の防御パーマネントを攻撃できない」効果
+
+            #region 場のパーマネントの効果
+            foreach (Player player in new GameContext(_context).Players)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect1 is ICanNotAttackTargetDefendingPermanentEffect)
+                        {
+                            if (cardEffect1.CanUse(null))
+                            {
+                                if (((ICanNotAttackTargetDefendingPermanentEffect)cardEffect1).CanNotAttackTargetDefendingPermanent(this, Defender))
+                                {
+                                    if (!TopCard.CanNotBeAffected(cardEffect1.EffectSourceCard?.InstanceId))
+                                    {
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            #endregion
+
+            #region プレイヤーの効果
+            foreach (Player player in new GameContext(_context).Players)
+            {
+                foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICanNotAttackTargetDefendingPermanentEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((ICanNotAttackTargetDefendingPermanentEffect)cardEffect1).CanNotAttackTargetDefendingPermanent(this, Defender))
+                            {
+                                if (!TopCard.CanNotBeAffected(cardEffect1.EffectSourceCard?.InstanceId))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            #endregion
+
+            #endregion
+
+            if (Defender != null)
+            {
+                if (Defender.TopCard != null)
+                {
+                    if (Defender.TopCard.Owner == new Player(_context, TopCard.Owner).Enemy?.PlayerId)
+                    {
+                        if (Defender.IsDigimon && new Player(_context, Defender.TopCard.Owner).GetBattleAreaPermanents().Contains(Defender))
+                        {
+                            if (Defender.IsSuspended || isExecute)
+                            {
+                                return true;
+                            }
+
+                            #region 「対象の防御パーマネントを攻撃できる」効果
+
+                            #region 場のパーマネントの効果
+                            foreach (Player player in new GameContext(_context).Players)
+                            {
+                                foreach (Permanent permanent in player.GetFieldPermanents())
+                                {
+                                    foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                                    {
+                                        if (cardEffect1 is ICanAttackTargetDefendingPermanentEffect)
+                                        {
+                                            if (cardEffect1.CanUse(null))
+                                            {
+                                                if (((ICanAttackTargetDefendingPermanentEffect)cardEffect1).CanAttackTargetDefendingPermanent(this, Defender, cardEffect))
+                                                {
+                                                    return true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            #endregion
+
+                            #region プレイヤーの効果
+                            foreach (Player player in new GameContext(_context).Players)
+                            {
+                                foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                                {
+                                    if (cardEffect1 is ICanAttackTargetDefendingPermanentEffect)
+                                    {
+                                        if (cardEffect1.CanUse(null))
+                                        {
+                                            if (((ICanAttackTargetDefendingPermanentEffect)cardEffect1).CanAttackTargetDefendingPermanent(this, Defender, cardEffect))
+                                            {
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            #endregion
+
+                            #endregion
+                        }
+                    }
+                }
+            }
+
+            else
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
+    #region Can Be Destroyed By Battle
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanBeDestroyedByBattle</c> (Permanent.cs:3233-3305): CanBeDestroyed()
+    /// then a usable <c>ICanNotBeDestroyedByBattleEffect</c> scan over every turn-ordered player's field
+    /// permanents, FACE-UP security, and the player.</summary>
+    public bool CanBeDestroyedByBattle(Permanent AttackingPermanent, Permanent DefendingPermanent, CardSource DefendingCard)
+    {
+        if (!CanBeDestroyed())
+        {
+            return false;
+        }
+
+        #region Given Effects
+        foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                #region Permanents
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeDestroyedByBattleEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotBeDestroyedByBattleEffect)cardEffect).CanNotBeDestroyedByBattle(this, AttackingPermanent, DefendingPermanent, DefendingCard))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            #region Effects of faceup security
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (source.IsFlipped)
+                    continue;
+
+
+
+                foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeDestroyedByBattleEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotBeDestroyedByBattleEffect)cardEffect).CanNotBeDestroyedByBattle(this, AttackingPermanent, DefendingPermanent, DefendingCard))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            #endregion
+
+            #region Player Effects
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotBeDestroyedByBattleEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((ICanNotBeDestroyedByBattleEffect)cardEffect).CanNotBeDestroyedByBattle(this, AttackingPermanent, DefendingPermanent, DefendingCard))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+        #endregion
+
+        return true;
+    }
+    #endregion
+
+    #region このパーマネントが効果で消滅するか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanBeDestroyedBySkill</c> (Permanent.cs:3309-3365): CanNotBeAffected
+    /// first, then CanBeDestroyed(), then a usable <c>ICanNotBeDestroyedBySkillEffect</c> scan over every
+    /// turn-ordered player's field permanents and the player.</summary>
+    public bool CanBeDestroyedBySkill(ICardEffect cardEffect)
+    {
+        if (this.TopCard != null)
+        {
+            if (this.TopCard.CanNotBeAffected(cardEffect.EffectSourceCard?.InstanceId))
+            {
+                return false;
+            }
+
+            if (!CanBeDestroyed())
+            {
+                return false;
+            }
+
+            #region 効果で消滅しない効果
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region 場のパーマネントの効果
+                    foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect1 is ICanNotBeDestroyedBySkillEffect)
+                        {
+                            if (cardEffect1.CanUse(null))
+                            {
+                                if (((ICanNotBeDestroyedBySkillEffect)cardEffect1).CanNotBeDestroyedBySkill(this, cardEffect))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICanNotBeDestroyedBySkillEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((ICanNotBeDestroyedBySkillEffect)cardEffect1).CanNotBeDestroyedBySkill(this, cardEffect))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+            #endregion
+        }
+
+        return true;
+    }
+    #endregion
+
+    #region Can Leave Field
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanBeRemoved()</c> (Permanent.cs:3369-3412): TRUE unless a usable
+    /// <c>ICanNotBeRemovedEffect</c> (over every turn-ordered player's field permanents and the player) forbids
+    /// it.</summary>
+    public bool CanBeRemoved()
+    {
+        #region Effect that never disappears
+        foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                #region Effects of permanents in play
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeRemovedEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotBeRemovedEffect)cardEffect).CanNotBeRemoved(this))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            #region player effect
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotBeRemovedEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((ICanNotBeRemovedEffect)cardEffect).CanNotBeRemoved(this))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+        #endregion
+
+        return true;
+    }
+    #endregion
+
+    #region 攻撃の対象を変更できるか
+    /// <summary>(R1-d) AS-IS <c>Permanent.CanSwitchAttackTarget</c> (Permanent.cs:3746-3792): TRUE unless a usable
+    /// <c>ICanNotSwitchAttackTargetEffect</c> (over every turn-ordered player's field permanents and the player)
+    /// forbids it. Support member for <see cref="CanBlock"/> (AS-IS reads it there).</summary>
+    public bool CanSwitchAttackTarget
+    {
+        get
+        {
+            #region アタックの対象が変更できない効果
+            foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+            {
+                foreach (Permanent permanent in player.GetFieldPermanents())
+                {
+                    #region 場のパーマネントの効果
+                    foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is ICanNotSwitchAttackTargetEffect)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                if (((ICanNotSwitchAttackTargetEffect)cardEffect).CanNotBeSwitchAttackTarget(this))
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region プレイヤーの効果
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotSwitchAttackTargetEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanNotSwitchAttackTargetEffect)cardEffect).CanNotBeSwitchAttackTarget(this))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+            #endregion
+
+            return true;
+        }
+    }
+    #endregion
 
     /// <summary>(MIG2) AS-IS <c>Permanent.RemoveLinkedCard(cardSource, removeCount, trashCard)</c>
     /// (Permanent.cs:1306-1348). A direct removal does NOT open the OnLinkCardDiscarded window — the batch

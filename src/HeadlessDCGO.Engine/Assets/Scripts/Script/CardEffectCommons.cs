@@ -4218,7 +4218,8 @@ public static partial class CardEffectCommons
         {
             HeadlessEntityId top = card.PermanentOfThisCard().Stack.TopCard?.InstanceId ?? default;
             if (!top.IsEmpty && !IsSuspended(card, top) &&
-                !ContinuousRestrictionGate.EvaluateSuspend(card.Context, top).IsRestricted)
+                // (R1-d) !CanSuspend restriction — AS-IS Permanent.CanSuspend, now housed on the mirror getter.
+                new Permanent(card.Context, top).CanSuspend)
             {
                 return true;
             }
@@ -4232,7 +4233,8 @@ public static partial class CardEffectCommons
                 DigivolutionStack stack = DigivolutionStackReader.Read(card.Context.CardInstanceRepository, card.Context.CardRepository, hostId);
                 bool contains = hostId == card.InstanceId || stack.UnderCards.Any(under => under.InstanceId == card.InstanceId);
                 if (contains && !IsSuspended(card, hostId) &&
-                    !ContinuousRestrictionGate.EvaluateSuspend(card.Context, hostId).IsRestricted)
+                    // (R1-d) !CanSuspend restriction — AS-IS Permanent.CanSuspend.
+                    new Permanent(card.Context, hostId).CanSuspend)
                 {
                     return true;
                 }
@@ -4267,8 +4269,10 @@ public static partial class CardEffectCommons
         }
 
         CardSource top = permanent.TopCard;
+        // (R1-d) AS-IS CanUnsuspend(Permanent) = permanent.IsSuspended && permanent.CanUnsuspend — the second
+        // conjunct now reads the mirror Permanent.CanUnsuspend getter (was the unioned gate).
         return IsSuspended(top, permanent.InstanceId)
-            && !ContinuousRestrictionGate.EvaluateUnsuspend(top.Context, permanent.InstanceId).IsRestricted;
+            && permanent.CanUnsuspend;
     }
 
     /// <summary>AS-IS <c>IsMinDP</c> (MinMax_DP_Cost_Level/DP/IsMinDP.cs): among the owner's battle-area
