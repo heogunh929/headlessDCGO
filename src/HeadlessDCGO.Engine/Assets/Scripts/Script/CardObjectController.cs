@@ -273,6 +273,24 @@ public static class CardObjectController
             await AddHandCard(cardSource, isDraw, addHandBatchId, cause, cancellationToken).ConfigureAwait(false);
         }
 
+        // (C1) AS-IS CardObjectController.cs:605-621 — drained from C2 flip. StackSkillInfos({"Players", Players},
+        // {"CardEffect", cardEffect}, {"CardSources", addedCards}, OnAddHand) guarded by DoneStartGame && count>0.
+        // Unlike the id-threading routines, AddHandCards keeps the live ICardEffect? cardEffect param, so the
+        // {"CardEffect"} member IS reconstructable verbatim here; Players = the distinct owners as mirror Player views.
+        if (GManager.instance.turnStateMachine.DoneStartGame && addedCards.Count > 0)
+        {
+            List<Player> Players = addedCards.Select(cardSource => cardSource.Owner).Distinct()
+                .Select(playerId => new Player(context, playerId)).ToList();
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "Players", Players },
+                    { "CardEffect", cardEffect },
+                    { "CardSources", addedCards },
+                },
+                EffectTiming.OnAddHand).ConfigureAwait(false);
+        }
+
         // AS-IS :605-621 the OnAddHand window (past game start) is now derived from the ->Hand CardMoveds above.
     }
 

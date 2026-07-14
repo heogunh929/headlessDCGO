@@ -277,6 +277,15 @@ public sealed class AttackProcess
                 subject: attackerId,
                 extraMetadata: AttackEventMetadata(attackEffectSourceId));
 
+            // (C1 design item RD-C1-ATTACK-BGFX) AS-IS :197-199 StackSkillInfos(EffectHashtable, OnAllyAttack) —
+            // the main-instance insert is DEFERRED to C2. StackSkillInfos immediately runs ActivateBackgroundEffects
+            // (AutoProcessing.cs:1054, enumerating GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer),
+            // which requires an ambient GManager match context the AttackProcess unit harnesses (G3.5-S1) do NOT set
+            // up — so a C1 "inert" insert here NREs and breaks behaviour-neutrality (verified: green→red on
+            // G3.5-S1.EffectDrivenAttack). C2 lands it once the ambient context / ActivateBackgroundEffects is
+            // reconciled. Payload = OnAttackCheckHashtableOfPermanent(AttackingPermanent, null) (attackEffect==null
+            // for a plain declared attack; effect-driven ICardEffect = RDW-05 id gap).
+
             // AS-IS :221-226 — force to end attack after the [On Attack] window. The window drains on the NEXT
             // loop iteration (the AS-IS StackSkillInfos only stacks too), so this boundary re-fires at the head of
             // CounterTiming (:258) — the effective post-drain boundary in both engines.
@@ -674,6 +683,13 @@ public sealed class AttackProcess
                     TriggerTimings.OnEndAttack,
                     actor: turnPlayer,
                     subject: endAttackerId);
+
+                // (C1 design item RD-C1-ATTACK-BGFX) AS-IS :480 StackSkillInfos(EffectHashtable, OnEndAttack) —
+                // DEFERRED to C2 for the same reason as the OnAllyAttack insert above: StackSkillInfos runs
+                // ActivateBackgroundEffects, which dereferences the ambient GManager match context the AttackProcess
+                // unit harnesses don't set up, breaking C1 neutrality. Payload = OnAttackCheckHashtableOfPermanent(
+                // AttackingPermanent, null) inside the AS-IS alive guard (:478). Caveat F1-ENDATTACK-HOOK
+                // (scheduler hook above) is the C2 double-fire concern to reconcile at the flip.
             }
         }
 

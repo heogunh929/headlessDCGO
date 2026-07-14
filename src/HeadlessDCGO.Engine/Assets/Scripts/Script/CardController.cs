@@ -537,6 +537,12 @@ public class IDigiBurst
                 EngineContext context = _permanent.TopCard.Context;
                 EmitJournaled(context, TriggerTimings.OnUseDigiburst, _permanent.TopCard.Controller, _permanent.InstanceId);
 
+                // (C1) AS-IS CardController.cs:2218-2228 — drained from C2 flip. StackSkillInfos({"Permanent",
+                // _permanent}, {"CardEffect", _cardEffect}, OnUseDigiburst). Live _cardEffect is in scope here.
+                await GManager.instance.autoProcessing.StackSkillInfos(
+                    new System.Collections.Hashtable { { "Permanent", _permanent }, { "CardEffect", _cardEffect } },
+                    EffectTiming.OnUseDigiburst).ConfigureAwait(false);
+
                 #endregion
 
                 // trash digivolution cards (AS-IS :2233; ICardEffect -> cause id, the mirror carrier's shape).
@@ -861,6 +867,12 @@ public class IDegeneration
             context.GameEventQueue, TriggerTimings.WhenTopCardTrashed,
             actor: _permanent.OwnerId, subject: currentTopId, extraMetadata: extraMetadata);
 
+        // (C1) AS-IS CardController.cs:4906-4915 — drained from C2 flip. StackSkillInfos({"Permanent",
+        // _permanent}, {"CardSources", selectedCards}, WhenTopCardTrashed). No CardEffect member.
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            new System.Collections.Hashtable { { "Permanent", _permanent }, { "CardSources", selectedCards } },
+            EffectTiming.WhenTopCardTrashed).ConfigureAwait(false);
+
         #endregion
 
         // AS-IS :4919-4940 add log (gated on selectedCards.Count >= 1) = UI (stripped).
@@ -993,6 +1005,12 @@ public class IMassDegeneration
             TriggerEventEmitter.Emit(
                 context.GameEventQueue, TriggerTimings.WhenTopCardTrashed,
                 actor: permanent.OwnerId, subject: currentTopId, extraMetadata: extraMetadata);
+
+            // (C1) AS-IS CardController.cs:5083-5092 — drained from C2 flip. StackSkillInfos({"Permanent",
+            // permanent}, {"CardSources", selectedCards}, WhenTopCardTrashed). No CardEffect member.
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable { { "Permanent", permanent }, { "CardSources", selectedCards } },
+                EffectTiming.WhenTopCardTrashed).ConfigureAwait(false);
 
             #endregion
 
@@ -1489,8 +1507,17 @@ public class IAddSecurity
         EngineContext context = _cardSource.Context;
 
         // AS-IS :5475 GManager.OnSecurityStackChanged = UI (stripped).
-        // AS-IS :5489 StackSkillInfos(hashtable, OnAddSecurity) {Player, CardSources} — zone-derived from the
-        // caller's ->Security move (per-card add-security batch id); no manual emit (double-fire).
+
+        // (C1) AS-IS CardController.cs:5481-5489 — drained from C2 flip. StackSkillInfos({"Player", _player},
+        // {"CardSources", [ _cardSource ]}, OnAddSecurity) — UNCONDITIONAL, before the face-up half. No
+        // CardEffect member. (_player is a HeadlessPlayerId here; the AS-IS live Player == the mirror Player view.)
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            new System.Collections.Hashtable
+            {
+                { "Player", new Player(context, _player) },
+                { "CardSources", new List<CardSource> { _cardSource } },
+            },
+            EffectTiming.OnAddSecurity).ConfigureAwait(false);
 
         // AS-IS :5494 `if (!_cardSource.IsFlipped)` — the face-up half, sole source.
         if (SecurityFaceState.IsFaceUpInSecurity(context, _cardSource.InstanceId))
@@ -1501,6 +1528,16 @@ public class IAddSecurity
                 ["cardSourceIds"] = new[] { _cardSource.InstanceId.Value },
             };
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnFaceUpSecurityIncreased, actor: _player, subject: _cardSource.InstanceId, extraMetadata: hashtable);
+
+            // (C1) AS-IS CardController.cs:5496-5506 — drained from C2 flip. StackSkillInfos({"Player", _player},
+            // {"CardSources", [ _cardSource ]}, OnFaceUpSecurityIncreased) inside the face-up guard. No CardEffect.
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "Player", new Player(context, _player) },
+                    { "CardSources", new List<CardSource> { _cardSource } },
+                },
+                EffectTiming.OnFaceUpSecurityIncreased).ConfigureAwait(false);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -1559,6 +1596,16 @@ public class IFlipSecurity
         if (SecurityFaceState.IsFaceUpInSecurity(context, _cardSource.InstanceId))
         {
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnFaceUpSecurityIncreased, actor: _player, subject: _cardSource.InstanceId, extraMetadata: hashtable);
+
+            // (C1) AS-IS CardController.cs:5538-5548 — drained from C2 flip. StackSkillInfos({"Player", _player},
+            // {"CardSources", [ _cardSource ]}, OnFaceUpSecurityIncreased) inside the post-SetFace guard. No CardEffect.
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "Player", new Player(context, _player) },
+                    { "CardSources", new List<CardSource> { _cardSource } },
+                },
+                EffectTiming.OnFaceUpSecurityIncreased).ConfigureAwait(false);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -2013,6 +2060,12 @@ public class ITrashStack
         TriggerEventEmitter.Emit(
             context.GameEventQueue, TriggerTimings.WhenTopCardTrashed,
             actor: _permanent.OwnerId, subject: currentTopId, extraMetadata: extraMetadata);
+
+        // (C1) AS-IS CardController.cs:5949-5958 — drained from C2 flip. StackSkillInfos({"Permanent",
+        // _permanent}, {"CardSources", selectedCards}, WhenTopCardTrashed). No CardEffect member.
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            new System.Collections.Hashtable { { "Permanent", _permanent }, { "CardSources", selectedCards } },
+            EffectTiming.WhenTopCardTrashed).ConfigureAwait(false);
 
         #endregion
 

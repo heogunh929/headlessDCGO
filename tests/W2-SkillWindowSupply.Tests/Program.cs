@@ -140,5 +140,54 @@ GameEvent DeletionMove(long batchId)
         "empty input yields no passes");
 }
 
+// --- 7. OnMove (Breeding→BattleArea promotion) is HANDLED (C1 W2 extension): AS-IS inline { "Permanent",
+//        permanent } (CardObjectController.cs:1111), reconstructed as a live Permanent view over the subject. ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    var mover = new HeadlessEntityId("mover");
+    GameEvent ev = new GameEvent(11, GameEventType.CardMoved, "move", new Dictionary<string, object?>())
+    {
+        Actor = owner,
+        Subject = mover,
+        ZoneFrom = ChoiceZone.BreedingArea,
+        ZoneTo = ChoiceZone.BattleArea,
+    };
+    SkillWindowSupplyEntry moveEntry = SkillWindowSupply.ConvertEvent(context, ev)
+        .SingleOrDefault(e => e.Timing == EffectTiming.OnMove);
+
+    Check(moveEntry.Hashtable is not null, "OnMove is handled (one entry produced)");
+    Check(moveEntry.Hashtable is { Count: 1 } && moveEntry.Hashtable.ContainsKey("Permanent"),
+        "OnMove hashtable has exactly the AS-IS key { \"Permanent\" }");
+    Check(moveEntry.Hashtable?["Permanent"] is PermanentT p && p.InstanceId == mover,
+        "OnMove Permanent is the promoted subject");
+    Check(moveEntry.BatchId is null, "OnMove is batch-less");
+    Check(!SkillWindowSupply.UnhandledTimings(context, ev).Contains(EffectTiming.OnMove),
+        "OnMove is not reported UNHANDLED");
+}
+
+// --- 8. OnReturnCardsToLibraryFromTrash (Trash→Library) is HANDLED (C1 W2 extension): AS-IS inline
+//        { "CardSources", cardSources } (CardObjectController.cs:800/882). One CardMoved per card → the list
+//        carries this event's single returned card (N→1 window collapse is A3/loop territory). ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    var returned = new HeadlessEntityId("returned");
+    GameEvent ev = new GameEvent(12, GameEventType.CardMoved, "returnlib", new Dictionary<string, object?>())
+    {
+        Actor = owner,
+        Subject = returned,
+        ZoneFrom = ChoiceZone.Trash,
+        ZoneTo = ChoiceZone.Library,
+    };
+    SkillWindowSupplyEntry retEntry = SkillWindowSupply.ConvertEvent(context, ev)
+        .SingleOrDefault(e => e.Timing == EffectTiming.OnReturnCardsToLibraryFromTrash);
+
+    Check(retEntry.Hashtable is not null, "OnReturnCardsToLibraryFromTrash is handled (one entry produced)");
+    Check(retEntry.Hashtable is { Count: 1 } && retEntry.Hashtable.ContainsKey("CardSources"),
+        "hashtable has exactly the AS-IS key { \"CardSources\" }");
+    Check(retEntry.Hashtable?["CardSources"] is List<CardSource> list && list.Count == 1 && list[0].InstanceId == returned,
+        "CardSources is a single-element list of this event's returned card");
+    Check(retEntry.BatchId is null, "OnReturnCardsToLibraryFromTrash is batch-less");
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURE(S)");
 return failures == 0 ? 0 : 1;

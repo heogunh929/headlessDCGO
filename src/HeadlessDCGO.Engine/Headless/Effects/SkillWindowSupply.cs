@@ -6,6 +6,7 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using CardEffectCommons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
+using CardSource = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
 using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
 using Permanent = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent;
 
@@ -65,13 +66,27 @@ public static class SkillWindowSupply
     //         snapshot (TopCard/cardSources/CardNames/…) plus battle + isDPZero + cardEffect, none carried by
     //         the post-move CardMoved deletion event (AS-IS CardController.cs:3736-3756 builds it before the
     //         card leaves the field: the "collect-before-removal" requirement from design §5.5 F2r).
-    // RDW-02  Inline-hashtable timings whose builder is NOT in the mirror HashtableSetting.cs yet:
+    // RDW-02  Inline-hashtable timings NOT reconstructable from the event alone (a live payload member is only
+    //         carried as an id, or not carried at all):
     //         OnDiscardHand/Security/Library, OnAddHand, OnUseOption, OnDraw, OnLoseSecurity, OnAddSecurity,
-    //         OnFaceUpSecurityIncreased, OnTappedAnyone/OnUnTappedAnyone, WhenTopCardTrashed, OnMove,
-    //         OnReturnCardsTo{Hand,Library}FromTrash, OnDigivolutionCardDiscarded/ReturnToDeckBottom,
-    //         OnLinkCardDiscarded, OnAddDigivolutionCards, WhenLinked, OnStartBattle, OnEndBattle,
-    //         OnUseDigiburst — C batch mirrors each inline builder into HashtableSetting (byte-identical keys)
-    //         or re-positions the call.
+    //         OnFaceUpSecurityIncreased, OnTappedAnyone/OnUnTappedAnyone, WhenTopCardTrashed,
+    //         OnReturnCardsToHandFromTrash, OnDigivolutionCardDiscarded/ReturnToDeckBottom, OnLinkCardDiscarded,
+    //         OnAddDigivolutionCards, WhenLinked, OnStartBattle, OnEndBattle, OnUseDigiburst — the C batch
+    //         re-positions the StackSkillInfos call to the AS-IS position (where the live payload is in scope)
+    //         rather than event-conversion (design §5.5 W2). NOTE (C1): the batch-C1 R/P inserts already landed
+    //         many of these directly on the mirror routines (WhenTopCardTrashed, OnUseDigiburst, OnAddSecurity,
+    //         OnFaceUpSecurityIncreased, OnAddHand); the rest stayed as design item RD-C1-CARDEFFECT-IDTHREAD
+    //         (the mirror substrate threads a cause-id, not the live ICardEffect the AS-IS {"CardEffect"} member
+    //         needs — the RDW-05-class id->live-effect resolution the C2 flip must close).
+    //   HANDLED here without any of the above blockers (C1 W2 extension): OnMove ({ "Permanent" }) and
+    //   OnReturnCardsToLibraryFromTrash ({ "CardSources" }) — both fully reconstructable from (subject id +
+    //   owner), no CardEffect member, no builder needed (see TryBuildOnMove / TryBuildReturnCardsToLibraryFromTrash).
+    // RDW-07  Turn/phase-boundary timings (OnStartTurn / OnStartMainPhase / OnEndTurn) — AS-IS passes a NULL
+    //         hashtable (payload-free), so conversion would be trivial ((null, timing)); but TriggerTimingMap.Derive
+    //         does NOT derive these strings from the port's turn StateChanged emits (MetadataActionProcessor
+    //         :1022/:872/:910) — they surface only as "StateChanged". The C batch must enrich those emits with an
+    //         explicit-timing override (AutoProcessingTriggerCollector.TriggerTimingKey) before the converter can
+    //         see them; left unhandled here rather than guessing an emit shape.
     // RDW-03  OnSecurityCheck — inline `{ "AttackingPermanent", "Card" }` (CardController.cs:3948-3952) drawn
     //         from ATTACK context (the live AttackingPermanent), not present on the SecurityCheck event alone.
     // RDW-04  OnPlay / OnEnterFieldAnyone / WhenDigivolving — AS-IS uses the FULL OnEnterFieldHashtable
@@ -168,6 +183,22 @@ public static class SkillWindowSupply
             case EffectTiming.OnEndAttack:
                 return TryBuildAttack(context, gameEvent, out hashtable);
 
+            // ---- OnMove: AS-IS inline { "Permanent", permanent } (CardObjectController.cs:1111) --------------
+            // (C1 W2 extension) The Breeding->BattleArea promotion CardMoved carries the promoted card as
+            // Subject; the AS-IS payload is a single live Permanent. Reconstructable in full from (subject id +
+            // owner) — no builder, no emit enrichment needed (the same Permanent view TryBuildAttack builds).
+            case EffectTiming.OnMove:
+                return TryBuildOnMove(context, gameEvent, out hashtable);
+
+            // ---- OnReturnCardsToLibraryFromTrash: AS-IS inline { "CardSources", cardSources } ----------------
+            // (CardObjectController.cs:800/882). AS-IS opens ONE window for the whole returned-card LIST; the
+            // port emits one Trash->Library CardMoved per card, so this yields a single-card CardSources list
+            // per event. The N-events -> 1-window collapse is the port's event-model concern (A3 batch
+            // sequencing / the loop), NOT a converter fabrication: each entry faithfully carries THIS event's
+            // returned card. No CardEffect member in the AS-IS payload, so nothing is id-blocked here.
+            case EffectTiming.OnReturnCardsToLibraryFromTrash:
+                return TryBuildReturnCardsToLibraryFromTrash(context, gameEvent, out hashtable);
+
             default:
                 return false; // UNHANDLED — RDW-01..RDW-05 per the timing.
         }
@@ -195,6 +226,43 @@ public static class SkillWindowSupply
         // adds { "CardEffect", null } — byte-identical to AS-IS.
         hashtable = CardEffectCommons.OnAttackCheckHashtableOfPermanent(
             attackingPermanent, cardEffect: null!);
+        return true;
+    }
+
+    /// <summary>AS-IS <c>OnMove</c> payload <c>new Hashtable { { "Permanent", permanent } }</c>
+    /// (CardObjectController.cs:1111) — the Digimon promoted out of the breeding area. The moved card is the
+    /// event Subject; the live Permanent is the same (context, id, owner) view TryBuildAttack builds.</summary>
+    private static bool TryBuildOnMove(EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)
+    {
+        hashtable = null;
+        if (gameEvent.Subject is not { IsEmpty: false } subjectId)
+        {
+            return false;
+        }
+
+        HeadlessPlayerId owner = ResolveOwner(context, subjectId, gameEvent);
+        Permanent permanent = new(context, subjectId, owner);
+        hashtable = new Hashtable { { "Permanent", permanent } };
+        return true;
+    }
+
+    /// <summary>AS-IS <c>OnReturnCardsToLibraryFromTrash</c> payload
+    /// <c>new Hashtable { { "CardSources", cardSources } }</c> (CardObjectController.cs:800/882). The port emits
+    /// one Trash->Library CardMoved per card, so the list carries THIS event's single returned card (the
+    /// per-event -> per-window collapse is A3 / loop territory, not a converter concern).</summary>
+    private static bool TryBuildReturnCardsToLibraryFromTrash(
+        EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)
+    {
+        hashtable = null;
+        if (gameEvent.Subject is not { IsEmpty: false } subjectId)
+        {
+            return false;
+        }
+
+        HeadlessPlayerId owner = ResolveOwner(context, subjectId, gameEvent);
+        HeadlessPlayerId controller = gameEvent.Actor ?? owner;
+        CardSource cardSource = new(context, subjectId, controller, owner);
+        hashtable = new Hashtable { { "CardSources", new List<CardSource> { cardSource } } };
         return true;
     }
 
