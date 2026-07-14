@@ -61,13 +61,72 @@ public readonly record struct SkillWindowAnswer(bool Declined, HeadlessEntityId 
         new(false, cardInstanceId, ordinal);
 }
 
+/// <summary>(R3-W1b batch W1b / A1) Which of the AS-IS <c>ActivateMultipleSkills</c> two-phase halves the
+/// externalised loop cursor is in (turn player first, then non-turn player — AS-IS MultipleSkills.cs:51-52). The
+/// AS-IS C# call stack held this as "which of the two <c>_OnePlayer</c> awaits is running"; a choice-port unwind
+/// loses that stack, so the phase is externalised here (A1) and <see cref="MultipleSkills.ResumeAsync"/> re-enters
+/// the recorded phase's pass loop. <c>Done</c> (default 0) = a never-run or fully-finished instance whose resume
+/// is a no-op.</summary>
+public enum SkillWindowPhase
+{
+    /// <summary>No phase in flight — the instance has not started or has finished both halves.</summary>
+    Done = 0,
+
+    /// <summary>The turn-player half (AS-IS first <c>_OnePlayer</c> call, MultipleSkills.cs:51).</summary>
+    TurnPlayer,
+
+    /// <summary>The non-turn-player half (AS-IS second <c>_OnePlayer</c> call, MultipleSkills.cs:52).</summary>
+    NonTurnPlayer,
+}
+
 /// <summary>(design §2 / A1) The per-<c>MultipleSkills</c>-instance suspend state for the NEW window loop: the
 /// stacked SkillInfo list(s), the in-flight pick carried across a suspend, the externally-suspended flag, and
 /// the recorded-answer replay map keyed by <see cref="SkillWindowChoiceKey"/>. Mirrors what the live
 /// <c>WindowContinuation</c> + <c>WindowResolutionController</c> hold for the registry-currency loop, in
-/// SkillInfo currency. DORMANT.</summary>
+/// SkillInfo currency.
+/// <para>(batch W1b) It ALSO externalises the loop CURSOR — the pieces of the AS-IS
+/// <c>ActivateMultipleSkills</c>/<c>_OnePlayer</c> call stack that must survive a choice-port unwind so a
+/// suspended window can re-enter from the pass head (the pass loop is state-idempotent — every pass re-derives
+/// <c>skillInfos_active</c> from live <c>CanActivate</c>, resolved picks are already removed from
+/// <see cref="StackedSkillInfos"/>, and the order answer replays from the answer map). Cursor members audited
+/// against <c>_OnePlayer</c>: the current-phase <see cref="PhasePlayer"/> survives an await; the
+/// <see cref="CheckNewTriggeredSkillMainStack"/> flag and the (non-serialisable, held live in memory — A1)
+/// <see cref="SkipCondition"/> Func survive; the not-yet-started other half is captured in
+/// <see cref="PendingOtherPhaseSkillInfos"/>; the pass-local <c>_skillIndex</c> is NOT persisted (recomputed
+/// every pass from the re-offered active set); an in-flight body pick + the optional-check flag it launched with
+/// are <see cref="InFlightPick"/> / <see cref="InFlightIsCheckOptional"/>.</para>
+/// DORMANT.</summary>
 public sealed class SkillWindowContinuation
 {
+    /// <summary>(batch W1b, A1) The externalised phase cursor (turn/non-turn half). Set at
+    /// <c>ActivateMultipleSkills</c> entry and advanced across the two halves; read by
+    /// <c>MultipleSkills.ResumeAsync</c> to re-enter the correct half.</summary>
+    public SkillWindowPhase Phase { get; set; } = SkillWindowPhase.Done;
+
+    /// <summary>(batch W1b, A1) The current phase's <c>player</c> (the AS-IS <c>_OnePlayer</c> <c>player</c>
+    /// parameter) — survives across the choice-port await, so it is externalised for the resume.</summary>
+    public Cec.Player? PhasePlayer { get; set; }
+
+    /// <summary>(batch W1b, A1) The not-yet-started NON-turn-player half's skill list, captured at
+    /// <c>ActivateMultipleSkills</c> entry (AS-IS <c>NonTurnPlayerSkillInfos</c>). When the turn half suspends and
+    /// later completes, the resume seeds the non-turn half from this — the AS-IS second <c>_OnePlayer</c> call.</summary>
+    public List<Cec.SkillInfo> PendingOtherPhaseSkillInfos { get; set; } = new();
+
+    /// <summary>(batch W1b, A1) The AS-IS <c>CheckNewTriggredSkill_mainStack</c> parameter — survives across the
+    /// await (it selects the main-vs-cut-in <c>TriggeredSkillProcess</c> recursion branch and the
+    /// <c>IsCutinEffect</c> gate).</summary>
+    public bool CheckNewTriggeredSkillMainStack { get; set; }
+
+    /// <summary>(batch W1b, A1) The AS-IS <c>skipCondition</c> parameter — a <see cref="Func{T1,T2,TResult}"/>
+    /// that cannot be serialised but IS held live in memory across the suspend (the approved A1 in-memory
+    /// continuation substrate).</summary>
+    public Func<List<Cec.SkillInfo>, Cec.SkillInfo, bool>? SkipCondition { get; set; }
+
+    /// <summary>(batch W1b) The <c>isCheckOptional</c> the <see cref="InFlightPick"/>'s body was launched with
+    /// (the AS-IS <c>Activate(isCheckOptional)</c> argument) — persisted so the in-flight body REPLAY re-enters
+    /// <c>Activate_Optional_Effect_Execute</c> with the identical optional-prompt decision.</summary>
+    public bool InFlightIsCheckOptional { get; set; }
+
     /// <summary>(design §2) The per-instance stacked SkillInfo list — the AS-IS
     /// <c>MultipleSkills.StackedSkillInfos</c> frame the window re-evaluates each pass.</summary>
     public List<Cec.SkillInfo> StackedSkillInfos { get; set; } = new();

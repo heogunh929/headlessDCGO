@@ -1286,6 +1286,46 @@ public sealed class AutoProcessing
 
     #endregion
 
+    #region Resume suspended windows (batch W1b)
+
+    // (R3-W1b batch W1b) Drain-level resume of the SUSPENDED MultipleSkills chain, DEEPEST-FIRST. The window's
+    // loop position lives on the C# call stack (turn/non-turn split, while(true) pass loop, cut-in recursion via
+    // nested TriggeredSkillProcess); a WindowChoicePendingException / DeferredChoicePendingException unwinds that
+    // stack, so the SURVIVING chain is the pool's still-IsUsing instances (each externalised its own cursor on the
+    // continuation). A suspend can nest — a parent pick's TriggeredSkillProcess spawned a child window that
+    // suspended — so the DEEPEST in-use instance (executingMultipleSkills) must resume first; when it completes,
+    // the enclosing TriggeredSkillProcess TAIL (StackSkillInfos(null, AfterEffectsActivate), AutoProcessing.cs:597
+    // — the line the unwind skipped) is re-run for ITS OWNING drain (the AutoProcessing that spawned it,
+    // MultipleSkills.OwningAutoProcessing), and then the next-outer instance resumes at its own pass head (AS-IS:
+    // the parent's remaining steps after the child call ARE "loop to pass head", MultipleSkills.cs:405-421). Each
+    // ResumeAsync may RE-suspend (the pending exception propagates out — the seam re-parks and a later call
+    // re-enters the same chain, idempotently). DORMANT: no in-use instance exists until the C cutover drives the
+    // window loop live; this is a no-op while the pool is idle.
+    //
+    // OWNERSHIP: the tail runs on `deepest.OwningAutoProcessing` (the drain that owns this window), not necessarily
+    // `this`. For the main-stack triggered recursion every instance's owning drain IS the main AutoProcessing (its
+    // pool), so a two-deep chain replays two tails on it (AS-IS: the child's D1 tail then the parent's D0 tail).
+    // The play-pipeline CUT-IN pool (autoProcessing_CutIn) is a separate instance whose stack is empty in every
+    // currently-exercised scenario (design §5.5 / batch W1 note), so cross-pool chains do not arise here.
+    public async Task ResumeSuspendedWindowsAsync(CancellationToken cancellationToken = default)
+    {
+        while (executingMultipleSkills is { } deepest)
+        {
+            AutoProcessing owningDrain = deepest.OwningAutoProcessing;
+
+            await deepest.ResumeAsync(cancellationToken).ConfigureAwait(false);
+
+            // AS-IS TriggeredSkillProcess tail (AutoProcessing.cs:597) that followed the completed
+            // ActivateMultipleSkills — never reached on the original unwound drain, replayed here.
+            if (owningDrain != null)
+            {
+                await owningDrain.StackSkillInfos(null, EffectTiming.AfterEffectsActivate).ConfigureAwait(false);
+            }
+        }
+    }
+
+    #endregion
+
     #region List of effects already achieved
 
     // AS-IS AutoProcessing.cs:604-621 — the aggregate of every pool component's SkillInfos_used (the cut-in
