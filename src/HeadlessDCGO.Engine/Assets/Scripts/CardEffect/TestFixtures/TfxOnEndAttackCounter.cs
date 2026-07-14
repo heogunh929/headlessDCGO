@@ -6,33 +6,46 @@
 //   * an attacker deleted before end-of-attack does NOT gain (+0) — the emit is guarded on attacker-alive.
 // Self-scope (the reacting card must be a cardSource of the AttackingPermanent), mirroring every AS-IS OnEndAttack
 // reactor. Inert in actual play.
+//
+// R6-C CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass): inline `new ActivateClass()` +
+// SetUpICardEffect/SetUpActivateClass + local functions (recipe docs/audit/rebuild_p8_report_recipe.md). The
+// `MemoryBody(1)` body becomes the AS-IS `card.Owner.AddMemory(1, activateClass)` coroutine idiom (BT1_081/ST15_02).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class TfxOnEndAttackCounter : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var effects = new List<ICardEffect>();
+        List<ICardEffect> effects = new List<ICardEffect>();
         if (timing == EffectTiming.OnEndAttack)
         {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            effects.Add(activateClass);
+
+            string EffectDiscription() =>
+                "[All Turns] When this Digimon's attack ends, gain 1 memory (uncapped).";
+
             // AS-IS CanUseCondition mirror: CanTriggerOnAttack (the reacting card is a cardSource of the
             // AttackingPermanent — the self/attacker gate shared by every OnEndAttack reactor).
-            bool CanUse(CardEffectResolveContext ctx) =>
+            bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.CanTriggerOnAttack(ctx, card);
+                && CardEffectCommons.CanTriggerOnAttack(hashtable, card);
 
-            effects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnEndAttack,
-                canUse: CanUse,
-                canActivate: () => CardEffectCommons.IsExistOnBattleAreaDigimon(card),
-                body: new MemoryBody(1),
-                maxCountPerTurn: null,   // UNCAPPED — no cap to mask a per-event over-fire (double-collect).
-                isOptional: false,
-                description: "[All Turns] When this Digimon's attack ends, gain 1 memory (uncapped)."));
+            bool CanActivateCondition(Hashtable hashtable) =>
+                CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await card.Owner.AddMemory(1, activateClass);
+            }
         }
 
         return effects;

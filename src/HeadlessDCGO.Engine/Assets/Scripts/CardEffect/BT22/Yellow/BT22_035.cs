@@ -1,5 +1,14 @@
 // Source: Assets/Scripts/CardEffect/BT22/Yellow/BT22_035.cs (1:1 mirror) — "Entermon" (Appmon).
 //
+// P8 CUTOVER STOP / design item RD-R6-01 (SelectHandEffect gap): the three activated effects here stay in the
+// OLD MODEL (ActivatedEffect + headless bodies) and are NOT re-housed as new-model ActivateClass. All three AS-IS
+// ActivateCoroutines (SharedActivateCoroutine :83-179 for [On Play]/[When Digivolving], and the WhenLinked play
+// :289-329) build a `GManager.instance.GetComponent<SelectHandEffect>()` — pick a card from HAND — whose mirror
+// class does not exist (`SelectHandEffect` is an un-ported 0-type skeleton, the documented RD-R6-01 / RD-P8-01
+// gap). The from-sources / play halves alone are portable, but the AS-IS coroutine fundamentally routes through
+// SelectHandEffect, so a faithful new-model coroutine cannot be written without inventing the missing hand-select
+// component. Kept as the "혼용/잔여" old-model representation until SelectHandEffect is built.
+//
 // Static (timing == None):
 //   * Sup. Appmon Alternative Digivolution Requirement (:19-27) —
 //     AddSelfDigivolutionRequirementStaticEffect(permanentCondition: p => p.TopCard.HasSuperAppTraits,

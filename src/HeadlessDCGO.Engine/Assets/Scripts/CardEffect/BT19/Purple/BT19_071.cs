@@ -1,81 +1,111 @@
-// 1:1 mirror of the original BT19_071 (BT19/Purple) OnDiscardLibrary block — the F1-Tier1 OnDiscardLibrary witness.
+// Source: DCGO/Assets/Scripts/CardEffect/BT19/Purple/BT19_071.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [All Turns][Once Per Turn]
+// OnDiscardLibrary branch — the F1-Tier1 OnDiscardLibrary witness.
+//   [All Turns][Once Per Turn] When effects trash cards from your deck, delete 1 of your opponent's level 5 or
+//   lower Digimon. — AS-IS `new ActivateClass()` + SetUpActivateClass(..., 1, false, ...) (ORDER 1 = once per turn,
+//   mandatory) + SetHashString("DeleteDigimon_BT19_071") (BT19_071.cs:102-167). CanUse = IsExistOnBattleAreaDigimon
+//   && CanTriggerWhenDiscardLibrary(cardSource.Owner == card.Owner). CanActivate = IsExistOnBattleAreaDigimon &&
+//   HasMatchConditionPermanent(opponent battle-area Digimon, level <= 5). Body = SelectPermanentEffect(Mode.Destroy,
+//   maxCount Min(1,count)).
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await;
+// `GManager.instance.GetComponent<SelectPermanentEffect>()` + full AS-IS SetUp (bridge W4, BT9_062 idiom); AS-IS
+// `Func<Permanent,bool> CanSelectPermanentCondition` wrapped to the entity-id predicate via `PermanentOf(id)`.
 //
-// Ported effect (AS-IS BT19_071.cs, timing OnDiscardLibrary):
-//   * [All Turns][Once Per Turn] "When effects trash cards from your deck, delete 1 of your opponent's level 5 or
-//     lower Digimon." -> uniform ActivatedEffect (maxCountPerTurn 1, isOptional FALSE, capHash
-//     "DeleteDigimon_BT19_071" = AS-IS SetHashString). CanUse = IsExistOnBattleAreaDigimon +
-//     CanTriggerWhenDiscardLibrary(cardSource.Owner == card.Owner) — the AS-IS OnDiscardLibrary gate has NO
-//     CardEffect!=null requirement (WhenDiscardLibrary.cs), only a discarded-card any-match (here: a card from YOUR
-//     deck). Body = ActivatedSelectEffect(Mode.Destroy) over the opponent's battle-area Digimon of level <= 5,
-//     maxCount 1, canNoSelect false. This is an ANYONE/cross-card reactor (it deletes an OPPONENT'S Digimon when
-//     YOUR deck is trashed), so it needs the EventBroadcast field scan, not a subject-scoped path.
-//     OnDiscardLibrary is an F1-Tier1 EventBroadcast bridge timing: headless derives it from the trashed deck card's
-//     CardMoved (Library->Trash, TriggerTimingMap), threads that as the driving event (subject = the trashed card),
-//     and the gate any-matches the trashed card's owner.
-//
-// The AS-IS [On Play] and [When Digivolving] blocks (trash top 2 of deck, then gain <Blocker>) are intentionally
-// OMITTED — this witness exercises only the OnDiscardLibrary bridge (same scoping as the other F1 witnesses).
+// The AS-IS [On Play] and [When Digivolving] blocks (trash top 2 of deck, then gain <Blocker>) remain deliberately
+// OMITTED — this witness exercises only the OnDiscardLibrary bridge (same scoping as the prior pass).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT19.Purple;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Services;
-using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
 
 public sealed class BT19_071 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region All Turns (timing OnDiscardLibrary)
         if (timing == EffectTiming.OnDiscardLibrary)
         {
-            const string description =
-                "[All Turns][Once Per Turn] When effects trash cards from your deck, delete 1 of your opponent's level 5 or lower Digimon.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Delete 1 of your opponent's level 5 or lower Digimon", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
+            activateClass.SetHashString("DeleteDigimon_BT19_071");
+            cardEffects.Add(activateClass);
 
-            // AS-IS CanSelectPermanentCondition: opponent battle-area Digimon with a printed level <= 5.
-            bool CanSelectPermanent(Permanent? permanent) =>
-                permanent is not null
-                && CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
-                && permanent.TopCard.HasLevel && permanent.Level <= 5;
+            string EffectDiscription()
+            {
+                return "[All Turns][Once Per Turn] When effects trashes cards from your deck, delete 1 of your opponent's level 5 or lower Digimon.";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleAreaDigimon(card))
+                {
+                    if (CardEffectCommons.CanTriggerWhenDiscardLibrary(hashtable, cardSource => cardSource.Owner == card.Owner))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                if (CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card))
+                {
+                    if (permanent.TopCard.HasLevel && permanent.Level <= 5)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
 
             Permanent? PermanentOf(HeadlessEntityId id) =>
                 card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
                     ? new Permanent(card.Context, id, rec.OwnerId)
                     : null;
 
-            // AS-IS CanUseCondition: IsExistOnBattleAreaDigimon && CanTriggerWhenDiscardLibrary(cardSource.Owner == card.Owner).
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                && CardEffectCommons.CanTriggerWhenDiscardLibrary(ctx, card, cardSource => cardSource.Owner == card.Owner);
+            bool CanSelectPermanentById(HeadlessEntityId id)
+            {
+                Permanent? permanent = PermanentOf(id);
+                return permanent is not null && CanSelectPermanentCondition(permanent);
+            }
 
-            // AS-IS CanActivateCondition: IsExistOnBattleAreaDigimon && HasMatchConditionPermanent(CanSelectPermanent).
-            bool CanActivate() =>
-                CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                && CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanent);
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card) && CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition);
+            }
 
-            var body = new ActivatedSelectEffect(
-                card,
-                canTarget: id => CanSelectPermanent(PermanentOf(id)),
-                maxCount: 1,
-                canNoSelect: false,
-                canEndNotMax: false,
-                SelectPermanentEffect.Mode.Destroy,
-                description);
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnDiscardLibrary,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: body,
-                maxCountPerTurn: 1,
-                isOptional: false,
-                description: description,
-                capHash: "DeleteDigimon_BT19_071"));
+                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: CanSelectPermanentById,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: null,
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Destroy,
+                    cardEffect: activateClass);
+
+                await selectPermanentEffect.Activate();
+            }
         }
-        #endregion
 
         return cardEffects;
     }

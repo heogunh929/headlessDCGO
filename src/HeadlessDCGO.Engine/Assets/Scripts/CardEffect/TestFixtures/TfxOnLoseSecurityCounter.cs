@@ -7,32 +7,44 @@
 //   * an attack security CHECK of N cards (per-card, unstamped reveals, each in its own per-iteration window)
 //     gains +N — proving the collapse does NOT wrongly merge the per-card check path.
 // Self-scope (player == card.Owner), mirroring BT15_037's OnLoseSecurity player gate. Inert in actual play.
+//
+// R6-C CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass): the Hashtable-overload
+// playerCondition is a mirror `Player`; `player == card.Owner` -> `player.PlayerId == card.Owner` (BT8_057 idiom).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class TfxOnLoseSecurityCounter : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var effects = new List<ICardEffect>();
+        List<ICardEffect> effects = new List<ICardEffect>();
         if (timing == EffectTiming.OnLoseSecurity)
         {
-            // AS-IS CanUseCondition mirror: IsExistOnBattleArea && CanTriggerWhenLoseSecurity(player == card.Owner).
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.CanTriggerWhenLoseSecurity(ctx, card, player => player == card.Owner);
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, EffectDiscription());
+            effects.Add(activateClass);
 
-            effects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnLoseSecurity,
-                canUse: CanUse,
-                canActivate: () => CardEffectCommons.IsExistOnBattleAreaDigimon(card),
-                body: new MemoryBody(1),
-                maxCountPerTurn: null,   // UNCAPPED — the whole point: no cap to mask a per-event over-fire.
-                isOptional: false,
-                description: "[All Turns] When a card is removed from your security stack, gain 1 memory (uncapped)."));
+            string EffectDiscription() =>
+                "[All Turns] When a card is removed from your security stack, gain 1 memory (uncapped).";
+
+            // AS-IS CanUseCondition mirror: IsExistOnBattleArea && CanTriggerWhenLoseSecurity(player == card.Owner).
+            bool CanUseCondition(Hashtable hashtable) =>
+                CardEffectCommons.IsExistOnBattleArea(card)
+                && CardEffectCommons.CanTriggerWhenLoseSecurity(hashtable, player => player.PlayerId == card.Owner);
+
+            bool CanActivateCondition(Hashtable hashtable) =>
+                CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                await card.Owner.AddMemory(1, activateClass);
+            }
         }
 
         return effects;

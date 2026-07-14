@@ -1,45 +1,58 @@
-// 1:1 mirror of the original EX10_002 (EX10/Black) — an F1-Tier2 OnAttackTargetChanged INHERITED (anyone) witness
-// (the card's ONLY effect).
-//
-// Ported effect (AS-IS EX10_002.cs:14-43, timing OnAttackTargetChanged):
-//   * [All Turns][Once Per Turn] "When attack targets change, <Draw 1>." — AS-IS `new ActivateClass()` with
-//     SetIsInheritedEffect(true) + SetHashString("ESS_EX10-002") + SetUpActivateClass(..., 1, false, ...) =
-//     maxActivationCount 1 (ONCE PER TURN), isOptional FALSE. INHERITED (digivolution-source) — ScanZones collects it
-//     from under the attacker. The OnAttackTargetChanged analogue of BT22_003/EX6_001.
-//     CanUse (AS-IS :28-31) = IsExistOnBattleAreaDigimon(card) && CanTriggerOnPermanentAttackTargetSwitch(_ => true).
-//       ANYONE scope: permanentCondition = `_ => true`, so it reacts to ANY attacker's target switch (self-attacker or
-//       not) — NOT the self gate CanTriggerOnAttackTargetSwitch. This is why the timing must be EventBroadcast.
-//     CanActivate (AS-IS :34-36) = IsExistOnBattleAreaDigimon(card). No IsOwnerTurn (All Turns).
-//     Body (AS-IS :39-41) = DrawClass(card.Owner, 1) -> DrawBody(1).
+// Source: DCGO/Assets/Scripts/CardEffect/EX10/Black/EX10_002.cs
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [All Turns][Once Per Turn]
+// OnAttackTargetChanged INHERITED (anyone) branch — the card's ONLY effect (F1-Tier2 OnAttackTargetChanged witness).
+//   [All Turns][Once Per Turn] When attack targets change, <Draw 1>.
+// AS-IS structure kept verbatim: inline `new ActivateClass()` + SetUpActivateClass(..., 1, false, ...) (ORDER 1 =
+// once per turn, mandatory) + SetIsInheritedEffect(true) + SetHashString("ESS_EX10-002") (EX10_002.cs:14-43).
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `new DrawClass(card.Owner, 1,
+// activateClass)` -> the mirror carrier ctor `new DrawClass(card.Context, card.Owner, 1,
+// activateClass.EffectSourceCard?.InstanceId)` (established BT2_070 idiom).
+// ANYONE scope: permanentCondition = `_ => true` (reacts to ANY attacker's target switch), the reason the timing is
+// EventBroadcast — mirrored by CanTriggerOnPermanentAttackTargetSwitch (NOT the self gate).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.EX10.Black;
 
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class EX10_002 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region [All Turns][Once Per Turn] When attack targets change, Draw 1 (OnAttackTargetChanged, INHERITED, anyone)
         if (timing == EffectTiming.OnAttackTargetChanged)
         {
-            const string desc = "[All Turns] [Once Per Turn] When attack targets change, <Draw 1>.";
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnAttackTargetChanged,
-                canUse: ctx => CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                    && CardEffectCommons.CanTriggerOnPermanentAttackTargetSwitch(ctx, card, _ => true),  // anyone
-                canActivate: () => CardEffectCommons.IsExistOnBattleAreaDigimon(card),
-                body: new DrawBody(1),
-                maxCountPerTurn: 1,       // AS-IS ORDER=1 — [Once Per Turn]
-                isOptional: false,
-                description: desc,
-                capHash: "ESS_EX10-002",  // AS-IS SetHashString("ESS_EX10-002")
-                isInheritedEffect: true));  // AS-IS SetIsInheritedEffect(true)
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Draw 1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, false, EffectDiscription());
+            activateClass.SetIsInheritedEffect(true);
+            activateClass.SetHashString("ESS_EX10-002");
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[All Turns] [Once Per Turn] When attack targets change, <Draw 1> (Draw 1 card from your deck.)";
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card) &&
+                       CardEffectCommons.CanTriggerOnPermanentAttackTargetSwitch(hashtable, _ => true);
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+            }
+
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+            }
         }
-        #endregion
 
         return cardEffects;
     }

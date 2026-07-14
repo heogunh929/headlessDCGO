@@ -1,73 +1,103 @@
-// 1:1 mirror of the original BT24_018 (BT24/Red) — OnLoseSecurity witness for the F1-M1 activated bridge.
+// Source: DCGO/Assets/Scripts/CardEffect/BT24/Red/BT24_018.cs — "Styracomon".
+// P8 CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass) of the [All Turns][Once Per Turn]
+// OnLoseSecurity branch — the F1-M1 activated-bridge witness.
+//   [All Turns][Once Per Turn] When your opponent's security stack is removed from, you may delete 1 of their
+//   Digimon. — AS-IS `new ActivateClass()` + SetUpActivateClass(..., 1, true, ...) (ORDER 1 = once per turn,
+//   isOptional true = "you may") + SetHashString("BT24_18_AT_Sec_Removed") (BT24_018.cs:204-255). CanUse =
+//   IsExistOnBattleAreaDigimon && CanTriggerWhenLoseSecurity(player == card.Owner.Enemy). CanActivate =
+//   IsExistOnBattleAreaDigimon && HasMatchConditionPermanent(opponent battle-area Digimon). Body =
+//   SelectPermanentEffect(Mode.Destroy, maxCount Min(1,count)).
+// Substrate translations only: IEnumerator->Task, StartCoroutine->await; `player => player == card.Owner.Enemy` ->
+// `player.PlayerId == CardEffectCommons.OpponentOf(card)` (the Hashtable-overload playerCondition is a mirror
+// Player; card.Owner.Enemy = the opponent seat); `GManager.instance.GetComponent<SelectPermanentEffect>()` + full
+// AS-IS SetUp (bridge W4); `Func<Permanent,bool> CanSelectPermanentCondition` wrapped via `PermanentOf(id)`.
 //
-// Ported effect (AS-IS BT24_018.cs:17-58):
-//   * [All Turns] [Once Per Turn] "When your opponent's security stack is removed from, you may delete 1 of
-//     their Digimon." — timing OnLoseSecurity -> uniform ActivatedEffect (capHash "BT24_18_AT_Sec_Removed",
-//     maxCountPerTurn 1, isOptional TRUE = "you may"). CanUse = IsExistOnBattleAreaDigimon +
-//     CanTriggerWhenLoseSecurity(player == OpponentOf(card)) — the PLAYER-SCOPE gate self-scopes on the LOSING
-//     player being the OPPONENT (AS-IS `player => player == card.Owner.Enemy`). CanActivate =
-//     IsExistOnBattleAreaDigimon + at least one opponent battle-area Digimon exists (AS-IS
-//     HasMatchConditionPermanent(IsPermanentExistsOnOpponentBattleAreaDigimon)). Body = ActivatedSelectEffect
-//     (Mode.Destroy) over the opponent's battle-area Digimon, maxCount 1, canNoSelect false — AS-IS
-//     ActivateCoroutine (BT24_018.cs:29-56) select-destroy, no DP restriction, no cost.
-//     OnLoseSecurity is an F1-M1 EventBroadcast bridge timing: headless derives it from the removed security
-//     card's CardMoved (from==Security, TriggerTimingMap), threads that as the driving event, and the gate reads
-//     the subject's owner = the losing player (ActivatedBridgeTimings.EventBroadcast).
-//
-// STOP / design item F1-M3-BT24_018-REMOVEFIELD — the AS-IS [All Turns][Once Per Turn] WhenRemoveField prevention
-// (AS-IS BT24_018.cs:60+: "when any of your [Reptile]/[Dragonkin] would leave, by deleting 1 of your opponent's
-// lowest-DP Digimon, they don't leave") is NOT ported: WhenRemoveField is a Tier-3 self-scoped PRE leave-hook
-// (prevention/replacement) that the F-1 bridge does not open until M3 (design roadmap section 5). Deliberately
-// omitted here rather than mis-modelled; this witness exercises only the OnLoseSecurity bridge.
+// STOP / design item RD-R6-06: the AS-IS [When Digivolving] branch (BT24_018.cs:75-196: trash 1 opponent security
+// via the security-break UI + optional self-unsuspend) and the [All Turns] WhenRemoveField prevention
+// (BT24_018.cs:260-351, Tier-3 PRE leave-hook, unopened until F-1 M3) remain OMITTED. The first needs the
+// security-break `Effects.BreakSecurityEffect/DestroySecurityEffect` UI carriers (no headless surface — invention
+// forbidden); the second is a not-yet-opened bridge tier. Orthogonal to the OnLoseSecurity bridge under test.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT24.Red;
 
+using System;
+using System.Collections;
+using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
-using SelectPermanentEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectPermanentEffect;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT24_018 : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var cardEffects = new List<ICardEffect>();
+        List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        #region All Turns [Once Per Turn] (timing OnLoseSecurity)
         if (timing == EffectTiming.OnLoseSecurity)
         {
-            const string description =
-                "[All Turns] [Once Per Turn] When your opponent's security stack is removed from, you may delete 1 of their Digimon.";
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Delete 1 of your opponent's Digimon?", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, true, EffectDescription());
+            activateClass.SetHashString("BT24_18_AT_Sec_Removed");
+            cardEffects.Add(activateClass);
 
-            // AS-IS CanUseCondition: IsExistOnBattleAreaDigimon && CanTriggerWhenLoseSecurity(player == card.Owner.Enemy).
-            bool CanUse(CardEffectResolveContext ctx) =>
-                CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                && CardEffectCommons.CanTriggerWhenLoseSecurity(ctx, card, player => player == CardEffectCommons.OpponentOf(card));
+            string EffectDescription()
+                => "[All Turns] [Once Per Turn] When your opponent's security stack is removed from, you may delete 1 of their Digimon.";
 
-            // AS-IS CanActivateCondition: IsExistOnBattleAreaDigimon && HasMatchConditionPermanent(opponent Digimon).
-            bool CanActivate() =>
-                CardEffectCommons.IsExistOnBattleAreaDigimon(card)
-                && CardEffectCommons.MatchConditionPermanentCount(card, id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id)) > 0;
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+                    && CardEffectCommons.CanTriggerWhenLoseSecurity(hashtable, player => player.PlayerId == CardEffectCommons.OpponentOf(card));
+            }
 
-            var body = new ActivatedSelectEffect(
-                card,
-                canTarget: id => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id),
-                maxCount: 1,
-                canNoSelect: false,
-                canEndNotMax: false,
-                SelectPermanentEffect.Mode.Destroy,
-                description);
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card) &&
+                    CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition);
+            }
 
-            cardEffects.Add(new ActivatedEffect(
-                card: card,
-                timing: EffectTiming.OnLoseSecurity,
-                canUse: CanUse,
-                canActivate: CanActivate,
-                body: body,
-                maxCountPerTurn: 1,
-                isOptional: true,
-                description: description,
-                capHash: "BT24_18_AT_Sec_Removed"));
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card);
+            }
+
+            Permanent? PermanentOf(HeadlessEntityId id) =>
+                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                    ? new Permanent(card.Context, id, rec.OwnerId)
+                    : null;
+
+            bool CanSelectPermanentById(HeadlessEntityId id)
+            {
+                Permanent? permanent = PermanentOf(id);
+                return permanent is not null && CanSelectPermanentCondition(permanent);
+            }
+
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                if (CardEffectCommons.HasMatchConditionPermanent(card, CanSelectPermanentCondition))
+                {
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: false,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Destroy,
+                        cardEffect: activateClass);
+
+                    selectPermanentEffect.SetUpCustomMessage("Select 1 digimon to send to delete.", "Your opponent is selecting 1 digimon to delete.");
+
+                    await selectPermanentEffect.Activate();
+                }
+            }
         }
-        #endregion
 
         return cardEffects;
     }

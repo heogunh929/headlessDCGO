@@ -10,60 +10,65 @@
 //
 // One class serves all three discard timings; each block mirrors its AS-IS CanUse gate (OnTrashHand.cs /
 // WhenDiscardSecurity.cs / WhenDiscardLibrary.cs) with a self-owner card any-match.
+//
+// R6-C CUTOVER re-port (old-model ActivatedEffect -> new-model ActivateClass): `MemoryBody(1)` ->
+// `card.Owner.AddMemory(1, activateClass)`; the hand/security gates keep their AS-IS "CardEffect != null" idiom
+// (the Hashtable overloads enforce it internally — `cardEffect => true` mirrors the old `cardEffectSourceCondition: null`).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 
+using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public sealed class TfxDiscardCounter : CEntity_Effect
 {
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        var effects = new List<ICardEffect>();
+        List<ICardEffect> effects = new List<ICardEffect>();
 
         if (timing == EffectTiming.OnDiscardHand)
         {
             // AS-IS CanTriggerOnTrashHand: CardEffect != null (effect-driven) + a discarded card in YOUR hand.
-            bool CanUse(CardEffectResolveContext ctx) =>
+            bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.CanTriggerOnTrashHand(ctx, card, cardEffectSourceCondition: null, cardCondition: cs => cs.Owner == card.Owner);
-            Add(effects, card, EffectTiming.OnDiscardHand, CanUse,
+                && CardEffectCommons.CanTriggerOnTrashHand(hashtable, cardEffect => true, cardSource => cardSource.Owner == card.Owner);
+            AddMemoryReactor(effects, card, CanUseCondition,
                 "[All Turns] When an effect trashes a card from your hand, gain 1 memory (uncapped).");
         }
 
         if (timing == EffectTiming.OnDiscardSecurity)
         {
             // AS-IS CanTriggerOnTrashSecurity: CardEffect != null (effect-driven) + a discarded card in YOUR security.
-            bool CanUse(CardEffectResolveContext ctx) =>
+            bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.CanTriggerOnTrashSecurity(ctx, card, cardEffectSourceCondition: null, cardCondition: cs => cs.Owner == card.Owner);
-            Add(effects, card, EffectTiming.OnDiscardSecurity, CanUse,
+                && CardEffectCommons.CanTriggerOnTrashSecurity(hashtable, cardEffect => true, cardSource => cardSource.Owner == card.Owner);
+            AddMemoryReactor(effects, card, CanUseCondition,
                 "[All Turns] When an effect trashes a card from your security, gain 1 memory (uncapped).");
         }
 
         if (timing == EffectTiming.OnDiscardLibrary)
         {
             // AS-IS CanTriggerWhenDiscardLibrary: NO CardEffect check — just a discarded card from YOUR deck.
-            bool CanUse(CardEffectResolveContext ctx) =>
+            bool CanUseCondition(Hashtable hashtable) =>
                 CardEffectCommons.IsExistOnBattleArea(card)
-                && CardEffectCommons.CanTriggerWhenDiscardLibrary(ctx, card, cardSource => cardSource.Owner == card.Owner);
-            Add(effects, card, EffectTiming.OnDiscardLibrary, CanUse,
+                && CardEffectCommons.CanTriggerWhenDiscardLibrary(hashtable, cardSource => cardSource.Owner == card.Owner);
+            AddMemoryReactor(effects, card, CanUseCondition,
                 "[All Turns] When an effect trashes a card from your deck, gain 1 memory (uncapped).");
         }
 
         return effects;
     }
 
-    private static void Add(
-        List<ICardEffect> effects, CardSource card, EffectTiming timing,
-        Func<CardEffectResolveContext, bool> canUse, string description) =>
-        effects.Add(new ActivatedEffect(
-            card: card,
-            timing: timing,
-            canUse: canUse,
-            canActivate: () => CardEffectCommons.IsExistOnBattleArea(card),
-            body: new MemoryBody(1),
-            maxCountPerTurn: null,   // UNCAPPED — the whole point: no cap to mask a per-event over-fire.
-            isOptional: false,
-            description: description));
+    private static void AddMemoryReactor(
+        List<ICardEffect> effects, CardSource card, Func<Hashtable, bool> canUseCondition, string description)
+    {
+        ActivateClass activateClass = new ActivateClass();
+        activateClass.SetUpICardEffect("Memory +1", canUseCondition, card);
+        activateClass.SetUpActivateClass(
+            hashtable => CardEffectCommons.IsExistOnBattleArea(card),
+            _hashtable => card.Owner.AddMemory(1, activateClass),
+            -1, false, description);
+        effects.Add(activateClass);
+    }
 }
