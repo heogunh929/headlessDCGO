@@ -29,6 +29,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading.Tasks;
 
     public static partial class CardEffectCommons
@@ -44,17 +45,72 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             return IsExistOnBattleArea(cardSource) && HasMatchConditionPermanent(cardSource, CanSelectPermanentCondition);
         }
 
-        /// <summary>AS-IS <c>OverclockProcess</c> (KeyWordEffects/Overclock.cs:25): delete a trait/token ally,
-        /// then attack a player without suspending. STOP — the follow-up attack offer needs
-        /// <c>Permanent.CanAttack</c> + <c>SelectAttackEffect</c> (both unported, out of this cluster's scope —
-        /// the LIVE end-of-turn Overclock path is already fully implemented independently by
-        /// <see cref="Headless.Runtime.OverclockEffect"/> + <see cref="Headless.Runtime.EndOfTurnEffectAttack"/>,
-        /// so this old-model ActivateClass path is dead-relative to actual play); design item RD-P6C2-5.</summary>
-        public static Task OverclockProcess(string trait, CardSource cardSource, ICardEffect activateClass)
+        /// <summary>(R2-A) AS-IS <c>OverclockProcess</c> (KeyWordEffects/Overclock.cs:25): optionally delete one
+        /// trait/token ally, and if one IS deleted this Digimon makes an untapped, player-only attack. R1 now
+        /// provides <c>Permanent.CanAttack</c>; the AS-IS <c>SelectAttackEffect</c> (no mirror class) is the
+        /// established <c>EffectDrivenAttack</c> substrate (AS-IS <c>SetWithoutTap</c> + canAttackPlayer:()=&gt;true
+        /// + defenderCondition:_=&gt;false == the withoutTap/player-only offer), the same offer the live
+        /// end-of-turn path (<see cref="Headless.Runtime.OverclockEffect"/>) makes. Structure/order verbatim
+        /// with AS-IS; substrate translations only.</summary>
+        public static async Task OverclockProcess(string trait, CardSource cardSource, ICardEffect activateClass)
         {
-            throw new NotSupportedException(
-                "OverclockProcess: AS-IS Permanent.CanAttack/SelectAttackEffect have no mirror — design item " +
-                "RD-P6C2-5, docs/audit/rebuild_p6_cluster2_notes.md.");
+            bool CanSelectPermanentCondition(Permanent permanent) =>
+                IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, cardSource)
+                && permanent.InstanceId != ICardEffect.ResolvePermanentOfThisCard(cardSource)?.InstanceId
+                && (permanent.IsToken || permanent.TopCard.ContainsTraits(trait));
+
+            Permanent selectedPermanent = null;
+            bool isDeleted = false;
+
+            if (HasMatchConditionPermanent(cardSource, CanSelectPermanentCondition))
+            {
+                var selectPermanentEffect = GManager.instance!.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: cardSource.Owner,
+                    canTargetCondition: (Headless.Services.HeadlessEntityId id) => CanSelectPermanentCondition(PermanentOf(cardSource, id)),
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: 1,
+                    canNoSelect: true,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: (Permanent permanent) => { selectedPermanent = permanent; return Task.CompletedTask; },
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Custom,
+                    cardEffect: activateClass);
+
+                selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to delete.",
+                    "The opponent is selecting 1 Digimon to delete.");
+
+                await selectPermanentEffect.Activate().ConfigureAwait(false);
+
+                if (selectedPermanent != null)
+                {
+                    await DeletePeremanentAndProcessAccordingToResult(
+                        targetPermanents: new List<Permanent> { selectedPermanent },
+                        activateClass: activateClass,
+                        successProcess: _ => { isDeleted = true; return Task.CompletedTask; },
+                        failureProcess: null).ConfigureAwait(false);
+
+                    if (isDeleted)
+                    {
+                        Permanent attacker = ICardEffect.ResolvePermanentOfThisCard(cardSource);
+
+                        if (attacker != null)
+                        {
+                            if (attacker.CanAttack(activateClass, withoutTap: true))
+                            {
+                                // ADAPTATION: AS-IS SelectAttackEffect (SetWithoutTap; canAttackPlayer:()=>true;
+                                // defenderCondition:_=>false == player only) has no mirror class — the established
+                                // substrate is EffectDrivenAttack (withoutTap, player-only).
+                                Headless.Runtime.EffectDrivenAttack.RequestChoice(
+                                    cardSource.Context, attacker.InstanceId,
+                                    new Headless.Runtime.EffectAttackOptions(WithoutTap: true, AllowPlayerTarget: true, AllowDigimonTarget: false, TargetUnsuspended: false));
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

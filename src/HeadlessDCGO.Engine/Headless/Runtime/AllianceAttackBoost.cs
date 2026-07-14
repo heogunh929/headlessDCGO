@@ -17,6 +17,11 @@ using HeadlessDCGO.Engine.Headless.State;
 /// Consumed in <see cref="AttackPipeline"/> before block timing (sibling of <see cref="RaidAttackSwitch"/>),
 /// so the +DP applies to this battle's comparison. The optional "you may / select 1" is an agent choice.
 /// </summary>
+// (R2-A) The AS-IS AllianceProcess / CanActivateAlliance logic is rehoused 1:1 in the mirror
+// CardEffectCommons/KeyWordEffects/Alliance.cs (select ally -> SuspendPermanentsClass -> ChangeDigimonDP/SAttack).
+// This file REMAINS the LIVE attack-declaration substrate (consumed by AttackProcess / MatchStateMutationSink /
+// MetadataActionProcessor) — 잔존=R3 몫: not deleted until the trigger-window rehousing routes the mirror
+// ActivateClass path live (its consumers are out of R2-A scope).
 public static class AllianceAttackBoost
 {
     public const string HasAllianceKey = "hasAlliance";

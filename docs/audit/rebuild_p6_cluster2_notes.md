@@ -85,11 +85,12 @@ live resolution path.
 | RD-P6C2-2 | `RetaliationProcess` | `DestroyPermanentsClass` (AS-IS batch-delete helper) has no mirror |
 | RD-P6C2-3 | `CanActivateDecoy`, `CanActivateFragment` | `Permanent.CanBeDestroyedBySkill` (general effect-deletion immunity scan, Permanent.cs:3309) unported |
 | RD-P6C2-4 | `MaterialSaveEffect.CanSelectCardCondition` (factory closure) | `CardSource.IsContainDigiXrosCondition` (+ its `digiXrosCondition`/`HasDigiXros` scan) unported |
-| RD-P6C2-5 | `OverclockProcess` | `Permanent.CanAttack` + `SelectAttackEffect` (no mirror component) |
+| RD-P6C2-5 | `OverclockProcess` | ~~`Permanent.CanAttack` + `SelectAttackEffect`~~ — **RESOLVED (R2-A)**: R1 provides `Permanent.CanAttack`; `SelectAttackEffect` → the established `EffectDrivenAttack` substrate. Migrated 1:1. |
 | RD-P6C2-6 | `PartitionProcess` | `PartitionClass` (AS-IS selection/play orchestrator) has no mirror |
 | RD-P6C2-7 | `LinkEffect.ActivateCoroutine` | `ILinkCard` (WhenWouldLink trigger window via `autoProcessing_CutIn` + link-cost payment via `GetChangedLinkCost`, itself an existing gap C2-02/MIG5-CANLINK-PAYCOST + `IPlacePermanentToLinkCards`) — all unported |
-| RD-P6C2-8 | `CanActivateVortex`, `VortexProcess` | `Permanent.CanAttack`/`CanAttackTargetDigimon` + `SelectAttackEffect` |
-| RD-P6C2-9 | `CanActivateExecute`, `ExecuteProcess` | same as RD-P6C2-8 |
+| RD-P6C2-8 | `CanActivateVortex`, `VortexProcess` | ~~`Permanent.CanAttack`/`CanAttackTargetDigimon` + `SelectAttackEffect`~~ — **RESOLVED (R2-A)**: R1 provides `CanAttack`/`CanAttackTargetDigimon`; `PermanentHasVortexCanAttackPlayers` mirrored via the R1 live `EffectList` scan (AS-IS defines it in this file); `SelectAttackEffect` → `EffectDrivenAttack`. Both migrated 1:1. |
+| RD-P6C2-9 | `CanActivateExecute`, `ExecuteProcess` | **PARTIAL (R2-A)**: `CanActivateExecute` migrated 1:1 (R1 `CanAttack`). `ExecuteProcess` still STOP → see **RD-R2-01**. |
+| RD-R2-01 | `ExecuteProcess`, `ProgressProcess` | `Permanent.UntilEndAttackEffects` — AS-IS appends per-attack effects to this list (Execute: restrict-defender gate + end-of-attack self-delete + detail; Progress: opponent-effect-immunity `CanNotAffectedClass`) and it has no mirror `Permanent` member. Latent until the per-attack effect list is ported (R1 domain). Live paths exist independently (`EndOfTurnEffectAttack`+`EffectDrivenAttack.SelfDeleteAtEndOfAttack`; `ProgressImmunity`). |
 | RD-P6C2-10 | `ArtsDigivolveEffect.CanResolveCondition`/`ResolutionCoroutine` | `CardSource.CanPlayCardTargetFrame`/`Permanent.PermanentFrame` + `ContinuousController`/Hashtable-ctor `PlayCardClass` (pre-flagged VERBATIM-MISSING by the file's own P4 header, `docs/audit/rebuild_p4_factory_missing.md`) |
 | RD-P6C2-11 | `BlastDigivolveEffect.CanSelectPermanentCondition`/`CanActivateCondition`/`ActivateCoroutine` | same `CanPlayCardTargetFrame`/`PermanentFrame` gap + Hashtable-ctor `PlayCardClass` |
 

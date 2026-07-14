@@ -1,10 +1,10 @@
 // Source: DCGO/Assets/Scripts/Script/CardEffectCommons/KeyWordEffects/Execute.cs
-// (P6 cluster2) Genuine STOP: AS-IS CanActivateExecute/ExecuteProcess depend on Permanent.CanAttack (the
-// general attack-eligibility gate, Permanent.cs:2090) and SelectAttackEffect (no mirror component) — same gap
-// as Vortex (design item RD-P6C2-8, this file's own entry RD-P6C2-9). The LIVE Execute end-of-turn attack path
-// is already implemented independently via EndOfTurnEffectAttack + EffectDrivenAttack
-// (Headless/Runtime/EndOfTurnEffectAttack.cs "Execute-1"), so this old-model ActivateClass path is
-// dead-relative to actual play.
+// (R2-A) R1 now provides Permanent.CanAttack, so CanActivateExecute is rehoused 1:1 with AS-IS. ExecuteProcess
+// remains STOP: AS-IS appends three effects to Permanent.UntilEndAttackEffects (a restrict-defender gate, the
+// end-of-attack self-delete, and the detail text) and that per-attack effect list has no mirror Permanent
+// member (design item RD-R2-01). The LIVE Execute end-of-turn attack path is implemented independently via
+// EndOfTurnEffectAttack + EffectDrivenAttack (Headless/Runtime/EndOfTurnEffectAttack.cs "Execute-1", with
+// SelfDeleteAtEndOfAttack), so this old-model ActivateClass Process path is dead-relative to actual play.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
@@ -12,19 +12,30 @@ using System.Threading.Tasks;
 
 public static partial class CardEffectCommons
 {
-    /// <summary>AS-IS <c>CanActivateExecute</c> (KeyWordEffects/Execute.cs:8). STOP — design item RD-P6C2-9.</summary>
+    /// <summary>(R2-A) AS-IS <c>CanActivateExecute</c> (KeyWordEffects/Execute.cs:8, verbatim): on the battle
+    /// area and able to make an Execute attack (R1 <c>Permanent.CanAttack(isExecute: true)</c>).</summary>
     public static bool CanActivateExecute(CardSource cardSource, ICardEffect activateClass)
     {
-        throw new NotSupportedException(
-            "CanActivateExecute: AS-IS Permanent.CanAttack has no mirror — design item RD-P6C2-9, " +
-            "docs/audit/rebuild_p6_cluster2_notes.md.");
+        Permanent selfPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
+
+        return IsExistOnBattleArea(cardSource)
+            && selfPermanent != null
+            && selfPermanent.CanAttack(activateClass, isExecute: true);
     }
 
-    /// <summary>AS-IS <c>ExecuteProcess</c> (KeyWordEffects/Execute.cs:18). STOP — design item RD-P6C2-9.</summary>
+    /// <summary>(R2-A) AS-IS <c>ExecuteProcess</c> (KeyWordEffects/Execute.cs:18): attack (player or any Digimon,
+    /// incl. unsuspended) then self-delete at the attack's end. STOP — AS-IS appends to
+    /// <c>Permanent.UntilEndAttackEffects</c> (the restrict-defender gate + the end-of-attack DeleteSelfEffect +
+    /// the detail text), a per-attack effect list with no mirror <see cref="Permanent"/> member. R1 provides
+    /// <c>CanAttack</c> and the SelectAttackEffect step is the <c>EffectDrivenAttack</c> substrate, but the
+    /// UntilEndAttackEffects appends cannot be reproduced — design item RD-R2-01. The live Execute path is
+    /// implemented independently via <see cref="Headless.Runtime.EndOfTurnEffectAttack"/> +
+    /// <see cref="Headless.Runtime.EffectDrivenAttack"/> (SelfDeleteAtEndOfAttack).</summary>
     public static Task ExecuteProcess(CardSource cardSource, ICardEffect activateClass)
     {
         throw new NotSupportedException(
-            "ExecuteProcess: AS-IS Permanent.CanAttack/SelectAttackEffect have no mirror — design item RD-P6C2-9, " +
-            "docs/audit/rebuild_p6_cluster2_notes.md.");
+            "ExecuteProcess: AS-IS appends the restrict-defender gate + end-of-attack self-delete + detail to " +
+            "Permanent.UntilEndAttackEffects, which has no mirror Permanent member — design item RD-R2-01. The " +
+            "live Execute attack path is EndOfTurnEffectAttack + EffectDrivenAttack (SelfDeleteAtEndOfAttack).");
     }
 }

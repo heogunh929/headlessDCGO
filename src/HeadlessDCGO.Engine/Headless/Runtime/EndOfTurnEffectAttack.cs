@@ -23,6 +23,11 @@ using HeadlessDCGO.Engine.Headless.Services;
 ///   &lt;Overclock&gt; — delete a token/[trait] ally, then attack a PLAYER without suspending. Handled by
 ///                  <see cref="OverclockEffect.RequestChoice"/> (player-only: defenderCondition _ =&gt; false).
 /// </summary>
+// (R2-A) The AS-IS VortexProcess/CanActivateVortex and CanActivateExecute logic is now rehoused 1:1 in the
+// mirror CardEffectCommons/KeyWordEffects/{Vortex,Execute}.cs (ExecuteProcess stays STOP — UntilEndAttackEffects
+// gap, RD-R2-01). This file REMAINS the LIVE end-of-turn attack-window substrate (consumed by
+// MetadataActionProcessor / NewModelContinuousScan) — 잔존=R3 몫: not deleted until the trigger-window rehousing
+// routes the mirror ActivateClass path live (its consumers are out of R2-A scope).
 public static class EndOfTurnEffectAttack
 {
     /// <summary>Per-instance guard so a Digimon's end-of-turn window opens at most once per turn (Overclock

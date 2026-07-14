@@ -27,36 +27,107 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
     }
 }
 
-// (P6 cluster2, purely additive — see file header) old-model CardEffectCommons Hashtable-based siblings
-// (KeyWordEffects/Vortex.cs) — a different namespace/type than the KeywordBaseBatch2Effect resolver above.
-// Both are genuine STOPs: AS-IS CanActivateVortex/VortexProcess depend on Permanent.CanAttack/
-// CanAttackTargetDigimon (the general attack-eligibility gate, Permanent.cs:2090/2214 — a large keyword-aware
-// method never ported to the mirror Permanent) and SelectAttackEffect (no mirror component; GManager.GetComponent
-// only supports SelectPermanentEffect/SelectCardEffect/OptionalSkill). Both unported, out of this cluster's
-// scope (Permanent.cs is not a KeyWordEffects/CanUseEffects/kind-class/DataBase file). The LIVE Vortex path is
-// already fully implemented independently via EndOfTurnEffectAttack + EffectDrivenAttack (see this file's own
-// header), so this old-model ActivateClass path (still exercised by EX8_074/TfxVortex for keyword-grant
-// REGISTRATION purposes only) is dead-relative to the actual attack resolution — design item RD-P6C2-8.
+// (R2-A) old-model CardEffectCommons siblings (KeyWordEffects/Vortex.cs) — a different namespace/type than the
+// KeywordBaseBatch2Effect resolver above. R1 now provides Permanent.CanAttack/CanAttackTargetDigimon, so both
+// CanActivateVortex and VortexProcess are rehoused 1:1 with AS-IS. PermanentHasVortexCanAttackPlayers (AS-IS
+// defines it in THIS file) is mirrored here via the R1 live EffectList scan. The AS-IS SelectAttackEffect step
+// (no mirror class) is the established EffectDrivenAttack substrate — the same offer the live path
+// (EndOfTurnEffectAttack + EffectDrivenAttack) makes.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
     using System;
+    using System.Threading.Tasks;
 
     public static partial class CardEffectCommons
     {
-        /// <summary>AS-IS <c>CanActivateVortex</c> (KeyWordEffects/Vortex.cs:7). STOP — design item RD-P6C2-8.</summary>
+        /// <summary>(R2-A) AS-IS <c>CanActivateVortex</c> (KeyWordEffects/Vortex.cs:7, verbatim): on the battle
+        /// area, this Digimon can make a Vortex attack, and either an opponent Digimon it can Vortex-attack
+        /// exists OR a <c>VortexCanAttackPlayers</c> effect lets it attack the player. ADAPTATION: AS-IS
+        /// <c>HasMatchConditionOpponentsPermanent(Func&lt;Permanent&gt;)</c> → the entity-id overload
+        /// (<c>PermanentOf</c> bridges each id back to a <see cref="Permanent"/>).</summary>
         public static bool CanActivateVortex(CardSource cardSource, ICardEffect activateClass)
         {
-            throw new NotSupportedException(
-                "CanActivateVortex: AS-IS Permanent.CanAttack/CanAttackTargetDigimon have no mirror — design item " +
-                "RD-P6C2-8, docs/audit/rebuild_p6_cluster2_notes.md.");
+            Permanent selfPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
+
+            return IsExistOnBattleArea(cardSource)
+                && selfPermanent != null
+                && selfPermanent.CanAttack(activateClass, isVortex: true)
+                && (HasMatchConditionOpponentsPermanent(cardSource, (Headless.Services.HeadlessEntityId id) =>
+                    {
+                        Permanent permanent = PermanentOf(cardSource, id);
+                        return permanent.IsDigimon
+                            && selfPermanent.CanAttackTargetDigimon(permanent, activateClass, isVortex: true);
+                    })
+                    || PermanentHasVortexCanAttackPlayers(selfPermanent));
         }
 
-        /// <summary>AS-IS <c>VortexProcess</c> (KeyWordEffects/Vortex.cs:56). STOP — design item RD-P6C2-8.</summary>
-        public static System.Threading.Tasks.Task VortexProcess(CardSource cardSource, ICardEffect activateClass)
+        /// <summary>(R2-A) AS-IS <c>PermanentHasVortexCanAttackPlayers</c> (KeyWordEffects/Vortex.cs:19): scans
+        /// EVERY player's field permanents' + players' <c>EffectList(None)</c> (R1 live scan) for an active
+        /// <c>IVortexCanAttackPlayersEffect</c> that accepts <paramref name="permanent"/> as a Vortex attacker.
+        /// ADAPTATION: AS-IS <c>GManager.instance.turnStateMachine.gameContext</c> → <c>new GameContext(context)</c>;
+        /// the context is read off the permanent's TopCard (the mirror Permanent exposes no public context).</summary>
+        public static bool PermanentHasVortexCanAttackPlayers(Permanent permanent)
         {
-            throw new NotSupportedException(
-                "VortexProcess: AS-IS Permanent.CanAttack/SelectAttackEffect have no mirror — design item " +
-                "RD-P6C2-8, docs/audit/rebuild_p6_cluster2_notes.md.");
+            var context = permanent.TopCard.Context;
+
+            #region the effects of permanents
+            foreach (Player player in new GameContext(context).Players)
+            {
+                foreach (Permanent fieldPermanent in player.GetFieldPermanents())
+                {
+                    foreach (ICardEffect cardEffect in fieldPermanent.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is IVortexCanAttackPlayersEffect
+                            && cardEffect.CanUse(null)
+                            && ((IVortexCanAttackPlayersEffect)cardEffect).VortexCanAttackPlayersPermanent(permanent))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            #endregion
+
+            #region the effects of players
+            foreach (Player player in new GameContext(context).Players)
+            {
+                foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IVortexCanAttackPlayersEffect
+                        && cardEffect.CanUse(null)
+                        && ((IVortexCanAttackPlayersEffect)cardEffect).VortexCanAttackPlayersPermanent(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+            #endregion
+
+            return false;
+        }
+
+        /// <summary>(R2-A) AS-IS <c>VortexProcess</c> (KeyWordEffects/Vortex.cs:56): this Digimon makes a Vortex
+        /// attack — any opponent Digimon (incl. unsuspended, AS-IS <c>SetIsVortex</c> + defenderCondition:_=&gt;true),
+        /// and the player only while a <c>VortexCanAttackPlayers</c> effect accepts it (snapshotted once at the
+        /// start, verbatim AS-IS). ADAPTATION: AS-IS SelectAttackEffect → the EffectDrivenAttack substrate.</summary>
+        public static async Task VortexProcess(CardSource cardSource, ICardEffect activateClass)
+        {
+            Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(cardSource);
+            if (selectedPermanent == null)
+            {
+                return;
+            }
+
+            bool canAttackPlayers = PermanentHasVortexCanAttackPlayers(selectedPermanent);
+
+            if (selectedPermanent.CanAttack(activateClass, isVortex: true))
+            {
+                Headless.Runtime.EffectDrivenAttack.RequestChoice(
+                    cardSource.Context, selectedPermanent.InstanceId,
+                    new Headless.Runtime.EffectAttackOptions(WithoutTap: false, AllowPlayerTarget: canAttackPlayers, AllowDigimonTarget: true, TargetUnsuspended: true));
+            }
+
+            await Task.CompletedTask;
         }
     }
 }

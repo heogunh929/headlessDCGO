@@ -19,6 +19,11 @@ using HeadlessDCGO.Engine.Headless.State;
 /// AS-IS optional "you may / select 1" choice — consistent with the other auto-resolved keyword effects
 /// (<see cref="DeletionReplacementGate"/>).
 /// </summary>
+// (R2-A) The AS-IS RaidProcess / CanActivateRaid logic is rehoused 1:1 in the mirror
+// CardEffectCommons/KeyWordEffects/Raid.cs (select highest-DP enemy -> AttackProcess.SwitchDefender). This file
+// REMAINS the LIVE attack-declaration substrate (consumed by AttackProcess / MatchStateMutationSink /
+// ActivatedBridgeTimings / MetadataActionProcessor) — 잔존=R3 몫: not deleted until the trigger-window rehousing
+// routes the mirror ActivateClass path live (its consumers are out of R2-A scope).
 public static class RaidAttackSwitch
 {
     public const string HasRaidKey = "hasRaid";

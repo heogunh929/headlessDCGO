@@ -33,6 +33,9 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 // — a different namespace/type than the KeywordBaseBatch2Effect resolver above.
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
+    using System;
+    using System.Threading.Tasks;
+
     public static partial class CardEffectCommons
     {
         /// <summary>(P6 cluster2) AS-IS <c>CanActivateProgress</c> (KeyWordEffects/Progress.cs:44, verbatim).</summary>
@@ -40,5 +43,19 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             IsExistOnBattleAreaDigimon(cardSource)
             && GManager.instance!.attackProcess.IsAttacking
             && GManager.instance!.attackProcess.AttackingPermanent?.InstanceId == ICardEffect.ResolvePermanentOfThisCard(cardSource)?.InstanceId;
+
+        /// <summary>(R2-A) AS-IS <c>ProgressProcess</c> (KeyWordEffects/Progress.cs:62): while this Digimon
+        /// attacks, add an UntilEndAttack "not affected by the opponent's Digimon's effects" CanNotAffectedClass
+        /// to the attacker. STOP — AS-IS appends the CanNotAffectedClass to <c>Permanent.UntilEndAttackEffects</c>,
+        /// a per-attack effect list with no mirror <see cref="Permanent"/> member (design item RD-R2-01, same gap
+        /// as ExecuteProcess). The live Progress immunity is applied independently by
+        /// <see cref="Headless.Runtime.ProgressImmunity"/> at attack declaration.</summary>
+        public static Task ProgressProcess(CardSource cardSource, ICardEffect activateClass, Func<Task> beforeOnAttackCoroutine = null)
+        {
+            throw new NotSupportedException(
+                "ProgressProcess: AS-IS appends a CanNotAffectedClass to Permanent.UntilEndAttackEffects, which " +
+                "has no mirror Permanent member — design item RD-R2-01. The live Progress immunity is applied by " +
+                "Headless.Runtime.ProgressImmunity.");
+        }
     }
 }

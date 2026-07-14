@@ -13,6 +13,11 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// attacker with <see cref="EffectDuration.UntilEndAttack"/> (auto-removed at attack end), consumed by the
 /// mutation sink's immunity check.
 /// </summary>
+// (R2-A) The AS-IS CanActivateProgress logic is rehoused 1:1 in the mirror
+// CardEffectCommons/KeyWordEffects/Progress.cs (ProgressProcess stays STOP — UntilEndAttackEffects gap,
+// RD-R2-01). This file REMAINS the LIVE immunity substrate (consumed by AttackProcess at attack declaration) —
+// 잔존=R3 몫: not deleted until the trigger-window rehousing routes the mirror ActivateClass path live (its
+// consumers are out of R2-A scope).
 public static class ProgressImmunity
 {
     public const string HasProgressKey = "hasProgress";

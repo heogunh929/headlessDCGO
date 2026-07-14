@@ -16,6 +16,11 @@ using HeadlessDCGO.Engine.Headless.State;
 /// <see cref="DeletionReplacementGate.SacrificeAsync"/> (same direct sacrifice as Decoy/Scapegoat); the
 /// untapped player attack reuses the S1 hub <see cref="EffectDrivenAttack"/>.
 /// </summary>
+// (R2-A) The AS-IS OverclockProcess / CanActivateOverclock logic is now rehoused 1:1 in the mirror
+// CardEffectCommons/KeyWordEffects/Overclock.cs (select ally -> DeletePeremanentAndProcessAccordingToResult ->
+// EffectDrivenAttack player-only/withoutTap). This file REMAINS the LIVE choice-controller substrate (consumed
+// by MatchStateMutationSink / MetadataActionProcessor / the end-of-turn window) — 잔존=R3 몫: not deleted until
+// the trigger-window rehousing routes the mirror ActivateClass path live (its consumers are out of R2-A scope).
 public static class OverclockEffect
 {
     public const string HasOverclockKey = "hasOverclock";
