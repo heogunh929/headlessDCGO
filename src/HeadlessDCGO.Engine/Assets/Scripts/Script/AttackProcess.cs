@@ -262,29 +262,37 @@ public sealed class AttackProcess
                 await beforeOnAttack(cancellationToken).ConfigureAwait(false);
             }
 
-            // AS-IS :197-199 — StackSkillInfos(EffectHashtable, OnAllyAttack). The headless declaration emits BOTH
-            // the raw OnAttack ("OnUseAttack") and OnAllyAttack, subject = the attacker (the RD-9 choke point).
+            // AS-IS :197-199 — StackSkillInfos(EffectHashtable, OnAllyAttack). The headless declaration still emits the
+            // raw OnAttack ("OnUseAttack") for the RD-9 self-scoped choke point (subject = the attacker). The
+            // OnAllyAttack EMIT is REMOVED at the C2r flip (see the inline insert below): keeping both the emit AND the
+            // insert would double-fire (supply converts an OnAllyAttack event to the SAME GetSkillInfos(OnAllyAttack)
+            // window the insert opens).
             TriggerEventEmitter.Emit(
                 _context.GameEventQueue,
                 TriggerTimings.OnAttack,
                 actor: _context.AttackController.Current.AttackingPlayerId,
                 subject: attackerId,
                 extraMetadata: AttackEventMetadata(attackEffectSourceId));
-            TriggerEventEmitter.Emit(
-                _context.GameEventQueue,
-                TriggerTimings.OnAllyAttack,
-                actor: _context.AttackController.Current.AttackingPlayerId,
-                subject: attackerId,
-                extraMetadata: AttackEventMetadata(attackEffectSourceId));
 
-            // (C1 design item RD-C1-ATTACK-BGFX) AS-IS :197-199 StackSkillInfos(EffectHashtable, OnAllyAttack) —
-            // the main-instance insert is DEFERRED to C2. StackSkillInfos immediately runs ActivateBackgroundEffects
-            // (AutoProcessing.cs:1054, enumerating GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer),
-            // which requires an ambient GManager match context the AttackProcess unit harnesses (G3.5-S1) do NOT set
-            // up — so a C1 "inert" insert here NREs and breaks behaviour-neutrality (verified: green→red on
-            // G3.5-S1.EffectDrivenAttack). C2 lands it once the ambient context / ActivateBackgroundEffects is
-            // reconciled. Payload = OnAttackCheckHashtableOfPermanent(AttackingPermanent, null) (attackEffect==null
-            // for a plain declared attack; effect-driven ICardEffect = RDW-05 id gap).
+            // (P1-2 C2r — RD-C1-ATTACK-BGFX resolved) AS-IS :197-199 StackSkillInfos(EffectHashtable, OnAllyAttack) —
+            // NOW ENABLED as the SOLE window opener (the OnAllyAttack emit above was removed, so SkillWindowSupply no
+            // longer sees an OnAllyAttack attack event — its conversion for this timing is now unreachable). Unlike a
+            // plain declared attack (which supply DID convert), an EFFECT-driven attack (attackEffectSourceId present)
+            // was DROPPED by supply.TryBuildAttack (returns false on attackCauseEffectId) — the inline insert opens the
+            // window for BOTH now, matching AS-IS which opens OnAllyAttack for effect-driven attacks too. Payload =
+            // OnAttackCheckHashtableOfPermanent(AttackingPermanent, attackEffect): the live ICardEffect is still a GAP
+            // (the mirror threads only attackEffectSourceId, RD-C1-CARDEFFECT-IDTHREAD / RDW-05), so cardEffect = null
+            // here exactly as AS-IS's plain-attack case; the effect-driven cardEffect member remains the documented
+            // RDW-05 residual. Guarded by AmbientMatchContext.Enter so the StackSkillInfos ActivateBackgroundEffects
+            // sees THIS match (direct-call unit harnesses have no ambient scope; the live path runs under
+            // RunToStableAsync's scope) — the same seam-carrier pattern as OnBlockAnyone / OnAttackTargetChanged below.
+            {
+                using AmbientMatchContext.Scope _onAllyAttackScope = AmbientMatchContext.Enter(_context);
+                await GManager.instance!.autoProcessing
+                    .StackSkillInfos(
+                        Commons.OnAttackCheckHashtableOfPermanent(attacker, null),
+                        EffectTiming.OnAllyAttack).ConfigureAwait(false);
+            }
 
             // AS-IS :221-226 — force to end attack after the [On Attack] window. The window drains on the NEXT
             // loop iteration (the AS-IS StackSkillInfos only stacks too), so this boundary re-fires at the head of
@@ -646,18 +654,21 @@ public sealed class AttackProcess
                 && _context.ZoneMover is IZoneStateReader endAttackZones
                 && endAttackZones.GetCards(turnPlayer, ChoiceZone.BattleArea).Contains(endAttackerId))
             {
-                TriggerEventEmitter.Emit(
-                    _context.GameEventQueue,
-                    TriggerTimings.OnEndAttack,
-                    actor: turnPlayer,
-                    subject: endAttackerId);
-
-                // (C1 design item RD-C1-ATTACK-BGFX) AS-IS :480 StackSkillInfos(EffectHashtable, OnEndAttack) —
-                // DEFERRED to C2 for the same reason as the OnAllyAttack insert above: StackSkillInfos runs
-                // ActivateBackgroundEffects, which dereferences the ambient GManager match context the AttackProcess
-                // unit harnesses don't set up, breaking C1 neutrality. Payload = OnAttackCheckHashtableOfPermanent(
-                // AttackingPermanent, null) inside the AS-IS alive guard (:478). Caveat F1-ENDATTACK-HOOK
-                // (scheduler hook above) is the C2 double-fire concern to reconcile at the flip.
+                // (P1-2 C2r — RD-C1-ATTACK-BGFX resolved) AS-IS :480 StackSkillInfos(EffectHashtable, OnEndAttack)
+                // inside the AS-IS alive guard (:478 `AttackingPermanent != null && AttackingPermanent.TopCard != null`,
+                // mirrored by the battle-area membership check above). NOW ENABLED as the SOLE opener: the OnEndAttack
+                // EMIT is REMOVED (keeping both would double-fire — supply converts an OnEndAttack event to the SAME
+                // GetSkillInfos(OnEndAttack) window). The retired EndAttackTriggerHook (comment above) was the OTHER
+                // half; this inline insert now owns the whole OnEndAttack window. Payload =
+                // OnAttackCheckHashtableOfPermanent(AttackingPermanent, attackEffect) — the live ICardEffect is the
+                // RDW-05 / RD-C1-CARDEFFECT-IDTHREAD gap, so cardEffect = null (AS-IS's plain-attack case is exact; the
+                // effect-driven cardEffect member is the documented residual). AmbientMatchContext.Enter guards the
+                // StackSkillInfos ActivateBackgroundEffects for direct-call unit harnesses (live path already scoped).
+                using AmbientMatchContext.Scope _onEndAttackScope = AmbientMatchContext.Enter(_context);
+                await GManager.instance!.autoProcessing
+                    .StackSkillInfos(
+                        Commons.OnAttackCheckHashtableOfPermanent(AttackingPermanent!, null),
+                        EffectTiming.OnEndAttack).ConfigureAwait(false);
             }
         }
 

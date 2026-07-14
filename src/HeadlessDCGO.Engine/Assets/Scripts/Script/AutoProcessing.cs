@@ -792,12 +792,14 @@ public sealed class AutoProcessing
     #endregion
 
     // ============================================================================================================
-    // (R3-W1b, batch W1) AS-IS trigger-stack DRAIN half — activated DORMANT. The MultipleSkills window loop, the
-    // component pool, the cut-in accounting, TriggeredSkillProcess, HasAwaitingActivateEffects, and
-    // AutoProcessCheck. No live caller reaches the loop body: TriggeredSkillProcess's drain is gated on a
-    // NON-EMPTY StackedSkillInfos, and the three live cut-in callers (CardController.cs:2623/2887/3258) run over
-    // an EMPTY cut-in stack in every currently-exercised scenario, so availableMultipleSkills.ActivateMultipleSkills
-    // is never invoked. The live trigger window remains WindowResolver (untouched). Substrate: coroutine -> Task.
+    // (R3-W1b, batch W1) AS-IS trigger-stack DRAIN half — LIVE since the R3-C2 flip (commit 8f155d02). The
+    // MultipleSkills window loop, the component pool, the cut-in accounting, TriggeredSkillProcess,
+    // HasAwaitingActivateEffects, and AutoProcessCheck. TriggeredSkillProcess's drain runs whenever
+    // StackedSkillInfos is NON-EMPTY, which GameFlowProcessor.AutoProcessAsync (seam 7) + the inline StackSkillInfos
+    // inserts / deletion transport now populate, so availableMultipleSkills.ActivateMultipleSkills is reached. The
+    // three cut-in callers (CardController.cs:2623/2887/3258) still run over an EMPTY cut-in stack in every
+    // currently-exercised scenario (RDW-06 two-pass counter is C2b). The old WindowResolver trigger window is DEAD
+    // (0 live callers — grep-verified at the flip). Substrate: coroutine -> Task.
     // ============================================================================================================
 
     #region Skill Processing Component pool (AS-IS AutoProcessing.cs:13-54)
@@ -1254,7 +1256,9 @@ public sealed class AutoProcessing
     // fast path is exact (the AfterPayCost drain of a play with no collected cut-in effect is a no-op). The
     // non-empty drain hands the batch to `availableMultipleSkills.ActivateMultipleSkills(...)` (AS-IS :589-595 —
     // the RD-R3W1b-01 STOP is now resolved: MultipleSkills is the live 1:1 mirror), then re-stacks the
-    // AfterEffectsActivate timing (:597). DORMANT: the cut-in stack is empty in every currently-exercised scenario.
+    // AfterEffectsActivate timing (:597). LIVE since the R3-C2 flip: this IS the drain that empties StackedSkillInfos
+    // (driven by AutoProcessCheck). Only the CUT-IN recursion arm stays unexercised — the cut-in stack is empty in
+    // every currently-exercised scenario (RDW-06 two-pass counter is C2b).
     public async Task TriggeredSkillProcess(bool CheckNewTriggredSkill_mainStack, Func<List<SkillInfo>, SkillInfo, bool> skipCondition)
     {
         if (StackedSkillInfos.Count > 0)
@@ -1299,8 +1303,9 @@ public sealed class AutoProcessing
     // MultipleSkills.OwningAutoProcessing), and then the next-outer instance resumes at its own pass head (AS-IS:
     // the parent's remaining steps after the child call ARE "loop to pass head", MultipleSkills.cs:405-421). Each
     // ResumeAsync may RE-suspend (the pending exception propagates out — the seam re-parks and a later call
-    // re-enters the same chain, idempotently). DORMANT: no in-use instance exists until the C cutover drives the
-    // window loop live; this is a no-op while the pool is idle.
+    // re-enters the same chain, idempotently). LIVE since the R3-C2 flip: the window loop drives real windows, so an
+    // in-use instance exists whenever a window suspends for an agent choice; the seam-2 ResolveChoice path calls this
+    // to resume the suspended chain. It is a no-op only while the pool is genuinely idle (no suspended window).
     //
     // OWNERSHIP: the tail runs on `deepest.OwningAutoProcessing` (the drain that owns this window), not necessarily
     // `this`. For the main-stack triggered recursion every instance's owning drain IS the main AutoProcessing (its
@@ -1381,8 +1386,10 @@ public sealed class AutoProcessing
     // AS-IS AutoProcessing.cs:122-140, IEnumerator→Task. DoneStartGame gate, then RuleProcess → RulesTiming
     // stack → TriggeredSkillProcess(false, null). AS-IS :126 ShrinkSecurityDigimonDisplay is UI (stripped);
     // AS-IS :128/:139 `turnStateMachine.IsSelecting = true/false` is a UI/selection-guard flag with no mirror
-    // (stripped). DORMANT: the live main loop is GameFlowProcessor.AutoProcessAsync (WindowResolver) — nothing
-    // calls this yet.
+    // (stripped). LIVE (since the R3-C2 flip, commit 8f155d02): GameFlowProcessor.AutoProcessAsync drives this per
+    // batch-group (seam 7), and SecurityResolver.ResolveSecurityCheckWindowAsync drives it for the OnSecurityCheck
+    // window; it drains StackedSkillInfos through the live MultipleSkills window loop. The old WindowResolver main
+    // loop is DEAD (0 live callers — grep-verified at the flip).
     public async Task AutoProcessCheck(CancellationToken cancellationToken = default)
     {
         if (!GManager.instance.turnStateMachine.DoneStartGame) return;

@@ -23,8 +23,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Agent choice: selecting a target declares the attack", ChoiceSelectsTarget),
     ("Agent choice: declining initiates no attack", ChoiceDeclineNoAttack),
     ("Vortex options expose Digimon and player targets (unsuspended allowed)", VortexOptionsTargets),
-    ("(RD-9) an effect-driven attack fires the attacker's [When Attacking] window", EffectDrivenFiresWhenAttacking),
-    ("(RD-9) an effect-driven attack does NOT fire the main-skill OnDeclaration window", EffectDrivenSkipsOnDeclaration),
+    ("(RD-9 / P1-2) an effect-driven attack emits the OnAttack choke point (window opens via the inline insert) and NOT OnDeclaration", EffectDrivenFiresWhenAttacking),
+    ("(RD-9 / P1-2) the shared chokepoint emits OnAttack and NO LONGER emits OnAllyAttack (inline insert is the sole opener)", EffectDrivenSkipsOnDeclaration),
 };
 
 var failures = new List<string>();
@@ -162,10 +162,13 @@ async Task VortexOptionsTargets()
     AssertTrue(targets.Any(t => t.TargetId == unsus), "unsuspended Digimon target available");
 }
 
-// (RD-9) Before the chokepoint, EffectDrivenAttack.Initiate declared the attack but emitted NO windows, so a
-// Vortex/Execute attacker's "[When Attacking]" (OnAllyAttack) effect never fired. Now both attack paths go
-// through AttackDeclarationCommons.Declare which opens OnAllyAttack (subject = attacker). Asserted at the event
-// layer (the window emit is the RD-9 change; the activated-bridge resolution of it is covered elsewhere).
+// (RD-9 / P1-2 C2r) Before the chokepoint, EffectDrivenAttack.Initiate declared the attack but opened NO
+// [When Attacking] window, so a Vortex/Execute attacker's OnAllyAttack effect never fired. Both attack paths now go
+// through AttackDeclarationCommons.Declare -> AttackProcess.Attack(), which opens the OnAllyAttack window via an
+// INLINE StackSkillInfos insert (the sole opener). The OnAllyAttack EMIT was REMOVED at the P1-2 flip (keeping both
+// would double-fire — supply converts the emit to the same window). So at the EVENT layer we now assert the OnAttack
+// choke-point emit is present (subject = attacker) and OnDeclaration is absent; the window actually OPENING for an
+// effect-driven attack is witnessed END-TO-END in F1-Tier2-OnEndAttack (TfxEffectDrivenAllyAttackFires).
 async Task EffectDrivenFiresWhenAttacking()
 {
     Setup s = await NewMatch();
@@ -178,16 +181,20 @@ async Task EffectDrivenFiresWhenAttacking()
     AssertTrue(EffectDrivenAttack.Initiate(s.Match.Context, attacker, pick, new EffectAttackOptions()), "initiate succeeds");
 
     var events = s.Match.Context.GameEventQueue.DrainPending();
-    AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAllyAttack && e.Subject == attacker),
-        "effect-driven Initiate opens the attacker's [When Attacking] (OnAllyAttack) window");
+    AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAttack && e.Subject == attacker),
+        "effect-driven Initiate emits the OnAttack choke point (subject = attacker); the OnAllyAttack window opens via the inline insert");
+    // The OnAllyAttack EMIT was removed at the P1-2 flip — the inline StackSkillInfos insert is the sole window opener.
+    AssertFalse(events.Any(e => e.Cause == TriggerTimings.OnAllyAttack),
+        "effect-driven Initiate does NOT re-emit OnAllyAttack (the inline insert is the sole opener — no double-fire)");
     // OnDeclaration is a MAIN-skill-declaration timing, not an attack window — the effect-driven path must not
     // emit it (only the player-action path does, as a stopgap for the not-yet-ported main-skill action).
     AssertFalse(events.Any(e => e.Cause == TriggerTimings.OnDeclaration),
         "effect-driven Initiate does NOT emit the main-skill OnDeclaration window");
 }
 
-// (RD-9) The shared chokepoint opens the attack-declaration windows (OnAttack + OnAllyAttack) — the same set
-// the player-action path emitted, now reused by the effect-driven path.
+// (RD-9 / P1-2 C2r) The shared chokepoint emits the OnAttack choke point but NO LONGER emits OnAllyAttack: the
+// OnAllyAttack window is opened by an inline StackSkillInfos insert in AttackProcess.Attack(), so re-emitting it
+// would double-fire (supply converts the emit to the same window). Assert OnAttack present, OnAllyAttack absent.
 async Task EffectDrivenSkipsOnDeclaration()
 {
     Setup s = await NewMatch();
@@ -201,7 +208,8 @@ async Task EffectDrivenSkipsOnDeclaration()
 
     var events = s.Match.Context.GameEventQueue.DrainPending();
     AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAttack && e.Subject == attacker), "Declare emits OnAttack");
-    AssertTrue(events.Any(e => e.Cause == TriggerTimings.OnAllyAttack && e.Subject == attacker), "Declare emits OnAllyAttack");
+    AssertFalse(events.Any(e => e.Cause == TriggerTimings.OnAllyAttack),
+        "Declare NO LONGER emits OnAllyAttack (the inline StackSkillInfos insert is the sole window opener)");
 }
 
 // --- Harness (mirrors G3.5-C3 / C18) -------------------------------------

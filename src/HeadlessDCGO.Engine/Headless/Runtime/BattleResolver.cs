@@ -224,13 +224,16 @@ public sealed class BattleResolver
                 .ToList();
             var battleAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
             // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509).
+            // (P1-1 C2r) Cause derivation for IsByBattle/IsByEffect: a battle loss carries byBattle = true (AS-IS
+            // hashtable "battle" key), byEffect = false, isDPZero = false. The live IBattle is still absent
+            // (battle-rehousing non-scope), so the marker rides the loser's MarkDeletedByBattle flag set above.
             await battleAutoProcessing.StackSkillInfos(
                 Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
-                    loserPermanents, cardEffect: null!, battle: null!, isDPZero: false),
+                    loserPermanents, byEffectCause: false, byBattleCause: true, isDPZero: false),
                 Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
             await battleAutoProcessing.StackSkillInfos(
                 Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
-                    loserPermanents, cardEffect: null!, battle: null!, isDPZero: false),
+                    loserPermanents, byEffectCause: false, byBattleCause: true, isDPZero: false),
                 Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
         }
 

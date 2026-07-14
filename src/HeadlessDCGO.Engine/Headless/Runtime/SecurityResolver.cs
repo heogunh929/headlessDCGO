@@ -159,7 +159,37 @@ public sealed class SecurityResolver
             // AS-IS (CardController.cs:4108-4184) resolves AutoProcessCheck + the stacked OnSecurityCheck
             // skills BEFORE the security-Digimon battle (:4177). The queued emit drained only after the
             // whole loop, so a checked-card trigger that buffs the attacker resolved too late.
-            await ResolveSecurityCheckWindowAsync(context, attackingPlayerId, attackerId, defendingPlayerId, checkedCardId, cancellationToken).ConfigureAwait(false);
+            // (P1-3 C2r — RD-C2-SECCHECK-INTERACTIVE) An INTERACTIVE OnSecurityCheck / OnLoseSecurity reactor asks
+            // the agent for a choice: AutoProcessCheck opens a ChoiceController request and THROWS
+            // WindowChoicePendingException to unwind the mirror MultipleSkills loop's C# stack (the normal headless
+            // suspension). WITHOUT this catch that throw escapes the security loop uncaught — aborting the whole
+            // attack, not just pausing. Mirror the deferred-security-BATTLE park below: PARK the remaining check count
+            // on the attacker and return DeferredForDeletionReplacement so the pipeline parks at
+            // AttackPhase.DeletionReplacement (the sole in-attack suspend anchor). The pending choice pauses the game;
+            // on the agent's answer MetadataActionProcessor seam-2 records it + ResumeSuspendedWindowsAsync completes
+            // the suspended reactor body, and the next pipeline step re-enters ResumeDeletionReplacement ->
+            // FinalizeDeferredSecurityCheckAsync (not-pendingDeletion -> the "survived" branch), which resumes the
+            // remaining checks through the EXISTING path. ORDERING DIVERGENCE (design item
+            // RD-C2-SECCHECK-INTERACTIVE-ORDERING): the CURRENT card was already revealed+trashed, so its
+            // security-Digimon battle / [Security] effect (which AS-IS's coroutine would run after the resumed window)
+            // are SKIPPED — remaining = the checks AFTER this one. The common interactive reactor (a non-Digimon
+            // security card, or a pure OnSecurityCheck buff) has no such follow-up, so it is exact; a Digimon security
+            // card whose OnSecurityCheck reactor is interactive AND that also battles is the documented residual.
+            try
+            {
+                await ResolveSecurityCheckWindowAsync(context, attackingPlayerId, attackerId, defendingPlayerId, checkedCardId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception windowChoice) when (windowChoice is WindowChoicePendingException or DeferredChoicePendingException)
+            {
+                // The window suspended for an agent choice — a MultipleSkills ORDER/optional pick
+                // (WindowChoicePendingException) or a reactor BODY's select (DeferredChoicePendingException), the same
+                // pair GameFlowProcessor.AutoProcessAsync catches. Park the remaining check and pause (see the note above).
+                int remaining = checkCount - (index + 1);
+                StampDeferredRemaining(context, attackerId, remaining);
+                return new SecurityCheckLoopResult(
+                    checkedCards, movementResults, securityDigimonBattles, AttackerDeleted: false,
+                    DeferredForDeletionReplacement: true, RemainingChecks: remaining);
+            }
 
             // G7-004: resolve the revealed card's [Security] activated effect (e.g. a Tamer/Option
             // security skill). No-op for cards with no ported SecuritySkill effect.
@@ -373,9 +403,11 @@ public sealed class SecurityResolver
         // (null-collector emit-now branch) stacks the player's OnLoseSecurity reactors onto the SAME stack — AS-IS
         // batches OnSecurityCheck + the per-card OnLoseSecurity into one resolution, reproduced here by co-stacking
         // before a single AutoProcessCheck. The revealed card's own [Security] activated effect + the security-Digimon
-        // battle continue in the loop; the DeferredActivations parks are unchanged. (Residual: an INTERACTIVE
-        // OnSecurityCheck reactor suspends the mirror window but the enclosing security loop position is not itself
-        // resumable — rare; the legacy FIFO path did not suspend at all. Documented as RD-C2-SECCHECK-INTERACTIVE.)
+        // battle continue in the loop; the DeferredActivations parks are unchanged. (P1-3 C2r) An INTERACTIVE
+        // OnSecurityCheck / OnLoseSecurity reactor now throws WindowChoicePendingException out of the AutoProcessCheck
+        // below; the CALLER (RunSecurityCheckLoopAsync) catches it and PARKS the remaining security check via the
+        // deferred-security-check machinery (SecurityCheckRemainingKey / FinalizeDeferredSecurityCheckAsync), so the
+        // attack no longer aborts. See the RD-C2-SECCHECK-INTERACTIVE / -ORDERING notes at the call site.
         using AmbientMatchContext.Scope _secCheckScope = AmbientMatchContext.Enter(context);
         var autoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
 

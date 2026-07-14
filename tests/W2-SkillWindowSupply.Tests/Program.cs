@@ -35,6 +35,18 @@ GameEvent AllyAttackEvent(bool effectDriven = false)
     return queue.DrainPending().Single();
 }
 
+GameEvent CounterTimingEvent()
+{
+    var queue = new GameEventQueue();
+    TriggerEventEmitter.Emit(
+        queue,
+        TriggerTimings.OnCounter,
+        actor: owner,
+        subject: attacker,
+        extraMetadata: null);
+    return queue.DrainPending().Single();
+}
+
 GameEvent DeletionMove(long batchId)
 {
     var meta = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -50,35 +62,42 @@ GameEvent DeletionMove(long batchId)
     };
 }
 
-// --- 1. OnAllyAttack (plain declared attack) is HANDLED: builds OnAttackCheckHashtableOfPermanent
-//        (AttackProcess.cs:98-99 → {AttackingPermanent, CardEffect}) with CardEffect=null (TurnStateMachine.cs:
-//        1250 passes attackEffect=null). ---
+// --- 1. (P1-2 C2r) OnAllyAttack is NO LONGER supplied here. At the flip, AttackProcess.Attack()'s inline
+//        StackSkillInfos insert became the sole opener and the OnAllyAttack emit was removed, so this converter
+//        never sees an OnAllyAttack attack event again — the timing is unreachable/unhandled (both plain and
+//        effect-driven). OnCounterTiming stays supply-carried (RDW-06 two-pass is C2b), and TryBuildAttack still
+//        builds the AS-IS OnAttackCheckHashtableOfPermanent for it. ---
 {
     EngineContext context = EngineContext.CreateDefault();
-    IReadOnlyList<SkillWindowSupplyEntry> entries = SkillWindowSupply.ConvertEvent(context, AllyAttackEvent());
-    SkillWindowSupplyEntry attackEntry = entries.SingleOrDefault(e => e.Timing == EffectTiming.OnAllyAttack);
+    IReadOnlyList<SkillWindowSupplyEntry> allyEntries = SkillWindowSupply.ConvertEvent(context, AllyAttackEvent());
+    Check(allyEntries.Count == 0, "OnAllyAttack is no longer supplied (inline insert is the sole opener; emit removed)");
+    Check(SkillWindowSupply.UnhandledTimings(context, AllyAttackEvent()).Contains(EffectTiming.OnAllyAttack),
+        "OnAllyAttack is reported UNHANDLED (its window opens via the inline insert, not supply conversion)");
 
-    Check(entries.Any(e => e.Timing == EffectTiming.OnAllyAttack), "OnAllyAttack is handled (one entry produced)");
-    Check(attackEntry.Hashtable is not null
-        && attackEntry.Hashtable.ContainsKey("AttackingPermanent")
-        && attackEntry.Hashtable.ContainsKey("CardEffect"),
+    // OnCounterTiming remains handled: the builder path (TryBuildAttack) is intact.
+    IReadOnlyList<SkillWindowSupplyEntry> counterEntries = SkillWindowSupply.ConvertEvent(context, CounterTimingEvent());
+    SkillWindowSupplyEntry counterEntry = counterEntries.SingleOrDefault(e => e.Timing == EffectTiming.OnCounterTiming);
+    Check(counterEntries.Any(e => e.Timing == EffectTiming.OnCounterTiming), "OnCounterTiming is still handled (one entry produced)");
+    Check(counterEntry.Hashtable is not null
+        && counterEntry.Hashtable.ContainsKey("AttackingPermanent")
+        && counterEntry.Hashtable.ContainsKey("CardEffect"),
         "hashtable has the AS-IS OnAttackCheckHashtableOfPermanent keys {AttackingPermanent, CardEffect}");
-    Check(attackEntry.Hashtable?["CardEffect"] is null,
-        "CardEffect is null for a plain declared attack (AS-IS attackEffect=null)");
-    Check(attackEntry.Hashtable?["AttackingPermanent"] is PermanentT p && p.InstanceId == attacker,
+    Check(counterEntry.Hashtable?["CardEffect"] is null,
+        "CardEffect is null for a plain attack (AS-IS attackEffect=null)");
+    Check(counterEntry.Hashtable?["AttackingPermanent"] is PermanentT p && p.InstanceId == attacker,
         "AttackingPermanent is the attacker subject");
-    Check(attackEntry.BatchId is null, "an attack entry is batch-less (no cross-batch id)");
+    Check(counterEntry.BatchId is null, "an attack entry is batch-less (no cross-batch id)");
 }
 
-// --- 2. Effect-driven attack (attackCauseEffectId present) is a GAP (RDW-05): the live ICardEffect is not
-//        reconstructable from the id, so the timing is UNHANDLED rather than fabricated. ---
+// --- 2. (P1-2 C2r) An effect-driven OnAllyAttack is likewise not supplied (the whole OnAllyAttack timing is off
+//        the supply switch now — the inline insert opens the window regardless of the cause id). ---
 {
     EngineContext context = EngineContext.CreateDefault();
     GameEvent ev = AllyAttackEvent(effectDriven: true);
     Check(SkillWindowSupply.ConvertEvent(context, ev).Count == 0,
-        "effect-driven attack produces no entry (RDW-05 GAP, not fabricated)");
+        "effect-driven OnAllyAttack produces no supply entry (the window opens via the inline insert)");
     Check(SkillWindowSupply.UnhandledTimings(context, ev).Contains(EffectTiming.OnAllyAttack),
-        "OnAllyAttack is reported UNHANDLED for an effect-driven attack");
+        "OnAllyAttack is reported UNHANDLED for an effect-driven attack (opened inline)");
 }
 
 // --- 3. Deletion CardMoved derives OnDestroyedAnyone + OnLeaveFieldAnyone, both UNHANDLED (RDW-01: the

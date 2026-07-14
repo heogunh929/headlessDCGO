@@ -235,13 +235,16 @@ public static class SkillWindowSupply
         {
             // ---- ATTACK family: AS-IS OnAttackCheckHashtableOfPermanent(AttackingPermanent, attackEffect) ----
             // AttackProcess.cs:98-99 sets EffectHashtable = OnAttackCheckHashtableOfPermanent(AttackingPermanent,
-            // attackEffect); OnAllyAttack (:199), OnEndAttack (:480) and OnCounterTiming (:266/:285, via the
-            // cut-in instance) all pass it. The mirror builder is REUSED here with the same permanent view. For
-            // the cut-in OnCounterTiming, the loop-level routing (autoProcessing_CutIn + the IsCounterEffect
-            // two-pass split) is a C-batch concern; the PAYLOAD is this same builder.
-            case EffectTiming.OnAllyAttack:
+            // attackEffect); OnCounterTiming (:266/:285, via the cut-in instance) passes it. The mirror builder is
+            // REUSED here with the same permanent view. For the cut-in OnCounterTiming, the loop-level routing
+            // (autoProcessing_CutIn + the IsCounterEffect two-pass split) is a C-batch concern (RDW-06 / C2b); the
+            // PAYLOAD is this same builder.
+            // (P1-2 C2r) OnAllyAttack (:199) and OnEndAttack (:480) are NO LONGER converted here: at the C2r flip the
+            // AttackProcess inline StackSkillInfos inserts became the SOLE openers and their emits were REMOVED, so
+            // SkillWindowSupply never sees an OnAllyAttack/OnEndAttack attack event — TryBuildAttack for those timings
+            // is now UNREACHABLE (an effect-driven attack, which supply DROPPED on attackCauseEffectId, now opens its
+            // window via the inline insert). Only OnCounterTiming remains supply-carried.
             case EffectTiming.OnCounterTiming:
-            case EffectTiming.OnEndAttack:
                 return TryBuildAttack(context, gameEvent, out hashtable);
 
             // ---- OnMove: AS-IS inline { "Permanent", permanent } (CardObjectController.cs:1111) --------------

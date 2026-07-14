@@ -1,7 +1,7 @@
 // Source: Assets/Scripts/Script/MultipleSkills.cs
 // Decision: PORT
 // Category: CardEffect
-// Migration: AS-IS mirror (R3-W1b, batch W1) — the re-entrant trigger WINDOW loop, built DORMANT.
+// Migration: AS-IS mirror (R3-W1b, batch W1) — the re-entrant trigger WINDOW loop. LIVE since the R3-C2 flip.
 // Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script
 //
 // ============================================================================================================
@@ -10,11 +10,13 @@
 // while(true) re-evaluate → order-select → optional-confirm → resolve → RuleProcess → TriggeredSkillProcess
 // cut-in recursion window loop, in SkillInfo currency. This REPLACES the RD-R3-01 STOP stub.
 //
-// DORMANT: no live caller reaches this loop. It is entered only via AutoProcessing.TriggeredSkillProcess ->
-// availableMultipleSkills.ActivateMultipleSkills, and TriggeredSkillProcess's drain body is gated on a
-// NON-EMPTY StackedSkillInfos; the three live cut-in callers (CardController.cs:2623/2887/3258) run over an
-// EMPTY cut-in stack in every currently-exercised scenario (0 ported cards return Before/AfterPayCost cut-in
-// skills), so the loop body is never reached. The live window today is still WindowResolver (untouched).
+// LIVE (since the R3-C2 flip, commit 8f155d02): this loop IS the live trigger window. It is entered via
+// AutoProcessing.TriggeredSkillProcess -> availableMultipleSkills.ActivateMultipleSkills, which
+// GameFlowProcessor.AutoProcessAsync now drives per batch-group through AutoProcessCheck (seam 7), and the
+// inline StackSkillInfos inserts / deletion transport feed StackedSkillInfos. The old
+// WindowResolver.DriveAsync / CollectUnifiedSeed path is DEAD (0 live callers — grep-verified at the flip).
+// The three cut-in callers (CardController.cs:2623/2887/3258) still run over an empty cut-in stack in every
+// currently-exercised scenario (RDW-06 two-pass counter is C2b), but the main window loop body is now reached.
 //
 // SUBSTRATE TRANSLATION (task-approved, per design §1.4/§4):
 //  - IEnumerator -> async Task; ContinuousController.StartCoroutine(X)/yield return -> await X.
@@ -63,8 +65,9 @@ public sealed class MultipleSkills
     public MultipleSkills(EngineContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
-        // (ADAPTATION A1/A2, DORMANT) the SkillInfo-currency choice port over this instance's continuation. Not
-        // driven live yet — the cutover batch (C) records answers on the continuation from the agent's action.
+        // (ADAPTATION A1/A2) the SkillInfo-currency choice port over this instance's continuation. LIVE since the
+        // R3-C2 flip: a window ORDER / optional pick opens a ChoiceController request through this port, and
+        // MetadataActionProcessor seam-2 records the agent's answer on the continuation for the resumed replay.
         _choicePort = new AgentSkillWindowChoicePort(context.ChoiceController, _continuation);
     }
 
@@ -158,9 +161,9 @@ public sealed class MultipleSkills
         await RunPhasesAsync(TurnPlayerSkillInfos, freshCurrentPhase: true, CancellationToken.None);
     }
 
-    // (batch W1b) Re-entry after a suspend — DORMANT (no live caller; the C cutover wires it: the seam records the
+    // (batch W1b) Re-entry after a suspend — LIVE since the R3-C2 flip: MetadataActionProcessor seam-2 records the
     // order answer on the continuation, then drives the drain-level AutoProcessing.ResumeSuspendedWindowsAsync,
-    // which calls this). Continues from the PERSISTED cursor: the current half is NOT re-seeded (its
+    // which calls this. Continues from the PERSISTED cursor: the current half is NOT re-seeded (its
     // StackedSkillInfos already holds the remaining stack), while a not-yet-started other half seeds fresh. If a
     // body pick was in flight it replays first (see RunOnePlayerAsync); otherwise the pass head re-runs and the
     // choice port replays the recorded answer.

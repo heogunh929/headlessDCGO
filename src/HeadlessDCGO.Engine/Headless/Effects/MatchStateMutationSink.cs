@@ -1169,11 +1169,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 var deletionAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(_context);
                 // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509) —
                 // two builder calls, not one shared instance.
+                // (P1-1 C2r) Cause derivation for IsByBattle/IsByEffect: this sink is the effect-delete path, so
+                // byBattle = false; byEffect = the batch is NOT the DP-zero sweep (a DP-zero delete carries no
+                // CardEffect in AS-IS, so IsByEffect must stay false while DPZero=true). A non-DPZero sink batch
+                // always carries a causing effect id, so byEffect = !anyDpZero exactly matches AS-IS.
                 await deletionAutoProcessing.StackSkillInfos(
-                    CardEffectCommons.OnDeletionHashtable(deadPermanents, cardEffect: null!, battle: null!, anyDpZero),
+                    CardEffectCommons.OnDeletionHashtable(deadPermanents, byEffectCause: !anyDpZero, byBattleCause: false, anyDpZero),
                     EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
                 await deletionAutoProcessing.StackSkillInfos(
-                    CardEffectCommons.OnDeletionHashtable(deadPermanents, cardEffect: null!, battle: null!, anyDpZero),
+                    CardEffectCommons.OnDeletionHashtable(deadPermanents, byEffectCause: !anyDpZero, byBattleCause: false, anyDpZero),
                     EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
             }
         }

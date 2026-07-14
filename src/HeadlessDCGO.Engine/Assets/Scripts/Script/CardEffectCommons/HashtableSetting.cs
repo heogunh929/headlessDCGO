@@ -151,6 +151,32 @@ public static partial class CardEffectCommons
 
         return hashtable;
     }
+
+    // ADAPTATION overload (C2 decision-4 deletion transport). The sink/battle/deferred openers have NO live
+    // IBattle/ICardEffect object (RD-C1-CARDEFFECT-IDTHREAD / battle-rehousing non-scope), so they cannot use the
+    // AS-IS (List<Permanent>, ICardEffect, IBattle, bool) builder to mark the cause. They pass the DERIVED boolean
+    // cause instead: byEffectCause (a non-DPZero effect delete carries a cause id) and byBattleCause (a battle
+    // loser flagged by MarkDeletedByBattle). This delegates to the faithful builder (cardEffect/battle = null,
+    // exactly as AS-IS when the keys are absent) and stamps the marker keys IsByEffect/IsByBattle read as a
+    // fallback. A DP-zero sweep passes byEffectCause=false/byBattleCause=false/isDPZero=true, so it carries only
+    // the DPZero flag — IsByBattle=false, IsByEffect=false, IsDPZeroDelete=true, matching AS-IS's DPZero-only
+    // DestroyPermanentsClass hashtable (AutoProcessing.cs:477-480 / DigimonLackDPProcess).
+    public static Hashtable OnDeletionHashtable(List<Permanent> permanents, bool byEffectCause, bool byBattleCause, bool isDPZero)
+    {
+        Hashtable hashtable = OnDeletionHashtable(permanents, cardEffect: null!, battle: null!, isDPZero);
+
+        if (byEffectCause)
+        {
+            hashtable[ByEffectCauseKey] = true;
+        }
+
+        if (byBattleCause)
+        {
+            hashtable[ByBattleCauseKey] = true;
+        }
+
+        return hashtable;
+    }
     #endregion
 
     #region Hashtable used when check whether the permanent can activate [On Play] [When Digivolving] or "Permanent enters the field" effect

@@ -331,13 +331,16 @@ public sealed class GameFlowProcessor
                             bool dyingDpZero = dyingRecord.Metadata.TryGetValue(Effects.MatchStateMutationSink.IsDpZeroKey, out object? dz) && dz is true;
                             var deferredAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
                             // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509).
+                            // (P1-1 C2r) The deferred finisher is the effect-delete path (a PRE replacement was
+                            // declined), so byBattle = false; byEffect = !dyingDpZero (a DP-zero delete carries no
+                            // CardEffect in AS-IS — DPZero=true / IsByEffect=false).
                             System.Collections.Hashtable DeferredOnDeletion() =>
                                 Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
                                     new List<Assets.Scripts.Script.CardEffectCommons.Permanent>
                                     {
                                         new(context, cardId, dyingRecord.OwnerId),
                                     },
-                                    cardEffect: null!, battle: null!, dyingDpZero);
+                                    byEffectCause: !dyingDpZero, byBattleCause: false, dyingDpZero);
                             await deferredAutoProcessing.StackSkillInfos(
                                 DeferredOnDeletion(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
                             await deferredAutoProcessing.StackSkillInfos(

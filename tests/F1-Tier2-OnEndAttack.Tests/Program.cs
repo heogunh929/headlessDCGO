@@ -34,6 +34,9 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     // --- infra (Tfx probe) ---
     ("infra self fire: an attacker's uncapped OnEndAttack reactor gains +1 memory when its attack ends (single fire, no double-collect)", TfxSelfFiresOnce),
+    // --- P1-2 (C2r) effect-driven attack OnAllyAttack window ---
+    ("P1-2 effect-driven OnAllyAttack fires: an EFFECT-driven attack (attackEffectSourceId present) opens its [When Attacking] window via the inline insert — the case supply DROPPED (+1)", TfxEffectDrivenAllyAttackFires),
+    ("P1-2 plain OnAllyAttack fires: a plain declared attack opens its [When Attacking] window via the same inline insert (+1)", TfxPlainAllyAttackFires),
     ("infra non-attacker no-fire: a field card that did NOT attack does NOT fire its OnEndAttack reactor (+0)", TfxNonAttackerNoFire),
     ("infra attacker-dead no-fire: an attacker removed from the battle area before attack-end does NOT fire (emit guarded on attacker-alive, +0)", TfxAttackerDeadNoFire),
     // --- BT9_043 (self, optional) ---
@@ -73,6 +76,47 @@ async Task TfxSelfFiresOnce()
     // P1 is the turn player, so a +1 gain reads +1. EXACTLY +1 proves the reactor fired ONCE via the activated
     // bridge — the double-collect (hook + unified-seed scheduler) that the WindowResolverWiring skip prevents is +2.
     AssertEqual(1, ctx.MemoryController.Current.Current, "the attacker's OnEndAttack reactor gained exactly +1 (single fire)");
+}
+
+// (P1-2 / C2r) An EFFECT-driven attack — declared through the shared chokepoint WITH a non-empty
+// attackEffectSourceId — must open its OnAllyAttack ([When Attacking]) window. Before the flip,
+// SkillWindowSupply.TryBuildAttack returned false whenever attackCauseEffectId was present, so an effect-driven
+// attack's OnAllyAttack window was DROPPED (RDW-05). AttackProcess.Attack() now opens it via an inline
+// StackSkillInfos insert (the sole opener, the OnAllyAttack emit removed), independent of the cause id.
+async Task TfxEffectDrivenAllyAttackFires()
+{
+    EngineContext ctx = Setup(seed: 79);
+    ctx.MemoryController.Set(0);
+    var attacker = await Place(ctx, P1, "TfxOnAllyAttackCounter", "TFX", "Digimon");
+    await Security(ctx, P2, 1);   // (MIG2) no game-over mid-attack — see TfxSelfFiresOnce
+
+    var cause = new HeadlessEntityId("cause:effect-driven-attack");
+    AttackDeclarationCommons.Declare(ctx, P1, attacker, P2, targetId: null, isDirectAttack: true, attackEffectSourceId: cause);
+    var pipeline = new AttackPipeline();
+    while ((await pipeline.AdvanceAsync(ctx)).Progressed) { }
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    AssertEqual(1, ctx.MemoryController.Current.Current,
+        "an EFFECT-driven attack opened its OnAllyAttack window and the reactor gained exactly +1 — the inline insert opens it despite the cause id supply would have dropped (single fire, no double)");
+}
+
+// (P1-2 / C2r) A PLAIN declared attack (through the shared chokepoint AttackDeclarationCommons.Declare, cause id
+// absent — the player-action path) opens the SAME OnAllyAttack window via the SAME inline insert. Exactly +1 proves
+// the insert is the sole opener (no double-fire with a stray emit / supply conversion).
+async Task TfxPlainAllyAttackFires()
+{
+    EngineContext ctx = Setup(seed: 80);
+    ctx.MemoryController.Set(0);
+    var attacker = await Place(ctx, P1, "TfxOnAllyAttackCounter", "TFX", "Digimon");
+    await Security(ctx, P2, 1);
+
+    AttackDeclarationCommons.Declare(ctx, P1, attacker, P2, targetId: null, isDirectAttack: true);
+    var pipeline = new AttackPipeline();
+    while ((await pipeline.AdvanceAsync(ctx)).Progressed) { }
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    AssertEqual(1, ctx.MemoryController.Current.Current,
+        "a plain attack opened its OnAllyAttack window and the reactor gained exactly +1 (single fire, no double)");
 }
 
 async Task TfxNonAttackerNoFire()
