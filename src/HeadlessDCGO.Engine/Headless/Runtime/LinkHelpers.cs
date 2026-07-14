@@ -121,6 +121,15 @@ public static class LinkHelpers
             return false;
         }
 
+        // (C1d RDW-02, WhenLinked isFromDigimon) AS-IS Permanent.AddLinkCard (Permanent.cs:1242-1247): isFromDigimon
+        // == the linked card is currently a battle-area permanent whose stack has >=1 digivolution source. Evaluate
+        // PRE-move (post-move the link card is off-field, so it would read false). No zone reader => false.
+        bool linkIsFromDigimon =
+            zoneMover is IZoneStateReader linkReader
+            && linkReader.GetCards(linkCard.OwnerId, ChoiceZone.BattleArea).Contains(linkCardId)
+            && linkCard.Metadata.TryGetValue(DigivolutionStackHelpers.SourceIdsKey, out object? linkSrcRaw)
+            && linkSrcRaw is IEnumerable<string> linkSrc && linkSrc.Any();
+
         // (BT22_035) fromZone == None ⇒ the link card is ALREADY off-field (e.g. a just-detached digivolution
         // source): there is no physical move to make, and a None → None ZoneMoveRequest is rejected (both zones
         // abstract). Link cards are stored off-field (ChoiceZone.None) anyway, so skip the move.
@@ -165,7 +174,13 @@ public static class LinkHelpers
         if (gameEventQueue is not null)
         {
             TriggerEventEmitter.Emit(gameEventQueue, TriggerTimings.WhenLinked, actor: current.OwnerId, subject: hostId,
-                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["linkCardId"] = linkCardId.Value });
+                extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [SkillWindowSupply.WhenLinkedLinkCardIdKey] = linkCardId.Value,
+                    // (C1d RDW-02) pre-computed AS-IS isFromDigimon so the DORMANT SkillWindowSupply can build the
+                    // full {Permanent, CardEffect, Card, isFromDigimon} key set.
+                    [SkillWindowSupply.WhenLinkedIsFromDigimonKey] = linkIsFromDigimon,
+                });
         }
 
         // AS-IS: if over max, force-trash the oldest excess link cards.

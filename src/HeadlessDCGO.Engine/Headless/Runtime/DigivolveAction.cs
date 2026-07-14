@@ -158,6 +158,12 @@ public sealed class DigivolveAction
             && reader.GetCards(action.PlayerId, ChoiceZone.BreedingArea).Contains(payload.TargetCardId)
                 ? ChoiceZone.BreedingArea
                 : ChoiceZone.BattleArea;
+
+        // (C1d RDW-04) capture the PRE-digivolve target level (AS-IS OnEnterField "oldLevels" is read before
+        // RemoveFromAllArea, CardController.cs:1367) so the entry CardMoved can carry the AS-IS
+        // OnEnterFieldHashtable params for the DORMANT SkillWindowSupply. Read BEFORE the target leaves the field.
+        int preDigivolveTargetLevel =
+            new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.TargetCardId, action.PlayerId, action.PlayerId).Level;
         ZoneMoveResult targetRemoval = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
@@ -165,12 +171,27 @@ public sealed class DigivolveAction
                 targetZone,
                 ChoiceZone.None),
             cancellationToken).ConfigureAwait(false);
+        // (C1d RDW-04) enrich the digivolve entry with the AS-IS OnEnterFieldHashtable params (isEvolution=true;
+        // evoRoots == evoRootTops == the pre-digivolve top = the target; oldLevels = [pre-digivolve level]; root
+        // None; from-digimon-digivolution-cards false for a HAND digivolve; cardEffect null for a player-initiated
+        // digivolve). Additive — no live consumer reads these before C2.
+        var digivolveEnterFieldMetadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [SkillWindowSupply.OnEnterFieldIsEvolutionKey] = true,
+            [SkillWindowSupply.OnEnterFieldIsJogressKey] = false,
+            [SkillWindowSupply.OnEnterFieldDigiXrosCountKey] = 0,
+            [SkillWindowSupply.OnEnterFieldAssemblyCountKey] = 0,
+            [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = new[] { payload.TargetCardId.Value },
+            [SkillWindowSupply.OnEnterFieldOldLevelsKey] = new[] { preDigivolveTargetLevel },
+            [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
+        };
         ZoneMoveResult cardMovement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
                 payload.CardId,
                 ChoiceZone.Hand,
-                targetZone),
+                targetZone,
+                Metadata: digivolveEnterFieldMetadata),
             cancellationToken).ConfigureAwait(false);
         // F-6.7: wrap the digivolve-cost payment with the Before/AfterPayCost windows.
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: payload.CardId,
@@ -242,6 +263,15 @@ public sealed class DigivolveAction
             extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["oldLevel"] = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.TargetCardId, action.PlayerId, action.PlayerId).Level,
+                // (C1d RDW-04) same OnEnterFieldHashtable params as the entry CardMoved, so the DORMANT
+                // SkillWindowSupply can byte-rebuild the WhenDigivolving payload too (uses the PRE-digivolve level).
+                [SkillWindowSupply.OnEnterFieldIsEvolutionKey] = true,
+                [SkillWindowSupply.OnEnterFieldIsJogressKey] = false,
+                [SkillWindowSupply.OnEnterFieldDigiXrosCountKey] = 0,
+                [SkillWindowSupply.OnEnterFieldAssemblyCountKey] = 0,
+                [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = new[] { payload.TargetCardId.Value },
+                [SkillWindowSupply.OnEnterFieldOldLevelsKey] = new[] { preDigivolveTargetLevel },
+                [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
             });
 
         // (F1-Tier2 OnAddDigivolutionCards fidelity) NATURAL digivolution does NOT emit OnAddDigivolutionCards — AS-IS

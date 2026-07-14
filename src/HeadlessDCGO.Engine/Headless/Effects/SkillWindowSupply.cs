@@ -8,7 +8,9 @@ using HeadlessDCGO.Engine.Headless.Services;
 using CardEffectCommons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
 using CardSource = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
 using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
+using OnEnterFieldHashtableParams = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.OnEnterFieldHashtableParams;
 using Permanent = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent;
+using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
 // ============================================================================================================
 // (R3-W1b, batch W2) SkillInfo window SUPPLY layer — DORMANT.
@@ -52,7 +54,7 @@ using Permanent = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Pe
 /// consumes, plus the cross-batch sequencing id (A3) and the source event for diagnostics.</summary>
 public readonly record struct SkillWindowSupplyEntry(
     EffectTiming Timing,
-    Hashtable Hashtable,
+    Hashtable? Hashtable,
     long? BatchId,
     GameEvent SourceEvent);
 
@@ -96,8 +98,64 @@ public static class SkillWindowSupply
     // RDW-05  Effect-driven attack — attackEffect (the live ICardEffect) is a GAP; the event carries only
     //         `attackCauseEffectId`. Plain attacks (attackEffect == null) are handled; effect-driven ones fall
     //         back to a null cardEffect only if the C batch confirms that is AS-IS-faithful for the caller.
+    //
+    // ===== (C1d) status update — GAPs closed in this batch (emit-enrichment + supply conversion; DORMANT) =======
+    //   RDW-04 CLOSED for PLAYER-initiated play/digivolve: OnEnterFieldAnyone / WhenDigivolving now build the AS-IS
+    //          OnEnterFieldHashtable (mirror builder) from the enriched play/digivolve emit. Residual: an
+    //          EFFECT-driven play's live cardEffect (RD-C1-CARDEFFECT-IDTHREAD) — cardEffect==null here, which the
+    //          OnEnterFieldHashtable builder faithfully OMITs (matches AS-IS's null-play case).
+    //   RDW-02 CLOSED at the KEY level for OnAddDigivolutionCards + WhenLinked: the inline hashtables are rebuilt
+    //          with the full AS-IS key set; the from-flags are computed PRE-move at the emit (resolving
+    //          F1-ADDDIGI-FROMFLAGS). Residual VALUE gap: the "CardEffect" member is null (the port threads the
+    //          causing effect's SOURCE id, not the live ICardEffect — RD-C1-CARDEFFECT-IDTHREAD). The other RDW-02
+    //          timings (discards / add-hand / tap / top-trash / …) stay UNHANDLED per the notes above.
+    //   RDW-07 CLOSED: OnStartTurn / OnStartMainPhase / OnEndTurn build the AS-IS null payload. FINDING: the port's
+    //          turn emits ALREADY go through TriggerEventEmitter.Emit (MetadataActionProcessor.cs:872/:910/:1022),
+    //          which stamps the explicit TriggerTimingKey — so TriggerTimingMap.Derive ALREADY returns these
+    //          strings (no new emit key was required; the worksheet's "don't derive" premise was stale).
+    //   RDW-01 STILL OPEN — design item RDW-01-BOUNCE-SNAPSHOT-TRANSPORT: the OnLeaveFieldAnyone /
+    //          OnPermamemtReturnedToHand payload (OnDeletionHashtable, PRE-removal snapshot) rides the field->Hand
+    //          CardMoved, but a bounce's move (MatchStateMutationSink ReturnToHandKind -> IZoneMover.AddToHandAsync)
+    //          is minted INSIDE InMemoryZoneMover, whose CardMoved metadata (BuildAddHandMetadata) is OUTSIDE this
+    //          batch's file ownership and cannot carry a caller snapshot. The pre-move Permanent IS in scope at the
+    //          sink, but there is no sink-owned event carrying those timings to enrich. The C2 flip (re-position
+    //          StackSkillInfos to the sink's pre-move point) closes it. (The field->Trash DELETION timings stay at
+    //          the mirror DestroyPermanentsClass, which already calls StackSkillInfos — not this layer's concern.)
 
     private const string AttackCauseEffectIdKey = "attackCauseEffectId";
+
+    // ----- (C1d) emit-enrichment metadata keys the play/digivolve/add-source/link emit sites ADD so this layer
+    //       can byte-reconstruct the AS-IS Hashtable at cutover. Purely ADDITIVE (behaviour-neutral): no live
+    //       consumer reads them before C2 (the live window seeds off the pre-existing keys only). ------------------
+
+    // RDW-04 OnEnterFieldHashtable params — carried on the play (PlayCardAction) / digivolve (DigivolveAction)
+    // emit. AS-IS OnEnterFieldHashtable(OnEnterFieldHashtableParams…) (CardController.cs:1681, params class
+    // :1100). The port plays/digivolves ONE card from HAND: root is always None, evoRootTops == evoRoots, and the
+    // causing ICardEffect is null for a PLAYER-initiated play/digivolve (AS-IS CardEffect =
+    // GetCardEffectFromHashtable(_hashtable) == null); an EFFECT-driven play carries only a cause id, so its live
+    // cardEffect stays a GAP (design item RD-C1-CARDEFFECT-IDTHREAD).
+    public const string OnEnterFieldIsEvolutionKey = "oefIsEvolution"; // presence == "this move carries the params".
+    public const string OnEnterFieldIsJogressKey = "oefIsJogress";
+    public const string OnEnterFieldDigiXrosCountKey = "oefDigiXrosCount";
+    public const string OnEnterFieldAssemblyCountKey = "oefAssemblyCount";
+    public const string OnEnterFieldEvoRootIdsKey = "oefEvoRootIds";   // string[] — evoRoots == evoRootTops here.
+    public const string OnEnterFieldOldLevelsKey = "oefOldLevels";     // int[]
+    public const string OnEnterFieldIsFromDigimonDigivolutionCardsKey = "oefIsFromDigimonDigivolutionCards";
+
+    // RDW-02 OnAddDigivolutionCards from-flags (added to the DigivolutionStackHelpers emit, which already carries
+    // "addedCardIds" + "causeSourceId"). AS-IS inline {Permanent, CardEffect, CardSources, isFromSameDigimon,
+    // isFromDigimon} (Permanent.cs:1109-1116 / 1213-1220). Computed PRE-move in the helper (resolving the latent
+    // F1-ADDDIGI-FROMFLAGS item). CardEffect stays null (the port threads causeSourceId, not the live effect —
+    // design item RD-C1-CARDEFFECT-IDTHREAD).
+    public const string AddDigivolutionAddedCardIdsKey = "addedCardIds";
+    public const string AddDigivolutionIsFromSameDigimonKey = "addDigiIsFromSameDigimon";
+    public const string AddDigivolutionIsFromDigimonKey = "addDigiIsFromDigimon";
+
+    // RDW-02 WhenLinked (added to the LinkHelpers emit, which already carries "linkCardId"). AS-IS inline
+    // {Permanent, CardEffect, Card, isFromDigimon} (Permanent.cs:1290). isFromDigimon computed PRE-move; CardEffect
+    // null (RD-C1-CARDEFFECT-IDTHREAD).
+    public const string WhenLinkedLinkCardIdKey = "linkCardId";
+    public const string WhenLinkedIsFromDigimonKey = "whenLinkedIsFromDigimon";
 
     /// <summary>Convert ONE drained <see cref="GameEvent"/> into every AS-IS supply call it opens that this
     /// layer can faithfully reconstruct. An event derives several timings (<see cref="TriggerTimingMap"/>);
@@ -122,8 +180,11 @@ public static class SkillWindowSupply
                 continue; // e.g. "OnPlay" has no EffectTiming member — RDW-04.
             }
 
-            if (TryBuildHashtable(context, gameEvent, timing, out Hashtable? hashtable) && hashtable is not null)
+            if (TryBuildHashtable(context, gameEvent, timing, out Hashtable? hashtable))
             {
+                // NOTE: a HANDLED timing may carry a null hashtable — the turn boundaries (RDW-07) mirror the
+                // AS-IS `StackSkillInfos(null, timing)` (payload-free). "Handled" == TryBuildHashtable returned
+                // true, independent of whether the payload is null.
                 entries.Add(new SkillWindowSupplyEntry(
                     timing, hashtable, ReadSequencingBatchId(gameEvent, timing), gameEvent));
             }
@@ -199,8 +260,33 @@ public static class SkillWindowSupply
             case EffectTiming.OnReturnCardsToLibraryFromTrash:
                 return TryBuildReturnCardsToLibraryFromTrash(context, gameEvent, out hashtable);
 
+            // ---- (C1d RDW-04) OnPlay / OnEnterFieldAnyone / WhenDigivolving: AS-IS OnEnterFieldHashtable -----
+            // The play (PlayCardAction) / digivolve (DigivolveAction) emit is enriched with the params (marker
+            // OnEnterFieldIsEvolutionKey). A bare Hand/Breeding->field move WITHOUT the marker stays unhandled.
+            case EffectTiming.OnEnterFieldAnyone:
+            case EffectTiming.WhenDigivolving:
+                return TryBuildOnEnterField(context, gameEvent, out hashtable);
+
+            // ---- (C1d RDW-02) OnAddDigivolutionCards: AS-IS inline {Permanent, CardEffect, CardSources, ---------
+            //      isFromSameDigimon, isFromDigimon} (Permanent.cs:1109-1116/1213-1220). -----------------------------
+            case EffectTiming.OnAddDigivolutionCards:
+                return TryBuildOnAddDigivolutionCards(context, gameEvent, out hashtable);
+
+            // ---- (C1d RDW-02) WhenLinked: AS-IS inline {Permanent, CardEffect, Card, isFromDigimon} (:1290) -----
+            case EffectTiming.WhenLinked:
+                return TryBuildWhenLinked(context, gameEvent, out hashtable);
+
+            // ---- (C1d RDW-07) turn/phase boundaries: AS-IS StackSkillInfos(null, timing) (TurnStateMachine.cs:564/
+            //      905, AutoProcessing.cs:699) — a payload-FREE window. HANDLED with a null hashtable. The port's
+            //      TriggerEventEmitter already stamps the explicit timing, so TriggerTimingMap derives these. ------
+            case EffectTiming.OnStartTurn:
+            case EffectTiming.OnStartMainPhase:
+            case EffectTiming.OnEndTurn:
+                hashtable = null; // AS-IS null payload (byte-identical to StackSkillInfos(null, timing)).
+                return true;
+
             default:
-                return false; // UNHANDLED — RDW-01..RDW-05 per the timing.
+                return false; // UNHANDLED — RDW-01/03/05/06 per the timing.
         }
     }
 
@@ -264,6 +350,133 @@ public static class SkillWindowSupply
         CardSource cardSource = new(context, subjectId, controller, owner);
         hashtable = new Hashtable { { "CardSources", new List<CardSource> { cardSource } } };
         return true;
+    }
+
+    /// <summary>(C1d RDW-04) AS-IS <c>OnEnterFieldHashtable(OnEnterFieldHashtableParams…)</c>
+    /// (CardController.cs:1681, params class :1100) for OnEnterFieldAnyone / WhenDigivolving. Built from the
+    /// enriched play/digivolve emit (marker <see cref="OnEnterFieldIsEvolutionKey"/>): the entered permanent is
+    /// the event Subject (post-move it is on the field, so a live <see cref="Permanent"/> view is faithful); the
+    /// per-param members (isEvolution/isJogress/counts/evoRoots/oldLevels/isFromDigimonDigivolutionCards) ride the
+    /// event; <c>root</c> is None and <c>evoRootTops == evoRoots</c> for the port's single-card HAND play/digivolve;
+    /// <c>cardEffect</c> is null (a PLAYER-initiated play is AS-IS cardEffect==null — an EFFECT-driven play's live
+    /// effect is a GAP, design item RD-C1-CARDEFFECT-IDTHREAD). A move WITHOUT the marker is unhandled.</summary>
+    private static bool TryBuildOnEnterField(EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)
+    {
+        hashtable = null;
+        if (gameEvent.Subject is not { IsEmpty: false } subjectId
+            || !gameEvent.Metadata.ContainsKey(OnEnterFieldIsEvolutionKey))
+        {
+            return false;
+        }
+
+        HeadlessPlayerId owner = ResolveOwner(context, subjectId, gameEvent);
+        bool isEvolution = ReadBool(gameEvent, OnEnterFieldIsEvolutionKey);
+        bool isJogress = ReadBool(gameEvent, OnEnterFieldIsJogressKey);
+        int digiXrosCount = ReadInt(gameEvent, OnEnterFieldDigiXrosCountKey);
+        int assemblyCount = ReadInt(gameEvent, OnEnterFieldAssemblyCountKey);
+        bool isFromDigimonDigivolutionCards = ReadBool(gameEvent, OnEnterFieldIsFromDigimonDigivolutionCardsKey);
+        List<CardSource> evoRoots = ReadCardSources(context, gameEvent, OnEnterFieldEvoRootIdsKey, owner);
+        List<int> oldLevels = ReadIntList(gameEvent, OnEnterFieldOldLevelsKey);
+
+        var param = new OnEnterFieldHashtableParams(
+            permanent: new Permanent(context, subjectId, owner),
+            evoRoots: evoRoots,
+            evoRootTops: new List<CardSource>(evoRoots),
+            root: SelectCardEffect.Root.None,
+            oldLevels: oldLevels,
+            isFromDigimonDigivolutionCards: isFromDigimonDigivolutionCards,
+            digiXrosCount: digiXrosCount,
+            assemblyCount: assemblyCount);
+
+        hashtable = CardEffectCommons.OnEnterFieldHashtable(
+            new List<OnEnterFieldHashtableParams> { param },
+            isEvolution, isJogress, digiXrosCount, assemblyCount, cardEffect: null!);
+        return true;
+    }
+
+    /// <summary>(C1d RDW-02) AS-IS inline <c>{Permanent, CardEffect, CardSources, isFromSameDigimon,
+    /// isFromDigimon}</c> (Permanent.cs:1109-1116 / 1213-1220). Host = event Subject; the added cards come from
+    /// the emit's <c>addedCardIds</c>; the from-flags are pre-computed at the emit site (F1-ADDDIGI-FROMFLAGS).
+    /// CardEffect is null — the port threads the causing effect's SOURCE id, not the live ICardEffect
+    /// (design item RD-C1-CARDEFFECT-IDTHREAD); the KEY is present (byte-identical key set), the VALUE is the
+    /// residual gap for an effect-driven add.</summary>
+    private static bool TryBuildOnAddDigivolutionCards(EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)
+    {
+        hashtable = null;
+        if (gameEvent.Subject is not { IsEmpty: false } hostId
+            || !gameEvent.Metadata.TryGetValue(AddDigivolutionAddedCardIdsKey, out object? raw)
+            || raw is not string joined || joined.Length == 0)
+        {
+            return false;
+        }
+
+        HeadlessPlayerId hostOwner = ResolveOwner(context, hostId, gameEvent);
+        var cardSources = joined
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => new CardSource(context, new HeadlessEntityId(id), hostOwner, hostOwner))
+            .ToList();
+
+        hashtable = new Hashtable
+        {
+            { "Permanent", new Permanent(context, hostId, hostOwner) },
+            { "CardEffect", null }, // RD-C1-CARDEFFECT-IDTHREAD: live effect not threaded (causeSourceId only).
+            { "CardSources", cardSources },
+            { "isFromSameDigimon", ReadBool(gameEvent, AddDigivolutionIsFromSameDigimonKey) },
+            { "isFromDigimon", ReadBool(gameEvent, AddDigivolutionIsFromDigimonKey) },
+        };
+        return true;
+    }
+
+    /// <summary>(C1d RDW-02) AS-IS inline <c>{Permanent, CardEffect, Card, isFromDigimon}</c> (Permanent.cs:1290).
+    /// Host = event Subject; the linked card = the emit's <c>linkCardId</c>; isFromDigimon pre-computed at the
+    /// emit. CardEffect is null (RD-C1-CARDEFFECT-IDTHREAD).</summary>
+    private static bool TryBuildWhenLinked(EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)
+    {
+        hashtable = null;
+        if (gameEvent.Subject is not { IsEmpty: false } hostId
+            || !gameEvent.Metadata.TryGetValue(WhenLinkedLinkCardIdKey, out object? raw)
+            || raw is not string linkId || linkId.Length == 0)
+        {
+            return false;
+        }
+
+        HeadlessPlayerId hostOwner = ResolveOwner(context, hostId, gameEvent);
+        hashtable = new Hashtable
+        {
+            { "Permanent", new Permanent(context, hostId, hostOwner) },
+            { "CardEffect", null }, // RD-C1-CARDEFFECT-IDTHREAD.
+            { "Card", new CardSource(context, new HeadlessEntityId(linkId), hostOwner, hostOwner) },
+            { "isFromDigimon", ReadBool(gameEvent, WhenLinkedIsFromDigimonKey) },
+        };
+        return true;
+    }
+
+    private static bool ReadBool(GameEvent gameEvent, string key) =>
+        gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is true;
+
+    private static int ReadInt(GameEvent gameEvent, string key) =>
+        gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is int value ? value : 0;
+
+    private static List<int> ReadIntList(GameEvent gameEvent, string key) =>
+        gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is IEnumerable<int> values
+            ? values.ToList()
+            : new List<int>();
+
+    private static List<CardSource> ReadCardSources(EngineContext context, GameEvent gameEvent, string key, HeadlessPlayerId owner)
+    {
+        var list = new List<CardSource>();
+        if (gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is IEnumerable<string> ids)
+        {
+            foreach (string id in ids)
+            {
+                if (!string.IsNullOrWhiteSpace(id))
+                {
+                    list.Add(new CardSource(context, new HeadlessEntityId(id), owner, owner));
+                }
+            }
+        }
+
+        return list;
     }
 
     /// <summary>Owner of the reacting/subject card: the repository's authoritative owner, falling back to the

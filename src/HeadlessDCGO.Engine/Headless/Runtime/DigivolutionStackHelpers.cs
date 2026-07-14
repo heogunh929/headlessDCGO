@@ -51,6 +51,8 @@ public static class DigivolutionStackHelpers
             return;
         }
 
+        // (C1d RDW-02) compute the AS-IS from-flags BEFORE the cards move (post-move they read wrong).
+        (bool isFromSame, bool isFromDigimon) = ComputeAddDigivolutionFromFlags(repository, zoneMover, target, cards);
         var appended = new List<string>();
         foreach (HeadlessEntityId cardId in cards)
         {
@@ -71,7 +73,7 @@ public static class DigivolutionStackHelpers
         // OnAddDigivolutionCards when an EFFECT places >=1 card under a permanent, EXCEPT when skipEffectAndActivateSkill.
         // Natural digivolution does NOT reach this helper (DigivolveAction attaches sources itself), so this is purely
         // the effect place-under path. Emit only when a caller supplies the queue + causing-effect source.
-        EmitAddDigivolutionCards(gameEventQueue, target.OwnerId, targetId, appended, causeSourceId, skipEffectAndActivateSkill);
+        EmitAddDigivolutionCards(gameEventQueue, target.OwnerId, targetId, appended, causeSourceId, skipEffectAndActivateSkill, isFromSame, isFromDigimon);
     }
 
     /// <summary>(G8 / BT3_019 <c>AddDigivolutionCardsTop</c>) Moves <paramref name="cards"/> from
@@ -98,6 +100,8 @@ public static class DigivolutionStackHelpers
             return;
         }
 
+        // (C1d RDW-02) compute the AS-IS from-flags BEFORE the cards move.
+        (bool isFromSame, bool isFromDigimon) = ComputeAddDigivolutionFromFlags(repository, zoneMover, target, cards);
         var moved = new List<string>();
         foreach (HeadlessEntityId cardId in cards)
         {
@@ -117,7 +121,7 @@ public static class DigivolutionStackHelpers
         PrependSources(repository, target, moved);
         // (F1-Tier2 OnAddDigivolutionCards) AS-IS AddDigivolutionCardsTop (Permanent.cs:1064-1119) has NO skip flag —
         // an effect placing >=1 card on top always fires OnAddDigivolutionCards. Effect place-under path only.
-        EmitAddDigivolutionCards(gameEventQueue, target.OwnerId, targetId, moved, causeSourceId, skip: false);
+        EmitAddDigivolutionCards(gameEventQueue, target.OwnerId, targetId, moved, causeSourceId, skip: false, isFromSame, isFromDigimon);
     }
 
     /// <summary>(C-23 Material Save) Moves the first <paramref name="count"/> digivolution sources of
@@ -153,6 +157,11 @@ public static class DigivolutionStackHelpers
         List<string> moved = fromSources.Take(Math.Min(count, fromSources.Count)).ToList();
         List<string> remaining = fromSources.Skip(moved.Count).ToList();
 
+        // (C1d RDW-02) from-flags BEFORE the re-parent append. Re-parented cards are off-field digivolution
+        // sources, so isFromDigimon (a battle-area top) is false; isFromSameDigimon = already a source of the dest.
+        var destSources = ReadSourceIds(destination.Metadata).Select(id => id.Value).ToHashSet(StringComparer.Ordinal);
+        bool isFromSame = moved.Any(m => destSources.Contains(m));
+
         repository.Upsert(source with { Metadata = WithSources(source.Metadata, remaining) });
         AppendSources(repository, destination, moved);
         if (onceFlags is not null)
@@ -170,7 +179,7 @@ public static class DigivolutionStackHelpers
         // (F1-Tier2 OnAddDigivolutionCards) caller-gated: Material Save's AddDigivolutionCardsBottom(selectedCards)
         // is a real effect place-under and fires (queue + cause supplied); MindLink's re-parent tail (after the
         // Tamer itself was already added via AddSourcesBottomAsync, which emitted) supplies neither, so it stays silent.
-        EmitAddDigivolutionCards(gameEventQueue, destination.OwnerId, toId, moved, causeSourceId, skip: false);
+        EmitAddDigivolutionCards(gameEventQueue, destination.OwnerId, toId, moved, causeSourceId, skip: false, isFromSame, isFromDigimon: false);
         return true;
     }
 
@@ -538,17 +547,20 @@ public static class DigivolutionStackHelpers
     // The gate CanTriggerOnAddDigivolutionCard requires a NON-EMPTY cause (AS-IS OnAddDigivolutionCards.cs:24
     // `CardEffect != null`) — an Assembly-style add (AS-IS `AddDigivolutionCardsBottom(card, null)`) passes a default
     // (empty) cause here and every reactor rejects it. No queue / no added cards / skip => no emit.
-    // (design item F1-ADDDIGI-FROMFLAGS, latent) AS-IS payload also carries isFromSameDigimon / isFromDigimon (whether
-    // an added card came from THIS permanent's own sources / from another Digimon's sources). Only 3 AS-IS reactors
-    // gate on them (BT22_006 / EX5_065 / EX5_001), all unported skeletons today, so the emit omits both. Add them here
-    // (computed from each added card's prior owner/host) before porting one of those cards.
+    // (C1d RDW-02, resolving F1-ADDDIGI-FROMFLAGS) AS-IS payload carries isFromSameDigimon / isFromDigimon (whether
+    // an added card was already among THIS permanent's own sources / came from a Digimon on the battle area with >=1
+    // sources — Permanent.cs:1071-1085). They gate 3 AS-IS reactors (BT22_006 / EX5_065 / EX5_001, unported today).
+    // Computed PRE-move by the caller (post-move the flags read wrong: the card is now under the host / off-field)
+    // and threaded here into the emit so the DORMANT SkillWindowSupply can build the full AS-IS key set.
     private static void EmitAddDigivolutionCards(
         GameEventQueue? gameEventQueue,
         HeadlessPlayerId hostOwner,
         HeadlessEntityId hostId,
         IReadOnlyList<string> addedCardIds,
         HeadlessEntityId causeSourceId,
-        bool skip)
+        bool skip,
+        bool isFromSameDigimon,
+        bool isFromDigimon)
     {
         if (gameEventQueue is null || addedCardIds.Count == 0 || skip)
         {
@@ -562,9 +574,41 @@ public static class DigivolutionStackHelpers
             subject: hostId,
             extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
             {
-                ["addedCardIds"] = string.Join(",", addedCardIds),
+                [SkillWindowSupply.AddDigivolutionAddedCardIdsKey] = string.Join(",", addedCardIds),
                 ["causeSourceId"] = causeSourceId.Value,
+                [SkillWindowSupply.AddDigivolutionIsFromSameDigimonKey] = isFromSameDigimon,
+                [SkillWindowSupply.AddDigivolutionIsFromDigimonKey] = isFromDigimon,
             });
+    }
+
+    // (C1d RDW-02) AS-IS AddDigivolutionCardsTop/Bottom (Permanent.cs:1071-1085): isFromSameDigimon == an added
+    // card was already in THIS permanent's cardSources; isFromDigimon == an added card exists on the battle area
+    // and its permanent has >=1 digivolution sources. Evaluated PRE-move (target + cards still in their prior
+    // state). No zone reader (bare re-parent) => isFromDigimon can only be a battle-area top, so it is false.
+    private static (bool isFromSame, bool isFromDigimon) ComputeAddDigivolutionFromFlags(
+        ICardInstanceRepository repository, IZoneMover? zoneMover, CardInstanceRecord target, IReadOnlyList<HeadlessEntityId> cards)
+    {
+        bool isFromSame = false;
+        bool isFromDigimon = false;
+        var hostSources = ReadSourceIds(target.Metadata).Select(id => id.Value).ToHashSet(StringComparer.Ordinal);
+        IZoneStateReader? reader = zoneMover as IZoneStateReader;
+        foreach (HeadlessEntityId cardId in cards)
+        {
+            if (hostSources.Contains(cardId.Value))
+            {
+                isFromSame = true;
+            }
+
+            if (reader is not null
+                && repository.TryGetInstance(cardId, out CardInstanceRecord? card) && card is not null
+                && reader.GetCards(card.OwnerId, ChoiceZone.BattleArea).Contains(cardId)
+                && ReadSourceIds(card.Metadata).Count >= 1)
+            {
+                isFromDigimon = true;
+            }
+        }
+
+        return (isFromSame, isFromDigimon);
     }
 
     private static void AppendSources(ICardInstanceRepository repository, CardInstanceRecord target, IReadOnlyList<string> add)

@@ -168,12 +168,28 @@ public sealed class PlayCardAction
         // F-1.7: the fixed cost for this play is now locked in — expire one-shot "until cost is calculated"
         // modifiers (AS-IS clears Player.UntilCalculateFixedCostEffect on play).
         EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+        // (C1d RDW-04) enrich the entry CardMoved with the AS-IS OnEnterFieldHashtable params so the DORMANT
+        // SkillWindowSupply can byte-rebuild the OnEnterFieldAnyone payload at cutover. A player-initiated HAND play
+        // is a non-evolution, non-jogress entry (evoRoots/oldLevels empty, isFromDigimonDigivolutionCards false,
+        // cardEffect null); assemblyCount = the materials tucked at entry (AS-IS _assemblyCount). Purely additive —
+        // no live consumer reads these keys before C2.
+        var onEnterFieldMetadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [SkillWindowSupply.OnEnterFieldIsEvolutionKey] = false,
+            [SkillWindowSupply.OnEnterFieldIsJogressKey] = false,
+            [SkillWindowSupply.OnEnterFieldDigiXrosCountKey] = 0,
+            [SkillWindowSupply.OnEnterFieldAssemblyCountKey] = payload.AssemblyMaterials.Count,
+            [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = Array.Empty<string>(),
+            [SkillWindowSupply.OnEnterFieldOldLevelsKey] = Array.Empty<int>(),
+            [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
+        };
         ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
                 payload.CardId,
                 payload.FromZone,
-                payload.ToZone),
+                payload.ToZone,
+                Metadata: onEnterFieldMetadata),
             cancellationToken).ConfigureAwait(false);
 
         // N-1 (summoning sickness): a freshly-played permanent entered the field this turn and cannot

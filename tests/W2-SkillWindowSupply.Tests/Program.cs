@@ -189,5 +189,158 @@ GameEvent DeletionMove(long batchId)
     Check(retEntry.BatchId is null, "OnReturnCardsToLibraryFromTrash is batch-less");
 }
 
+// --- 9. (C1d RDW-04) OnEnterFieldAnyone for a PLAYER play: the enriched Hand→BattleArea CardMoved builds the
+//        AS-IS OnEnterFieldHashtable (HashtableSetting.cs:157). Non-evolution: top isEvolution=false, one
+//        hashtables entry with empty evoRoots/oldLevels; cardEffect null ⇒ NO "CardEffect" key (builder omits). ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    var played = new HeadlessEntityId("played");
+    var playMeta = new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [SkillWindowSupply.OnEnterFieldIsEvolutionKey] = false,
+        [SkillWindowSupply.OnEnterFieldIsJogressKey] = false,
+        [SkillWindowSupply.OnEnterFieldDigiXrosCountKey] = 0,
+        [SkillWindowSupply.OnEnterFieldAssemblyCountKey] = 2,
+        [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = Array.Empty<string>(),
+        [SkillWindowSupply.OnEnterFieldOldLevelsKey] = Array.Empty<int>(),
+        [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
+    };
+    GameEvent ev = new GameEvent(20, GameEventType.CardMoved, "play", playMeta)
+    {
+        Actor = owner, Subject = played, ZoneFrom = ChoiceZone.Hand, ZoneTo = ChoiceZone.BattleArea,
+    };
+    SkillWindowSupplyEntry e = SkillWindowSupply.ConvertEvent(context, ev)
+        .SingleOrDefault(x => x.Timing == EffectTiming.OnEnterFieldAnyone);
+    Hashtable? ht = e.Hashtable;
+    Check(ht is not null, "OnEnterFieldAnyone is handled for an enriched play");
+    Check(ht is not null && ht.ContainsKey("isEvolution") && ht["isEvolution"] is false
+        && ht.ContainsKey("isJogress") && ht.ContainsKey("DigiXrosCount")
+        && ht.ContainsKey("AssemblyCount") && (int)ht["AssemblyCount"]! == 2
+        && ht.ContainsKey("isFromDigimonDigivolutionCards") && ht.ContainsKey("hashtables"),
+        "OnEnterFieldHashtable has the AS-IS top-level keys (isEvolution/isJogress/DigiXrosCount/AssemblyCount/isFromDigimonDigivolutionCards/hashtables)");
+    Check(ht is not null && !ht.ContainsKey("CardEffect"), "player play: no CardEffect key (AS-IS omits null cardEffect)");
+    Check(ht?["hashtables"] is List<Hashtable> list && list.Count == 1
+        && list[0].ContainsKey("Permanent") && list[0]["Permanent"] is PermanentT pp && pp.InstanceId == played
+        && list[0].ContainsKey("evoRoots") && ((List<CardSource>)list[0]["evoRoots"]!).Count == 0
+        && list[0].ContainsKey("evoRootTops") && list[0].ContainsKey("Root")
+        && list[0].ContainsKey("oldLevels") && ((List<int>)list[0]["oldLevels"]!).Count == 0,
+        "per-permanent entry has {Permanent(=subject), evoRoots(empty), evoRootTops, Root, oldLevels(empty)}");
+    Check(e.BatchId is null, "OnEnterFieldAnyone is batch-less");
+    // a BARE Hand→BattleArea move (no enrichment marker) stays UNHANDLED.
+    GameEvent bare = new GameEvent(21, GameEventType.CardMoved, "bareplay", new Dictionary<string, object?>())
+    { Actor = owner, Subject = played, ZoneFrom = ChoiceZone.Hand, ZoneTo = ChoiceZone.BattleArea };
+    Check(SkillWindowSupply.UnhandledTimings(context, bare).Contains(EffectTiming.OnEnterFieldAnyone),
+        "an unenriched Hand→BattleArea move is UNHANDLED for OnEnterFieldAnyone");
+}
+
+// --- 10. (C1d RDW-04) WhenDigivolving for a digivolve: isEvolution=true, one evoRoot (the target) + oldLevels. ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    var evolved = new HeadlessEntityId("evolved");
+    var target = new HeadlessEntityId("target");
+    var queue = new GameEventQueue();
+    TriggerEventEmitter.Emit(queue, TriggerTimings.WhenDigivolving, actor: owner, subject: evolved,
+        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["oldLevel"] = 4,
+            [SkillWindowSupply.OnEnterFieldIsEvolutionKey] = true,
+            [SkillWindowSupply.OnEnterFieldIsJogressKey] = false,
+            [SkillWindowSupply.OnEnterFieldDigiXrosCountKey] = 0,
+            [SkillWindowSupply.OnEnterFieldAssemblyCountKey] = 0,
+            [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = new[] { target.Value },
+            [SkillWindowSupply.OnEnterFieldOldLevelsKey] = new[] { 4 },
+            [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
+        });
+    GameEvent ev = queue.DrainPending().Single();
+    SkillWindowSupplyEntry e = SkillWindowSupply.ConvertEvent(context, ev)
+        .SingleOrDefault(x => x.Timing == EffectTiming.WhenDigivolving);
+    Hashtable? ht = e.Hashtable;
+    Check(ht is not null && ht["isEvolution"] is true, "WhenDigivolving builds OnEnterFieldHashtable with isEvolution=true");
+    Check(ht?["hashtables"] is List<Hashtable> list && list.Count == 1
+        && ((List<CardSource>)list[0]["evoRoots"]!).Count == 1 && ((List<CardSource>)list[0]["evoRoots"]!)[0].InstanceId == target
+        && ((List<CardSource>)list[0]["evoRootTops"]!).Count == 1
+        && ((List<int>)list[0]["oldLevels"]!).SequenceEqual(new[] { 4 }),
+        "evoRoots/evoRootTops = [target], oldLevels = [4]");
+    Check(ht is not null && list0Permanent(ht) == evolved, "WhenDigivolving Permanent is the digivolved subject");
+
+    static HeadlessEntityId list0Permanent(Hashtable ht) =>
+        ((List<Hashtable>)ht["hashtables"]!)[0]["Permanent"] is PermanentT p ? p.InstanceId : default;
+}
+
+// --- 11. (C1d RDW-02) OnAddDigivolutionCards inline {Permanent, CardEffect, CardSources, isFromSameDigimon,
+//         isFromDigimon} (Permanent.cs:1109-1116). CardEffect key present but null (RD-C1-CARDEFFECT-IDTHREAD). ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    var host = new HeadlessEntityId("host");
+    var added = new HeadlessEntityId("added1");
+    var queue = new GameEventQueue();
+    TriggerEventEmitter.Emit(queue, TriggerTimings.OnAddDigivolutionCards, actor: owner, subject: host,
+        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [SkillWindowSupply.AddDigivolutionAddedCardIdsKey] = added.Value,
+            ["causeSourceId"] = "cause",
+            [SkillWindowSupply.AddDigivolutionIsFromSameDigimonKey] = true,
+            [SkillWindowSupply.AddDigivolutionIsFromDigimonKey] = false,
+        });
+    GameEvent ev = queue.DrainPending().Single();
+    SkillWindowSupplyEntry e = SkillWindowSupply.ConvertEvent(context, ev)
+        .SingleOrDefault(x => x.Timing == EffectTiming.OnAddDigivolutionCards);
+    Hashtable? ht = e.Hashtable;
+    Check(ht is { Count: 5 }
+        && ht.ContainsKey("Permanent") && ht.ContainsKey("CardEffect")
+        && ht.ContainsKey("CardSources") && ht.ContainsKey("isFromSameDigimon") && ht.ContainsKey("isFromDigimon"),
+        "OnAddDigivolutionCards has exactly the 5 AS-IS keys");
+    Check(ht?["Permanent"] is PermanentT p && p.InstanceId == host, "Permanent = the host subject");
+    Check(ht?["CardEffect"] is null, "CardEffect is null (port threads causeSourceId, not the live effect — RD-C1-CARDEFFECT-IDTHREAD)");
+    Check(ht?["CardSources"] is List<CardSource> cs && cs.Count == 1 && cs[0].InstanceId == added, "CardSources = [added card]");
+    Check(ht?["isFromSameDigimon"] is true && ht?["isFromDigimon"] is false, "from-flags carried from the emit (pre-computed)");
+}
+
+// --- 12. (C1d RDW-02) WhenLinked inline {Permanent, CardEffect, Card, isFromDigimon} (Permanent.cs:1290). ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    var host = new HeadlessEntityId("linkhost");
+    var linkCard = new HeadlessEntityId("linkcard");
+    var queue = new GameEventQueue();
+    TriggerEventEmitter.Emit(queue, TriggerTimings.WhenLinked, actor: owner, subject: host,
+        extraMetadata: new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [SkillWindowSupply.WhenLinkedLinkCardIdKey] = linkCard.Value,
+            [SkillWindowSupply.WhenLinkedIsFromDigimonKey] = true,
+        });
+    GameEvent ev = queue.DrainPending().Single();
+    SkillWindowSupplyEntry e = SkillWindowSupply.ConvertEvent(context, ev)
+        .SingleOrDefault(x => x.Timing == EffectTiming.WhenLinked);
+    Hashtable? ht = e.Hashtable;
+    Check(ht is { Count: 4 } && ht.ContainsKey("Permanent") && ht.ContainsKey("CardEffect")
+        && ht.ContainsKey("Card") && ht.ContainsKey("isFromDigimon"),
+        "WhenLinked has exactly the 4 AS-IS keys");
+    Check(ht?["Permanent"] is PermanentT p && p.InstanceId == host, "Permanent = the host subject");
+    Check(ht?["Card"] is CardSource card && card.InstanceId == linkCard, "Card = the linked card");
+    Check(ht?["CardEffect"] is null && ht?["isFromDigimon"] is true, "CardEffect null (RD-C1-CARDEFFECT-IDTHREAD); isFromDigimon carried");
+}
+
+// --- 13. (C1d RDW-07) turn/phase boundaries are HANDLED with a NULL payload (AS-IS StackSkillInfos(null, timing)).
+//         The port's TriggerEventEmitter already stamps the explicit timing, so TriggerTimingMap derives them. ---
+{
+    EngineContext context = EngineContext.CreateDefault();
+    foreach ((string timing, EffectTiming expected) in new[]
+    {
+        (TriggerTimings.OnStartTurn, EffectTiming.OnStartTurn),
+        (TriggerTimings.OnStartMainPhase, EffectTiming.OnStartMainPhase),
+        (TriggerTimings.OnEndTurn, EffectTiming.OnEndTurn),
+    })
+    {
+        var queue = new GameEventQueue();
+        TriggerEventEmitter.Emit(queue, timing, actor: owner);
+        GameEvent ev = queue.DrainPending().Single();
+        IReadOnlyList<SkillWindowSupplyEntry> entries = SkillWindowSupply.ConvertEvent(context, ev);
+        SkillWindowSupplyEntry e = entries.SingleOrDefault(x => x.Timing == expected);
+        Check(entries.Any(x => x.Timing == expected), $"{timing} is handled (one entry)");
+        Check(e.Timing == expected && e.Hashtable is null, $"{timing} carries the AS-IS null payload");
+        Check(!SkillWindowSupply.UnhandledTimings(context, ev).Contains(expected), $"{timing} is not reported UNHANDLED");
+    }
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURE(S)");
 return failures == 0 ? 0 : 1;
