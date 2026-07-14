@@ -34,7 +34,7 @@ public sealed class TfxMainDisc : CEntity_Effect
 
             async Task DrawCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 1, drawEffect.EffectSourceCard?.InstanceId).Draw();
+                await new DrawClass(card.Context, card.Owner, 1, drawEffect).Draw();
             }
         }
 

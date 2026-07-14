@@ -170,17 +170,32 @@ public class IDiscardHand
 /// </summary>
 public class DrawClass
 {
-    public DrawClass(EngineContext context, HeadlessPlayerId playerId, int drawCount, HeadlessEntityId? causeEffectSourceId)
+    // (C1c RD-C1b-CARDARG) AS-IS shape `new DrawClass(player, drawCount, cardEffect)` (CardController.cs:1903) —
+    // the card/keyword/Tfx callers pass the live effect; the substrate cause id is derived from it
+    // (EffectSourceCard.InstanceId), exactly as MIG3 computed at the call site. null cardEffect (e.g. the AS-IS
+    // `new DrawClass(owner, 1, null)` digivolve-draw) -> null cause, byte-identical.
+    public DrawClass(EngineContext context, HeadlessPlayerId playerId, int drawCount, ICardEffect? cardEffect)
+        : this(context, playerId, drawCount, cardEffect?.EffectSourceCard?.InstanceId, cardEffect)
+    {
+    }
+
+    // (C1c) substrate overload: the effect-driven-draw sink (MatchStateMutationSink) holds only a raw cause id and
+    // has no ICardEffect — its OnAddHand/OnDraw reactor gate keys off the stamped id, not the live effect. cardEffect
+    // stays null there. Retained ALONGSIDE the AS-IS effect ctor because that off-limits consumer needs the id-only
+    // shape (so the id param is NOT redundant — cf. the drop for the other C1c routines).
+    public DrawClass(EngineContext context, HeadlessPlayerId playerId, int drawCount, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
     {
         _context = context;
         _playerId = playerId;
         _drawCount = drawCount;
+        _cardEffect = cardEffect;
         _causeEffectSourceId = causeEffectSourceId;
     }
 
     readonly EngineContext _context;
     readonly HeadlessPlayerId _playerId;
     readonly int _drawCount;
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
 
     public async Task Draw(CancellationToken cancellationToken = default)
@@ -219,6 +234,17 @@ public class DrawClass
             // AS-IS :1960 StackSkillInfos(hashtable, OnDraw) — {Player, CardEffect}.
             TriggerEventEmitter.Emit(_context.GameEventQueue, TriggerTimings.OnDraw, actor: _playerId, extraMetadata: hashtable);
 
+            // (C1c) AS-IS CardController.cs:1948-1960 — drained from C2 flip. StackSkillInfos({"Player", _player},
+            // {"CardEffect", _cardEffect}, OnDraw). Live _cardEffect re-threaded from the in-scope card/Tfx callers
+            // (RD-C1b-CARDARG); the carrier Emit above stays (main instance undrained -> inert today).
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "Player", new Player(_context, _playerId) },
+                    { "CardEffect", _cardEffect },
+                },
+                EffectTiming.OnDraw).ConfigureAwait(false);
+
             #endregion
         }
     }
@@ -236,12 +262,17 @@ public class DrawClass
 /// </summary>
 public class IAddTrashCardsFromLibraryTop
 {
-    public IAddTrashCardsFromLibraryTop(EngineContext context, HeadlessPlayerId playerId, int addTrashCount, HeadlessEntityId? causeEffectSourceId)
+    public IAddTrashCardsFromLibraryTop(EngineContext context, HeadlessPlayerId playerId, int addTrashCount, ICardEffect? cardEffect)
     {
         _context = context;
         _playerId = playerId;
         _addTrashCount = addTrashCount;
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS `new IAddTrashCardsFromLibraryTop(count, player, cardEffect)` — carries the
+        // live cardEffect down into ITrashDeckCards' window; substrate cause id derived from it (was the MIG3 arg).
+        // NOTE: this class has NO live callers today (verified caller-dead, like ReturnToLibraryBottom*) — threaded
+        // for AS-IS routine fidelity so any future/Tfx caller lands the live effect.
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
     }
 
     public void SetNotShowCards()
@@ -252,6 +283,7 @@ public class IAddTrashCardsFromLibraryTop
     readonly EngineContext _context;
     readonly HeadlessPlayerId _playerId;
     readonly int _addTrashCount;
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
     public List<CardSource> discardedCards = new List<CardSource>();
     bool _notShowCards = false;
@@ -281,7 +313,7 @@ public class IAddTrashCardsFromLibraryTop
 
         // AS-IS :2014-2018 ShowCardEffect (gated by !_notShowCards) = UI (stripped).
 
-        await new ITrashDeckCards(discardedCards, _causeEffectSourceId).TrashDeckCards(cancellationToken).ConfigureAwait(false);
+        await new ITrashDeckCards(discardedCards, _cardEffect).TrashDeckCards(cancellationToken).ConfigureAwait(false);
 
         // AS-IS :2022-2033 PlaySE/WaitForSeconds/PlayLog = UI (stripped).
     }
@@ -634,21 +666,26 @@ public class IDestroySecurity
         SelectedCard,
     }
 
-    public IDestroySecurity(EngineContext context, HeadlessPlayerId playerId, int destroySecurityCount, HeadlessEntityId? causeEffectSourceId, bool fromTop)
+    public IDestroySecurity(EngineContext context, HeadlessPlayerId playerId, int destroySecurityCount, ICardEffect? cardEffect, bool fromTop)
     {
         _context = context;
         _playerId = playerId;
         _destroySecurityCount = destroySecurityCount;
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS `new IDestroySecurity(player, count, cardEffect, fromTop)` — live cardEffect
+        // carried for the OnDiscardSecurity / delegated OnLoseSecurity windows; substrate cause id derived from it.
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
         _trashMode = fromTop ? TrashMode.TopSecurity : TrashMode.BottomSecurity;
     }
 
-    public IDestroySecurity(EngineContext context, HeadlessPlayerId playerId, CardSource card, HeadlessEntityId? causeEffectSourceId)
+    public IDestroySecurity(EngineContext context, HeadlessPlayerId playerId, CardSource card, ICardEffect? cardEffect)
     {
         _context = context;
         _playerId = playerId;
         _destroySecurityCount = 1;
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS `new IDestroySecurity(player, card, cardEffect)`.
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
         _trashMode = TrashMode.SelectedCard;
         _selectedCard = card;
     }
@@ -656,6 +693,7 @@ public class IDestroySecurity
     readonly EngineContext _context;
     readonly HeadlessPlayerId _playerId;
     readonly int _destroySecurityCount;
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
     readonly TrashMode _trashMode;
     readonly CardSource? _selectedCard;
@@ -748,11 +786,19 @@ public class IDestroySecurity
                 // AS-IS :4360-4363 `new IReduceSecurity(player, ref nullSkillInfos, cardEffect)` — the
                 // null-collector sentinel = emit-now mode; the OnLoseSecurity window is carried by the
                 // Security->Trash moves above (SecurityLossBatchId collapse).
-                await new IReduceSecurity(_context, _playerId, refCollector: null, _causeEffectSourceId)
+                await new IReduceSecurity(_context, _playerId, refCollector: null, _cardEffect)
                     .ReduceSecurity(cancellationToken).ConfigureAwait(false);
 
-                // AS-IS :4369-4377 "[When security cards are trashed]" (OnDiscardSecurity) — zone-derived from
-                // the same moves (batch-collapsed); a manual emit here would double-fire (sink precedent).
+                // (C1c) AS-IS CardController.cs:4368-4377 — drained from C2 flip. StackSkillInfos({"DiscardedCards",
+                // discardedCards}, {"CardEffect", cardEffect}, OnDiscardSecurity). Live _cardEffect re-threaded
+                // (RD-C1b-CARDARG); the zone-derived OnDiscardSecurity above stays (main instance undrained -> inert).
+                await GManager.instance.autoProcessing.StackSkillInfos(
+                    new System.Collections.Hashtable
+                    {
+                        { "DiscardedCards", discardedCards },
+                        { "CardEffect", _cardEffect },
+                    },
+                    EffectTiming.OnDiscardSecurity).ConfigureAwait(false);
             }
 
             // AS-IS :4382-4416 add log = UI (stripped).
@@ -1483,17 +1529,21 @@ public sealed record PendingSecurityTrigger(
 /// </summary>
 public class IReduceSecurity
 {
-    public IReduceSecurity(EngineContext context, HeadlessPlayerId playerId, List<PendingSecurityTrigger>? refCollector, HeadlessEntityId? causeEffectSourceId)
+    public IReduceSecurity(EngineContext context, HeadlessPlayerId playerId, List<PendingSecurityTrigger>? refCollector, ICardEffect? cardEffect)
     {
         _context = context;
         _playerId = playerId;
         _refCollector = refCollector;
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS `new IReduceSecurity(player, ref skillInfos, cardEffect)` — live cardEffect
+        // carried for the OnLoseSecurity window; substrate cause id derived from it (was the MIG3 arg).
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
     }
 
     readonly EngineContext _context;
     readonly HeadlessPlayerId _playerId;
     readonly List<PendingSecurityTrigger>? _refCollector;
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
 
     public async Task ReduceSecurity(CancellationToken cancellationToken = default)
@@ -1514,6 +1564,18 @@ public class IReduceSecurity
             // AS-IS :5444 StackSkillInfos(hashtable, OnLoseSecurity) — carried by the caller's Security->
             // departure CardMoved events (zone-derived OnLoseSecurity + SecurityLossBatchId collapse); a manual
             // emit here would double-fire against that derivation.
+
+            // (C1c) AS-IS CardController.cs:5432-5444 — drained from C2 flip. StackSkillInfos({"Player", _player},
+            // {"SkillInfo", null}, {"CardEffect", _cardEffect}, OnLoseSecurity), the null-ref (emit-now) branch.
+            // Live _cardEffect re-threaded (RD-C1b-CARDARG); the zone-derived carrier stays (main undrained -> inert).
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "Player", new Player(_context, _playerId) },
+                    { "SkillInfo", null },
+                    { "CardEffect", _cardEffect },
+                },
+                EffectTiming.OnLoseSecurity).ConfigureAwait(false);
         }
         else
         {
@@ -1690,10 +1752,14 @@ public class SuspendPermanentsClass
     /// (AS-IS :5620). No headless metadata key existed before this translation.</summary>
     public const string DpWhenSuspendedKey = "dpWhenSuspended";
 
-    public SuspendPermanentsClass(List<Permanent> permanents, HeadlessEntityId? causeEffectSourceId, bool isBlock)
+    public SuspendPermanentsClass(List<Permanent> permanents, ICardEffect? cardEffect, bool isBlock)
     {
         _permanents = permanents;
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS ctor Hashtable member `{"CardEffect", cardEffect}` — live cardEffect carried
+        // for the OnTappedAnyone window; substrate cause id derived from it (was the MIG3 param). null cause
+        // (e.g. keyword paths with a null activateClass) -> null id, byte-identical.
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
         _isBlock = isBlock;
     }
 
@@ -1701,6 +1767,7 @@ public class SuspendPermanentsClass
 
     readonly List<Permanent> _permanents;
     public List<Permanent> SuspendedPermanents { get; } = new();
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
     readonly bool _isBlock;
 
@@ -1772,6 +1839,21 @@ public class SuspendPermanentsClass
 
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnTapped, extraMetadata: extraMetadata);
 
+            // (C1c) AS-IS CardController.cs:5636-5648 — drained from C2 flip. StackSkillInfos({"Permanents",
+            // suspendTargetPermanents}, {"IsBlock", IsBlock}[, {"CardEffect", CardEffect} if non-null],
+            // OnTappedAnyone). Live _cardEffect re-threaded (RD-C1b-CARDARG); the carrier Emit above stays (main
+            // instance undrained -> inert). CardEffect Add is conditional exactly per AS-IS :5642-5645.
+            var tappedHashtable = new System.Collections.Hashtable
+            {
+                { "Permanents", suspendTargetPermanents },
+                { "IsBlock", _isBlock },
+            };
+            if (_cardEffect != null)
+            {
+                tappedHashtable.Add("CardEffect", _cardEffect);
+            }
+            await GManager.instance.autoProcessing.StackSkillInfos(tappedHashtable, EffectTiming.OnTappedAnyone).ConfigureAwait(false);
+
             #endregion
 
             // AS-IS :5652 WaitForSeconds(0.3f) = UI (stripped).
@@ -1815,16 +1897,20 @@ public class SuspendPermanentsClass
 /// </summary>
 public class IUnsuspendPermanents
 {
-    public IUnsuspendPermanents(List<Permanent> permanents, HeadlessEntityId? causeEffectSourceId)
+    public IUnsuspendPermanents(List<Permanent> permanents, ICardEffect? cardEffect)
     {
         // AS-IS :5665 `permanents.Clone().Filter(CardEffectCommons.IsPermanentExistsOnBattleArea)`.
         _permanents = (permanents ?? new List<Permanent>())
             .Where(p => CardEffectCommons.CardEffectCommons.IsPermanentExistsOnBattleArea(p))
             .ToList();
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS `new IUnsuspendPermanents(list, cardEffect)` — live cardEffect carried for the
+        // OnUnTappedAnyone window; substrate cause id derived from it (was the MIG3 arg).
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
     }
 
     readonly List<Permanent> _permanents;
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
 
     public async Task Unsuspend(CancellationToken cancellationToken = default)
@@ -1879,6 +1965,19 @@ public class IUnsuspendPermanents
 
             TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnUntapped, extraMetadata: extraMetadata);
 
+            // (C1c) AS-IS CardController.cs:5746-5754 — drained from C2 flip. StackSkillInfos({"CardEffect",
+            // _cardEffect}, {"Permanents", untappedPermanents_Fixed}, OnUnTappedAnyone) — the tail MAIN-instance
+            // window (distinct from the AS-IS :5682-5720 WhenUntapAnyone CUT-IN, which stays deferred =
+            // MIG3-CUTIN-WHENUNTAP, cut-in insts excluded from C1 per the worksheet). Live _cardEffect re-threaded
+            // (RD-C1b-CARDARG); the carrier Emit above stays (main instance undrained -> inert).
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "CardEffect", _cardEffect },
+                    { "Permanents", untappedPermanentsFixed },
+                },
+                EffectTiming.OnUnTappedAnyone).ConfigureAwait(false);
+
             #endregion
 
             // AS-IS :5758 WaitForSeconds(0.3f) = UI (stripped).
@@ -1906,7 +2005,7 @@ public class IUnsuspendPermanents
 /// </summary>
 public class ITrashDeckCards
 {
-    public ITrashDeckCards(List<CardSource> cardSources, HeadlessEntityId? causeEffectSourceId)
+    public ITrashDeckCards(List<CardSource> cardSources, ICardEffect? cardEffect)
     {
         this.cardSources = new List<CardSource>();
 
@@ -1915,10 +2014,14 @@ public class ITrashDeckCards
             this.cardSources.Add(cardSource);
         }
 
-        _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
+        // (C1c RD-C1b-CARDARG) AS-IS `new ITrashDeckCards(cardSources, cardEffect)` — live cardEffect carried for
+        // the OnDiscardLibrary window; substrate cause id derived from it (was the MIG3 arg).
+        _causeEffectSourceId = cardEffect?.EffectSourceCard?.InstanceId;
     }
 
     List<CardSource> cardSources { get; set; } = new List<CardSource>();
+    readonly ICardEffect? _cardEffect;
     readonly HeadlessEntityId? _causeEffectSourceId;
 
     public async Task TrashDeckCards(CancellationToken cancellationToken = default)
@@ -1948,6 +2051,17 @@ public class ITrashDeckCards
                     cardSource.Owner, cardSource.InstanceId, discardBatchId, _causeEffectSourceId,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
             }
+
+            // (C1c) AS-IS CardController.cs:5808-5816 — drained from C2 flip. StackSkillInfos({"DiscardedCards",
+            // trashCards}, {"CardEffect", cardEffect}, OnDiscardLibrary). Live _cardEffect re-threaded
+            // (RD-C1b-CARDARG); the zone-derived OnDiscardLibrary above stays (main instance undrained -> inert).
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                new System.Collections.Hashtable
+                {
+                    { "DiscardedCards", trashCards },
+                    { "CardEffect", _cardEffect },
+                },
+                EffectTiming.OnDiscardLibrary).ConfigureAwait(false);
         }
     }
 }

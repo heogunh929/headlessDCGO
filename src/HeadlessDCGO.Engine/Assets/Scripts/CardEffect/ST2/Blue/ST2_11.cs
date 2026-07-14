@@ -57,7 +57,7 @@ public sealed class ST2_11 : CEntity_Effect
             {
                 Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
 
-                await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass.EffectSourceCard?.InstanceId).Unsuspend();
+                await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
             }
         }
 

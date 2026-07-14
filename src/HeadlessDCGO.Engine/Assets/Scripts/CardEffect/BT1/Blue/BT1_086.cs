@@ -126,7 +126,7 @@ public sealed class BT1_086 : CEntity_Effect
             {
                 await new SuspendPermanentsClass(
                     new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) },
-                    activateClass.EffectSourceCard?.InstanceId,
+                    activateClass,
                     isBlock: false).Tap();
 
                 int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, (Func<Permanent, bool>)CanSelectPermanentCondition));

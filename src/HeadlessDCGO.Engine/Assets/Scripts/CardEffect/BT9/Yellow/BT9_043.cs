@@ -89,13 +89,13 @@ public sealed class BT9_043 : CEntity_Effect
 
                     await CardObjectController.AddHandCards(new List<CardSource>() { topCard }, false, activateClass);
 
-                    await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass.EffectSourceCard?.InstanceId).ReduceSecurity();
+                    await new IReduceSecurity(card.Context, card.Owner, refCollector: null, activateClass).ReduceSecurity();
 
                     if (CardEffectCommons.IsExistOnBattleArea(card))
                     {
                         Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
 
-                        await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass.EffectSourceCard?.InstanceId).Unsuspend();
+                        await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass).Unsuspend();
                     }
                 }
             }

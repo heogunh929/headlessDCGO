@@ -40,7 +40,7 @@ public partial class CardEffectFactory
 
             await new SuspendPermanentsClass(
                     new List<Permanent>() { thisPermanent },
-                    activateClass?.EffectSourceCard?.InstanceId, isBlock: false).Tap();
+                    activateClass, isBlock: false).Tap();
 
             if (libraryCards.Count > 0)
                 await thisPermanent.AddDigivolutionCardsBottom(

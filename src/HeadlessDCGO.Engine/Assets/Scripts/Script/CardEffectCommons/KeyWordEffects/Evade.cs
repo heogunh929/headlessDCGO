@@ -46,7 +46,7 @@ public static partial class CardEffectCommons
         }
 
         await new SuspendPermanentsClass(
-            new List<Permanent> { targetPermanent }, activateClass?.EffectSourceCard?.InstanceId, isBlock: false)
+            new List<Permanent> { targetPermanent }, activateClass, isBlock: false)
             .Tap(cancellationToken).ConfigureAwait(false);
     }
 }

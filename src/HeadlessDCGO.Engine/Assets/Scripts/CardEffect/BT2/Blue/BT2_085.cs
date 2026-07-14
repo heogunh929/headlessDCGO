@@ -74,7 +74,7 @@ public sealed class BT2_085 : CEntity_Effect
             {
                 Permanent selectedPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
 
-                await new SuspendPermanentsClass(new List<Permanent>() { selectedPermanent }, activateClass.EffectSourceCard?.InstanceId, false).Tap();
+                await new SuspendPermanentsClass(new List<Permanent>() { selectedPermanent }, activateClass, false).Tap();
 
                 await card.Owner.AddMemory(1, activateClass);
             }

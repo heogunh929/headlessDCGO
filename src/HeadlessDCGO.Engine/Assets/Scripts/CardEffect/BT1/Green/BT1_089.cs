@@ -78,7 +78,7 @@ public sealed class BT1_089 : CEntity_Effect
             {
                 await new SuspendPermanentsClass(
                     new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) },
-                    activateClass.EffectSourceCard?.InstanceId,
+                    activateClass,
                     isBlock: false).Tap();
 
                 EngineContext context = card.Context;

@@ -55,7 +55,7 @@ public sealed class BT1_041 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 2, activateClass.EffectSourceCard?.InstanceId).Draw();
+                await new DrawClass(card.Context, card.Owner, 2, activateClass).Draw();
             }
         }
 

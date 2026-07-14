@@ -598,12 +598,12 @@ public sealed class SelectPermanentEffect
             }
 
             case Mode.Tap:   // AS-IS :954-957 SuspendPermanentsClass(tapPermanents, hashtable).Tap().
-                await new SuspendPermanentsClass(new List<Permanent>(_targetPermanents), causeId, isBlock: false)
+                await new SuspendPermanentsClass(new List<Permanent>(_targetPermanents), _cardEffect, isBlock: false)
                     .Tap().ConfigureAwait(false);
                 break;
 
             case Mode.UnTap: // AS-IS :959-962 IUnsuspendPermanents(untapPermanents, _cardEffect).Unsuspend().
-                await new IUnsuspendPermanents(new List<Permanent>(_targetPermanents), causeId)
+                await new IUnsuspendPermanents(new List<Permanent>(_targetPermanents), _cardEffect)
                     .Unsuspend().ConfigureAwait(false);
                 break;
 

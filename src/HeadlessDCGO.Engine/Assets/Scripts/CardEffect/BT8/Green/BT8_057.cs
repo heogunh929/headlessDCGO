@@ -124,7 +124,7 @@ public sealed class BT8_057 : CEntity_Effect
                     card.Context,
                     CardEffectCommons.OpponentOf(card),
                     1,
-                    activateClass.EffectSourceCard.InstanceId,
+                    activateClass,
                     fromTop: true).DestroySecurity();
             }
         }

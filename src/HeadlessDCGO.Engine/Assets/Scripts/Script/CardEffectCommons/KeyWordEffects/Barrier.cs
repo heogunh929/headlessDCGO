@@ -39,7 +39,7 @@ public static partial class CardEffectCommons
 
         await new IDestroySecurity(
             topCard.Context, topCard.Owner, destroySecurityCount: 1,
-            causeEffectSourceId: activateClass?.EffectSourceCard?.InstanceId, fromTop: true)
+            cardEffect: activateClass, fromTop: true)
             .DestroySecurity(cancellationToken).ConfigureAwait(false);
     }
 }

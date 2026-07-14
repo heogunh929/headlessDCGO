@@ -100,7 +100,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             }
 
             Permanent tapPermanent = selected;
-            await new SuspendPermanentsClass(new List<Permanent> { tapPermanent }, activateClass?.EffectSourceCard?.InstanceId, isBlock: false)
+            await new SuspendPermanentsClass(new List<Permanent> { tapPermanent }, activateClass, isBlock: false)
                 .Tap().ConfigureAwait(false);
 
             if (tapPermanent.TopCard is null || !tapPermanent.IsSuspended || !IsPermanentExistsOnOwnerBattleAreaDigimon(targetPermanent, card))

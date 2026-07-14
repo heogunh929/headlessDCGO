@@ -92,7 +92,7 @@ public sealed class BT8_092 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                await new DrawClass(card.Context, card.Owner, 1, activateClass.EffectSourceCard?.InstanceId).Draw();
+                await new DrawClass(card.Context, card.Owner, 1, activateClass).Draw();
 
                 await card.Owner.AddMemory(1, activateClass);
             }
@@ -162,7 +162,7 @@ public sealed class BT8_092 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass.EffectSourceCard?.InstanceId, isBlock: false).Tap();
+                await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass, isBlock: false).Tap();
 
                 Permanent? attackingPermanent = GManager.instance.attackProcess.AttackingPermanent;
 

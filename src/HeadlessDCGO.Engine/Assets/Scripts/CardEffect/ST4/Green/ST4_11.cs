@@ -75,7 +75,7 @@ public sealed class ST4_11 : CEntity_Effect
                     card.Context,
                     CardEffectCommons.OpponentOf(card),
                     1,
-                    activateClass.EffectSourceCard.InstanceId,
+                    activateClass,
                     fromTop: true).DestroySecurity();
             }
         }

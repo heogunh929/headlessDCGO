@@ -160,7 +160,7 @@ public sealed class AD1_025 : CEntity_Effect
                     card.Context,
                     CardEffectCommons.OpponentOf(card),
                     1,
-                    activateClass.EffectSourceCard?.InstanceId,
+                    activateClass,
                     fromTop: true).DestroySecurity();
             }
         }

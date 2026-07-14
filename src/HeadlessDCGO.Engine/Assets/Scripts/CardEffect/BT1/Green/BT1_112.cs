@@ -121,7 +121,7 @@ public sealed class BT1_112 : CEntity_Effect
 
                         async Task ActivateCoroutine1(Hashtable _hashtable1)
                         {
-                            await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass1.EffectSourceCard?.InstanceId).Unsuspend();
+                            await new IUnsuspendPermanents(new List<Permanent>() { selectedPermanent }, activateClass1).Unsuspend();
                         }
                     }
                 }

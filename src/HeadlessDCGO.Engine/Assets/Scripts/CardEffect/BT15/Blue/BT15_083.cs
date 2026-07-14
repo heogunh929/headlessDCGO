@@ -93,7 +93,7 @@ public sealed class BT15_083 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
-                await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass.EffectSourceCard?.InstanceId, isBlock: false).Tap();
+                await new SuspendPermanentsClass(new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) }, activateClass, isBlock: false).Tap();
 
                 await card.Owner.AddMemory(1, activateClass);
             }

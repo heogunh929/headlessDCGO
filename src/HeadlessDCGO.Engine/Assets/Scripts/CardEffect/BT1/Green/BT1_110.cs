@@ -117,7 +117,7 @@ public sealed class BT1_110 : CEntity_Effect
 
                 await new SuspendPermanentsClass(
                     suspendTargetPermanents,
-                    activateClass.EffectSourceCard?.InstanceId,
+                    activateClass,
                     isBlock: false).Tap();
             }
         }

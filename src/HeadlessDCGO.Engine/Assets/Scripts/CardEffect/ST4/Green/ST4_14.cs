@@ -78,7 +78,7 @@ public sealed class ST4_14 : CEntity_Effect
             {
                 await new SuspendPermanentsClass(
                     new List<Permanent>() { ICardEffect.ResolvePermanentOfThisCard(card) },
-                    activateClass.EffectSourceCard?.InstanceId,
+                    activateClass,
                     isBlock: false).Tap();
 
                 await card.Owner.AddMemory(1, activateClass);
