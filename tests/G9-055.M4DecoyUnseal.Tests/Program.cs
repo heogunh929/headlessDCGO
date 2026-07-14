@@ -133,14 +133,22 @@ async Task TamerTargetNotProtected()
 
 // --- Helpers ---
 
-// MIGRATION-NOTE (P7 test-fix): DecoySelfEffect returns ActivateClass (Script/CardEffects/ActivateClass.cs), a
-// new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md).
-// The gate this test checks (ContinuousKeywordGate.HasKeyword, read by DeletionReplacementGate.HasDecoy) reads
-// only the substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there is no buildable way
-// to make this grant observable yet. Assertions across this file are UNCHANGED and EXPECTED TO FAIL until stage B
-// lands — tracked, not silently weakened.
-void GrantDecoy(EngineContext ctx, HeadlessEntityId holder, Func<Permanent, bool>? permanentCondition = null) =>
-    CardEffectFactory.DecoySelfEffect(false, new CardSource(ctx, holder, P1), null, permanentCondition, "decoy-test", "decoy-test");
+// (P7 SEAM, design item RD-P6B-14 STOP) DecoySelfEffect returns ActivateClass (Script/CardEffects/
+// ActivateClass.cs), a new-model kind-class with no ToBinding/EffectRegistry bridge. The seam below attaches
+// it via the LIVE cEntity_EffectController (the same seam every ported card definition class uses), so
+// NewModelContinuousScan.HasDecoy DOES observe its presence. BUT the consumer this test exercises
+// (DeletionReplacementGate.HasDecoy -> ContinuousKeywordGate.KeywordGrantAcceptsSubject) never calls
+// NewModelContinuousScan/ContinuousKeywordGate.HasKeyword(EngineContext,...) (the unioned overload) — it only
+// scans registry.GetKeywordEffects(keyword) (legacy bindings) even when an EngineContext IS supplied, so a
+// pure new-model grant is still invisible to it. Fixing needs DeletionReplacementGate.cs /
+// ContinuousKeywordGate.KeywordGrantAcceptsSubject — outside this pass's mandated touch scope (design item
+// RD-P6B-14, STOP; KeywordRecognised/PredicateMatchRedirects/PredicateWithoutContextSuperset remain red).
+void GrantDecoy(EngineContext ctx, HeadlessEntityId holder, Func<Permanent, bool>? permanentCondition = null)
+{
+    var cs = new CardSource(ctx, holder, P1);
+    ICardEffect built = CardEffectFactory.DecoySelfEffect(false, cs, null, permanentCondition, "decoy-test", "decoy-test");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
+}
 
 CardInstanceRecord Rec(EngineContext ctx, HeadlessEntityId id) =>
     ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r : throw new InvalidOperationException("no record");
@@ -149,6 +157,7 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 955);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -166,3 +175,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

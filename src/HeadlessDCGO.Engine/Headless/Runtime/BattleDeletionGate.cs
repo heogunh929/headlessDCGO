@@ -54,6 +54,22 @@ public static class BattleDeletionGate
             }
         }
 
+        // (RD-P6B-10 resolved) UNION the new-model interface scans (AS-IS Permanent.CanBeDestroyed:3186 /
+        // CanBeDestroyedByBattle:3233) — a ported CanNotBeDestroyedStaticEffect / CanNotBeDestroyedByBattleStaticEffect
+        // (CanNotBeDestroyedClass:ICanNotBeDestroyedEffect / CanNotBeDestroyedByBattleClass:ICanNotBeDestroyedByBattleEffect)
+        // registers NO legacy replacement, so the ContinuousScopeEvaluation scan above cannot see it.
+        if (Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasCanNotBeDestroyed(context, cardId))
+        {
+            return true;
+        }
+
+        HeadlessAttackState currentAttack = context.AttackController.Current;
+        if (Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasCanNotBeDestroyedByBattle(
+                context, cardId, currentAttack.AttackerId ?? default, currentAttack.TargetId ?? default))
+        {
+            return true;
+        }
+
         // Battle-only immunity (does not prevent effect deletion) — a value flag, not a replacement.
         foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
         {

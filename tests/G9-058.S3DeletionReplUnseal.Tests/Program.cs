@@ -34,14 +34,14 @@ async Task Offered(string tag, Func<bool, CardSource, Func<bool>?, ICardEffect> 
     EngineContext ctx = Ctx();
     var id = await Place(ctx, P1, tag);
     if (security) { await PlaceSecurity(ctx, P1); }
-    // MIGRATION-NOTE (P7 test-fix): EvadeSelfEffect/BarrierSelfEffect return ActivateClass
-    // (Script/CardEffects/ActivateClass.cs), a new-model kind-class with no ToBinding/EffectRegistry bridge
-    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks
-    // (DeletionReplacementGate.HasReplacementKeyword -> ContinuousKeywordGate.HasKeyword) reads only the
-    // substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there is no buildable way to
-    // make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B lands —
-    // tracked, not silently weakened.
-    factory(false, new CardSource(ctx, id, P1), null);
+    // (P7 SEAM) EvadeSelfEffect/BarrierSelfEffect return ActivateClass (Script/CardEffects/ActivateClass.cs), a
+    // new-model kind-class with no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
+    // cEntity_EffectController scan DeletionReplacementGate.HasReplacementKeyword -> ContinuousKeywordGate.
+    // HasKeyword -> NewModelContinuousScan.HasEvade/HasBarrier now performs. Attach the built effect via the
+    // same seam every ported card definition class uses.
+    var cs = new CardSource(ctx, id, P1);
+    ICardEffect built = factory(false, cs, null);
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     var record = Rec(ctx, id);
     var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle, ctx.EffectRegistry);
     AssertTrue(options.Contains(option), $"{option} offered for keyword-granted {tag} (un-sealed)");
@@ -78,14 +78,17 @@ async Task FragmentTrashValueGates()
                 [DeletionReplacementGate.SourceIdsKey] = sources.Select(s => s.Value).ToArray(),
             }
         });
-        // MIGRATION-NOTE (P7 test-fix): FragmentSelfEffect returns ActivateClass, a new-model kind-class with no
-        // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The gates this
-        // test checks (DeletionReplacementGate.FragmentCostOf / HasReplacementKeyword -> ContinuousKeywordGate)
-        // read only the substrate EffectRegistry, not the AS-IS live CardSource.EffectList scan, so there is no
-        // buildable way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL
-        // until stage B lands — tracked, not silently weakened.
-        CardEffectFactory.FragmentSelfEffect(
-            false, new CardSource(ctx, id, P1), null, trashValue: 3, effectName: "fragment-test", effectDiscription: "fragment-test");
+        // (P7 SEAM) FragmentSelfEffect returns ActivateClass, a new-model kind-class with no ToBinding/
+        // EffectRegistry bridge — HasReplacementKeyword -> ContinuousKeywordGate.HasKeyword ->
+        // NewModelContinuousScan.HasFragment now performs the LIVE scan, so attach the built effect via the
+        // same seam every ported card definition class uses. NOTE (design item RD-P6B-4, pre-existing,
+        // DeletionReplacementGate.cs — out of this pass's touch scope): FragmentCostOf still reads ONLY the
+        // legacy EffectRegistry keyword-binding value for the trashValue cost, not this live scan, so the
+        // FragmentCostOf assertion below remains red for a pure new-model grant.
+        var fragCard = new CardSource(ctx, id, P1);
+        ICardEffect builtFragment = CardEffectFactory.FragmentSelfEffect(
+            false, fragCard, null, trashValue: 3, effectName: "fragment-test", effectDiscription: "fragment-test");
+        fragCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(builtFragment);
 
         var record = Rec(ctx, id);
         AssertTrue(DeletionReplacementGate.FragmentCostOf(record, ctx.EffectRegistry) == 3, "the grant's trashValue is the cost");
@@ -104,6 +107,10 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 958);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past None/Setup) —
+    // without this every candidate effect's CanUse/CanTrigger trivially returns false and the new-model scan
+    // never fires (same fix already documented in rebuild_p6_stageB_notes.md §5).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -131,3 +138,10 @@ async Task PlaceSecurity(EngineContext ctx, HeadlessPlayerId owner)
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

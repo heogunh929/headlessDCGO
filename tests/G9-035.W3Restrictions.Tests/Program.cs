@@ -71,13 +71,15 @@ async Task DeleteBySkillPrevented()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedBySkillClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The delete-path gate
-    // this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable
-    // way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until stage B
-    // lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
-        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: new CardSource(context, id, P1), condition: null, effectName: $"cds:{id.Value}");
+    // (P7 RD-P6B-12 resolved SEAM) CanNotBeDestroyedBySkillClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan.HasCanNotBeDestroyedBySkill / MatchStateMutationSink.IsRestrictedFromCause now
+    // performs. Attach the built effect to the card's controller via the same seam every ported card
+    // definition class uses.
+    var cs = new CardSource(context, id, P1);
+    ICardEffect built = CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
+        permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"cds:{id.Value}");
+    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
     await ApplyDelete(context, id);
     AssertTrue(InBattleArea(context, P1, id), "card survives effect deletion");
 }
@@ -94,8 +96,11 @@ async Task DeleteControl()
 
 async Task ApplyDelete(EngineContext context, HeadlessEntityId targetId)
 {
+    // (P7 test-fix) pass context: so IsDeletionPreventedByContinuous/IsRestrictedFromCause can consult the
+    // new-model interface scan (RD-P6B-10/12) — without it, _context is null and only the registry-only
+    // fallback (unconditional restrictions from bindings) runs.
     var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["targetEntityId"] = targetId.Value }));
     await sink.FlushAsync();

@@ -77,10 +77,11 @@ async Task CanNotBeDestroyed()
 {
     EngineContext context = Context();
     var id = await Place(context, P1, "SELF");
-    // (P7 stage-B SEAM) CanNotBeDestroyedClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge. NOTE: BattleDeletionGate/the effect-delete mutation sink are NOT part of this seam's coverage
-    // (out of NewModelContinuousScan/Continuous*Gate scope) — the battle-deletion assertion below may remain
-    // a design item; the seam is applied for consistency with the other tests in this file regardless.
+    // (P7 RD-P6B-10 resolved SEAM) CanNotBeDestroyedClass is a new-model kind-class with no ToBinding/
+    // EffectRegistry bridge — BattleDeletionGate.PreventsBattleDeletion and MatchStateMutationSink.
+    // IsDeletionPreventedByContinuous now both UNION NewModelContinuousScan.HasCanNotBeDestroyed, so this
+    // grant is observable via both the battle-deletion check below AND the effect-delete sink further down
+    // (which needs the sink built with context: — see Sink() below).
     var cs = new CardSource(context, id, P1);
     ICardEffect built = CardEffectFactory.CanNotBeDestroyedStaticEffect(
         permanentCondition: null, isInheritedEffect: false, card: cs, condition: null, effectName: $"cbd:{id.Value}");
@@ -147,7 +148,7 @@ async Task AscensionSelf()
 // --- Helpers -------------------------------------------------------------
 
 MatchStateMutationSink Sink(EngineContext context) => new(
-    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
+    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
 
 bool InBattle(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId id) =>
     context.ZoneMover is IZoneStateReader r && r.GetCards(owner, ChoiceZone.BattleArea).Contains(id);

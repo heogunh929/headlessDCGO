@@ -493,7 +493,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case SuspendKind:
                 // (PRIM-W4 CantSuspendStaticEffect) a continuous "cannot suspend" restriction blocks it.
-                if (HasSelfRestriction(targetId, CannotRestrictionKind.Suspend))
+                // (RD-P6B-11 resolved) UNION the new-model interface scan (AS-IS Permanent.CanSuspend, Permanent.cs:3698)
+                // — a ported CantSuspendStaticEffect (CanNotSuspendClass:ICanNotSuspendEffect) registers no legacy
+                // binding/replacement, so HasSelfRestriction (registry-backed, via ScopedResult) alone cannot see it.
+                // ContinuousRestrictionGate.EvaluateSuspend already unions it, but this sink consults
+                // HasSelfRestriction directly (bypassing that gate), so union it here too.
+                if (HasSelfRestriction(targetId, CannotRestrictionKind.Suspend)
+                    || (_context is not null && Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.CanNotSuspend(_context, targetId)))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -1318,7 +1324,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // per-key CausingEffectPredicate branch below.
         if (_context is not null)
         {
-            return Runtime.RestrictionScan.IsRestricted(_context, restrictionKey, cardId, causingSourceId);
+            // (RD-P6B-12 resolved, P7 FAILa-04/G9-053 fix) UNION the new-model cause-conditional interface scans
+            // (AS-IS Permanent.CanBeDestroyedBySkill:3309 / CannotReturnToHand:744 / CannotReturnToLibrary:785) — a
+            // ported CanNotBeDestroyedBySkillStaticEffect / CannotReturnToHandStaticEffect / CannotReturnToDeckStaticEffect
+            // registers no legacy binding, so RestrictionScan.IsRestricted (registry-backed) alone cannot see it.
+            return Runtime.RestrictionScan.IsRestricted(_context, restrictionKey, cardId, causingSourceId)
+                || Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.IsRestrictedByCauseNewModel(
+                    _context, restrictionKey, cardId, causingSourceId);
         }
 
         // Registry-only fallback (no EngineContext): only UNCONDITIONAL restrictions can be evaluated — a conditional
@@ -1416,6 +1428,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             {
                 return true;
             }
+        }
+
+        // (RD-P6B-10 resolved) UNION the new-model general "cannot be destroyed" scan (AS-IS Permanent.CanBeDestroyed,
+        // Permanent.cs:3186) — same union BattleDeletionGate.PreventsBattleDeletion performs; a ported
+        // CanNotBeDestroyedStaticEffect registers no legacy replacement so ScopedResult (registry-backed) alone
+        // cannot see it. NOTE: battle-only immunity (ICanNotBeDestroyedByBattleEffect) is battle-path-only
+        // (BattleDeletionGate) and intentionally NOT consulted here (this is the effect-delete path).
+        if (_context is not null && Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasCanNotBeDestroyed(_context, cardId))
+        {
+            return true;
         }
 
         // (fidelity) CanNotBeDestroyedBySkill (effect-delete-only) honours its CAUSING-effect predicate — a card

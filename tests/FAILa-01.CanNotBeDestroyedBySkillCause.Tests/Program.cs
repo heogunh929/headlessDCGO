@@ -3,6 +3,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // FAIL-a #1 (mapping remediation): CanNotBeDestroyedBySkillStaticEffect must honour its CAUSING-effect predicate
@@ -36,17 +37,17 @@ async Task Delete(HeadlessPlayerId byOwner, bool expectBlocked)
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, byOwner, "CAUSE", ChoiceZone.BattleArea);
     // "This cannot be deleted by the OPPONENT's effects" — cardEffectCondition = deleting source is P1's enemy.
-    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedBySkillClass (Assets/Scripts/Script/CardEffects/
-    // CanNotBeDestroyedBySkillClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge
-    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The deletion gate this test checks
-    // (MatchStateMutationSink.IsDeletionPreventedByContinuous / IsRestrictedFromCause) reads only the
-    // substrate RestrictionHelpers.CannotBeDeletedBySkillKey path, not this kind-class's
-    // ICanNotBeDestroyedBySkillEffect interface (the engine's stage-B live is-scan serves real ported cards, not
-    // a synthetic fixture card), so there is no buildable way to make this grant observable yet.
-    // Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
+    // (P7 RD-P6B-12 resolved SEAM) CanNotBeDestroyedBySkillClass (Assets/Scripts/Script/CardEffects/
+    // CanNotBeDestroyedBySkillClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge — the
+    // AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan.HasCanNotBeDestroyedBySkill/MatchStateMutationSink.IsRestrictedFromCause now
+    // performs (evaluated against the REAL causing source's stand-in, RD-P6B-13). Attach the built effect via
+    // the same seam every ported card definition class uses.
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
         permanentCondition: null, cardEffectCondition: src => src.EffectSourceCard.Owner != P1, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CanNotBeDestroyedBySkill");
+        card: protectedCard0, condition: null, effectName: "CanNotBeDestroyedBySkill");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     await ApplyDelete(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);
@@ -59,13 +60,12 @@ async Task UnconditionalBlocks()
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, P1, "CAUSE", ChoiceZone.BattleArea);
-    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedBySkillClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See the
-    // MIGRATION-NOTE in Delete() above for the full gate explanation. Assertions below are UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
+    // (P7 RD-P6B-12 resolved SEAM) see the SEAM note in Delete() above for the full gate explanation.
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.CanNotBeDestroyedBySkillStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CanNotBeDestroyedBySkill");
+        card: protectedCard0, condition: null, effectName: "CanNotBeDestroyedBySkill");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     await ApplyDelete(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);
@@ -86,6 +86,10 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 951);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past None/Setup) — a
+    // real board is in Main; without this every candidate effect's CanUse(null) trivially returns false and the
+    // new-model scan never fires (same fix already documented in rebuild_p6_stageB_notes.md §5).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -103,3 +107,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

@@ -212,6 +212,76 @@ state). The full suite is the coordinator's.
   unconditional (`cardEffectCondition: null`) case is evaluable with a dummy cause, a conditional one is not
   (RD-P6B-7). Heavy-substrate + cause-object gap → STOP.
 
+## 7c. P8 follow-up — RD-P6B-10/11/12 RESOLVED, RD-P6B-13 (cause stand-in) + RD-P6B-14 (STOP) new
+
+* **RD-P6B-10 — RESOLVED.** `NewModelContinuousScan.HasCanNotBeDestroyed` (AS-IS `Permanent.CanBeDestroyed`,
+  Permanent.cs:3186) and `HasCanNotBeDestroyedByBattle` (AS-IS `Permanent.CanBeDestroyedByBattle`:3233, the
+  `ICanNotBeDestroyedByBattleEffect` scan half only) are now UNIONed into both consumers:
+  `BattleDeletionGate.PreventsBattleDeletion` (both) and `MatchStateMutationSink.IsDeletionPreventedByContinuous`
+  (general only — battle-only immunity stays battle-path-exclusive, matching the AS-IS
+  `preventBattleDeletion`-vs-effect-delete split already documented on `PreventBattleDeletionKey`). Witness:
+  G9-038 CanNotBeDestroyed (battle+effect), G9-050 SetFormDelete (player-scope set-form), G9-054 (permanentCondition
+  gating + self-form + live condition, battle path) — all green.
+* **RD-P6B-11 — RESOLVED.** `MatchStateMutationSink`'s `SuspendKind` case now ORs
+  `NewModelContinuousScan.CanNotSuspend` (already written, AS-IS `Permanent.CanSuspend`:3698) alongside
+  `HasSelfRestriction`. Witness: G9-050 SetFormSuspend, green.
+* **RD-P6B-12 — RESOLVED**, and generalised. `MatchStateMutationSink.IsRestrictedFromCause` (the SHARED helper
+  behind `IsDeletionPreventedByContinuous`'s skill-cause check AND the ReturnToHand/ReturnToDeck mutation guards)
+  now ORs a new dispatcher, `NewModelContinuousScan.IsRestrictedByCauseNewModel(context, kind, subjectId,
+  causingSourceId)`, which routes `CannotBeDeletedBySkillKey` / `CannotReturnToHandKey` / `CannotReturnToDeckKey`
+  to three new cause-conditional scans: `HasCanNotBeDestroyedBySkill` (AS-IS `Permanent.CanBeDestroyedBySkill`:3309),
+  `HasCannotReturnToHand` (AS-IS `Permanent.CannotReturnToHand`:744), `HasCannotReturnToLibrary` (AS-IS
+  `Permanent.CannotReturnToLibrary`:785). Witness: G9-035 DeleteBySkillPrevented, FAILa-01 (self/opponent/
+  unconditional), FAILa-04 (deck-return self/opponent/unconditional), G9-053 (hand-return self/opponent/
+  unconditional) — all green.
+* **RD-P6B-13 (the cause-object gap, closed for the common case).** All three interfaces above (plus
+  `IImmuneFromDPMinusEffect.ImmuneFromDPMinus`) take the REAL causing `ICardEffect` — in AS-IS always a live
+  scanned object (no legacy/new-model split there); the mirror only has the causing SOURCE ENTITY ID at these
+  call sites. Closed via `NewModelContinuousScan.CausingEffectStandIn` — a minimal `ICardEffect` subclass built
+  ONLY to carry `EffectSourceCard` (via `RestrictionScan.MakeSource`). Correct for the overwhelmingly common
+  shape (every real card's `cardEffectCondition` reads `src.EffectSourceCard.Owner` / `IsOpponentEffect`);
+  a predicate inspecting other `ICardEffect` state (`EffectName`, `EffectDiscription`, `IsInheritedEffect`, …)
+  would see defaults, not the real cause's — same tier as `HasPierce`'s no-hashtable presence check /
+  `CanNotDigivolve`'s source fallback (§2). `HasImmuneFromDpMinus` gained a `causingSourceId` parameter (default
+  = old self-stand-in presence-only behaviour, preserved for its one remaining 2-arg fast-path caller);
+  `ContinuousDpGate.ResolveDp` now calls the 3-arg form PER REDUCING MODIFIER (`modifier.SourceEntityId`) instead
+  of a blanket "any new-model immunity exists" flag — the previous blanket form over-immunized (a
+  self-sourced reduction was wrongly dropped whenever ANY conditional opponent-only immunity existed anywhere on
+  the card, since the presence check's self-stand-in evaluates the OPPONENT-only predicate against the immunity
+  grant's OWN (self) source and fails, hiding the grant from the "does any immunity exist" gate entirely — the
+  bug FAILa-02 pins down). Witness: FAILa-02 (opponent-sourced ignored / self-sourced still applies /
+  unconditional blocks both) — all green.
+* **Test-only phase-setup bug found while chasing these** (not an engine gap): `ICardEffect.CanTrigger` gates on
+  `TurnStateMachine.DoneStartGame` (phase past None/Setup) UNCONDITIONALLY, before any specific `CanUseCondition`
+  runs — several P7-authored fixture `Ctx()` helpers (FAILa-01/02/04, G9-053) never called
+  `TurnController.SetPhase(HeadlessPhase.Main)`, so EVERY candidate effect's `CanUse`/`CanTrigger` trivially
+  returned false and the new-model scan never fired regardless of the union — silently masquerading as "the
+  union doesn't work" (self-caused/non-matching subtests passed by COINCIDENCE — protection never firing looks
+  identical to "correctly not blocked"). Same class of bug as the one already documented in §5; fixed by adding
+  the `SetPhase(Main)` call (the legacy/registry-only paths those same suites also exercise are unaffected — they
+  never call `CanUse`/`CanTrigger` at all, reading registered replacement/binding context values directly).
+* **RD-P6B-14 (STOP — DeletionReplacementGate keyword consumers never reach the EngineContext-aware union):**
+  G9-058 (Evade/Barrier presence + Fragment's `trashValue` cost) and G9-055 (Decoy redirect, 3 of 7 subtests).
+  `DeletionReplacementGate.HasReplacementKeyword(record, metadataFlag, keyword, EffectRegistry? effectRegistry)`
+  has NO `EngineContext` parameter at all — it can only ever call `ContinuousKeywordGate.HasKeyword(EffectRegistry,
+  …)` (the pure-legacy-registry overload, `ContinuousKeywordGate.cs:216`), never the already-unioned
+  `HasKeyword(EngineContext, …)` (`ContinuousKeywordGate.cs:77`, which DOES consult
+  `NewModelContinuousScan.HasKeyword`). Same for Decoy: `DeletionReplacementGate.HasDecoy` →
+  `ContinuousKeywordGate.KeywordGrantAcceptsSubject(EffectRegistry, …, EngineContext? context)` — THIS one does
+  receive a context, but only uses it to build a `CardSource` for a stored LEGACY `Func<CardSource,bool>`
+  predicate read out of a `registry.GetKeywordEffects(keyword)` binding; a new-model grant registers no such
+  binding, so the loop body never executes and `context` is never consulted for a live scan (also confirmed:
+  Decoy's `permanentCondition` gates WHICH OTHER ally's would-be-deletion triggers the redirect — AS-IS
+  `Decoy.cs`'s `CanSelectPermanentCondition`, a joint (holder, candidate) predicate embedded in the trigger's own
+  `CanUseCondition`/`CanTriggerWhenPermanentRemoveField` hashtable check — NOT a simple presence-on-the-holder
+  scan like `NewModelContinuousScan.HasDecoy` above; wiring it correctly needs a NEW joint scan mirroring that
+  exact AS-IS shape, not just an EngineContext plumb-through). Both call sites live in `DeletionReplacementGate.cs`
+  (not `BattleDeletionGate.cs` / `MatchStateMutationSink.cs` / `ContinuousScopeEvaluation.cs` / `RestrictionScan.cs`,
+  and not fixable by editing `NewModelContinuousScan.cs` alone) — outside this pass's mandated touch scope. Test
+  fixtures were still corrected with the seam (`cEntity_EffectController.cEntity_Effect` attach) + phase-setup,
+  same as every other file in this pass, so they are AS-IS-faithful test setups now failing on a real,
+  precisely-diagnosed, out-of-scope engine gap — not a test bug and not silently weakened.
+
 ## 8. Note — session interruption
 
 Mid-session the worktree's `src/` was reset to HEAD by an external `git checkout` (concurrent to this agent),

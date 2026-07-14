@@ -35,16 +35,18 @@ async Task Return(HeadlessPlayerId byOwner, bool expectBlocked)
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, byOwner, "CAUSE", ChoiceZone.BattleArea);
     // "This cannot be returned to hand by the OPPONENT's effects" — cardEffectCondition = source is P1's enemy.
-    // MIGRATION-NOTE (P7 test-fix): CannotReturnToHandClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The bounce mutation
-    // gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
-    // buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until
-    // stage B lands — tracked, not silently weakened. (cardEffectCondition takes the CAUSING ICardEffect —
-    // AS-IS CardEffectCondition — so the owner check reads its EffectSourceCard, not a nonexistent Owner member
-    // on ICardEffect itself.)
-    CardEffectFactory.CannotReturnToHandStaticEffect(
+    // (P7 RD-P6B-12-family resolved SEAM) CannotReturnToHandClass is a new-model kind-class with no
+    // ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan.HasCannotReturnToHand/MatchStateMutationSink.IsRestrictedFromCause now performs
+    // (evaluated against the REAL causing source's stand-in, RD-P6B-13). Attach the built effect via the same
+    // seam every ported card definition class uses. (cardEffectCondition takes the CAUSING ICardEffect — AS-IS
+    // CardEffectCondition — so the owner check reads its EffectSourceCard, not a nonexistent Owner member on
+    // ICardEffect itself.)
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.CannotReturnToHandStaticEffect(
         permanentCondition: null, cardEffectCondition: src => src.EffectSourceCard?.Owner != P1, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: $"crh:{protectedCard.Value}");
+        card: protectedCard0, condition: null, effectName: $"crh:{protectedCard.Value}");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool inHand = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(protectedCard);
@@ -57,14 +59,12 @@ async Task UnconditionalBlocks()
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, P1, "CAUSE", ChoiceZone.BattleArea);
-    // MIGRATION-NOTE (P7 test-fix): CannotReturnToHandClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The bounce mutation
-    // gate this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no
-    // buildable way to make this grant observable yet. Assertion below is UNCHANGED and EXPECTED TO FAIL until
-    // stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CannotReturnToHandStaticEffect(
+    // (P7 SEAM) see the SEAM note in Return() above for the full gate explanation.
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.CannotReturnToHandStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: $"crh:{protectedCard.Value}");
+        card: protectedCard0, condition: null, effectName: $"crh:{protectedCard.Value}");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool inHand = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.Hand).Contains(protectedCard);
@@ -85,6 +85,10 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 953);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past None/Setup) —
+    // without this every candidate effect's CanUse(null) trivially returns false and the new-model scan never
+    // fires (same fix already documented in rebuild_p6_stageB_notes.md §5).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -102,3 +106,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

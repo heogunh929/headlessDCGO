@@ -72,17 +72,19 @@ public static class ContinuousDpGate
         // causing-effect predicate matches that modifier's source (a null predicate = immune to ALL reductions,
         // the pre-existing blanket behaviour).
         IReadOnlyList<Func<CardSource, bool>?> immunities = CollectDpMinusImmunities(context, cardId);
-        // (P6 STAGE B) UNION the new-model IImmuneFromDPMinusEffect scan (AS-IS Permanent.ImmuneFromDPMinus):
-        // a ported ImmuneFromDPMinusClass registers no binding, so this live scan is its only path. A live
-        // grant found here behaves like an unconditional (null-predicate) registry immunity — it drops every
-        // DP-reducing modifier, matching the "immune to all reductions" blanket case already handled below.
-        bool newModelImmune = Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasImmuneFromDpMinus(context, cardId);
-        if (immunities.Count > 0 || newModelImmune)
-        {
-            modifiers = modifiers
-                .Where(modifier => !(IsDpReduction(modifier) && (newModelImmune || DpMinusImmunityApplies(context, immunities, modifier))))
-                .ToArray();
-        }
+        // (P6 STAGE B / P7 FAILa-02 fix) UNION the new-model IImmuneFromDPMinusEffect scan (AS-IS
+        // Permanent.ImmuneFromDPMinus) PER MODIFIER: a ported ImmuneFromDPMinusClass registers no binding, so
+        // this live scan is its only path. Evaluated against the REAL reducing modifier's causing source
+        // (modifier.SourceEntityId, RD-P6B-13 stand-in) — NOT a blanket "any new-model grant exists" flag —
+        // so a conditional grant ("immune to your OPPONENT's DP-minus") drops only the matching-source
+        // reductions and still lets a self-sourced reduction through (an unconditional/null-predicate grant
+        // still drops every reduction, since the stand-in's owner is irrelevant to a null predicate).
+        modifiers = modifiers
+            .Where(modifier => !(IsDpReduction(modifier) && (
+                DpMinusImmunityApplies(context, immunities, modifier)
+                || Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.HasImmuneFromDpMinus(
+                    context, cardId, modifier.SourceEntityId ?? default))))
+            .ToArray();
 
         // (P1-DP-5) AS-IS folds the host's accumulated LinkedDP (from attached link cards) into DP between the
         // isUpDown and NotIsUpDown groups (`DP += LinkedDP`, Permanent.cs:639). Inject it as a synthetic Dp Add

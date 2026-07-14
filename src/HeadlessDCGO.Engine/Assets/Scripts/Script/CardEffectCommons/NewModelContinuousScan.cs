@@ -87,6 +87,31 @@ public static class NewModelContinuousScan
         return new Permanent(context, cardId, owner);
     }
 
+    // (RD-P6B-10/11/12/P7 cause-conditional pass) Minimal stand-in ICardEffect used ONLY to carry a CAUSING
+    // (deleting / reducing / bouncing) source's CardSource into an interface predicate that expects a live
+    // ICardEffect — AS-IS ICanNotBeDestroyedBySkillEffect.CanNotBeDestroyedBySkill(Permanent, ICardEffect),
+    // ICannotReturnToHandEffect.CannotReturnToHand / ICannotReturnToLibraryEffect.CannotReturnToLibrary,
+    // IImmuneFromDPMinusEffect.ImmuneFromDPMinus — all take the REAL causing/reducing ICardEffect, which in
+    // AS-IS is always a live scanned object (AS-IS has no legacy/new-model split; every effect is one kind of
+    // object). The mirror mid-migration only has the causing/reducing SOURCE ENTITY ID at these call sites
+    // (MatchStateMutationSink's mutation.SourceEntityId / a legacy NumericModifier's SourceEntityId) — not the
+    // actual live ICardEffect instance that performed the mutation. Design item RD-P6B-13 (documented
+    // compromise, same tier as HasPierce's no-hashtable presence check / CanNotDigivolve's source fallback
+    // above): a cardEffectCondition that reads ONLY EffectSourceCard (the overwhelmingly common shape for these
+    // interfaces — every real card's condition checks src.EffectSourceCard.Owner / IsOpponentEffect(src, card))
+    // evaluates correctly; one that inspects other ICardEffect state (EffectName, EffectDiscription,
+    // IsInheritedEffect, …) sees defaults, not the real causing effect's.
+    private sealed class CausingEffectStandIn : ICardEffect
+    {
+        public CausingEffectStandIn(CardSource? causingSource) => SetEffectSourceCard(causingSource!);
+    }
+
+    private static ICardEffect BuildCausingEffectStandIn(EngineContext context, HeadlessEntityId causingSourceId)
+    {
+        CardSource? source = causingSourceId.IsEmpty ? null : Headless.Runtime.RestrictionScan.MakeSource(context, causingSourceId);
+        return new CausingEffectStandIn(source);
+    }
+
     // AS-IS gate: `!TopCard.CanNotBeAffected(cardEffect)` (SUBSTRATE ADAPTATION 1). A null TopCard (no live
     // top card) cannot be immune; treat as affectable, matching the AS-IS null-guarded property bodies.
     private static bool NotImmune(Permanent subject, ICardEffect cardEffect) =>
@@ -1248,17 +1273,19 @@ public static class NewModelContinuousScan
 
     // AS-IS Permanent.ImmuneFromDPMinus(ICardEffect) (Permanent.cs:703-740): IImmuneFromDPMinusEffect &&
     // CanUse(null) && ImmuneFromDPMinus(this, cardEffect) over ALL players' field permanents + players.
-    // SUBSTRATE ADAPTATION: a LEGACY-model DP-minus reducer (ContinuousSelfModifierEffect, a data-only
-    // NumericModifier by the time ContinuousDpGate sees it) carries no live causing ICardEffect to pass —
-    // mirrors the registry path's existing CardSource-only adaptation (ContinuousDpGate.DpMinusImmunityApplies)
-    // by passing the immunity effect itself as the causing-effect argument. Correct for an unconditional grant
-    // (cardEffectCondition: null, which ignores whatever it is handed); a conditional grant gated on the REAL
-    // reducer's identity may misevaluate — documented compromise, same tier as HasPierce's no-hashtable check.
-    public static bool HasImmuneFromDpMinus(EngineContext context, HeadlessEntityId cardId)
+    // <paramref name="causingSourceId"/> (RD-P6B-13, P7 FAILa-02 fix): the REAL causing/reducing effect's source
+    // — a legacy NumericModifier's SourceEntityId — resolved via <see cref="BuildCausingEffectStandIn"/>, so a
+    // conditional grant (cardEffectCondition: e.g. "immune to your OPPONENT's DP-minus") is evaluated against
+    // the ACTUAL reducer's owner, not a stand-in. Absent/empty (the default) falls back to the PRE-EXISTING
+    // presence-only compromise (the immunity effect itself stands in for the causing effect — correct only for
+    // an unconditional/null cardEffectCondition grant; kept for the one remaining 2-arg call site,
+    // ContinuousDpGate's "does any new-model immunity exist" fast gate, which has no per-modifier source to hand).
+    public static bool HasImmuneFromDpMinus(EngineContext context, HeadlessEntityId cardId, HeadlessEntityId causingSourceId = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
         Permanent subject = BuildSubject(context, cardId);
+        ICardEffect? explicitCause = causingSourceId.IsEmpty ? null : BuildCausingEffectStandIn(context, causingSourceId);
 
         foreach (Player player in ScanAllPlayers(context))
         {
@@ -1266,7 +1293,7 @@ public static class NewModelContinuousScan
             {
                 foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
                 {
-                    if (cardEffect is IImmuneFromDPMinusEffect e && cardEffect.CanUse(null) && e.ImmuneFromDPMinus(subject, cardEffect))
+                    if (cardEffect is IImmuneFromDPMinusEffect e && cardEffect.CanUse(null) && e.ImmuneFromDPMinus(subject, explicitCause ?? cardEffect))
                     {
                         return true;
                     }
@@ -1275,7 +1302,7 @@ public static class NewModelContinuousScan
 
             foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
             {
-                if (cardEffect is IImmuneFromDPMinusEffect e && cardEffect.CanUse(null) && e.ImmuneFromDPMinus(subject, cardEffect))
+                if (cardEffect is IImmuneFromDPMinusEffect e && cardEffect.CanUse(null) && e.ImmuneFromDPMinus(subject, explicitCause ?? cardEffect))
                 {
                     return true;
                 }
@@ -1284,6 +1311,249 @@ public static class NewModelContinuousScan
 
         return false;
     }
+
+    // ==================================================================================================
+    // Deletion / removal immunity — AS-IS Permanent.CanBeDestroyed:3186 / CanBeDestroyedByBattle:3233 /
+    // CanBeDestroyedBySkill:3309, Permanent.CannotReturnToHand:744 / CannotReturnToLibrary:785 (RD-P6B-10/12,
+    // P7 FAILa-01/04 + G9-053 fix). Each is expressed here as a "HasCanNot…" presence scan (true = the AS-IS
+    // getter would return the PROTECTED/blocked outcome), so callers can OR it into their existing result.
+    // ==================================================================================================
+
+    // AS-IS Permanent.CanBeDestroyed (Permanent.cs:3186-3229): ICanNotBeDestroyedEffect && CanUse(null) &&
+    // CanNotBeDestroyed(this) over Players_ForTurnPlayer field permanents + players. (The factory's own
+    // PermanentCondition already embeds the `!TopCard.CanNotBeAffected` immunity check — see
+    // CardEffectFactory/CanNotBeDeleted.cs — so, matching AS-IS, no separate NotImmune call here.)
+    public static bool HasCanNotBeDestroyed(EngineContext context, HeadlessEntityId cardId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeDestroyedEffect e && cardEffect.CanUse(null) && e.CanNotBeDestroyed(subject))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotBeDestroyedEffect e && cardEffect.CanUse(null) && e.CanNotBeDestroyed(subject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.CanBeDestroyedByBattle (Permanent.cs:3233-3305), the ICanNotBeDestroyedByBattleEffect scan
+    // half only (the leading `!CanBeDestroyed()` check is the caller's separate HasCanNotBeDestroyed union —
+    // BattleDeletionGate ORs both, battle-only per this method's caller, matching the AS-IS
+    // preventBattleDeletion-vs-effect-delete split documented on BattleDeletionGate.PreventBattleDeletionKey).
+    // Scope: Players_ForTurnPlayer field permanents + FACE-UP security + players. A candidate's own predicate
+    // may dereference a null attacker/defender when called outside an active battle (AS-IS card predicates are
+    // unguarded) — treated as "condition not met", mirroring BattleDeletionGate.EvaluateBattleCondition.
+    public static bool HasCanNotBeDestroyedByBattle(
+        EngineContext context, HeadlessEntityId cardId, HeadlessEntityId attackerId, HeadlessEntityId defenderId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        Permanent? attacker = attackerId.IsEmpty ? null : BuildSubject(context, attackerId);
+        Permanent? defender = defenderId.IsEmpty ? null : BuildSubject(context, defenderId);
+        CardSource? defendingCard = defender?.TopCard;
+
+        bool Matches(ICardEffect cardEffect)
+        {
+            try
+            {
+                return cardEffect is ICanNotBeDestroyedByBattleEffect e && cardEffect.CanUse(null)
+                    && e.CanNotBeDestroyedByBattle(subject, attacker!, defender!, defendingCard!);
+            }
+            catch (NullReferenceException)
+            {
+                return false;
+            }
+        }
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (Matches(cardEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (CardSource source in player.SecurityCards)
+            {
+                if (source.IsFlipped)
+                {
+                    continue;
+                }
+
+                foreach (ICardEffect cardEffect in source.EffectList(EffectTiming.None))
+                {
+                    if (Matches(cardEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (Matches(cardEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.CanBeDestroyedBySkill (Permanent.cs:3309-3365): TopCard.CanNotBeAffected(cardEffect) first
+    // (immune to the DELETING effect itself), then the ICanNotBeDestroyedBySkillEffect scan (Players_ForTurnPlayer
+    // field permanents + players) against the REAL causing effect (RD-P6B-13 stand-in built from
+    // <paramref name="causingSourceId"/>). The separate general CanBeDestroyed() check is the caller's own
+    // HasCanNotBeDestroyed union (MatchStateMutationSink ORs both).
+    public static bool HasCanNotBeDestroyedBySkill(EngineContext context, HeadlessEntityId cardId, HeadlessEntityId causingSourceId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        if (subject.TopCard is null)
+        {
+            return false;
+        }
+
+        ICardEffect causingEffect = BuildCausingEffectStandIn(context, causingSourceId);
+        if (subject.TopCard.CanNotBeAffected(causingEffect.EffectSourceCard?.InstanceId))
+        {
+            return true;
+        }
+
+        foreach (Player player in ScanPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanNotBeDestroyedBySkillEffect e && cardEffect.CanUse(null) && e.CanNotBeDestroyedBySkill(subject, causingEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanNotBeDestroyedBySkillEffect e && cardEffect.CanUse(null) && e.CanNotBeDestroyedBySkill(subject, causingEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.CannotReturnToHand(ICardEffect) (Permanent.cs:744-781): ICannotReturnToHandEffect &&
+    // CanUse(null) && CannotReturnToHand(this, cardEffect) over ALL players' field permanents + players, against
+    // the REAL causing effect (RD-P6B-13 stand-in).
+    public static bool HasCannotReturnToHand(EngineContext context, HeadlessEntityId cardId, HeadlessEntityId causingSourceId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        ICardEffect causingEffect = BuildCausingEffectStandIn(context, causingSourceId);
+
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICannotReturnToHandEffect e && cardEffect.CanUse(null) && e.CannotReturnToHand(subject, causingEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICannotReturnToHandEffect e && cardEffect.CanUse(null) && e.CannotReturnToHand(subject, causingEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // AS-IS Permanent.CannotReturnToLibrary(ICardEffect) (Permanent.cs:785-822): ICannotReturnToLibraryEffect &&
+    // CanUse(null) && CannotReturnToLibrary(this, cardEffect) over ALL players' field permanents + players,
+    // against the REAL causing effect (RD-P6B-13 stand-in).
+    public static bool HasCannotReturnToLibrary(EngineContext context, HeadlessEntityId cardId, HeadlessEntityId causingSourceId)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
+        Permanent subject = BuildSubject(context, cardId);
+        ICardEffect causingEffect = BuildCausingEffectStandIn(context, causingSourceId);
+
+        foreach (Player player in ScanAllPlayers(context))
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICannotReturnToLibraryEffect e && cardEffect.CanUse(null) && e.CannotReturnToLibrary(subject, causingEffect))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICannotReturnToLibraryEffect e && cardEffect.CanUse(null) && e.CannotReturnToLibrary(subject, causingEffect))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Dispatch bridge used by <see cref="Headless.Effects.MatchStateMutationSink.IsRestrictedFromCause"/>
+    /// to UNION the new-model cause-conditional interface scans (<see cref="HasCanNotBeDestroyedBySkill"/>,
+    /// <see cref="HasCannotReturnToHand"/>, <see cref="HasCannotReturnToLibrary"/>) alongside the existing
+    /// registry-based <c>RestrictionScan.IsRestricted</c> — mirrors <see cref="IsRestrictedNewModel"/> but for the
+    /// ICardEffect-typed (not CardSource-joint) interfaces. A <paramref name="kind"/> with no ported cause-scan
+    /// returns false (the registry path still serves it).</summary>
+    public static bool IsRestrictedByCauseNewModel(EngineContext context, string kind, HeadlessEntityId subjectId, HeadlessEntityId causingSourceId) => kind switch
+    {
+        RestrictionHelpers.CannotBeDeletedBySkillKey => HasCanNotBeDestroyedBySkill(context, subjectId, causingSourceId),
+        RestrictionHelpers.CannotReturnToHandKey => HasCannotReturnToHand(context, subjectId, causingSourceId),
+        RestrictionHelpers.CannotReturnToDeckKey => HasCannotReturnToLibrary(context, subjectId, causingSourceId),
+        _ => false,
+    };
 
     /// <summary>Dispatch bridge used by <see cref="Headless.Runtime.ContinuousRestrictionGate.JointResult"/> to
     /// UNION the new-model interface scan alongside the existing registry-based <c>RestrictionScan.IsRestricted</c>

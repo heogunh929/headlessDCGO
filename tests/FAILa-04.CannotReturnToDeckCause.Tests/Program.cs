@@ -3,6 +3,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // FAIL-a #4 (mapping remediation): CannotReturnToDeckStaticEffect must honour its CAUSING-effect predicate
@@ -34,17 +35,17 @@ async Task Return(HeadlessPlayerId byOwner, bool expectBlocked)
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, byOwner, "CAUSE", ChoiceZone.BattleArea);
-    // MIGRATION-NOTE (P7 test-fix): CannotReturnToLibraryClass (Assets/Scripts/Script/CardEffects/
-    // CannotReturnToLibraryClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge
-    // (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The deletion/return gate this test checks
-    // (MatchStateMutationSink's ReturnToDeckBottom path via RestrictionHelpers.CannotReturnToDeckKey) reads
-    // only the substrate binding path (the OLD-model GainCanNotReturnToDeck helper), not this kind-class's
-    // ICannotReturnToLibraryEffect interface (the engine's stage-B live is-scan serves real ported cards, not a
-    // synthetic fixture card with no attached CEntity_Effect), so there is no buildable way to make this specific factory's grant observable yet. Assertions below are UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CannotReturnToDeckStaticEffect(
+    // (P7 RD-P6B-12-family resolved SEAM) CannotReturnToLibraryClass (Assets/Scripts/Script/CardEffects/
+    // CannotReturnToLibraryClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge — the
+    // AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan.HasCannotReturnToLibrary/MatchStateMutationSink.IsRestrictedFromCause now performs
+    // (evaluated against the REAL causing source's stand-in, RD-P6B-13). Attach the built effect via the same
+    // seam every ported card definition class uses.
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.CannotReturnToDeckStaticEffect(
         permanentCondition: null, cardEffectCondition: src => src.EffectSourceCard.Owner != P1, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CannotReturnToDeck");
+        card: protectedCard0, condition: null, effectName: "CannotReturnToDeck");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);
@@ -56,13 +57,12 @@ async Task UnconditionalBlocks()
     EngineContext ctx = Ctx();
     var protectedCard = await Place(ctx, P1, "PROT", ChoiceZone.BattleArea);
     var causingSource = await Place(ctx, P1, "CAUSE", ChoiceZone.BattleArea);
-    // MIGRATION-NOTE (P7 test-fix): CannotReturnToLibraryClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). See the
-    // MIGRATION-NOTE in Return() above for the full gate explanation. Assertions below are UNCHANGED and
-    // EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.CannotReturnToDeckStaticEffect(
+    // (P7 SEAM) see the SEAM note in Return() above for the full gate explanation.
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.CannotReturnToDeckStaticEffect(
         permanentCondition: null, cardEffectCondition: null, isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "CannotReturnToDeck");
+        card: protectedCard0, condition: null, effectName: "CannotReturnToDeck");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     await ApplyReturn(ctx, protectedCard, causingSource);
     bool onField = ((IZoneStateReader)ctx.ZoneMover).GetCards(P1, ChoiceZone.BattleArea).Contains(protectedCard);
@@ -83,6 +83,10 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 954);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past None/Setup) —
+    // without this every candidate effect's CanUse(null) trivially returns false and the new-model scan never
+    // fires (same fix already documented in rebuild_p6_stageB_notes.md §5).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -100,3 +104,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

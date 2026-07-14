@@ -100,12 +100,13 @@ async Task SetFormDelete()
     var lv3 = await Place(ctx, P1, "LV3", level: 3);
     var lv4 = await Place(ctx, P1, "LV4", level: 4);
     // "Your Level-3 Digimon cannot be deleted." SET form (permanentCondition, not self).
-    // MIGRATION-NOTE (P7 test-fix): CanNotBeDestroyedClass is a new-model kind-class with no
-    // ToBinding/EffectRegistry bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The delete-path gate
-    // this test checks reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable
-    // way to make this grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B
-    // lands — tracked, not silently weakened.
-    CardEffectFactory.CanNotBeDestroyedStaticEffect(p => p.Level == 3, false, new CardSource(ctx, src, P1), null, null);
+    // (P7 RD-P6B-10 resolved SEAM) CanNotBeDestroyedClass is a new-model kind-class with no ToBinding/
+    // EffectRegistry bridge — MatchStateMutationSink.IsDeletionPreventedByContinuous now UNIONs
+    // NewModelContinuousScan.HasCanNotBeDestroyed, so attach the built effect via the same seam every ported
+    // card definition class uses (Delete() below already builds its sink with context:).
+    var srcCard = new CardSource(ctx, src, P1);
+    ICardEffect builtDelete = CardEffectFactory.CanNotBeDestroyedStaticEffect(p => p.Level == 3, false, srcCard, null, null);
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(builtDelete);
 
     await Delete(ctx, lv3);
     await Delete(ctx, lv4);
@@ -120,12 +121,13 @@ async Task SetFormSuspend()
     var src = await Place(ctx, P1, "SRC", level: 4);
     var lv3 = await Place(ctx, P1, "LV3", level: 3);
     var lv4 = await Place(ctx, P1, "LV4", level: 4);
-    // MIGRATION-NOTE (P7 test-fix): CanNotSuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge (stage-B RED, docs/audit/rebuild_p6_stageA_notes.md). The suspend-mutation gate this test checks
-    // reads only the substrate EffectRegistry, not the AS-IS live scan, so there is no buildable way to make this
-    // grant observable yet. Assertions below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked,
-    // not silently weakened.
-    CardEffectFactory.CantSuspendStaticEffect(p => p.Level == 3, false, new CardSource(ctx, src, P1), null, null);
+    // (P7 RD-P6B-11 resolved SEAM) CanNotSuspendClass is a new-model kind-class with no ToBinding/EffectRegistry
+    // bridge — MatchStateMutationSink's SuspendKind path now UNIONs NewModelContinuousScan.CanNotSuspend, so
+    // attach the built effect via the same seam every ported card definition class uses (Suspend() below
+    // already builds its sink with context:).
+    var srcCard = new CardSource(ctx, src, P1);
+    ICardEffect builtSuspend = CardEffectFactory.CantSuspendStaticEffect(p => p.Level == 3, false, srcCard, null, null);
+    srcCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(builtSuspend);
 
     await Suspend(ctx, lv3);
     await Suspend(ctx, lv4);

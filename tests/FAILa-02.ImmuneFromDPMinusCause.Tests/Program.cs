@@ -39,19 +39,19 @@ async Task Run(HeadlessPlayerId reducerOwner, Func<CardSource, bool>? cardEffect
     var reducer = await Place(ctx, reducerOwner, "REDU", ChoiceZone.BattleArea);
 
     // "PROT is immune to <cardEffectCondition>'s DP-minus."
-    // MIGRATION-NOTE (P7 test-fix): ImmuneFromDPMinusClass (Assets/Scripts/Script/CardEffects/
-    // ImmuneFromDPMinusClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge (stage-B
-    // RED, docs/audit/rebuild_p6_stageA_notes.md). The gate this test checks (ContinuousDpGate.ResolveDp /
-    // CollectDpMinusImmunities) reads only the substrate ReplacementHelpers.ImmuneFromDpMinusKey +
-    // RestrictionHelpers.CausingEffectPredicateKey binding values (the OLD-model GainImmuneFromDPMinus path),
-    // not this kind-class's IImmuneFromDPMinusEffect interface (the engine's stage-B live is-scan serves real
-    // ported cards, not a synthetic fixture card), so there is no buildable way to make this specific factory's grant observable yet. Assertions
-    // below are UNCHANGED and EXPECTED TO FAIL until stage B lands — tracked, not silently weakened.
-    CardEffectFactory.ImmuneFromDPMinusStaticEffect(
+    // (P7 FAILa-02 resolved SEAM) ImmuneFromDPMinusClass (Assets/Scripts/Script/CardEffects/
+    // ImmuneFromDPMinusClass.cs) is a new-model kind-class with no ToBinding/EffectRegistry bridge — the
+    // AS-IS-faithful path is the LIVE cEntity_EffectController scan
+    // NewModelContinuousScan.HasImmuneFromDpMinus/ContinuousDpGate now performs, evaluated PER REDUCING
+    // MODIFIER against its REAL causing source (RD-P6B-13 stand-in), not a blanket presence flag. Attach the
+    // built effect via the same seam every ported card definition class uses.
+    var protectedCard0 = new CardSource(ctx, protectedCard, P1);
+    ICardEffect built = CardEffectFactory.ImmuneFromDPMinusStaticEffect(
         permanentCondition: null,
         cardEffectCondition: cardEffectCondition is null ? null : (ICardEffect ce) => cardEffectCondition(ce.EffectSourceCard),
         isInheritedEffect: false,
-        card: new CardSource(ctx, protectedCard, P1), condition: null, effectName: "ImmuneFromDPMinus");
+        card: protectedCard0, condition: null, effectName: "ImmuneFromDPMinus");
+    protectedCard0.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 
     // A continuous "-3000 DP to PROT" sourced from `reducer` (any-player scope, so cross-player applies).
     ctx.EffectRegistry.Register(new PlayerScopeModifierEffect(
@@ -69,6 +69,10 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 952);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (P7 test-fix) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past None/Setup) —
+    // without this every candidate effect's CanUse(null) trivially returns false and the new-model scan never
+    // fires (same fix already documented in rebuild_p6_stageB_notes.md §5).
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -86,3 +90,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}
