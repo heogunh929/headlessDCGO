@@ -31,29 +31,68 @@ public static partial class CardEffectCommons
 
                 if (opponentCard != null)
                 {
-                    IBattle battle = new IBattle(null, null, null);
-                    hashtable.Add("battle", battle);
-
-                    Hashtable battleHashtable = new Hashtable();
                     // ADAPTATION: AS-IS `new Permanent(permanent.cardSources)` (the single-arg list ctor over an
                     // EXISTING permanent's full stack) — the mirror stack view is (context, instanceId, ownerId).
                     Permanent WinnerPermanent = new Permanent(permanent.TopCard.Context, permanent.InstanceId, permanent.OwnerId);
-                    battleHashtable.Add("WinnerPermanents", new List<Permanent>() { WinnerPermanent });
-                    battleHashtable.Add("WinnerPermanents_real", new List<Permanent>() { WinnerPermanent });
                     // ADAPTATION: transient single-card permanent — new Permanent(new List<CardSource>(){ opponentCard }).
                     Permanent LoserPermanent = new Permanent(opponentCard.Context, opponentCard.InstanceId, opponentCard.Owner);
-                    battleHashtable.Add("LoserPermanents", new List<Permanent>() { LoserPermanent });
                     // ADAPTATION: transient single-card permanent — new Permanent(new List<CardSource>(){ opponentCard }).
                     Permanent LoserPermanents_real = new Permanent(opponentCard.Context, opponentCard.InstanceId, opponentCard.Owner) { IsDestroyedByBattle = true };
-                    battleHashtable.Add("LoserPermanents_real", new List<Permanent>() { LoserPermanents_real });
 
-                    battle.hashtable = battleHashtable;
+                    // (RD-CBTL-01) synthetic presence query — share the AS-IS battle-result key construction with the
+                    // real battle finalize (BattleResolver.FinalizeAsync). LoserCard/WasTie are absent in the AS-IS
+                    // presence probe; the shared builder adds them (null / false), harmless — the Pierce/Retaliation
+                    // chains read only the winner/loser permanent lists.
+                    IBattle battle = BuildBattleResultPayload(
+                        winnerPermanents: new List<Permanent>() { WinnerPermanent },
+                        winnerPermanentsReal: new List<Permanent>() { WinnerPermanent },
+                        loserPermanents: new List<Permanent>() { LoserPermanent },
+                        loserPermanentsReal: new List<Permanent>() { LoserPermanents_real },
+                        loserCard: null,
+                        wasTie: false);
+                    hashtable.Add("battle", battle);
                 }
 
             }
         }
 
         return hashtable;
+    }
+    #endregion
+
+    #region Build the AS-IS battle-result IBattle payload (shared: synthetic Pierce presence probe + real battle finalize)
+    // (RD-CBTL-01) 1:1 with AS-IS CardController.Battle :4694-4700 — populate an IBattle's own hashtable with the six
+    // battle-result keys plus the "battle" self-reference. WinnerPermanents/LoserPermanents are the AS-IS
+    // name/color/level SNAPSHOTS and *_real are the LIVE participant lists. The mirror Permanent is an InstanceId-
+    // identity live VIEW that is zone-independent, so the identity reads the Retaliation/Pierce chains perform
+    // POST-trash (cardSources.Contains / IsOpponentPermanent / IsDestroyedByBattle — the last backed by the
+    // deletedByBattle metadata MarkDeletedByBattle already stamps) match the AS-IS `_real` semantics without a
+    // frozen collect-time snapshot; snapshot and _real therefore share the same view list. This is the same
+    // technique PierceCheckHashtableOfPermanent already used for its synthetic probe. "battle" self-references the
+    // IBattle (AS-IS :4700 `hashtable.Add("battle", this)`).
+    public static IBattle BuildBattleResultPayload(
+        List<Permanent> winnerPermanents,
+        List<Permanent> winnerPermanentsReal,
+        List<Permanent> loserPermanents,
+        List<Permanent> loserPermanentsReal,
+        CardSource loserCard,
+        bool wasTie)
+    {
+        IBattle battle = new IBattle(null, null, null);
+
+        Hashtable battleHashtable = new Hashtable()
+        {
+            { "WinnerPermanents", winnerPermanents },
+            { "WinnerPermanents_real", winnerPermanentsReal },
+            { "LoserPermanents", loserPermanents },
+            { "LoserPermanents_real", loserPermanentsReal },
+            { "LoserCard", loserCard },
+            { "WasTie", wasTie },
+        };
+        battleHashtable.Add("battle", battle);
+
+        battle.hashtable = battleHashtable;
+        return battle;
     }
     #endregion
 

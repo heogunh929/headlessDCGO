@@ -21,6 +21,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Retaliation: a battle-deleted Digimon also deletes the winner it battled", RetaliationDeletesWinner),
     ("Retaliation: without the keyword only the loser is deleted", NoRetaliationKeepsWinner),
     ("Retaliation: a tie deletes both regardless of the keyword", RetaliationTieDeletesBoth),
+    ("Retaliation GRANTED via GainRetaliation (W3 bucket) also deletes the winner (window path)", GrantedRetaliationDeletesWinner),
     // Armor Purge promotion is now a POST-deletion agent CHOICE (F-6.8) — covered in G3.5-F68.
     ("Armor Purge: without a source the Digimon is deleted normally", ArmorPurgeNoSourceIsDeleted),
 };
@@ -44,17 +45,20 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task RetaliationDeletesWinner()
 {
+    // (RD-CBTL-01) [Retaliation] now fires 1:1 through the AS-IS post-battle OnDestroyedAnyone window, not the
+    // retired manual same-round drag. Drive the FULL pipeline so the drain runs RetaliationProcess (which issues a
+    // fresh DestroyPermanentsClass over the winner). The holder is the REAL printed BT2_074 <Retaliation>, not the
+    // dead HasRetaliationKey metadata flag; the winner deletion is observed as a final zone state, not on the
+    // BattleResolutionResult (retaliation deletes via a separate deletion after the battle result is returned).
     (DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId defender) = await BattleMatch(
-        attackerDp: 5000, defenderDp: 8000,
-        attackerFlags: (BattleResolver.HasRetaliationKey, true), defenderFlags: null);
+        attackerDp: 5000, defenderDp: 8000, attackerFlags: null, defenderFlags: null);
+    GivePrintedKeyword(match.Context, attacker, P1, "BT2_074");
+
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
+    await DriveToStableAsync(match);
 
-    BattleResolutionResult result = await new BattleResolver().ResolveAsync(match.Context);
-
-    AssertTrue(result.AttackerDeleted, "retaliation holder lost the battle");
-    AssertTrue(result.DefenderDeleted, "retaliation also deletes the winner");
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "attacker trashed");
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, defender), "winner trashed by retaliation");
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "the retaliation holder (loser) is trashed");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, defender), "the winner it battled is trashed by [Retaliation]");
 }
 
 async Task NoRetaliationKeepsWinner()
@@ -73,8 +77,8 @@ async Task NoRetaliationKeepsWinner()
 async Task RetaliationTieDeletesBoth()
 {
     (DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId defender) = await BattleMatch(
-        attackerDp: 6000, defenderDp: 6000,
-        attackerFlags: (BattleResolver.HasRetaliationKey, true), defenderFlags: null);
+        attackerDp: 6000, defenderDp: 6000, attackerFlags: null, defenderFlags: null);
+    GivePrintedKeyword(match.Context, attacker, P1, "BT2_074");   // real <Retaliation> holder in the tie
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
 
     BattleResolutionResult result = await new BattleResolver().ResolveAsync(match.Context);
@@ -147,6 +151,66 @@ Dictionary<string, object?> Meta(string dpKey, int dp, (string Key, bool Value)?
     }
 
     return metadata;
+}
+
+// (RD-CBTL-01 granted-Retaliation witness, Tfx — no live AS-IS granter is ported yet) grant [Retaliation] to the
+// attacker through the REAL CardEffectCommons.GainRetaliation (RetaliationEffect ActivateClass ->
+// AddEffectToPermanent OnDestroyedAnyone W3 bucket), lose the battle, and observe the winner deleted — proving
+// the EffectList_Added (granted-bucket) collection path through the same OnDestroyedAnyone window as the
+// printed-keyword path.
+async Task GrantedRetaliationDeletesWinner()
+{
+    (DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId defender) = await BattleMatch(
+        attackerDp: 5000, defenderDp: 8000, attackerFlags: null, defenderFlags: null);
+
+    using (HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(match.Context))
+    {
+        // Tfx grant root: a minimal ActivateClass whose EffectSourceCard is a P1 hand card (zone immaterial).
+        HeadlessEntityId grantSourceId = HandCard(match, P1, 2);
+        var grantSource = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource(
+            match.Context, grantSourceId, P1);
+        var grantRoot = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass();
+        grantRoot.SetUpICardEffect("TfxGrantRetaliation", null, grantSource);
+
+        await HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.GainRetaliation(
+            new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(match.Context, attacker, P1),
+            HeadlessDCGO.Engine.Headless.Effects.EffectDuration.UntilEachTurnEnd,
+            grantRoot);
+    }
+
+    match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
+    await DriveToStableAsync(match);
+
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "the granted holder (loser) is trashed");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, defender), "the winner is trashed by the GRANTED [Retaliation]");
+}
+
+// (RD-CBTL-01) retype a card to a REAL printed-keyword definition and register its effects, so its keyword
+// ActivateClass surfaces in EffectList (the window firing path) — replaces the retired metadata-flag driver.
+void GivePrintedKeyword(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner, string cardNumber)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId($"def:{cardNumber}");
+    cards.Upsert(new CardRecord(defId, cardNumber, cardNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Purple" }, ["level"] = 5 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+}
+
+async Task DriveToStableAsync(DcgoMatch match)
+{
+    for (int i = 0; i < 12; i++)
+    {
+        await match.StepAsync();
+        if (!match.Context.ChoiceController.Current.IsPending && !match.Context.AttackController.Current.IsPending)
+        {
+            break;
+        }
+    }
 }
 
 // --- Effect-path helpers -------------------------------------------------

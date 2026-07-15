@@ -70,10 +70,13 @@ async Task JammingIsNotMutualDeletion()
 
 async Task PiercingChecksSecurity()
 {
-    int before = SecurityCount(await Setup(5000, 3000), P2);
-    DcgoMatch match = await BattleAsync(
-        attackerDp: 5000, targetDp: 3000,
-        attackerFlags: new Dictionary<string, object?> { [BattleResolver.HasPiercingKey] = true });
+    // (RD-CBTL-01) Piercing now fires through the AS-IS OnDetermineDoSecurityCheck window (BattleResolver opens it,
+    // PierceProcess sets DoSecurityCheck at the drain) — driven by the attacker's REAL printed <Piercing>
+    // (BT1_022), not the retired HasPiercingKey metadata flag.
+    DcgoMatch match = await Setup(5000, 3000);
+    int before = SecurityCount(match, P2);
+    GivePierce(match.Context, AttackerId, P1);
+    await DeclareTargetAttackAsync(match);
 
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, TargetId), "defender deleted in battle");
     AssertEqual(before - 1, SecurityCount(match, P2), "piercing checked one security card");
@@ -81,16 +84,29 @@ async Task PiercingChecksSecurity()
 
 async Task PiercingStrikeChecksTwo()
 {
-    int before = SecurityCount(await Setup(5000, 3000), P2);
-    DcgoMatch match = await BattleAsync(
-        attackerDp: 5000, targetDp: 3000,
-        attackerFlags: new Dictionary<string, object?>
-        {
-            [BattleResolver.HasPiercingKey] = true,
-            [SecurityResolver.StrikeKey] = 2
-        });
+    DcgoMatch match = await Setup(5000, 3000);
+    int before = SecurityCount(match, P2);
+    GivePierce(match.Context, AttackerId, P1);
+    SetMetadata(match, AttackerId, new Dictionary<string, object?> { [SecurityResolver.StrikeKey] = 2 });
+    await DeclareTargetAttackAsync(match);
 
     AssertEqual(before - 2, SecurityCount(match, P2), "piercing with strike 2 checked two security cards");
+}
+
+// (RD-CBTL-01) retype the attacker to the REAL printed BT1_022 <Piercing> and register it, so its PierceSelfEffect
+// surfaces in EffectList(OnDetermineDoSecurityCheck) — the window firing path — replacing the dead metadata flag.
+void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:BT1_022");
+    cards.Upsert(new CardRecord(defId, "BT1_022", "BT1_022",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Red" }, ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 async Task NoPiercingNoSecurityCheck()

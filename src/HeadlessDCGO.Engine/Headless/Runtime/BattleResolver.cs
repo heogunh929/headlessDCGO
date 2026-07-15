@@ -165,23 +165,10 @@ public sealed class BattleResolver
             return BattleResolutionResult.Failure(validationFailure, attack);
         }
 
-        // C-8 Retaliation: a Digimon whose battle death is CONFIRMED (pending + no undeclined replacement)
-        // drags its battle opponent down — the opponent becomes a fresh would-be-deleted, so it may
-        // Evade/Barrier the retaliation. Fires once per holder; a tie already deletes both.
-        foreach ((BattleParticipant dead, BattleParticipant opponent) in new[] { (attacker!, defender!), (defender!, attacker!) })
-        {
-            if (IsConfirmedDoomed(context, dead.InstanceId) &&
-                (HasFlag(dead, HasRetaliationKey)
-                    || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, dead.InstanceId).HasRetaliation) &&
-                !ReadInstanceFlag(context, dead.InstanceId, RetaliationFiredKey) &&
-                !IsStillPendingDeletion(context, opponent.InstanceId) &&
-                IsOnBattleArea(context, opponent))
-            {
-                MarkInstance(context, dead.InstanceId, RetaliationFiredKey);
-                FlagPendingBattleDeletion(context, opponent);
-                ClearInstanceFlag(context, opponent.InstanceId, DeletionReplacementTiming.ReplacementDeclinedKey);
-            }
-        }
+        // (RD-CBTL-01) The manual same-round Retaliation drag is RETIRED. [Retaliation] now fires 1:1 through the
+        // AS-IS post-battle OnDestroyedAnyone window (FinalizeAsync opens it with the live IBattle payload;
+        // RetaliationProcess issues a FRESH DestroyPermanentsClass over the winner, which opens the winner's OWN
+        // would-be-deleted Evade/Barrier window). XOR with that window — a stale manual flag here would double-fire.
 
         // If any flagged participant still needs a would-be-deleted decision, park for its window.
         if (context.ZoneMover is IZoneStateReader zones &&
@@ -240,7 +227,6 @@ public sealed class BattleResolver
         CancellationToken cancellationToken)
     {
         bool defenderDeletedNow = deleted.Any(p => p.InstanceId == defender.InstanceId);
-        bool attackerSurvives = !deleted.Any(p => p.InstanceId == attacker.InstanceId);
 
         var movementResults = new List<ZoneMoveResult>();
         // (deletion single-simultaneous window) AS-IS deletes EVERY battle loser together in one
@@ -262,34 +248,69 @@ public sealed class BattleResolver
             await ResolveKnockOutWindowAsync(context, participant, cancellationToken).ConfigureAwait(false);
         }
 
-        // (C2 decision-4 battle deletion transport) mirror AS-IS DestroyPermanentsClass(LoserPermanents)'s inline
-        // OnDeletion pair (CardController.cs:4705 → :3736-3756): BEFORE the loser field->Trash moves (phase 2, all
-        // losers still on the battle area), collect-before-removal every loser's OnDestroyedAnyone /
-        // OnLeaveFieldAnyone reactor onto the mirror stack — ONE hashtable list for BOTH losers (AS-IS single
-        // LoserPermanents list). Drained by the main loop's AutoProcessCheck after the battle step. Member
-        // derivation: cardEffect = null (no live effect on a battle deletion); battle = null (ADAPTATION — the
-        // mirror carries the battle cause as the loser's `deletedByBattle` instance flag set by MarkDeletedByBattle,
-        // not an IBattle payload object; battle rehousing remains non-scope); isDPZero = false (a battle loss is not
-        // the DP-zero rule). Runs under RunToStableAsync's AmbientMatchContext scope.
-        if (deleted.Count > 0)
+        // (RD-CBTL-01 IBattle cutover) mirror AS-IS DestroyPermanentsClass(LoserPermanents)'s inline OnDeletion pair
+        // (CardController.cs:4705 → :3736-3756) AND the OnDetermineDoSecurityCheck window (:4731-4737), both carrying
+        // the REAL battle-result IBattle payload (no synthesis — re-expression of the actual outcome):
+        //   * winners = the surviving participants; losers / losers_real = the participants actually deleted by this
+        //     battle (`deleted` — replacement survivors never reach it). AS-IS name/color/level snapshot vs _real
+        //     live distinction collapses to one InstanceId-identity view list (see BuildBattleResultPayload).
+        //   * OnDestroyedAnyone / OnLeaveFieldAnyone are collected BEFORE the loser field->Trash moves (phase 2, all
+        //     losers still on the battle area) — ONE hashtable list for BOTH losers (AS-IS single LoserPermanents
+        //     list) with cardEffect=null and the live IBattle. This is what makes [Retaliation]
+        //     (CanActivateRetaliation / RetaliationProcess, which read battle.hashtable's WinnerPermanents_real /
+        //     LoserPermanents) fire through the window — the boolean byBattleCause marker used to leave it no-op.
+        //   * OnDetermineDoSecurityCheck collects every [Pierce] ActivateClass triggerable by this result, filters
+        //     by CanActivate, stacks the first (AS-IS PutStackedSkill). The drain (main-loop AutoProcessCheck) runs
+        //     PierceProcess, which sets attackProcess.DoSecurityCheck — the AS-IS security-check gate.
+        // Both windows drain at the main loop's AutoProcessCheck after the battle step (shared per-context stack).
+        // Runs under RunToStableAsync's AmbientMatchContext scope (Enter is nest-safe).
+        bool piercing = false;
+        using (AmbientMatchContext.Enter(context))
         {
-            using AmbientMatchContext.Scope _loserScope = AmbientMatchContext.Enter(context);
+            var winnerPermanents = new[] { attacker, defender }
+                .Where(p => !deleted.Any(d => d.InstanceId == p.InstanceId))
+                .Select(p => new Assets.Scripts.Script.CardEffectCommons.Permanent(context, p.InstanceId, p.OwnerId))
+                .ToList();
             var loserPermanents = deleted
                 .Select(p => new Assets.Scripts.Script.CardEffectCommons.Permanent(context, p.InstanceId, p.OwnerId))
                 .ToList();
+            var battle = Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.BuildBattleResultPayload(
+                winnerPermanents: winnerPermanents,
+                winnerPermanentsReal: winnerPermanents,
+                loserPermanents: loserPermanents,
+                loserPermanentsReal: loserPermanents,
+                loserCard: null!,
+                wasTie: CompareBattleStats(attacker, defender) == 0);
+
             var battleAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
-            // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509).
-            // (P1-1 C2r) Cause derivation for IsByBattle/IsByEffect: a battle loss carries byBattle = true (AS-IS
-            // hashtable "battle" key), byEffect = false, isDPZero = false. The live IBattle is still absent
-            // (battle-rehousing non-scope), so the marker rides the loser's MarkDeletedByBattle flag set above.
-            await battleAutoProcessing.StackSkillInfos(
-                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
-                    loserPermanents, byEffectCause: false, byBattleCause: true, isDPZero: false),
-                Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
-            await battleAutoProcessing.StackSkillInfos(
-                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
-                    loserPermanents, byEffectCause: false, byBattleCause: true, isDPZero: false),
-                Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+
+            // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3489-3509). The
+            // AS-IS-signature overload adds the "battle" key when battle != null (HashtableSetting.cs:123), so
+            // IsByBattle stays true and the winner/loser lists become readable by the keyword chain.
+            if (deleted.Count > 0)
+            {
+                await battleAutoProcessing.StackSkillInfos(
+                    Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                        loserPermanents, cardEffect: null!, battle, isDPZero: false),
+                    Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+                await battleAutoProcessing.StackSkillInfos(
+                    Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                        loserPermanents, cardEffect: null!, battle, isDPZero: false),
+                    Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+            }
+
+            // AS-IS :4731-4737 — GetSkillInfos(battle.hashtable, OnDetermineDoSecurityCheck).Filter(CanActivate);
+            // if >= 1, PutStackedSkill(first). `piercing` (the pipeline park signal) is now the WINDOW result, not
+            // the retired manual HasPierce read — the actual DoSecurityCheck flip happens in PierceProcess at drain.
+            var pierceSkills = Assets.Scripts.Script.AutoProcessing
+                .GetSkillInfos(battle.hashtable, Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDetermineDoSecurityCheck)
+                .Where(skillInfo => skillInfo.CardEffect != null && skillInfo.CardEffect.CanActivate(skillInfo.Hashtable))
+                .ToList();
+            if (pierceSkills.Count >= 1)
+            {
+                battleAutoProcessing.PutStackedSkill(pierceSkills[0]);
+                piercing = true;
+            }
         }
 
         // (D-1 / VR-8) AS-IS deletes EVERY battle loser in ONE DestroyPermanentsClass(LoserPermanents) call
@@ -326,13 +347,10 @@ public sealed class BattleResolver
         // OnDestroyedAnyone cut-in window (BattleResolver.FinalizeAsync collect-before-removal + AutoProcessCheck),
         // from the card's printed FortitudeEffect / granted GainFortitude bucket.
 
-        // Piercing: a surviving attacker that deleted the defender also checks the defending player's
-        // security (the AttackPipeline performs the follow-up check). (GR-005) a self-static <Piercing>
-        // lives as a registry keyword binding, not the hasPiercing metadata flag — derive it too.
-        bool piercing = attackerSurvives && defenderDeletedNow
-            && (HasFlag(attacker, HasPiercingKey)
-                || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attacker.InstanceId).HasPierce);
-
+        // (RD-CBTL-01) Piercing is decided by the OnDetermineDoSecurityCheck window above (`piercing`), not the
+        // retired manual HasPiercingKey / Permanent.HasPierce read: the window's CanTriggerPierce already gates on
+        // "surviving attacker deleted the opponent" and CanActivatePierce on "defending player still has security",
+        // and PierceProcess (drained by the main loop before the piercing follow-up) sets DoSecurityCheck.
         EffectDurationExpiry.ExpireBattleEnd(context.EffectRegistry);
         HeadlessAttackState resolvedAttack = context.AttackController.ResolveAttack("Battle resolved by DP comparison.");
         // (W6 tail) carry the battle RESULT the AS-IS battle hashtable carried (WinnerPermanents /
@@ -544,14 +562,10 @@ public sealed class BattleResolver
         context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 
-    /// <summary>A pending battle deletion whose death is FINAL — no undeclined replacement remains.</summary>
-    private static bool IsConfirmedDoomed(EngineContext context, HeadlessEntityId cardId) =>
-        IsStillPendingDeletion(context, cardId) &&
-        (context.ZoneMover is not IZoneStateReader zones || !NeedsWindow(context, zones, cardId));
-
-    private static bool IsOnBattleArea(EngineContext context, BattleParticipant participant) =>
-        context.ZoneMover is IZoneStateReader zones &&
-        zones.GetCards(participant.OwnerId, ChoiceZone.BattleArea).Contains(participant.InstanceId);
+    // (RD-CBTL-01) IsConfirmedDoomed / IsOnBattleArea were only read by the retired manual same-round Retaliation
+    // drag — removed with it. RetaliationFiredKey is retained (still cleared by MarkDeletedByBattle) as G-clean dead
+    // substrate; HasRetaliationKey / HasPiercingKey remain as public consts (dead — the metadata-flag firing path is
+    // retired; the window reads the printed/granted keyword EffectList instead).
 
     private static bool ReadInstanceFlag(EngineContext context, HeadlessEntityId cardId, string key) =>
         context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null &&

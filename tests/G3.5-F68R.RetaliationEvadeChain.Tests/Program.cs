@@ -1,17 +1,14 @@
-// (C-Del 3c-2b quarantine → GREEN) The Retaliation→Evade chain case from the pre-flip G3.5-F68 suite (the (C-8)
-// scenario: a Retaliation attacker LOSES the battle, the retaliation flags the winning defender for deletion,
-// and the defender's own would-be-deleted replacement — Evade — may fire, re-opening the window). Assertions
-// preserved verbatim from G3.5-F68; separated because its RETALIATION half rides a different substrate status
-// than the flip:
-//   * The retaliation TRIGGER still fires through the RETAINED BattleResolver manual block (the HasRetaliationKey /
-//     Permanent.HasRetaliation read, BattleResolver.cs:168-180) — the RD-CBTL-01 ADAPTATION. The AS-IS
-//     OnDestroyedAnyone-window Retaliation firing (CanActivateRetaliation / RetaliationProcess) stays STOP: it
-//     reads the live IBattle from the battle hashtable (WinnerPermanents_real / LoserPermanents_real, AS-IS
-//     CardController.cs:4694-4700), which the mirror BattleResolver does not carry (battle-rehousing non-scope;
-//     payload synthesis forbidden — the C-Btl decision). When the IBattle region-goal lands and the manual block
-//     is retired, THIS suite is the chain's regression guard (it must keep passing through the window path).
-//   * The defender's EVADE half is fully flipped: the retired gate marker fires nothing — the defender is the
-//     REAL BT13_023 <Evade> registered through the dispatch, firing via the 3c-1b battle PRE cut-in window.
+// (RD-CBTL-01 landed) The Retaliation→Evade chain case (the (C-8) scenario: a Retaliation attacker LOSES the
+// battle, its post-battle [Retaliation] deletes the winning defender, and the defender's own would-be-deleted
+// replacement — Evade — may fire, re-opening the window). Both halves are now the flipped AS-IS window path:
+//   * The retaliation TRIGGER fires 1:1 through the AS-IS OnDestroyedAnyone window (CanActivateRetaliation /
+//     RetaliationProcess reading the live IBattle payload BattleResolver.FinalizeAsync now carries —
+//     WinnerPermanents_real / LoserPermanents, AS-IS CardController.cs:4694-4700). The retired manual same-round
+//     drag (HasRetaliationKey / the BattleResolver manual block) is GONE. The attacker is the REAL printed
+//     BT2_074 <Retaliation>. ORDER SHIFT: retaliation now fires POST-battle (loser trashed first), issuing a
+//     fresh DestroyPermanentsClass over the winner — the AS-IS-correct sequence; the end state is unchanged.
+//   * The defender's EVADE half is the REAL BT13_023 <Evade> registered through the dispatch, firing via the
+//     3c-1b would-be-deleted PRE cut-in window that RetaliationProcess's DestroyPermanentsClass opens.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -43,10 +40,9 @@ foreach (var test in tests)
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
-// (Assertions preserved VERBATIM from the pre-flip G3.5-F68 RetaliationOpponentCanEvade; the drive is updated
-// only in that the defender is the REAL BT13_023 <Evade> card registered through the dispatch — the retired
-// hasEvade gate marker no longer fires anything. The attacker keeps the BattleResolver HasRetaliationKey flag
-// (the manual block that IS the current mirror firing path, RD-CBTL-01).)
+// (Assertions preserved VERBATIM from the pre-flip G3.5-F68 RetaliationOpponentCanEvade; the drive is updated:
+// the defender is the REAL BT13_023 <Evade> and the attacker the REAL BT2_074 <Retaliation>, both registered
+// through the dispatch — the retired gate/flag markers fire nothing. RD-CBTL-01 landed: window path only.)
 async Task RetaliationOpponentCanEvade()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 73, deferredChoice: true);
@@ -65,25 +61,31 @@ async Task RetaliationOpponentCanEvade()
     (context.ChoiceProvider as DeferredChoiceProvider)?.CompleteResolution();
 
     // Attacker (P1) has Retaliation and LOSES the battle (5000 < 8000); defender (P2) wins but has Evade.
+    // (RD-CBTL-01) The attacker is the REAL printed BT2_074 <Retaliation>, registered so its RetaliationSelfEffect
+    // surfaces at OnDestroyedAnyone — the window firing path. The retired HasRetaliationKey metadata-flag driver is
+    // gone. ORDER SHIFT (design-pass judgment): Retaliation no longer drags the winner SAME-round; it fires
+    // POST-battle (the loser is trashed, then RetaliationProcess issues a fresh DestroyPermanentsClass over the
+    // winner, which opens the winner's OWN would-be-deleted Evade window). The END STATE is unchanged.
     HeadlessEntityId attacker = HandCard(match, P1, 1);
     HeadlessEntityId defender = HandCard(match, P2, 1);
+    RetypeCard(context, attacker, "BT2_074");
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.Hand, ChoiceZone.BattleArea));
     RetypeCard(context, defender, "BT13_023");
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, defender, ChoiceZone.Hand, ChoiceZone.BattleArea));
     SetMetadata(match, attacker, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["dp"] = 5000,
-        [BattleResolver.HasRetaliationKey] = true
     });
     SetMetadata(match, defender, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["dp"] = 8000,
         [DeletionReplacementGate.IsSuspendedKey] = false,
     });
+    CardEffectRegistrar.RegisterCard(context, attacker, P1);
     CardEffectRegistrar.RegisterCard(context, defender, P2);
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
-    await match.StepAsync();   // attacker loses → confirmed → Retaliation flags defender → Evade window opens
+    await match.StepAsync();   // attacker loses → trashed → post-battle Retaliation deletes winner → Evade window opens
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "the retaliated opponent's Evade window opened");
     LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));

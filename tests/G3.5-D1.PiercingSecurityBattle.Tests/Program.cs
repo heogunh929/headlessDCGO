@@ -139,13 +139,31 @@ async Task<DcgoMatch> Setup(int attackerDp, int targetDp, int topSecurityDp, boo
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, TargetId, ChoiceZone.Hand, ChoiceZone.BattleArea));
 
     var attackerMeta = new Dictionary<string, object?> { ["isSuspended"] = false, ["dp"] = attackerDp };
-    if (piercing) attackerMeta[BattleResolver.HasPiercingKey] = true;
     SetMetadata(match, AttackerId, attackerMeta);
+    // (RD-CBTL-01) Piercing now fires only through the AS-IS OnDetermineDoSecurityCheck window — drive it with
+    // the REAL printed BT1_022 <Piercing> (retype + register), not the retired HasPiercingKey metadata flag.
+    if (piercing) GivePierce(context, AttackerId, P1);
     SetMetadata(match, TargetId, new Dictionary<string, object?> { ["isSuspended"] = true, ["dp"] = targetDp });
 
     // The piercing check reveals the top of P2's security first — give that card the test DP.
     SetMetadata(match, TopSecurity(match, P2), new Dictionary<string, object?> { ["dp"] = topSecurityDp });
     return match;
+}
+
+// (RD-CBTL-01) retype the attacker to the REAL printed BT1_022 <Piercing> and register it, so its
+// PierceSelfEffect surfaces in EffectList(OnDetermineDoSecurityCheck) — the window firing path.
+void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:BT1_022");
+    cards.Upsert(new CardRecord(defId, "BT1_022", "BT1_022",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Red" }, ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 static CardRecord Digimon(string id) =>

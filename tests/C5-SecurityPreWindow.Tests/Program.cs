@@ -187,10 +187,12 @@ async Task PiercingDeferAndResume()
         strike: 1,
         attackerExtra: new Dictionary<string, object?>
         {
-            [BattleResolver.HasPiercingKey] = true,
             [DeletionReplacementGate.HasEvadeKey] = true,
         },
         defenderOnField: true);
+    // (RD-CBTL-01) Piercing fires only through the AS-IS OnDetermineDoSecurityCheck window — the attacker
+    // carries the REAL printed BT1_022 <Piercing> (retype + register), not the retired HasPiercingKey flag.
+    GivePierce(match.Context, AttackerId, P1);
 
     match.Context.AttackController.DeclareAttack(P1, AttackerId, P2, targetId: DefenderId, isDirectAttack: false);
     await match.StepAsync();   // battle (defender dies) → piercing check → security battle loss → window
@@ -281,6 +283,22 @@ async Task<DcgoMatch> CreateMatchAsync(
 
 static CardRecord Definition(string id, string cardType) =>
     new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(), CardType: cardType);
+
+// (RD-CBTL-01) retype a card to the REAL printed BT1_022 <Piercing> and register it, so its PierceSelfEffect
+// surfaces in EffectList(OnDetermineDoSecurityCheck) — the window firing path (the metadata flag is retired).
+void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:BT1_022");
+    cards.Upsert(new CardRecord(defId, "BT1_022", "BT1_022",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Red" }, ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+}
 
 static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix) =>
     new(playerId,

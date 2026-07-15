@@ -507,11 +507,12 @@ public sealed class AttackProcess
         }
 
         // AS-IS :446 post-battle TriggeredSkillProcess, then :451-456 the attacker-survived re-check, then
-        // :459-465 the security check when DoSecurityCheck (Piercing sets it via OnDetermineDoSecurityCheck during
-        // battle resolution). The drain is the loop's next iteration — PARK at PiercingSecurity (B2).
+        // :459-465 the security check when DoSecurityCheck. (RD-CBTL-01) TriggersPiercingSecurityCheck is now the
+        // OnDetermineDoSecurityCheck WINDOW result (a [Pierce] ActivateClass was stacked by BattleResolver), not a
+        // pre-computed flag — so DoSecurityCheck is NOT set here; PierceProcess sets it when the next loop iteration
+        // drains the stacked skill (before this park's ResumePiercingSecurity re-entry). PARK at PiercingSecurity.
         if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
         {
-            DoSecurityCheck = true;
             _context.AttackController.AdvancePhase(AttackPhase.PiercingSecurity, "Piercing security check pending (triggers drain first).");
             return AttackAdvanceResult.Transitioned(AttackPhase.Combat, AttackPhase.PiercingSecurity, battleResolved: true);
         }
@@ -578,9 +579,10 @@ public sealed class AttackProcess
             _context.AttackController.ResolveAttack($"Battle finalize failed: {battle.FailureReason}");
         }
 
+        // (RD-CBTL-01) PierceProcess (drained next iteration) sets DoSecurityCheck — see the DetermineAttackOutcome
+        // twin above; the deferred re-entry parks the same way when the window stacked a [Pierce] skill.
         if (battle.IsSuccess && battle.TriggersPiercingSecurityCheck)
         {
-            DoSecurityCheck = true;
             _context.AttackController.AdvancePhase(AttackPhase.PiercingSecurity, "Piercing security check pending (triggers drain first).");
             return AttackAdvanceResult.Transitioned(AttackPhase.DeletionReplacement, AttackPhase.PiercingSecurity, battleResolved: true);
         }
