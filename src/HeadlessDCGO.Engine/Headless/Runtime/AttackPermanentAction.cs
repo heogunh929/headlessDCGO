@@ -15,7 +15,6 @@ public sealed class AttackPermanentAction
     private const string IsSuspendedKey = "isSuspended";
     private const string EnteredThisTurnKey = "enteredThisTurn";
     private const string HasRushKey = "hasRush";
-    private const string HasBlitzKey = "hasBlitz";
     private const string CanAttackUnsuspendedDigimonKey = "canAttackUnsuspendedDigimon";
 
     public IReadOnlyList<LegalAction> GetLegalActions(
@@ -213,30 +212,26 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is not a Digimon.");
         }
 
-        // (C-2 Blitz) Attacking is a Main-phase action. <Blitz> is the sole exception: it lets a Digimon
-        // attack during the memory-pass window — the brief span after memory has handed to the opponent
-        // (opponent already has >=1 memory, so the turn entered MemoryPass) but before the turn is actually
-        // passed on EndTurn. Mirrors the original rule "When your opponent has 1 or more memory, this
-        // Digimon can attack." Any other (non-Main) phase never permits an attack.
+        // Attacking is a Main-phase action; no other phase permits a manual attack declaration.
         //
-        // (C-Atk) design item RD-CATK-BLITZ (STOP): AS-IS Blitz is NOT a phase gate — it is an [On Play] /
-        // [When Digivolving] ActivateClass (BlitzSelfEffect) that fires in the OnPlay/OnEnterFieldAnyone window
-        // and opens an IMMEDIATE effect-driven attack (BlitzProcess -> EffectDrivenAttack). The window path was
-        // verified to FIRE the Blitz optional ("Will you use Blitz?") but BlitzProcess's nested
-        // EffectDrivenAttack.RequestChoice CANNOT open its attack choice from inside the play-window resolution:
-        // the window already holds the single ChoiceController, so RequestChoice's `IsPending` guard rejects it
-        // (called OUTSIDE the window it opens fine). Retiring this phase gate would leave a firing vacuum, so it
-        // is kept until the window-resolution / effect-attack ChoiceController contention is resolved (a
-        // substrate item, out of the C-Atk rehoming scope). No card exercises either path today.
+        // (C-Atk RD-CATK-BLITZ re-judgment, 2026-07-15) The former "<Blitz> may attack during the memory-pass
+        // window" exception here was an INVENTED phase gate — AS-IS Blitz is NOT a phase permission. AS-IS Blitz
+        // is an [On Play] / [When Digivolving] ActivateClass (BlitzSelfEffect) collected by the
+        // OnEnterFieldAnyone / OnPlay window (GetSkillInfos → MultipleSkills); on accept its BlitzProcess opens an
+        // IMMEDIATE effect-driven attack. The wave2 STOP claimed the nested EffectDrivenAttack.RequestChoice was
+        // rejected by the ChoiceController IsPending guard inside the window; the re-judgment DISPROVED that — the
+        // probe drove the REAL BlitzSelfEffect through the OnEnterFieldAnyone window end-to-end (optional prompt
+        // fires, then the nested effect-attack OPENS and resolves into a declared attack via the DEFERRED
+        // EffectDrivenAttack substrate — the SAME trailing-choice flow Vortex/Overclock use). So Blitz is now
+        // rehoused onto that window (printed BlitzSelfEffect + granted GainBlitz OnEnterFieldAnyone bucket) and
+        // this invented memory-pass firing-half is RETIRED (single-fire: window XOR gate). No card exercises
+        // either path today. (Latent, general to the deferred effect-attack substrate, NOT Blitz-specific:
+        // multiple effect-attacks co-resident in ONE window can collide with a later in-window ChooseAsync —
+        // design item RD-CATK-EATTACK-MULTI; unreachable for Blitz, whose window collects one per single-card play.)
         if (turn.Phase != HeadlessPhase.Main)
         {
-            bool hasBlitz = ReadBool(attacker.Metadata, HasBlitzKey) || ReadBool(attackerCard.Metadata, HasBlitzKey)
-                || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasBlitz;
-            if (turn.Phase != HeadlessPhase.MemoryPass || !hasBlitz)
-            {
-                return AttackPermanentValidation.Illegal(
-                    $"Attacker '{attackerId}' can only attack during the main phase (Blitz also allows the memory-pass window).");
-            }
+            return AttackPermanentValidation.Illegal(
+                $"Attacker '{attackerId}' can only attack during the main phase.");
         }
 
         if (ReadBool(attacker.Metadata, IsSuspendedKey))

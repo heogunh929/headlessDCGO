@@ -4,23 +4,25 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// C-2 (Blitz): "When your opponent has 1 or more memory, this Digimon can attack." In the headless
-// engine that window is the MemoryPass phase — after memory has handed to the opponent (opponent has
-// >=1 memory) but before the turn is actually passed on EndTurn. Normally only EndTurn is offered there;
-// a <Blitz> Digimon may instead declare an attack. Consumption lives in AttackPermanentAction's phase
-// gate (Main-only, plus MemoryPass for Blitz) and HeadlessLegalActionDispatcher (exposes the action).
+// C-2 (Blitz) — RETIRED phase gate (RD-CATK-BLITZ re-judgment, 2026-07-15). This suite previously asserted an
+// INVENTED rule: a <Blitz> Digimon may declare an attack during the MemoryPass phase. AS-IS Blitz is NOT a phase
+// permission — it is an [On Play] / [When Digivolving] ActivateClass that fires in the OnEnterFieldAnyone / OnPlay
+// window and opens an immediate effect-driven attack (the re-judgment probe drove the real BlitzSelfEffect through
+// that window end-to-end; witnesses live in tests/C-Atk-Blitz.Tests). The AttackPermanentAction memory-pass
+// firing-half is therefore RETIRED (single-fire: window XOR gate). These tests now LOCK IN the retirement: no
+// manual attack is legal outside the Main phase, for a Blitz Digimon or otherwise.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("A Blitz Digimon can attack during the memory-pass window", BlitzAttacksInMemoryPass),
+    ("A Blitz Digimon no longer has a memory-pass attack (invented phase gate retired; window is the sole path)", BlitzHasNoMemoryPassAttack),
     ("A non-Blitz Digimon cannot attack during the memory-pass window", NonBlitzCannotAttackInMemoryPass),
-    ("Memory-pass dispatch still offers EndTurn alongside a Blitz attack", MemoryPassStillOffersEndTurn),
+    ("Memory-pass dispatch still offers EndTurn", MemoryPassStillOffersEndTurn),
     ("A Blitz Digimon attacks normally during the main phase", BlitzAttacksInMainPhase),
     ("A non-Blitz Digimon still attacks normally during the main phase", NonBlitzAttacksInMainPhase),
-    ("A Blitz attack declared in the memory-pass window is accepted", BlitzAttackProcessIsAccepted),
+    ("A Blitz attack declared in the memory-pass window is now REJECTED (gate retired)", BlitzAttackProcessIsRejected),
 };
 
 var failures = new List<string>();
@@ -40,7 +42,7 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
 
-async Task BlitzAttacksInMemoryPass()
+async Task BlitzHasNoMemoryPassAttack()
 {
     DcgoMatch match = await BaseMatch();
     HeadlessEntityId attacker = await EstablishDigimon(match, P1, blitz: true);
@@ -48,8 +50,10 @@ async Task BlitzAttacksInMemoryPass()
     await PassAsync(match, P1);
     AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "phase is memory pass");
 
-    AssertTrue(HasDeclaration(match, P1, attacker), "Blitz attacker has an attack declaration in memory pass");
-    AssertTrue(HasDeclareAttackAction(match, P1, attacker), "dispatcher exposes a DeclareAttack for the Blitz attacker");
+    // RD-CATK-BLITZ: the invented memory-pass firing-half is retired. A hasBlitz Digimon gets NO manual
+    // memory-pass attack; Blitz now fires only through the OnEnterFieldAnyone / OnPlay window (C-Atk-Blitz.Tests).
+    AssertFalse(HasDeclaration(match, P1, attacker), "retired: Blitz attacker has no memory-pass attack declaration");
+    AssertFalse(HasDeclareAttackAction(match, P1, attacker), "retired: dispatcher exposes no DeclareAttack in memory pass");
 }
 
 async Task NonBlitzCannotAttackInMemoryPass()
@@ -74,7 +78,7 @@ async Task MemoryPassStillOffersEndTurn()
 
     AssertTrue(
         match.GetLegalActions(P1).Any(a => a.ActionType == HeadlessActionTypes.EndTurn),
-        "memory pass still offers EndTurn even with a Blitz attacker present");
+        "memory pass still offers EndTurn (no regression from the Blitz gate retirement)");
 }
 
 async Task BlitzAttacksInMainPhase()
@@ -95,7 +99,7 @@ async Task NonBlitzAttacksInMainPhase()
     AssertTrue(HasDeclaration(match, P1, attacker), "non-Blitz attacker attacks normally in the main phase (no regression)");
 }
 
-async Task BlitzAttackProcessIsAccepted()
+async Task BlitzAttackProcessIsRejected()
 {
     DcgoMatch match = await BaseMatch();
     HeadlessEntityId attacker = await EstablishDigimon(match, P1, blitz: true);
@@ -105,8 +109,10 @@ async Task BlitzAttackProcessIsAccepted()
         P1, attacker, P2, targetId: null, isDirectAttack: true);
     ActionProcessResult result = new AttackPermanentAction().Process(declare, match.Context);
 
-    AssertTrue(result.IsSuccess, $"Blitz direct attack is accepted in memory pass ({result.Message})");
-    AssertTrue(ReadFlag(match, attacker, "isSuspended"), "the Blitz attacker suspends on declaration");
+    // RD-CATK-BLITZ: with the memory-pass firing-half retired, a manual attack outside the Main phase is illegal
+    // even for a hasBlitz Digimon.
+    AssertFalse(result.IsSuccess, "retired: Blitz direct attack is rejected in memory pass");
+    AssertFalse(ReadFlag(match, attacker, "isSuspended"), "the rejected Blitz attacker did not suspend");
 }
 
 // --- Action drivers ------------------------------------------------------
