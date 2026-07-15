@@ -21,9 +21,11 @@ public static partial class CardEffectCommons
         IsPermanentExistsOnBattleArea(permanent) && new Player(permanent.TopCard.Context, permanent.TopCard.Owner).SecurityCards.Count >= 1;
 
     /// <summary>(P6 cluster2) AS-IS <c>BarrierProcess</c> (KeyWordEffects/Barrier.cs:25): trash the top security
-    /// card to prevent this Digimon's deletion. ShowDeleteEffect/HideDeleteEffect/add-log = UI (stripped,
-    /// established convention). <c>IDestroySecurity</c>'s mirror ctor takes (context, playerId, count,
-    /// causeEffectSourceId, fromTop) in place of the AS-IS (player, count, cardEffect, fromTop) shape.</summary>
+    /// card to prevent this Digimon's deletion, then cancel the pending deletion (<c>willBeRemoveField = false</c>).
+    /// ShowDeleteEffect/HideDeleteEffect/add-log = UI (stripped, established convention). <c>IDestroySecurity</c>'s
+    /// mirror ctor takes (context, playerId, count, causeEffectSourceId, fromTop) in place of the AS-IS (player,
+    /// count, cardEffect, fromTop) shape. (C-Del 3c-1) the AS-IS trailing <c>willBeRemoveField = false</c> is now
+    /// RESTORED — survival is owned by the AS-IS PRE cut-in window, not the retired DeletionReplacementGate.</summary>
     public static async Task BarrierProcess(Permanent permanent, ICardEffect activateClass, CancellationToken cancellationToken = default)
     {
         if (permanent is null || permanent.TopCard is null)
@@ -41,5 +43,7 @@ public static partial class CardEffectCommons
             topCard.Context, topCard.Owner, destroySecurityCount: 1,
             cardEffect: activateClass, fromTop: true)
             .DestroySecurity(cancellationToken).ConfigureAwait(false);
+
+        permanent.willBeRemoveField = false;
     }
 }

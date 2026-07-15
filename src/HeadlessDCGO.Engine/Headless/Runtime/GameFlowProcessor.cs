@@ -248,6 +248,12 @@ public sealed class GameFlowProcessor
         // (design item R2-P2-4) the DP-zero deletes interleave per-card with the pendingDeletion finalizes in
         // this one scan; AS-IS runs TrashNoDPPermanent / DigimonLackDP as separate whole-board passes.
         long? dpZeroBatchId = null;
+        // (RD-C2-DEFERRED-DELETE-BATCH resolved) the OnDeletion cut-in for a deferred delete batch is opened ONCE
+        // per batch id — over ALL its co-finalizing dying members — not per card (the former per-card StackSkillInfos
+        // over-fired anyone-scoped reactors for a multi-card deferred batch). This set records the batch ids whose
+        // OnDeletion window has already been stacked in THIS sweep pass; every member then does its own cleanup +
+        // trash but re-uses the one window.
+        var deferredOnDeletionBatchesOpened = new HashSet<long>();
         foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
         {
             if (playerId.IsEmpty)
@@ -303,6 +309,19 @@ public sealed class GameFlowProcessor
 
                     if (pending)
                     {
+                        // (C-Del 3c-1 promote-to-defer) PROMOTED-SURVIVOR: this card's deletion was promoted to a
+                        // deferred replacement whose AS-IS PRE cut-in window resumed and cleared its
+                        // willBeRemoveField — it SURVIVES (an interactive Evade/Barrier/Fragment/ArmorPurge fired).
+                        // AS-IS Destroy() filters such a card OUT of destroyTargetPermanents_Fixed (:3482) so it is
+                        // never trashed and never fires OnDeletion; reset the deferral markers (AS-IS resets
+                        // willBeRemoveField at :3591) and leave it on the field.
+                        if (IsPromotedSurvivor(context, cardId))
+                        {
+                            SparePromotedSurvivor(context, cardId);
+                            progressed = true;
+                            continue;
+                        }
+
                         // (D-1 / VR-8) capture the ORIGINATING batch id the sink stashed at defer time BEFORE the
                         // cleanup below mutates the record's metadata, so the finalize move re-stamps it.
                         // (R2-P1-4) a deferred finalize IS a deletion and the deletion marker now DERIVES the
@@ -315,17 +334,26 @@ public sealed class GameFlowProcessor
                             {
                                 [Effects.MatchStateMutationSink.DeletionBatchIdKey] = context.NextDeletionBatchId(),
                             };
-                        // (C2 decision-4 deferred-delete transport) The sink DEFERRED this deletion (a member had a
-                        // PRE would-be-deleted replacement option) so it did NOT open the OnDeletion window at
-                        // Destroy() time — the survivor set is known only now (this card DECLINED its replacement and
-                        // still dies). Mirror AS-IS's post-PRE StackSkillInfos(OnDestroyed/OnLeaveField) pair here,
-                        // collect-before-removal, while the top card is still on the field (before DiscardEvoRoots +
-                        // the move). cardEffect = null, battle = null, isDPZero from the card's stamped flag. NOTE
-                        // (design item RD-C2-DEFERRED-DELETE-BATCH): a MULTI-card deferred batch finalizes per-card
-                        // here, so an anyone-scoped reactor could over-fire vs the AS-IS single LoserPermanents-style
-                        // batch window — the single-card deferred case (the common Evade/Scapegoat/Fragment/Decoy
-                        // decline) is exact; the rare multi-card-deferred collapse is a documented residual.
-                        if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? dyingRecord) && dyingRecord is not null)
+                        // (C2 decision-4 deferred-delete transport / RD-C2-DEFERRED-DELETE-BATCH resolved) The sink
+                        // DEFERRED this deletion (a member had a PRE would-be-deleted replacement option, or an
+                        // interactive replacement was promoted) so it did NOT open the OnDeletion window at Destroy()
+                        // time — the survivor set is known only now. Mirror AS-IS's post-PRE
+                        // StackSkillInfos(OnDestroyed/OnLeaveField) pair here, collect-before-removal, while the top
+                        // cards are still on the field. AS-IS opens it ONCE over destroyTargetPermanents_Fixed, so
+                        // open it ONCE per deferred BATCH id over ALL its co-finalizing dying members (the batch-mate
+                        // gate held every decided member until the batch decided together, so all dying members are
+                        // on the field now). A card with no stashed batch id keeps its own single-card window.
+                        long? deferredBatchId =
+                            deferredBatchMetadata.TryGetValue(Effects.MatchStateMutationSink.DeletionBatchIdKey, out object? bidRaw) && bidRaw is long b && b != 0
+                                ? b : null;
+                        if (deferredBatchId is long batchId)
+                        {
+                            if (deferredOnDeletionBatchesOpened.Add(batchId))
+                            {
+                                await OpenDeferredBatchOnDeletionWindowAsync(context, zoneReader, batchId, cancellationToken).ConfigureAwait(false);
+                            }
+                        }
+                        else if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? dyingRecord) && dyingRecord is not null)
                         {
                             using AmbientMatchContext.Scope _deferredScope = AmbientMatchContext.Enter(context);
                             bool dyingDpZero = dyingRecord.Metadata.TryGetValue(Effects.MatchStateMutationSink.IsDpZeroKey, out object? dz) && dz is true;
@@ -346,6 +374,11 @@ public sealed class GameFlowProcessor
                             await deferredAutoProcessing.StackSkillInfos(
                                 DeferredOnDeletion(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
                         }
+
+                        // (C-Del 3c-1) a promoted-DIED card kept willBeRemoveField=true through the sweep (only a
+                        // survivor's is cleared by the resumed window). AS-IS Destroy() resets it at :3591 as the
+                        // card is trashed — clear it now so no stale marker rides the trashed instance.
+                        ResetWillBeRemoveField(context, cardId);
 
                         // (P1) leave-play cleanup before the move: snapshot the
                         // post-deletion keywords, then drop the dead card's bindings (previously leaked).
@@ -629,6 +662,112 @@ public sealed class GameFlowProcessor
             [PendingDeletionKey] = false
         };
         context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
+    }
+
+    /// <summary>(C-Del 3c-1) Whether this deferred deletion was PROMOTED to the AS-IS PRE cut-in window (an
+    /// interactive Evade/Barrier/Fragment/ArmorPurge replacement) AND its resumed window body cleared
+    /// <c>willBeRemoveField</c> — i.e. the replacement fired and the card SURVIVES. A promoted card that kept
+    /// <c>willBeRemoveField</c> set (the replacement declined / did not fire) is NOT a survivor and finalizes
+    /// normally.</summary>
+    private static bool IsPromotedSurvivor(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
+            !(instance.Metadata.TryGetValue(MatchStateMutationSink.PreWindowPromotedKey, out object? promoted) && promoted is true))
+        {
+            return false;
+        }
+
+        return !(instance.Metadata.TryGetValue("willBeRemoveField", out object? wbr) && wbr is true);
+    }
+
+    /// <summary>(C-Del 3c-1) Clear a promoted survivor's deferral: drop pendingDeletion + the promote marker +
+    /// the (already-false) willBeRemoveField and the transient deferral cause keys, so the spared card is a clean
+    /// live permanent again (AS-IS Destroy() never trashes it and resets willBeRemoveField at :3591).</summary>
+    private static void SparePromotedSurvivor(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null)
+        {
+            return;
+        }
+
+        Dictionary<string, object?> metadata = new(instance.Metadata, StringComparer.Ordinal)
+        {
+            [PendingDeletionKey] = false,
+        };
+        metadata.Remove(MatchStateMutationSink.PreWindowPromotedKey);
+        metadata.Remove("willBeRemoveField");
+        metadata.Remove(MatchStateMutationSink.DeletedByEffectKey);
+        metadata.Remove(DeletionReplacementTiming.DecoyEligibleKey);
+        context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
+    }
+
+    /// <summary>(C-Del 3c-1) Reset a promoted-DIED card's <c>willBeRemoveField</c> flag before it is trashed
+    /// (AS-IS Destroy() :3591). No-op for a gate-declined card (the flag was never set).</summary>
+    private static void ResetWillBeRemoveField(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
+            !instance.Metadata.ContainsKey("willBeRemoveField"))
+        {
+            return;
+        }
+
+        Dictionary<string, object?> metadata = new(instance.Metadata, StringComparer.Ordinal);
+        metadata.Remove("willBeRemoveField");
+        context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
+    }
+
+    /// <summary>(RD-C2-DEFERRED-DELETE-BATCH resolved) Open the AS-IS OnDeletion cut-in window ONCE over the whole
+    /// deferred delete BATCH — every field member sharing <paramref name="batchId"/> that is still pending and is
+    /// actually DYING (not a promoted survivor). Mirrors AS-IS Destroy()'s single
+    /// <c>StackSkillInfos(OnDeletionHashtable(destroyTargetPermanents_Fixed))</c> pair (CardController.cs:3736-3756)
+    /// so an anyone-scoped reactor fires ONCE for the batch, not once per member. Collect-before-removal: the top
+    /// cards are still on the field (the per-card trash runs afterwards). cardEffect/battle = null; isDPZero from
+    /// the members' stamped flag (uniform within one Destroy).</summary>
+    private static async Task OpenDeferredBatchOnDeletionWindowAsync(
+        EngineContext context, IZoneStateReader zoneReader, long batchId, CancellationToken cancellationToken)
+    {
+        var deadPermanents = new List<Assets.Scripts.Script.CardEffectCommons.Permanent>();
+        bool anyDpZero = false;
+        foreach (HeadlessPlayerId player in context.TurnController.Current.PlayerOrder)
+        {
+            if (player.IsEmpty)
+            {
+                continue;
+            }
+
+            foreach (ChoiceZone zone in FieldZones)
+            {
+                foreach (HeadlessEntityId mateId in zoneReader.GetCards(player, zone))
+                {
+                    if (!IsPendingDeletion(context, mateId) || IsPromotedSurvivor(context, mateId) ||
+                        !context.CardInstanceRepository.TryGetInstance(mateId, out CardInstanceRecord? mate) || mate is null ||
+                        !mate.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? mateRaw) ||
+                        mateRaw is not long mateBatchId || mateBatchId != batchId)
+                    {
+                        continue;
+                    }
+
+                    deadPermanents.Add(new Assets.Scripts.Script.CardEffectCommons.Permanent(context, mateId, player));
+                    anyDpZero |= mate.Metadata.TryGetValue(Effects.MatchStateMutationSink.IsDpZeroKey, out object? dz) && dz is true;
+                }
+            }
+        }
+
+        if (deadPermanents.Count == 0)
+        {
+            return;
+        }
+
+        using AmbientMatchContext.Scope _batchScope = AmbientMatchContext.Enter(context);
+        var deferredAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+        // AS-IS builds a FRESH OnDeletionHashtable per StackSkillInfos (CardController.cs:3736/3749).
+        System.Collections.Hashtable BatchOnDeletion() =>
+            Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                deadPermanents, byEffectCause: !anyDpZero, byBattleCause: false, anyDpZero);
+        await deferredAutoProcessing.StackSkillInfos(
+            BatchOnDeletion(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnDestroyedAnyone).ConfigureAwait(false);
+        await deferredAutoProcessing.StackSkillInfos(
+            BatchOnDeletion(), Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -81,5 +81,10 @@ public static partial class CardEffectCommons
             effectRegistry: context.EffectRegistry,
             context: context,
             causingEffectSourceId: activateClass.EffectSourceCard.InstanceId).ConfigureAwait(false);
+
+        // (C-Del 3c-1) AS-IS FragmentProcess sets willBeRemoveField=false once the sources were trashed
+        // (cardsTrashed) — RESTORED now that the AS-IS PRE cut-in window owns survival (not the retired gate). The
+        // top survives in a lower form; the sweep's survivor-fix reads this cleared flag to spare it.
+        permanent.willBeRemoveField = false;
     }
 }

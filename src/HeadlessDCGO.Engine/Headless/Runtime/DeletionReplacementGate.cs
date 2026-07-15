@@ -20,6 +20,25 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// </summary>
 public static class DeletionReplacementGate
 {
+    // (C-Del 3c-1, 2026-07-15) The interactive promote-to-defer substrate (RD-3B-INTERACTIVE) is LANDED — the
+    // effect-delete sink now finalizes an interactive AS-IS "would be deleted" cut-in through pendingDeletion +
+    // the batch-unit sweep finalize (RD-C2-DEFERRED-DELETE-BATCH resolved), and EvadeProcess/BarrierProcess/
+    // FragmentProcess/ArmorPurgeProcess own survival again (willBeRemoveField=false restored). But the FIRING-HALF
+    // RETIREMENT of the four self-contained keywords (Evade/Barrier/Fragment/ArmorPurge) is a DIRECT STOP:
+    //   * design item RD-3C1-BATTLE-PRE-WINDOW — all four fire on BATTLE deletions too (Barrier is battle-ONLY;
+    //     Evade/Fragment/ArmorPurge fire on both), but the BATTLE deletion path (BattleResolver.ResolveRoundAsync
+    //     / NeedsWindow → HasPreOption(byBattle:true)) has NO AS-IS PRE cut-in window — it parks via THIS gate.
+    //     3b opened the PRE cut-in only in the effect-delete sink (BattleResolver never routes through the sink).
+    //     Retiring these gate branches would leave a battle deletion with NO replacement path → firing loss (P0).
+    //     Barrier, being battle-only, cannot fire through any window at all. The battle-path PRE cut-in transport +
+    //     promote-to-defer (the BattleResolver analogue of 3b's sink work) must land first.
+    //   * design item RD-3C1-MIXED-BATCH — even limiting retirement to the effect path, a single Destroy that
+    //     mixes a retired keyword card with a NON-retired gate keyword card (e.g. [Evade, Scapegoat]) forces the
+    //     sink's batch-level DeferAll=true (Scapegoat has a PreOption), so the PRE cut-in window is never opened
+    //     and the retired keyword loses its firing. The window (retired) and gate (non-retired) do not compose in
+    //     one batch; this dissolves only when the full PRE cluster is retired (3c-2/3c-3 remove the gate entirely).
+    // Until both are cleared the gate's Evade/Barrier/Fragment/ArmorPurge firing-half STAYS live (unchanged).
+
     public const string HasEvadeKey = "hasEvade";
     public const string HasBarrierKey = "hasBarrier";
     public const string HasDecoyKey = "hasDecoy";

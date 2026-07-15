@@ -71,6 +71,13 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
                 card.Context.ZoneMover,
                 permanent.TopCard.InstanceId,
                 gameEventQueue: card.Context.GameEventQueue).ConfigureAwait(false);
+
+            // (C-Del 3c-1) AS-IS ArmorPurgeClass.ArmorPurge sets willBeRemoveField=false after trashing the top
+            // and promoting the under-source (the permanent survives in a lower form) — RESTORED now that the AS-IS
+            // PRE cut-in window owns survival (not the retired gate). Set on the keyword-process ONLY (not inside
+            // the shared ArmorPurgeTopAsync primitive, which de-digivolve paths also call without touching
+            // willBeRemoveField). The sweep's survivor-fix reads this cleared flag to spare the permanent.
+            permanent.willBeRemoveField = false;
         }
     }
 }

@@ -479,7 +479,14 @@ public sealed class MetadataActionProcessor : IActionProcessor
             // #2: optional-trigger prompts must flow through the OptionalPromptQueue so the chosen
             // optional effect is enqueued (or skipped); a plain ResolveChoice would clear the choice
             // without activating the agent's selected optional trigger.
-            if (pendingRequest.Type == ChoiceType.OptionalEffect)
+            // (C-Del 3c-1) an OptionalEffect choice raised INSIDE a resolving trigger window — a "will you use
+            // Evade?" cut-in optional (OptionalSkill.SelectOptional → ChooseAsync), including the AS-IS "would be
+            // deleted" PRE cut-in the deletion sink drains — is NOT an OptionalPromptQueue trigger prompt. Only
+            // route through the queue when it actually has a pending prompt; otherwise fall through to the window
+            // body-resume path below (record the answer + resume the suspended window, whose deferred provider
+            // replays it), so a retired-keyword replacement is resolvable by the real agent, not only the
+            // trigger-queue optionals.
+            if (pendingRequest.Type == ChoiceType.OptionalEffect && context.OptionalPromptQueue.HasPendingPrompt)
             {
                 Effects.OptionalPromptQueueResult optional = context.OptionalPromptQueue
                     .ResolveChoice(result, context.ChoiceController, context.EffectScheduler);
@@ -509,9 +516,18 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 // choice; RunToStable re-pauses). Runs under an ambient scope (ResumeSuspendedWindowsAsync reads
                 // GManager.instance through the mirror window loop).
                 using AmbientMatchContext.Scope _windowScope = AmbientMatchContext.Enter(context);
+                // (C-Del 3c-1) the parked trigger window lives in EITHER pool: the MAIN pool (AutoProcessing.For)
+                // for ordinary trigger windows, or the CUT-IN pool (AutoProcessing.ForCutIn) for the AS-IS "would
+                // be deleted" PRE cut-in the deletion sink drains (an INTERACTIVE Evade/Barrier/… replacement
+                // suspends there). ForCutIn is a SEPARATE AutoProcessing with its own MultipleSkills pool, so its
+                // suspended window is invisible to For.executingMultipleSkills — resolve/resume whichever pool holds
+                // the in-flight pick (only one choice is pending at a time, in one pool).
                 Assets.Scripts.Script.AutoProcessing windowAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+                Assets.Scripts.Script.AutoProcessing cutInAutoProcessing = Assets.Scripts.Script.AutoProcessing.ForCutIn(context);
+                Assets.Scripts.Script.AutoProcessing resumeTarget =
+                    windowAutoProcessing.executingMultipleSkills is not null ? windowAutoProcessing : cutInAutoProcessing;
                 string windowKey = context.ChoiceController.Current.RequestId?.Value ?? string.Empty;
-                if (windowAutoProcessing.executingMultipleSkills is { } deepestWindow)
+                if (resumeTarget.executingMultipleSkills is { } deepestWindow)
                 {
                     deepestWindow.Continuation.RecordAnswer(
                         new Effects.SkillWindowChoiceKey(windowKey), DecodeWindowAnswer(result));
@@ -520,7 +536,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 HeadlessChoiceState windowChoice = context.ChoiceController.ResolveChoice(result);
                 try
                 {
-                    await windowAutoProcessing.ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
+                    await resumeTarget.ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception windowEx) when (windowEx is Effects.WindowChoicePendingException or DeferredChoicePendingException)
                 {
@@ -529,7 +545,8 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 }
 
                 Dictionary<string, object?> windowMetadata = MetadataWithChoice(action, windowChoice);
-                windowMetadata["windowResolved"] = windowAutoProcessing.executingMultipleSkills is null;
+                windowMetadata["windowResolved"] =
+                    windowAutoProcessing.executingMultipleSkills is null && cutInAutoProcessing.executingMultipleSkills is null;
                 return ActionProcessResult.Success("Window choice resolved.", windowMetadata);
             }
 
@@ -746,17 +763,26 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 return ActionProcessResult.Success("Choice resolved; activation resumed.", MetadataWithChoice(action, choice));
             }
 
-            // (C2 seam 4b) A mirror-window BODY pick that opened a NON-window choice (SelectCard / count / …) suspends
-            // via the MultipleSkills continuation's in-flight pick, NOT DeferredActivations. Its answer was just
-            // recorded by ResolveChoice above; resume the suspended window so the in-flight body REPLAYS it (through
-            // the ResolveWithinCycle deferred-choice provider) and the pass finishes. No-op when no window is parked.
-            if (Assets.Scripts.Script.AutoProcessing.For(context).executingMultipleSkills is not null)
+            // (C2 seam 4b) A mirror-window BODY pick that opened a NON-window choice (SelectCard / count / a cut-in
+            // "will you use Evade?" optional / …) suspends via the MultipleSkills continuation's in-flight pick, NOT
+            // DeferredActivations. Its answer was just recorded by ResolveChoice above; resume the suspended window
+            // so the in-flight body REPLAYS it (through the ResolveWithinCycle deferred-choice provider) and the
+            // pass finishes. No-op when no window is parked.
+            // (C-Del 3c-1) the parked window may live in the CUT-IN pool (AutoProcessing.ForCutIn) — the AS-IS
+            // "would be deleted" PRE cut-in the deletion sink drains — which is a SEPARATE AutoProcessing whose
+            // suspended window For.executingMultipleSkills cannot see. Resume whichever pool holds it.
+            Assets.Scripts.Script.AutoProcessing bodyMain = Assets.Scripts.Script.AutoProcessing.For(context);
+            Assets.Scripts.Script.AutoProcessing bodyCutIn = Assets.Scripts.Script.AutoProcessing.ForCutIn(context);
+            Assets.Scripts.Script.AutoProcessing? bodyResumeTarget =
+                bodyMain.executingMultipleSkills is not null ? bodyMain
+                : bodyCutIn.executingMultipleSkills is not null ? bodyCutIn
+                : null;
+            if (bodyResumeTarget is not null)
             {
                 using AmbientMatchContext.Scope _bodyResumeScope = AmbientMatchContext.Enter(context);
                 try
                 {
-                    await Assets.Scripts.Script.AutoProcessing.For(context)
-                        .ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
+                    await bodyResumeTarget.ResumeSuspendedWindowsAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception bodyEx) when (bodyEx is Effects.WindowChoicePendingException or DeferredChoicePendingException)
                 {

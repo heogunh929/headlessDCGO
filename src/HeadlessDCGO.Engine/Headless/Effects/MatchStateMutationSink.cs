@@ -78,6 +78,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string DeletedBySourceEntityIdKey = "deletedBySourceEntityId";
     public const string DeletionPreventedKey = "deletionPrevented";
 
+    /// <summary>(C-Del 3c-1 promote-to-defer) marks a deferred deletion whose survival is owned by the AS-IS PRE
+    /// cut-in "would be deleted" window (an INTERACTIVE Evade/Barrier/Fragment/ArmorPurge replacement paused the
+    /// sink's inline drain). Unlike a gate-deferred card (finalized on the DeletionReplacementTiming decline), a
+    /// promoted card is finalized by the sweep on its <c>willBeRemoveField</c>: the resumed window body clears it
+    /// (the card SURVIVES — the sweep clears pendingDeletion, never trashing) or leaves it set (the card DIES —
+    /// the sweep trashes it in the batch-unit OnDeletion window). See GameFlowProcessor.StateBasedDeletionSweep.</summary>
+    public const string PreWindowPromotedKey = "preWindowPromoted";
+
     /// <summary>(D-1 / VR-8) The delete-BATCH id stamped onto a deleted card's CardMoved (field-&gt;trash) event
     /// metadata — one id per AS-IS <c>DestroyPermanentsClass.Destroy()</c> call. The window collapse keys its
     /// OnDeletion / OnLeaveFieldAnyone dedup by (reactor, this id), so N cards in ONE batch fire the reactor once
@@ -345,6 +353,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         /// survivor fix. Per-entry survivor read (<c>willBeRemoveField</c>) then spares any card a replacement
         /// cancelled.</summary>
         public bool PreWindowOpened;
+
+        /// <summary>(C-Del 3c-1 promote-to-defer) set once the PRE cut-in drain PAUSED on an INTERACTIVE
+        /// would-be-deleted replacement (a "will you use Evade?" agent choice). The batch's field-present members
+        /// were all flagged <c>pendingDeletion</c> (leaving the parked cut-in window to carry the choice), so
+        /// <see cref="FlushAsync"/> SWALLOWS the pause (the enclosing pick's flush completes — no body re-run) and
+        /// the <c>GameFlowProcessor</c> sweep finalizes the batch on <c>willBeRemoveField</c> once the agent
+        /// resolves the parked window. Every later thunk of this batch short-circuits (already promoted).</summary>
+        public bool PromotedToDefer;
     }
 
     private sealed record StagedDelete(EffectMutation Mutation, HeadlessEntityId TargetId);
@@ -722,7 +738,23 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         foreach (Func<CancellationToken, Task> operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await operation(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await operation(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception opEx) when ((opEx is WindowChoicePendingException or Runtime.DeferredChoicePendingException)
+                && flushedDeleteBatch is { PromotedToDefer: true })
+            {
+                // (C-Del 3c-1 promote-to-defer) an INTERACTIVE PRE cut-in replacement paused this batch's inline
+                // drain; PromoteBatchToPendingDeletion already flagged every member pendingDeletion. SWALLOW the
+                // pause — the flush is logically complete for this caller (the enclosing pick does NOT re-run its
+                // body), and the parked ForCutIn window keeps the pending choice: RunToStable pauses on it, the
+                // agent resolves it (resuming the ForCutIn pool), and the GameFlowProcessor sweep finalizes the
+                // batch on willBeRemoveField. The remaining staged operations of THIS flush are abandoned (the AS-IS
+                // Destroy() coroutine likewise suspends the enclosing effect at the cut-in yield — design item
+                // RD-3C1-01 notes any trailing SAME-flush staged op is dropped rather than replayed post-resume).
+                break;
+            }
         }
 
         // (C2 decision-4 batch sequencing — the SequenceByMinimumBatch analogue at THIS feeder) AS-IS resolves
@@ -1095,6 +1127,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         EffectMutation mutation = entry.Mutation;
         HeadlessEntityId targetId = entry.TargetId;
 
+        // (C-Del 3c-1 promote-to-defer) a prior thunk of this batch already PROMOTED it to a deferred deletion
+        // (its PRE cut-in paused on an interactive replacement, flagging every member pendingDeletion). This
+        // thunk's member is already parked; short-circuit so it does not re-open the PRE / OnDeletion window or
+        // trash the (deferred) card — the GameFlowProcessor sweep finalizes the whole batch after the parked
+        // window resolves.
+        if (batch.PromotedToDefer)
+        {
+            _skipped.Add(mutation);
+            return;
+        }
+
         // Batch decision — once, at the FIRST delete thunk (every Delete of this flush is staged, none has
         // moved yet; earlier non-delete thunks have already run, matching the AS-IS sequencing where Destroy()
         // starts after the effect's prior steps completed).
@@ -1190,9 +1233,18 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     }
                     catch (Exception preEx) when (preEx is WindowChoicePendingException or Runtime.DeferredChoicePendingException)
                     {
-                        // (design item RD-3B-INTERACTIVE) an INTERACTIVE would-be-deleted replacement paused the
-                        // cut-in drain. Re-throw so the pause is not silently swallowed into an inconsistent half-
-                        // deleted batch — the promote-to-defer + state-sweep finalize is required (3c).
+                        // (C-Del 3c-1 promote-to-defer — RD-3B-INTERACTIVE resolved) an INTERACTIVE would-be-deleted
+                        // replacement (a "will you use Evade?" agent choice) paused the sink's inline cut-in drain.
+                        // The sink cannot resume mid-flush to finish the surrounding deletion, so PROMOTE the batch
+                        // to a deferred deletion: flag every field-present member pendingDeletion (leaving the parked
+                        // ForCutIn window to carry the choice), then re-throw. FlushAsync SWALLOWS the pause (the
+                        // enclosing pick's flush completes — no body re-run), so RunToStable pauses on the pending
+                        // choice; once the agent resolves the parked window (MetadataActionProcessor resumes the
+                        // ForCutIn pool), the resumed replacement body sets each survivor's willBeRemoveField=false
+                        // and the GameFlowProcessor sweep finalizes the batch on willBeRemoveField (survivor spared /
+                        // casualty trashed in ONE batch-unit OnDeletion window). Mirrors the AS-IS Destroy() coroutine
+                        // suspending at TriggeredSkillProcess (:3471) then finalizing destroyTargetPermanents_Fixed.
+                        PromoteBatchToPendingDeletion(batch);
                         throw;
                     }
                 }
@@ -1406,6 +1458,57 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // DeletionReplacementTiming), opened by the common loop once the card is in the trash — no longer
         // auto-applied here.
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeletedByEffectKey));
+    }
+
+    /// <summary>(C-Del 3c-1 promote-to-defer) An INTERACTIVE PRE cut-in replacement paused the sink's inline
+    /// drain. Flag EVERY field-present member of the batch <c>pendingDeletion</c> — the SAME deferral the
+    /// <c>batch.DeferAll is true</c> branch writes, plus <see cref="PreWindowPromotedKey"/> so the sweep finalizes
+    /// on <c>willBeRemoveField</c> rather than a gate decline. All members currently carry
+    /// <c>willBeRemoveField=true</c> (the PRE window marked them; the interactive replacement has not resolved yet),
+    /// so none is spared here — the resumed window body clears the survivors' flag and the sweep spares them.
+    /// Per-entry cause metadata (source/DPZero/Decoy) mirrors the DeferAll branch. Sets <see cref="DeleteBatch.PromotedToDefer"/>
+    /// so later thunks of the flush short-circuit and <see cref="FlushAsync"/> swallows the pause.</summary>
+    private void PromoteBatchToPendingDeletion(DeleteBatch batch)
+    {
+        batch.PromotedToDefer = true;
+        if (_zoneMover is not IZoneStateReader zones)
+        {
+            return;
+        }
+
+        foreach (StagedDelete staged in batch.Entries)
+        {
+            if (!_repository.TryGetInstance(staged.TargetId, out CardInstanceRecord? record) || record is null ||
+                !(zones.GetCards(record.OwnerId, ChoiceZone.BattleArea).Contains(staged.TargetId)
+                    || zones.GetCards(record.OwnerId, ChoiceZone.BreedingArea).Contains(staged.TargetId)))
+            {
+                continue;   // already left the field (a co-batch member trashed earlier) — nothing to defer
+            }
+
+            bool decoyEligible = DeletionReplacementGate.FindDecoyRedirect(
+                _repository, zones, record, staged.Mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null;
+            var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+            {
+                [GameFlowProcessor.PendingDeletionKey] = true,
+                [PreWindowPromotedKey] = true,
+                [DeletedByEffectKey] = true,
+                [Runtime.DeletionReplacementGate.DeletedByOwnEffectKey] = IsOwnEffect(staged.Mutation.SourceEntityId, record.OwnerId),
+                [DeletedBySourceEntityIdKey] = staged.Mutation.SourceEntityId.Value,
+                // (D-1 / VR-8) stash THIS Destroy()'s batch id so the deferred-finalize move re-stamps it and the
+                // sweep's batch-mate gate groups the co-promoted members into ONE batch-unit OnDeletion window.
+                [DeletionBatchIdKey] = ResolveDeletionBatchId(),
+            };
+            if (ReadBool(staged.Mutation.Values, IsDpZeroKey))
+            {
+                deferMetadata[IsDpZeroKey] = true;
+            }
+            if (decoyEligible)
+            {
+                deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
+            }
+
+            _repository.Upsert(record with { Metadata = deferMetadata });
+        }
     }
 
     // (S6) Whether the causing effect belongs to the deleted card's own controller (source owner == card owner).

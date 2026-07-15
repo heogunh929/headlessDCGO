@@ -30,14 +30,13 @@ public static partial class CardEffectCommons
         IsPermanentExistsOnBattleArea(targetPermanent) && CanActivatePermanentSuspendCostEffect(targetPermanent);
 
     /// <summary>(P6 cluster2) AS-IS <c>EvadeProcess</c> (KeyWordEffects/Evade.cs:39): suspend this Digimon to
-    /// prevent its deletion. <c>SuspendPermanentsClass</c>'s mirror ctor takes (permanents, causeEffectSourceId,
-    /// isBlock) in place of the AS-IS (permanents, hashtable) shape — <c>isBlock: false</c> (AS-IS's hashtable
-    /// carried no IsBlock key here). AS-IS's trailing <c>willBeRemoveField = false; HideDeleteEffect();</c>
-    /// (cancelling the pending-deletion coroutine race + its VFX) has no mirror field — the mirror's actual
-    /// live "does Evade save this permanent" behaviour is owned entirely by
-    /// <see cref="Headless.Runtime.DeletionReplacementGate"/> (its own header cites this exact method as its
-    /// AS-IS behavioural model), so this old-model ActivateClass path performs only the real state mutation
-    /// (the suspend) — omitted the same way <see cref="BarrierProcess"/> omits ShowDeleteEffect/HideDeleteEffect.</summary>
+    /// prevent its deletion, then cancel the pending deletion (<c>willBeRemoveField = false</c>).
+    /// <c>SuspendPermanentsClass</c>'s mirror ctor takes (permanents, causeEffectSourceId, isBlock) in place of
+    /// the AS-IS (permanents, hashtable) shape — <c>isBlock: false</c> (AS-IS's hashtable carried no IsBlock key
+    /// here). (C-Del 3c-1) the AS-IS trailing <c>willBeRemoveField = false</c> is now RESTORED — survival is owned
+    /// by the AS-IS PRE cut-in window (the sink opens it, 3b), not the retired DeletionReplacementGate: clearing
+    /// the flag is what the sweep's survivor-fix reads to spare this Digimon. <c>HideDeleteEffect()</c> = UI
+    /// (stripped, established convention).</summary>
     public static async Task EvadeProcess(Permanent targetPermanent, ICardEffect activateClass, CancellationToken cancellationToken = default)
     {
         if (!IsPermanentExistsOnBattleArea(targetPermanent))
@@ -48,5 +47,7 @@ public static partial class CardEffectCommons
         await new SuspendPermanentsClass(
             new List<Permanent> { targetPermanent }, activateClass, isBlock: false)
             .Tap(cancellationToken).ConfigureAwait(false);
+
+        targetPermanent.willBeRemoveField = false;
     }
 }
