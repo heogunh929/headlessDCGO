@@ -187,7 +187,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     public const string TrashDigivolutionCardsKind = "TrashDigivolutionCards"; // target = host; count, fromBottom
     public const string ReturnDigivolutionCardsKind = "ReturnDigivolutionCards"; // target = host; count, toDeck
     public const string TrashLinkCardsKind = "TrashLinkCards";                   // target = host; count (default all)
-    public const string TrainKind = "Train";                                     // (C-24) target = self; suspend + library top -> own stack bottom
+    // (C-Act re-home) TrainKind retired: <Training> now fires through the AS-IS window/activated path
+    // (CardEffectFactory.TrainingEffect -> SuspendPermanentsClass.Tap + Permanent.AddDigivolutionCardsBottom),
+    // not this invented mutation. The old firing-half (TrainingActivatedEffect + this Kind + TrainAsync) is gone.
     public const string MaterialSaveKind = "MaterialSave";                       // (C-23) source = from-host; toEntityId, count -> move sources to another stack
     public const string ToEntityIdKey = "toEntityId";
     public const string ImmuneStackTrashingKey = "immuneStackTrashing"; // (PRIM-W4) host source-trash immunity flag
@@ -660,20 +662,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                     int ddCount = ReadInt(mutation.Values, CountKey) ?? 1;
                     _pendingAsync.Add(ct => DeDigivolveHelpers.DeDigivolveAsync(_repository, ddMover, targetId, ddCount, _gameEventQueue, ct));
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, DeDigivolveKind));
-                }
-                else
-                {
-                    _unsupported.Add(mutation);
-                }
-
-                break;
-            case TrainKind:
-                // (C-24 Training) suspend self + place the owner's top library card at the bottom of self's stack.
-                if (_zoneMover is { } trainMover)
-                {
-                    // (F1-Tier2 OnAddDigivolutionCards) Training is an effect place-under (cause = the trained Digimon).
-                    _pendingAsync.Add(ct => DigivolutionStackHelpers.TrainAsync(_repository, trainMover, targetId, ct, _gameEventQueue));
-                    _applied.Add(new AppliedMutation(mutation.Kind, targetId, TrainKind));
                 }
                 else
                 {
@@ -1820,7 +1808,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 or AddToSecurityKind or DrawCardsKind or AddMemoryKind or SetMemoryKind
                 or DeleteKind or PlayCardKind or RecoverKind or TrashSecurityKind or ShuffleSecurityKind or CreateTokenKind
                 or TrashDigivolutionCardsKind or ReturnDigivolutionCardsKind or TrashLinkCardsKind
-                or TrainKind or MaterialSaveKind or DeDigivolveKind
+                or MaterialSaveKind or DeDigivolveKind
                 or PlayDigivolutionAsDigimonKind;
     }
 

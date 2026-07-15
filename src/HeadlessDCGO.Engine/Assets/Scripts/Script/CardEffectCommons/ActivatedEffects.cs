@@ -1900,35 +1900,9 @@ public sealed class InformationalRevealEffect : IActivatedCardEffect
 }
 
 
-/// <summary>(PRIM-W3, C-24) Mirror of AS-IS <c>TrainingEffect</c> — an activated [Breeding] effect: suspend
-/// self (cost) and place the top card of the owner's deck at the bottom of self's digivolution stack. Wraps
-/// the engine's <see cref="DigivolutionStackHelpers.TrainAsync"/> primitive via the Train mutation.</summary>
-public sealed class TrainingActivatedEffect : IActivatedCardEffect
-{
-    public TrainingActivatedEffect(CardSource card, string description)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Description = description;
-    }
-
-    public CardSource Card { get; }
-
-    public string Description { get; }
-
-    public void Apply(MatchStateMutationSink sink)
-    {
-        ArgumentNullException.ThrowIfNull(sink);
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.TrainKind,
-            Card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = Card.InstanceId.Value }));
-    }
-
-    public EffectBinding ToBinding(string effectId) =>
-        throw new NotSupportedException($"Training effect is resolved via the activation flow, not registered: {Description}");
-}
+// (C-Act re-home) TrainingActivatedEffect retired — the invented <Training> firing-half (this ActivateClass
+// substitute + the Train mutation + DigivolutionStackHelpers.TrainAsync) is replaced by the AS-IS window path:
+// CardEffectFactory.TrainingEffect (KeyWordEffects/Training.cs) resolves through the activated flow directly.
 
 
 /// <summary>(PRIM-W3, C-23) Mirror of AS-IS <c>MaterialSaveEffect</c> — re-parents <c>count</c> of this

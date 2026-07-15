@@ -36,11 +36,14 @@ public partial class CardEffectFactory
         async Task ActivateCoroutine(Hashtable _hashtable)
         {
             Permanent thisPermanent = ICardEffect.ResolvePermanentOfThisCard(card);
-            List<CardSource> libraryCards = new Player(card.Context, card.Owner).LibraryCards;
 
             await new SuspendPermanentsClass(
                     new List<Permanent>() { thisPermanent },
                     activateClass, isBlock: false).Tap();
+
+            // AS-IS reads card.Owner.LibraryCards after the Tap coroutine completes; the mirror property
+            // materializes a snapshot per read, so the capture must stay on the post-Tap side.
+            List<CardSource> libraryCards = new Player(card.Context, card.Owner).LibraryCards;
 
             if (libraryCards.Count > 0)
                 await thisPermanent.AddDigivolutionCardsBottom(

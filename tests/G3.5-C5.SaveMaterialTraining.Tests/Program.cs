@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -9,9 +10,16 @@ using HeadlessDCGO.Engine.Headless.Services;
 //   * C-22 Save          — after this card is deleted, place it under another of the owner's permanents.
 //                          Post-deletion consumption (DeletionReplacementGate.TrySaveAsync).
 //   * C-23 Material Save  — move N of this Digimon's sources onto another permanent's stack.
-//   * C-24 Training       — suspend self, place the top library card under self.
-// Material Save / Training are ACTIVATED effects (no passive trigger), so the engine exposes the
-// primitives in DigivolutionStackHelpers and the activation is authored at porting time.
+//   * C-24 Training       — suspend self, place the deck's top card FACE-DOWN under self.
+// Material Save is an ACTIVATED effect (no passive trigger), so the engine exposes its primitive in
+// DigivolutionStackHelpers and the activation is authored at porting time.
+//
+// (C-Act re-home) <Training> is now driven through the LIVE AS-IS window/activated path — a player-declared
+// [Main] OnDeclaration skill: MainSkillActivateAction -> ActivatedEffectResolver -> CardEffectFactory.
+// TrainingEffect (an ActivateClass: SuspendPermanentsClass.Tap cost + Permanent.AddDigivolutionCardsBottom
+// (isFacedown: true)). The invented firing-half (TrainingActivatedEffect + the Train mutation +
+// DigivolutionStackHelpers.TrainAsync) is RETIRED — these witnesses drive the window path only (window XOR
+// gate). The fixture TfxMainTraining returns TrainingEffect at OnDeclaration exactly as AS-IS EX9_026.cs:31-33.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -21,8 +29,8 @@ var tests = new (string Name, Func<Task> Body)[]
     // Save (with a target permanent) is now a post-deletion two-step agent CHOICE (F-6.8) — see G3.5-F68.
     ("Save: with no other permanent the card stays in the trash", SaveNoTargetStaysTrashed),
     ("Material Save: sources move to the bottom of another permanent's stack", MaterialSaveMovesSources),
-    ("Training: suspends self and places the top library card under it", TrainingAddsLibraryCard),
-    ("Training: an already-suspended Digimon cannot train", TrainingSuspendedFails),
+    ("Training: the [Main] skill is OFFERED via the activated/window path and resolves (suspend + face-down deck-top under self)", TrainingResolvesThroughActivatedPath),
+    ("Training: an already-suspended Digimon is NOT offered the [Main] <Training> move (CanActivateSuspendCostEffect gate)", TrainingSuspendedNotOffered),
 };
 
 var failures = new List<string>();
@@ -76,43 +84,76 @@ Task MaterialSaveMovesSources()
     return Task.CompletedTask;
 }
 
-// --- Training (C-24) -----------------------------------------------------
+// --- Training (C-24, live window/activated path) -------------------------
 
-async Task TrainingAddsLibraryCard()
+async Task TrainingResolvesThroughActivatedPath()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 12);
-    HeadlessEntityId digimon = new("P2-Trainer");
-    HeadlessEntityId libTop = new("P2-Lib1");
-    PlaceOnField(context, digimon, P2, Empty());
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(libTop, new HeadlessEntityId("def"), P2));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, libTop, ChoiceZone.None, ChoiceZone.Library));
+    // LIVE PATH witness: declare the fixture's [Main] OnDeclaration <Training> skill through
+    // MainSkillActivateAction (-> ActivatedEffectResolver -> CardEffectFactory.TrainingEffect ActivateClass),
+    // NOT the retired invented TrainAsync mutation.
+    (EngineContext context, HeadlessEntityId digimon, HeadlessEntityId libTop) = SetupTrainer(suspended: false);
 
-    bool trained = await DigivolutionStackHelpers.TrainAsync(context.CardInstanceRepository, context.ZoneMover, digimon);
+    var action = new MainSkillActivateAction();
+    LegalAction? offered = FindActivateMain(action, context, P2, digimon);
+    AssertTrue(offered is not null, "the [Main] <Training> skill is offered as an ActivateMain legal move (window/activated path)");
+    AssertTrue(offered!.ActionType == HeadlessActionTypes.ActivateMain, "the offered move is ActivateMain (player-declared activated path)");
 
-    AssertTrue(trained, "training applied");
-    AssertTrue(ReadFlag(context, digimon, DigivolutionStackHelpers.IsSuspendedKey), "self suspended as the cost");
-    AssertSequence(SourceIds(context, digimon), libTop.Value);   // library top placed under self
-    AssertFalse(InZone(context, P2, ChoiceZone.Library, libTop), "library top left the deck");
+    ActionProcessResult result = await action.ProcessAsync(offered!, context);
+    AssertTrue(result.IsSuccess, "declaring <Training> resolves through the ActivateClass");
+
+    // AS-IS TrainingEffect body (Training.cs): suspend self (SuspendPermanentsClass.Tap cost), then place the
+    // deck's top card FACE-DOWN as this Digimon's bottom digivolution source (AddDigivolutionCardsBottom isFacedown: true).
+    AssertTrue(ReadFlag(context, digimon, DigivolutionStackHelpers.IsSuspendedKey), "self suspended as the training cost");
+    AssertSequence(SourceIds(context, digimon), libTop.Value);                     // deck top placed under self
+    AssertFalse(InZone(context, P2, ChoiceZone.Library, libTop), "deck top left the library into the stack");
+    AssertTrue(ReadFlag(context, libTop, "isFlipped"), "the placed source is FACE-DOWN (AS-IS isFacedown: true)");
 }
 
-async Task TrainingSuspendedFails()
+async Task TrainingSuspendedNotOffered()
+{
+    // The AS-IS CanActivateSuspendCostEffect gate (Training's CanActivateCondition) fails for an already-suspended
+    // Digimon, so CanUse(null) is false and CanDeclareAt does NOT surface the [Main] <Training> move — the window
+    // path correctly withholds the illegal declaration (and the retired gate half no longer fires it either).
+    (EngineContext context, HeadlessEntityId digimon, HeadlessEntityId libTop) = SetupTrainer(suspended: true);
+
+    var action = new MainSkillActivateAction();
+    LegalAction? offered = FindActivateMain(action, context, P2, digimon);
+    AssertTrue(offered is null, "an already-suspended Digimon's <Training> is NOT offered (suspend-cost gate)");
+    AssertTrue(InZone(context, P2, ChoiceZone.Library, libTop), "deck top untouched");
+}
+
+// Places a battle-area trainer (fixture TfxMainTraining) with a single deck-top card. `suspended` seeds the
+// permanent's suspend state (the training cost gate).
+(EngineContext, HeadlessEntityId, HeadlessEntityId) SetupTrainer(bool suspended)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 12);
-    HeadlessEntityId digimon = new("P2-Trainer");
-    HeadlessEntityId libTop = new("P2-Lib1");
-    PlaceOnField(context, digimon, P2, Flag(DigivolutionStackHelpers.IsSuspendedKey));
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(libTop, new HeadlessEntityId("def"), P2));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, libTop, ChoiceZone.None, ChoiceZone.Library));
+    context.TurnController.Initialize(new[] { P1, P2 }, P2);
+    // (harness) satisfy AS-IS ICardEffect.CanTrigger's DoneStartGame gate (phase not None/Setup) so the
+    // declared skill is not silently withheld.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var cards = (CardDatabase)context.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId("TfxMainTraining"), "TfxMainTraining", "TR",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
 
-    bool trained = await DigivolutionStackHelpers.TrainAsync(context.CardInstanceRepository, context.ZoneMover, digimon);
+    HeadlessEntityId digimon = new("2:battle:TR");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(digimon, new HeadlessEntityId("TfxMainTraining"), P2,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = suspended, ["canSuspend"] = true }));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, digimon, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
 
-    AssertFalse(trained, "already-suspended Digimon cannot pay the training cost");
-    AssertTrue(InZone(context, P2, ChoiceZone.Library, libTop), "library top untouched");
+    cards.Upsert(new CardRecord(new HeadlessEntityId("DEF:TR-L"), "TR-L", "TR-L", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    HeadlessEntityId libTop = new("2:lib:top");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(libTop, new HeadlessEntityId("DEF:TR-L"), P2, Metadata: new Dictionary<string, object?>()));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, libTop, ChoiceZone.None, ChoiceZone.Library)).GetAwaiter().GetResult();
+
+    return (context, digimon, libTop);
 }
+
+LegalAction? FindActivateMain(MainSkillActivateAction action, EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId permanent) =>
+    action.GetLegalActions(context, playerId)
+        .FirstOrDefault(a => a.Parameters.TryGetValue(HeadlessActionParameterKeys.CardId, out object? v) && Equals(v, permanent));
 
 // --- Helpers -------------------------------------------------------------
 
-Dictionary<string, object?> Empty() => new(StringComparer.Ordinal);
 Dictionary<string, object?> Flag(string key) => new(StringComparer.Ordinal) { [key] = true };
 
 void PlaceOnField(EngineContext context, HeadlessEntityId id, HeadlessPlayerId owner, IReadOnlyDictionary<string, object?> metadata)

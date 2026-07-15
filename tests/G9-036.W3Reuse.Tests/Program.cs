@@ -7,8 +7,11 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // PRIM-W3 (G9-036): the reuse/subsystem-wrapper primitives, verified end-to-end through the mutation sink:
-//  ChangeSAttackStatic (player-scope SA modifier), ReturnToLibraryBottomDigivolutionCards, Training (C-24),
+//  ChangeSAttackStatic (player-scope SA modifier), ReturnToLibraryBottomDigivolutionCards,
 //  MaterialSave (C-23), ReplaceBottomSecurity.
+// (C-Act re-home) The Training (C-24) case was removed: its invented mutation-sink firing-half
+// (TrainingActivatedEffect + Train mutation + TrainAsync) is retired. <Training> is now driven through the
+// live AS-IS window/activated path — witnessed in G3.5-C5.SaveMaterialTraining.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -16,7 +19,6 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("ChangeSAttackStatic +2 -> owner's Digimon security attack raised", ChangeSAttack),
-    ("Training -> self suspended + a deck card added to its stack", Training),
     ("MaterialSave -> sources re-parented to another Digimon", MaterialSave),
     ("ReturnToLibraryBottom -> host's sources leave its stack", ReturnToLibraryBottom),
     ("ReplaceBottomSecurity -> bottom security to hand + self face-up security", ReplaceBottomSecurity),
@@ -51,16 +53,6 @@ async Task ChangeSAttack()
     srcSource.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
     int after = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, ally).Strike;
     AssertEqual(before + 2, after, "SA +2 on owner's Digimon");
-}
-
-async Task Training()
-{
-    EngineContext context = Context();
-    var self = await Place(context, P1, "SELF", ChoiceZone.BattleArea);
-    var top = await Place(context, P1, "DECKTOP", ChoiceZone.Library);
-    await Apply(context, sink => new TrainingActivatedEffect(new CardSource(context, self, P1), "train").Apply(sink));
-    AssertTrue(ReadBool(context, self, "isSuspended"), "self suspended (training cost)");
-    AssertTrue(Sources(context, self).Contains(top.Value), "deck top card became a digivolution source");
 }
 
 async Task MaterialSave()
@@ -119,10 +111,6 @@ void SetSources(EngineContext context, HeadlessEntityId host, params string[] so
     context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? r);
     context.CardInstanceRepository.Upsert(r! with { Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = sources } });
 }
-
-bool ReadBool(EngineContext context, HeadlessEntityId id, string key) =>
-    context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null &&
-    r.Metadata.TryGetValue(key, out object? raw) && raw is bool b && b;
 
 IReadOnlyList<HeadlessEntityId> Zone(EngineContext context, HeadlessPlayerId owner, ChoiceZone zone) =>
     context.ZoneMover is IZoneStateReader reader ? reader.GetCards(owner, zone) : Array.Empty<HeadlessEntityId>();

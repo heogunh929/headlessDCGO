@@ -6,15 +6,19 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
-/// (C-22 Save / C-23 Material Save / C-24 Training) Shared digivolution-stack mutations. All three
-/// keywords build on the AS-IS <c>Permanent.AddDigivolutionCardsBottom</c> primitive — placing a card
-/// under a permanent as a digivolution source (bottom of the stack). In the headless model the sources
-/// live off-field (<see cref="ChoiceZone.None"/>) and are tracked by the top card's <c>sourceIds</c>
-/// metadata (ordered top→bottom), so "add to bottom" appends to that list.
+/// (C-22 Save / C-23 Material Save) Shared digivolution-stack mutations. Both build on the AS-IS
+/// <c>Permanent.AddDigivolutionCardsBottom</c> primitive — placing a card under a permanent as a
+/// digivolution source (bottom of the stack). In the headless model the sources live off-field
+/// (<see cref="ChoiceZone.None"/>) and are tracked by the top card's <c>sourceIds</c> metadata (ordered
+/// top→bottom), so "add to bottom" appends to that list.
 ///
 /// Save is wired as a post-deletion response (<see cref="DeletionReplacementGate.TrySaveAsync"/>);
-/// Material Save and Training are ACTIVATED effects with no passive trigger point, so the engine exposes
-/// the primitive here and the card-facing activation is authored at porting time.
+/// Material Save is an ACTIVATED effect with no passive trigger point, so the engine exposes the primitive
+/// here and the card-facing activation is authored at porting time.
+///
+/// (C-Act re-home) <Training> no longer lives here: its invented <c>TrainAsync</c> firing-half was retired
+/// in favour of the AS-IS window/activated path (<c>CardEffectFactory.TrainingEffect</c> ->
+/// <c>SuspendPermanentsClass.Tap</c> + <c>Permanent.AddDigivolutionCardsBottom(isFacedown: true)</c>).
 /// </summary>
 public static class DigivolutionStackHelpers
 {
@@ -183,48 +187,8 @@ public static class DigivolutionStackHelpers
         return true;
     }
 
-    /// <summary>(C-24 Training) Suspends <paramref name="permanentId"/> (the cost) and places the top card
-    /// of its owner's library at the bottom of its own stack. Returns true when trained.</summary>
-    public static async Task<bool> TrainAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId permanentId,
-        CancellationToken cancellationToken = default,
-        GameEventQueue? gameEventQueue = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zoneMover);
-
-        if (!repository.TryGetInstance(permanentId, out CardInstanceRecord? permanent) || permanent is null ||
-            ReadFlag(permanent.Metadata, IsSuspendedKey) ||
-            !ReadFlag(permanent.Metadata, CanSuspendKey, defaultValue: true) ||
-            zoneMover is not IZoneStateReader zones)
-        {
-            return false;
-        }
-
-        IReadOnlyList<HeadlessEntityId> library = zones.GetCards(permanent.OwnerId, ChoiceZone.Library);
-        if (library.Count == 0)
-        {
-            return false;
-        }
-
-        // Cost: suspend self.
-        repository.Upsert(permanent with
-        {
-            Metadata = new Dictionary<string, object?>(permanent.Metadata, StringComparer.Ordinal)
-            {
-                [IsSuspendedKey] = true,
-            }
-        });
-
-        // (F1-Tier2 OnAddDigivolutionCards) Training is an effect place-under — the trained Digimon (permanentId) is the
-        // causing effect's source, so the add fires OnAddDigivolutionCards for it.
-        await AddSourcesBottomAsync(repository, zoneMover, permanentId, new[] { library[0] }, ChoiceZone.Library, cancellationToken,
-            gameEventQueue: gameEventQueue, causeSourceId: permanentId)
-            .ConfigureAwait(false);
-        return true;
-    }
+    // (C-Act re-home) TrainAsync retired — see the class-header note. <Training> now resolves through the
+    // AS-IS window/activated path (CardEffectFactory.TrainingEffect), not this invented primitive.
 
     /// <summary>(B-10) Trash <paramref name="count"/> of <paramref name="hostId"/>'s digivolution sources
     /// (from the bottom/DigiEgg end by default) — move them off-field to the trash and drop them from the
