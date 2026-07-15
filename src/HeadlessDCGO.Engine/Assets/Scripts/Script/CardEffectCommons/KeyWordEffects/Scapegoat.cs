@@ -16,11 +16,14 @@ public static partial class CardEffectCommons
         HasMatchConditionPermanent(permanent.TopCard, permanentCondition);
 
     /// <summary>AS-IS <c>ScapegoatProcess</c> (KeyWordEffects/Scapegoat.cs:25): owner selects 1 matching
-    /// Digimon to delete instead of this one (the AS-IS <c>willBeRemoveField</c>/<c>HideDeleteEffect</c>
-    /// cancellation of THIS permanent's pending deletion has no mirror field — same posture as
-    /// <see cref="EvadeProcess"/> — the mirror's live "does Scapegoat save this Digimon" answer belongs to
-    /// <see cref="Headless.Runtime.DeletionReplacementGate"/>; this performs only the real state action, the
-    /// substitute's deletion).</summary>
+    /// Digimon to delete instead of this one; when that substitute is ACTUALLY deleted, cancel THIS Digimon's
+    /// pending deletion (AS-IS <c>SelectPermanentCoroutine</c>'s <c>SuccessProcess</c>:
+    /// <c>permanent.willBeRemoveField = false; HideDeleteEffect();</c>). (C-Del 3c-2a) restructured 1:1 with
+    /// AS-IS — the substitute's delete runs INSIDE the per-selected coroutine (awaited by Activate in selection
+    /// order), and the AS-IS trailing <c>willBeRemoveField = false</c> is RESTORED — survival is owned by the
+    /// AS-IS PRE cut-in window (the sink opens it, 3b), not the retired
+    /// <see cref="Headless.Runtime.DeletionReplacementGate"/>: the sweep's survivor-fix reads this Digimon's
+    /// cleared flag to spare it. <c>HideDeleteEffect()</c> = UI (stripped, established convention).</summary>
     public static async Task ScapegoatProcess(ICardEffect activateClass, Permanent permanent, Func<Permanent, bool> canSelectPermanentCondition)
     {
         if (permanent?.TopCard is null || !HasMatchConditionPermanent(permanent.TopCard, canSelectPermanentCondition))
@@ -29,7 +32,6 @@ public static partial class CardEffectCommons
         }
 
         var selectPermanentEffect = GManager.instance!.GetComponent<SelectPermanentEffect>();
-        Permanent? selected = null;
         selectPermanentEffect.SetUp(
             selectPlayer: permanent.TopCard.Owner,
             canTargetCondition: (Headless.Services.HeadlessEntityId id) => canSelectPermanentCondition(PermanentOf(permanent.TopCard, id)),
@@ -38,22 +40,18 @@ public static partial class CardEffectCommons
             maxCount: 1,
             canNoSelect: false,
             canEndNotMax: false,
-            selectPermanentCoroutine: (Permanent p) => { selected = p; return Task.CompletedTask; },
+            selectPermanentCoroutine: async (Permanent selectedSubstitute) =>
+            {
+                await DeletePeremanentAndProcessAccordingToResult(
+                    targetPermanents: new System.Collections.Generic.List<Permanent> { selectedSubstitute },
+                    activateClass: activateClass,
+                    successProcess: _ => { permanent.willBeRemoveField = false; return Task.CompletedTask; },
+                    failureProcess: null).ConfigureAwait(false);
+            },
             afterSelectPermanentCoroutine: null,
             mode: SelectPermanentEffect.Mode.Custom,
             cardEffect: activateClass);
         selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to delete.", "The opponent is selecting 1 Digimon to delete.");
         await selectPermanentEffect.Activate().ConfigureAwait(false);
-
-        if (selected is null)
-        {
-            return;
-        }
-
-        await DeletePeremanentAndProcessAccordingToResult(
-            targetPermanents: new System.Collections.Generic.List<Permanent> { selected },
-            activateClass: activateClass,
-            successProcess: _ => Task.CompletedTask,
-            failureProcess: null).ConfigureAwait(false);
     }
 }

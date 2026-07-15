@@ -28,10 +28,12 @@ public static partial class CardEffectCommons
 
     /// <summary>AS-IS <c>DecoyProcess</c> (KeyWordEffects/Decoy.cs:25): delete this Digimon, then (if
     /// deleted) the owner may redirect a matching ally to take its place — cancel that ally's pending
-    /// deletion (AS-IS <c>willBeRemoveField = false; HideDeleteEffect();</c>, no mirror field; the mirror's
-    /// live "does Decoy save an ally" behaviour is owned by <see cref="Headless.Runtime.DeletionReplacementGate"/>,
-    /// same posture as <see cref="EvadeProcess"/>) — so only the real state action (deleting this Digimon) is
-    /// performed here.</summary>
+    /// deletion (AS-IS <c>SelectPermanentCoroutine</c>: <c>permanent.willBeRemoveField = false;
+    /// HideDeleteEffect();</c>). (C-Del 3c-2a) the AS-IS trailing <c>willBeRemoveField = false</c> is now
+    /// RESTORED — survival is owned by the AS-IS PRE cut-in window (the sink opens it, 3b), not the retired
+    /// <see cref="Headless.Runtime.DeletionReplacementGate"/>: clearing the selected ally's flag is what the
+    /// sweep's survivor-fix reads to spare it. <c>HideDeleteEffect()</c> = UI (stripped, established
+    /// convention).</summary>
     public static async Task DecoyProcess(ICardEffect activateClass, Permanent permanent, Func<Permanent, bool> canSelectPermanentCondition)
     {
         if (permanent?.TopCard is null)
@@ -59,7 +61,7 @@ public static partial class CardEffectCommons
                     maxCount: maxCount,
                     canNoSelect: false,
                     canEndNotMax: false,
-                    selectPermanentCoroutine: (Permanent _) => Task.CompletedTask,
+                    selectPermanentCoroutine: (Permanent selectedAlly) => { selectedAlly.willBeRemoveField = false; return Task.CompletedTask; },
                     afterSelectPermanentCoroutine: null,
                     mode: SelectPermanentEffect.Mode.Custom,
                     cardEffect: activateClass);
