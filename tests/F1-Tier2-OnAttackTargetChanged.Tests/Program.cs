@@ -11,6 +11,7 @@
 // subject=attacker)) + draining — the emit sites are already covered by NewTimingsFire; here we exercise the bridge.
 //
 // Witnesses (REAL cards): EX10_002 (Draw 1, inherited) and ST15_02 (Memory +1, inherited) + a top-instance Tfx probe.
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -52,8 +53,11 @@ async Task TfxAnyoneTopFires()
     ctx.MemoryController.Set(0);
     var attacker = await Place(ctx, P1, "ATK", "ATK", "Digimon");                         // the attacker (no reactor)
     await Place(ctx, P1, "TfxOnAttackTargetChangedCounter", "TFX", "Digimon");            // an ANYONE reactor, != attacker
+    var t0 = await Defender(ctx, "T0");
+    var t1 = await Defender(ctx, "T1");
+    DeclareAttack(ctx, attacker, t0);
 
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t1);
 
     AssertEqual(1, ctx.MemoryController.Current.Current,
         "the anyone top reactor gained +1 on a different attacker's target switch (anyone scope)");
@@ -65,9 +69,13 @@ async Task TfxPerChangeTwice()
     ctx.MemoryController.Set(0);
     var attacker = await Place(ctx, P1, "ATK", "ATK", "Digimon");
     await Place(ctx, P1, "TfxOnAttackTargetChangedCounter", "TFX", "Digimon");
+    var t0 = await Defender(ctx, "T0");
+    var t1 = await Defender(ctx, "T1");
+    var t2 = await Defender(ctx, "T2");
+    DeclareAttack(ctx, attacker, t0);
 
-    await SwitchTarget(ctx, attacker);
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t1);
+    await SwitchTarget(ctx, t2);
 
     AssertEqual(2, ctx.MemoryController.Current.Current,
         "two target switches fired the uncapped reactor twice (+2) — one emit per change, no batch");
@@ -79,8 +87,11 @@ async Task St1502InheritedFires()
     ctx.MemoryController.Set(0);
     var (host, _) = await Tuck(ctx, srcNumber: "ST15_02", hostDispatch: "HOSTA");
     var attacker = await Place(ctx, P1, "ATK", "ATK", "Digimon");
+    var t0 = await Defender(ctx, "T0");
+    var t1 = await Defender(ctx, "T1");
+    DeclareAttack(ctx, attacker, t0);
 
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t1);
 
     AssertEqual(1, ctx.MemoryController.Current.Current,
         "the inherited ST15_02 (under a field Digimon) gained +1 memory on a target switch");
@@ -92,8 +103,11 @@ async Task St1502TopPermanentNoFire()
     ctx.MemoryController.Set(0);
     await Place(ctx, P1, "ST15_02", "ST15_02top", "Digimon");   // ST15_02 as its OWN top permanent
     var attacker = await Place(ctx, P1, "ATK", "ATK", "Digimon");
+    var t0 = await Defender(ctx, "T0");
+    var t1 = await Defender(ctx, "T1");
+    DeclareAttack(ctx, attacker, t0);
 
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t1);
 
     AssertEqual(0, ctx.MemoryController.Current.Current,
         "ST15_02 as a TOP permanent did NOT fire its inherited OnAttackTargetChanged (membership)");
@@ -105,11 +119,15 @@ async Task St1502OncePerTurnCap()
     ctx.MemoryController.Set(0);
     var (host, _) = await Tuck(ctx, srcNumber: "ST15_02", hostDispatch: "HOSTA");
     var attacker = await Place(ctx, P1, "ATK", "ATK", "Digimon");
+    var t0 = await Defender(ctx, "T0");
+    var t1 = await Defender(ctx, "T1");
+    var t2 = await Defender(ctx, "T2");
+    DeclareAttack(ctx, attacker, t0);
 
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t1);
     AssertEqual(1, ctx.MemoryController.Current.Current, "first target switch gained +1");
 
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t2);
     AssertEqual(1, ctx.MemoryController.Current.Current,
         "second target switch the same turn did NOT re-gain (Once Per Turn cap) — still +1");
 }
@@ -120,8 +138,11 @@ async Task Ex10002InheritedDraws()
     var (host, _) = await Tuck(ctx, srcNumber: "EX10_002", hostDispatch: "HOSTA");
     var attacker = await Place(ctx, P1, "ATK", "ATK", "Digimon");
     var deckCard = await DeckCard(ctx, P1, "DK1");   // a card to draw
+    var t0 = await Defender(ctx, "T0");
+    var t1 = await Defender(ctx, "T1");
+    DeclareAttack(ctx, attacker, t0);
 
-    await SwitchTarget(ctx, attacker);
+    await SwitchTarget(ctx, t1);
 
     AssertTrue(InHand(ctx, P1, deckCard),
         "the inherited EX10_002 drew 1 (the deck-top card is now in hand) on a target switch");
@@ -133,15 +154,34 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return ctx;
 }
 
-// Emit an attack-target change (subject = the attacker), as RaidAttackSwitch / BlockTiming do, then drain.
-async Task SwitchTarget(EngineContext ctx, HeadlessEntityId attacker)
+// (harness triage) The AS-IS emit lives INSIDE AttackProcess.SwitchDefender (AttackProcess.cs:876-891, the sole
+// live opener post-cutover: SkillWindowSupply GAP-drops this timing per RDW-02, so a bare TriggerEventEmitter.Emit
+// off an ambient attack never reaches the mirror StackSkillInfos call). Drive the REAL retarget (RaidAttackSwitch's
+// production path) instead of the raw emit so the same assertions exercise the live opener.
+void DeclareAttack(EngineContext ctx, HeadlessEntityId attacker, HeadlessEntityId initialTarget) =>
+    ctx.AttackController.DeclareAttack(P1, attacker, P2, initialTarget, isDirectAttack: false);
+
+// (harness triage) Drain via AutoProcessCheck (the mirror trigger-stack drain SwitchDefender's inline insert
+// stacks onto), NOT the full GameFlowProcessor.RunToStableAsync — the latter also single-steps the ATTACK
+// PIPELINE (step 3, AttackPhase != None), which would resolve the whole declared attack to completion on the
+// FIRST switch (no block/security choice pends here), clearing AttackController.Current before a SECOND
+// SwitchDefender call could run. AutoProcessCheck alone resolves the stacked OnAttackTargetChanged window
+// without touching attack-phase advancement, letting a still-open attack switch targets more than once.
+async Task SwitchTarget(EngineContext ctx, HeadlessEntityId newTarget)
 {
-    TriggerEventEmitter.Emit(ctx.GameEventQueue, TriggerTimings.OnAttackTargetChanged, actor: P1, subject: attacker);
-    await new GameFlowProcessor().RunToStableAsync(ctx);
+    await AttackProcess.For(ctx).SwitchDefender(causeEffectSourceId: null, isBlock: false, newDefendingPermanentId: newTarget);
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        await AutoProcessing.For(ctx).AutoProcessCheck();
+    }
 }
+
+// A defender-side target (opponent battle area, unsuspended) to switch the attack onto.
+async Task<HeadlessEntityId> Defender(EngineContext ctx, string tag) => await Place(ctx, P2, tag, tag, "Digimon");
 
 async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string cardNumber, string tag, string cardType)
 {

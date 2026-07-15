@@ -81,6 +81,7 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return ctx;
 }
 
@@ -93,7 +94,15 @@ async Task Block(EngineContext ctx, HeadlessEntityId attacker, HeadlessEntityId 
     // Drive the mirror state machine to the parked block choice (the counter passes park at Declared first).
     AttackAdvanceResult step;
     do { step = await pipeline.AdvanceAsync(ctx); } while (step.Progressed && !step.ChoiceRequested);
-    BlockTimingResult block = timing.ResolveBlockChoice(ctx, ChoiceResult.Select(blocker));
+    // (harness triage) ResolveBlockChoice -> GetBlockerCandidates -> Permanent.HasCollision -> EffectList reads
+    // GManager.instance via AmbientMatchContext — the established direct-call pattern (G9-064.SwitchTargetLock.Tests)
+    // scopes it explicitly; AttackPipeline.AdvanceAsync already self-scopes, but this direct ResolveBlockChoice call
+    // does not.
+    BlockTimingResult block;
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        block = timing.ResolveBlockChoice(ctx, ChoiceResult.Select(blocker));
+    }
     if (!block.IsSuccess) throw new Exception($"block failed: {block.FailureReason}");
     await new GameFlowProcessor().RunToStableAsync(ctx);
 }

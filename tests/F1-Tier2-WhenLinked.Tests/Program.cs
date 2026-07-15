@@ -149,6 +149,7 @@ async Task Bt22003OpponentTurnNoFire()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 96);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P2);   // P2's turn — the host (P1) is off-turn
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate
     var (host, _) = await Tuck(ctx, srcNumber: "BT22_003", hostDispatch: "HOSTA", hostName: "Host", hostIsDigimon: true, sourceFlipped: false);
     var foe = await Foe(ctx, "FOE", playCost: 5);
     var link = await PlaceLink(ctx, P1, "L1");
@@ -182,6 +183,7 @@ EngineContext Setup(int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // (harness triage) DoneStartGame gate: new-model CanTrigger needs a live phase
     return ctx;
 }
 

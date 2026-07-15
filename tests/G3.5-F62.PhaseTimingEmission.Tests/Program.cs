@@ -1,4 +1,8 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
@@ -8,6 +12,20 @@ using HeadlessDCGO.Engine.Headless.Services;
 // the main phase (the original's verified emit point) and OnEndMainPhase / OnEndAttackPhase on the
 // Main→(next) transition. Verified end-to-end: an effect bound to each timing fires through the common
 // loop at the right phase transition and stays dormant otherwise.
+//
+// (harness triage, R3-C2b-2 window cutover) "OnStartMainPhase effect fires" is retargeted to a live
+// CardSource-bound ActivateClass probe: SkillWindowSupply RDW-07 CLOSED this timing (AS-IS null-payload,
+// the port's TriggerEventEmitter already stamps the explicit timing key so the live mirror stacks + drains
+// it) — the BEHAVIOR is re-expressible, the original registry-only RecordingFakeEffect just can no longer be
+// collected (AutoProcessingTriggerCollector has zero live callers post-cutover). OnEndMainPhase /
+// OnEndAttackPhase stay on the OLD registry harness UNCHANGED and remain red — RETIREMENT CANDIDATES, not
+// engine gaps: both are AS-IS DEAD timings (declared in the AS-IS EffectTiming enum but NEVER stacked/gated
+// there and reacted to by ZERO cards — see the F1-DEAD block in Script/CardEffectCommons/EffectTiming.cs and
+// TriggerTimings.cs:79-84 "not actively fired there; headless opens them"). The port's PassAction.cs:28-29
+// emit was bridge-era invention; the live mirror window rightly never opens these (SkillWindowSupply has no
+// case — consistent with AS-IS never stacking them). The subtests' expectation ("fires on leaving main") is
+// not derivable from AS-IS, so it cannot be retargeted without inventing behavior; left red for coordinator
+// disposition.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -50,7 +68,7 @@ void ConstantsDefined()
 
 async Task StartMainPhaseFires()
 {
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnStartMainPhase);
+    (DcgoMatch match, TurnBoundaryProbe effect) = await CreateLiveMatchAsync(EffectTiming.OnStartMainPhase);
     await AdvanceToMainAsync(match, P1);
     AssertEqual(1, effect.ResolveCalls, "OnStartMainPhase effect fired once on main-phase entry");
 }
@@ -132,6 +150,33 @@ async Task<(DcgoMatch Match, RecordingFakeEffect Effect)> CreateMatchAsync(strin
     return (match, effect);
 }
 
+// (harness triage) Live variant for the RDW-07-CLOSED OnStartMainPhase timing: a real CardSource-bound
+// ActivateClass probe, collected via the mirror SkillInfo scan (same shape as TfxOnLeaveFieldCounter).
+async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateLiveMatchAsync(EffectTiming timing)
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
+    CardDatabase cards = (CardDatabase)context.CardRepository;
+    for (int index = 1; index <= 12; index++)
+    {
+        cards.Upsert(Digimon($"P1-M{index:D2}"));
+        cards.Upsert(Digimon($"P2-M{index:D2}"));
+    }
+
+    DcgoMatch match = new(context);
+    MatchSetupConfig setup = MatchSetupConfig.Create(new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
+    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
+
+    var fxDef = new HeadlessEntityId("DEF:FX");
+    cards.Upsert(new CardRecord(fxDef, fxDef.Value, "FX", new Dictionary<string, object?>(), CardType: "Digimon"));
+    var fxId = new HeadlessEntityId("1:battle:FX");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(fxId, fxDef, P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, fxId, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    var effect = new TurnBoundaryProbe(timing);
+    CardEffectRegistrar.RegisterOnEnterPlay(context, effect, "FX", new CardSource(context, fxId, P1));
+    return (match, effect);
+}
+
 static EffectRequest CreateRequest(string effectId, string sourceId, string timing)
 {
     var player = new HeadlessPlayerId(1);
@@ -180,5 +225,41 @@ internal sealed class RecordingFakeEffect : IHeadlessCardEffect
     {
         ResolveCalls++;
         return ValueTask.FromResult(EffectResult.Success("fake resolved"));
+    }
+}
+
+// (harness triage) TEST-LOCAL live replacement for RecordingFakeEffect, used only for the RDW-07-CLOSED
+// OnStartMainPhase subtest: an uncapped ActivateClass reactor bound to a given AS-IS null-payload
+// turn-boundary EffectTiming, collected by the live SkillInfo scan (same shape as TfxOnLeaveFieldCounter /
+// G3.5-W1b's TurnBoundaryProbe).
+public sealed class TurnBoundaryProbe : CEntity_Effect
+{
+    private readonly EffectTiming _fireOn;
+    public int ResolveCalls { get; private set; }
+
+    public TurnBoundaryProbe(EffectTiming fireOn) => _fireOn = fireOn;
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        var effects = new List<ICardEffect>();
+        if (timing == _fireOn)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("probe", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, $"[probe] fires on {_fireOn}.");
+            effects.Add(activateClass);
+
+            bool CanUseCondition(System.Collections.Hashtable hashtable) => CardEffectCommons.IsExistOnBattleArea(card);
+
+            bool CanActivateCondition(System.Collections.Hashtable hashtable) => CardEffectCommons.IsExistOnBattleArea(card);
+
+            Task ActivateCoroutine(System.Collections.Hashtable _hashtable)
+            {
+                ResolveCalls++;
+                return Task.CompletedTask;
+            }
+        }
+
+        return effects;
     }
 }

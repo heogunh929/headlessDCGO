@@ -1,3 +1,6 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -7,6 +10,18 @@ using HeadlessDCGO.Engine.Headless.Services;
 // G3.5-W1 (part 2): the engine now EMITS timing-window events at action points that produce no zone
 // move — turn boundaries, digivolution, draw, security checks — so effects bound to OnStartTurn /
 // OnEndTurn / WhenDigivolving / OnDraw / OnSecurityCheck fire through the common loop.
+//
+// (harness triage, R3-C2b-2 window cutover) The e2e subtests originally registered a synthetic non-card
+// RecordingFakeEffect directly on the EffectRegistry, collected by AutoProcessingTriggerCollector — that
+// collector has ZERO live callers post-cutover (GameFlowProcessor.AutoProcessAsync now drives the mirror
+// SkillInfo trigger stack; see window_skillinfo_cutover_design_2026-07-14.md), so a raw registry binding is
+// never discovered anymore. OnStartTurn/OnEndTurn are AS-IS null-payload windows that the live supply layer
+// DOES handle (SkillWindowSupply RDW-07 CLOSED: the port's turn emits already carry the explicit timing
+// TriggerEventEmitter stamps, so TriggerTimingMap derives them and GameFlowProcessor.AutoProcessAsync
+// stacks+drains them through the live MultipleSkills window) — the BEHAVIOR is re-expressible, so this file
+// re-attaches the SAME assertions (fires exactly once on the boundary; stays dormant for an unrelated
+// timing) via the live mechanism: a real CardSource-bound ActivateClass (CEntity_Effect.CardEffects), the
+// same shape as TfxOnLeaveFieldCounter / TfxWhenLinkedCounter, instead of a registry-only fake.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -72,21 +87,21 @@ void ConstantsDefined()
 
 async Task EndTurnFiresOnEndTurn()
 {
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnEndTurn);
+    (DcgoMatch match, TurnBoundaryProbe effect) = await CreateMatchAsync(EffectTiming.OnEndTurn);
     await EndTurnAsync(match);
     AssertEqual(1, effect.ResolveCalls, "OnEndTurn effect fired exactly once when the turn ended");
 }
 
 async Task EndTurnFiresOnStartTurn()
 {
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnStartTurn);
+    (DcgoMatch match, TurnBoundaryProbe effect) = await CreateMatchAsync(EffectTiming.OnStartTurn);
     await EndTurnAsync(match);
     AssertEqual(1, effect.ResolveCalls, "OnStartTurn effect fired when the next turn started");
 }
 
 async Task UnrelatedTimingDoesNotFire()
 {
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync("OnNeverHappens");
+    (DcgoMatch match, TurnBoundaryProbe effect) = await CreateMatchAsync(EffectTiming.WhenDigivolving);
     await EndTurnAsync(match);
     AssertEqual(0, effect.ResolveCalls, "an effect bound to an unrelated timing does not fire on end turn");
 }
@@ -100,7 +115,7 @@ async Task EndTurnAsync(DcgoMatch match)
 
 // --- Harness -------------------------------------------------------------
 
-async Task<(DcgoMatch Match, RecordingFakeEffect Effect)> CreateMatchAsync(string timing)
+async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateMatchAsync(EffectTiming timing)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
     CardDatabase cards = (CardDatabase)context.CardRepository;
@@ -115,17 +130,16 @@ async Task<(DcgoMatch Match, RecordingFakeEffect Effect)> CreateMatchAsync(strin
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
 
-    var effect = new RecordingFakeEffect("fx", "src", timing);
-    context.EffectRegistry.Register(new EffectBinding(CreateRequest("fx", "src", timing), effect: effect));
-    return (match, effect);
-}
+    var fxDef = new HeadlessEntityId("DEF:FX");
+    cards.Upsert(new CardRecord(fxDef, fxDef.Value, "FX", new Dictionary<string, object?>(), CardType: "Digimon"));
+    var fxId = new HeadlessEntityId("1:battle:FX");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(fxId, fxDef, P1, Metadata: new Dictionary<string, object?>()));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(
+        P1, fxId, HeadlessDCGO.Engine.Headless.Choices.ChoiceZone.None, HeadlessDCGO.Engine.Headless.Choices.ChoiceZone.BattleArea));
 
-static EffectRequest CreateRequest(string effectId, string sourceId, string timing)
-{
-    var player = new HeadlessPlayerId(1);
-    return new EffectRequest(
-        new HeadlessEntityId(effectId), player, timing,
-        new EffectContext(player, player, new HeadlessEntityId(sourceId), triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>()));
+    var effect = new TurnBoundaryProbe(timing);
+    CardEffectRegistrar.RegisterOnEnterPlay(context, effect, "FX", new CardSource(context, fxId, P1));
+    return (match, effect);
 }
 
 static CardRecord Digimon(string id) =>
@@ -149,26 +163,37 @@ static void AssertTrue(bool value, string label)
     if (!value) throw new InvalidOperationException($"{label}: expected true.");
 }
 
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
+// (harness triage) TEST-LOCAL live replacement for the registry-only RecordingFakeEffect: an uncapped
+// ActivateClass reactor (CEntity_Effect.CardEffects) bound to a given AS-IS null-payload turn-boundary
+// EffectTiming, collected by the live SkillInfo scan exactly like TfxOnLeaveFieldCounter / TfxWhenLinkedCounter.
+public sealed class TurnBoundaryProbe : CEntity_Effect
 {
-    public RecordingFakeEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
+    private readonly EffectTiming _fireOn;
     public int ResolveCalls { get; private set; }
 
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+    public TurnBoundaryProbe(EffectTiming fireOn) => _fireOn = fireOn;
 
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
+        var effects = new List<ICardEffect>();
+        if (timing == _fireOn)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("probe", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, $"[probe] fires on {_fireOn}.");
+            effects.Add(activateClass);
+
+            bool CanUseCondition(System.Collections.Hashtable hashtable) => CardEffectCommons.IsExistOnBattleArea(card);
+
+            bool CanActivateCondition(System.Collections.Hashtable hashtable) => CardEffectCommons.IsExistOnBattleArea(card);
+
+            Task ActivateCoroutine(System.Collections.Hashtable _hashtable)
+            {
+                ResolveCalls++;
+                return Task.CompletedTask;
+            }
+        }
+
+        return effects;
     }
 }
