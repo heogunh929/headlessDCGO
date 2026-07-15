@@ -25,7 +25,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Fragment is a two-step choice: activate, then pick which source to trash", FragmentTwoStep),
     ("Decoy is a two-step choice: activate, then pick which Decoy ally to sacrifice", DecoyTwoStep),
     ("(B1) Armor Purge is a WOULD-BE-DELETED replacement: top trashed, permanent survives", ArmorPurgePostChoice),
-    ("Save is a post-deletion two-step choice: activate, then pick the permanent", SaveTwoStep),
+    ("Save (C-Del 3a RETIRED): a bare hasSave marker opens NO POST option (fires via the OnDestroyedAnyone window)", SaveGateRetired),
     ("Battle: activating Barrier in the window trashes a security and survives", BarrierBattleChoice),
     ("Battle: activating Evade in the window suspends and survives", EvadeBattleChoice),
     ("Retaliation: the targeted opponent may Evade the retaliation (window re-opens)", RetaliationOpponentCanEvade),
@@ -380,8 +380,12 @@ async Task ArmorPurgePostChoice()
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "no follow-up POST window for the purged top");
 }
 
-async Task SaveTwoStep()
+async Task SaveGateRetired()
 {
+    // (C-Del 3a RETIRED) The invented Save POST option (DeletionReplacementTiming SaveOption two-step) is
+    // retired: AS-IS [Save] now fires through the OnDestroyedAnyone cut-in window from a printed SaveEffect
+    // (witnessed live in tests/C-Del-POST). A BARE hasSave metadata marker — no printed effect — no longer
+    // surfaces any POST agent choice, and the deleted card simply stays in the trash.
     EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     for (int index = 1; index <= 12; index++)
@@ -406,21 +410,13 @@ async Task SaveTwoStep()
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = saveCard.Value }));
     await sink.FlushAsync();
-    await match.StepAsync();   // saveCard trashed, POST window opens
-
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, saveCard), "save card was deleted to the trash first");
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#save", StringComparison.Ordinal) && !a.Id.Value.Contains(host.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // step 2: pick the host permanent
-
-    LegalAction pickHost = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(host.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pickHost);
     await match.StepAsync();
 
-    AssertFalse(InZone(match, P2, ChoiceZone.Trash, saveCard), "saved card left the trash");
-    AssertFalse(InZone(match, P2, ChoiceZone.BattleArea, saveCard), "saved card is no longer a standalone permanent");
-    AssertTrue(SourceIds(match, host).Contains(saveCard.Value), "saved card attached under the chosen permanent");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, saveCard), "save card was deleted to the trash");
+    AssertFalse(ResolveActions(match, P2).Any(a => a.Id.Value.Contains("#save", StringComparison.Ordinal)),
+        "the retired Save POST option surfaces NO agent choice (single-fire: window only)");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, saveCard), "the deleted card stays in the trash (bare marker, no printed Save effect)");
+    AssertFalse(SourceIds(match, host).Contains(saveCard.Value), "the card was NOT attached under any permanent by the retired gate");
 }
 
 // --- Battle PRE-path (deferred via AttackPhase.DeletionReplacement) -------

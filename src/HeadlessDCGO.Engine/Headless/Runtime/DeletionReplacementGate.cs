@@ -183,71 +183,14 @@ public static class DeletionReplacementGate
         return null;
     }
 
-    /// <summary>
-    /// (C-6 Fortitude) AFTER a Digimon that had at least one digivolution source is deleted, it is played
-    /// back from the trash as a new permanent for free. Mirrors AS-IS <c>FortitudeProcess</c>
-    /// (PlayPermanentCards from Trash, payCost:false, activateETB:true) gated by <c>CanActivateFortitude</c>
-    /// (in trash + the deleted stack had >= 1 source). Unlike Evade/Barrier this is a post-deletion replay
-    /// (OnDestroyed), not a would-be-deleted prevention — the card IS deleted, then returns. Both deletion
-    /// paths call this once the card has reached the trash. The replayed Digimon enters anew (summoning
-    /// sick, no sources), so its <c>sourceIds</c> and deletion markers are cleared.
-    /// </summary>
-    public static async Task<bool> TryFortitudeReplayAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null,
-        Bridge.EngineContext? context = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zoneMover);
-
-        if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
-            record is null ||
-            !HasReplacementKeyword(record, HasFortitudeKey, ContinuousKeywordGate.Fortitude, effectRegistry) ||
-            SourceCountAtDeletion(record.Metadata) < 1)
-        {
-            return false;
-        }
-
-        // The card must have reached the trash (it was just deleted) before it can be replayed from there.
-        if (zoneMover is IZoneStateReader zones &&
-            !zones.GetCards(record.OwnerId, ChoiceZone.Trash).Contains(cardId))
-        {
-            return false;
-        }
-
-        await zoneMover.MoveAsync(
-            new ZoneMoveRequest(record.OwnerId, cardId, ChoiceZone.Trash, ChoiceZone.BattleArea, FaceUp: true),
-            cancellationToken).ConfigureAwait(false);
-
-        // Re-enters as a fresh permanent: clear the digivolution stack + deletion markers, mark summoning
-        // sickness, and stamp the replay marker.
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-        metadata.Remove(SourceIdsKey);
-        // (F7) drop the deletion-time source-count snapshot too — the card re-enters as a fresh sourceless
-        // permanent. DEFENSE-IN-DEPTH only: every deletion path re-stamps the snapshot via
-        // SnapshotPostReplacementKeywords BEFORE Fortitude reads it, so no live leak exists today; this just
-        // avoids carrying an obviously-stale value on the revived instance. (Other relocation paths — Ascension,
-        // Decode/Partition PlaySourceForFreeAsync — do NOT clear it and still rely on the re-stamp; harmless
-        // because the snapshot is the sole thing overwritten at each deletion.)
-        metadata.Remove(SourceCountAtDeletionKey);
-        metadata.Remove(DeletedByBattleKey);
-        metadata.Remove(DeletedByEffectKey);
-        metadata[EnteredThisTurnKey] = true;
-        metadata[FortitudeReplayedKey] = true;
-        repository.Upsert(record with { Metadata = metadata });
-
-        // (B-3 / 2026-07-11 re-review) AS-IS FortitudeProcess replays via PlayPermanentCards → card.Init()
-        // (CardController.cs:1361) — the revived card gets FRESH per-turn uses AND its ported effects
-        // re-registered (the deletion's leave-play cleanup removed the bindings). The enter-play hook covers both.
-        if (context is not null)
-        {
-            Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, cardId, record.OwnerId);
-        }
-
-        return true;
-    }
+    // (C-Del 3a RETIRED, 2026-07-15) TryFortitudeReplayAsync — the invented POST-deletion Fortitude replay
+    // firing-half — is retired. AS-IS [Fortitude] now fires through the OnDestroyedAnyone cut-in window
+    // (collect-before-removal, sink StackSkillInfos + AutoProcessCheck): the card's printed
+    // CardEffectFactory.FortitudeEffect ActivateClass (CardEffects) / granted CardEffectCommons.GainFortitude
+    // bucket effect is collected by GetSkillInfos and resolved by the window, exactly like Raid/Alliance/Vortex.
+    // Keeping this gate replay AND the window would double-fire. The Fortitude presence marker
+    // (ContinuousKeywordGate.Fortitude / HasFortitudeKey) is untouched — only the FIRING is retired. See
+    // keyword_rehoming_design_2026-07-15.md §F.3a / cdel_wave3_investigation_2026-07-15.md §F.
 
     // (B1) (C-21 Armor Purge) is a WOULD-BE-DELETED replacement (AS-IS ArmorPurgeProcess:
     // willBeRemoveField = false — the permanent never leaves play; only the top card is trashed and the
@@ -361,6 +304,15 @@ public static class DeletionReplacementGate
     /// used before inserted at the BOTTOM. The AS-IS <c>CanAddSecurity(activateClass)</c> restriction gate is
     /// not folded: its effect (<c>CannotAddSecurityClass</c>) is an unported skeleton with no grants, so
     /// there is nothing to consult yet (fidelity_debt).
+    ///
+    /// (C-Del 3a, 2026-07-15) NOT retired — unlike Fortitude/Save, the AS-IS OnDestroyedAnyone window CANNOT
+    /// fire a printed [Ascension] on the universal sink deletion path: AscensionProcess's activation gate
+    /// (CanActivateAscension → CanActivateOnDeletion) reads <c>CardSource.PermanentJustBeforeRemoveField</c>,
+    /// a per-match service store the sink path never populates (it writes only the divergent
+    /// CardLeavePlayCleanup metadata key). Retiring this gate would leave [Ascension] firing NOWHERE. Blocked
+    /// on design item RD-P6C3-A3 (PermanentJustBeforeRemoveField writer for the sink deletion slice). Witness
+    /// C-Del-POST confirms the printed AscensionSelfEffect collects but CanActivate=false. See design item
+    /// RD-3A-01 / keyword_rehoming_design_2026-07-15.md §F.3a.
     /// </summary>
     public static async Task<bool> TryAscensionAsync(
         ICardInstanceRepository repository,
@@ -724,62 +676,12 @@ public static class DeletionReplacementGate
         return true;
     }
 
-    /// <summary>
-    /// (C-22 Save) AFTER a card is deleted, its controller may place it under one of their other battle-area
-    /// permanents as a digivolution source (AS-IS SaveProcess: AddDigivolutionCardsBottom onto a Tamer).
-    /// Post-deletion response like Ascension; both deletion paths call it once the card is in the trash.
-    /// LIMITATION: attaches to the first eligible permanent rather than surfacing the AS-IS "select 1".
-    /// </summary>
-    public static async Task<bool> TrySaveAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null,
-        Effects.OnceFlagController? onceFlags = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zoneMover);
-
-        if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
-            record is null ||
-            !HasReplacementKeyword(record, HasSaveKey, ContinuousKeywordGate.Save, effectRegistry) ||
-            zoneMover is not IZoneStateReader zones ||
-            !zones.GetCards(record.OwnerId, ChoiceZone.Trash).Contains(cardId))
-        {
-            return false;
-        }
-
-        HeadlessEntityId? target = null;
-        foreach (HeadlessEntityId candidate in zones.GetCards(record.OwnerId, ChoiceZone.BattleArea))
-        {
-            if (candidate != cardId)
-            {
-                target = candidate;
-                break;
-            }
-        }
-
-        if (target is not HeadlessEntityId targetId)
-        {
-            return false;
-        }
-
-        await DigivolutionStackHelpers.AddSourcesBottomAsync(
-            repository, zoneMover, targetId, new[] { cardId }, ChoiceZone.Trash, cancellationToken,
-            onceFlags: onceFlags).ConfigureAwait(false);
-
-        if (repository.TryGetInstance(cardId, out CardInstanceRecord? moved) && moved is not null)
-        {
-            var savedMeta = new Dictionary<string, object?>(moved.Metadata, StringComparer.Ordinal)
-            {
-                [SavedKey] = true,
-            };
-            savedMeta.Remove(SourceCountAtDeletionKey); // (F7) the deletion is resolved; drop the stale snapshot.
-            repository.Upsert(moved with { Metadata = savedMeta });
-        }
-
-        return true;
-    }
+    // (C-Del 3a RETIRED, 2026-07-15) TrySaveAsync — the invented POST-deletion Save firing-half (surfaced by
+    // DeletionReplacementTiming's SaveOption two-step select) — is retired. AS-IS [Save] now fires through the
+    // OnDestroyedAnyone cut-in window: the card's printed CardEffectFactory.SaveEffect ActivateClass (its
+    // SelectPermanentEffect picks the Tamer to place under, isOptional=true) is collected + resolved by the
+    // window. Keeping this gate AND the window would double-fire. The Save presence marker is untouched — only
+    // the FIRING is retired. See keyword_rehoming_design_2026-07-15.md §F.3a.
 
     private static int ReadInt(IReadOnlyDictionary<string, object?> metadata, string key, int defaultValue)
     {

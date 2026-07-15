@@ -74,20 +74,23 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
         "the deletion-time source-count snapshot recorded the actual count (2), not a fallback");
 }
 
-// --- 2. Fortitude: sources are trashed unconditionally, yet the count snapshot lets the top replay back to
-//        the battle area (AS-IS: trash the sources, replay the top sourceless). ---
+// --- 2. Sources are trashed unconditionally on deletion. (C-Del 3a RETIRED) A BARE hasFortitude metadata
+//        marker — no printed FortitudeEffect — no longer replays: the invented gate replay
+//        (TryFortitudeReplayAsync) is retired, and AS-IS [Fortitude] now fires through the OnDestroyedAnyone
+//        window from a printed/granted effect (witnessed live in tests/C-Del-POST). So the source-trash still
+//        runs, but the top stays trashed. ---
 {
     var (ctx, host, src0, src1) = await Setup((DeletionReplacementGate.HasFortitudeKey, true));
     await DeleteViaSink(ctx, host);
     Check(InZone(ctx, src0, ChoiceZone.Trash) && InZone(ctx, src1, ChoiceZone.Trash),
         "a Fortitude card's sources ARE trashed on deletion (unconditional, like AS-IS)");
-    Check(InZone(ctx, host, ChoiceZone.BattleArea),
-        "Fortitude still replays the top back to the battle area (count snapshot survived the source-trash)");
-    // (F7) the replay resolved the deletion → the snapshot must be CLEARED so it can't leak into a later
-    // deletion of the now-sourceless card (SourceCountAtDeletion then falls back to the live count = 0).
+    Check(InZone(ctx, host, ChoiceZone.Trash) && !InZone(ctx, host, ChoiceZone.BattleArea),
+        "a bare hasFortitude marker no longer replays via the gate (C-Del 3a retired) — the top stays trashed");
+    // The deletion-time count snapshot is still recorded (the source-trash wiring stamps it); nothing cleared it
+    // since no replay occurred.
     ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? rec);
-    Check(rec is not null && DeletionReplacementGate.SourceCountAtDeletion(rec!.Metadata) == 0,
-        "the source-count snapshot is cleared after a Fortitude replay (no stale-count leak)");
+    Check(rec is not null && DeletionReplacementGate.SourceCountAtDeletion(rec!.Metadata) == 2,
+        "the deletion-time source-count snapshot is recorded (2); no gate replay cleared it");
 }
 
 // --- 3. (design item C-1) Decode now DEFERS in the sink for the PRE (would-be-deleted) window instead of

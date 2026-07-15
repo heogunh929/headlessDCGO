@@ -674,8 +674,8 @@ public sealed class SecurityResolver
                     [Effects.MatchStateMutationSink.DeletionBatchIdKey] = context.NextDeletionBatchId(),
                 }),
             cancellationToken).ConfigureAwait(false);
-        await DeletionReplacementGate.TryFortitudeReplayAsync(
-            context.CardInstanceRepository, context.ZoneMover, attackerId, cancellationToken, context.EffectRegistry, context).ConfigureAwait(false);
+        // (C-Del 3a RETIRED) Fortitude no longer replays via the invented gate — it fires through the AS-IS
+        // OnDestroyedAnyone cut-in window (printed FortitudeEffect / granted GainFortitude bucket).
     }
 
     /// <summary>(W6 tail) binding-values keys for security-card DP grants (AS-IS ChangeSecurityDigimonCardDPPlayerEffect).</summary>

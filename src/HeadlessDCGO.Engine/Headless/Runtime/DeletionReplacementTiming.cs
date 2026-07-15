@@ -42,6 +42,8 @@ public sealed class DeletionReplacementTiming
     public const string BarrierOption = "barrier";      // PRE, by-battle, no sub (trash top security)
     public const string ScapegoatOption = "scapegoat";  // PRE, sub = which ally to sacrifice
     public const string FragmentOption = "fragment";    // PRE, sub = which source(s) to trash (repeated)
+    // (C-Del 3a) AscensionOption NOT retired — the AS-IS window cannot fire a printed [Ascension] on the sink
+    // path (CanActivateOnDeletion needs PermanentJustBeforeRemoveField, unpopulated: RD-P6C3-A3 / RD-3A-01).
     public const string AscensionOption = "ascension";  // POST, no sub
     public const string ArmorPurgeOption = "armorpurge"; // (B1) PRE, no sub — deletion CANCELLED: trash top only, promote under-source
     public const string DecoyOption = "decoy";          // PRE, effect/enemy-gated, sub = which Decoy ally
@@ -50,11 +52,11 @@ public sealed class DeletionReplacementTiming
     // sub-pick the effect needs is handled inside the effect's own resolution, not the gate's two-step picker.
     public const string CustomWouldBeDeletedOption = "customwouldbedeleted";
     public const string DecoyEligibleKey = "decoyEligible";
-    public const string SaveOption = "save";            // POST, sub = which permanent to place this under
+    // (C-Del 3a RETIRED) SaveOption removed — [Save] fires through the AS-IS OnDestroyedAnyone window.
     public const string DecodeOption = "decode";        // POST, effect-deletion only, sub = which source to play free
     public const string PartitionOption = "partition";  // POST, effect-deletion only, sub = play 2 sources free (repeated)
 
-    private static bool NeedsTarget(string option) => option is ScapegoatOption or FragmentOption or DecoyOption or SaveOption or DecodeOption or PartitionOption;
+    private static bool NeedsTarget(string option) => option is ScapegoatOption or FragmentOption or DecoyOption or DecodeOption or PartitionOption;
 
     // --- PRE option set (shared with the sink's defer decision) --------------
 
@@ -269,27 +271,19 @@ public sealed class DeletionReplacementTiming
     private static IReadOnlyList<string> PostOptions(EngineContext context, IZoneStateReader zones, CardInstanceRecord record)
     {
         var options = new List<string>();
+        // (C-Del 3a) Ascension STAYS a POST gate option — the AS-IS window cannot fire a printed [Ascension] on
+        // the universal sink deletion path (CanActivateOnDeletion reads the unpopulated PermanentJustBeforeRemoveField
+        // store: RD-P6C3-A3), so retiring it would leave [Ascension] firing nowhere (RD-3A-01, witness-confirmed).
         if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasAscensionKey, ContinuousKeywordGate.Ascension, context.EffectRegistry))
         {
             options.Add(AscensionOption);
         }
 
-        if (HasSaveTarget(context, zones, record))
-        {
-            options.Add(SaveOption);
-        }
-
-        // (C-1/TODO-96) Decode/Partition MOVED to the PRE (would-be-deleted) window — see PreOptions. AS-IS
-        // registers them at EffectTiming.WhenRemoveField (before the card leaves), not on-deletion; the POST
-        // model played their sources from ChoiceZone.None AFTER the card was already trashed. They now fire in
-        // the same cut-in window as Evade/Barrier and let the deletion proceed (no ClearDeletion).
-
+        // (C-Del 3a RETIRED) Save no longer surfaces as an invented POST agent choice — it fires through the
+        // AS-IS OnDestroyedAnyone cut-in window (printed SaveEffect ActivateClass → SelectPermanentEffect).
+        // Decode/Partition were already MOVED to the PRE (would-be-deleted) window (see PreOptions).
         return options;
     }
-
-    private static bool HasSaveTarget(EngineContext context, IZoneStateReader zones, CardInstanceRecord record) =>
-        DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasSaveKey, ContinuousKeywordGate.Save, context.EffectRegistry) &&
-        SaveTargets(context, zones, record, ResolveCondition(context, record, SaveOption)).Count > 0;
 
     /// <summary>(C-13 Decode) The leaving card's digivolution sources eligible to be played for free — the
     /// source must resolve to a Digimon definition (AS-IS <c>source.IsDigimon</c>) and pass any card-specific
@@ -355,15 +349,8 @@ public sealed class DeletionReplacementTiming
         return null;
     }
 
-    /// <summary>(C-22 Save) Permanents the deleted card may be placed under — the owner's battle-area cards,
-    /// filtered by any card-specific condition (#3 porting-readiness; null = generic).</summary>
-    private static IReadOnlyList<HeadlessEntityId> SaveTargets(
-        EngineContext context, IZoneStateReader zones, CardInstanceRecord record, Func<CardInstanceRecord, bool>? condition = null) =>
-        zones.GetCards(record.OwnerId, ChoiceZone.BattleArea)
-            .Where(id => id != record.InstanceId)
-            .Where(id => condition is null ||
-                (context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? candidate) && candidate is not null && condition(candidate)))
-            .ToArray();
+    // (C-Del 3a RETIRED) SaveTargets removed — [Save]'s AS-IS SelectPermanentEffect picks the placement target
+    // inside SaveProcess (window path), not this invented POST gate.
 
     // --- Window open --------------------------------------------------------
 
@@ -459,9 +446,10 @@ public sealed class DeletionReplacementTiming
             .Select(target => Candidate(record, $"{record.InstanceId.Value}{Delimiter}{option}{Delimiter}{target.Value}", target.Value))
             .ToArray();
 
-        // The sub-selection is mandatory once the keyword is activated (AS-IS canNoSelect:false) —
-        // EXCEPT Save (C6): AS-IS SaveProcess selects with canNoSelect:true (the owner may still back out).
-        OpenRequest(context, record, $"'{record.InstanceId.Value}' {option}: choose a target.", canSkip: option == SaveOption, candidates);
+        // The sub-selection is mandatory once the keyword is activated (AS-IS canNoSelect:false). (C-Del 3a
+        // RETIRED: Save, the sole canNoSelect:true POST sub-select, now resolves inside its own SaveProcess
+        // window path; every remaining option here is a mandatory PRE sub-select.)
+        OpenRequest(context, record, $"'{record.InstanceId.Value}' {option}: choose a target.", canSkip: false, candidates);
         return true;
     }
 
@@ -484,7 +472,6 @@ public sealed class DeletionReplacementTiming
             FragmentOption => SourceIds(record.Metadata),   // remaining digivolution sources to trash
             DecoyOption => DeletionReplacementGate.FindDecoyRedirectCandidates(
                 context.CardInstanceRepository, zones, record, ResolveCondition(context, record, DecoyOption), context.EffectRegistry, context),
-            SaveOption => SaveTargets(context, zones, record, ResolveCondition(context, record, SaveOption)),
             DecodeOption => FindDecodeSourceCandidates(context, record, ResolveCondition(context, record, DecodeOption)),
             PartitionOption => PartitionPickCandidates(context, record),
             _ => Array.Empty<HeadlessEntityId>(),
@@ -843,6 +830,8 @@ public sealed class DeletionReplacementTiming
                 ClearDeletion(context, cardId);
                 return true;
             case AscensionOption:
+                // (C-Del 3a) NOT retired — the AS-IS window cannot fire a printed [Ascension] on the sink path
+                // (RD-P6C3-A3 / RD-3A-01), so this gate stays the sole [Ascension] firing path.
                 return await DeletionReplacementGate
                     .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken: default, effectRegistry: context.EffectRegistry, addSecurityBatchId: context.NextSecurityAddBatchId()).ConfigureAwait(false);
             case ArmorPurgeOption:
@@ -880,14 +869,8 @@ public sealed class DeletionReplacementTiming
                 return await ApplySacrificeAsync(context, cardId, target).ConfigureAwait(false);
             case FragmentOption:
                 return await ApplyFragmentSource(context, cardId, target).ConfigureAwait(false);
-            case SaveOption:
-                // POST: place the deleted card under the chosen permanent (AS-IS AddDigivolutionCardsBottom).
-                await DigivolutionStackHelpers.AddSourcesBottomAsync(
-                    context.CardInstanceRepository, context.ZoneMover, target, new[] { cardId }, ChoiceZone.Trash,
-                    onceFlags: context.OnceFlags,
-                    // (F1-Tier2 OnAddDigivolutionCards) Save place-under — the saved card's own effect is the cause.
-                    gameEventQueue: context.GameEventQueue, causeSourceId: cardId).ConfigureAwait(false);
-                return (true, true);
+            // (C-Del 3a RETIRED) SaveOption case removed — [Save]'s place-under fires through the AS-IS
+            // OnDestroyedAnyone window (SaveProcess → SelectPermanentEffect → AddDigivolutionCardsBottom).
             case DecodeOption:
                 // (C-1/TODO-96) PRE: play the chosen digivolution source as a new permanent for free (AS-IS
                 // DecodeProcess). Deliberately does NOT ClearDeletion — the deletion still proceeds; the

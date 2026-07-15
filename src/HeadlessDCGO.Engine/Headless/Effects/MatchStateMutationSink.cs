@@ -1287,10 +1287,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 .ConfigureAwait(false);
         }
 
-        // C-6 Fortitude: after the deletion completes (card now in trash), a Digimon that had >= 1
-        // digivolution source replays itself from the trash for free (OnDestroyed). Runs once the card has
-        // actually arrived there.
-        await DeletionReplacementGate.TryFortitudeReplayAsync(_repository, zoneMover, targetId, ct, _effectRegistry, _context).ConfigureAwait(false);
+        // (C-Del 3a RETIRED) C-6 Fortitude no longer replays via the invented gate here — it fires through the
+        // AS-IS OnDestroyedAnyone cut-in window opened above (StackSkillInfos, collect-before-removal), resolved
+        // by the post-deletion AutoProcessCheck, from the card's printed FortitudeEffect / granted GainFortitude
+        // bucket. Auto-replaying here as well would double-fire.
         // C-21 Armor Purge is now an OPTIONAL post-deletion agent choice (F-6.8 DeletionReplacementTiming),
         // opened by the common loop once the top is in the trash — no longer auto-applied here.
         // C-17 Ascension / C-22 Save are now OPTIONAL post-deletion agent choices (F-6.8

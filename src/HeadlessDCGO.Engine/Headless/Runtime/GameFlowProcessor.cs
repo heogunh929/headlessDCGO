@@ -364,9 +364,8 @@ public sealed class GameFlowProcessor
                         await context.ZoneMover.MoveAsync(
                             new ZoneMoveRequest(playerId, cardId, zone, ChoiceZone.Trash, Metadata: deferredBatchMetadata),
                             cancellationToken).ConfigureAwait(false);
-                        // (P0-4) mandatory post-deletion Fortitude replay, as the sink/battle paths do.
-                        await DeletionReplacementGate.TryFortitudeReplayAsync(
-                            context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken, context.EffectRegistry, context).ConfigureAwait(false);
+                        // (C-Del 3a RETIRED) Fortitude no longer replays via the invented gate — it fires through
+                        // the AS-IS OnDestroyedAnyone cut-in window (printed FortitudeEffect / granted bucket).
                         progressed = true;
                         continue;
                     }

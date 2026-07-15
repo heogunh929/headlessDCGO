@@ -262,13 +262,9 @@ public sealed class BattleResolver
                 cancellationToken).ConfigureAwait(false));
         }
 
-        // C-6 Fortitude: mandatory post-deletion replay. (Armor Purge / Ascension / Save are OPTIONAL POST
-        // agent choices opened by the common loop once the card is in the trash.)
-        foreach (BattleParticipant participant in deleted)
-        {
-            await DeletionReplacementGate.TryFortitudeReplayAsync(
-                context.CardInstanceRepository, context.ZoneMover, participant.InstanceId, cancellationToken, context.EffectRegistry, context).ConfigureAwait(false);
-        }
+        // (C-Del 3a RETIRED) C-6 Fortitude no longer replays via the invented gate — it fires through the AS-IS
+        // OnDestroyedAnyone cut-in window (BattleResolver.FinalizeAsync collect-before-removal + AutoProcessCheck),
+        // from the card's printed FortitudeEffect / granted GainFortitude bucket.
 
         // Piercing: a surviving attacker that deleted the defender also checks the defending player's
         // security (the AttackPipeline performs the follow-up check). (GR-005) a self-static <Piercing>

@@ -9,6 +9,8 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Effects;
 
 public static partial class CardEffectCommons
 {
@@ -61,4 +63,45 @@ public static partial class CardEffectCommons
             isTapped: false,
             root: Headless.Choices.ChoiceZone.Trash,
             activateETB: true);
+
+    /// <summary>(C-Del 3a grant rehousing) AS-IS <c>GainFortitude</c> (KeyWordEffects/Fortitude.cs:67-97), 1:1.
+    /// AS-IS QUIRK PRESERVED VERBATIM: this grants the target an <see cref="CardEffectFactory.EvadeEffect"/>
+    /// ActivateClass — NOT a Fortitude effect — and stores it in the <c>OnDestroyedAnyone</c> duration bucket via
+    /// <see cref="AddEffectToPermanent"/> (W3 live). This is the AS-IS behaviour (a copy/paste bug in the original
+    /// source): "gains [Fortitude]" actually gives Evade wired to the POST-deletion window. Not corrected — mirrored
+    /// exactly. Collect-before-removal (the deletion window) picks the bucket effect up and the post-deletion
+    /// AutoProcessCheck resolves it. ADAPTATION: AS-IS's terminal visual <c>CreateBuffEffect</c> (a Unity
+    /// presentation coroutine) has no headless substrate — dropped (same as GainRetaliation).</summary>
+    public static async Task GainFortitude(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
+    {
+        if (targetPermanent == null) return;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+        if (activateClass == null) return;
+        if (activateClass.EffectSourceCard == null) return;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ActivateClass evade = CardEffectFactory.EvadeEffect(
+            targetPermanent: targetPermanent, isInheritedEffect: false, condition: CanUseCondition,
+            rootCardEffect: activateClass, targetPermanent.TopCard);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+            cardEffect: evade, timing: EffectTiming.OnDestroyedAnyone);
+
+        await Task.CompletedTask;
+    }
 }

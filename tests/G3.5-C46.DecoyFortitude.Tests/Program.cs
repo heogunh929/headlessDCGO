@@ -11,7 +11,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 //                 Decoy Digimon of yours instead (redirect). Effect-deletion path only (AS-IS IsByEffect).
 //   * Fortitude — AFTER a Digimon with >= 1 digivolution source is deleted, replay it from the trash for
 //                 free as a new permanent (OnDestroyed). Both deletion paths.
-// Consumption: DeletionReplacementGate.FindDecoyRedirect / TryFortitudeReplayAsync.
+// Consumption: DeletionReplacementGate.FindDecoyRedirect (Decoy).
+//
+// (C-Del 3a RETIRED, 2026-07-15) The invented Fortitude REPLAY firing-half (DeletionReplacementGate
+// .TryFortitudeReplayAsync, called from sink/battle/gameflow/security) is RETIRED — AS-IS [Fortitude] now
+// fires through the OnDestroyedAnyone cut-in window (printed FortitudeEffect / granted GainFortitude bucket),
+// witnessed live in tests/C-Del-POST. So a BARE hasFortitude metadata marker (no printed effect) no longer
+// replays; these tests now assert that retirement (the Decoy cases are unaffected — Decoy is a PRE keyword).
 
 HeadlessPlayerId P1 = new(1);   // enemy / attacker side
 HeadlessPlayerId P2 = new(2);   // owner / defender side
@@ -21,9 +27,9 @@ var tests = new (string Name, Func<Task> Body)[]
     // Decoy redirect (enemy effect + Decoy ally) is now a two-step agent CHOICE (F-6.8) — see G3.5-F68.
     ("Decoy: a same-owner effect deletion is not redirected", DecoyIgnoresOwnDeletion),
     ("Decoy: without a Decoy ally the target is deleted normally", DecoyWithoutAllyDeletesTarget),
-    ("Fortitude: a deleted Digimon with sources is replayed from the trash (effect)", FortitudeReplaysAfterEffectDelete),
+    ("Fortitude (C-Del 3a RETIRED): a bare hasFortitude marker no longer replays via the gate (effect)", FortitudeMarkerNoLongerReplaysEffect),
     ("Fortitude: a deleted Digimon without sources stays in the trash", FortitudeNoSourceStaysTrashed),
-    ("Fortitude: a battle-deleted Digimon with sources is replayed (battle)", FortitudeReplaysAfterBattle),
+    ("Fortitude (C-Del 3a RETIRED): a bare hasFortitude marker no longer replays via the gate (battle)", FortitudeMarkerNoLongerReplaysBattle),
 };
 
 var failures = new List<string>();
@@ -78,8 +84,11 @@ async Task DecoyWithoutAllyDeletesTarget()
 
 // --- Fortitude -----------------------------------------------------------
 
-async Task FortitudeReplaysAfterEffectDelete()
+async Task FortitudeMarkerNoLongerReplaysEffect()
 {
+    // (C-Del 3a RETIRED) A bare hasFortitude marker with NO printed FortitudeEffect: the retired gate no longer
+    // replays it, and there is nothing for the AS-IS OnDestroyedAnyone window to collect. Real [Fortitude]
+    // (printed / granted) firing through the window is witnessed live in tests/C-Del-POST.
     HeadlessEntityId card = new("P2-Fort");
     HeadlessEntityId deleter = new("P1-Deleter");
     EngineContext context = await FieldSetup(
@@ -91,11 +100,9 @@ async Task FortitudeReplaysAfterEffectDelete()
     sink.Apply(Delete(card, deleter));
     await sink.FlushAsync();
 
-    AssertTrue(InZone(context, P2, ChoiceZone.BattleArea, card), "fortitude card replayed onto the battle area");
-    AssertFalse(InZone(context, P2, ChoiceZone.Trash, card), "fortitude card not left in the trash");
-    AssertTrue(ReadFlag(context, card, DeletionReplacementGate.FortitudeReplayedKey), "fortitudeReplayed marker stamped");
-    AssertTrue(ReadFlag(context, card, DeletionReplacementGate.EnteredThisTurnKey), "replayed permanent is summoning sick");
-    AssertEqual(0, SourceCount(context, card), "digivolution sources cleared on replay");
+    AssertTrue(InZone(context, P2, ChoiceZone.Trash, card), "bare hasFortitude marker no longer replays (gate retired) — card stays trashed");
+    AssertFalse(InZone(context, P2, ChoiceZone.BattleArea, card), "the card left the battle area");
+    AssertFalse(ReadFlag(context, card, DeletionReplacementGate.FortitudeReplayedKey), "no gate replay marker (firing-half retired)");
 }
 
 async Task FortitudeNoSourceStaysTrashed()
@@ -114,8 +121,9 @@ async Task FortitudeNoSourceStaysTrashed()
     AssertFalse(InZone(context, P2, ChoiceZone.BattleArea, card), "card left the battle area");
 }
 
-async Task FortitudeReplaysAfterBattle()
+async Task FortitudeMarkerNoLongerReplaysBattle()
 {
+    // (C-Del 3a RETIRED) Same for the battle deletion path: a bare hasFortitude marker no longer replays.
     (DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId defender) = await BattleMatch();
     SetMetadata(match, defender, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
@@ -129,9 +137,9 @@ async Task FortitudeReplaysAfterBattle()
     BattleResolutionResult result = await new BattleResolver().ResolveAsync(match.Context);
 
     AssertTrue(result.DefenderDeleted, "defender was deleted in battle (OnDestroyed)");
-    AssertTrue(InZoneM(match, P2, ChoiceZone.BattleArea, defender), "fortitude defender replayed onto the battle area");
-    AssertTrue(ReadFlagM(match, defender, DeletionReplacementGate.FortitudeReplayedKey), "fortitudeReplayed marker stamped");
-    AssertEqual(0, SourceCountM(match, defender), "sources cleared on replay");
+    AssertTrue(InZoneM(match, P2, ChoiceZone.Trash, defender), "bare hasFortitude marker no longer replays (gate retired) — defender stays trashed");
+    AssertFalse(InZoneM(match, P2, ChoiceZone.BattleArea, defender), "the defender was not replayed onto the battle area");
+    AssertFalse(ReadFlagM(match, defender, DeletionReplacementGate.FortitudeReplayedKey), "no gate replay marker (firing-half retired)");
 }
 
 // --- Effect-path setup (direct instances) --------------------------------
