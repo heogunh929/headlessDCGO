@@ -98,15 +98,14 @@ async Task SelfDeletionExpires()
 
 void GrantEndTurn(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId target)
 {
-    ICardEffect nested = new TriggeredGainMemoryEffect(V(ctx, target), EffectTiming.OnEndTurn, amount: 2, "[End of Your Turn] Gain 2 memory.");
+    ICardEffect nested = new LocalMemoryProbe(V(ctx, target), EffectTiming.OnEndTurn, amount: 2, "[End of Your Turn] Gain 2 memory.");
     CardEffectCommons.AddEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnEndTurn);
 }
 
 void GrantSelfDeletion(EngineContext ctx, HeadlessEntityId src, HeadlessEntityId target)
 {
-    ICardEffect nested = CardEffectFactory.AddMemoryTriggerEffect(
-        EffectTiming.OnDestroyedAnyone, amount: 2, isInheritedEffect: false, card: V(ctx, target), condition: null,
-        description: "[On Deletion] Gain 2 memory.",
+    ICardEffect nested = new LocalMemoryProbe(
+        V(ctx, target), EffectTiming.OnDestroyedAnyone, amount: 2, "[On Deletion] Gain 2 memory.",
         triggerGate: rc => rc.EffectContext.TriggerEntityId is HeadlessEntityId subj && subj == target,
         isOptional: false);
     CardEffectCommons.AddSelfRemovalEffectToPermanent(Perm(ctx, target), EffectDuration.UntilOpponentTurnEnd, V(ctx, src), nested, EffectTiming.OnDestroyedAnyone);
@@ -147,4 +146,79 @@ Permanent Perm(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, P1);
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{label}: expected '{expected}', actual '{actual}'.");
+}
+
+// (R3-C2b-2) The engine's invented old-model TriggeredMemoryEffect/TriggeredGainMemoryEffect + the
+// AddMemoryTriggerEffect factory were deleted. This suite exercises the OLD-model registry grant-to-permanent
+// subsystem (AddEffectToPermanent / AddSelfRemovalEffectToPermanent lower an ICardEffect with ToBinding to a
+// registry binding — NOT the R3 trigger window), so it carries a test-local old-model memory probe: a verbatim
+// trim of the deleted TriggeredMemoryEffect (ICardEffect+IHeadlessCardEffect, ToBinding, condition + triggerGate
+// in CanResolve). Preserves the exact grant contract without keeping the deleted engine primitive alive.
+public sealed class LocalMemoryProbe : ICardEffect, IHeadlessCardEffect
+{
+    private readonly Func<bool>? _condition;
+    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
+
+    public LocalMemoryProbe(
+        CardSource card, EffectTiming timing, int amount, string description,
+        Func<bool>? condition = null, Func<CardEffectResolveContext, bool>? triggerGate = null,
+        int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null, string? effectIdSuffix = null)
+    {
+        Card = card;
+        Amount = amount;
+        _condition = condition;
+        _triggerGate = triggerGate;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        var effectId = new HeadlessEntityId(string.IsNullOrWhiteSpace(effectIdSuffix)
+            ? $"{card.InstanceId.Value}:memprobe:{trigger}:{amount}"
+            : $"{card.InstanceId.Value}:memprobe:{trigger}:{amount}:{effectIdSuffix}");
+        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger,
+            isOptional: isOptional ?? (amount > 0), maxCountPerTurn: maxCountPerTurn, hash: hash);
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
+    {
+        if (_condition is not null && !_condition())
+        {
+            return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        if (_triggerGate is not null && !_triggerGate(context))
+        {
+            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
+        }
+
+        return CardEffectCanResolveResult.Success();
+    }
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+        CardEffectCanResolveResult check = CanResolve(context);
+        if (!check.CanResolve)
+        {
+            return ValueTask.FromResult(EffectResult.Failure(check.Message ?? "Cannot resolve.", check.Values));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind, Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+        return ValueTask.FromResult(EffectResult.Success($"Memory {(Amount >= 0 ? "+" : string.Empty)}{Amount}."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var ctx = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, ctx),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
 }

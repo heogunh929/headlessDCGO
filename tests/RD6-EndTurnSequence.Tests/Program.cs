@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -106,9 +107,11 @@ async Task EoTGainContinuesTurn()
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(gainer, new HeadlessEntityId("GAINER"), P1,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["isSuspended"] = false }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, gainer, ChoiceZone.None, ChoiceZone.BattleArea));
+    // (R3-C2b-2) The deleted old-model TriggeredGainMemoryEffect is replaced by a new-model inline "[End of Your
+    // Turn] gain 3" ActivateClass registered as the card's live effect (RegisterOnEnterPlay sets cEntity_Effect),
+    // so permanent.EffectList(OnEndTurn) surfaces it and the flipped OnEndTurn window (GetSkillInfos) fires it.
     var gainSrc = new CardSource(context, gainer, P1, P1);
-    var gainEffect = new TriggeredGainMemoryEffect(gainSrc, EffectTiming.OnEndTurn, 3, "[End of Your Turn] Gain 3 memory.");
-    context.EffectRegistry.Register(gainEffect.ToBinding("p1:field:GAINER:eotgain"));
+    CardEffectRegistrar.RegisterOnEnterPlay(context, new EoTGain3Fixture(), "GAINER", gainSrc);
 
     // A cost-1 play crosses memory 0 -> -1 (the default threshold 1), putting P1 into MemoryPass (turn ending).
     cards.Upsert(new CardRecord(new HeadlessEntityId("VAN1"), "VAN1", "Vanilla1",
@@ -286,4 +289,23 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// (R3-C2b-2) A test-fixture "[End of Your Turn] gain 3 memory" as a new-model inline ActivateClass — the
+// window-fireable replacement for the deleted old-model TriggeredGainMemoryEffect (surfaced via EffectList when
+// RegisterOnEnterPlay sets the card's cEntity_Effect).
+public sealed class EoTGain3Fixture : CEntity_Effect
+{
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        var effects = new List<ICardEffect>();
+        if (timing == EffectTiming.OnEndTurn)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +3", _ => CardEffectCommons.IsOwnerTurn(card), card);
+            activateClass.SetUpActivateClass(_ => true, async _ => await card.Owner.AddMemory(3, activateClass), -1, false, "[End of Your Turn] Gain 3 memory.");
+            effects.Add(activateClass);
+        }
+        return effects;
+    }
 }

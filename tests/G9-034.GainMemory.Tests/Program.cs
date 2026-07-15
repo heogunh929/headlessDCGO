@@ -59,20 +59,25 @@ async Task Gain2()
 
 // --- Helpers -------------------------------------------------------------
 
+// (R3-C2b-2 ledger §5.6 close) The Tamer memory-gain factories are now AS-IS 1:1 new-model ActivateClass (no
+// ToBinding). Drive them the way the live window does: under an ambient match scope (GManager.instance / AddMemory),
+// gate on CanTrigger (CanUse: on battle area + owner turn) + CanActivate (opponent-digimon + CanAddMemory), then
+// Activate (the AddMemory coroutine) — keeping the memory-outcome assertions.
 async Task Resolve(EngineContext context, ICardEffect effect)
 {
-    var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    if (!LegacyBindingBridge.TryToBinding(effect, "gain", out var binding) || binding is null)
-        throw new InvalidOperationException($"{effect.GetType().Name} has no ToBinding bridge.");
-    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
-    await sink.FlushAsync();
+    using var scope = AmbientMatchContext.Enter(context);
+    var ht = new System.Collections.Hashtable();
+    if (effect is ActivateICardEffect ae && effect.CanTrigger(ht) && effect.CanActivate(ht))
+    {
+        await ae.Activate(ht);
+    }
 }
 
 EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 934);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past Setup -> DoneStartGame true (window gate)
     return context;
 }
 

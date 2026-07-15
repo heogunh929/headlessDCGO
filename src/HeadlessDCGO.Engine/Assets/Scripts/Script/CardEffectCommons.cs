@@ -2893,48 +2893,12 @@ public static partial class CardEffectCommons
             binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
     }
 
-    /// <summary>AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect)</c>
-    /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:57): register ANY ICardEffect at PLAYER scope with a
-    /// duration (the AS-IS player duration buckets).</summary>
-    public static void AddEffectToPlayer(
-        EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-        // (PRIM-P0 B.O.5) AS-IS AddEffectToPlayer registers a delayed effect that fires ONCE at `timing` then is
-        // cleared (fire-then-clear). `timing` is carried by the delayed effect's own binding (e.g. a
-        // TriggeredMemoryEffect(OnEndTurn)). We register it with duration=null so it survives the headless
-        // turn-end expiry race (CLEAR-then-FIRE at MetadataActionProcessor), and stamp DelayedOneShotKey so
-        // GameFlowProcessor removes the binding after it resolves — giving the single-fire AS-IS semantics.
-        _ = effectDuration;
-        _ = timing;
-        // STACKING NOTE: AS-IS UntilEachTurnEndEffects is a LIST — a second activation the same turn ADDS a
-        // second delegate (BT1_021 attacking twice loses 6 at end of turn). Some effect types' ToBinding use
-        // their own DETERMINISTIC Definition.EffectId (ignoring the id passed here — deliberate, for
-        // RegisterCard idempotency), so a caller that can register the SAME shape twice in one turn must make
-        // the effect's own id unique at construction (e.g. AddMemoryTriggerEffect's effectIdSuffix, used by
-        // MemoryGainThenScheduledReversalBody) — the registry rejects a colliding second registration loudly.
-        // (P6 cluster3) old-model lowering via LegacyBindingBridge — NEW-model effect = STOP (RD-P6C3-C1).
-        if (!LegacyBindingBridge.TryToBinding(
-                cardEffect,
-                $"{card.InstanceId.Value}:addPlayerEffect:{Guid.NewGuid():N}",
-                out EffectBinding? binding) || binding is null)
-        {
-            throw new NotSupportedException(
-                $"AddEffectToPlayer: '{cardEffect.GetType().Name}' is a NEW-model effect — no new-model player grant store exists yet (design item RD-P6C3-C1).");
-        }
-
-        EffectContext ctx = binding.Request.Context;
-        var mergedValues = new Dictionary<string, object?>(ctx.Values, StringComparer.Ordinal)
-        {
-            [AutoProcessingTriggerCollector.DelayedOneShotKey] = true,
-        };
-        var oneShotRequest = new EffectRequest(
-            binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing,
-            new EffectContext(ctx.SourcePlayerId, ctx.OwnerPlayerId, ctx.SourceEntityId, ctx.TriggerEntityId, ctx.TargetEntityIds, mergedValues));
-        card.Context.EffectRegistry.Register(new EffectBinding(
-            oneShotRequest, binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, duration: null));
-    }
+    // (R3-C2b-2) AS-IS `AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect = null)` — the
+    // SINGLE AS-IS method — now lives in its AS-IS home file next to AddEffectToPermanent:
+    // CardEffectCommons/GiveEffect/GiveEffectToPermanentOrPlayer.cs (bucket storage into the owning Player's
+    // Until*Effects lists, AS-IS 1:1). The pre-R3 registry-lowering / DelayedOneShot overloads that used to live
+    // here are retired (RD-P6C3-C1 resolved): every live caller passes a new-model effect, and the flipped window
+    // enumerates player.EffectList(timing), so the bucket path is the sole path.
 
     /// <summary>AS-IS <c>CardEffectCommons.GetCardEffectByEffectTiming(timing, cardEffect)</c>
     /// (CardEffectCommons.cs:1402): the deferred selector that yields <paramref name="cardEffect"/> only when
@@ -2942,56 +2906,6 @@ public static partial class CardEffectCommons
     public static Func<EffectTiming, ICardEffect> GetCardEffectByEffectTiming(EffectTiming timing, ICardEffect cardEffect)
         => (_timing) => _timing == timing ? cardEffect : null!;
 
-    /// <summary>(R6-P / RD-R6-02) AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing, getCardEffect)</c>
-    /// (GiveEffect/GiveEffectToPermanentOrPlayer.cs:57) — the LIST-STORAGE half: append the effect (as a deferred
-    /// <see cref="GetCardEffectByEffectTiming"/> selector) into the owner's AS-IS duration bucket, VERBATIM. Unlike
-    /// the 4-arg <see cref="AddEffectToPlayer(EffectDuration, CardSource, ICardEffect, EffectTiming)"/> (which lowers
-    /// an OLD-model effect to a fire-once registry binding — the pre-R3 substrate that the live OnEndTurn window
-    /// still enumerates), this overload stores the effect object itself, so a NEW-model <c>ActivateClass</c> needs no
-    /// <c>ToBinding</c>. AS-IS 1:1 (the <c>getCardEffect ??=</c> default and the per-duration switch, including the
-    /// <c>UntilOwnerActivePhase</c> Enemy redirect). LIVENESS: the buckets are read by <c>Player.EffectList</c>,
-    /// consumed live where the mirror runs AS-IS <c>GetSkillInfos</c> (the BeforePayCost / UntilCalculateFixedCost
-    /// pay-cost path). The OnEndTurn window does NOT yet enumerate <c>player.EffectList</c> (it collects from the
-    /// registry / card scan — design item R6P-EOT-PLAYER-EFFECTLIST, R3 trigger-window rehousing), so a bucket-stored
-    /// OnEndTurn reactor is inert until that lands; OnEndTurn EoT cards therefore stay on the 4-arg binding path.</summary>
-    public static void AddEffectToPlayer(
-        EffectDuration effectDuration, CardSource card, ICardEffect cardEffect, EffectTiming timing,
-        Func<EffectTiming, ICardEffect> getCardEffect)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardEffect);
-
-        Player player = new Player(card.Context, card.Owner);
-
-        getCardEffect ??= GetCardEffectByEffectTiming(timing: timing, cardEffect: cardEffect);
-
-        switch (effectDuration)
-        {
-            case EffectDuration.UntilOpponentTurnEnd:
-                player.UntilOpponentTurnEndEffects.Add(getCardEffect);
-                break;
-
-            case EffectDuration.UntilOwnerTurnEnd:
-                player.UntilOwnerTurnEndEffects.Add(getCardEffect);
-                break;
-
-            case EffectDuration.UntilEachTurnEnd:
-                player.UntilEachTurnEndEffects.Add(getCardEffect);
-                break;
-
-            case EffectDuration.UntilEndBattle:
-                player.UntilEndBattleEffects.Add(getCardEffect);
-                break;
-
-            case EffectDuration.UntilOwnerActivePhase:
-                player.Enemy!.UntilOwnerActivePhaseEffects.Add(getCardEffect);
-                break;
-
-            case EffectDuration.UntilCalculateFixedCost:
-                player.UntilCalculateFixedCostEffect.Add(getCardEffect);
-                break;
-        }
-    }
 
     /// <summary>(E-3) AS-IS <c>AddEffectToPlayer(effectDuration, card, cardEffect, timing)</c> for a CONTINUOUS
     /// (non-fire-once) player-bucket effect — the shape <see cref="AddEffectToPlayer"/> does NOT cover (that

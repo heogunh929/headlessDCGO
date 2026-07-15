@@ -137,9 +137,14 @@
 
 ## 5.6 authorized-red 원장 (C 배치에서 하네스 재조준/은퇴 예정)
 fold된 ActivateClass는 은퇴 대상 registry-lowering(ToBinding) 경로가 없음 — 그 경로를 직접 구동하는 테스트가 red. 행동 손실 아님(live 발화는 activated-bridge 경유 유지). 발명 프리미티브를 유지해 green을 사는 것은 fidelity-over-coverage 위반이므로 red 수용:
-- G9-034.GainMemory 2/3 (F1 fold: Gain1MemoryTamerOpponentDigimonEffect → ActivateClass, "no ToBinding bridge")
-- G9-026.SetMemoryTamer 4/4 (F1b fold: SetMemoryTo3TamerEffect)
-- (기존 baseline red 별도: MIG2-RuleProcess 2·G3.5-005.AttackPipeline 5·Stage5-ActivatedBridge 1·RD6-EndTurnSequence 4·F1-Tier2-OnEndAttack 10[NRE 조사항목]·BT1.StopRemainder 4·FAILa-10 1)
+- ~~G9-034.GainMemory 2/3~~ **CLOSED 2026-07-15 (R3-C2b-2)**: Resolve 헬퍼를 `AmbientMatchContext.Enter` 하 CanTrigger+CanActivate 게이트→Activate(live 창 구동 방식)로 재조준, 메모리 단언 유지 → 3/3 green.
+- ~~G9-026.SetMemoryTamer 4/4~~ **CLOSED 2026-07-15 (R3-C2b-2)**: 동일 재조준(SetMemoryTo3TamerEffect ActivateClass를 게이트+Activate 구동, SetPhase(Main)로 DoneStartGame 충족) → 4/4 green.
+- (기존 baseline red 별도: MIG2-RuleProcess 2·G3.5-005.AttackPipeline 5·Stage5-ActivatedBridge 1·RD6-EndTurnSequence 4[선존 NRE=CEntity_EffectController:88 GManager.instance-null, out-of-scope GetLegalActions/HasBlitz — 메모리 컷오버 무관, 미해소]·F1-Tier2-OnEndAttack 10[NRE 조사항목]·BT1.StopRemainder 4·FAILa-10 1)
+
+### R3-C2b-2 테스트 재조준 요약 (2026-07-15)
+- **Stage A 증인 신설**: PRIM-P0.AddEffectToPlayer 전면 재작성 — 4-arg AddEffectToPlayer→버킷 저장→GetSkillInfos 수집→MultipleSkills.ActivateMultipleSkills 발화(5→3)→버킷 리셋 무-재발화, live 창 엔진으로 2/2 green (Stage A 행동 증명).
+- **class-a 재조준 (창 경유 신모델)**: NewTimingsFire(TimingProbe→신모델 ActivateClass, 6-red→3-red 순개선; 잔여 3=미배선 타이밍 창 gap, baseline-red 동일)·RD6 gain 케이스(신모델 fixture).
+- **old-model 서브시스템 테스트 (registry/scheduler 여전히 live)**: WouldBeDeletedWindow(삭제-치환)·G11-004(once-gate)·GrantTriggeredToPermanent/TriggerGrantSetSplice(grant)·NewTimingsFire batch-2(registry 등록)·BT23.PrimTranche5 G3+RD11(AutoProcessingTriggerCollector) — 삭제된 프리미티브 대신 **test-local old-model probe** 또는 **TfxTriggeredMemoryEffect**(TestFixtures 스코프, 프로덕션 모델 아님)로 registry 경로 보존. BT23 회귀 방지 확인. RD11=baseline-red(삭제창 수집 gap, 무회귀).
 
 ## 5.7 병렬 배치 운영 규칙 추가 (이 세션 사고 교훈)
 - 서브에이전트는 **git reset/checkout/stash 절대 금지**(공유 워크트리 — F1b의 clean-HEAD 비교 reset이 타 배치 미커밋 작업을 일시 소실시킬 뻔함). baseline 비교는 `git show HEAD:<file>` 또는 임시 디렉토리 복사로.

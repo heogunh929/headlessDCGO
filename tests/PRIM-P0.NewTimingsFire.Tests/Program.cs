@@ -10,6 +10,7 @@
 // (MainSkillActivateAction), so OnDeclaration_NotFiredByAttack guards that the proxy stays removed; the POSITIVE
 // [Main]-declaration coverage (offer → resolve → cap → reset) lives in B2-MainSkillDeclare.Tests.
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -149,10 +150,15 @@ async Task Batch2_RegistersUnderEmittedString()
     {
         EngineContext context = EngineContext.CreateDefault(randomSeed: 7);
         context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+        context.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-C2b-2) DoneStartGame gate: new-model ActivateClass only fires past Setup.
         var id = new HeadlessEntityId($"1:battle:{timing}");
         ((CardDatabase)context.CardRepository).Upsert(Digimon($"DEF-{timing}"));
         context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId($"DEF-{timing}"), Player, Metadata: new Dictionary<string, object?>()));
-        Register(context, new TimingProbe(timing), $"P-{timing}", id);
+        // (R3-C2b-2) This half asserts REGISTRY-BINDING registration (GetEffectsForTiming) — an OLD-model concern
+        // (RegisterOnEnterPlay lowers an effect with ToBinding into the registry). Use the test-local old-model
+        // binding probe here (the new-model ActivateClass TimingProbe used by the fire tests is not a registry
+        // binding). Registration is orthogonal to the R3 window fire path.
+        Register(context, new BindingProbe(timing), $"P-{timing}", id);
 
         int hits = ((EffectRegistry)context.EffectRegistry).GetEffectsForTiming(emitted).Count();
         AssertEqual(1, hits, $"{timing} registers exactly one binding findable under emitted string \"{emitted}\"");
@@ -165,6 +171,7 @@ async Task OnDigivolutionCardDiscarded_Fires()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 21);
     context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-C2b-2) DoneStartGame gate: new-model ActivateClass only fires past Setup.
     var hostDef = new HeadlessEntityId("DEF:HOST");
     ((CardDatabase)context.CardRepository).Upsert(new CardRecord(hostDef, hostDef.Value, "HOST", new Dictionary<string, object?>(), CardType: "Digimon"));
     var host = new HeadlessEntityId("1:battle:HOST");
@@ -189,6 +196,7 @@ async Task OnAttackTargetChanged_Fires()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 31);
     context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-C2b-2) DoneStartGame gate: new-model ActivateClass only fires past Setup.
     HeadlessEntityId attacker = await PlaceBattler(context, Player, "ATK", dp: 4000, new Dictionary<string, object?> { [RaidAttackSwitch.HasRaidKey] = true, [RaidAttackSwitch.IsSuspendedKey] = false });
     await PlaceBattler(context, Opponent, "LOW", dp: 3000, new Dictionary<string, object?> { [RaidAttackSwitch.IsSuspendedKey] = false });
     HeadlessEntityId high = await PlaceBattler(context, Opponent, "HIGH", dp: 8000, new Dictionary<string, object?> { [RaidAttackSwitch.IsSuspendedKey] = false });
@@ -239,6 +247,7 @@ async Task WhenRemoveField_Fires()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 11);
     context.TurnController.Initialize(new[] { Player, Opponent }, Player);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-C2b-2) DoneStartGame gate: new-model ActivateClass only fires past Setup.
     var def = new HeadlessEntityId("DEF:RF");
     ((CardDatabase)context.CardRepository).Upsert(new CardRecord(def, def.Value, "RF", new Dictionary<string, object?> { ["dp"] = 3000 }, CardType: "Digimon"));
     var id = new HeadlessEntityId("1:battle:RF");
@@ -329,6 +338,13 @@ static void AssertEqual<T>(T expected, T actual, string label)
 
 // A minimal ported-style card effect that gains 1 memory when the timing under test fires. Used only to
 // observe that the new timing reaches a registered card effect end-to-end.
+//
+// (R3-C2b-2) The engine's invented old-model TriggeredGainMemoryEffect was deleted. This suite drives each timing
+// through the live R3 trigger window: RegisterOnEnterPlay sets the card's cEntity_Effect, so the probe surfaces via
+// cardSource/permanent EffectList(timing) and AutoProcessing.GetSkillInfos collects it (it filters to
+// ActivateICardEffect). The probe is therefore now the AS-IS new-model inline ActivateClass "gain 1 memory"
+// (canUse = owner-turn gate, matching the deleted class's TurnPlayerId==Owner resolve gate; body =
+// card.Owner.AddMemory(1, activateClass)).
 public sealed class TimingProbe : CEntity_Effect
 {
     private readonly EffectTiming _fireOn;
@@ -339,10 +355,82 @@ public sealed class TimingProbe : CEntity_Effect
         var effects = new List<ICardEffect>();
         if (timing == _fireOn)
         {
-            // Non-optional gain-memory trigger (isOptional:false) — resolves without a player choice, so the
-            // test observes the timing firing directly rather than pausing on a yes/no memory-gain choice.
-            effects.Add(new TriggeredGainMemoryEffect(card, _fireOn, amount: 1, $"[probe] gain 1 memory on {_fireOn}."));
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Memory +1", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, $"[probe] gain 1 memory on {_fireOn}.");
+            effects.Add(activateClass);
+
+            bool CanUseCondition(System.Collections.Hashtable hashtable) => CardEffectCommons.IsOwnerTurn(card);
+
+            bool CanActivateCondition(System.Collections.Hashtable hashtable) => true;
+
+            async System.Threading.Tasks.Task ActivateCoroutine(System.Collections.Hashtable _hashtable) =>
+                await card.Owner.AddMemory(1, activateClass);
         }
         return effects;
+    }
+}
+
+// (R3-C2b-2) A test-local OLD-model probe (ICardEffect+IHeadlessCardEffect with ToBinding) used ONLY by the
+// Batch2_RegistersUnderEmittedString registry-registration check — it must lower to a registry binding so
+// GetEffectsForTiming finds it (the deleted TriggeredGainMemoryEffect's role there). Not used by the window
+// fire tests. Replaces the deleted engine primitive without keeping it alive.
+public sealed class BindingProbe : CEntity_Effect
+{
+    private readonly EffectTiming _fireOn;
+    public BindingProbe(EffectTiming fireOn) => _fireOn = fireOn;
+
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
+    {
+        var effects = new List<ICardEffect>();
+        if (timing == _fireOn)
+        {
+            effects.Add(new LocalBindingMemoryProbe(card, _fireOn, amount: 1, $"[probe] gain 1 memory on {_fireOn}."));
+        }
+        return effects;
+    }
+}
+
+public sealed class LocalBindingMemoryProbe : ICardEffect, IHeadlessCardEffect
+{
+    public LocalBindingMemoryProbe(CardSource card, EffectTiming timing, int amount, string description)
+    {
+        Card = card;
+        Amount = amount;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:gainmemoryprobe:{trigger}"), card.InstanceId, description, trigger, isOptional: false);
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Card.Context.TurnController.Current.TurnPlayerId != Card.Owner)
+        {
+            return ValueTask.FromResult(EffectResult.Success("Not owner's turn; no change."));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind, Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+        return ValueTask.FromResult(EffectResult.Success($"Gain {Amount} memory."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var ctx = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, ctx),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
     }
 }

@@ -540,9 +540,42 @@ public static partial class CardEffectFactory
         return false;
     }
 
-    /// <summary>(PRIM-W4) <c>EoTLose3Memory</c> — "[End of Your Turn] lose 3 memory."</summary>
-    public static ICardEffect EoTLose3Memory(CardSource card) =>
-        new TriggeredGainMemoryEffect(card, EffectTiming.OnEndTurn, amount: -3, "[End of Your Turn] Lose 3 memory.");
+    /// <summary>AS-IS <c>CardEffectFactory.EoTLose3Memory(card)</c> (CardEffectFactory.cs:1467) — the "at end of
+    /// turn lose 3 memory" reversal (BT1_021/BT1_040), a bare <c>ActivateClass</c> "Memory -3" whose CanUse/CanActivate
+    /// are always-true and whose body is <c>card.Owner.AddMemory(-3)</c>. It carries no timing itself — the OnEndTurn
+    /// firing comes from the closure key when it is stored via <c>AddEffectToPlayer(UntilEachTurnEnd, …, OnEndTurn)</c>
+    /// (or <c>UntilEachTurnEndEffects.Add(GetCardEffect)</c>) and surfaced by the flipped window's
+    /// <c>player.EffectList(OnEndTurn)</c> scan. R3-C2b-2 fold: replaces the mirror-invented old-model
+    /// <c>TriggeredGainMemoryEffect</c> with the AS-IS 1:1 ActivateClass (new-model, no ToBinding). Substrate:
+    /// IEnumerator→async Task, StartCoroutine→await; AS-IS <c>card.Owner</c> (Player) → mirror HeadlessPlayerId
+    /// AddMemory extension.</summary>
+    public static ICardEffect EoTLose3Memory(CardSource card)
+    {
+        ActivateClass activateClass1 = new ActivateClass();
+        activateClass1.SetUpICardEffect("Memory -3", CanUseCondition1, card);
+        activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, -1, false, EffectDiscription1());
+        return activateClass1;
+
+        string EffectDiscription1()
+        {
+            return "Lose 3 memory.";
+        }
+
+        bool CanUseCondition1(Hashtable hashtable)
+        {
+            return true;
+        }
+
+        bool CanActivateCondition1(Hashtable hashtable)
+        {
+            return true;
+        }
+
+        async Task ActivateCoroutine1(Hashtable _hashtable1)
+        {
+            await card.Owner.AddMemory(-3, activateClass1);
+        }
+    }
 
     // (P4 slice) CantSuspendStaticEffect moved to CardEffectFactory/CanNotSuspend.cs (AS-IS 1:1)
 
@@ -937,13 +970,11 @@ public static partial class CardEffectFactory
     // version in Script/CardEffectFactory/ChangeDP.cs (returns ChangeDPClass; effectName is a required arg there,
     // per AS-IS — callers passing 5 args need the effectName argument, handled in the card-migration step).
 
-    /// <summary>A triggered "[When ...] gain/lose N memory" effect (the common ActivateClass memory form).
-    /// <paramref name="timing"/> is the branch timing the card declared it under.</summary>
-    public static ICardEffect AddMemoryTriggerEffect(
-        EffectTiming timing, int amount, bool isInheritedEffect, CardSource card, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null,
-        string? effectIdSuffix = null) =>
-        new TriggeredMemoryEffect(card, timing, amount, isInheritedEffect, condition, description, triggerGate, maxCountPerTurn, hash, isOptional, effectIdSuffix);
+    // (R3-C2b-2) AddMemoryTriggerEffect DELETED — the invented old-model memory-trigger factory (produced
+    // TriggeredMemoryEffect, a registry-lowering effect) is retired. Every former caller is now the AS-IS 1:1
+    // new-model inline ActivateClass "gain/lose N memory" recipe (card.Owner.AddMemory(N, activateClass) + the
+    // AS-IS Hashtable CanUse gate) — see BT2_073 / BT1_041 for the pattern the fixtures TfxOnDeleteGainMemory /
+    // TfxOnPlayGainMemory now follow.
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:148 PlaySelfTamerSecurityEffect.
     // Replaces the old mirror-invented PlayThisCardToBattleEffect version. Coroutine->async Task; StartCoroutine->await.

@@ -84,12 +84,11 @@ async Task<(EngineContext, HeadlessEntityId)> Setup(bool[] gate)
     // A MANDATORY once-per-turn [When Attacking] "lose 1 memory" whose gate is the controllable flag.
     // (amount < 0 -> mandatory, so a passing gate auto-resolves instead of surfacing an optional prompt.)
     var source = new CardSource(context, card, P1);
-    ICardEffect mem = CardEffectFactory.AddMemoryTriggerEffect(
-        EffectTiming.OnAllyAttack, amount: -1, isInheritedEffect: false, card: source,
-        condition: () => gate[0], description: "test once+gate", maxCountPerTurn: 1, hash: "g11_004_once");
-    // AddMemoryTriggerEffect's declared return type is the AS-IS abstract ICardEffect base class (no ToBinding
-    // member); the concrete TriggeredMemoryEffect it returns still declares a real ToBinding — bridge via
-    // LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+    ICardEffect mem = new LocalMemoryProbe(
+        source, EffectTiming.OnAllyAttack, amount: -1, "test once+gate",
+        condition: () => gate[0], maxCountPerTurn: 1, hash: "g11_004_once");
+    // LocalMemoryProbe (the R3-C2b-2 test-local replacement for the deleted TriggeredMemoryEffect) declares a real
+    // ToBinding — bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
     if (LegacyBindingBridge.TryToBinding(mem, $"{card.Value}:test:onallyattack", out EffectBinding? memBinding) && memBinding is not null)
     {
         context.EffectRegistry.Register(memBinding);
@@ -111,4 +110,79 @@ static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// (R3-C2b-2) The engine's invented old-model TriggeredMemoryEffect + the AddMemoryTriggerEffect factory were
+// deleted. This suite exercises the OLD-model registry/scheduler once-per-turn+gate precision (a binding resolved
+// via CardEffectSchedulerResolver — NOT the R3 trigger window), so it carries a test-local old-model memory probe:
+// a verbatim trim of the deleted TriggeredMemoryEffect (ICardEffect+IHeadlessCardEffect, ToBinding, condition in
+// CanResolve, maxCountPerTurn/hash in Definition). Preserves the exact once-gate contract without keeping the
+// deleted engine primitive alive.
+public sealed class LocalMemoryProbe : ICardEffect, IHeadlessCardEffect
+{
+    private readonly Func<bool>? _condition;
+    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
+
+    public LocalMemoryProbe(
+        CardSource card, EffectTiming timing, int amount, string description,
+        Func<bool>? condition = null, Func<CardEffectResolveContext, bool>? triggerGate = null,
+        int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null, string? effectIdSuffix = null)
+    {
+        Card = card;
+        Amount = amount;
+        _condition = condition;
+        _triggerGate = triggerGate;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        var effectId = new HeadlessEntityId(string.IsNullOrWhiteSpace(effectIdSuffix)
+            ? $"{card.InstanceId.Value}:memprobe:{trigger}:{amount}"
+            : $"{card.InstanceId.Value}:memprobe:{trigger}:{amount}:{effectIdSuffix}");
+        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger,
+            isOptional: isOptional ?? (amount > 0), maxCountPerTurn: maxCountPerTurn, hash: hash);
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
+    {
+        if (_condition is not null && !_condition())
+        {
+            return CardEffectCanResolveResult.Failure("Trigger condition not met.");
+        }
+
+        if (_triggerGate is not null && !_triggerGate(context))
+        {
+            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
+        }
+
+        return CardEffectCanResolveResult.Success();
+    }
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+        CardEffectCanResolveResult check = CanResolve(context);
+        if (!check.CanResolve)
+        {
+            return ValueTask.FromResult(EffectResult.Failure(check.Message ?? "Cannot resolve.", check.Values));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind, Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+        return ValueTask.FromResult(EffectResult.Success($"Memory {(Amount >= 0 ? "+" : string.Empty)}{Amount}."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var ctx = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, ctx),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
+    }
 }

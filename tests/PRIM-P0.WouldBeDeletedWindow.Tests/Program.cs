@@ -175,8 +175,59 @@ public sealed class WouldBeDeletedProbe : CEntity_Effect
         var effects = new List<ICardEffect>();
         if (timing == EffectTiming.WhenPermanentWouldBeDeleted)
         {
-            effects.Add(new TriggeredGainMemoryEffect(card, EffectTiming.WhenPermanentWouldBeDeleted, amount: 1, "[probe] would-be-deleted: gain 1 memory."));
+            effects.Add(new LocalGainMemoryProbe(card, EffectTiming.WhenPermanentWouldBeDeleted, amount: 1, "[probe] would-be-deleted: gain 1 memory."));
         }
         return effects;
+    }
+}
+
+// (R3-C2b-2) The engine's invented old-model TriggeredGainMemoryEffect was deleted. The WhenPermanentWouldBeDeleted
+// custom-option mechanism (DeletionReplacementTiming) runs the card's effect through the OLD-model
+// binding->EffectScheduler->CardEffectSchedulerResolver path (context.EffectScheduler.Enqueue(binding.Request)),
+// which is a separate still-live subsystem (NOT the R3 trigger window). This test-local old-model gain-memory
+// probe (an ICardEffect+IHeadlessCardEffect with ToBinding, emitting an AddMemory mutation gated on the owner's
+// turn) preserves the exact observable — the effect body ran => +1 memory — without keeping the deleted engine
+// primitive alive.
+public sealed class LocalGainMemoryProbe : ICardEffect, IHeadlessCardEffect
+{
+    public LocalGainMemoryProbe(CardSource card, EffectTiming timing, int amount, string description)
+    {
+        Card = card;
+        Amount = amount;
+        string trigger = EffectTimings.ToTriggerName(timing);
+        Definition = new CardEffectDefinition(
+            new HeadlessEntityId($"{card.InstanceId.Value}:gainmemoryprobe:{trigger}"), card.InstanceId, description, trigger, isOptional: false);
+    }
+
+    public CardSource Card { get; }
+
+    public int Amount { get; }
+
+    public CardEffectDefinition Definition { get; }
+
+    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
+
+    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutations);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Card.Context.TurnController.Current.TurnPlayerId != Card.Owner)
+        {
+            return ValueTask.FromResult(EffectResult.Success("Not owner's turn; no change."));
+        }
+
+        mutations.Apply(new EffectMutation(
+            MatchStateMutationSink.AddMemoryKind, Definition.SourceEntityId,
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
+        return ValueTask.FromResult(EffectResult.Success($"Gain {Amount} memory."));
+    }
+
+    public EffectBinding ToBinding(string effectId)
+    {
+        var ctx = new EffectContext(
+            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
+        return new EffectBinding(
+            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, ctx),
+            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
     }
 }

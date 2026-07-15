@@ -42,24 +42,21 @@ async Task Run(int turnPlayer, int memory, int expected)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 926);
     context.TurnController.Initialize(new[] { P1, P2 }, new HeadlessPlayerId(turnPlayer));
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // past Setup -> DoneStartGame true (window gate)
     context.MemoryController.Set(memory);
 
     var tamer = await PlaceTamer(context, P1);
     ICardEffect effect = CardEffectFactory.SetMemoryTo3TamerEffect(new CardSource(context, tamer, P1));
 
-    var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    // (P7 test-fix) CardEffectFactory.SetMemoryTo3TamerEffect is declared to return ICardEffect, which no
-    // longer carries ToBinding as a contract member post-rebuild (only concrete classes like
-    // TriggeredSetMemoryEffect still implement it, see TriggeredEffects.cs). Use the engine's own
-    // LegacyBindingBridge.TryToBinding (reflective dispatch to the concrete type's ToBinding) rather than
-    // casting to the internal concrete type by name.
-    if (!LegacyBindingBridge.TryToBinding(effect, "setmem", out EffectBinding? binding) || binding is null)
+    // (R3-C2b-2 ledger §5.6 close) SetMemoryTo3TamerEffect is now the AS-IS 1:1 new-model ActivateClass (no
+    // ToBinding). Drive it the way the live window does: under an ambient match scope, gate on CanTrigger (CanUse:
+    // on battle area + owner turn) + CanActivate (memory <= 2 + CanAddMemory), then Activate (SetFixedMemory).
+    using var scope = AmbientMatchContext.Enter(context);
+    var ht = new System.Collections.Hashtable();
+    if (effect is ActivateICardEffect ae && effect.CanTrigger(ht) && effect.CanActivate(ht))
     {
-        throw new InvalidOperationException("SetMemoryTo3TamerEffect effect could not be lowered via ToBinding.");
+        await ae.Activate(ht);
     }
-    await ((IHeadlessCardEffect)effect).ResolveAsync(new CardEffectResolveContext(binding.Request), sink);
-    await sink.FlushAsync();
 
     AssertEqual(expected, context.MemoryController.Current.Current,
         $"turnPlayer={turnPlayer}, memory {memory} -> {expected}");

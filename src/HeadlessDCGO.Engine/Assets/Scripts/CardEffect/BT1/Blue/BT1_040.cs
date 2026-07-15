@@ -1,21 +1,20 @@
 // Source: DCGO/Assets/Scripts/CardEffect/BT1/Blue/BT1_040.cs (WereGarurumon)
-// TRUE AS-IS-verbatim re-port (P5 batch 2). 1:1 mirror of the original BT1_040 (BT1/Blue).
+// TRUE AS-IS-verbatim re-port. 1:1 mirror of the original BT1_040 (BT1/Blue) — identical shape to BT1_021.
 //   [When Attacking] Gain 3 memory. At end of turn lose 3 memory.
-// AS-IS gains 3 THEN registers the "-3 at OnEndTurn" as a delayed player effect via
-// `card.Owner.UntilEachTurnEndEffects.Add(GetCardEffect)` — the exact AS-IS list-add this batch's
-// `CardEffectCommons.AddEffectToPlayer(effectDuration, card, cardEffect, timing)` bridges (its doc comment
-// cites the SAME AS-IS source, GiveEffectToPermanentOrPlayer.cs:57), so the call translates 1:1 to that
-// bridge (same idiom BT1_021 already established for this exact "gain now + EoT reversal" shape).
-// `GManager.instance.GetComponent<Effects>().CreateBuffEffect(...)` (AS-IS Effects.cs:1433) is pure UI/VFX/SE
-// (GameObject instantiate + AudioClip, no state) — stripped, per the standard UI-elision convention.
+// AS-IS gains 3 THEN registers the "-3 at OnEndTurn" reversal by ADDING a deferred selector to the owner's
+// UntilEachTurnEnd bucket (`card.Owner.UntilEachTurnEndEffects.Add(GetCardEffect)` returning
+// CardEffectFactory.EoTLose3Memory(card) at OnEndTurn) — per-activation loss (attack twice = two -3 entries).
+// R3-C2b-2: since the R3-C2 window flip, AutoProcessing.GetSkillInfos enumerates player.EffectList(OnEndTurn),
+// so the bucket-stored EoTLose3Memory ActivateClass fires through the live end-of-turn window. Substrate:
+// IEnumerator->async Task, StartCoroutine->await; AS-IS `card.Owner` (Player) -> mirror HeadlessPlayerId AddMemory
+// extension for the +3, and `new Player(card.Context, card.Owner)` for the UntilEachTurnEndEffects bucket.
+// `GManager.instance.GetComponent<Effects>().CreateBuffEffect(...)` (AS-IS Effects.cs:1433) is pure UI/VFX/SE — stripped.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT1.Blue;
 
 using System.Collections;
 using System.Threading.Tasks;
-using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
-using HeadlessDCGO.Engine.Headless.Effects;
 
 public sealed class BT1_040 : CEntity_Effect
 {
@@ -49,9 +48,17 @@ public sealed class BT1_040 : CEntity_Effect
             {
                 await card.Owner.AddMemory(3, activateClass);
 
-                // AS-IS `card.Owner.UntilEachTurnEndEffects.Add(GetCardEffect)` -> the bridged
-                // AddEffectToPlayer(UntilEachTurnEnd, card, cardEffect, timing) call (see file header).
-                CardEffectCommons.AddEffectToPlayer(EffectDuration.UntilEachTurnEnd, card, CardEffectFactory.EoTLose3Memory(card), EffectTiming.OnEndTurn);
+                new Player(card.Context, card.Owner).UntilEachTurnEndEffects.Add(GetCardEffect);
+
+                ICardEffect GetCardEffect(EffectTiming _timing)
+                {
+                    if (_timing == EffectTiming.OnEndTurn)
+                    {
+                        return CardEffectFactory.EoTLose3Memory(card);
+                    }
+
+                    return null!;
+                }
 
                 // AS-IS `GManager.instance.GetComponent<Effects>().CreateBuffEffect(card.PermanentOfThisCard())`
                 // — pure VFX/SE (Effects.cs:1433), stripped (see file header).

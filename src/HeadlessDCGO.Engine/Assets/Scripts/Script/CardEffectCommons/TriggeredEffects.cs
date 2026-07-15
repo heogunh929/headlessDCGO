@@ -55,105 +55,12 @@ public sealed class StartOfMainAttackEffect : Headless.Effects.IHeadlessCardEffe
 }
 
 
-/// <summary>
-/// A triggered effect that gains / loses memory when its timing fires (the common ActivateClass form
-/// "[When ...] gain/lose N memory", e.g. ST1_06 / ST1_09). Carries the effect body itself so the existing
-/// scheduler / resolver pipeline (TriggerEventEmitter -> AutoProcessingTriggerCollector -> EffectScheduler
-/// -> CardEffectSchedulerResolver) resolves it into an AddMemory mutation on the
-/// <see cref="MatchStateMutationSink"/>. The original coroutine becomes an emitted mutation (1:1 relaxed
-/// for trigger plumbing).
-/// </summary>
-public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
-{
-    private readonly Func<bool>? _condition;
-    private readonly Func<CardEffectResolveContext, bool>? _triggerGate;
-
-    public TriggeredMemoryEffect(
-        CardSource card, EffectTiming timing, int amount, bool isInheritedEffect, Func<bool>? condition, string description,
-        Func<CardEffectResolveContext, bool>? triggerGate = null, int? maxCountPerTurn = null, string? hash = null, bool? isOptional = null,
-        string? effectIdSuffix = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Amount = amount;
-        IsInheritedEffect = isInheritedEffect;
-        _condition = condition;
-        _triggerGate = triggerGate;
-        string trigger = EffectTimings.ToTriggerName(timing);
-        // The default id is DETERMINISTIC (RegisterCard idempotency). A DELAYED ONE-SHOT registration
-        // (AddEffectToPlayer — AS-IS UntilEachTurnEndEffects is a LIST that stacks per activation, e.g.
-        // BT1_021 attacking twice loses 6 at end of turn) passes a unique suffix so two registrations of the
-        // same shape coexist.
-        var effectId = new HeadlessEntityId(string.IsNullOrWhiteSpace(effectIdSuffix)
-            ? $"{card.InstanceId.Value}:mem:{trigger}:{amount}"
-            : $"{card.InstanceId.Value}:mem:{trigger}:{amount}:{effectIdSuffix}");
-        // Gaining memory defaults to an optional "you may" prompt; a card whose trigger is mandatory passes
-        // isOptional: false explicitly (e.g. ST3_04 "gain 1 memory").
-        Definition = new CardEffectDefinition(effectId, card.InstanceId, description, trigger, isOptional: isOptional ?? (amount > 0), maxCountPerTurn: maxCountPerTurn, hash: hash);
-    }
-
-    public CardSource Card { get; }
-
-    public int Amount { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public CardEffectDefinition Definition { get; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (_condition is not null && !_condition())
-        {
-            return CardEffectCanResolveResult.Failure("Trigger condition not met.");
-        }
-
-        if (_triggerGate is not null && !_triggerGate(context))
-        {
-            return CardEffectCanResolveResult.Failure("Trigger event condition not met.");
-        }
-
-        return CardEffectCanResolveResult.Success();
-    }
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(mutations);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        CardEffectCanResolveResult check = CanResolve(context);
-        if (!check.CanResolve)
-        {
-            return ValueTask.FromResult(EffectResult.Failure(check.Message ?? "Cannot resolve.", check.Values));
-        }
-
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount };
-        mutations.Apply(new EffectMutation(MatchStateMutationSink.AddMemoryKind, Definition.SourceEntityId, values));
-        return ValueTask.FromResult(EffectResult.Success($"Memory {(Amount >= 0 ? "+" : string.Empty)}{Amount}."));
-    }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        var context = new EffectContext(
-            Card.Controller,
-            Card.Owner,
-            Card.InstanceId,
-            triggerEntityId: null,
-            targetEntityIds: Array.Empty<HeadlessEntityId>());
-        return new EffectBinding(
-            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
-            keywords: null,
-            EffectQueryRole.None,
-            Array.Empty<string>(),
-            effect: this,
-            duration: null);
-    }
-}
+// (R3-C2b-2 fold) TriggeredMemoryEffect DELETED — the invented old-model "[When …] gain/lose N memory" effect
+// (registry-lowering, its own scheduler resolution) is retired along with its sole factory
+// CardEffectFactory.AddMemoryTriggerEffect. Every former caller (ST1_06/09, ST3_04/05, ST2_12, BT2_010/073,
+// BT1_114, TfxOnDeleteGainMemory, TfxOnPlayGainMemory, and the BT1_090 EoT reversal) is now the AS-IS 1:1
+// new-model inline ActivateClass memory recipe (card.Owner.AddMemory(N, activateClass) + the AS-IS Hashtable
+// CanUse gate).
 
 
 // (R3-F1b fold) TriggeredSetMemoryEffect DELETED — its sole factory (CardEffectFactory.SetMemoryTo3TamerEffect)
@@ -161,60 +68,10 @@ public sealed class TriggeredMemoryEffect : ICardEffect, IHeadlessCardEffect
 // tests (G9-026 references the class name only in a stale comment, not a construction).
 
 
-/// <summary>(PRIM-W3) A triggered "gain <see cref="Amount"/> memory (if <see cref="ExtraCondition"/> holds)"
-/// effect — the Tamer memory-gain family (AS-IS Gain1MemoryTamerOpponentDigimonEffect etc.). Auto-registered
-/// under its timing; resolves only on the owner's turn (and when the extra condition passes), emitting an
-/// AddMemory mutation.</summary>
-public sealed class TriggeredGainMemoryEffect : ICardEffect, IHeadlessCardEffect
-{
-    private readonly Func<bool>? _extraCondition;
-
-    public TriggeredGainMemoryEffect(CardSource card, EffectTiming timing, int amount, string description, Func<bool>? extraCondition = null)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-        Card = card;
-        Amount = amount;
-        _extraCondition = extraCondition;
-        string trigger = EffectTimings.ToTriggerName(timing);
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId($"{card.InstanceId.Value}:gainmemory:{trigger}"), card.InstanceId, description, trigger, isOptional: false);
-    }
-
-    public CardSource Card { get; }
-
-    public int Amount { get; }
-
-    public CardEffectDefinition Definition { get; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(mutations);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (Card.Context.TurnController.Current.TurnPlayerId != Card.Owner || (_extraCondition is not null && !_extraCondition()))
-        {
-            return ValueTask.FromResult(EffectResult.Success("Gain-memory condition not met; no change."));
-        }
-
-        mutations.Apply(new EffectMutation(
-            MatchStateMutationSink.AddMemoryKind,
-            Definition.SourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = Amount }));
-        return ValueTask.FromResult(EffectResult.Success($"Gain {Amount} memory."));
-    }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>());
-        return new EffectBinding(
-            new EffectRequest(Definition.EffectId, Card.Controller, Definition.Timing, context),
-            keywords: null, EffectQueryRole.None, Array.Empty<string>(), effect: this, duration: null);
-    }
-}
+// (R3-C2b-2 fold) TriggeredGainMemoryEffect DELETED — the invented old-model "gain N memory" effect (the Tamer
+// memory-gain family / the EoTLose3Memory backing) is retired. CardEffectFactory.EoTLose3Memory and the
+// Gain1MemoryTamer* factories are now AS-IS 1:1 new-model ActivateClass ports (card.Owner.AddMemory(N,
+// activateClass), owner-turn gate inline). Zero remaining constructions in src (tests retargeted in R3-C2b-2).
 
 
 /// <summary>(PRIM-W2 #10) The one-shot OnEndBattle trigger registered by

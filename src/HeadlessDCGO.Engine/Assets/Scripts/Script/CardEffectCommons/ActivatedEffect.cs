@@ -441,45 +441,12 @@ public sealed class ReturnTopSecurityToHandThenUnsuspendSelfBody : IEffectBody
     }
 }
 
-/// <summary>Gain N memory now, then schedule a one-shot reversal (lose N memory) at end of THIS turn — the AS-IS
-/// ActivateCoroutine <c>card.Owner.AddMemory(+N)</c> THEN a nested one-shot <c>AddMemory(-N)</c> registered via
-/// <c>AddEffectToPlayer(timing: OnEndTurn)</c> (e.g. BT1_090 "[Main] Gain 2 memory. At end of turn, lose 2
-/// memory"). The reversal fires exactly once (AddEffectToPlayer's DelayedOneShot bookkeeping), so it is a
-/// this-turn-only boost, not a permanent gain. Non-interactive.</summary>
-public sealed class MemoryGainThenScheduledReversalBody : IEffectBody
-{
-    private readonly int _amount;
-
-    public MemoryGainThenScheduledReversalBody(int amount) => _amount = amount;
-
-    public bool IsInteractive => false;
-
-    public ChoiceRequest? BuildRequest(CardSource card, IReadOnlyList<HeadlessPlayerId> players) => null;
-
-    public void Apply(CardSource card, MatchStateMutationSink sink, IReadOnlyList<HeadlessEntityId> selected)
-    {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(sink);
-        // Immediate: AS-IS card.Owner.AddMemory(+N).
-        sink.Apply(new EffectMutation(
-            MatchStateMutationSink.AddMemoryKind,
-            card.InstanceId,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.AmountKey] = _amount }));
-        // Deferred: AS-IS nested ActivateClass "Memory -N" registered via AddEffectToPlayer(OnEndTurn) — a
-        // fire-once end-of-turn reversal (DelayedOneShot semantics), mirrored by a TriggeredMemoryEffect(-N).
-        ICardEffect reversal = CardEffectFactory.AddMemoryTriggerEffect(
-            timing: EffectTiming.OnEndTurn,
-            amount: -_amount,
-            isInheritedEffect: false,
-            card: card,
-            condition: null,
-            description: $"At end of turn, lose {_amount} memory.",
-            // Unique per registration: AS-IS UntilEachTurnEndEffects is a LIST — activating twice the same
-            // turn stacks TWO reversals (BT1_021 attacks twice → lose 6), so the ids must not collide.
-            effectIdSuffix: Guid.NewGuid().ToString("N"));
-        CardEffectCommons.AddEffectToPlayer(EffectDuration.UntilEachTurnEnd, card, reversal, EffectTiming.OnEndTurn);
-    }
-}
+// (R3-C2b-2) MemoryGainThenScheduledReversalBody DELETED — the invented "gain +N now, schedule a fire-once -N
+// registry reversal" body is retired. BT1_021 / BT1_090 (its only callers) are now AS-IS 1:1 ActivateClass
+// re-ports: they gain +N via card.Owner.AddMemory THEN store the "-N at end of turn" reversal (EoTLose3Memory /
+// a nested "Memory -N" ActivateClass) into the owning Player's UntilEachTurnEnd bucket via AddEffectToPlayer /
+// UntilEachTurnEndEffects.Add — the flipped window's player.EffectList(OnEndTurn) scan fires it, and the
+// per-duration bucket clear gives the fire-once semantics (no DelayedOneShot registry binding).
 
 /// <summary>Pay a self-suspend cost (AS-IS <c>SuspendPermanentsClass(card.PermanentOfThisCard()).Tap()</c>) then
 /// run an inner body — the "you can suspend this &lt;card&gt; to &lt;effect&gt;" activated cost shape (e.g. BT1_086
