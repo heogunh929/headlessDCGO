@@ -29,13 +29,10 @@ public partial class CardEffectFactory
 
         bool CanSelectCardCondition(CardSource cardSource)
         {
-            // STOP: AS-IS `card.IsContainDigiXrosCondition(cardSource)` (CardSource.cs:3422) has no mirror —
-            // CardSource.cs is out of this cluster's edit scope (heavy DigiXros-condition scan: digiXrosCondition
-            // property + IAddDigiXrosConditionEffect scan, itself unported) — design item RD-P6C2-4,
-            // docs/audit/rebuild_p6_cluster2_notes.md.
-            throw new NotSupportedException(
-                "MaterialSaveEffect.CanSelectCardCondition: AS-IS CardSource.IsContainDigiXrosCondition has no " +
-                "mirror — design item RD-P6C2-4, docs/audit/rebuild_p6_cluster2_notes.md.");
+            // (RD-P6C2-4 RESOLVED, C-Del 3b) AS-IS `card.IsContainDigiXrosCondition(cardSource)`
+            // (CardSource.cs:3422) — now mirrored on CardSource (digiXrosCondition property +
+            // IAddDigiXrosConditionEffect scan + HasDigiXros).
+            return card.IsContainDigiXrosCondition(cardSource);
         }
 
         bool CanSelectPermanentCondition(Permanent permanent)

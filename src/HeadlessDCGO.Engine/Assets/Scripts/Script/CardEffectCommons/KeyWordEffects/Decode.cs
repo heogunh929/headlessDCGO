@@ -53,6 +53,7 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
     using System;
     using System.Linq;
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
     using HeadlessDCGO.Engine.Headless.Choices;
     using HeadlessDCGO.Engine.Headless.Effects;
     using HeadlessDCGO.Engine.Headless.Services;
@@ -106,6 +107,44 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
                 isTapped: false,
                 root: ChoiceZone.DigivolutionCards,
                 activateETB: true).ConfigureAwait(false);
+        }
+
+        /// <summary>(C-Del 3b grant rehousing) AS-IS <c>CardEffectCommons.GainDecode</c>
+        /// (KeyWordEffects/Decode.cs:79-114, 1:1). "Target 1 Digimon gains [Decode]": builds the printed-style
+        /// <see cref="CardEffectFactory.DecodeEffect"/> ActivateClass (rooted at the granting effect) and stores it in
+        /// the target permanent's <c>WhenRemoveField</c> duration bucket via <see cref="AddEffectToPermanent"/> — the
+        /// W3 bucket the deletion PRE cut-in window collects (GetSkillInfos). ADAPTATION: <c>IEnumerator</c> -> <c>Task</c>;
+        /// the trailing <c>CreateBuffEffect</c> (a Unity presentation coroutine) has no headless substrate — dropped
+        /// (same as <see cref="GainRetaliation"/> / <see cref="GainEvade"/>).</summary>
+        public static async Task GainDecode(
+            Permanent targetPermanent, string[] decodeStrings, Func<CardSource, bool> sourceCondition,
+            EffectDuration effectDuration, ICardEffect activateClass)
+        {
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool CanUseCondition()
+            {
+                return IsPermanentExistsOnBattleArea(targetPermanent) &&
+                       !targetPermanent.TopCard.CanNotBeAffected(activateClass);
+            }
+
+            ActivateClass decode = CardEffectFactory.DecodeEffect(
+                targetPermanent: targetPermanent, isInheritedEffect: false, decodeStrings,
+                condition: CanUseCondition, sourceCondition: sourceCondition, rootCardEffect: activateClass, card);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent,
+                effectDuration: effectDuration,
+                card: card,
+                cardEffect: decode,
+                timing: EffectTiming.WhenRemoveField);
+
+            await Task.CompletedTask;
         }
     }
 }

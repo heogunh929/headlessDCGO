@@ -988,6 +988,74 @@ public sealed class CardSource
         return null;
     }
 
+    // ===== (C-Del 3b / RD-P6C2-4) DigiXros requirement =====================================================
+
+    /// <summary>(RD-P6C2-4) 1:1 mirror of AS-IS <c>CardSource.digiXrosCondition</c> (CardSource.cs:2959-2986):
+    /// the first usable <see cref="IAddDigiXrosConditionEffect"/>'s <see cref="DigiXrosCondition"/> from THIS
+    /// card's live <see cref="EffectList(EffectTiming)"/>(None) — the effect-driven DigiXros material requirement.</summary>
+    public DigiXrosCondition digiXrosCondition
+    {
+        get
+        {
+            foreach (ICardEffect cardEffect in this.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is IAddDigiXrosConditionEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        DigiXrosCondition digiXrosCondition = ((IAddDigiXrosConditionEffect)cardEffect).GetDigiXrosCondition(this);
+
+                        if (digiXrosCondition != null)
+                        {
+                            return digiXrosCondition;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>(RD-P6C2-4) 1:1 mirror of AS-IS <c>CardSource.HasDigiXros</c> (CardSource.cs:2569).</summary>
+    public bool HasDigiXros => digiXrosCondition != null;
+
+    /// <summary>(RD-P6C2-4) 1:1 mirror of AS-IS <c>CardSource.IsContainDigiXrosCondition</c> (CardSource.cs:3422-3448):
+    /// whether THIS card (which must be the TopCard of its own owner permanent and carry a DigiXros requirement)
+    /// counts <paramref name="cardSource"/> as satisfying at least one of its DigiXros condition material slots.</summary>
+    public bool IsContainDigiXrosCondition(CardSource cardSource)
+    {
+        if (cardSource != null)
+        {
+            if (cardSource.Owner == Owner)
+            {
+                // ADAPTATION: AS-IS `PermanentOfThisCard()` returns a `Permanent` with `.TopCard`; the mirror's
+                // same-named accessor returns a `PermanentView`, so bridge to the real mirror `Permanent` via
+                // `ICardEffect.ResolvePermanentOfThisCard` (the established idiom, see ICardEffect.cs:450-458).
+                Permanent permanent = ICardEffect.ResolvePermanentOfThisCard(this);
+
+                if (permanent != null)
+                {
+                    if (permanent.TopCard.HasDigiXros)
+                    {
+                        if (this == permanent.TopCard)
+                        {
+                            if (digiXrosCondition != null)
+                            {
+                                if (digiXrosCondition.elements.Count((element) => element.CardCondition(cardSource)) >= 1)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>(C-2 witness / BT22_035) 1:1 mirror of AS-IS <c>CardSource.CanLinkToTargetPermanent(target,
     /// PayCost:false, allowBreeding:false)</c> (CardSource.cs:3337) folded with <c>CanLink(false)</c>
     /// (CardSource.cs:3140): whether THIS card may be attached as a LINK card onto

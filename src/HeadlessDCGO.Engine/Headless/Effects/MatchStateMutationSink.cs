@@ -338,6 +338,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         /// before-removal OnDestroyedAnyone / OnLeaveFieldAnyone window, so a multi-entry batch stacks the dead
         /// cards' reactors ONCE (AS-IS single DestroyPermanentsClass StackSkillInfos pair), not per entry.</summary>
         public bool OnDeletionWindowOpened;
+
+        /// <summary>(C-Del 3b PRE transport) set once the non-deferred path has opened this batch's AS-IS PRE
+        /// cut-in "would be deleted" window (WhenPermanentWouldBeDeleted → WhenRemoveField), marking every field-
+        /// present member's <c>willBeRemoveField=true</c> ONCE (AS-IS DestroyPermanentsClass :3448) before the
+        /// survivor fix. Per-entry survivor read (<c>willBeRemoveField</c>) then spares any card a replacement
+        /// cancelled.</summary>
+        public bool PreWindowOpened;
     }
 
     private sealed record StagedDelete(EffectMutation Mutation, HeadlessEntityId TargetId);
@@ -1119,6 +1126,79 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             batch.DeferAll = defer;
         }
 
+        // (C-Del 3b PRE cut-in transport) Open the AS-IS "would be deleted" PRE cut-in window
+        // (WhenPermanentWouldBeDeleted → WhenRemoveField) on the universal effect-delete path — the same pair the
+        // mirror faithful DestroyPermanentsClass.Destroy() opens (CardController.cs:3448-3485) but which only 2
+        // cards reach directly. Opened ONLY on the NON-gate-deferred path (batch.DeferAll is false): every ported
+        // PRE keyword (Evade/Barrier/ArmorPurge/Decoy/Scapegoat/Decode/Partition/Fragment) is gate-detected via
+        // ContinuousKeywordGate → NewModelContinuousScan, which scans the SAME EffectList(WhenPermanentWouldBeDeleted)
+        // this window collects, so it always forces DeferAll=true and never lands here → NO double-fire with the live
+        // PRE replacement gate (whose firing half is NOT retired this batch). This branch is therefore a STRUCTURAL
+        // NO-OP for every real card today (they are all gate-deferred, or carry no PRE effect); it activates only for
+        // a gate-invisible window-form WhenPermanentWouldBeDeleted/WhenRemoveField ActivateClass (a Tfx witness, and —
+        // once 3c retires the gate — the ported PRE keywords, which then fall into DeferAll=false and are collected
+        // here). Reconciles the AS-IS willBeRemoveField model to the sink: all field-present members are marked
+        // willBeRemoveField=true (batch-once), the cut-in drains, a replacement body cancels a deletion by clearing
+        // its willBeRemoveField, and the per-entry survivor read below spares any such card (never trashing it) —
+        // the sink's equivalent of AS-IS destroyTargetPermanents_Fixed. An INTERACTIVE cut-in effect (the drain
+        // pauses on a ChoiceController request) is design item RD-3B-INTERACTIVE: the sink's inline-drain model
+        // cannot resume mid-flush to finish the surrounding deletion, so the pause is re-thrown rather than swallowed
+        // into a half-deleted batch; the promote-to-defer (pendingDeletion + GameFlowProcessor cut-in drain +
+        // willBeRemoveField finalize) integration is deferred to 3c, which also owns the gate retirement.
+        if (batch.DeferAll is false && !batch.PreWindowOpened && _context is not null)
+        {
+            using AmbientMatchContext.Scope _preScope = AmbientMatchContext.Enter(_context);
+            batch.PreWindowOpened = true;
+            var toDelete = new List<Permanent>();
+            if (_zoneMover is IZoneStateReader preFieldZones)
+            {
+                foreach (StagedDelete staged in batch.Entries)
+                {
+                    if (_repository.TryGetInstance(staged.TargetId, out CardInstanceRecord? live) && live is not null
+                        && (preFieldZones.GetCards(live.OwnerId, ChoiceZone.BattleArea).Contains(staged.TargetId)
+                            || preFieldZones.GetCards(live.OwnerId, ChoiceZone.BreedingArea).Contains(staged.TargetId)))
+                    {
+                        var perm = new Permanent(_context, staged.TargetId, live.OwnerId)
+                        {
+                            willBeRemoveField = true,   // AS-IS Destroy() :3448 — mark ALL targets before the cut-in
+                        };
+                        toDelete.Add(perm);
+                    }
+                }
+            }
+
+            if (toDelete.Count > 0)
+            {
+                var cutIn = Assets.Scripts.Script.AutoProcessing.ForCutIn(_context);
+                // AS-IS builds a FRESH WhenPermanentWouldRemoveFieldCheckHashtable per StackSkillInfos
+                // (CardController.cs:3454-3469) — two builder calls. cardEffect=null (the sink threads only the
+                // causing source id, RD-C1-CARDEFFECT-IDTHREAD); battle=null (the effect-delete path is never a
+                // battle deletion — that is BattleResolver's IBattle path).
+                await cutIn.StackSkillInfos(
+                    CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: null, battle: null),
+                    EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
+                await cutIn.StackSkillInfos(
+                    CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: null, battle: null),
+                    EffectTiming.WhenRemoveField).ConfigureAwait(false);
+
+                if (cutIn.HasAwaitingActivateEffects())   // AS-IS Destroy() :3471 gate
+                {
+                    // AS-IS ShowDeleteEffect / ShrinkSecurityDigimonDisplay / HideDeleteEffect = UI (stripped).
+                    try
+                    {
+                        await cutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
+                    }
+                    catch (Exception preEx) when (preEx is WindowChoicePendingException or Runtime.DeferredChoicePendingException)
+                    {
+                        // (design item RD-3B-INTERACTIVE) an INTERACTIVE would-be-deleted replacement paused the
+                        // cut-in drain. Re-throw so the pause is not silently swallowed into an inconsistent half-
+                        // deleted batch — the promote-to-defer + state-sweep finalize is required (3c).
+                        throw;
+                    }
+                }
+            }
+        }
+
         // (C2 decision-4 deletion transport) The universal effect-deletion path is this sink (the mirror
         // DestroyPermanentsClass.Destroy() inline OnDeletion pair is reached by only 2 cards). Reproduce that pair
         // here: BEFORE any field->Trash move, COLLECT-BEFORE-REMOVAL the dead cards' OnDestroyedAnyone /
@@ -1146,6 +1226,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                         && (preRemovalZones.GetCards(dead.OwnerId, ChoiceZone.BattleArea).Contains(staged.TargetId)
                             || preRemovalZones.GetCards(dead.OwnerId, ChoiceZone.BreedingArea).Contains(staged.TargetId)))
                     {
+                        // (C-Del 3b) AS-IS builds the OnDeletion window over destroyTargetPermanents_Fixed —
+                        // the PRE-cut-in SURVIVORS (willBeRemoveField cleared) are EXCLUDED (CardController.cs:3482-3496).
+                        // When a PRE window opened, skip any member a replacement spared so its OnDestroyedAnyone /
+                        // OnLeaveFieldAnyone reactor does NOT fire (it never left play).
+                        if (batch.PreWindowOpened && !new Permanent(_context, staged.TargetId, dead.OwnerId).willBeRemoveField)
+                        {
+                            continue;
+                        }
+
                         deadPermanents.Add(new Permanent(_context, staged.TargetId, dead.OwnerId));
                         anyDpZero |= ReadBool(staged.Mutation.Values, IsDpZeroKey);
                     }
@@ -1211,6 +1300,26 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         }
 
         // (Fragment / Scapegoat / Decoy auto-resolve removed — all are F-6.8 agent choices via the window.)
+
+        // (C-Del 3b PRE transport) AS-IS Destroy() fixes survivors AFTER the PRE cut-in — a permanent whose
+        // willBeRemoveField a replacement CLEARED is filtered OUT of destroyTargetPermanents_Fixed
+        // (CardController.cs:3482-3485) and never trashed. Reconciled to the sink: read this member's
+        // willBeRemoveField (set true for the whole batch above; cleared only by a would-be-deleted replacement
+        // body during the drain) and SPARE it if a replacement cancelled its deletion. The flag is a transient of
+        // this synchronous flush (AS-IS resets it at :3585-3593); reset it here for a spared survivor so no stale
+        // marker persists. Reached only on the non-deferred path (PreWindowOpened ⇒ batch.DeferAll is false).
+        if (batch.PreWindowOpened && _context is not null)
+        {
+            var fixedPerm = new Permanent(_context, targetId, record.OwnerId);
+            if (!fixedPerm.willBeRemoveField)
+            {
+                _skipped.Add(mutation);
+                _applied.Add(new AppliedMutation(mutation.Kind, targetId, "survivedWouldBeDeletedWindow"));
+                return;
+            }
+
+            fixedPerm.willBeRemoveField = false;   // AS-IS Destroy() :3585-3593 reset (card is about to be trashed)
+        }
 
         // Stamp the deletion marker before the move so OnDeletion-scoped triggers can read it.
         var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
