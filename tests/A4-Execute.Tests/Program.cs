@@ -44,7 +44,6 @@ var P2 = new HeadlessPlayerId(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("Execute PRINTED: the OnEndTurn window opens \"Will you use Execute?\" -> ExecuteProcess, offering the PLAYER and an UNSUSPENDED foe", ExecutePrintedFiresThroughWindow),
-    ("Execute: the retired gate (EndOfTurnEffectAttack.TryOpen) opens NOTHING for an Execute Digimon (single-fire)", ExecuteGateRetired),
     ("Execute GRANTED: GainExecute stores an OnEndTurn bucket effect that fires through the window", ExecuteGrantedFiresThroughWindow),
     ("Execute SELF-DELETE: ExecuteProcess appends a DeleteSelfEffect@OnEndAttack + detail@None (per-attack); a normal Digimon has none (control)", ExecuteSelfDeleteRegistered),
     ("Execute: NO summoning-sickness bypass (CanActivateExecute false for a Digimon that entered this turn without Rush)", ExecuteNoSummoningSicknessBypass),
@@ -92,21 +91,8 @@ async Task ExecutePrintedFiresThroughWindow()
     AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
         "ExecuteProcess offered the UNSUSPENDED opponent Digimon (isExecute lifts the suspended-defender gate)");
 
-    // Single-fire: the retired gate opens nothing.
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the retired gate opens NO window for an Execute Digimon (single-fire: window only)");
-}
-
-async Task ExecuteGateRetired()
-{
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var execute = await Place(context, P1, "TfxExecute", suspended: false, entered: false);
-    await Place(context, P2, "FOE", suspended: false, entered: false);
-    CardEffectRegistrar.RegisterCard(context, execute, P1);
-
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the retired EndOfTurnEffectAttack gate opens NOTHING (the whole gate is dead — every EoT keyword fires through the window)");
+    // (G-clean) Single-fire is proven structurally: the invented EndOfTurnEffectAttack gate is physically
+    // deleted, so the OnEndTurn window is the sole <Execute> firing path.
 }
 
 async Task ExecuteGrantedFiresThroughWindow()

@@ -33,7 +33,7 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("The retired gate opens NO <Vortex> window; the OnEndTurn window collects the printed Vortex", GateRetiredWindowCollects),
+    ("The OnEndTurn window collects the printed Vortex (invented gate is deleted — window is the sole path)", GateRetiredWindowCollects),
     ("The window offers a SUSPENDED opponent Digimon — NOT the player (no VortexCanAttackPlayers)", WindowTargetsSuspendedNotPlayer),
     ("An UNSUSPENDED-only opponent board opens no window (isVortex != isExecute — fidelity correction)", UnsuspendedOnlyNoWindow),
     ("A suspended Vortex Digimon opens no window (its attack would suspend it)", SuspendedVortexNoWindow),
@@ -64,8 +64,8 @@ async Task GateRetiredWindowCollects()
 
     AssertTrue(AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Any(si => si.CardEffect is ActivateICardEffect),
         "the OnEndTurn window collects the printed Vortex ActivateClass");
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the retired gate opens NO <Vortex> window (window resolves it — single-fire)");
+    // (G-clean) The invented EndOfTurnEffectAttack gate is physically deleted — single-fire is now proven
+    // structurally (the gate class no longer exists); the OnEndTurn window is the sole <Vortex> firing path.
 }
 
 async Task WindowTargetsSuspendedNotPlayer()

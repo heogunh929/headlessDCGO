@@ -62,10 +62,11 @@ public sealed class HeadlessLegalActionDispatcher
                 .Concat(new MainSkillActivateAction().GetLegalActions(context, playerId))
                 .Concat(new AttackPermanentAction().GetLegalActions(context, playerId))
                 .ToArray(),
-            // (C-2 Blitz) The memory-pass window normally only offers EndTurn, but a <Blitz> Digimon may
-            // still attack here (opponent already has >=1 memory). AttackPermanentAction's phase gate makes
-            // GetLegalActions yield declarations only for Blitz-eligible attackers in this phase, so a board
-            // without Blitz keeps exposing just EndTurn.
+            // (C-2 / RD-CATK-BLITZ re-judgment) The memory-pass window offers EndTurn. AS-IS Blitz is NOT a phase
+            // permission — the invented "<Blitz> may attack during memory-pass" gate was retired (AttackPermanentAction
+            // :217; Blitz is rehoused onto the [On Play]/[When Digivolving] window). AttackPermanentAction is still
+            // concatenated for shape uniformity, but its phase gate yields no memory-pass declarations, so this
+            // branch exposes just EndTurn.
             HeadlessPhase.MemoryPass => new[] { HeadlessActionFactory.EndTurn(playerId) }
                 .Concat(new AttackPermanentAction().GetLegalActions(context, playerId))
                 .ToArray(),

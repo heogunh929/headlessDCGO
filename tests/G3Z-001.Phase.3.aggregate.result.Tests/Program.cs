@@ -24,7 +24,8 @@ var phase3Goals = new Phase3Goal[]
     new("G3I-001", "Replacement", "G3I-001_replacement_prevention_helpers_unit_test_results.md", "G3I-001.Replacement.prevention.helper.Tests"),
     new("G3I-002", "Continuous", "G3I-002_continuous_effect_evaluator_unit_test_results.md", "G3I-002.Continuous.effect.evaluator.Tests"),
     new("G3J-001", "Factory", "G3J-001_card_effect_factory_binding_unit_test_results.md", "G3J-001.CardEffectFactory.binding.Tests"),
-    new("G3J-002", "Factory", "G3J-002_permanent_effect_factory_binding_unit_test_results.md", "G3J-002.PermanentEffectFactory.binding.Tests"),
+    // (G-clean) G3J-002 (PermanentEffectFactory binding) dropped: the invented string-key binding-rule model it
+    // gated was physically deleted (0 src consumers). Phase-3 gate goals: 23 -> 22.
     new("G3K-001", "Selection", "G3K-001_effect_selection_helpers_unit_test_results.md", "G3K-001.Effect.selection.helper.Tests"),
     new("G3K-002", "Timing", "G3K-002_timing_priority_helpers_unit_test_results.md", "G3K-002.Timing.priority.helper.Tests"),
     new("G3L-001", "Flags", "G3L-001_once_per_turn_flags_unit_test_results.md", "G3L-001.Once.per.turn.flag.helper.Tests"),
@@ -135,8 +136,8 @@ void AggregateDocumentRecordsGateCounts()
 {
     string text = File.ReadAllText(Phase3AggregateDocumentPath());
 
-    AssertTrue(text.Contains("Required Phase 3 gate goals: 23", StringComparison.Ordinal), "required gate count");
-    AssertTrue(text.Contains("Complete Phase 3 gate goals: 23", StringComparison.Ordinal), "complete gate count");
+    AssertTrue(text.Contains("Required Phase 3 gate goals: 22", StringComparison.Ordinal), "required gate count");
+    AssertTrue(text.Contains("Complete Phase 3 gate goals: 22", StringComparison.Ordinal), "complete gate count");
     AssertTrue(text.Contains("Blocked Phase 3 gate goals: 0", StringComparison.Ordinal), "blocked gate count");
     AssertTrue(text.Contains("Failed Phase 3 gate goals: 0", StringComparison.Ordinal), "failed gate count");
 }

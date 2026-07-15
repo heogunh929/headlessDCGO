@@ -951,8 +951,8 @@ public sealed class MetadataActionProcessor : IActionProcessor
         HeadlessTurnState previousTurn = context.TurnController.Current;
 
         // (A-2 / RD-6, task 7) AS-IS resolves the [End of your turn] EFFECT window (AutoProcessing.cs:699) BEFORE the
-        // attack loop (:705), so the end-of-turn effect-driven attack offer (<Vortex>/<Overclock>/<Execute>) is
-        // opened AFTER the OnEndTurn drain below — its EndOfTurnEffectAttack.TryOpen block now follows the window,
+        // attack loop (:705). The end-of-turn effect-driven attack of <Vortex>/<Overclock>/<Execute> is now a member
+        // of that OnEndTurn window (rehoused from the invented gate), so it is declared during the drain below,
         // matching AS-IS's window-then-attack order (a memory [End of Your Turn] effect resolves before the attack).
 
         // (A-2 / RD-6) The [End of Your Turn] effect window (AutoProcessing.cs:699 "step 3") — resolve it in the
@@ -994,51 +994,15 @@ public sealed class MetadataActionProcessor : IActionProcessor
             // else: already drained (synchronously, or resumed-and-completed) → fall through to the re-check + flip.
         }
 
-        // (GR-006 / A-2 task 7) End-of-turn <Vortex>/<Overclock>/<Execute> effect-driven attack offer — AFTER the
-        // [End of Your Turn] effect window (AS-IS attack loop :705 follows the window :699). If it opens (pending
-        // choice), the turn does NOT end yet; the agent resolves the attack, then re-applies EndTurn (the Digimon is
-        // now used/suspended, and the OnEndTurn window is already drained, so it proceeds to the flip).
-        //
-        // Design item A2-P1-1 (DEFERRED, high-risk) — the attack DECLARATION is order-choiced with the window, not a
-        // fixed post-drain offer. AS-IS re-derivation: VortexSelfEffect/OverclockSelfEffect/ExecuteSelfEffect are
-        // plain ActivateClass objects keyed at EffectTiming.OnEndTurn (KeyWordEffects/Vortex.cs:8,27). EndTurnProcess
-        // STACKS all OnEndTurn effects together (AutoProcessing.cs:699 StackSkillInfos) and AutoProcessCheck (:702)
-        // resolves them as ONE MultipleSkills order-choice — so the Vortex ActivateCoroutine (VortexProcess) is a peer
-        // of every other OnEndTurn effect (e.g. BT1_021's [End of Your Turn] -3 memory) and the player picks the order.
-        // The Vortex body's ActivateCoroutine only DECLARES the attack: SelectAttackEffect.Activate → AttackProcess.Attack
-        // sets attacker/defender + suspends + sets State (declaration), then RETURNS; the BATTLE steps (Counter/Block/
-        // Battle/End/CleanUp) run in the post-window `while (attackProcess.ActiveAttack()) ProcessNextState()` loop
-        // (:705). So AS-IS = "declaration is an in-window order-choice member; battle steps run after the window drains".
-        //
-        // Headless status: the BATTLE half already matches — AttackPipeline.AdvanceAsync runs in RunToStableAsync
-        // (GameFlowProcessor.cs:108), a SEPARATE loop step from AutoProcessAsync; DrainEndOfTurnWindowAsync only loops
-        // AutoProcessAsync, so a declared attack's battle always defers to post-window. The residual divergence is the
-        // DECLARATION order: it is offered here as a FIXED post-drain offer (TryOpen scans the live <Vortex>/<Overclock>/
-        // <Execute> keyword marker), not as an OnEndTurn window member. Concretely, with EX8_074 (<Vortex>) + BT1_021
-        // (-3) coexisting, AS-IS lets the ending player pick "declare attack first" vs "-3 first"; headless always
-        // drains -3, then offers the attack (see RD6-EndTurnSequence.EoTWindowResolvesBeforeAttack, which currently
-        // asserts the -6-then-attack fixed order — the exact debt).
-        //
-        // Faithful design (deferred): register the declaration as an OnEndTurn window MEMBER — an OnEndTurn activated
-        // effect (collected by CollectActivatedBridgeTriggers, WindowResolverWiring.cs) whose ResolveBody opens
-        // EffectDrivenAttack.RequestChoice; the window's order-choice then interleaves it with other OnEndTurn members,
-        // and its interactive target-select suspends/resumes via the existing WindowResolver seam. High-risk factors
-        // that gate this out of the current pass: (1) it changes the GLOBAL <Vortex>/<Overclock>/<Execute> representation
-        // from a continuous keyword marker (SelfKeywordBatch2Effect, used by every card that grants these, not just
-        // EX8_074) to an OnEndTurn activated member, and must retire TryOpen without double-offering; (2) the interactive
-        // attack target-select must suspend MID window-drain and, on resume, continue draining the remaining members
-        // (e.g. the still-pending -3) while the declared attack sits un-battled until the window closes — an untested
-        // interleaving on the single most regression-sensitive seam (EoT window + suspend/resume + attack pipeline).
-        // Per the A/B adversarial review (ab_adversarial_review_2026-07-11.md:98) this is a P1 (narrow: needs a
-        // Vortex/Overclock/Execute attacker AND another OnEndTurn effect on the same ending board), so the balanced
-        // call is to keep the faithful battle-post-window ordering (already correct) and defer the declaration-order
-        // interleaving with this design note rather than destabilize the seam.
-        if (EndOfTurnEffectAttack.TryOpen(context, previousTurn.TurnPlayerId))
-        {
-            Dictionary<string, object?> windowMetadata = MetadataWithTurn(action, previousTurn);
-            windowMetadata["endOfTurnEffectAttackWindow"] = true;
-            return ActionProcessResult.Success("End-of-turn effect-driven attack window opened.", windowMetadata);
-        }
+        // (A-2 task 7 / C-EoT-2 + A군 4단계) End-of-turn <Vortex>/<Overclock>/<Execute> now fire as OnEndTurn window
+        // MEMBERS (AutoProcessing.cs:699 StackSkillInfos → one MultipleSkills order-choice), so their attack is
+        // DECLARED during the DrainEndOfTurnWindowAsync above — a peer of every other [End of Your Turn] effect (e.g.
+        // BT1_021's -3 memory), with the player picking the order (AS-IS EndTurnProcess :699). The BATTLE steps of a
+        // declared attack run in the post-window `while (attackProcess.ActiveAttack())` loop (GameFlowProcessor
+        // RunToStableAsync, a separate step from AutoProcessAsync), matching AS-IS's window-then-attack order (:705).
+        // The invented fixed post-drain offer (EndOfTurnEffectAttack.TryOpen, which scanned a continuous keyword
+        // marker) that used to sit here is gone — its firing-half was retired when the three keywords were rehoused to
+        // the window (C-EoT-2 / A군 4단계 Execute).
 
         // (A-2 part2 / RD-6) threshold RE-CHECK (AS-IS EndTurnProcess:714): the [End of Your Turn] effects just
         // drained may have changed memory. If the opponent is now BELOW TurnEndMinMemory the turn does NOT end —
@@ -1062,7 +1026,6 @@ public sealed class MetadataActionProcessor : IActionProcessor
         // (task 6) the turn actually ends — clear the pre-flip [End of Your Turn] drained marker at the boundary.
         context.WindowResolution.EndOfTurnDrainedTurn = null;
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
-        EndOfTurnEffectAttack.ClearForPlayer(context, previousTurn.TurnPlayerId);
         OnPlayReactivation.ClearAll(context); // LA-3: reset the [All Turns] once-per-turn guard for both players.
         EndTurnCleanupResult cleanup = new HeadlessEndTurnCleanupFlow()
             .Cleanup(context, previousTurn);

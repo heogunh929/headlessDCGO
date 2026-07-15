@@ -1036,10 +1036,11 @@ public static class NewModelContinuousScan
 
     // Vortex/Overclock/Execute (CardEffectFactory/KeyWordEffects/Vortex.cs, Overclock.cs, Execute.cs): AS-IS has
     // no dedicated Permanent.Has<X> getter for these (unlike Blocker/Jamming/Reboot/Rush) — presence is only
-    // ever consulted structurally (CanActivateVortex, EndOfTurnEffectAttack.TryOpen). Each factory builds a
-    // fixed-EffectName ActivateClass registered at EffectTiming.OnEndTurn (AS-IS EX8_074 "Vortex"/"Overclock"/
-    // "Execute" regions; EndOfTurnEffectAttack.cs:62 "AS-IS cards register ExecuteSelfEffect at
-    // EffectTiming.OnEndTurn"). Their CanUseCondition(hashtable) (IsExistOnBattleArea(card) &&
+    // ever consulted structurally (CanActivateVortex and the OnEndTurn window's GetSkillInfos). Each factory builds
+    // a fixed-EffectName ActivateClass registered at EffectTiming.OnEndTurn (AS-IS EX8_074 "Vortex"/"Overclock"/
+    // "Execute" regions; AS-IS cards register ExecuteSelfEffect at EffectTiming.OnEndTurn, resolved by
+    // MultipleSkills -> VortexProcess/OverclockProcess/ExecuteProcess). Their CanUseCondition(hashtable)
+    // (IsExistOnBattleArea(card) &&
     // IsOwnerTurn(card)) reads no hashtable content, so CanTrigger(null) evaluates it exactly.
     private static bool HasSelfEndTurnKeyword(EngineContext context, HeadlessEntityId cardId, string effectName)
     {

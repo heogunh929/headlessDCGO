@@ -28,8 +28,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("S4: Collision granted via the KEYWORD (no metadata) forces block — un-sealed", CollisionViaKeywordUnsealed),
     ("(K3) a CanNotAffected(opponent-Digimon) defender is NOT forced by Collision (per-defender guard)", CollisionImmuneDefenderNotForced),
     ("(Execute-1) a NORMAL attack by an Execute keyword holder does NOT self-delete (AS-IS)", ExecuteKeywordNormalAttackNoSelfDelete),
-    ("(Execute-1) the end-of-turn window: player+unsuspended targets, attacker self-deletes after ITS attack", ExecuteEndOfTurnWindowSelfDeletes),
-    ("(Execute-1) summoning sickness blocks the Execute window (no Rush)", ExecuteWindowRespectsSummoningSickness),
+    // (G-clean) ExecuteEndOfTurnWindowSelfDeletes / ExecuteWindowRespectsSummoningSickness RETIRED — both
+    // asserted only the now-deleted EndOfTurnEffectAttack gate's TryOpen; <Execute>'s window fire, targets,
+    // per-attack self-delete, and summoning-sickness gating are witnessed end-to-end by tests/A4-Execute.
 };
 
 var failures = new List<string>();
@@ -147,41 +148,10 @@ async Task ExecuteKeywordNormalAttackNoSelfDelete()
     AssertFalse(InZone(match, P1, ChoiceZone.Trash, attacker), "attacker not trashed");
 }
 
-// (Execute-1 / A군 4단계) The invented EndOfTurnEffectAttack gate is RETIRED for <Execute> (the last of the 18
-// window-firing keywords). <Execute> now fires through the AS-IS OnEndTurn window (GetSkillInfos →
-// MultipleSkills → ExecuteProcess), where the offer allows the PLAYER and unsuspended Digimon and the
-// per-attack self-delete is appended to Permanent.UntilEndAttackEffects — witnessed end-to-end by
-// tests/A4-Execute (window fire + player/unsuspended targets + self-delete registration + no summoning-sickness
-// bypass + single-fire). This gate's TryOpen now opens NOTHING (single-fire: window only).
-async Task ExecuteEndOfTurnWindowSelfDeletes()
-{
-    DcgoMatch match = await NewMatch();
-    used.Clear();
-    HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
-    await Establish(match, P2, dp: 3000, suspended: false, flag: null);   // UNSUSPENDED
-    match.Context.EffectRegistry.Register(
-        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
-            .ToBinding($"exec:{attacker.Value}"));
-
-    AssertFalse(EndOfTurnEffectAttack.TryOpen(match.Context, P1),
-        "the invented EndOfTurnEffectAttack gate is RETIRED — <Execute> fires through the AS-IS OnEndTurn window (tests/A4-Execute)");
-}
-
-// (Execute-1) AS-IS Permanent.CanAttack: isExecute does NOT bypass summoning sickness — an Execute
-// Digimon that entered this turn (no Rush) is not offered the window.
-async Task ExecuteWindowRespectsSummoningSickness()
-{
-    DcgoMatch match = await NewMatch();
-    used.Clear();
-    HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: ("enteredThisTurn", true));
-    // (see NOTE above ExecuteKeywordNormalAttackNoSelfDelete) ExecuteSelfEffect's ActivateClass has no ToBinding
-    // and is excluded from registration — grant the live Execute keyword via SelfKeywordByNameEffect instead.
-    match.Context.EffectRegistry.Register(
-        new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
-            .ToBinding($"exec:{attacker.Value}"));
-
-    AssertFalse(EndOfTurnEffectAttack.TryOpen(match.Context, P1), "an Execute Digimon played this turn (no Rush) gets no window");
-}
+// (G-clean) ExecuteEndOfTurnWindowSelfDeletes + ExecuteWindowRespectsSummoningSickness were RETIRED: both
+// asserted only the now-physically-deleted EndOfTurnEffectAttack gate (TryOpen == false). <Execute>'s OnEndTurn
+// window fire, PLAYER/unsuspended targets, per-attack self-delete (Permanent.UntilEndAttackEffects), and the
+// no-summoning-sickness-bypass rule are witnessed end-to-end by tests/A4-Execute.
 
 async Task CollisionViaKeywordUnsealed()
 {

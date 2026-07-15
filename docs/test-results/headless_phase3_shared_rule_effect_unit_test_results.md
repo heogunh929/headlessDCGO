@@ -14,8 +14,8 @@
 
 ## Required Gate Summary
 
-- Required Phase 3 gate goals: 23
-- Complete Phase 3 gate goals: 23
+- Required Phase 3 gate goals: 22
+- Complete Phase 3 gate goals: 22
 - Blocked Phase 3 gate goals: 0
 - Failed Phase 3 gate goals: 0
 
@@ -41,7 +41,6 @@
 | G3I-001 | Replacement | `docs/test-results/goals/G3I-001_replacement_prevention_helpers_unit_test_results.md` | `tests/G3I-001.Replacement.prevention.helper.Tests` |
 | G3I-002 | Continuous | `docs/test-results/goals/G3I-002_continuous_effect_evaluator_unit_test_results.md` | `tests/G3I-002.Continuous.effect.evaluator.Tests` |
 | G3J-001 | Factory | `docs/test-results/goals/G3J-001_card_effect_factory_binding_unit_test_results.md` | `tests/G3J-001.CardEffectFactory.binding.Tests` |
-| G3J-002 | Factory | `docs/test-results/goals/G3J-002_permanent_effect_factory_binding_unit_test_results.md` | `tests/G3J-002.PermanentEffectFactory.binding.Tests` |
 | G3K-001 | Selection | `docs/test-results/goals/G3K-001_effect_selection_helpers_unit_test_results.md` | `tests/G3K-001.Effect.selection.helper.Tests` |
 | G3K-002 | Timing | `docs/test-results/goals/G3K-002_timing_priority_helpers_unit_test_results.md` | `tests/G3K-002.Timing.priority.helper.Tests` |
 | G3L-001 | Flags | `docs/test-results/goals/G3L-001_once_per_turn_flags_unit_test_results.md` | `tests/G3L-001.Once.per.turn.flag.helper.Tests` |

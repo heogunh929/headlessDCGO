@@ -12,8 +12,8 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// ATTACKING permanent, the attack target is LOCKED. AS-IS gates exactly two actions with it — both are
 /// wired here: block eligibility (Permanent.cs:2156 → <see cref="BlockTiming"/> offers no blocker
 /// candidates) and <c>AttackProcess.SwitchDefender</c> (AttackProcess.cs:519, shared by blocker-redirect
-/// AND effect retargets → <see cref="RaidAttackSwitch"/> and any future retarget effect must consult this
-/// gate before switching).
+/// AND effect retargets → the printed-Raid retarget (<c>RaidProcess</c>) and any future retarget effect must
+/// consult this gate before switching).
 /// </summary>
 public static class AttackTargetSwitchGate
 {

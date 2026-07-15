@@ -9,7 +9,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 // Permanent.cs, and their READ consumers (attack/block/battle/raid/security/early-phase/end-of-turn-Rush)
 // were rewired to `new Permanent(ctx,id).HasX` / `.IsDigimon`. What REMAINS here is R2's job, not a read:
 //   * const strings + HasKeyword — consumed by keyword PROCESSES with no getter (Overclock/Vortex/Execute/
-//     Progress/VortexCanAttackPlayers: EndOfTurnEffectAttack, OverclockEffect, ProgressImmunity) and by the
+//     Progress/VortexCanAttackPlayers: OverclockEffect, ProgressImmunity, the OnEndTurn window) and by the
 //     GRANT-registration layer (CardEffectFactory/CardEffectCommons/ContinuousAndRestrictionEffects register
 //     keyword bindings under these names).
 //   * HasKeyword(EffectRegistry,…) + KeywordGrantAcceptsSubject + the deletion-replacement flag consts

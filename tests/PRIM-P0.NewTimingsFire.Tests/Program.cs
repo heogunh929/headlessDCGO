@@ -33,7 +33,9 @@ var tests = new (string Name, Func<Task> Body)[]
     ("WhenRemoveField (derived) fires: a field card leaving the battle area resolves its effect", WhenRemoveField_Fires),
     ("OnEndAttack fires: an attack ending resolves the attacker's OnEndAttack effect", OnEndAttack_Fires),
     ("OnDigivolutionCardDiscarded fires: trashing a source card resolves the host's effect", OnDigivolutionCardDiscarded_Fires),
-    ("OnAttackTargetChanged fires: a raid switching the target resolves the attacker's effect", OnAttackTargetChanged_Fires),
+    // (G-clean) "OnAttackTargetChanged fires via raid switch" RETIRED — it drove the now-deleted invented
+    // RaidAttackSwitch gate. OnAttackTargetChanged's emit (AttackProcess.SwitchDefender) is covered by the block
+    // path in tests/F1-Tier2-OnAttackTargetChanged; the printed-Raid window path is covered by tests/C-Atk-Raid.
 };
 
 var failures = new List<string>();
@@ -190,27 +192,6 @@ async Task OnDigivolutionCardDiscarded_Fires()
     AssertEqual(1, context.MemoryController.Current.Current, "host's OnDigivolutionCardDiscarded effect gained 1 memory when a source was trashed");
 }
 
-// OnAttackTargetChanged is emitted when the attack's defender switches (RaidAttackSwitch.ResolveChoice ->
-// AttackController.SwitchDefender). Broadcast; the attacker's effect self-gates on the subject.
-async Task OnAttackTargetChanged_Fires()
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 31);
-    context.TurnController.Initialize(new[] { Player, Opponent }, Player);
-    context.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-C2b-2) DoneStartGame gate: new-model ActivateClass only fires past Setup.
-    HeadlessEntityId attacker = await PlaceBattler(context, Player, "ATK", dp: 4000, new Dictionary<string, object?> { [RaidAttackSwitch.HasRaidKey] = true, [RaidAttackSwitch.IsSuspendedKey] = false });
-    await PlaceBattler(context, Opponent, "LOW", dp: 3000, new Dictionary<string, object?> { [RaidAttackSwitch.IsSuspendedKey] = false });
-    HeadlessEntityId high = await PlaceBattler(context, Opponent, "HIGH", dp: 8000, new Dictionary<string, object?> { [RaidAttackSwitch.IsSuspendedKey] = false });
-
-    Register(context, new TimingProbe(EffectTiming.OnAttackTargetChanged), "PROBE", attacker);
-    context.AttackController.DeclareAttack(Player, attacker, Opponent, targetId: null, isDirectAttack: true);
-    context.MemoryController.Set(0);
-
-    AssertEqual(true, RaidAttackSwitch.RequestChoice(context), "raid opens the target-switch choice");
-    RaidAttackSwitch.ResolveChoice(context, ChoiceResult.Select(high));   // switches defender -> emits OnAttackTargetChanged
-    await new GameFlowProcessor().RunToStableAsync(context);
-
-    AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnAttackTargetChanged effect gained 1 memory when the raid switched the target");
-}
 
 async Task<HeadlessEntityId> PlaceBattler(EngineContext context, HeadlessPlayerId owner, string tag, int dp, Dictionary<string, object?> extra)
 {

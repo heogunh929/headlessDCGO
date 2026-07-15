@@ -46,10 +46,11 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 
         /// <summary>(R2-A) AS-IS <c>ProgressProcess</c> (KeyWordEffects/Progress.cs:62): while this Digimon
         /// attacks, add an UntilEndAttack "not affected by the opponent's Digimon's effects" CanNotAffectedClass
-        /// to the attacker. STOP — AS-IS appends the CanNotAffectedClass to <c>Permanent.UntilEndAttackEffects</c>,
-        /// a per-attack effect list with no mirror <see cref="Permanent"/> member (design item RD-R2-01, same gap
-        /// as ExecuteProcess). The live Progress immunity is applied independently by
-        /// <see cref="Headless.Runtime.ProgressImmunity"/> at attack declaration.</summary>
+        /// to the attacker. RD-R2-01 (the missing <c>Permanent.UntilEndAttackEffects</c> W3 bucket) is now
+        /// RESOLVED — the bucket is live (ExecuteProcess uses it) — so this window-append form is portable, but
+        /// Progress was outside the window-firing rehousing scope and remains unported here. The live Progress
+        /// immunity is applied independently by <see cref="Headless.Runtime.ProgressImmunity"/> at attack
+        /// declaration, so behaviour is unaffected.</summary>
         public static Task ProgressProcess(CardSource cardSource, ICardEffect activateClass, Func<Task> beforeOnAttackCoroutine = null)
         {
             throw new NotSupportedException(

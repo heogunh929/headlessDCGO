@@ -45,7 +45,6 @@ public static class DeletionReplacementGate
     public const string HasFortitudeKey = "hasFortitude";
     public const string HasArmorPurgeKey = "hasArmorPurge";
     public const string HasFragmentKey = "hasFragment";
-    public const string FragmentCostKey = "fragmentCost";
     public const string HasAscensionKey = "hasAscension";
     public const string HasScapegoatKey = "hasScapegoat";
     public const string HasSaveKey = "hasSave";
@@ -65,15 +64,10 @@ public static class DeletionReplacementGate
     public const string DeletedByOwnEffectKey = "deletedByOwnEffect";
     public const string EvadedKey = "evaded";
     public const string BarrieredKey = "barriered";
-    public const string DecoyRedirectKey = "decoyRedirect";
     public const string FortitudeReplayedKey = "fortitudeReplayed";
-    public const string ArmorPurgedKey = "armorPurged";
-    public const string FragmentedKey = "fragmented";
-    public const string AscendedKey = "ascended";
-    public const string ScapegoatSacrificeKey = "scapegoatSacrifice";
-    public const string SavedKey = "saved";
-    public const string DecodedKey = "decoded";
-    public const string PartitionedKey = "partitioned";
+    // (G-clean) DecoyRedirectKey / ArmorPurgedKey / FragmentedKey / AscendedKey / ScapegoatSacrificeKey /
+    // SavedKey / DecodedKey / PartitionedKey deleted — write-marker vocabulary of the retired PRE/POST
+    // firing-half (Try*Async), reference-0 after wave3. Presence/state markers above are retained.
 
     // (C-Del 3c-2b RETIRED, 2026-07-15) TryEvade / TryBarrierAsync — the invented PRE would-be-deleted Evade /
     // Barrier firing-half — are retired. AS-IS [Evade] / [Barrier] now fire through the PRE cut-in window
@@ -110,9 +104,6 @@ public static class DeletionReplacementGate
     // rebuild from the trash) wrongly fired OnDeletion for the survivor, opened stacked POST windows, and
     // never emitted WhenTopCardTrashed.
 
-    /// <summary>(C1) binding-values key carrying the AS-IS <c>trashValue</c> of a FragmentSelfEffect grant
-    /// (Fragment &lt;X&gt; — trash X sources on deletion). Grant value wins over the test-set metadata key.</summary>
-    public const string FragmentTrashValueKey = "fragment.trashValue";
 
     // (C-Del 3c-2b RETIRED, 2026-07-15) FragmentCostOf / CanFragment / ApplyFragmentAsync / TryFragmentAsync — the
     // invented PRE would-be-deleted Fragment firing-half — are retired. AS-IS [Fragment] now fires through the PRE
@@ -219,22 +210,6 @@ public static class DeletionReplacementGate
     // SelectPermanentEffect picks the Tamer to place under, isOptional=true) is collected + resolved by the
     // window. Keeping this gate AND the window would double-fire. The Save presence marker is untouched — only
     // the FIRING is retired. See keyword_rehoming_design_2026-07-15.md §F.3a.
-
-    private static int ReadInt(IReadOnlyDictionary<string, object?> metadata, string key, int defaultValue)
-    {
-        if (!metadata.TryGetValue(key, out object? raw) || raw is null)
-        {
-            return defaultValue;
-        }
-
-        return raw switch
-        {
-            int value => value,
-            long value when value >= int.MinValue && value <= int.MaxValue => (int)value,
-            string text when int.TryParse(text, out int parsed) => parsed,
-            _ => defaultValue
-        };
-    }
 
     private static int SourceCount(IReadOnlyDictionary<string, object?> metadata) => ReadSourceIds(metadata).Count;
 

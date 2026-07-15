@@ -23,7 +23,6 @@ using HeadlessDCGO.Engine.Headless.Services;
 public sealed class DeletionReplacementTiming
 {
     public const string ReplacementDeclinedKey = "replacementDeclined";
-    public const string PostResolvedKey = "postDeletionResolved";
     public const string RequestIdPrefix = "deletion-replacement";
     public const char Delimiter = '#';
 
@@ -31,8 +30,8 @@ public sealed class DeletionReplacementTiming
     // now fires through the AS-IS OnDestroyedAnyone cut-in window (printed AscensionSelfEffect ActivateClass ->
     // AscensionProcess), the CanActivateOnDeletion identity gate now satisfied because the deletion paths CHARGE the
     // PermanentJustBeforeRemoveField store (RD-P6C3-A3 resolved). Keeping the gate AND the window would double-fire.
-    // With this gone, PostOptions surfaces NOTHING (the POST-choice scaffolding below is dead, retained only for the
-    // final G-clean pass). See keyword_rehoming_design_2026-07-15.md §5 (3c-3) / RD-3A-01 (resolved).
+    // (G-clean) With every POST keyword gone, the POST-choice scaffolding (PostOptions / PostResolvedKey / the
+    // Priority-3 loop / the isPost branch) was physically deleted. See keyword_rehoming_design_2026-07-15.md §5.
     // (PRIM-P0-timing batch 4) PRE, no built-in sub — a card-registered WhenPermanentWouldBeDeleted effect.
     // Activating it runs the card's own effect body (which prevents/replaces via ClearDeletion). Any target/cost
     // sub-pick the effect needs is handled inside the effect's own resolution.
@@ -101,16 +100,6 @@ public sealed class DeletionReplacementTiming
             PreOptions(context, zones, record, ByBattle(record)).Count > 0;
     }
 
-    private static IReadOnlyList<string> PostOptions(EngineContext context, IZoneStateReader zones, CardInstanceRecord record)
-    {
-        // (C-Del 3c-3 RETIRED) Ascension — the last POST gate option — is retired; it fires through the AS-IS
-        // OnDestroyedAnyone cut-in window (printed AscensionSelfEffect ActivateClass → AscensionProcess). Save was
-        // retired in 3a; Decode/Partition were MOVED to the PRE window. No POST keyword surfaces here anymore, so
-        // this always returns empty (the POST-choice scaffolding is dead, retained for the final G-clean pass).
-        _ = (context, zones, record);
-        return Array.Empty<string>();
-    }
-
     // (C-Del 3c-2b RETIRED) The Decode/Partition source-candidate helpers (FindDecodeSourceCandidates /
     // DecodeSourceConditionOf) and the Save target helper are retired with the two-step machinery — those
     // keywords now play/place their source(s) inside the printed / granted ActivateClass resolved by the AS-IS
@@ -137,19 +126,9 @@ public sealed class DeletionReplacementTiming
             return OpenKeywordChoice(context, record, PreOptions(context, zones, record, ByBattle(record)), "would be deleted");
         }
 
-        // Priority 3: POST (on-deletion) choices.
-        foreach (CardInstanceRecord record in context.CardInstanceRepository.Snapshot())
-        {
-            bool wasDeleted = ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByEffectKey) ||
-                ReadFlag(record.Metadata, DeletionReplacementGate.DeletedByBattleKey);
-            if (wasDeleted && !ReadFlag(record.Metadata, PostResolvedKey) &&
-                zones.GetCards(record.OwnerId, ChoiceZone.Trash).Contains(record.InstanceId) &&
-                PostOptions(context, zones, record).Count > 0)
-            {
-                return OpenKeywordChoice(context, record, PostOptions(context, zones, record), "was deleted");
-            }
-        }
-
+        // (G-clean) The former Priority 3 (POST on-deletion) loop is deleted — every POST keyword (Save/Decode/
+        // Partition/Ascension) was retired or moved to the PRE window in wave3, so PostOptions surfaced nothing.
+        // The PRE CustomWouldBeDeleted bridge above is the only surviving window this gate opens.
         return false;
     }
 
@@ -229,11 +208,11 @@ public sealed class DeletionReplacementTiming
 
     private async Task<DeletionReplacementResolveResult> ResolveKeywordStep(EngineContext context, HeadlessEntityId cardId, ChoiceResult result)
     {
-        bool isPost = !IsPendingDeletion(context, cardId);
-
+        // (G-clean) The isPost branch is deleted: the only surviving option (CustomWouldBeDeleted PRE) is always
+        // pending-deletion, so isPost was always false. A declined/failed replacement marks ReplacementDeclinedKey.
         if (result.IsSkipped || result.SelectedIds.Count == 0)
         {
-            Mark(context, cardId, isPost ? PostResolvedKey : ReplacementDeclinedKey);
+            Mark(context, cardId, ReplacementDeclinedKey);
             return DeletionReplacementResolveResult.Declined(cardId);
         }
 
@@ -241,13 +220,8 @@ public sealed class DeletionReplacementTiming
         // (C-Del 3c-2b) No surviving option needs a two-step sub-target — apply directly.
         if (!await ApplyNoTarget(context, cardId, option).ConfigureAwait(false))
         {
-            Mark(context, cardId, isPost ? PostResolvedKey : ReplacementDeclinedKey);
+            Mark(context, cardId, ReplacementDeclinedKey);
             return DeletionReplacementResolveResult.Declined(cardId);
-        }
-
-        if (isPost)
-        {
-            Mark(context, cardId, PostResolvedKey);
         }
 
         return DeletionReplacementResolveResult.Activated(cardId, option);
@@ -297,10 +271,6 @@ public sealed class DeletionReplacementTiming
     // window. See keyword_rehoming_design_2026-07-15.md §5 / RD-3C2B.
 
     // --- Metadata helpers ---------------------------------------------------
-
-    private static bool IsPendingDeletion(EngineContext context, HeadlessEntityId cardId) =>
-        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? r) && r is not null &&
-        ReadFlag(r.Metadata, GameFlowProcessor.PendingDeletionKey);
 
     private static void ClearDeletion(EngineContext context, HeadlessEntityId cardId)
     {

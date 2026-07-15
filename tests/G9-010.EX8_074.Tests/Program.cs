@@ -104,8 +104,8 @@ async Task VortexLive()
             .Any(si => si.CardEffect is ActivateICardEffect),
             "the OnEndTurn window collects EX8_074's printed Vortex ActivateClass");
     }
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the retired gate no longer opens a <Vortex> window (the window resolves it — see C-EoT2)");
+    // (G-clean) The invented EndOfTurnEffectAttack gate is physically deleted — the window is the sole <Vortex>
+    // firing path (single-fire proven structurally by the gate class no longer existing).
 }
 
 async Task WhenDigivolvingDelete()

@@ -10,23 +10,6 @@ using HeadlessDCGO.Engine.Headless.State;
 
 public static class PermanentEffectFactory
 {
-    public static PermanentEffectFactoryBindingRegistry CreateRegistry(
-        IEnumerable<PermanentEffectFactoryBindingRule>? rules = null)
-    {
-        var registry = new PermanentEffectFactoryBindingRegistry();
-        if (rules is null)
-        {
-            return registry;
-        }
-
-        foreach (PermanentEffectFactoryBindingRule rule in rules)
-        {
-            registry.Register(rule);
-        }
-
-        return registry;
-    }
-
     /// <summary>(AD1-S) 1:1 mirror of AS-IS <c>PermanentEffectFactory.CanNotSwitchAttackTargetEffect(targetPermanent,
     /// activateClass)</c> (PermanentEffectFactory.cs:109-127): "This Digimon's attack target can't be switched."
     /// CanUse mirror = target on the battle area AND the controller's turn (<c>IsOwnerTurn</c>) — evaluated
@@ -111,75 +94,14 @@ public static class PermanentEffectFactory
             condition: () => CardEffectCommons.CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent));
     }
 
-    public static PermanentEffectFactoryBindingRule DeleteSelfEffect(
-        string id,
-        IReadOnlyList<string> permanentKeys,
-        string trigger = PermanentEffectFactoryBindingRules.DeleteSelfTiming)
-    {
-        return PermanentEffectFactoryBindingRules.DeleteSelf(id, permanentKeys, trigger);
-    }
-
-    public static PermanentEffectFactoryBindingRule DigimonEffectImmunity(
-        string id,
-        IReadOnlyList<string> permanentKeys,
-        string trigger = PermanentEffectFactoryBindingRules.ImmunityTiming)
-    {
-        return PermanentEffectFactoryBindingRules.Immunity(id, permanentKeys, "DigimonEffect", trigger);
-    }
-
-    public static PermanentEffectFactoryBindingRule OptionEffectImmunity(
-        string id,
-        IReadOnlyList<string> permanentKeys,
-        string trigger = PermanentEffectFactoryBindingRules.ImmunityTiming)
-    {
-        return PermanentEffectFactoryBindingRules.Immunity(id, permanentKeys, "OptionEffect", trigger);
-    }
-
-    public static PermanentEffectFactoryBindingRule CollisionEffect(
-        string id,
-        IReadOnlyList<string> permanentKeys,
-        string trigger = PermanentEffectFactoryBindingRules.CollisionTiming)
-    {
-        return PermanentEffectFactoryBindingRules.Collision(id, permanentKeys, trigger);
-    }
-
-    public static PermanentEffectFactoryBindingRule AddDetailClass(
-        string id,
-        IReadOnlyList<string> permanentKeys,
-        string detail,
-        bool triggerEffect,
-        string trigger = PermanentEffectFactoryBindingRules.DetailTiming)
-    {
-        return PermanentEffectFactoryBindingRules.Detail(id, permanentKeys, detail, triggerEffect, trigger);
-    }
-
-    public static PermanentEffectFactoryBindingResult Bind(
-        PermanentEffectFactoryBindingRegistry registry,
-        CardInstanceState permanent,
-        string trigger,
-        HeadlessPlayerId controllerId,
-        EffectContext context,
-        CardRecord? topCard = null)
-    {
-        ArgumentNullException.ThrowIfNull(registry);
-
-        return registry.Bind(new PermanentEffectFactoryBindingRequest(
-            permanent,
-            trigger,
-            controllerId,
-            context,
-            topCard));
-    }
-
     // ---------------------------------------------------------------------------------------------------------
-    // (A군 4단계 / Execute) AS-IS ActivateClass overloads. These are the AS-IS
-    // PermanentEffectFactory.DeleteSelfEffect / AddDetailClass (DCGO PermanentEffectFactory.cs:11-47 / :146-161)
-    // that ExecuteProcess (CardEffectCommons/KeyWordEffects/Execute.cs) appends to Permanent.UntilEndAttackEffects.
-    // They coexist with the mirror-invented binding-rule overloads above (distinct signatures: Permanent-first vs
-    // string-key). The invented binding-rule model is left DEAD-BUT-PRESENT (0 src consumers) rather than deleted
-    // because it is welded to the Phase-3 rebuild aggregate contract (tests/G3J-002 + G3Z-001 registry + a result
-    // doc + the "23 gate goals" count in headless_phase3_shared_rule_effect_unit_test_results.md); its removal
-    // belongs to a rebuild-aggregate / G-clean batch that also rewrites those contract docs — see the batch report.
+    // (G-clean) The invented string-key binding-rule overloads (CreateRegistry / DeleteSelfEffect(string,…) /
+    // DigimonEffectImmunity(string,…) / OptionEffectImmunity(string,…) / CollisionEffect(string,…) /
+    // AddDetailClass(string,…) / Bind) and PermanentEffectFactoryBinding.cs were physically deleted — they had 0
+    // src consumers (only tests/G3J-002 exercised them). The G3Z-001 Phase-3 aggregate contract was updated to
+    // drop that gate goal. The AS-IS ActivateClass overloads below (Permanent-first) are unrelated and stay:
+    // DeleteSelfEffect / AddDetailClass are the AS-IS PermanentEffectFactory (DCGO PermanentEffectFactory.cs:11-47
+    // / :146-161) that ExecuteProcess appends to Permanent.UntilEndAttackEffects.
     // ---------------------------------------------------------------------------------------------------------
 
     #region Effect of a Permanent to Delete Itself

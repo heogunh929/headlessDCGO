@@ -40,7 +40,7 @@ var P2 = new HeadlessPlayerId(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("Vortex PRINTED: the OnEndTurn window opens \"Will you use Vortex?\" -> VortexProcess attack target select", VortexPrintedFiresThroughWindow),
-    ("Vortex: the retired gate (EndOfTurnEffectAttack.TryOpen) does NOT open for a Vortex Digimon (single-fire)", VortexGateRetired),
+    ("Vortex: the presence marker stays live while the invented EoT gate is deleted (single-fire: window only)", VortexGateRetired),
     ("Vortex GRANTED: GainVortex stores an OnEndTurn bucket effect that fires through the window", VortexGrantedFiresThroughWindow),
     ("Vortex GRANTED: fires THEN the per-duration bucket reset stops a re-fire (AS-IS order)", VortexGrantedBucketResetOrder),
     ("Vortex CONTROL: a plain Digimon (no Vortex) opens no OnEndTurn window (false-green guard)", VortexControlNoWindow),
@@ -100,8 +100,8 @@ async Task VortexGateRetired()
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, vortex, ContinuousKeywordGate.Vortex),
         "the Vortex presence marker is still live (only the gate FIRING is retired)");
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the retired gate opens NO window for a Vortex Digimon (single-fire: window only)");
+    // (G-clean) The invented EndOfTurnEffectAttack gate is physically deleted — single-fire is proven
+    // structurally (the gate class no longer exists); <Vortex> fires only through the OnEndTurn window.
 }
 
 async Task VortexGrantedFiresThroughWindow()
@@ -197,8 +197,8 @@ async Task OverclockGateRetired()
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, oc, ContinuousKeywordGate.Overclock),
         "the Overclock presence marker is still live (only the gate FIRING is retired)");
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the retired gate opens NO window for an Overclock Digimon (single-fire: window only)");
+    // (G-clean) The invented EndOfTurnEffectAttack gate is physically deleted — single-fire is proven
+    // structurally (the gate class no longer exists); <Overclock> fires only through the OnEndTurn window.
 }
 
 async Task OverclockGrantedFiresThroughWindow()

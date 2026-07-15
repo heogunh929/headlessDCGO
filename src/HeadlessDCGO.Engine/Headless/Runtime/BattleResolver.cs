@@ -20,8 +20,8 @@ public sealed class BattleResolver
     /// both keys are kept because their record moments differ (a cut-in DP change is visible only in the latter).</summary>
     public const string DpBeforeBattleKey = "dpBeforeBattle";
     public const string PreventBattleDeletionKey = "preventBattleDeletion";
-    public const string HasPiercingKey = "hasPiercing";
-    public const string HasRetaliationKey = "hasRetaliation";
+    // (G-clean) HasPiercingKey / HasRetaliationKey deleted — the A군 4단계 IBattle-payload cutover physically
+    // removed the manual Retaliation/Pierce block, leaving these flag consts with zero readers/writers.
     public const string HasIcecladKey = "hasIceclad";
     public const string SourceIdsKey = "sourceIds";
 
@@ -403,7 +403,8 @@ public sealed class BattleResolver
     private static bool IsStillPendingDeletion(EngineContext context, HeadlessEntityId cardId) =>
         ReadInstanceFlag(context, cardId, GameFlowProcessor.PendingDeletionKey);
 
-    public const string RetaliationFiredKey = "retaliationFired";
+    // (G-clean) RetaliationFiredKey deleted — the manual Retaliation firing-half that set/read it is gone; it was
+    // clear-only (never written, never read) after the A군 4단계 cutover.
 
     /// <summary>A pending battle deletion that still has an UNDECLINED would-be-deleted replacement — the
     /// owner has not yet decided, so a window must open before finalizing. (C-5/VR-6) internal: the
@@ -562,10 +563,10 @@ public sealed class BattleResolver
         context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 
-    // (RD-CBTL-01) IsConfirmedDoomed / IsOnBattleArea were only read by the retired manual same-round Retaliation
-    // drag — removed with it. RetaliationFiredKey is retained (still cleared by MarkDeletedByBattle) as G-clean dead
-    // substrate; HasRetaliationKey / HasPiercingKey remain as public consts (dead — the metadata-flag firing path is
-    // retired; the window reads the printed/granted keyword EffectList instead).
+    // (RD-CBTL-01 / G-clean) IsConfirmedDoomed / IsOnBattleArea were only read by the retired manual same-round
+    // Retaliation drag — removed with it. RetaliationFiredKey / HasRetaliationKey / HasPiercingKey were physically
+    // deleted in the G-clean pass (the metadata-flag firing path is retired; the window reads the printed/granted
+    // keyword EffectList instead).
 
     private static bool ReadInstanceFlag(EngineContext context, HeadlessEntityId cardId, string key) =>
         context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null &&
@@ -827,7 +828,6 @@ public sealed class BattleResolver
             [DeletedByBattleKey] = true,
             [GameFlowProcessor.PendingDeletionKey] = false,
         };
-        metadata.Remove(RetaliationFiredKey);
         metadata.Remove(DeletionReplacementTiming.ReplacementDeclinedKey);
         context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
@@ -844,8 +844,7 @@ public sealed class BattleResolver
             // state-based sweep does not double-handle it.
             [GameFlowProcessor.PendingDeletionKey] = false,
         };
-        // Clear the per-attack F-6.8 markers so a Fortitude-replayed card starts clean.
-        metadata.Remove(RetaliationFiredKey);
+        // Clear the per-attack F-6.8 marker so a Fortitude-replayed card starts clean.
         metadata.Remove(DeletionReplacementTiming.ReplacementDeclinedKey);
 
         context.CardInstanceRepository.Upsert(participant.Instance with { Metadata = metadata });
