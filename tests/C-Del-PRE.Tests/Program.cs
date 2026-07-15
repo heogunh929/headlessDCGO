@@ -33,7 +33,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("PRINTED SURVIVES: deleting the fixture fires the PRE cut-in, which cancels the deletion (willBeRemoveField=false) → spared", PrintedSurvivesViaPreWindow),
     ("CONTROL: a plain deleted card (no PRE effect) is trashed — the PRE window is a no-op (false-green guard)", ControlStaysTrashed),
     ("BATCH: one Destroy over [survivor, casualty] spares the survivor, trashes the casualty, fires the OnDeletion reactor ONCE", BatchSurvivorAndCasualty),
-    ("GATE COEXISTS: a gate-detected (keyword) card still DEFERS via the live gate (DeferAll path unchanged)", GateStillDefersKeyword),
+    ("RETIRED GATE INERT → WINDOW SURVIVES: a would-be-deleted survive replacement is NOT gate-deferred (HasPreOption false, no pendingDeletion) yet SURVIVES via the AS-IS PRE cut-in window alone", WindowSparesRetiredKeyword),
 };
 
 var failures = new List<string>();
@@ -141,28 +141,30 @@ async Task BatchSurvivorAndCasualty()
     AssertFalse(context.ChoiceController.Current.IsPending, "no cross-batch order choice — one Destroy, one window");
 }
 
-async Task GateStillDefersKeyword()
+async Task WindowSparesRetiredKeyword()
 {
     EngineContext context = NewContext();
     using var scope = AmbientMatchContext.Enter(context);
-    // A card the GATE detects (bare Evade presence marker) — the live PRE replacement gate must STILL defer it
-    // (DeferAll=true) exactly as before this batch; the new PRE cut-in window is NOT opened for it (it never
-    // reaches the DeferAll=false branch), so there is no double-path.
-    var card = await Place(context, P1, "PLAIN", flags: (DeletionReplacementGate.HasEvadeKey, true));
+    // 3c-2b flip: the PRE replacement keywords (Evade/Barrier/…) NO LONGER fire through the invented
+    // DeletionReplacementGate. A window-collectible would-be-deleted survive replacement (the window form of the
+    // retired Evade keyword — the printed TfxWouldBeDeleted ActivateClass at WhenPermanentWouldBeDeleted) is
+    // therefore NOT gate-deferred (HasPreOption false; the gate's firing half is retired) — yet it STILL SURVIVES,
+    // now via the AS-IS PRE cut-in window ALONE. A retired synthetic HasEvadeKey flag would instead just DIE (it is
+    // not window-collectible), so survival here is genuinely owned by the window, not the gate.
+    var card = await Place(context, P1, "TfxWouldBeDeleted");
     await Place(context, P2, "FOE");
     CardEffectRegistrar.RegisterCard(context, card, P1);
-    SetMeta(context, card, DeletionReplacementGate.IsSuspendedKey, false);
 
     var zones = (IZoneStateReader)context.ZoneMover;
     bool gateSees = DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, Record(context, card), byBattle: false, context.EffectRegistry);
-    AssertTrue(gateSees, "the gate DOES detect the Evade keyword card (gate firing half is not retired)");
+    AssertFalse(gateSees, "the retired gate does NOT defer the keyword (HasPreOption false) — the gate firing half is retired");
 
-    MatchStateMutationSink sink = Sink(context);
-    sink.Apply(Delete(card));
-    await sink.FlushAsync();
+    await DeleteAndDrive(context, card);
 
-    AssertTrue(ReadFlag(context, card, GameFlowProcessor.PendingDeletionKey), "the gate-detected card is DEFERRED (pendingDeletion) via the live gate — DeferAll path unchanged");
-    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, card), "the deferred card is not yet trashed (awaits the gate replacement decision)");
+    AssertFalse(ReadFlag(context, card, GameFlowProcessor.PendingDeletionKey), "the card was NOT gate-parked (no pendingDeletion) — no gate DeferAll path");
+    AssertFalse(context.ChoiceController.Current.IsPending, "the gate opened no replacement choice");
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, card), "the card SURVIVED via the AS-IS PRE cut-in window (not the gate)");
+    AssertFalse(InZone(context, P1, ChoiceZone.Trash, card), "the survivor is not in the trash");
 }
 
 // ============================================================ HARNESS

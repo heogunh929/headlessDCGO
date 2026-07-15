@@ -58,13 +58,9 @@ public sealed class GameFlowProcessor
                 return FlowProcessResult.Paused(progressedAny, resolvedTotal, iterations);
             }
 
-            // (P6) settle holders whose chosen sacrifice's own window has resolved — BEFORE any window
-            // reopens for them (spared when the ally died, back to dying when it saved itself).
-            if (DeletionReplacementTiming.SettleAwaitingSacrifices(context))
-            {
-                progressedAny = true;
-                continue;
-            }
+            // (C-Del 3c-2b) The sacrifice-awaiting settle step is retired — Scapegoat/Decoy resolve their
+            // sacrifice inside the printed / granted ActivateClass run by the AS-IS PRE cut-in window (the
+            // sacrificed ally's own would-be-deleted window opens there), so no invented holder-park needs settling.
 
             // (W6 tail) run due turn-end self-deletions (AddSelfDeleteEffect markers promoted by the
             // end-turn cleanup) through the REAL deletion pipeline.
@@ -196,7 +192,7 @@ public sealed class GameFlowProcessor
                 {
                     bool pending = IsPendingDeletion(context, cardId);
                     if (pending && !(deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)
-                        || IsSacrificeAwaiting(context, cardId)
+                        || IsHeldForUnsettledWatch(context, cardId)
                         || HasUndecidedBatchMate(context, deletionReplacement, cardId)))
                     {
                         return true;
@@ -272,13 +268,21 @@ public sealed class GameFlowProcessor
                     // skip marks it declined so the next sweep finishes it). A BATTLE-deferred card
                     // (deletedByBattle) is finalized by BattleResolver.FinalizeDeferredAsync, never swept here.
                     if (pending && (deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)
-                        // (P6) a holder waiting on its sacrifice's fate is settled by SettleAwaitingSacrifices.
-                        || IsSacrificeAwaiting(context, cardId)
                         // (C-Del 3c-2b-pre / RD-3C2BP-01) a PRE-window-promoted member whose "would be deleted"
                         // cut-in is STILL resolving is not finalized yet — AS-IS fixes destroyTargetPermanents_Fixed
                         // only AFTER the WHOLE PRE cut-in completes for every target. Without this, a 2nd+ window-form
                         // replacement in one Destroy is trashed mid-drain before its survival body runs.
                         || IsPromotedAwaitingCutInWindow(context, cardId)
+                        // (C-Del 3c-2b / W6-S) WATCH-HOLD: while a DeletePeremanentAndProcessAccordingToResult
+                        // continuation is parked (an unsettled DeletionOutcomeWatcher watch), only its TARGETS
+                        // finalize in this pass — every other pending deletion HOLDS until the watch settles.
+                        // AS-IS runs the nested delete (and its success/failure process — e.g. Scapegoat sparing
+                        // its holder when the sacrifice died) INLINE inside the cut-in body, BEFORE the enclosing
+                        // Destroy() fixes survivors; without this hold the sweep would trash the enclosing holder
+                        // in the same pass as the sacrifice, before the parked successProcess clears its
+                        // willBeRemoveField. The loop settles the watcher between passes, then the next pass
+                        // finalizes the held member on its settled willBeRemoveField.
+                        || IsHeldForUnsettledWatch(context, cardId)
                         // (R2-P1-1) BATCH-MATE gate: a decided member of a deferred delete batch holds until
                         // EVERY member of the same batch id has decided — AS-IS Destroy() trashes the fixed
                         // list in ONE post-cut-in pass (all targets' cut-ins resolve, THEN the per-permanent
@@ -439,10 +443,17 @@ public sealed class GameFlowProcessor
     /// Digimon with no printed DP at all is left alone (mirrors BattleResolver's "no battle DP" guard
     /// and avoids deleting DP-less abstract fixtures).
     /// </summary>
-    // (P6) the holder parks while its chosen sacrifice decides its own would-be-deleted window.
-    private static bool IsSacrificeAwaiting(EngineContext context, HeadlessEntityId cardId) =>
-        context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.ContainsKey(DeletionReplacementTiming.SacrificeAwaitingKey);
+    // (C-Del 3c-2b RETIRED) IsSacrificeAwaiting removed — the invented cross-card sacrifice holder-park
+    // (SacrificeAwaitingKey) is retired; Scapegoat/Decoy resolve inside the AS-IS PRE cut-in window.
+
+    /// <summary>(C-Del 3c-2b / W6-S) While a parked DeletePeremanentAndProcessAccordingToResult continuation
+    /// (an unsettled <see cref="DeletionOutcomeWatcher"/> watch) exists, a pending deletion that is NOT one of
+    /// its targets HOLDS — the targets finalize first, the loop fires the settled watch (whose success/failure
+    /// process may spare the held member, AS-IS inline ordering), and the next pass finalizes the held member
+    /// on its settled <c>willBeRemoveField</c>.</summary>
+    private static bool IsHeldForUnsettledWatch(EngineContext context, HeadlessEntityId cardId) =>
+        context.TryGetService(out DeletionOutcomeWatcher? watcher) && watcher is not null &&
+        watcher.Count > 0 && !watcher.IsWatchTarget(cardId);
 
     /// <summary>(R2-P1-1) Whether another pending-deletion field card of the SAME delete batch (the batch id
     /// the sink stashed at defer time) is still awaiting a decision (PRE window / sacrifice sub-choice).
@@ -479,7 +490,7 @@ public sealed class GameFlowProcessor
                         continue;
                     }
 
-                    if (deletionReplacement.IsPreAwaiting(context, mateId) || IsSacrificeAwaiting(context, mateId))
+                    if (deletionReplacement.IsPreAwaiting(context, mateId))
                     {
                         return true;
                     }
@@ -722,7 +733,6 @@ public sealed class GameFlowProcessor
         metadata.Remove(MatchStateMutationSink.PreWindowPromotedKey);
         metadata.Remove("willBeRemoveField");
         metadata.Remove(MatchStateMutationSink.DeletedByEffectKey);
-        metadata.Remove(DeletionReplacementTiming.DecoyEligibleKey);
         context.CardInstanceRepository.Upsert(instance with { Metadata = metadata });
     }
 

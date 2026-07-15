@@ -1,19 +1,20 @@
-// C-1 (design item TODO-96) — Decode/Partition PRE (would-be-deleted) window.
+// C-1 (design item TODO-96) — Decode/Partition PRE (would-be-deleted) window, end-to-end through the REAL ported
+// cards.
 //
-// AS-IS (re-derived): Decode/Partition register at EffectTiming.WhenRemoveField (Decode.cs:54 CanUseCondition
-// = IsExistOnBattleAreaDigimon && CanTriggerWhenRemoveField && !IsByBattle; Partition CanTriggerPartition =
-// WhenPermanentRemoveField && !IsByBattle && !IsOwnerEffect). They fire in the WhenRemoveField cut-in
-// (CardController.cs:3690-3705) WHILE the card is still on the field with its stack attached, play source(s)
-// for free (PlayPermanentCards payCost:false, activateETB:true), and then DiscardEvoRoots (Permanent.cs:106)
-// trashes the REMAINING sources. Crucially Decode/Partition do NOT set willBeRemoveField=false — the deletion
-// still proceeds (they are NOT survival replacements like Evade/Barrier).
+// AS-IS: Decode/Partition register at EffectTiming.WhenRemoveField (CanUse = IsExistOnBattleAreaDigimon &&
+// CanTriggerWhenRemoveField && !IsByBattle). They fire in the would-be-deleted cut-in WHILE the card is still on the
+// field with its stack attached, play source(s) for free (PlayPermanentCards payCost:false), and then DiscardEvoRoots
+// trashes the REMAINING sources. Crucially they do NOT set willBeRemoveField=false — the deletion still proceeds
+// (they are NOT survival replacements like Evade/Barrier).
 //
-// This suite asserts the PRE behaviour end-to-end: (a) an effect deletion plays a matching source, trashes the
-// remainder, and the card itself still leaves; (b) a battle deletion offers neither keyword; (c) declining
-// plays nothing and trashes every source; (d) Partition repeats per colour group and still deletes; (e) a
-// stack with no candidate matching the source condition offers nothing.
+// (C-Del 3c-2b) The invented DeletionReplacementGate firing-half is retired: the keywords fire ONLY through the AS-IS
+// PRE cut-in window (opened by the universal effect-delete sink; step 1 = OptionalEffect "Will you use …?"). This
+// suite drives BT19_024 <Decode> ([Blue Lv.4]) and BT16_025 <Partition> ([Blue Lv.4]/[Green Lv.4]):
+// (a) an effect deletion plays a matching source, trashes the remainder, and the card still leaves; (b) a battle
+// deletion offers neither keyword; (c) declining plays nothing and trashes every source; (d) Partition plays one per
+// colour group and still deletes; (e) a stack with no source-condition match offers nothing.
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -23,15 +24,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
-HeadlessEntityId DigimonDef = new("def:c1-digimon");
-HeadlessEntityId TamerDef = new("def:c1-tamer");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("(a) effect deletion: PRE plays the matching source, trashes the remainder, and the card still leaves", EffectDeletionPrePlaysAndProceeds),
     ("(b) battle deletion offers neither Decode nor Partition (AS-IS !IsByBattle)", BattleDeletionOffersNeither),
     ("(c) declining Decode plays nothing and every source is trashed", DecliningTrashesAllSources),
-    ("(d) Partition plays one source per colour group and the card still leaves", PartitionColourGroupRepeatThenDeletes),
+    ("(d) Partition plays one source per colour group and the card still leaves", PartitionColourGroupThenDeletes),
     ("(e) a stack with no source-condition match offers no Decode", SourceConditionMismatchNotOffered),
 };
 
@@ -50,75 +49,66 @@ foreach (var test in tests)
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
-// (a) Effect-delete a hasDecode holder with [Digimon source, non-Digimon source]. The PRE window opens with the
-// holder STILL on the field; activating Decode + picking the Digimon source plays it, the deletion proceeds,
-// and the remaining (non-Digimon) source is trashed with the card.
+// (a) Effect-delete a real BT19_024 <Decode> with [Blue Lv.4, Red Lv.3] sources. The PRE window opens with the holder
+// STILL on the field; activating Decode + picking the Blue source plays it, the deletion proceeds, and the remaining
+// (Red) source is trashed with the card.
 async Task EffectDeletionPrePlaysAndProceeds()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
     HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId digimonSrc = new("P2-c1a-digi");
-    HeadlessEntityId otherSrc = new("P2-c1a-tamer");
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(digimonSrc, DigimonDef, P2));
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(otherSrc, TamerDef, P2));
+    RetypeHolder(ctx, holder, "BT19_024");
+    HeadlessEntityId blue = Source(ctx, P2, "c1a-blue", "Blue", 4);
+    HeadlessEntityId red = Source(ctx, P2, "c1a-red", "Red", 3);
+
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DeletionReplacementGate.HasDecodeKey] = true,
-        [DeletionReplacementGate.SourceIdsKey] = new[] { digimonSrc.Value, otherSrc.Value },
-    });
+    SetMetadata(match, holder, new() { [DeletionReplacementGate.SourceIdsKey] = new[] { blue.Value, red.Value } });
+    CardEffectRegistrar.RegisterCard(ctx, holder, P2);
 
     await DeleteByEffect(match, ctx, holder);
 
-    // PRE: the holder is still on the field while the deletion is deferred for the decision.
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "PRE window: holder still on the field");
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#decode", StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(digimonSrc.Value, StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(otherSrc.Value, StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    LegalAction pick = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(digimonSrc.Value, StringComparison.Ordinal));
+    LegalAction pick = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(blue.Value, StringComparison.Ordinal));
     await match.ApplyActionAsync(pick);
     await match.StepAsync();
 
-    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, digimonSrc), "the matching source was played for free");
-    AssertTrue(ReadFlag(match, digimonSrc, "enteredThisTurn"), "the played source is summoning-sick");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, blue), "the matching source was played for free");
+    AssertTrue(ReadFlag(match, blue, "enteredThisTurn"), "the played source is summoning-sick");
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the deletion proceeded — the card left play");
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, otherSrc), "the remaining (unplayed) source was trashed with the stack");
-    AssertFalse(InZone(match, P2, ChoiceZone.Trash, digimonSrc), "the played source was NOT trashed");
-    AssertTrue(ReadFlag(match, holder, DeletionReplacementGate.DecodedKey), "decoded marker stamped (single use)");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, red), "the remaining (unplayed) source was trashed with the stack");
+    AssertFalse(InZone(match, P2, ChoiceZone.Trash, blue), "the played source was NOT re-trashed");
 }
 
-// (b) A battle deletion routes through BattleResolver, which asks HasPreOption(byBattle:true). Decode/Partition
-// are effect-deletion only (AS-IS !IsByBattle), so the by-battle window offers neither — while the same record
-// under an effect deletion (byBattle:false) does. Asserted directly on the shared gate both paths use.
+// (b) A battle deletion routes through BattleResolver, which threads the byBattle cause. Decode/Partition are
+// effect-deletion only (AS-IS !IsByBattle), so the by-battle would-be-delete window collects NEITHER — while the same
+// cards under an effect would-be-delete (byBattle:false) DO collect. Asserted on the window's GetSkillInfos.
 async Task BattleDeletionOffersNeither()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
-    HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId s0 = new("P2-c1b-0");
-    HeadlessEntityId s1 = new("P2-c1b-1");
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(s0, DigimonDef, P2));
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(s1, DigimonDef, P2));
-    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DeletionReplacementGate.HasDecodeKey] = true,
-        [DeletionReplacementGate.HasPartitionKey] = true,
-        [DeletionReplacementGate.SourceIdsKey] = new[] { s0.Value, s1.Value },
-    });
+    using var scope = AmbientMatchContext.Enter(ctx);
 
-    ctx.CardInstanceRepository.TryGetInstance(holder, out CardInstanceRecord? record);
-    var zones = (IZoneStateReader)ctx.ZoneMover;
+    HeadlessEntityId decoder = HandCard(match, P2, 1);
+    RetypeHolder(ctx, decoder, "BT19_024");
+    HeadlessEntityId dBlue = Source(ctx, P2, "c1b-dblue", "Blue", 4);
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, decoder, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetMetadata(match, decoder, new() { [DeletionReplacementGate.SourceIdsKey] = new[] { dBlue.Value } });
+    CardEffectRegistrar.RegisterCard(ctx, decoder, P2);
 
-    var byEffect = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, zones, record!, byBattle: false, ctx.EffectRegistry);
-    AssertTrue(byEffect.Contains("decode") && byEffect.Contains("partition"), "an EFFECT deletion (byBattle:false) offers both");
+    HeadlessEntityId partitioner = HandCard(match, P1, 1);
+    RetypeHolder(ctx, partitioner, "BT16_025");
+    HeadlessEntityId pBlue = Source(ctx, P1, "c1b-pblue", "Blue", 4);
+    HeadlessEntityId pGreen = Source(ctx, P1, "c1b-pgreen", "Green", 4);
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, partitioner, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetMetadata(match, partitioner, new() { [DeletionReplacementGate.SourceIdsKey] = new[] { pBlue.Value, pGreen.Value } });
+    CardEffectRegistrar.RegisterCard(ctx, partitioner, P1);
 
-    var byBattle = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, zones, record!, byBattle: true, ctx.EffectRegistry);
-    AssertFalse(byBattle.Contains("decode"), "a BATTLE deletion offers no Decode");
-    AssertFalse(byBattle.Contains("partition"), "a BATTLE deletion offers no Partition");
+    AssertTrue(WindowCollects(ctx, decoder, P2, byBattle: false) >= 1, "an EFFECT deletion collects Decode");
+    AssertEqual(0, WindowCollects(ctx, decoder, P2, byBattle: true), "a BATTLE deletion offers no Decode");
+    AssertTrue(WindowCollects(ctx, partitioner, P1, byBattle: false) >= 1, "an EFFECT deletion collects Partition");
+    AssertEqual(0, WindowCollects(ctx, partitioner, P1, byBattle: true), "a BATTLE deletion offers no Partition");
 }
 
 // (c) Declining the PRE Decode plays nothing; the deletion proceeds and EVERY source is trashed (AS-IS
@@ -127,127 +117,89 @@ async Task DecliningTrashesAllSources()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
     HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId s0 = new("P2-c1c-0");
-    HeadlessEntityId s1 = new("P2-c1c-1");
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(s0, DigimonDef, P2));
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(s1, DigimonDef, P2));
+    RetypeHolder(ctx, holder, "BT19_024");
+    HeadlessEntityId s0 = Source(ctx, P2, "c1c-0", "Blue", 4);
+    HeadlessEntityId s1 = Source(ctx, P2, "c1c-1", "Blue", 4);
+
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DeletionReplacementGate.HasDecodeKey] = true,
-        [DeletionReplacementGate.SourceIdsKey] = new[] { s0.Value, s1.Value },
-    });
+    SetMetadata(match, holder, new() { [DeletionReplacementGate.SourceIdsKey] = new[] { s0.Value, s1.Value } });
+    CardEffectRegistrar.RegisterCard(ctx, holder, P2);
 
     await DeleteByEffect(match, ctx, holder);
-    LegalAction skip = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(":skip", StringComparison.Ordinal));
+    LegalAction skip = ResolveActions(match, P2).Single(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(skip);
     await match.StepAsync();
 
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the deletion proceeded — the card left play");
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, s0) && InZone(match, P2, ChoiceZone.Trash, s1), "both sources trashed (nothing played)");
-    AssertFalse(ReadFlag(match, holder, DeletionReplacementGate.DecodedKey), "no decoded marker when declined");
+    AssertFalse(InZone(match, P2, ChoiceZone.BattleArea, s0) || InZone(match, P2, ChoiceZone.BattleArea, s1), "no source entered the battle area");
 }
 
-// (d) A Partition keyword grant with two colour groups: pick #1 draws group[0], pick #2 group[1]; both are
-// played and the card still leaves (a 3rd, non-grouped source is trashed).
-async Task PartitionColourGroupRepeatThenDeletes()
+// (d) A real BT16_025 <Partition> plays one source per colour group (Blue + Green); both are played and the card
+// still leaves (a 3rd, un-grouped Red source is trashed).
+async Task PartitionColourGroupThenDeletes()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
     HeadlessEntityId holder = HandCard(match, P1, 1);
-    var cards = (CardDatabase)ctx.CardRepository;
-
-    HeadlessEntityId Colored(string tag, string colour)
-    {
-        var defId = new HeadlessEntityId($"def:c1d-{tag}");
-        cards.Upsert(new CardRecord(defId, tag, tag,
-            new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { colour }, ["level"] = 4, ["dp"] = 3000 }, CardType: "Digimon"));
-        var id = new HeadlessEntityId($"P1-c1d-{tag}");
-        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, P1));
-        return id;
-    }
-
-    HeadlessEntityId red = Colored("RED", "Red");
-    HeadlessEntityId yellow = Colored("YEL", "Yellow");
-    HeadlessEntityId blue = Colored("BLU", "Blue");   // matches no group -> trashed with the stack
+    RetypeHolder(ctx, holder, "BT16_025");
+    HeadlessEntityId blue = Source(ctx, P1, "c1d-blue", "Blue", 4);
+    HeadlessEntityId green = Source(ctx, P1, "c1d-green", "Green", 4);
+    HeadlessEntityId red = Source(ctx, P1, "c1d-red", "Red", 3);   // matches no group -> trashed with the stack
 
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    // MIGRATION-NOTE (P7 test-fix): PartitionSelfEffect (CardEffectFactory/KeyWordEffects/Partition.cs) now
-    // returns the new-model ActivateClass, which has no ToBinding — EffectRegistry.Register can no longer take
-    // its result (CS1061 if attempted). DeletionReplacementTiming.PartitionConditionsOf reads the holder's
-    // colour-group pair either from the live EffectRegistry (keyword-tagged binding — unavailable here) OR
-    // directly from the card's metadata under PartitionCondition.PartitionConditionsKey, so the metadata path
-    // is used instead to supply the exact same two colour-group conditions the factory call constructed.
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DeletionReplacementGate.SourceIdsKey] = new[] { red.Value, yellow.Value, blue.Value },
-        [DeletionReplacementGate.HasPartitionKey] = true,
-        [PartitionCondition.PartitionConditionsKey] = (IReadOnlyList<PartitionCondition>)new List<PartitionCondition>
-        {
-            new PartitionCondition(4, "Red"), new PartitionCondition(4, "Yellow"),
-        },
-    });
+    SetMetadata(match, holder, new() { [DeletionReplacementGate.SourceIdsKey] = new[] { blue.Value, green.Value, red.Value } });
+    CardEffectRegistrar.RegisterCard(ctx, holder, P1);
 
     await DeleteByEffect(match, ctx, holder);
     AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, holder), "PRE window: holder still on the field");
 
-    LegalAction activate = ResolveActions(match, P1).Single(a =>
-        a.Id.Value.Contains("#partition", StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(red.Value, StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(yellow.Value, StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(blue.Value, StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P1).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    // pick #1 = group[0] (Red) only.
-    var pick1 = ResolveActions(match, P1).Where(a => a.Id.Value.Contains(red.Value, StringComparison.Ordinal) ||
-        a.Id.Value.Contains(yellow.Value, StringComparison.Ordinal) || a.Id.Value.Contains(blue.Value, StringComparison.Ordinal)).ToArray();
-    AssertTrue(pick1.Any(a => a.Id.Value.Contains(red.Value, StringComparison.Ordinal)), "pick #1 offers the Red source");
-    AssertFalse(pick1.Any(a => a.Id.Value.Contains(yellow.Value, StringComparison.Ordinal)), "pick #1 does NOT offer group[1] (Yellow)");
-    AssertFalse(pick1.Any(a => a.Id.Value.Contains(blue.Value, StringComparison.Ordinal)), "pick #1 does NOT offer the un-grouped Blue");
-    await match.ApplyActionAsync(pick1.Single(a => a.Id.Value.Contains(red.Value, StringComparison.Ordinal)));
-    await match.StepAsync();
-
-    // pick #2 = group[1] (Yellow) only.
-    LegalAction pick2 = ResolveActions(match, P1).Single(a => a.Id.Value.Contains(yellow.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pick2);
-    await match.StepAsync();
-
-    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, red), "the Red pick was played");
-    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, yellow), "the Yellow pick was played");
-    AssertTrue(ReadFlag(match, holder, DeletionReplacementGate.PartitionedKey), "partitioned marker stamped");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, blue), "the Blue pick (group[0]) was played");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, green), "the Green pick (group[1]) was played");
     AssertTrue(InZone(match, P1, ChoiceZone.Trash, holder), "the deletion proceeded — the card left play");
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, blue), "the un-grouped source was trashed with the stack");
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, red), "the un-grouped source was trashed with the stack");
 }
 
-// (e) A hasDecode holder whose only source fails the source condition (here: a non-Digimon source — AS-IS
-// CanSelectSourceCardCondition requires source.IsDigimon) offers no Decode; the card is deleted and the
-// source is trashed.
+// (e) A BT19_024 <Decode> whose only source fails the Blue-Lv.4 condition offers no Decode; the card is deleted and
+// the source is trashed.
 async Task SourceConditionMismatchNotOffered()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
     HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId tamerSrc = new("P2-c1e-tamer");
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(tamerSrc, TamerDef, P2));
+    RetypeHolder(ctx, holder, "BT19_024");
+    HeadlessEntityId redSrc = Source(ctx, P2, "c1e-red", "Red", 3);   // not Blue Lv.4
+
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DeletionReplacementGate.HasDecodeKey] = true,
-        [DeletionReplacementGate.SourceIdsKey] = new[] { tamerSrc.Value },
-    });
+    SetMetadata(match, holder, new() { [DeletionReplacementGate.SourceIdsKey] = new[] { redSrc.Value } });
+    CardEffectRegistrar.RegisterCard(ctx, holder, P2);
 
     await DeleteByEffect(match, ctx, holder);
 
-    AssertFalse(ResolveActions(match, P2).Any(a => a.Id.Value.Contains("#decode", StringComparison.Ordinal)),
-        "no Decode option when no source matches the condition");
+    AssertFalse(match.Context.ChoiceController.Current.IsPending, "no Decode option when no source matches the condition");
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the card was deleted");
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, tamerSrc), "its non-matching source was trashed");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, redSrc), "its non-matching source was trashed");
 }
 
 // --- Shared setup --------------------------------------------------------
 
+// The AS-IS would-be-delete window's collection over the card for a given cause (byBattle threads !IsByBattle).
+int WindowCollects(EngineContext ctx, HeadlessEntityId holder, HeadlessPlayerId owner, bool byBattle)
+{
+    var perm = new Permanent(ctx, holder, owner) { willBeRemoveField = true };
+    var ht = byBattle
+        ? CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(new List<Permanent> { perm }, byBattleCause: true)
+        : CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(new List<Permanent> { perm }, cardEffect: null, battle: null);
+    int collected = AutoProcessing.GetSkillInfos(ht, EffectTiming.WhenRemoveField).Count;
+    perm.willBeRemoveField = false;
+    return collected;
+}
+
 async Task DeleteByEffect(DcgoMatch match, EngineContext ctx, HeadlessEntityId cardId)
 {
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value }));
     await sink.FlushAsync();
@@ -256,7 +208,7 @@ async Task DeleteByEffect(DcgoMatch match, EngineContext ctx, HeadlessEntityId c
 
 async Task<(DcgoMatch, EngineContext)> StartedMatch()
 {
-    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 73);
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 73, deferredChoice: true);
     var cards = (CardDatabase)ctx.CardRepository;
     for (int i = 1; i <= 12; i++)
     {
@@ -264,15 +216,35 @@ async Task<(DcgoMatch, EngineContext)> StartedMatch()
         cards.Upsert(Digimon($"P2-M{i:D2}"));
     }
 
-    cards.Upsert(new CardRecord(DigimonDef, "C1-DIGI", "C1 Digimon source", new Dictionary<string, object?>(), CardType: "Digimon"));
-    cards.Upsert(new CardRecord(TamerDef, "C1-TAMER", "C1 Tamer source", new Dictionary<string, object?>(), CardType: "Tamer"));
-
     DcgoMatch match = new(ctx);
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
     await AdvanceToMainAsync(match, P1);
+    (ctx.ChoiceProvider as DeferredChoiceProvider)?.CompleteResolution();
     return (match, ctx);
+}
+
+void RetypeHolder(EngineContext ctx, HeadlessEntityId holder, string cardNumber)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"def:{cardNumber}");
+    cards.Upsert(new CardRecord(defId, cardNumber, cardNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Blue" }, ["level"] = 6, ["dp"] = 5000 }, CardType: "Digimon"));
+    if (!ctx.CardInstanceRepository.TryGetInstance(holder, out CardInstanceRecord? record) || record is null)
+        throw new InvalidOperationException($"missing {holder}");
+    ctx.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+}
+
+HeadlessEntityId Source(EngineContext ctx, HeadlessPlayerId owner, string tag, string colour, int level)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"def:{tag}");
+    cards.Upsert(new CardRecord(defId, tag, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { colour }, ["level"] = level, ["dp"] = 3000 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}-{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner));
+    return id;
 }
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
@@ -298,7 +270,7 @@ async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId player)
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
 }
 
-void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
+void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, Dictionary<string, object?> values)
 {
     if (!match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
         throw new InvalidOperationException($"Missing {cardId}.");

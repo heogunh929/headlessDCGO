@@ -37,7 +37,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BY-BATTLE CAUSE: a replacement that REQUIRES IsByBattle survives a SECURITY-BATTLE loss (the byBattle cause is threaded onto the security cut-in hashtable)", ByBattleCauseSurvives),
     ("INTERACTIVE SURVIVE: an optional replacement pauses the drain → the check defers; resolving YES then FinalizeDeferredSecurityCheckAsync spares the attacker and RESUMES the remaining check", InteractiveSurvivesParkResume),
     ("INTERACTIVE DECLINE: resolving NO leaves willBeRemoveField set → FinalizeDeferredSecurityCheckAsync trashes the attacker and stops the check", InteractiveDeclinesParkResume),
-    ("GATE COEXISTENCE: a REAL gate keyword (hasEvade) still parks the security battle via the gate; the new PRE window does NOT touch it (not BattlePreWindowed) — double-fire 0", GateKeywordStillParksViaGate),
+    ("RETIRED KEYWORD FIRES VIA WINDOW: a would-be-deleted survive replacement (the window form of the retired Evade keyword) fires through the SecurityResolver PRE cut-in window ALONE — NOT gate-deferred (DeferredForDeletionReplacement false) — sparing the attacker and continuing the check", RetiredKeywordFiresViaWindow),
 };
 
 var failures = new List<string>();
@@ -187,26 +187,30 @@ async Task InteractiveDeclinesParkResume()
     _ = secHigh;
 }
 
-async Task GateKeywordStillParksViaGate()
+async Task RetiredKeywordFiresViaWindow()
 {
     EngineContext ctx = NewContext();
     using var scope = AmbientMatchContext.Enter(ctx);
-    var attacker = await PlaceBattle(ctx, P1, "EVADER", dp: 3000);
+    // 3c-2b flip: the PRE replacement keywords no longer PARK the security battle via the invented gate. A
+    // window-collectible would-be-deleted survive replacement (the window form of the retired Evade keyword — the
+    // printed TfxWouldBeDeleted ActivateClass) is HasPreOption(byBattle) FALSE, so the check is NOT gate-deferred
+    // (DeferredForDeletionReplacement false). The keyword now fires through the SecurityResolver PRE cut-in window
+    // ALONE — a single firing path (no gate/window double-fire) — sparing the attacker inline; the AS-IS
+    // StopSecurityCheck does NOT break (the attacker is still on the field), so the check continues.
+    var attacker = await PlaceBattle(ctx, P1, "TfxWouldBeDeleted", dp: 3000);
     var security = await PlaceSecurity(ctx, P2, "SECDGM", dp: 9000, isDigimon: true);
-    // A REAL gate keyword (metadata-flag Evade), NOT a window-form fixture — HasPreOption(byBattle) is TRUE.
-    SetFlag(ctx, attacker, DeletionReplacementGate.HasEvadeKey, true);
-    SetFlag(ctx, attacker, DeletionReplacementGate.IsSuspendedKey, false);
     Register(ctx, attacker, P1);
     ctx.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
 
     SecurityCheckLoopResult loop = await new SecurityResolver()
         .RunSecurityCheckLoopAsync(ctx, Zones(ctx), P1, attacker, P2, strike: 1);
 
-    AssertTrue(loop.DeferredForDeletionReplacement, "the gate keyword parks the security battle via the EXISTING gate path (NeedsWindow)");
-    AssertTrue(ReadFlag(ctx, attacker, GameFlowProcessor.PendingDeletionKey), "the gate defer flagged the attacker pendingDeletion");
-    AssertFalse(ReadFlag(ctx, attacker, BattleResolver.BattlePreWindowedKey),
-        "the new PRE cut-in window did NOT touch the gate-recognised loser (excluded via HasPreOption) — double-fire 0");
-    AssertTrue(InZone(ctx, P2, ChoiceZone.Trash, security), "the checked security card was trashed before the battle park");
+    AssertFalse(loop.DeferredForDeletionReplacement, "the retired keyword is NOT gate-deferred (the gate firing half is retired) — no park");
+    AssertFalse(loop.AttackerDeleted, "the keyword fired through the SecurityResolver PRE cut-in window — the attacker survived (check continues)");
+    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, attacker), "the window-fired survivor stays on the battle area");
+    AssertFalse(InZone(ctx, P1, ChoiceZone.Trash, attacker), "the survivor is not in the trash");
+    AssertFalse(ReadFlag(ctx, attacker, BattleResolver.BattlePreWindowedKey), "the transient BattlePreWindowed marker was cleared after the inline drain");
+    AssertTrue(InZone(ctx, P2, ChoiceZone.Trash, security), "the checked security card was trashed");
 }
 
 // ============================================================ HARNESS

@@ -8,6 +8,7 @@
 //     stack whose only source fails the condition offers no Decode at all. Battle deletions offer nothing (!IsByBattle).
 //   * BT16_025 <Partition> ([Blue Lv.4]/[Green Lv.4]) — PartitionSelfEffect with two colour groups; pick #1 draws
 //     group[0] (Blue), pick #2 group[1] (Green); an un-grouped source (Red) is trashed with the stack.
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -59,11 +60,9 @@ async Task Bt19DecodeFiltersAndPlays()
 
     await DeleteByEffect(match, ctx, holder);
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "PRE window: holder still on the field");
-
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#decode", StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(blue.Value, StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(red.Value, StringComparison.Ordinal));
+    // (C-Del 3c-2b) The keyword now fires through the AS-IS PRE cut-in window: step 1 is the OptionalEffect
+    // "Will you use Decode?" (activate = the non-skip resolve), step 2 the source sub-select.
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
@@ -103,11 +102,15 @@ async Task Bt19DecodeNoMatchNotOffered()
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, red), "its non-matching source was trashed");
 }
 
-// (c) A battle deletion is effect-deletion-only for Decode (AS-IS !IsByBattle). Asserted on the shared gate both
-// deletion paths consult: effect (byBattle:false) offers Decode, battle (byBattle:true) does not.
+// (c) A battle deletion is effect-deletion-only for Decode (AS-IS !IsByBattle). (C-Del 3c-2b) The gate firing-half
+// is retired, so this is asserted on the AS-IS PRE cut-in window's collection (the sole firing path now): the
+// printed DecodeSelfEffect CanUse (= IsExistOnBattleAreaDigimon && CanTriggerWhenRemoveField && !IsByBattle) is
+// COLLECTED by GetSkillInfos for an EFFECT would-be-delete but NOT for a BATTLE one (DeletedByBattleKey set → the
+// !IsByBattle clause rejects it). The retired gate is BLIND to the printed keyword either way (HasPreOption false).
 async Task Bt19DecodeBattleOffersNothing()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    using var scope = AmbientMatchContext.Enter(ctx);
     HeadlessEntityId holder = HandCard(match, P2, 1);
     RetypeHolder(ctx, holder, "BT19_024");
     HeadlessEntityId blue = Source(ctx, P2, "b19c-blue", "Blue", 4);
@@ -118,14 +121,34 @@ async Task Bt19DecodeBattleOffersNothing()
 
     ctx.CardInstanceRepository.TryGetInstance(holder, out CardInstanceRecord? record);
     var zones = (IZoneStateReader)ctx.ZoneMover;
-    AssertTrue(DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, zones, record!, byBattle: false, ctx.EffectRegistry).Contains("decode"),
-        "an EFFECT deletion offers Decode");
-    AssertFalse(DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, zones, record!, byBattle: true, ctx.EffectRegistry).Contains("decode"),
-        "a BATTLE deletion offers no Decode");
+
+    // The retired gate never offers the printed keyword (either cause).
+    AssertFalse(DeletionReplacementTiming.HasPreOption(ctx.CardInstanceRepository, zones, record!, byBattle: false, ctx.EffectRegistry),
+        "the retired gate is BLIND to the printed Decode (effect cause)");
+    AssertFalse(DeletionReplacementTiming.HasPreOption(ctx.CardInstanceRepository, zones, record!, byBattle: true, ctx.EffectRegistry),
+        "the retired gate is BLIND to the printed Decode (battle cause)");
+
+    // EFFECT would-be-delete: the window collects the printed DecodeSelfEffect.
+    var effectPerm = new Permanent(ctx, holder, P2) { willBeRemoveField = true };
+    var effectHt = CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(new List<Permanent> { effectPerm }, cardEffect: null, battle: null);
+    int effectCollected = AutoProcessing.GetSkillInfos(effectHt, EffectTiming.WhenRemoveField).Count;
+    effectPerm.willBeRemoveField = false;
+    AssertTrue(effectCollected >= 1, "an EFFECT would-be-delete collects Decode (GetSkillInfos >= 1)");
+
+    // BATTLE would-be-delete: byBattleCause stamps ByBattleCauseKey → Decode's !IsByBattle CanUse rejects it → NOT
+    // collected (the AS-IS battle PRE cut-in transport signal, HashtableSetting.cs:109).
+    var battlePerm = new Permanent(ctx, holder, P2) { willBeRemoveField = true };
+    var battleHt = CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(new List<Permanent> { battlePerm }, byBattleCause: true);
+    int battleCollected = AutoProcessing.GetSkillInfos(battleHt, EffectTiming.WhenRemoveField).Count;
+    battlePerm.willBeRemoveField = false;
+    AssertEqual(0, battleCollected, "a BATTLE would-be-delete offers no Decode (AS-IS !IsByBattle)");
 }
 
-// (d) A real BT16_025 with [Blue Lv.4, Green Lv.4, Red Lv.3] sources. Partition plays one per colour group — pick
-// #1 offers only the Blue (group[0]), pick #2 only the Green (group[1]); the un-grouped Red is trashed.
+// (d) A real BT16_025 with [Blue Lv.4, Green Lv.4, Red Lv.3] sources. Partition plays one per colour group: the
+// Blue (group[0]) AND the Green (group[1]) are played for free, the un-grouped Red is trashed with the stack, and
+// the holder still leaves. (C-Del 3c-2b) The keyword fires through the AS-IS PRE cut-in window — step 1 is the
+// OptionalEffect ("Will you use Partition?"), then the AS-IS PartitionProcess plays one source per colour group; the
+// per-group outcome (which sources end up played vs trashed) is the faithful colour-group assertion.
 async Task Bt16PartitionPerColourGroup()
 {
     (DcgoMatch match, EngineContext ctx) = await StartedMatch();
@@ -142,40 +165,23 @@ async Task Bt16PartitionPerColourGroup()
     await DeleteByEffect(match, ctx, holder);
     AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, holder), "PRE window: holder still on the field");
 
-    LegalAction activate = ResolveActions(match, P1).Single(a =>
-        a.Id.Value.Contains("#partition", StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(blue.Value, StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(green.Value, StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(red.Value, StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P1).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    // pick #1 = group[0] (Blue) only.
-    LegalAction[] pick1 = ResolveActions(match, P1).Where(a =>
-        a.Id.Value.Contains(blue.Value, StringComparison.Ordinal) || a.Id.Value.Contains(green.Value, StringComparison.Ordinal) ||
-        a.Id.Value.Contains(red.Value, StringComparison.Ordinal)).ToArray();
-    AssertTrue(pick1.Any(a => a.Id.Value.Contains(blue.Value, StringComparison.Ordinal)), "pick #1 offers the Blue Lv.4 (group[0])");
-    AssertFalse(pick1.Any(a => a.Id.Value.Contains(green.Value, StringComparison.Ordinal)), "pick #1 does NOT offer group[1] (Green)");
-    AssertFalse(pick1.Any(a => a.Id.Value.Contains(red.Value, StringComparison.Ordinal)), "pick #1 does NOT offer the un-grouped Red");
-    await match.ApplyActionAsync(pick1.Single(a => a.Id.Value.Contains(blue.Value, StringComparison.Ordinal)));
-    await match.StepAsync();
-
-    // pick #2 = group[1] (Green) only.
-    LegalAction pick2 = ResolveActions(match, P1).Single(a => a.Id.Value.Contains(green.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pick2);
-    await match.StepAsync();
-
-    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, blue), "the Blue pick was played");
-    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, green), "the Green pick was played");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, blue), "the Blue Lv.4 (group[0]) was played for free");
+    AssertTrue(InZone(match, P1, ChoiceZone.BattleArea, green), "the Green Lv.4 (group[1]) was played for free");
+    AssertFalse(InZone(match, P1, ChoiceZone.Trash, blue), "the played Blue source was NOT trashed");
+    AssertFalse(InZone(match, P1, ChoiceZone.Trash, green), "the played Green source was NOT trashed");
     AssertTrue(InZone(match, P1, ChoiceZone.Trash, holder), "the deletion proceeded — the card left play");
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, red), "the un-grouped Red source was trashed with the stack");
+    AssertTrue(InZone(match, P1, ChoiceZone.Trash, red), "the un-grouped Red Lv.3 source was trashed with the stack");
 }
 
 // --- Shared setup --------------------------------------------------------
 
 async Task DeleteByEffect(DcgoMatch match, EngineContext ctx, HeadlessEntityId cardId)
 {
-    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry);
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
     sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value }));
     await sink.FlushAsync();
@@ -207,7 +213,10 @@ HeadlessEntityId Source(EngineContext ctx, HeadlessPlayerId owner, string tag, s
 
 async Task<(DcgoMatch, EngineContext)> StartedMatch()
 {
-    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 73);
+    // (C-Del 3c-2b) deferredChoice:true — the PRE keywords now fire ONLY through the AS-IS cut-in window (the gate
+    // firing-half is retired), which PARKS the interactive would-be-deleted replacement as a pending choice. The
+    // default ScriptedChoiceProvider auto-skips it (no park), so the window must be driven under the deferred provider.
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 73, deferredChoice: true);
     var cards = (CardDatabase)ctx.CardRepository;
     for (int i = 1; i <= 12; i++)
     {
@@ -220,6 +229,7 @@ async Task<(DcgoMatch, EngineContext)> StartedMatch()
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
     await AdvanceToMainAsync(match, P1);
+    (ctx.ChoiceProvider as DeferredChoiceProvider)?.CompleteResolution();
     return (match, ctx);
 }
 

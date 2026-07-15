@@ -1,23 +1,35 @@
+// S3 (G9-058): deletion-replacement keywords un-sealed. (C-Del 3c-2b conversion) The old test proved the
+// invented option-gate (DeletionReplacementTiming.PreOptions offering EvadeOption/BarrierOption/FragmentOption,
+// FragmentCostOf) surfaced a granted keyword. Those option consts + the gate offer are RETIRED — Evade/Barrier/
+// Fragment now fire ONLY through their AS-IS homes: the printed EvadeSelfEffect/BarrierSelfEffect/
+// FragmentSelfEffect ActivateClass resolved by the PRE cut-in window, whose bodies CardEffectCommons.
+// EvadeProcess/BarrierProcess/FragmentProcess actually produce the AS-IS survival (suspend / trash a security /
+// trash <X> digivolution sources -> willBeRemoveField = false). These tests drive those printed Process bodies
+// (and their AS-IS CanActivate* gates, including Fragment's trashValue<X> digivolution-count gate) directly, so
+// the SAME "the keyword actually saves the Digimon on deletion" behaviour is proven via the AS-IS path. No
+// retired option const / FragmentCostOf is referenced.
+
+using System.Collections.Generic;
+using System.Linq;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
-
-// S3 (G9-058): deletion-replacement keywords un-sealed. The keyword is granted as a continuous keyword
-// (EvadeSelfEffect etc.), but the option-gating (DeletionReplacementTiming.PreOptions) previously read a
-// metadata flag never set in production. Now it recognises the LIVE keyword — so the replacement OPTION surfaces.
+using HeadlessDCGO.Engine.Headless.State;
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Evade granted via keyword -> EvadeOption offered (un-sealed)", () => Offered("EVADE", CardEffectFactory.EvadeSelfEffect, DeletionReplacementTiming.EvadeOption, byBattle: false)),
-    ("Without the keyword -> no EvadeOption (control)", () => NotOffered("PLAIN", DeletionReplacementTiming.EvadeOption, byBattle: false)),
-    ("Barrier granted via keyword (byBattle) -> BarrierOption offered", () => Offered("BARRIER", CardEffectFactory.BarrierSelfEffect, DeletionReplacementTiming.BarrierOption, byBattle: true, security: true)),
-    ("(C1) Fragment <3>: the grant's trashValue gates the option (2 sources no / 3 sources yes)", FragmentTrashValueGates),
+    ("Evade: the printed keyword suspends this Digimon to survive deletion (un-sealed)", EvadeSurvives),
+    ("Evade: an already-suspended Digimon cannot pay the suspend cost (gate control)", EvadeGateControl),
+    ("Barrier: the printed keyword trashes the top security to survive deletion", BarrierSurvives),
+    ("Barrier: with no security the keyword cannot activate (gate control)", BarrierGateControl),
+    ("Fragment <3>: the trashValue gates on digivolution-source count (2 no / 3 yes) and survives", FragmentTrashValueGates),
 };
 
 var failures = new List<string>();
@@ -29,99 +41,103 @@ foreach (var t in tests)
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
-async Task Offered(string tag, Func<bool, CardSource, Func<bool>?, ICardEffect> factory, string option, bool byBattle, bool security = false)
+async Task EvadeSurvives()
 {
     EngineContext ctx = Ctx();
-    var id = await Place(ctx, P1, tag);
-    if (security) { await PlaceSecurity(ctx, P1); }
-    // (P7 SEAM) EvadeSelfEffect/BarrierSelfEffect return ActivateClass (Script/CardEffects/ActivateClass.cs), a
-    // new-model kind-class with no ToBinding/EffectRegistry bridge — the AS-IS-faithful path is the LIVE
-    // cEntity_EffectController scan DeletionReplacementGate.HasReplacementKeyword -> ContinuousKeywordGate.
-    // HasKeyword -> NewModelContinuousScan.HasEvade/HasBarrier now performs. Attach the built effect via the
-    // same seam every ported card definition class uses.
-    // (RD-P6B-14 fix) DeletionReplacementTiming.PreOptions' public signature has no EngineContext parameter to
-    // thread down to HasReplacementKeyword — the union reaches it via AmbientMatchContext.Current instead (the
-    // same AsyncLocal handle NewModelContinuousScan's own methods self-scope from); enter it here, matching a
-    // real match's ambient scope.
-    using var _ambientScope = AmbientMatchContext.Enter(ctx);
-    var cs = new CardSource(ctx, id, P1);
-    ICardEffect built = factory(false, cs, null);
-    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
-    var record = Rec(ctx, id);
-    var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle, ctx.EffectRegistry);
-    AssertTrue(options.Contains(option), $"{option} offered for keyword-granted {tag} (un-sealed)");
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var id = await Place(ctx, P1, "EVADE");
+    Perm(ctx, id).willBeRemoveField = true;
+
+    AssertTrue(CardEffectCommons.CanActivateEvade(Perm(ctx, id)), "an unsuspended Digimon can activate Evade");
+    ICardEffect act = CardEffectFactory.EvadeSelfEffect(false, V(ctx, id), null);
+    await CardEffectCommons.EvadeProcess(Perm(ctx, id), act);
+
+    AssertTrue(Perm(ctx, id).IsSuspended, "Evade suspended this Digimon (its cost)");
+    AssertTrue(!Perm(ctx, id).willBeRemoveField, "Evade cleared willBeRemoveField (survives)");
+    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, id), "the Digimon is still on the battle area");
 }
 
-async Task NotOffered(string tag, string option, bool byBattle)
+async Task EvadeGateControl()
 {
     EngineContext ctx = Ctx();
-    var id = await Place(ctx, P1, tag);
-    var record = Rec(ctx, id);
-    var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle, ctx.EffectRegistry);
-    AssertTrue(!options.Contains(option), $"{option} NOT offered without the keyword");
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var id = await Place(ctx, P1, "EVADE");
+    Perm(ctx, id).IsSuspended = true;   // already suspended -> the suspend cost cannot be paid
+
+    AssertTrue(!CardEffectCommons.CanActivateEvade(Perm(ctx, id)),
+        "an already-suspended Digimon cannot pay Evade's suspend cost");
 }
 
-// (C1) AS-IS Fragment <X>: CanActivateFragment(p, trashValue) — the grant's X (previously dropped,
-// collapsing every Fragment to 1) gates on DigivolutionCards.Count >= X.
+async Task BarrierSurvives()
+{
+    EngineContext ctx = Ctx();
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var id = await Place(ctx, P1, "BARRIER");
+    await PlaceSecurity(ctx, P1);
+    Perm(ctx, id).willBeRemoveField = true;
+
+    AssertTrue(CardEffectCommons.CanActivateBarrier(Perm(ctx, id)), "with a security card Barrier can activate");
+    ICardEffect act = CardEffectFactory.BarrierSelfEffect(false, V(ctx, id), null);
+    await CardEffectCommons.BarrierProcess(Perm(ctx, id), act);
+
+    AssertTrue(SecurityCount(ctx, P1) == 0, "Barrier trashed the top security (its cost)");
+    AssertTrue(!Perm(ctx, id).willBeRemoveField, "Barrier cleared willBeRemoveField (survives)");
+    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, id), "the Digimon is still on the battle area");
+}
+
+async Task BarrierGateControl()
+{
+    EngineContext ctx = Ctx();
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var id = await Place(ctx, P1, "BARRIER");
+    Perm(ctx, id).willBeRemoveField = true;   // no security placed
+
+    AssertTrue(!CardEffectCommons.CanActivateBarrier(Perm(ctx, id)), "with no security Barrier cannot activate");
+    ICardEffect act = CardEffectFactory.BarrierSelfEffect(false, V(ctx, id), null);
+    await CardEffectCommons.BarrierProcess(Perm(ctx, id), act);
+    AssertTrue(Perm(ctx, id).willBeRemoveField, "no security -> Barrier is a no-op -> the Digimon still dies");
+}
+
+// (C1) AS-IS Fragment <X>: CanActivateFragment(permanent, trashValue, activateClass) gates on
+// DigivolutionCards.Count >= X (KeyWordEffects/Fragment.cs:22). The grant's X (previously dropped, collapsing
+// every Fragment to 1) is honored.
 async Task FragmentTrashValueGates()
 {
-    foreach ((int sourceCount, bool offered) in new[] { (2, false), (3, true) })
+    foreach ((int sourceCount, bool eligible) in new[] { (2, false), (3, true) })
     {
         EngineContext ctx = Ctx();
+        using var scope = AmbientMatchContext.Enter(ctx);
         var id = await Place(ctx, P1, $"FRAG{sourceCount}");
-        var sources = Enumerable.Range(1, sourceCount).Select(i => new HeadlessEntityId($"frag-src-{i}")).ToArray();
-        foreach (HeadlessEntityId src in sources)
+        AttachSources(ctx, id, sourceCount);
+        Perm(ctx, id).willBeRemoveField = true;
+
+        ICardEffect act = CardEffectFactory.FragmentSelfEffect(
+            false, V(ctx, id), null, trashValue: 3, effectName: "Fragment <3>", effectDiscription: "Fragment <3>");
+
+        AssertTrue(Perm(ctx, id).DigivolutionCards.Count == sourceCount, $"the permanent has {sourceCount} digivolution sources");
+        AssertTrue(CardEffectCommons.CanActivateFragment(Perm(ctx, id), 3, act) == eligible,
+            $"{sourceCount} sources with Fragment<3> -> can-activate={eligible}");
+
+        if (eligible)
         {
-            ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(src, new HeadlessEntityId("DEF:SRC"), P1));
+            await CardEffectCommons.FragmentProcess(act, Perm(ctx, id), trashValue: 3);
+            AssertTrue(!Perm(ctx, id).willBeRemoveField, "Fragment<3> trashed 3 sources and cleared willBeRemoveField (survives)");
         }
-
-        var rec0 = Rec(ctx, id);
-        ctx.CardInstanceRepository.Upsert(rec0 with
-        {
-            Metadata = new Dictionary<string, object?>(rec0.Metadata, StringComparer.Ordinal)
-            {
-                [DeletionReplacementGate.SourceIdsKey] = sources.Select(s => s.Value).ToArray(),
-            }
-        });
-        // (P7 SEAM) FragmentSelfEffect returns ActivateClass, a new-model kind-class with no ToBinding/
-        // EffectRegistry bridge — HasReplacementKeyword -> ContinuousKeywordGate.HasKeyword ->
-        // NewModelContinuousScan.HasFragment now performs the LIVE scan (via AmbientMatchContext.Current, since
-        // PreOptions has no context parameter to thread through), so attach the built effect via the same seam
-        // every ported card definition class uses. STOP (design item RD-P6B-4, pre-existing,
-        // DeletionReplacementGate.cs — out of this pass's touch scope): FragmentCostOf reads ONLY the legacy
-        // EffectRegistry keyword-binding value for the trashValue cost — a bare ActivateClass has no retrievable
-        // "trashValue" property (it is closed over FragmentEffect's CanActivateCondition/ActivateCoroutine
-        // closures, same encapsulation tier as Decoy's CanSelectPermanentCondition) — so FragmentCostOf still
-        // returns the fallback (1) for a pure new-model grant; the FragmentCostOf assertion below remains red.
-        using var _ambientScope = AmbientMatchContext.Enter(ctx);
-        var fragCard = new CardSource(ctx, id, P1);
-        ICardEffect builtFragment = CardEffectFactory.FragmentSelfEffect(
-            false, fragCard, null, trashValue: 3, effectName: "fragment-test", effectDiscription: "fragment-test");
-        fragCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(builtFragment);
-
-        var record = Rec(ctx, id);
-        AssertTrue(DeletionReplacementGate.FragmentCostOf(record, ctx.EffectRegistry) == 3, "the grant's trashValue is the cost");
-        var options = DeletionReplacementTiming.PreOptions(ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, record, byBattle: false, ctx.EffectRegistry);
-        AssertTrue(options.Contains(DeletionReplacementTiming.FragmentOption) == offered,
-            $"{sourceCount} sources with Fragment<3> -> offered={offered}");
     }
 }
 
-// --- Helpers ---
-
-CardInstanceRecord Rec(EngineContext ctx, HeadlessEntityId id) =>
-    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r : throw new InvalidOperationException("no record");
+// --- Harness ---
 
 EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 958);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
-    // (P7 test-fix) ICardEffect.CanTrigger gates on TurnStateMachine.DoneStartGame (phase past None/Setup) —
-    // without this every candidate effect's CanUse/CanTrigger trivially returns false and the new-model scan
-    // never fires (same fix already documented in rebuild_p6_stageB_notes.md §5).
     ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
+
+Permanent Perm(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, P1);
+CardSource V(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, P1, P1);
 
 async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag)
 {
@@ -131,9 +147,32 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
     var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
-        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false, ["level"] = 4 }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
     return id;
+}
+
+void AttachSources(EngineContext ctx, HeadlessEntityId topId, int count)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var sourceDef = new HeadlessEntityId("DEF:SRC");
+    cards.Upsert(new CardRecord(sourceDef, "SRC", "SRC",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 1000, ["level"] = 3 }, CardType: "Digimon"));
+    var sourceIds = new List<string>();
+    for (int i = 1; i <= count; i++)
+    {
+        var src = new HeadlessEntityId($"{topId.Value}:src:{i}");
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(src, sourceDef, P1,
+            Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 1000, ["level"] = 3 }));
+        sourceIds.Add(src.Value);
+    }
+
+    ctx.CardInstanceRepository.TryGetInstance(topId, out CardInstanceRecord? top);
+    var meta = new Dictionary<string, object?>(top!.Metadata, StringComparer.Ordinal)
+    {
+        [DigivolutionStackReader.SourceIdsKey] = sourceIds.ToArray(),
+    };
+    ctx.CardInstanceRepository.Upsert(top with { Metadata = meta });
 }
 
 async Task PlaceSecurity(EngineContext ctx, HeadlessPlayerId owner)
@@ -146,11 +185,10 @@ async Task PlaceSecurity(EngineContext ctx, HeadlessPlayerId owner)
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.Security));
 }
 
-static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+int SecurityCount(EngineContext ctx, HeadlessPlayerId owner) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, ChoiceZone.Security).Count;
 
-sealed class TestCardEntityEffect : CEntity_Effect
-{
-    private readonly ICardEffect _effect;
-    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
-}
+bool InZone(EngineContext ctx, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId id) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(player, zone).Contains(id);
+
+static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

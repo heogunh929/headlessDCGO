@@ -33,7 +33,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("MUTUAL BOTH SURVIVE: a tie where both losers have a mandatory replacement — one ResolveAsync opens the PRE window ONCE over both and spares both", MutualBothSurvive),
     ("INTERACTIVE SURVIVE: an optional replacement pauses the drain → ResolveAsync defers; resolving YES then FinalizeDeferredAsync spares the loser", InteractiveSurvivesParkResume),
     ("INTERACTIVE DECLINE: resolving NO leaves willBeRemoveField set → FinalizeDeferredAsync trashes the loser", InteractiveDeclinesParkResume),
-    ("GATE COEXISTENCE: a REAL gate keyword (hasEvade) still parks via the gate; the new PRE window does NOT touch it (not BattlePreWindowed) — double-fire 0", GateKeywordStillParksViaGate),
+    ("RETIRED KEYWORD FIRES VIA WINDOW: a would-be-deleted survive replacement (the window form of the retired Evade keyword) fires through the BattleResolver PRE cut-in window ALONE — NOT gate-deferred (RequiresDeletionReplacement false) — and spares the loser", RetiredKeywordFiresViaWindow),
 };
 
 var failures = new List<string>();
@@ -214,24 +214,28 @@ async Task InteractiveDeclinesParkResume()
     AssertFalse(ReadFlag(ctx, defender, "willBeRemoveField"), "willBeRemoveField was reset before the trash (no stale marker)");
 }
 
-async Task GateKeywordStillParksViaGate()
+async Task RetiredKeywordFiresViaWindow()
 {
     EngineContext ctx = NewContext();
     using var scope = AmbientMatchContext.Enter(ctx);
     var attacker = await Place(ctx, P1, "ATK", dp: 9000);
-    var defender = await Place(ctx, P2, "EVADER", dp: 3000);
-    // A REAL gate keyword (metadata-flag Evade), NOT a window-form fixture — HasPreOption(byBattle) is TRUE.
-    SetFlag(ctx, defender, DeletionReplacementGate.HasEvadeKey, true);
-    SetFlag(ctx, defender, DeletionReplacementGate.IsSuspendedKey, false);
+    // 3c-2b flip: the PRE replacement keywords no longer PARK via the invented gate. A window-collectible
+    // would-be-deleted survive replacement (the window form of the retired Evade keyword — the printed
+    // TfxWouldBeDeleted ActivateClass) is HasPreOption(byBattle) FALSE, so the battle is NOT gate-deferred
+    // (RequiresDeletionReplacement false). The keyword now fires through the BattleResolver PRE cut-in window
+    // ALONE — a single firing path (no gate/window double-fire), sparing the loser inline.
+    var defender = await Place(ctx, P2, "TfxWouldBeDeleted", dp: 3000);
     Register(ctx, attacker, P1);
     Register(ctx, defender, P2);
 
     ctx.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
     BattleResolutionResult result = await new BattleResolver().ResolveAsync(ctx);
 
-    AssertTrue(result.RequiresDeletionReplacement, "the gate keyword parks the battle via the EXISTING gate path (NeedsWindow)");
-    AssertFalse(ReadFlag(ctx, defender, BattleResolver.BattlePreWindowedKey),
-        "the new PRE cut-in window did NOT touch the gate-recognised loser (excluded via HasPreOption) — double-fire 0");
+    AssertFalse(result.RequiresDeletionReplacement, "the retired keyword is NOT gate-deferred (the gate firing half is retired) — no park");
+    AssertFalse(result.DefenderDeleted, "the keyword fired through the BattleResolver PRE cut-in window — the loser survived");
+    AssertTrue(InZone(ctx, P2, ChoiceZone.BattleArea, defender), "the window-fired survivor stays on the battle area");
+    AssertFalse(InZone(ctx, P2, ChoiceZone.Trash, defender), "the survivor is not in the trash");
+    AssertFalse(ReadFlag(ctx, defender, BattleResolver.BattlePreWindowedKey), "the transient BattlePreWindowed marker was cleared after the inline drain");
 }
 
 // ============================================================ HARNESS

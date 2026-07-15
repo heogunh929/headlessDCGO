@@ -93,20 +93,25 @@ async Task DeleteViaSink(EngineContext ctx, HeadlessEntityId target)
         "the deletion-time source-count snapshot is recorded (2); no gate replay cleared it");
 }
 
-// --- 3. (design item C-1) Decode now DEFERS in the sink for the PRE (would-be-deleted) window instead of
-//        trashing immediately: the card stays on the field pending the decision and nothing is trashed yet.
-//        The play + remainder-trash happen once the window resolves (covered end-to-end by
-//        C1-DecodePartitionPre + G3.5-C13.Decode). ---
+// --- 3. (C-Del 3c-2b) The invented gate no longer detects/defers the PRE replacement keywords. A BARE
+//        hasDecode metadata marker — no printed DecodeSelfEffect — no longer opens a PRE (would-be-deleted)
+//        defer: HasPreOption is false for it, so the deletion is IMMEDIATE (top + sources trashed), exactly
+//        like the retired Fortitude marker in block 2. The real Decode/Partition keyword fires ONLY through the
+//        AS-IS PRE cut-in window from its printed ActivateClass (routing witnessed by C-Del-3C2B-Witness;
+//        window collection by C-Del-PRE). The bare-marker path here is now a wiring census: the sink trashes the
+//        top and every source with no gate defer. ---
 {
-    var (ctx, host, src0, _) = await Setup((DeletionReplacementGate.HasDecodeKey, true));
+    var (ctx, host, src0, src1) = await Setup((DeletionReplacementGate.HasDecodeKey, true));
     await DeleteViaSink(ctx, host);
-    Check(InZone(ctx, host, ChoiceZone.BattleArea),
-        "a Decode deletion is DEFERRED — the card stays on the field for the PRE window");
-    Check(!InZone(ctx, host, ChoiceZone.Trash), "the Decode card's top is NOT trashed yet (deletion deferred)");
-    Check(!InZone(ctx, src0, ChoiceZone.Trash), "no source is trashed while the PRE decision is pending");
+    Check(InZone(ctx, host, ChoiceZone.Trash) && !InZone(ctx, host, ChoiceZone.BattleArea),
+        "a bare hasDecode marker no longer defers via the gate (C-Del 3c-2b retired) — the top is trashed immediately");
+    Check(InZone(ctx, src0, ChoiceZone.Trash) && InZone(ctx, src1, ChoiceZone.Trash),
+        "both sources are trashed with the stack (no PRE defer held them back)");
     ctx.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? rec3);
-    Check(rec3 is not null && rec3!.Metadata.TryGetValue(GameFlowProcessor.PendingDeletionKey, out object? pd) && pd is true,
-        "the Decode card is flagged pendingDeletion (PRE defer)");
+    Check(rec3 is not null && !(rec3!.Metadata.TryGetValue(GameFlowProcessor.PendingDeletionKey, out object? pd) && pd is true),
+        "the bare-marker Decode card is NOT flagged pendingDeletion (gate firing retired — no PRE defer)");
+    Check(rec3 is not null && DeletionReplacementGate.SourceCountAtDeletion(rec3!.Metadata) == 2,
+        "the deletion-time source-count snapshot recorded the actual count (2)");
 }
 
 // --- 4. (P0-4) The PRE-declined deferred-deletion FINISHER path (GameFlowProcessor.RuleProcessAsync) — a

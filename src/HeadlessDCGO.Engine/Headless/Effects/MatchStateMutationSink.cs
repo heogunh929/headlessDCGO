@@ -1153,12 +1153,12 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                         continue;
                     }
 
-                    // F-6.8: an OPTIONAL would-be-deleted replacement (Evade / Scapegoat / Fragment / Decoy) is
-                    // the owner's decision, not an auto-apply. Decoy is by-ENEMY-effect, checked while the
-                    // deleter is known.
-                    if (DeletionReplacementTiming.HasPreOption(_repository, preZones, candidate, byBattle: false, _effectRegistry)
-                        || DeletionReplacementGate.FindDecoyRedirect(
-                            _repository, preZones, candidate, staged.Mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null)
+                    // (C-Del 3c-2b) The 8 PRE replacement keywords (Evade/Barrier/ArmorPurge/Decoy/Scapegoat/
+                    // Decode/Partition/Fragment) are RETIRED from the gate — they fire through the AS-IS PRE cut-in
+                    // window opened below (batch.DeferAll=false path). Only the retained generic bridge
+                    // (CustomWouldBeDeletedOption: a card-registered WhenPermanentWouldBeDeleted effect in the
+                    // invented EffectRegistry, disjoint from the window's EffectList collection) still defers here.
+                    if (DeletionReplacementTiming.HasPreOption(_repository, preZones, candidate, byBattle: false, _effectRegistry))
                     {
                         defer = true;
                         break;
@@ -1217,6 +1217,15 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // (CardController.cs:3454-3469) — two builder calls. cardEffect=null (the sink threads only the
                 // causing source id, RD-C1-CARDEFFECT-IDTHREAD); battle=null (the effect-delete path is never a
                 // battle deletion — that is BattleResolver's IBattle path).
+                // (design item RD-3C2B-02) IsByEffect-gated PRE keywords: AS-IS Destroy() threads the LIVE causing
+                // cardEffect onto this pair (CardController.cs:3691-3705); with cardEffect=null here, a POSITIVE
+                // IsByEffect gate (Decoy — "would be deleted by an opponent's effect") reads false and does NOT
+                // collect via this sink window (it still fires via the faithful mirror DestroyPermanentsClass
+                // path, which threads the live cardEffect). A boolean ByEffectCauseKey marker canNOT stand in:
+                // IsByEffect's marker fallback ignores the per-card condition, which would break the NEGATED
+                // owner-conditioned gate (Partition: !IsByEffect(IsOwnerEffect) — live-witnessed) — and payload
+                // synthesis (a stand-in ICardEffect) is forbidden (the C-Btl IBattle precedent). Blocked on the
+                // live-cardEffect thread (RD-C1-CARDEFFECT-IDTHREAD).
                 await cutIn.StackSkillInfos(
                     CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: null, battle: null),
                     EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
@@ -1321,10 +1330,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         {
             // DEFER the whole batch member (flag pendingDeletion) so the common loop surfaces the replacement
             // window for the option holders; the state-based sweep finishes the batch together once every
-            // member's decision settled (GameFlowProcessor batch-mate gate).
-            bool decoyEligible = _zoneMover is IZoneStateReader decoyZones
-                && DeletionReplacementGate.FindDecoyRedirect(
-                    _repository, decoyZones, record, mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null;
+            // member's decision settled (GameFlowProcessor batch-mate gate). (C-Del 3c-2b) Only the retained
+            // CustomWouldBeDeleted bridge reaches this branch now — the Decoy eligibility marker is retired.
             var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
             {
                 [GameFlowProcessor.PendingDeletionKey] = true,
@@ -1339,10 +1346,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             if (ReadBool(mutation.Values, IsDpZeroKey))
             {
                 deferMetadata[IsDpZeroKey] = true;   // (B3) AS-IS DPZero flag travels with the deletion
-            }
-            if (decoyEligible)
-            {
-                deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
             }
 
             _repository.Upsert(record with { Metadata = deferMetadata });
@@ -1485,8 +1488,7 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 continue;   // already left the field (a co-batch member trashed earlier) — nothing to defer
             }
 
-            bool decoyEligible = DeletionReplacementGate.FindDecoyRedirect(
-                _repository, zones, record, staged.Mutation.SourceEntityId, effectRegistry: _effectRegistry, context: _context) is not null;
+            // (C-Del 3c-2b) The Decoy eligibility marker is retired — Scapegoat/Decoy fire through the AS-IS window.
             var deferMetadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
             {
                 [GameFlowProcessor.PendingDeletionKey] = true,
@@ -1501,10 +1503,6 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             if (ReadBool(staged.Mutation.Values, IsDpZeroKey))
             {
                 deferMetadata[IsDpZeroKey] = true;
-            }
-            if (decoyEligible)
-            {
-                deferMetadata[DeletionReplacementTiming.DecoyEligibleKey] = true;
             }
 
             _repository.Upsert(record with { Metadata = deferMetadata });

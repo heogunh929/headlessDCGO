@@ -65,9 +65,16 @@ public static class DigivolutionStackHelpers
                 continue;
             }
 
-            await zoneMover.MoveAsync(
-                new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
-                cancellationToken).ConfigureAwait(false);
+            // (C-Del 3c-2b / Material Save) an ALREADY-OFF-ZONE card (a digivolution source detached from a dying
+            // permanent, moving permanent→permanent) needs no zone move — AS-IS RemoveFromAllArea is a no-op for
+            // it; AppendSources below performs the attach. A None→None ZoneMoveRequest is rejected by its ctor.
+            if (fromZone != ChoiceZone.None)
+            {
+                await zoneMover.MoveAsync(
+                    new ZoneMoveRequest(card.OwnerId, cardId, fromZone, ChoiceZone.None),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             appended.Add(cardId.Value);
             onceFlags?.ResetForCard(card.OwnerId, cardId);
         }

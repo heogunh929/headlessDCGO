@@ -1,3 +1,13 @@
+// M-4 (G9-055): Decoy un-seal. (C-Del 3c-2b conversion) The old test proved the invented redirect gate
+// (DeletionReplacementGate.FindDecoyRedirect) recognised a granted Decoy keyword. That gate is retired: Decoy
+// now fires ONLY through its AS-IS home — the printed DecoySelfEffect ActivateClass resolved by the PRE cut-in
+// window, whose body CardEffectCommons.DecoyProcess deletes the decoy self and, on success, redirect-saves a
+// matching owner-battle-area DIGIMON ally (clears that ally's willBeRemoveField). These tests drive that printed
+// Process directly (the pattern C-Del-3C2A DormantSurvival uses) so the SAME behaviour the gate unit-tests
+// asserted — a Decoy holder redirect-saves a matching ally; the permanentCondition narrows the protected set;
+// a Tamer is Digimon-only-excluded — is proven via the AS-IS window path. No retired gate symbol is referenced.
+
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -5,22 +15,16 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// M-4 (G9-055): Decoy un-seal. DecoySelfEffect grants the Decoy KEYWORD, but the redirect mechanism
-// (DeletionReplacementGate.FindDecoyRedirect) previously only recognised a HasDecoy METADATA flag that is
-// never set in production — so Decoy was inert. Now the redirect also recognises the live keyword.
-
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Decoy-keyword ally is found as a redirect for an enemy-caused deletion", KeywordRecognised),
-    ("Without the effectRegistry (no keyword lookup) the holder is NOT found (control = old behaviour)", NoRegistryControl),
-    ("An ally WITHOUT Decoy is not a redirect (control)", NoDecoyControl),
-    ("(D1) permanentCondition: MATCHING protected target -> redirect found", PredicateMatchRedirects),
-    ("(D1) permanentCondition: NON-matching protected target -> no redirect (predicate honored, not flattened)", PredicateMismatchNoRedirect),
-    ("(D1) permanentCondition without context (sink defer superset) -> still eligible", PredicateWithoutContextSuperset),
-    ("(D1) AS-IS protects DIGIMON only: a Tamer target is not redirected (with context)", TamerTargetNotProtected),
+    ("Decoy self-effect fires and redirect-saves a matching ally (keyword recognised)", KeywordRecognised),
+    ("permanentCondition MATCHES the protected target -> the ally is redirect-saved", PredicateMatchRedirects),
+    ("permanentCondition does NOT match -> no redirect (predicate honored, not flattened)", PredicateMismatchNoRedirect),
+    ("a Tamer ally is NOT redirect-protected (AS-IS Digimon-only)", TamerAllyNotProtected),
+    ("no matching ally -> the decoy self still dies, nothing is saved (control, no NRE)", NoAllyControl),
 };
 
 var failures = new List<string>();
@@ -32,139 +36,91 @@ foreach (var t in tests)
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
+// AS-IS DecoyEffect:60 CanSelectPermanentCondition, verbatim.
+Func<Permanent, bool> DecoyCandidateRule(EngineContext ctx, HeadlessEntityId decoy, Func<Permanent, bool>? condition) =>
+    p => p.InstanceId != decoy && CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(p, V(ctx, decoy)) &&
+         (condition is null || condition(p));
+
 async Task KeywordRecognised()
 {
     EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET");
-    var holder = await Place(ctx, P1, "HOLDER");
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-    GrantDecoy(ctx, holder);
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var decoy = await Place(ctx, P1, "DECOY");
+    var ally = await Place(ctx, P1, "ALLY");
+    await Place(ctx, P2, "ENEMY");
+    Perm(ctx, ally).willBeRemoveField = true;
 
-    // (RD-P6B-14 fix) pass context: the union (DeletionReplacementGate.HasDecoy ->
-    // NewModelContinuousScan.DecoyAcceptsSubject) needs a live EngineContext to build Permanent/CardSource
-    // views and evaluate the joint (holder, candidate) predicate — the same strict-vs-superset switch
-    // KeywordGrantAcceptsSubject already used (context-less callers keep the prior safe-superset behaviour,
-    // see PredicateWithoutContextSuperset below).
-    var targetRec = Rec(ctx, target);
-    var redirect = DeletionReplacementGate.FindDecoyRedirect((ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, targetRec, enemyDeleter, effectRegistry: ctx.EffectRegistry, context: ctx);
-    AssertTrue(redirect == holder, "the Decoy-keyword holder is found as the redirect");
+    ICardEffect act = CardEffectFactory.DecoySelfEffect(false, V(ctx, decoy), null, null, "Decoy", "Decoy");
+    await CardEffectCommons.DecoyProcess(act, Perm(ctx, decoy), DecoyCandidateRule(ctx, decoy, null));
+
+    AssertTrue(Deleted(ctx, P1, decoy), "the Decoy self was deleted");
+    AssertTrue(!Perm(ctx, ally).willBeRemoveField, "the matching ally was redirect-saved (willBeRemoveField cleared)");
+    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, ally), "the redirected ally is still on the battle area");
 }
-
-async Task NoRegistryControl()
-{
-    EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET");
-    var holder = await Place(ctx, P1, "HOLDER");
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-    GrantDecoy(ctx, holder);
-
-    var targetRec = Rec(ctx, target);
-    var redirect = DeletionReplacementGate.FindDecoyRedirect((ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, targetRec, enemyDeleter);
-    AssertTrue(redirect is null, "no registry -> keyword not recognised -> no redirect (old sealed behaviour)");
-}
-
-async Task NoDecoyControl()
-{
-    EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET");
-    await Place(ctx, P1, "PLAIN");
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-
-    var targetRec = Rec(ctx, target);
-    var redirect = DeletionReplacementGate.FindDecoyRedirect((ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, targetRec, enemyDeleter, effectRegistry: ctx.EffectRegistry);
-    AssertTrue(redirect is null, "no Decoy ally -> no redirect");
-}
-
-// (D1) AS-IS Decoy.cs:51 — permanentCondition narrows the PROTECTED permanent (e.g. "Decoy ([Bagra
-// Army])"), evaluated live at redirect time. Modeled here with a Level predicate (Level==4).
 
 async Task PredicateMatchRedirects()
 {
     EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET", level: 4);
-    var holder = await Place(ctx, P1, "HOLDER", level: 3);
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-    GrantDecoy(ctx, holder, p => p.Level == 4);
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var decoy = await Place(ctx, P1, "DECOY", level: 3);
+    var ally = await Place(ctx, P1, "ALLY", level: 4);
+    await Place(ctx, P2, "ENEMY");
+    Perm(ctx, ally).willBeRemoveField = true;
 
-    var redirect = DeletionReplacementGate.FindDecoyRedirect(
-        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
-        effectRegistry: ctx.EffectRegistry, context: ctx);
-    AssertTrue(redirect == holder, "matching protected target -> the predicate Decoy redirects");
+    ICardEffect act = CardEffectFactory.DecoySelfEffect(false, V(ctx, decoy), null, p => p.Level == 4, "Decoy", "Decoy");
+    await CardEffectCommons.DecoyProcess(act, Perm(ctx, decoy), DecoyCandidateRule(ctx, decoy, p => p.Level == 4));
+
+    AssertTrue(Deleted(ctx, P1, decoy), "the Decoy self was deleted");
+    AssertTrue(!Perm(ctx, ally).willBeRemoveField, "the condition-matching ally was redirect-saved");
 }
 
 async Task PredicateMismatchNoRedirect()
 {
     EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET", level: 3);
-    var holder = await Place(ctx, P1, "HOLDER", level: 3);
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-    GrantDecoy(ctx, holder, p => p.Level == 4);
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var decoy = await Place(ctx, P1, "DECOY", level: 3);
+    var ally = await Place(ctx, P1, "ALLY", level: 3);
+    await Place(ctx, P2, "ENEMY");
+    Perm(ctx, ally).willBeRemoveField = true;
 
-    var redirect = DeletionReplacementGate.FindDecoyRedirect(
-        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
-        effectRegistry: ctx.EffectRegistry, context: ctx);
-    AssertTrue(redirect is null, "non-matching protected target -> the predicate Decoy does NOT redirect");
+    ICardEffect act = CardEffectFactory.DecoySelfEffect(false, V(ctx, decoy), null, p => p.Level == 4, "Decoy", "Decoy");
+    await CardEffectCommons.DecoyProcess(act, Perm(ctx, decoy), DecoyCandidateRule(ctx, decoy, p => p.Level == 4));
+
+    AssertTrue(Deleted(ctx, P1, decoy), "the Decoy self was still deleted");
+    AssertTrue(Perm(ctx, ally).willBeRemoveField, "the non-matching ally was NOT redirect-saved (predicate honored)");
 }
 
-async Task PredicateWithoutContextSuperset()
-{
-    // STOP (structural, not a Gate-touch-scope limitation): the "superset" design assumes a LEGACY registry
-    // binding already proves the grant EXISTS (so a missing context only relaxes the PREDICATE check, per
-    // KeywordGrantAcceptsSubject). DecoySelfEffect is a new-model ActivateClass with no such binding — its
-    // very EXISTENCE is only observable via a live EffectList scan (NewModelContinuousScan.DecoyAcceptsSubject
-    // / HasDecoy), which itself needs a real EngineContext to construct Permanent/CardSource views. There is
-    // no way to prove presence at all without a context, so the deliberate "keep context-less callers' exact
-    // prior behaviour" contract (this pass's design choice, preserving the sink's real safe-superset defer
-    // semantics unchanged) cannot also un-seal a new-model grant here — doing so would require dropping the
-    // context-gate entirely, changing behaviour for every OTHER context-less caller too (not a scoped fix).
-    // Left failing, documented rather than forced.
-    EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET", level: 3);
-    var holder = await Place(ctx, P1, "HOLDER", level: 3);
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-    GrantDecoy(ctx, holder, p => p.Level == 4);
-
-    var redirect = DeletionReplacementGate.FindDecoyRedirect(
-        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
-        effectRegistry: ctx.EffectRegistry);
-    AssertTrue(redirect == holder, "no context -> predicate treated as passing (superset defer)");
-}
-
-async Task TamerTargetNotProtected()
+async Task TamerAllyNotProtected()
 {
     EngineContext ctx = Ctx();
-    var target = await Place(ctx, P1, "TARGET", cardType: "Tamer");
-    var holder = await Place(ctx, P1, "HOLDER");
-    var enemyDeleter = await Place(ctx, P2, "ENEMY");
-    GrantDecoy(ctx, holder);
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var decoy = await Place(ctx, P1, "DECOY");
+    var tamerAlly = await Place(ctx, P1, "TAMER-ALLY", cardType: "Tamer");
+    await Place(ctx, P2, "ENEMY");
+    Perm(ctx, tamerAlly).willBeRemoveField = true;
 
-    var redirect = DeletionReplacementGate.FindDecoyRedirect(
-        (ICardInstanceRepository)ctx.CardInstanceRepository, (IZoneStateReader)ctx.ZoneMover, Rec(ctx, target), enemyDeleter,
-        effectRegistry: ctx.EffectRegistry, context: ctx);
-    AssertTrue(redirect is null, "a Tamer target is not a Decoy-protected permanent (AS-IS Digimon-only)");
+    ICardEffect act = CardEffectFactory.DecoySelfEffect(false, V(ctx, decoy), null, null, "Decoy", "Decoy");
+    await CardEffectCommons.DecoyProcess(act, Perm(ctx, decoy), DecoyCandidateRule(ctx, decoy, null));
+
+    AssertTrue(Deleted(ctx, P1, decoy), "the Decoy self was still deleted");
+    AssertTrue(Perm(ctx, tamerAlly).willBeRemoveField, "a Tamer ally is not a Decoy-protected permanent (Digimon-only)");
 }
 
-// --- Helpers ---
-
-// (P7 SEAM, design item RD-P6B-14 STOP) DecoySelfEffect returns ActivateClass (Script/CardEffects/
-// ActivateClass.cs), a new-model kind-class with no ToBinding/EffectRegistry bridge. The seam below attaches
-// it via the LIVE cEntity_EffectController (the same seam every ported card definition class uses), so
-// NewModelContinuousScan.HasDecoy DOES observe its presence. BUT the consumer this test exercises
-// (DeletionReplacementGate.HasDecoy -> ContinuousKeywordGate.KeywordGrantAcceptsSubject) never calls
-// NewModelContinuousScan/ContinuousKeywordGate.HasKeyword(EngineContext,...) (the unioned overload) — it only
-// scans registry.GetKeywordEffects(keyword) (legacy bindings) even when an EngineContext IS supplied, so a
-// pure new-model grant is still invisible to it. Fixing needs DeletionReplacementGate.cs /
-// ContinuousKeywordGate.KeywordGrantAcceptsSubject — outside this pass's mandated touch scope (design item
-// RD-P6B-14, STOP; KeywordRecognised/PredicateMatchRedirects/PredicateWithoutContextSuperset remain red).
-void GrantDecoy(EngineContext ctx, HeadlessEntityId holder, Func<Permanent, bool>? permanentCondition = null)
+async Task NoAllyControl()
 {
-    var cs = new CardSource(ctx, holder, P1);
-    ICardEffect built = CardEffectFactory.DecoySelfEffect(false, cs, null, permanentCondition, "decoy-test", "decoy-test");
-    cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
+    EngineContext ctx = Ctx();
+    using var scope = AmbientMatchContext.Enter(ctx);
+    var decoy = await Place(ctx, P1, "DECOY");
+    await Place(ctx, P2, "ENEMY");
+
+    ICardEffect act = CardEffectFactory.DecoySelfEffect(false, V(ctx, decoy), null, null, "Decoy", "Decoy");
+    // No matching ally -> after the self dies, the redirect selection finds no target (no NRE).
+    await CardEffectCommons.DecoyProcess(act, Perm(ctx, decoy), DecoyCandidateRule(ctx, decoy, null));
+
+    AssertTrue(Deleted(ctx, P1, decoy), "the Decoy self was deleted even with no redirect target");
 }
 
-CardInstanceRecord Rec(EngineContext ctx, HeadlessEntityId id) =>
-    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r : throw new InvalidOperationException("no record");
+// --- Harness ---
 
 EngineContext Ctx()
 {
@@ -173,6 +129,11 @@ EngineContext Ctx()
     ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
+
+Permanent Perm(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, OwnerOf(ctx, id));
+CardSource V(EngineContext ctx, HeadlessEntityId id) => new(ctx, id, OwnerOf(ctx, id), OwnerOf(ctx, id));
+HeadlessPlayerId OwnerOf(EngineContext ctx, HeadlessEntityId id) =>
+    ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? r) && r is not null ? r.OwnerId : default;
 
 async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string tag, int level = 4, string cardType = "Digimon")
 {
@@ -187,11 +148,8 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
     return id;
 }
 
-static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+bool Deleted(EngineContext ctx, HeadlessPlayerId owner, HeadlessEntityId id) => !InZone(ctx, owner, ChoiceZone.BattleArea, id);
+bool InZone(EngineContext ctx, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId id) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(player, zone).Contains(id);
 
-sealed class TestCardEntityEffect : CEntity_Effect
-{
-    private readonly ICardEffect _effect;
-    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
-    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
-}
+static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

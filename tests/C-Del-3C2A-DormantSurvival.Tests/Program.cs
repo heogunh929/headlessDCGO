@@ -82,19 +82,23 @@ async Task ScapegoatSubstituteEvades()
     EngineContext ctx = NewContext();
     using var scope = AmbientMatchContext.Enter(ctx);
     var self = await Place(ctx, P1, "SELF");
-    var sub = await Place(ctx, P1, "SUB");
+    // The substitute carries a WINDOW-COLLECTIBLE mandatory would-be-deleted survive replacement (the printed
+    // TfxWouldBeDeleted ActivateClass at WhenPermanentWouldBeDeleted, registered). ScapegoatProcess routes the
+    // substitute's deletion through DeletePeremanentAndProcessAccordingToResult → the effect-delete sink, which
+    // opens the AS-IS PRE cut-in window; the mandatory replacement clears willBeRemoveField inline, so the
+    // substitute is SPARED and never lands in DestroyedPermanents. (3c-2b: the retired synthetic HasEvadeKey flag
+    // no longer fires — survival is owned by the window, so the substitute must carry the window form to evade.)
+    var sub = await Place(ctx, P1, "TfxWouldBeDeleted");
     await Place(ctx, P2, "FOE");
+    CardEffectRegistrar.RegisterCard(ctx, sub, P1);
     Perm(ctx, self).willBeRemoveField = true;
-    // the substitute is immune to effect-deletion -> the internal delete fails -> success never fires.
-    SetFlag(ctx, sub, DeletionReplacementGate.HasEvadeKey, true);
-    SetFlag(ctx, sub, DeletionReplacementGate.IsSuspendedKey, false);
 
     ICardEffect act = CardEffectFactory.ScapegoatSelfEffect(false, V(ctx, self), null, "Scapegoat", "Scapegoat");
     await CardEffectCommons.ScapegoatProcess(act, Perm(ctx, self), p => p.InstanceId == sub);
-    await new GameFlowProcessor().RunToStableAsync(ctx);   // let the substitute's Evade window settle
 
-    AssertFalse(Deleted(ctx, P1, sub), "the substitute EVADED (survived) — it was not deleted");
-    AssertTrue(Perm(ctx, self).willBeRemoveField, "substitute survived -> delete FAILED -> THIS Digimon NOT cleared (AS-IS DestroyedPermanents gating)");
+    AssertFalse(Deleted(ctx, P1, sub), "the substitute SURVIVED via the PRE would-be-deleted window — it was not deleted");
+    AssertTrue(InZone(ctx, P1, ChoiceZone.BattleArea, sub), "the substitute is still on the battle area (spared by the window)");
+    AssertTrue(Perm(ctx, self).willBeRemoveField, "substitute survived -> delete FAILED -> THIS Digimon NOT cleared (AS-IS DestroyedPermanents gating) -> holder dies");
 }
 
 // ============================================================ DECOY

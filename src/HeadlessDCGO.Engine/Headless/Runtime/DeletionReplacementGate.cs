@@ -75,132 +75,24 @@ public static class DeletionReplacementGate
     public const string DecodedKey = "decoded";
     public const string PartitionedKey = "partitioned";
 
-    /// <summary>
-    /// (C-7 Evade) An unsuspended Digimon that would leave the battle area suspends itself to survive.
-    /// Mirrors <c>EvadeProcess</c> (SuspendPermanentsClass.Tap + willBeRemoveField = false). The suspend
-    /// IS the cost, so an already-suspended Digimon cannot evade (AS-IS
-    /// <c>CanActivatePermanentSuspendCostEffect</c>). Applies to both battle and effect deletion —
-    /// <c>CanTriggerEvade</c> has no by-battle filter. Returns true when the deletion is replaced.
-    /// </summary>
-    public static bool TryEvade(ICardInstanceRepository repository, CardInstanceRecord record, EffectRegistry? effectRegistry = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(record);
+    // (C-Del 3c-2b RETIRED, 2026-07-15) TryEvade / TryBarrierAsync — the invented PRE would-be-deleted Evade /
+    // Barrier firing-half — are retired. AS-IS [Evade] / [Barrier] now fire through the PRE cut-in window
+    // (WhenPermanentWouldBeDeleted → WhenRemoveField) opened by the effect-delete sink (3b), BattleResolver (3c-1b)
+    // and SecurityResolver (3c-1c): the card's printed CardEffectFactory.EvadeEffect / BarrierEffect ActivateClass
+    // (CardEffects) / granted GainEvade / GainBarrier bucket effect is collected by GetSkillInfos and resolved by
+    // the window, whose EvadeProcess / BarrierProcess sets willBeRemoveField=false. Keeping this gate firing AND the
+    // window would double-fire. Presence markers (HasEvadeKey / HasBarrierKey / ContinuousKeywordGate.Evade|Barrier)
+    // are untouched — only the FIRING is retired. See keyword_rehoming_design_2026-07-15.md §5 / design item
+    // RD-3C2B (3c-2b landing flip; RD-3C1-BATTLE-PRE-WINDOW + RD-3C1-MIXED-BATCH cleared by the battle/security PRE
+    // transport + this whole-cluster gate retirement).
 
-        if (!HasReplacementKeyword(record, HasEvadeKey, ContinuousKeywordGate.Evade, effectRegistry) || ReadFlag(record.Metadata, IsSuspendedKey))
-        {
-            return false;
-        }
-
-        repository.Upsert(record with
-        {
-            Metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
-            {
-                [IsSuspendedKey] = true,
-                [EvadedKey] = true,
-            }
-        });
-        return true;
-    }
-
-    /// <summary>
-    /// (C-5 Barrier) A Digimon that would be deleted trashes the top card of its owner's security stack
-    /// to survive. Mirrors <c>BarrierProcess</c> (IDestroySecurity fromTop:1 + willBeRemoveField = false),
-    /// gated by <c>CanActivateBarrier</c> (owner has >= 1 security). The AS-IS trigger is battle-only
-    /// (<c>IsByBattle</c>), so only the battle path calls this. Returns true when the deletion is replaced.
-    /// </summary>
-    public static async Task<bool> TryBarrierAsync(
-        EngineContext context,
-        CardInstanceRecord record,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(record);
-
-        if (!HasReplacementKeyword(record, HasBarrierKey, ContinuousKeywordGate.Barrier, context.EffectRegistry) ||
-            context.ZoneMover is not IZoneStateReader zoneReader)
-        {
-            return false;
-        }
-
-        IReadOnlyList<HeadlessEntityId> security = zoneReader.GetCards(record.OwnerId, ChoiceZone.Security);
-        if (security.Count < 1)
-        {
-            return false;
-        }
-
-        // Trash the top security card (security[0] — the same end SecurityResolver reveals first), face up.
-        await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(record.OwnerId, security[0], ChoiceZone.Security, ChoiceZone.Trash, FaceUp: true),
-            cancellationToken).ConfigureAwait(false);
-
-        context.CardInstanceRepository.Upsert(record with
-        {
-            Metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
-            {
-                [BarrieredKey] = true,
-            }
-        });
-        return true;
-    }
-
-    /// <summary>
-    /// (C-4 Decoy) When <paramref name="target"/> (a battle-area Digimon) would be deleted by an
-    /// ENEMY-owned effect, its controller may sacrifice one of its OTHER battle-area Decoy Digimon to
-    /// prevent that deletion. Returns the Decoy to sacrifice, or null when no redirect applies. Mirrors
-    /// AS-IS <c>DecoyProcess</c> (delete the Decoy, then <c>willBeRemoveField = false</c> on the protected
-    /// Digimon) gated by <c>CanActivateDecoy</c> (the Decoy can be deleted) and the by-enemy-effect trigger
-    /// (<c>cardEffect.EffectSourceCard.Owner == card.Owner.Enemy</c>). Effect-deletion only — the AS-IS
-    /// trigger is <c>IsByEffect</c>, so battle deletion does not redirect.
-    ///
-    /// LIMITATION: picks the first eligible Decoy deterministically rather than surfacing the AS-IS
-    /// "select 1" choice (consistent with the auto-resolved replacements above).
-    /// </summary>
-    public static HeadlessEntityId? FindDecoyRedirect(
-        ICardInstanceRepository repository,
-        IZoneStateReader zones,
-        CardInstanceRecord target,
-        HeadlessEntityId deleterId,
-        Func<CardInstanceRecord, bool>? candidateCondition = null,
-        EffectRegistry? effectRegistry = null,
-        EngineContext? context = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zones);
-        ArgumentNullException.ThrowIfNull(target);
-
-        // By enemy effect: the deleter must resolve to an instance owned by the target's opponent.
-        if (deleterId.IsEmpty ||
-            !repository.TryGetInstance(deleterId, out CardInstanceRecord? deleter) ||
-            deleter is null ||
-            deleter.OwnerId == target.OwnerId)
-        {
-            return null;
-        }
-
-        IReadOnlyList<HeadlessEntityId> battleArea = zones.GetCards(target.OwnerId, ChoiceZone.BattleArea);
-        if (!battleArea.Contains(target.InstanceId) || !ProtectedTargetIsDigimon(context, target))
-        {
-            return null;
-        }
-
-        foreach (HeadlessEntityId candidateId in battleArea)
-        {
-            if (candidateId == target.InstanceId ||
-                !repository.TryGetInstance(candidateId, out CardInstanceRecord? decoy) ||
-                decoy is null ||
-                !HasDecoy(decoy, candidateId, target, effectRegistry, context, deleterId) ||
-                ReadFlag(decoy.Metadata, CannotBeDeletedKey) ||
-                (candidateCondition is not null && !candidateCondition(decoy)))
-            {
-                continue;
-            }
-
-            return candidateId;
-        }
-
-        return null;
-    }
+    // (C-Del 3c-2b RETIRED, 2026-07-15) FindDecoyRedirect / FindDecoyRedirectCandidates / HasDecoy /
+    // ProtectedTargetIsDigimon — the invented Decoy by-enemy-effect redirect firing-half — are retired. AS-IS
+    // [Decoy] now fires through the PRE cut-in window (WhenPermanentWouldBeDeleted): the printed / granted
+    // DecoySelfEffect ActivateClass is collected by GetSkillInfos and resolved by the window (DecoyProcess deletes
+    // the sacrificed Decoy, then willBeRemoveField=false on the protected Digimon). Keeping this gate AND the
+    // window would double-fire. Presence markers (HasDecoyKey / ContinuousKeywordGate.Decoy) untouched.
+    // See keyword_rehoming_design_2026-07-15.md §5 / design item RD-3C2B.
 
     // (C-Del 3a RETIRED, 2026-07-15) TryFortitudeReplayAsync — the invented POST-deletion Fortitude replay
     // firing-half — is retired. AS-IS [Fortitude] now fires through the OnDestroyedAnyone cut-in window
@@ -218,101 +110,17 @@ public static class DeletionReplacementGate
     // rebuild from the trash) wrongly fired OnDeletion for the survivor, opened stacked POST windows, and
     // never emitted WhenTopCardTrashed.
 
-    /// <summary>
-    /// (C-11 Fragment) A would-be-deleted Digimon trashes <c>fragmentCost</c> (default 1) of its
-    /// digivolution sources to survive instead (AS-IS FragmentProcess: trash N sources, then
-    /// <c>willBeRemoveField = false</c>) gated by <c>CanActivateFragment</c> (DigivolutionCards.Count &gt;=
-    /// N). The TOP card stays; only the under-sources are paid. Like Evade/Barrier this is a skip-deletion
-    /// replacement consulted in both deletion paths.
-    /// LIMITATION: auto-pays the DEEPEST sources rather than surfacing the AS-IS "select N" choice.
-    /// </summary>
     /// <summary>(C1) binding-values key carrying the AS-IS <c>trashValue</c> of a FragmentSelfEffect grant
     /// (Fragment &lt;X&gt; — trash X sources on deletion). Grant value wins over the test-set metadata key.</summary>
     public const string FragmentTrashValueKey = "fragment.trashValue";
 
-    /// <summary>(C1) the Fragment cost: the keyword grant's stored <c>trashValue</c> (AS-IS
-    /// <c>CanActivateFragment(p, trashValue)</c> / <c>FragmentProcess(..., trashValue)</c>) when present,
-    /// else the per-instance metadata flag, else 1.</summary>
-    public static int FragmentCostOf(CardInstanceRecord record, EffectRegistry? effectRegistry)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        if (effectRegistry is not null)
-        {
-            foreach (EffectBinding binding in effectRegistry.GetKeywordEffects(ContinuousKeywordGate.Fragment))
-            {
-                EffectContext effectContext = binding.Request.Context;
-                if ((effectContext.SourceEntityId == record.InstanceId || effectContext.TargetEntityIds.Contains(record.InstanceId)) &&
-                    effectContext.Values.TryGetValue(FragmentTrashValueKey, out object? raw) && raw is int value && value > 0)
-                {
-                    return value;
-                }
-            }
-        }
-
-        return Math.Max(1, ReadInt(record.Metadata, FragmentCostKey, 1));
-    }
-
-    public static bool CanFragment(CardInstanceRecord record, EffectRegistry? effectRegistry = null)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        int cost = FragmentCostOf(record, effectRegistry);
-        return HasReplacementKeyword(record, HasFragmentKey, ContinuousKeywordGate.Fragment, effectRegistry) && SourceCount(record.Metadata) >= cost;
-    }
-
-    public static async Task ApplyFragmentAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default,
-        EffectRegistry? effectRegistry = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zoneMover);
-        if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null || !CanFragment(record, effectRegistry))
-        {
-            return;
-        }
-
-        int cost = FragmentCostOf(record, effectRegistry);
-        IReadOnlyList<HeadlessEntityId> sources = ReadSourceIds(record.Metadata);
-        // Auto-pick the deepest `cost` sources to trash (the recent evolution line stays underneath).
-        foreach (HeadlessEntityId source in sources.Skip(sources.Count - cost))
-        {
-            await zoneMover.MoveAsync(
-                new ZoneMoveRequest(record.OwnerId, source, ChoiceZone.None, ChoiceZone.Trash, FaceUp: true),
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
-        string[] remaining = sources.Take(sources.Count - cost).Select(id => id.Value).ToArray();
-        if (remaining.Length > 0)
-        {
-            metadata[SourceIdsKey] = remaining;
-        }
-        else
-        {
-            metadata.Remove(SourceIdsKey);
-        }
-
-        metadata[FragmentedKey] = true;
-        repository.Upsert(record with { Metadata = metadata });
-    }
-
-    public static async Task<bool> TryFragmentAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        CardInstanceRecord record,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        if (!CanFragment(record))
-        {
-            return false;
-        }
-
-        await ApplyFragmentAsync(repository, zoneMover, record.InstanceId, cancellationToken).ConfigureAwait(false);
-        return true;
-    }
+    // (C-Del 3c-2b RETIRED, 2026-07-15) FragmentCostOf / CanFragment / ApplyFragmentAsync / TryFragmentAsync — the
+    // invented PRE would-be-deleted Fragment firing-half — are retired. AS-IS [Fragment] now fires through the PRE
+    // cut-in window (WhenPermanentWouldBeDeleted → WhenRemoveField): the printed / granted FragmentSelfEffect
+    // ActivateClass is collected by GetSkillInfos and resolved by the window, whose FragmentProcess trashes the
+    // chosen N sources then willBeRemoveField=false (the top survives in a lower form). Keeping this gate AND the
+    // window would double-fire. Presence markers (HasFragmentKey / ContinuousKeywordGate.Fragment) and the trashValue
+    // vocabulary key above are untouched. See keyword_rehoming_design_2026-07-15.md §5 / design item RD-3C2B.
 
     /// <summary>
     /// (C-17 Ascension) AFTER a Digimon is deleted, its controller may place the deleted card into the
@@ -371,86 +179,13 @@ public static class DeletionReplacementGate
         return true;
     }
 
-    /// <summary>
-    /// (C-19 Scapegoat) When <paramref name="holder"/> (a battle-area Digimon) would be deleted, its
-    /// controller may delete one of its OTHER battle-area Digimon instead, so the holder survives (AS-IS
-    /// ScapegoatProcess: delete a matching permanent, then <c>willBeRemoveField = false</c> on this one).
-    /// The inverse of Decoy. Returns the ally to sacrifice, or null. The caller trashes the ally and skips
-    /// the holder's deletion.
-    /// LIMITATION: picks the first eligible ally rather than surfacing the AS-IS "select 1" choice.
-    /// </summary>
-    public static HeadlessEntityId? FindScapegoatSacrifice(
-        ICardInstanceRepository repository,
-        IZoneStateReader zones,
-        CardInstanceRecord holder,
-        Func<CardInstanceRecord, bool>? candidateCondition = null, EffectRegistry? effectRegistry = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zones);
-        ArgumentNullException.ThrowIfNull(holder);
-
-        if (!HasReplacementKeyword(holder, HasScapegoatKey, ContinuousKeywordGate.Scapegoat, effectRegistry))
-        {
-            return null;
-        }
-
-        IReadOnlyList<HeadlessEntityId> battleArea = zones.GetCards(holder.OwnerId, ChoiceZone.BattleArea);
-        if (!battleArea.Contains(holder.InstanceId))
-        {
-            return null;
-        }
-
-        foreach (HeadlessEntityId candidateId in battleArea)
-        {
-            if (candidateId == holder.InstanceId ||
-                !repository.TryGetInstance(candidateId, out CardInstanceRecord? ally) ||
-                ally is null ||
-                ReadFlag(ally.Metadata, CannotBeDeletedKey) ||
-                (candidateCondition is not null && !candidateCondition(ally)))
-            {
-                continue;
-            }
-
-            return candidateId;
-        }
-
-        return null;
-    }
-
-    /// <summary>(C-4 Decoy) All of the owner's Decoy allies that could be sacrificed to spare the target —
-    /// the agent picks one (F-6.8 sub-selection). The by-enemy-effect gating is checked at defer time
-    /// (the deleter is known then) and recorded as a marker; this only enumerates the eligible decoys.</summary>
-    // (M-4) A card is a Decoy holder if it carries the (test-set) HasDecoy metadata flag OR — the production
-    // path — currently has the Decoy KEYWORD granted (DecoySelfEffect via ContinuousKeywordGate.Decoy). Before
-    // this, the keyword grant was disconnected from the redirect mechanism (the metadata flag was never set in
-    // production), so Decoy was inert.
-    // (D1) The keyword path additionally honours the grant's stored permanentCondition, evaluated LIVE
-    // against the PROTECTED target (AS-IS Decoy.cs CanSelectPermanentCondition — e.g. "Decoy ([Bagra
-    // Army])" only redirects deletions of Bagra Army Digimon). Context-less callers (sink defer superset)
-    // treat a stored predicate as passing; the context-aware choice paths evaluate strictly.
-    // (RD-P6B-14 partial resolution) UNION NewModelContinuousScan.DecoyAcceptsSubject — the real AS-IS-shaped
-    // joint (holder, candidate) scan (Decoy.cs CanUseCondition, evaluated via CanTrigger over the exact
-    // hashtable shape the live WhenPermanentWouldBeDeleted window builds) for a ported new-model DecoySelfEffect
-    // grant (ActivateClass, no ToBinding — KeywordGrantAcceptsSubject's registry-only scan can never see it).
-    // Context-less callers keep the EXACT prior behaviour (this union is gated on `context is not null`,
-    // matching KeywordGrantAcceptsSubject's own existing strict-vs-superset switch) — no behaviour change for
-    // the sink's defer decision.
-    private static bool HasDecoy(
-        CardInstanceRecord decoy, HeadlessEntityId decoyId, CardInstanceRecord target, EffectRegistry? effectRegistry, EngineContext? context,
-        HeadlessEntityId causingSourceId = default) =>
-        ReadFlag(decoy.Metadata, HasDecoyKey)
-        || (effectRegistry is not null && ContinuousKeywordGate.KeywordGrantAcceptsSubject(
-                effectRegistry, decoyId, ContinuousKeywordGate.Decoy, target.InstanceId, target.OwnerId, context))
-        || (context is not null && Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.DecoyAcceptsSubject(
-                context, decoyId, target.InstanceId, target.OwnerId, causingSourceId));
-
-    // (D1) AS-IS Decoy protects only DIGIMON permanents (IsPermanentExistsOnOwnerBattleAreaDigimon on the
-    // protected candidate). Checkable only with a context (CardRepository lookup); context-less callers keep
-    // the prior (superset) behaviour.
-    private static bool ProtectedTargetIsDigimon(EngineContext? context, CardInstanceRecord target) =>
-        context is null ||
-        (context.CardRepository.TryGetCard(target.DefinitionId, out CardRecord? definition) && definition is not null &&
-         definition.IsCardType("Digimon"));
+    // (C-Del 3c-2b RETIRED, 2026-07-15) FindScapegoatSacrifice / FindScapegoatSacrificeCandidates — the invented
+    // PRE would-be-deleted Scapegoat firing-half — are retired. AS-IS [Scapegoat] now fires through the PRE cut-in
+    // window (WhenPermanentWouldBeDeleted): the printed / granted ScapegoatSelfEffect ActivateClass is collected by
+    // GetSkillInfos and resolved by the window (ScapegoatProcess deletes the chosen ally through the full delete
+    // pipeline, then willBeRemoveField=false on the holder when the sacrifice resolved). Keeping this gate AND the
+    // window would double-fire. Presence markers (HasScapegoatKey / ContinuousKeywordGate.Scapegoat) untouched.
+    // See keyword_rehoming_design_2026-07-15.md §5 / design item RD-3C2B.
 
     // (M-4) Same seal as Decoy for the other deletion-replacement keywords: the metadata flag is only ever set
     // in tests, and there is no keyword->metadata bridge, so the live keyword grant (Fragment/Scapegoat/Save)
@@ -471,83 +206,10 @@ public static class DeletionReplacementGate
         || (AmbientMatchContext.Current is EngineContext ambient && ContinuousKeywordGate.HasKeyword(ambient, record.InstanceId, keyword));
 
 
-    public static IReadOnlyList<HeadlessEntityId> FindDecoyRedirectCandidates(
-        ICardInstanceRepository repository,
-        IZoneStateReader zones,
-        CardInstanceRecord target,
-        Func<CardInstanceRecord, bool>? candidateCondition = null,
-        EffectRegistry? effectRegistry = null,
-        EngineContext? context = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zones);
-        ArgumentNullException.ThrowIfNull(target);
-
-        IReadOnlyList<HeadlessEntityId> battleArea = zones.GetCards(target.OwnerId, ChoiceZone.BattleArea);
-        if (!battleArea.Contains(target.InstanceId) || !ProtectedTargetIsDigimon(context, target))
-        {
-            return Array.Empty<HeadlessEntityId>();
-        }
-
-        var candidates = new List<HeadlessEntityId>();
-        foreach (HeadlessEntityId candidateId in battleArea)
-        {
-            if (candidateId != target.InstanceId &&
-                repository.TryGetInstance(candidateId, out CardInstanceRecord? decoy) && decoy is not null &&
-                HasDecoy(decoy, candidateId, target, effectRegistry, context) &&
-                !ReadFlag(decoy.Metadata, CannotBeDeletedKey) &&
-                (candidateCondition is null || candidateCondition(decoy)))
-            {
-                candidates.Add(candidateId);
-            }
-        }
-
-        return candidates;
-    }
-
-    /// <summary>(C-19 Scapegoat) All allies eligible to be sacrificed for the holder — the agent picks one
-    /// (F-6.8 sub-selection), rather than the engine auto-choosing the first.</summary>
-    public static IReadOnlyList<HeadlessEntityId> FindScapegoatSacrificeCandidates(
-        ICardInstanceRepository repository,
-        IZoneStateReader zones,
-        CardInstanceRecord holder,
-        Func<CardInstanceRecord, bool>? candidateCondition = null, EffectRegistry? effectRegistry = null,
-        EngineContext? context = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zones);
-        ArgumentNullException.ThrowIfNull(holder);
-
-        if (!HasReplacementKeyword(holder, HasScapegoatKey, ContinuousKeywordGate.Scapegoat, effectRegistry))
-        {
-            return Array.Empty<HeadlessEntityId>();
-        }
-
-        IReadOnlyList<HeadlessEntityId> battleArea = zones.GetCards(holder.OwnerId, ChoiceZone.BattleArea);
-        if (!battleArea.Contains(holder.InstanceId))
-        {
-            return Array.Empty<HeadlessEntityId>();
-        }
-
-        var candidates = new List<HeadlessEntityId>();
-        foreach (HeadlessEntityId candidateId in battleArea)
-        {
-            // (RD-5 / AS-IS Scapegoat.cs:53) the sacrifice candidate must be an owner-battle-area DIGIMON that is
-            // not the holder itself (IsPermanentExistsOnOwnerBattleAreaDigimon && != this) — a Tamer / Option is
-            // NOT a valid sacrifice. IsDigimon needs the full context (printed type OR TreatAsDigimon); a
-            // context-less pre-check (HasPreOption) is a documented safe superset, strict at resolution.
-            if (candidateId != holder.InstanceId &&
-                repository.TryGetInstance(candidateId, out CardInstanceRecord? ally) && ally is not null &&
-                !ReadFlag(ally.Metadata, CannotBeDeletedKey) &&
-                (context is null || ContinuousKeywordGate.IsDigimon(context, candidateId)) &&
-                (candidateCondition is null || candidateCondition(ally)))
-            {
-                candidates.Add(candidateId);
-            }
-        }
-
-        return candidates;
-    }
+    // (C-Del 3c-2b RETIRED, 2026-07-15) FindDecoyRedirectCandidates / FindScapegoatSacrificeCandidates — the
+    // invented Decoy / Scapegoat sub-select enumerators — are retired with their firing-half above. The AS-IS
+    // DecoyProcess / ScapegoatProcess "select 1" now runs inside the printed / granted ActivateClass resolved by
+    // the PRE cut-in window. See keyword_rehoming_design_2026-07-15.md §5 / design item RD-3C2B.
 
     /// <summary>Marks a card deleted-by-effect and moves it to the trash — the shared sacrifice used by the
     /// Decoy/Scapegoat redirects.</summary>
@@ -585,115 +247,14 @@ public static class DeletionReplacementGate
         return true;
     }
 
-    /// <summary>
-    /// (C-13 Decode / C-1 PRE) When a Digimon WOULD leave the field by an effect (not battle), its controller
-    /// may play one of its digivolution sources as a new permanent for free. Mirrors AS-IS <c>DecodeProcess</c>
-    /// (select 1 matching source from the leaving card's stack → <c>PlayPermanentCards(payCost:false,
-    /// activateETB:true)</c>) gated by <c>CanActivateDecode</c>, fired in the WhenRemoveField cut-in while the
-    /// card is still on the field. The sources sit in <c>ChoiceZone.None</c> referenced by the card's
-    /// <c>sourceIds</c> whether the card is in play (PRE) or already trashed, so this is zone-agnostic. The
-    /// chosen source enters anew (summoning sick, no stack of its own); it is detached from the dead card's
-    /// <c>sourceIds</c> and the card is marked <c>decoded</c> so the window does not re-offer. Decode does NOT
-    /// cancel the deletion — the caller leaves <c>pendingDeletion</c> set so the finalize still trashes the
-    /// remaining sources and the card. Digimon/colour eligibility is enforced by the caller's candidate filter.
-    /// </summary>
-    public static Task<bool> TryDecodePlaySourceAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId deadCardId,
-        HeadlessEntityId chosenSourceId,
-        CancellationToken cancellationToken = default,
-        Bridge.EngineContext? context = null)
-    {
-        // Decode marks the dead card 'decoded' so its single-use window does not re-offer.
-        return PlaySourceForFreeAsync(repository, zoneMover, deadCardId, chosenSourceId, DecodedKey, cancellationToken, context);
-    }
-
-    /// <summary>
-    /// (C-14 Partition / C-1 PRE) When a Digimon WOULD leave the field by an effect (not battle, >= 2 sources),
-    /// its controller plays two of its digivolution sources as new permanents for free. Mirrors AS-IS
-    /// <c>PartitionClass.Partition</c> (select one source per colour group → PlayPermanentCards payCost:false).
-    /// Shares the Decode play-for-free primitive; the two picks are driven as a repeated single-select by
-    /// <see cref="DeletionReplacementTiming"/> (the 'partitioned' completion marker is stamped there).
-    /// </summary>
-    public static Task<bool> TryPartitionPlaySourceAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId deadCardId,
-        HeadlessEntityId chosenSourceId,
-        CancellationToken cancellationToken = default,
-        Bridge.EngineContext? context = null)
-    {
-        return PlaySourceForFreeAsync(repository, zoneMover, deadCardId, chosenSourceId, markKey: null, cancellationToken, context);
-    }
-
-    /// <summary>Plays one of a (trashed) card's digivolution sources as a fresh free permanent: moves it
-    /// <see cref="ChoiceZone.None"/> → battle area (emitting the OnEnterField ETB), resets it to a fresh
-    /// permanent (summoning sick, no stack/deletion markers), detaches it from the dead card's
-    /// <c>sourceIds</c>, and optionally stamps <paramref name="markKey"/> on the dead card.</summary>
-    private static async Task<bool> PlaySourceForFreeAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId deadCardId,
-        HeadlessEntityId chosenSourceId,
-        string? markKey,
-        CancellationToken cancellationToken,
-        Bridge.EngineContext? context = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zoneMover);
-
-        if (!repository.TryGetInstance(deadCardId, out CardInstanceRecord? deadCard) || deadCard is null)
-        {
-            return false;
-        }
-
-        List<string> sources = ReadSourceIds(deadCard.Metadata).Select(id => id.Value).ToList();
-        if (!sources.Remove(chosenSourceId.Value))
-        {
-            return false;
-        }
-
-        await zoneMover.MoveAsync(
-            new ZoneMoveRequest(deadCard.OwnerId, chosenSourceId, ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true),
-            cancellationToken).ConfigureAwait(false);
-
-        if (repository.TryGetInstance(chosenSourceId, out CardInstanceRecord? source) && source is not null)
-        {
-            var sourceMetadata = new Dictionary<string, object?>(source.Metadata, StringComparer.Ordinal);
-            sourceMetadata.Remove(SourceIdsKey);
-            sourceMetadata.Remove(DeletedByBattleKey);
-            sourceMetadata.Remove(DeletedByEffectKey);
-            sourceMetadata[EnteredThisTurnKey] = true;
-            repository.Upsert(source with { Metadata = sourceMetadata });
-
-            // (B-3 / 2026-07-11 re-review) AS-IS Decode/Partition play via PlayPermanentCards -> card.Init()
-            // (CardController.cs:1361): the freshly-played source gets FRESH per-turn uses and its ported
-            // effects registered — the enter-play hook covers both.
-            if (context is not null)
-            {
-                Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, chosenSourceId, source.OwnerId);
-            }
-        }
-
-        var deadMetadata = new Dictionary<string, object?>(deadCard.Metadata, StringComparer.Ordinal);
-        if (sources.Count > 0)
-        {
-            deadMetadata[SourceIdsKey] = sources.ToArray();
-        }
-        else
-        {
-            deadMetadata.Remove(SourceIdsKey);
-        }
-
-        if (markKey is not null)
-        {
-            deadMetadata[markKey] = true;
-        }
-
-        repository.Upsert(deadCard with { Metadata = deadMetadata });
-        return true;
-    }
+    // (C-Del 3c-2b RETIRED, 2026-07-15) TryDecodePlaySourceAsync / TryPartitionPlaySourceAsync /
+    // PlaySourceForFreeAsync — the invented Decode / Partition play-a-source-for-free firing-half — are retired.
+    // AS-IS [Decode] / [Partition] now fire through the PRE cut-in window (WhenPermanentWouldBeDeleted →
+    // WhenRemoveField): the printed / granted DecodeSelfEffect / PartitionClass ActivateClass is collected by
+    // GetSkillInfos and resolved by the window (DecodeProcess / PartitionClass.Partition play the source(s) via
+    // PlayPermanentCards(payCost:false); the deletion is NOT cancelled — the card still leaves). Keeping this gate
+    // AND the window would double-fire. Presence markers (HasDecodeKey / HasPartitionKey /
+    // ContinuousKeywordGate.Decode|Partition) untouched. See keyword_rehoming_design_2026-07-15.md §5 / RD-3C2B.
 
     // (C-Del 3a RETIRED, 2026-07-15) TrySaveAsync — the invented POST-deletion Save firing-half (surfaced by
     // DeletionReplacementTiming's SaveOption two-step select) — is retired. AS-IS [Save] now fires through the

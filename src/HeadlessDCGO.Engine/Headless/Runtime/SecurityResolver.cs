@@ -729,12 +729,9 @@ public sealed class SecurityResolver
             return SecurityPreWindowResult.Drained;   // already windowed this battle (defensive; the loop opens once)
         }
 
-        // (double-fire 0) a gate-recognised replacement keyword card fired through the not-yet-retired gate.
-        if (context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? record) && record is not null &&
-            DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true, context.EffectRegistry))
-        {
-            return SecurityPreWindowResult.Drained;
-        }
+        // (C-Del 3c-2b) The gate-recognised-keyword EXCLUDE is retired — the 8 PRE keywords (Evade/Barrier/…) now
+        // fire through THIS window. No double-fire: the gate firing-half is retired this batch, and the retained
+        // CustomWouldBeDeleted bridge parked at NeedsWindow above (BattleResolver.NeedsWindow returned false here).
 
         BattleResolver.MarkBattlePreWindowed(context, attackerId);
         var toDelete = new List<Permanent>

@@ -76,6 +76,8 @@ public static class CardEffectSchedulerResolver
                 // W7: the effect asked the agent for a choice. Report Suspended (Resolved=false) so the
                 // scheduler leaves it queued and re-runs it once the agent answers. Do NOT flush the
                 // sink or complete the resolution — the effect has not finished.
+                // (C-Del 3c-2b nested cycles) park this cycle's replay frame (see DeferredChoiceProvider).
+                choiceCoordinator?.SuspendResolution();
                 return EffectResult.Suspended(
                     ex.Message,
                     new Dictionary<string, object?>(StringComparer.Ordinal)

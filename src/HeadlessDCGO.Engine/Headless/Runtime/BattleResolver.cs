@@ -449,12 +449,11 @@ public sealed class BattleResolver
                 continue;   // already left the field
             }
 
-            // (double-fire 0) a gate-recognised replacement keyword card fired through the not-yet-retired gate.
-            if (context.CardInstanceRepository.TryGetInstance(participant.InstanceId, out CardInstanceRecord? record) && record is not null &&
-                DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true, context.EffectRegistry))
-            {
-                continue;
-            }
+            // (C-Del 3c-2b) The gate-recognised-keyword EXCLUDE is retired — the 8 PRE keywords
+            // (Evade/Barrier/Fragment/ArmorPurge/…) now fire through THIS window (printed / granted ActivateClass
+            // collected by GetSkillInfos). No double-fire: the gate firing-half is retired this batch. The retained
+            // CustomWouldBeDeleted bridge (registry-only, disjoint from the window's EffectList) parked at NeedsWindow
+            // above, so a still-pending loser reaching here carries no gate option.
 
             MarkInstance(context, participant.InstanceId, BattlePreWindowedKey);
             toDelete.Add(new Assets.Scripts.Script.CardEffectCommons.Permanent(context, participant.InstanceId, participant.OwnerId)

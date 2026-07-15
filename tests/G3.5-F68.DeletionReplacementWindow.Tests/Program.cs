@@ -1,14 +1,26 @@
+// F-6.8 — re-entrant would-be-deleted replacement window (AS-IS optionality restored).
+// (C-Del 3c-2b) The invented DeletionReplacementGate firing-half is RETIRED: the PRE replacement keywords fire
+// ONLY through the AS-IS PRE cut-in window (WhenPermanentWouldBeDeleted → WhenRemoveField; the universal
+// effect-delete sink / BattleResolver opens it, GetSkillInfos collects the printed ActivateClass,
+// TriggeredSkillProcess resolves; an interactive optional promotes-to-defer and parks — 3c-1). This suite drives
+// the REAL ported keyword cards (BT13_023 <Evade> / EX8_061 <Scapegoat> / EX8_051 <Fragment <3>> /
+// BT14_035 <Barrier>) and the real-factory-shape fixtures (TfxDecoy / TfxArmorPurge — no real card ported yet)
+// through that window. An OPTIONAL replacement surfaces as the window's OptionalEffect choice ("Will you use …?",
+// activate = the non-skip resolve); activate → pay cost + survive; decline → the state-based sweep finishes the
+// deletion. (Mirrors the AS-IS "you may".) Ascension stays a POST gate option (RD-3A-01) and Save fires via the
+// OnDestroyedAnyone window (3a) — those cases are unchanged.
+//
+// The Retaliation→Evade chain case was QUARANTINED to tests/G3.5-F68R.RetaliationEvadeChain.Tests
+// (authorized-red: blocked by RD-CBTL-01 — battle Retaliation firing needs the live IBattle).
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
-
-// F-6.8 — re-entrant would-be-deleted replacement window (AS-IS optionality restored).
-// An OPTIONAL replacement keyword (here Evade, effect-deletion path) no longer auto-applies; the deletion
-// is DEFERRED (pendingDeletion) and the owner decides via a DeletionReplacement choice. Activate → pay
-// cost + survive; decline → the state-based sweep finishes the deletion. (Mirrors the AS-IS "you may".)
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -22,13 +34,12 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Activating Ascension places the deleted card into security", ActivateAscension),
     ("Declining Ascension leaves the card in the trash", DeclineAscension),
     ("Scapegoat is a two-step choice: activate, then pick which ally to sacrifice", ScapegoatTwoStep),
-    ("Fragment is a two-step choice: activate, then pick which source to trash", FragmentTwoStep),
-    ("Decoy is a two-step choice: activate, then pick which Decoy ally to sacrifice", DecoyTwoStep),
+    ("Fragment is a two-step choice: activate, then pick which sources to trash", FragmentTwoStep),
+    ("Decoy: the Decoy holder deletes itself to save the marked ally (live-cardEffect Destroy path)", DecoySavesAlly),
     ("(B1) Armor Purge is a WOULD-BE-DELETED replacement: top trashed, permanent survives", ArmorPurgePostChoice),
     ("Save (C-Del 3a RETIRED): a bare hasSave marker opens NO POST option (fires via the OnDestroyedAnyone window)", SaveGateRetired),
     ("Battle: activating Barrier in the window trashes a security and survives", BarrierBattleChoice),
     ("Battle: activating Evade in the window suspends and survives", EvadeBattleChoice),
-    ("Retaliation: the targeted opponent may Evade the retaliation (window re-opens)", RetaliationOpponentCanEvade),
     ("(P6) the sacrificed ally EVADES -> the sacrifice fails and the holder dies", () => ScapegoatAllyEvade(allyEvades: true)),
     ("(P6) the sacrificed ally declines its Evade -> it dies and the holder is spared", () => ScapegoatAllyEvade(allyEvades: false)),
 };
@@ -41,44 +52,53 @@ foreach (var test in tests)
     {
         failures.Add(test.Name);
         Console.Error.WriteLine($"FAIL {test.Name}");
-        Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message}");
+        Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
     }
 }
 
 if (failures.Count > 0) { Console.Error.WriteLine($"\n{failures.Count} test(s) failed."); Environment.Exit(1); }
 Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
-// --- Tests ---------------------------------------------------------------
+// --- Evade (real BT13_023, effect deletion via the sink window) -----------
 
 async Task DeferOpensChoice()
 {
-    (DcgoMatch match, HeadlessEntityId card) = await SetupAndDelete((DeletionReplacementGate.HasEvadeKey, true));
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId card = await PlaceRealCard(match, ctx, P2, "BT13_023");
 
-    AssertTrue(ReadFlag(match, card, GameFlowProcessor.PendingDeletionKey), "deletion deferred (pendingDeletion)");
+    await DeleteByEffect(match, ctx, card);
+
+    AssertTrue(ReadFlag(match, card, GameFlowProcessor.PendingDeletionKey), "deletion deferred (pendingDeletion, promote-to-defer)");
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, card), "card not yet trashed");
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "a replacement choice is open");
-    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
     AssertEqual(P2, match.Context.ChoiceController.PendingRequest!.PlayerId, "owner decides");
+    AssertTrue(ResolveActions(match, P2).Any(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal)), "the optional decline is offered (you MAY)");
 }
 
 async Task ActivateEvadeSurvives()
 {
-    (DcgoMatch match, HeadlessEntityId card) = await SetupAndDelete((DeletionReplacementGate.HasEvadeKey, true));
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId card = await PlaceRealCard(match, ctx, P2, "BT13_023");
 
-    LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+    await DeleteByEffect(match, ctx, card);
+
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, card), "evade cancels the deletion");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, card), "card not trashed");
-    AssertTrue(ReadFlag(match, card, DeletionReplacementGate.IsSuspendedKey), "suspended as the cost");
-    AssertTrue(ReadFlag(match, card, DeletionReplacementGate.EvadedKey), "evaded marker");
+    AssertTrue(ReadFlag(match, card, DeletionReplacementGate.IsSuspendedKey), "suspended as the cost (AS-IS EvadeProcess)");
     AssertFalse(ReadFlag(match, card, GameFlowProcessor.PendingDeletionKey), "pendingDeletion cleared");
+    AssertFalse(ReadFlag(match, card, "willBeRemoveField"), "willBeRemoveField reset for the spared survivor");
 }
 
 async Task DeclineGetsDeleted()
 {
-    (DcgoMatch match, HeadlessEntityId card) = await SetupAndDelete((DeletionReplacementGate.HasEvadeKey, true));
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId card = await PlaceRealCard(match, ctx, P2, "BT13_023");
+
+    await DeleteByEffect(match, ctx, card);
 
     LegalAction decline = ResolveActions(match, P2).Single(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(decline);
@@ -86,9 +106,10 @@ async Task DeclineGetsDeleted()
 
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, card), "declining lets the deletion finish");
     AssertFalse(InZone(match, P2, ChoiceZone.BattleArea, card), "card left the field");
+    AssertFalse(ReadFlag(match, card, DeletionReplacementGate.IsSuspendedKey), "not suspended (Evade cost not paid)");
 }
 
-// --- Ascension (post-deletion) ------------------------------------------
+// --- Ascension (post-deletion; the RETAINED gate option — RD-3A-01) -------
 
 async Task AscensionOpensPostChoice()
 {
@@ -126,45 +147,27 @@ async Task DeclineAscension()
     AssertFalse(InZone(match, P2, ChoiceZone.Security, card), "card not placed into security");
 }
 
-// --- Scapegoat (two-step sub-selection) ---------------------------------
+// --- Scapegoat (real EX8_061, two-step sub-selection) ---------------------
 
 async Task ScapegoatTwoStep()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId holder = await PlaceRealCard(match, ctx, P2, "EX8_061");
+    // TWO eligible allies -> the AS-IS ScapegoatProcess SelectPermanentEffect is a real interactive pick
+    // (a single candidate is auto-taken, AS-IS single-candidate mandatory select).
+    HeadlessEntityId ally = await PlacePlain(match, ctx, P2, 2);
+    HeadlessEntityId ally2 = await PlacePlain(match, ctx, P2, 3);
 
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
+    await DeleteByEffect(match, ctx, holder);
 
-    HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId ally = HandCard(match, P2, 2);
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, ally, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.HasScapegoatKey] = true });
-
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = holder.Value }));
-    await sink.FlushAsync();
-    await match.StepAsync();   // step 1 window opens
-
-    // Step 1: activate Scapegoat (candidate "{holder}#scapegoat", no target segment yet).
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#scapegoat", StringComparison.Ordinal) && !a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
+    // Step 1: activate Scapegoat (the window's OptionalEffect, non-skip resolve).
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // step 2 window opens (pick the ally)
+    await match.StepAsync();   // step 2 opens (pick the ally)
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "step-2 target choice is open");
 
-    // Step 2: pick the ally to sacrifice.
+    // Step 2: pick WHICH ally to sacrifice (AS-IS ScapegoatProcess SelectPermanentEffect).
     LegalAction pickAlly = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
     await match.ApplyActionAsync(pickAlly);
     await match.StepAsync();
@@ -172,60 +175,38 @@ async Task ScapegoatTwoStep()
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "scapegoat holder survives");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, holder), "holder not trashed");
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, ally), "the chosen ally is sacrificed");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, ally2), "the unchosen ally stays");
 }
 
-// (P6) AS-IS Scapegoat.cs:416 resolves the sacrifice through DeletePermanent — the ally's OWN
-// would-be-deleted replacement (Evade) can fire; the holder is spared only when the ally actually died.
+// (P6) AS-IS ScapegoatProcess resolves the sacrifice through DeletePermanent — the ally's OWN
+// would-be-deleted replacement (its printed Evade) can fire; the holder is spared only when the ally actually died
+// (successProcess).
 async Task ScapegoatAllyEvade(bool allyEvades)
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId holder = await PlaceRealCard(match, ctx, P2, "EX8_061");
+    HeadlessEntityId ally = await PlaceRealCard(match, ctx, P2, "BT13_023", handIndex: 2);
 
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
+    await DeleteByEffect(match, ctx, holder);
 
-    HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId ally = HandCard(match, P2, 2);
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, ally, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, holder, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.HasScapegoatKey] = true });
-    SetMetadata(match, ally, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [DeletionReplacementGate.HasEvadeKey] = true,
-        [DeletionReplacementGate.IsSuspendedKey] = false,
-    });
-
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = holder.Value }));
-    await sink.FlushAsync();
-    await match.StepAsync();
-
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#scapegoat", StringComparison.Ordinal) && !a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
-    LegalAction pickAlly = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pickAlly);
+    // The single eligible ally is auto-taken by the mandatory pick (AS-IS single-candidate select);
+    // the ALLY's own would-be-deleted (printed Evade) window is now open.
+    Console.Error.WriteLine($"DIAGN pend={match.Context.ChoiceController.Current.IsPending} type={match.Context.ChoiceController.PendingRequest?.Type} holder@BA={InZone(match, P2, ChoiceZone.BattleArea, holder)} holder@T={InZone(match, P2, ChoiceZone.Trash, holder)} ally@BA={InZone(match, P2, ChoiceZone.BattleArea, ally)} ally@T={InZone(match, P2, ChoiceZone.Trash, ally)} allySusp={ReadFlag(match, ally, DeletionReplacementGate.IsSuspendedKey)}");
+    Console.Error.WriteLine($"DIAGN2 allyPending={ReadFlag(match, ally, GameFlowProcessor.PendingDeletionKey)} allyWBR={ReadFlag(match, ally, "willBeRemoveField")} holderPending={ReadFlag(match, holder, GameFlowProcessor.PendingDeletionKey)} holderWBR={ReadFlag(match, holder, "willBeRemoveField")}");
     await match.StepAsync();
-
-    // The ALLY's own would-be-deleted (Evade) window is now open.
+    Console.Error.WriteLine($"DIAGN3 after extra step: pend={match.Context.ChoiceController.Current.IsPending} ally@T={InZone(match, P2, ChoiceZone.Trash, ally)} holder@T={InZone(match, P2, ChoiceZone.Trash, holder)}");
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "the sacrificed ally's own Evade window opened");
     if (allyEvades)
     {
-        LegalAction evade = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+        LegalAction evade = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
         await match.ApplyActionAsync(evade);
         await match.StepAsync();
 
         AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, ally), "the ally EVADED the sacrifice (suspends, survives)");
+        AssertTrue(ReadFlag(match, ally, DeletionReplacementGate.IsSuspendedKey), "the ally suspended as the Evade cost");
         AssertTrue(InZone(match, P2, ChoiceZone.Trash, holder), "the sacrifice failed -> the holder's deletion proceeds");
     }
     else
@@ -239,137 +220,127 @@ async Task ScapegoatAllyEvade(bool allyEvades)
     }
 }
 
+// --- Fragment (real EX8_051 <Fragment <3>>, two-step source trash) --------
+
 async Task FragmentTwoStep()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
-
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
-
-    HeadlessEntityId top = HandCard(match, P2, 1);
-    HeadlessEntityId src1 = new("P2-FS1");
-    HeadlessEntityId src2 = new("P2-FS2");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(src1, new HeadlessEntityId("def"), P2));
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(src2, new HeadlessEntityId("def"), P2));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, top, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId top = await PlaceRealCard(match, ctx, P2, "EX8_051");
+    // Fragment <3>: CanActivateFragment requires >= 3 digivolution sources; the process trashes exactly 3.
+    HeadlessEntityId s1 = MakeSource(ctx, P2, "f68-fs1");
+    HeadlessEntityId s2 = MakeSource(ctx, P2, "f68-fs2");
+    HeadlessEntityId s3 = MakeSource(ctx, P2, "f68-fs3");
+    HeadlessEntityId s4 = MakeSource(ctx, P2, "f68-fs4");
     SetMetadata(match, top, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
-        [DeletionReplacementGate.HasFragmentKey] = true,
-        [DeletionReplacementGate.SourceIdsKey] = new[] { src1.Value, src2.Value }
+        [DeletionReplacementGate.SourceIdsKey] = new[] { s1.Value, s2.Value, s3.Value, s4.Value }
     });
 
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = top.Value }));
-    await sink.FlushAsync();
-    await match.StepAsync();   // step 1
+    await DeleteByEffect(match, ctx, top);
 
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#fragment", StringComparison.Ordinal) &&
-        !a.Id.Value.Contains(src1.Value, StringComparison.Ordinal) && !a.Id.Value.Contains(src2.Value, StringComparison.Ordinal));
+    // Step 1: activate Fragment.
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // step 2
+    await match.StepAsync();
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "step-2 source choice is open");
 
-    LegalAction pickSrc = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(src1.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pickSrc);
+    // Step 2: pick 3 of the 4 sources (AS-IS FragmentProcess SelectCardEffect, maxCount 3, canEndNotMax false —
+    // a MULTI-select Card request, min=max=3, resolved as ONE 3-id answer through the window seam).
+    ChoiceRequest sourcePick = match.Context.ChoiceController.PendingRequest!;
+    AssertEqual(3, sourcePick.MinCount, "Fragment <3> requires exactly 3 sources (min)");
+    AssertEqual(3, sourcePick.MaxCount, "Fragment <3> requires exactly 3 sources (max)");
+    HeadlessEntityId[] picks = new[] { s1, s2, s3 }
+        .Select(id => sourcePick.Candidates.Single(c => c.Id.Value.Contains(id.Value, StringComparison.Ordinal)).Id)
+        .ToArray();
+    match.Context.ChoiceController.ResolveChoice(ChoiceResult.Select(picks));
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        try { await AutoProcessing.ForCutIn(match.Context).ResumeSuspendedWindowsAsync(); }
+        catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { }
+    }
+
     await match.StepAsync();
 
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, top), "fragment top survives");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, top), "top not trashed");
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, src1), "the chosen source is trashed as the cost");
-    AssertFalse(InZone(match, P2, ChoiceZone.Trash, src2), "the unchosen source stays");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, s1) && InZone(match, P2, ChoiceZone.Trash, s2) && InZone(match, P2, ChoiceZone.Trash, s3),
+        "the 3 chosen sources are trashed as the cost");
+    AssertFalse(InZone(match, P2, ChoiceZone.Trash, s4), "the unchosen source stays");
+    AssertTrue(SourceIds(match, top).Contains(s4.Value), "the unchosen source stays attached");
 }
 
-async Task DecoyTwoStep()
+// --- Decoy (TfxDecoy — real DecoySelfEffect factory shape) ----------------
+
+// AS-IS Decoy: when one of the owner's OTHER Digimon would be deleted by an OPPONENT'S EFFECT, the Decoy holder
+// may delete ITSELF to prevent that deletion. The IsByEffect gate needs the LIVE causing cardEffect (design item
+// RD-3C2B-02: the universal sink threads none), so this drives the deletion through the faithful mirror
+// DestroyPermanentsClass — the AS-IS card path (BT9_081 idiom: new DestroyPermanentsClass(targets,
+// CardEffectHashtable(activateClass)).Destroy()) that threads the causing ActivateClass onto the PRE cut-in.
+async Task DecoySavesAlly()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
+    EngineContext ctx = NewBareContext();
+    using var scope = AmbientMatchContext.Enter(ctx);
+    HeadlessEntityId target = await PlaceBare(ctx, P2, "PLAIN", "2:battle:Target");
+    HeadlessEntityId decoy = await PlaceBare(ctx, P2, "TfxDecoy", "2:battle:Decoy");
+    HeadlessEntityId foe = await PlaceBare(ctx, P1, "FOE", "1:battle:Foe");
+    CardEffectRegistrar.RegisterCard(ctx, decoy, P2);
+
+    // The deleting card's live effect (the AS-IS Destroy() cardEffect payload): a real ActivateClass whose
+    // EffectSourceCard is the OPPONENT's card — Decoy's IsByEffect(enemy-owner) gate evaluates it for real.
+    var foeCard = new CardSource(ctx, foe, P1);
+    var deleterEffect = new ActivateClass();
+    deleterEffect.SetUpICardEffect("Tfx deleter", (System.Collections.Hashtable _) => true, foeCard);
+
+    var targetPerm = new Permanent(ctx, target, P2);
+    try
     {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
+        await new DestroyPermanentsClass(
+            new List<Permanent> { targetPerm },
+            CardEffectCommons.CardEffectHashtable(deleterEffect)).Destroy();
+    }
+    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException)
+    {
+        // The optional Decoy window parked — resolved below through the ForCutIn pool.
     }
 
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
+    // Step 1: "Will you use Decoy?" — activate.
+    AssertTrue(ctx.ChoiceController.Current.IsPending, "the Decoy optional window is open");
+    ChoiceRequest optional = ctx.ChoiceController.PendingRequest!;
+    AssertEqual(P2, optional.PlayerId, "the Decoy holder's owner decides");
+    await ResolveWindowChoice(ctx, ChoiceResult.Select(optional.Candidates[0].Id));
 
-    HeadlessEntityId holder = HandCard(match, P2, 1);
-    HeadlessEntityId decoy = HandCard(match, P2, 2);
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, holder, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, decoy, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, decoy, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.HasDecoyKey] = true });
+    // Step 2 (if the single marked-ally pick is surfaced rather than auto-taken): pick the protected target.
+    if (ctx.ChoiceController.Current.IsPending)
+    {
+        ChoiceRequest pick = ctx.ChoiceController.PendingRequest!;
+        ChoiceCandidate targetCandidate = pick.Candidates.Single(c => c.Id.Value.Contains(target.Value, StringComparison.Ordinal));
+        await ResolveWindowChoice(ctx, ChoiceResult.Select(targetCandidate.Id));
+    }
 
-    HeadlessEntityId deleter = new("P1-Deleter");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(deleter, new HeadlessEntityId("def"), P1));
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, deleter,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = holder.Value }));
-    await sink.FlushAsync();
-    await match.StepAsync();   // step 1
-
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#decoy", StringComparison.Ordinal) && !a.Id.Value.Contains(decoy.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // step 2
-
-    LegalAction pickDecoy = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(decoy.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pickDecoy);
-    await match.StepAsync();
-
-    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, holder), "the protected target survives");
-    AssertFalse(InZone(match, P2, ChoiceZone.Trash, holder), "target not trashed");
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, decoy), "the chosen Decoy ally is sacrificed");
+    AssertTrue(InZoneBare(ctx, P2, ChoiceZone.BattleArea, target), "the protected target survives (deletion prevented)");
+    AssertFalse(InZoneBare(ctx, P2, ChoiceZone.Trash, target), "target not trashed");
+    AssertTrue(InZoneBare(ctx, P2, ChoiceZone.Trash, decoy), "the Decoy holder deleted itself as the cost");
+    AssertFalse(ReadFlagBare(ctx, target, "willBeRemoveField"), "the saved ally's willBeRemoveField was cleared");
 }
+
+// --- Armor Purge (TfxArmorPurge — real ArmorPurgeEffect factory shape) ----
 
 async Task ArmorPurgePostChoice()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
-
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
-
-    HeadlessEntityId top = HandCard(match, P2, 1);
-    HeadlessEntityId src = new("P2-APSrc");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(src, new HeadlessEntityId("def"), P2));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, top, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
+    HeadlessEntityId top = await PlaceRealCard(match, ctx, P2, "TfxArmorPurge");
+    HeadlessEntityId src = MakeSource(ctx, P2, "f68-apsrc");
     SetMetadata(match, top, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
-        [DeletionReplacementGate.HasArmorPurgeKey] = true,
         [DeletionReplacementGate.SourceIdsKey] = new[] { src.Value }
     });
 
-    var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, memory: null, context.EffectRegistry);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = top.Value }));
-    await sink.FlushAsync();
-    await match.StepAsync();   // (B1) deletion DEFERRED — Armor Purge is a would-be-deleted replacement
+    await DeleteByEffect(match, ctx, top);   // (B1) deletion DEFERRED — Armor Purge is a would-be-deleted replacement
 
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, top), "the top is still on the battle area (deletion deferred)");
     AssertTrue(ReadFlag(match, top, GameFlowProcessor.PendingDeletionKey), "pendingDeletion set (PRE window)");
-    LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#armorpurge", StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
@@ -379,6 +350,8 @@ async Task ArmorPurgePostChoice()
         "the trashed top is NOT a deleted permanent (no OnDeletion / no POST windows)");
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "no follow-up POST window for the purged top");
 }
+
+// --- Save (RETIRED gate option — 3a) ---------------------------------------
 
 async Task SaveGateRetired()
 {
@@ -419,20 +392,20 @@ async Task SaveGateRetired()
     AssertFalse(SourceIds(match, host).Contains(saveCard.Value), "the card was NOT attached under any permanent by the retired gate");
 }
 
-// --- Battle PRE-path (deferred via AttackPhase.DeletionReplacement) -------
+// --- Battle PRE-path (real cards through the attack pipeline) -------------
 
 async Task BarrierBattleChoice()
 {
-    (DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId defender) =
-        await BattleSetup((DeletionReplacementGate.HasBarrierKey, true), defenderSuspended: true);
+    (DcgoMatch match, EngineContext ctx, HeadlessEntityId attacker, HeadlessEntityId defender) =
+        await BattleSetup("BT14_035", defenderSuspended: true);
     int securityBefore = ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Security).Count;
     AssertTrue(securityBefore >= 1, "defender has security to spend");
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
-    await match.StepAsync();   // pipeline → Combat → defer (park) → Barrier window opens
+    await match.StepAsync();   // pipeline → Combat → promote-to-defer (park) → Barrier window opens
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "battle Barrier window is open");
-    LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#barrier", StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();   // finalize the battle
 
@@ -444,101 +417,111 @@ async Task BarrierBattleChoice()
 
 async Task EvadeBattleChoice()
 {
-    (DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId defender) =
-        await BattleSetup((DeletionReplacementGate.HasEvadeKey, true), defenderSuspended: false);
+    (DcgoMatch match, EngineContext ctx, HeadlessEntityId attacker, HeadlessEntityId defender) =
+        await BattleSetup("BT13_023", defenderSuspended: false);
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
-    await match.StepAsync();   // → Combat → defer → Evade window
+    await match.StepAsync();   // → Combat → promote-to-defer → Evade window
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "battle Evade window is open");
-    LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+    LegalAction activate = ResolveActions(match, P2).Single(a => !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, defender), "evade defender survives the battle");
     AssertTrue(ReadFlag(match, defender, DeletionReplacementGate.IsSuspendedKey), "suspended as the cost");
-    AssertTrue(ReadFlag(match, defender, DeletionReplacementGate.EvadedKey), "evaded marker");
+    AssertFalse(InZone(match, P2, ChoiceZone.Trash, defender), "defender not trashed");
 }
 
-async Task RetaliationOpponentCanEvade()
+// --- Setup helpers ---------------------------------------------------------
+
+async Task<(DcgoMatch Match, EngineContext Ctx, HeadlessEntityId Attacker, HeadlessEntityId Defender)> BattleSetup(
+    string defenderCardNumber, bool defenderSuspended)
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
-
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
-
-    // Attacker (P1) has Retaliation and LOSES the battle (5000 < 8000); defender (P2) wins but has Evade.
-    HeadlessEntityId attacker = HandCard(match, P1, 1);
-    HeadlessEntityId defender = HandCard(match, P2, 1);
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, defender, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    SetMetadata(match, attacker, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        ["dp"] = 5000,
-        [BattleResolver.HasRetaliationKey] = true
-    });
-    SetMetadata(match, defender, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        ["dp"] = 8000,
-        [DeletionReplacementGate.IsSuspendedKey] = false,
-        [DeletionReplacementGate.HasEvadeKey] = true
-    });
-
-    match.Context.AttackController.DeclareAttack(P1, attacker, P2, defender, isDirectAttack: false);
-    await match.StepAsync();   // attacker loses → confirmed → Retaliation flags defender → Evade window opens
-
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the retaliated opponent's Evade window opened");
-    LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // finalize
-
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "the retaliation holder (loser) is deleted");
-    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, defender), "the opponent Evaded the retaliation and survives");
-    AssertTrue(ReadFlag(match, defender, DeletionReplacementGate.EvadedKey), "opponent evaded marker");
-}
-
-async Task<(DcgoMatch Match, HeadlessEntityId Attacker, HeadlessEntityId Defender)> BattleSetup(
-    (string Key, bool Value) defenderFlag, bool defenderSuspended)
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
-
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, P1);
+    (DcgoMatch match, EngineContext ctx) = await StartedMatch();
 
     HeadlessEntityId attacker = HandCard(match, P1, 1);
-    HeadlessEntityId defender = HandCard(match, P2, 1);
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, defender, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, attacker, ChoiceZone.Hand, ChoiceZone.BattleArea));
     SetMetadata(match, attacker, new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 9000 });
+
+    HeadlessEntityId defender = await PlaceRealCard(match, ctx, P2, defenderCardNumber);
     SetMetadata(match, defender, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["dp"] = 7000,
         [DeletionReplacementGate.IsSuspendedKey] = defenderSuspended,
-        [defenderFlag.Key] = defenderFlag.Value
     });
-    return (match, attacker, defender);
+    return (match, ctx, attacker, defender);
 }
 
-// --- Harness -------------------------------------------------------------
+// A match-dealt hand card re-pointed at a real ported card number, moved to the battle area and registered
+// through the real dispatch (CardEffectRegistrar) so its printed keyword ActivateClass is window-collectible.
+async Task<HeadlessEntityId> PlaceRealCard(DcgoMatch match, EngineContext ctx, HeadlessPlayerId owner, string cardNumber, int handIndex = 1)
+{
+    HeadlessEntityId card = HandCard(match, owner, handIndex);
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"def:{cardNumber}");
+    cards.Upsert(new CardRecord(defId, cardNumber, cardNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Blue" }, ["level"] = 5, ["dp"] = 5000 }, CardType: "Digimon"));
+    if (!ctx.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) || record is null)
+        throw new InvalidOperationException($"missing {card}");
+    ctx.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
 
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, card, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetMetadata(match, card, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.IsSuspendedKey] = false });
+    CardEffectRegistrar.RegisterCard(ctx, card, owner);
+    return card;
+}
+
+async Task<HeadlessEntityId> PlacePlain(DcgoMatch match, EngineContext ctx, HeadlessPlayerId owner, int handIndex)
+{
+    HeadlessEntityId card = HandCard(match, owner, handIndex);
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, card, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetMetadata(match, card, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.IsSuspendedKey] = false });
+    return card;
+}
+
+HeadlessEntityId MakeSource(EngineContext ctx, HeadlessPlayerId owner, string tag)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"def:{tag}");
+    cards.Upsert(new CardRecord(defId, tag, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Blue" }, ["level"] = 4, ["dp"] = 3000 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}-{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner));
+    return id;
+}
+
+async Task DeleteByEffect(DcgoMatch match, EngineContext ctx, HeadlessEntityId cardId)
+{
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("deleter"),
+        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value }));
+    await sink.FlushAsync();
+    await match.StepAsync();   // RunToStable pauses on the parked window's pending choice
+}
+
+async Task<(DcgoMatch, EngineContext)> StartedMatch()
+{
+    // (C-Del 3c-2b) deferredChoice:true — the PRE keywords fire ONLY through the AS-IS cut-in window now, which
+    // PARKS the interactive replacement as a pending choice (the default ScriptedChoiceProvider auto-skips it).
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 73, deferredChoice: true);
+    var cards = (CardDatabase)ctx.CardRepository;
+    for (int index = 1; index <= 12; index++)
+    {
+        cards.Upsert(Digimon($"P1-M{index:D2}"));
+        cards.Upsert(Digimon($"P2-M{index:D2}"));
+    }
+
+    DcgoMatch match = new(ctx);
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
+    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
+    await AdvanceToMainAsync(match, P1);
+    (ctx.ChoiceProvider as DeferredChoiceProvider)?.CompleteResolution();
+    return (match, ctx);
+}
+
+// Ascension/Save legacy harness (the RETAINED gate option needs no window drive).
 async Task<(DcgoMatch Match, HeadlessEntityId Card)> SetupAndDelete(params (string Key, bool Value)[] cardFlags)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
@@ -577,6 +560,47 @@ async Task<(DcgoMatch Match, HeadlessEntityId Card)> SetupAndDelete(params (stri
     await match.StepAsync();   // RunToStable opens the deletion-replacement choice
     return (match, card);
 }
+
+// --- Bare-context harness (Decoy live-cardEffect Destroy drive) -----------
+
+EngineContext NewBareContext()
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 17, deferredChoice: true);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    return ctx;
+}
+
+async Task<HeadlessEntityId> PlaceBare(EngineContext ctx, HeadlessPlayerId owner, string num, string instance)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId(num);
+    cards.Upsert(new CardRecord(defId, num, num,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId(instance);
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    return id;
+}
+
+// Resolve the parked PRE cut-in choice (ForCutIn pool): record the answer + resume; the deferred provider
+// replays it. Same shape as the C-Del-3C1B witness.
+async Task ResolveWindowChoice(EngineContext ctx, ChoiceResult answer)
+{
+    ctx.ChoiceController.ResolveChoice(answer);
+    try { await AutoProcessing.ForCutIn(ctx).ResumeSuspendedWindowsAsync(); }
+    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* re-parked */ }
+}
+
+bool InZoneBare(EngineContext ctx, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId cardId) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(player, zone).Contains(cardId);
+
+bool ReadFlagBare(EngineContext ctx, HeadlessEntityId cardId, string key) =>
+    ctx.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? r) && r is not null
+        && r.Metadata.TryGetValue(key, out object? raw) && raw is bool b && b;
+
+// --- Shared match helpers --------------------------------------------------
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
     match.GetLegalActions(player).Where(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
@@ -623,7 +647,7 @@ string[] SourceIds(DcgoMatch match, HeadlessEntityId cardId) =>
         ? ids.ToArray() : Array.Empty<string>();
 
 static CardRecord Digimon(string id) =>
-    new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon");
+    new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(), CardType: "Digimon");
 
 static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
     new(playerId,

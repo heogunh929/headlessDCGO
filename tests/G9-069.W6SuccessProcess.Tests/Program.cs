@@ -17,8 +17,8 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("Delete: a target with no replacement dies -> success fires immediately with the destroyed list", DeleteImmediateSuccess),
-    ("Delete: the target EVADES across the window pause -> failure fires after settle", DeleteEvadedFailure),
-    ("Delete: mixed targets -> success with ONLY the actually-destroyed one", DeleteMixed),
+    ("Delete: the target SURVIVES via the AS-IS PRE cut-in window -> failure fires (no actual deletion)", DeleteEvadedFailure),
+    ("Delete: mixed targets -> success with ONLY the actually-destroyed one (window survivor excluded)", DeleteMixed),
     ("Suspend sibling: success on actual suspension, failure on already-suspended-only set", SuspendSibling),
     ("Bounce sibling: success when the permanent actually left the field", BounceSibling),
     ("TrashSecurity sibling: counts the actually-trashed security", TrashSecuritySibling),
@@ -52,6 +52,9 @@ async Task DeleteImmediateSuccess()
 
 async Task DeleteEvadedFailure()
 {
+    // (C-Del 3c-2b) The target SURVIVES through the AS-IS PRE cut-in window (a window-collectible mandatory
+    // replacement), so no permanent actually leaves the field. success requires an ACTUAL deletion
+    // (DestroyedPermanents membership), so the delete-process reports FAILURE.
     (DcgoMatch match, HeadlessEntityId src, HeadlessEntityId target, _) = await Board(targetEvades: true);
     bool succeeded = false;
     bool failed = false;
@@ -61,33 +64,27 @@ async Task DeleteEvadedFailure()
         successProcess: _ => { succeeded = true; return Task.CompletedTask; },
         failureProcess: () => { failed = true; return Task.CompletedTask; });
 
-    AssertTrue(!succeeded && !failed, "the continuation is PARKED while the Evade window is open");
-    await match.StepAsync();   // the would-be-deleted window opens
-    LegalAction evade = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
-    await match.ApplyActionAsync(evade);
-    await match.StepAsync();   // Evade resolves -> the watcher settles
-
-    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, target), "the target evaded (survived, suspended)");
-    AssertTrue(failed && !succeeded, "failure fired after settle — success requires an ACTUAL deletion (AS-IS)");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, target), "the target survived via the AS-IS PRE cut-in window (willBeRemoveField cancelled)");
+    AssertTrue(!InZone(match, P2, ChoiceZone.Trash, target), "the survivor was never trashed");
+    AssertTrue(failed && !succeeded, "failure fired — success requires an ACTUAL deletion (AS-IS); the window survivor was never destroyed");
 }
 
 async Task DeleteMixed()
 {
-    (DcgoMatch match, HeadlessEntityId src, HeadlessEntityId evader, HeadlessEntityId plain) = await Board(targetEvades: true, secondPlainTarget: true);
+    // The window survivor is spared; the plain target is actually destroyed. success carries ONLY the target
+    // that really left the field.
+    (DcgoMatch match, HeadlessEntityId src, HeadlessEntityId survivor, HeadlessEntityId plain) = await Board(targetEvades: true, secondPlainTarget: true);
     IReadOnlyList<Permanent>? destroyed = null;
 
     await CardEffectCommons.DeletePeremanentAndProcessAccordingToResult(
-        new[] { Perm(match, evader), Perm(match, plain) }, V(match, src),
+        new[] { Perm(match, survivor), Perm(match, plain) }, V(match, src),
         successProcess: d => { destroyed = d; return Task.CompletedTask; },
         failureProcess: null);
 
-    await match.StepAsync();
-    LegalAction evade = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
-    await match.ApplyActionAsync(evade);
-    await match.StepAsync();
-
     AssertTrue(destroyed is not null && destroyed.Count == 1 && destroyed[0].InstanceId == plain,
-        "success carries ONLY the actually-destroyed target (the evader is excluded)");
+        "success carries ONLY the actually-destroyed target (the window survivor is excluded)");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, survivor), "the window survivor is still on the field");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, plain), "the plain target was trashed");
 }
 
 async Task SuspendSibling()
@@ -199,19 +196,27 @@ async Task<(DcgoMatch Match, HeadlessEntityId Src, HeadlessEntityId Target, Head
     await AdvanceToMainAsync(match, P1);
 
     HeadlessEntityId src = HandCard(match, P1, 1);
-    HeadlessEntityId target = HandCard(match, P2, 1);
-    HeadlessEntityId second = default;
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, src, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, target, ChoiceZone.Hand, ChoiceZone.BattleArea));
+
+    // (C-Del 3c-2b) The invented gate no longer fires the PRE replacement keywords — a synthetic hasEvade marker
+    // is inert. A real would-be-deleted SURVIVAL replacement now fires ONLY through the AS-IS PRE cut-in window
+    // from a printed WhenPermanentWouldBeDeleted ActivateClass. Use the window-collectible fixture
+    // TfxWouldBeDeleted (a MANDATORY survive replacement — the drain resolves inline, no interactive pause), so
+    // the delete-process observes an ACTUAL survivor (DestroyedPermanents excludes it) and reports FAILURE. When
+    // NOT evading, the target is a plain deck card that is actually destroyed.
+    HeadlessEntityId target;
     if (targetEvades)
     {
-        SetMetadata(match, target, new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [DeletionReplacementGate.HasEvadeKey] = true,
-            [DeletionReplacementGate.IsSuspendedKey] = false,
-        });
+        target = PlaceWindowSurvivor(context, P2, "1:g9:survivor");
+        CardEffectRegistrar.RegisterCard(context, target, P2);
+    }
+    else
+    {
+        target = HandCard(match, P2, 1);
+        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, target, ChoiceZone.Hand, ChoiceZone.BattleArea));
     }
 
+    HeadlessEntityId second = default;
     if (secondPlainTarget)
     {
         second = HandCard(match, P2, 1);
@@ -219,6 +224,22 @@ async Task<(DcgoMatch Match, HeadlessEntityId Src, HeadlessEntityId Target, Head
     }
 
     return (match, src, target, second);
+}
+
+// Place a registered window-collectible survivor (TfxWouldBeDeleted): a MANDATORY WhenPermanentWouldBeDeleted
+// replacement whose printed ActivateClass the AS-IS PRE cut-in window collects and resolves inline (clearing
+// willBeRemoveField → the card is spared). No interactive pause, no gate.
+HeadlessEntityId PlaceWindowSurvivor(EngineContext context, HeadlessPlayerId owner, string instance)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("TfxWouldBeDeleted");
+    cards.Upsert(new CardRecord(defId, "TfxWouldBeDeleted", "TfxWouldBeDeleted",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId(instance);
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false, ["level"] = 4 }));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
+    return id;
 }
 
 Permanent Perm(DcgoMatch match, HeadlessEntityId id) =>

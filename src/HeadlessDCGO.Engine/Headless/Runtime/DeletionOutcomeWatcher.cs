@@ -24,6 +24,26 @@ public sealed class DeletionOutcomeWatcher
 
     public int Count => _watches.Count;
 
+    /// <summary>(C-Del 3c-2b) Whether the card is a TARGET of any parked watch. The state-based sweep must
+    /// finalize watch targets FIRST (their settling is what fires the parked continuation), while HOLDING every
+    /// other pending deletion until the watch settles — AS-IS runs the nested
+    /// <c>DeletePeremanentAndProcessAccordingToResult</c> (and its success/failure process, e.g. Scapegoat's
+    /// "spare the holder when the sacrifice died") INLINE inside the enclosing cut-in body, i.e. BEFORE the
+    /// enclosing Destroy() fixes its survivors. Without the hold, the sweep trashes the enclosing holder in the
+    /// same pass as the sacrifice, before the parked successProcess can clear its <c>willBeRemoveField</c>.</summary>
+    public bool IsWatchTarget(HeadlessEntityId cardId)
+    {
+        foreach (Watch watch in _watches)
+        {
+            if (watch.Targets.Contains(cardId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Park a continuation until every target settles. <paramref name="onSettled"/> receives
     /// (destroyed, spared).</summary>
     public void Register(

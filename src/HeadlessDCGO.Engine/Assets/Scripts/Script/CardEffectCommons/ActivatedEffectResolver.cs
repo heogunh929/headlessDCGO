@@ -507,11 +507,16 @@ public static class ActivatedEffectResolver
         catch (Exception ex) when (ex is DeferredChoicePendingException or WindowChoicePendingException)
         {
             context.OnceFlags.SuspendUniformCycle(cycleOwner);
+            // (C-Del 3c-2b nested cycles) park this cycle's replay frame — a NESTED cycle's suspension must not
+            // leave the coordinator's active depth pointing at the parent's frame (see DeferredChoiceProvider).
+            coordinator?.SuspendResolution();
             throw;
         }
         catch
         {
             context.OnceFlags.AbortUniformCycle(cycleOwner);
+            // The cycle is dead — discard its replay frame (positional, like completion).
+            coordinator?.CompleteResolution();
             throw;
         }
 
