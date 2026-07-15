@@ -22,7 +22,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Selecting an ally suspends it and buffs the attacker (+DP, +1 SA)", AllianceSelectBuffsAttacker),
     ("Alliance buffs expire at attack end", AllianceBuffExpiresAtAttackEnd),
     ("Alliance +DP flips the battle outcome", AllianceFlipsBattle),
-    ("AttackPipeline opens the Alliance choice before block timing", PipelineOpensAlliance),
+    ("AttackPipeline no longer opens the retired Alliance gate (Alliance fires via the OnAllyAttack window)", PipelineDoesNotOpenRetiredAllianceGate),
 };
 
 var failures = new List<string>();
@@ -131,19 +131,21 @@ async Task AllianceFlipsBattle()
     AssertFalse(result.AttackerDeleted, "boosted attacker survives");
 }
 
-async Task PipelineOpensAlliance()
+// (C-Atk RETIRED) The AllianceAttackBoost firing-half was de-wired from the AttackPipeline: Alliance now
+// fires SOLELY through the AS-IS OnAllyAttack window (StackSkillInfos -> MultipleSkills -> AllianceProcess);
+// see the dedicated window witness suite C-Atk-Alliance.Tests. Driving the pipeline for a synthetic
+// hasAlliance attacker (no real AllianceSelfEffect ActivateClass to collect) opens NO gate choice.
+async Task PipelineDoesNotOpenRetiredAllianceGate()
 {
     Setup s = await NewMatch();
     HeadlessEntityId attacker = await Establish(s, P1, dp: 3000, suspended: false, alliance: true);
-    HeadlessEntityId ally = await Establish(s, P1, dp: 5000, suspended: false, alliance: false);
+    await Establish(s, P1, dp: 5000, suspended: false, alliance: false);
 
     s.Match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
-    await new AttackPipeline().AdvanceAsync(s.Match.Context);   // Declared → opens the Alliance choice
+    await new AttackPipeline().AdvanceAsync(s.Match.Context);
 
-    AssertTrue(s.Match.Context.ChoiceController.Current.IsPending, "pipeline opened the Alliance choice");
-    AssertEqual(ChoiceType.AllianceTarget, s.Match.Context.ChoiceController.PendingRequest!.Type, "choice type");
-    AllianceAttackBoost.ResolveChoice(s.Match.Context, ChoiceResult.Select(ally));
-    AssertTrue(ReadFlag(s.Match, ally, AllianceAttackBoost.IsSuspendedKey), "resolving suspended the ally");
+    AssertFalse(s.Match.Context.ChoiceController.Current.IsPending,
+        "the retired AllianceAttackBoost firing-half opens no pipeline choice (Alliance fires via the OnAllyAttack window)");
 }
 
 // --- Harness (mirrors G3.5-C3) -------------------------------------------

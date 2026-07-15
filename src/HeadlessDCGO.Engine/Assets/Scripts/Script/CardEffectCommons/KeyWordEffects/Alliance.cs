@@ -39,14 +39,56 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
     using System.Collections;
     using System.Collections.Generic;
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
     using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
-        /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainAlliance(...)</c> (KeyWordEffects/Alliance.cs:137) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
+        /// <summary>(C-Atk) AS-IS <c>CardEffectCommons.GainAlliance</c> (KeyWordEffects/Alliance.cs:136) 1:1:
+        /// register a <see cref="CardEffectFactory.AllianceEffect"/> <c>ActivateClass</c> on the target
+        /// permanent's <c>OnAllyAttack</c> duration bucket via <see cref="AddEffectToPermanent"/> (W3 live).
+        /// The granted Alliance then fires through the SAME OnAllyAttack window that collects a printed
+        /// Alliance (GetSkillInfos → MultipleSkills), NOT the retired AllianceAttackBoost gate. ADAPTATION
+        /// (substrate only): the AS-IS <c>CreateBuffEffect</c> VFX loop (Effects.cs:1433) is stripped (pure
+        /// UI, no state); the coroutine becomes a completed <see cref="Task"/>.</summary>
         public static async Task GainAlliance(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
         {
-            GainAlliance(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool CanUseCondition()
+            {
+                if (IsPermanentExistsOnBattleArea(targetPermanent))
+                {
+                    if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            // AS-IS names the local `retaliation` (a copy-paste from GainRetaliation); kept 1:1.
+            ActivateClass retaliation = CardEffectFactory.AllianceEffect(
+                targetPermanent: targetPermanent,
+                isInheritedEffect: false,
+                condition: CanUseCondition,
+                rootCardEffect: activateClass,
+                card: targetPermanent.TopCard);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent,
+                effectDuration: effectDuration,
+                card: card,
+                cardEffect: retaliation,
+                timing: EffectTiming.OnAllyAttack);
+
+            // AS-IS :172-175 CreateBuffEffect (pure VFX/SE, Effects.cs:1433) — stripped.
             await Task.CompletedTask;
         }
 
@@ -94,7 +136,12 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to suspend.", "The opponent is selecting 1 Digimon to suspend.");
             await selectPermanentEffect.Activate().ConfigureAwait(false);
 
-            if (selected?.TopCard is null || !CanActivateSuspendCostEffect(selected.TopCard))
+            // (C-Atk fidelity) AS-IS Alliance.cs:95 guards the SUSPEND on `!selected.TopCard.CanNotBeAffected(activateClass)`
+            // — an ally immune to this effect is NOT suspended (and grants no buff). Restored here (was dropped in the
+            // P6 cluster2 early-return rewrite).
+            if (selected?.TopCard is null
+                || selected.TopCard.CanNotBeAffected(activateClass)
+                || !CanActivateSuspendCostEffect(selected.TopCard))
             {
                 return;
             }

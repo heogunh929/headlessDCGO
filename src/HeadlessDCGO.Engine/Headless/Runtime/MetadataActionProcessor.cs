@@ -582,33 +582,11 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 return ActionProcessResult.Success("Link-trim choice resolved.", MetadataWithChoice(action, linkTrimChoice));
             }
 
-            // C-3 Raid (F-6.8): the optional attack-switch choice flows through RaidAttackSwitch so the
-            // selected defender is applied (SwitchDefender); a plain ResolveChoice would not retarget.
-            if (pendingRequest.Type == ChoiceType.AttackTarget)
-            {
-                if (!RaidAttackSwitch.ResolveChoice(context, result))
-                {
-                    Dictionary<string, object?> raidFailure = MetadataWithChoice(action, context.ChoiceController.Current);
-                    raidFailure["error"] = "Raid attack-switch resolve failed.";
-                    return ActionProcessResult.Failure("Raid attack-switch resolve failed.", raidFailure);
-                }
-
-                return ActionProcessResult.Success("Raid attack-switch resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
-            }
-
-            // C-18 Alliance: the optional suspend-an-ally boost flows through AllianceAttackBoost so the ally
-            // is suspended and the attacker gains +DP/+1 SA; a plain ResolveChoice would not act.
-            if (pendingRequest.Type == ChoiceType.AllianceTarget)
-            {
-                if (!AllianceAttackBoost.ResolveChoice(context, result))
-                {
-                    Dictionary<string, object?> allianceFailure = MetadataWithChoice(action, context.ChoiceController.Current);
-                    allianceFailure["error"] = "Alliance boost resolve failed.";
-                    return ActionProcessResult.Failure("Alliance boost resolve failed.", allianceFailure);
-                }
-
-                return ActionProcessResult.Success("Alliance boost resolved.", MetadataWithChoice(action, context.ChoiceController.Current));
-            }
+            // (C-Atk RETIRED) the ChoiceType.AttackTarget (Raid) and ChoiceType.AllianceTarget (Alliance)
+            // dispatch branches are gone: the RaidAttackSwitch / AllianceAttackBoost gates no longer OPEN those
+            // choices (their counter-head RequestChoice firing-half was de-wired), so these choice types are now
+            // unreachable. Raid/Alliance resolve inside the OnAllyAttack window (RaidProcess / AllianceProcess use
+            // the ChoiceProvider, not the ChoiceController). These were the ONLY openers of either choice type.
 
             // S1 (C-20 Vortex / C-16 Overclock): the optional effect-driven attack target choice flows through
             // EffectDrivenAttack so the attack is declared on the chosen target; a plain ResolveChoice would not.

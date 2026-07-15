@@ -218,6 +218,16 @@ public sealed class AttackPermanentAction
         // (opponent already has >=1 memory, so the turn entered MemoryPass) but before the turn is actually
         // passed on EndTurn. Mirrors the original rule "When your opponent has 1 or more memory, this
         // Digimon can attack." Any other (non-Main) phase never permits an attack.
+        //
+        // (C-Atk) design item RD-CATK-BLITZ (STOP): AS-IS Blitz is NOT a phase gate — it is an [On Play] /
+        // [When Digivolving] ActivateClass (BlitzSelfEffect) that fires in the OnPlay/OnEnterFieldAnyone window
+        // and opens an IMMEDIATE effect-driven attack (BlitzProcess -> EffectDrivenAttack). The window path was
+        // verified to FIRE the Blitz optional ("Will you use Blitz?") but BlitzProcess's nested
+        // EffectDrivenAttack.RequestChoice CANNOT open its attack choice from inside the play-window resolution:
+        // the window already holds the single ChoiceController, so RequestChoice's `IsPending` guard rejects it
+        // (called OUTSIDE the window it opens fine). Retiring this phase gate would leave a firing vacuum, so it
+        // is kept until the window-resolution / effect-attack ChoiceController contention is resolved (a
+        // substrate item, out of the C-Atk rehoming scope). No card exercises either path today.
         if (turn.Phase != HeadlessPhase.Main)
         {
             bool hasBlitz = ReadBool(attacker.Metadata, HasBlitzKey) || ReadBool(attackerCard.Metadata, HasBlitzKey)

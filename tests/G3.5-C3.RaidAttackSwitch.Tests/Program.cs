@@ -21,7 +21,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Raid with no eligible enemy Digimon offers no switch", RaidNoEligibleTarget),
     ("Raid switches off the current defender to a higher-DP Digimon", RaidExcludesCurrentDefender),
     ("Declining the Raid choice leaves the attack unchanged", RaidDeclineKeepsAttack),
-    ("AttackPipeline opens the Raid switch choice before block timing", PipelineOpensRaidSwitch),
+    ("AttackPipeline no longer opens the retired Raid gate (Raid fires via the OnAllyAttack window)", PipelineDoesNotOpenRetiredRaidGate),
     ("S1: Raid granted via the KEYWORD (metadata never set) opens the switch — un-sealed", RaidViaKeywordUnsealed),
 };
 
@@ -151,18 +151,21 @@ async Task RaidDeclineKeepsAttack()
     AssertEqual((HeadlessEntityId?)null, attack.TargetId, "declined: attack stays targetless");
 }
 
-async Task PipelineOpensRaidSwitch()
+// (C-Atk RETIRED) The RaidAttackSwitch firing-half was de-wired from the AttackPipeline: Raid now fires
+// SOLELY through the AS-IS OnAllyAttack window (StackSkillInfos -> MultipleSkills -> RaidProcess); see the
+// dedicated window witness suite C-Atk-Raid.Tests. Driving the pipeline for a synthetic hasRaid attacker (no
+// real RaidSelfEffect ActivateClass to collect) therefore opens NO gate choice — the invented gate is inert.
+async Task PipelineDoesNotOpenRetiredRaidGate()
 {
     Setup s = await NewMatch();
     HeadlessEntityId attacker = await Establish(s, P1, dp: 4000, suspended: false, raid: true);
-    HeadlessEntityId high = await Establish(s, P2, dp: 8000, suspended: false, raid: false);
+    await Establish(s, P2, dp: 8000, suspended: false, raid: false);
 
     s.Match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
-    await new AttackPipeline().AdvanceAsync(s.Match.Context);   // Declared → opens the Raid switch choice
+    await new AttackPipeline().AdvanceAsync(s.Match.Context);
 
-    AssertTrue(s.Match.Context.ChoiceController.Current.IsPending, "pipeline opened the Raid switch choice");
-    RaidAttackSwitch.ResolveChoice(s.Match.Context, ChoiceResult.Select(high));
-    AssertEqual(high, s.Match.Context.AttackController.Current.TargetId, "resolving the choice switched the defender");
+    AssertFalse(s.Match.Context.ChoiceController.Current.IsPending,
+        "the retired RaidAttackSwitch firing-half opens no pipeline choice (Raid fires via the OnAllyAttack window)");
 }
 
 // --- Harness -------------------------------------------------------------

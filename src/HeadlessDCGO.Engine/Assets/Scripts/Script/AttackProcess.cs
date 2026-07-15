@@ -330,20 +330,14 @@ public sealed class AttackProcess
             return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Resolved);
         }
 
-        // (MIG1-KEYWORD-RELOCATE) Raid / Alliance / Progress — AS-IS these are KEYWORD effects
-        // (CardEffectCommons.RaidProcess/AllianceProcess), not AttackProcess logic; kept at the same pre-counter
-        // position the freeform pipeline ran them so behaviour is unchanged. Each opens an optional choice and
-        // parks this stage for one iteration.
-        if (RaidAttackSwitch.RequestChoice(_context))
-        {
-            return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Declared, choiceRequested: true);
-        }
-
-        if (AllianceAttackBoost.RequestChoice(_context))
-        {
-            return AttackAdvanceResult.Transitioned(AttackPhase.Declared, AttackPhase.Declared, choiceRequested: true);
-        }
-
+        // (C-Atk RETIRED) Raid / Alliance were run here by the invented RaidAttackSwitch / AllianceAttackBoost
+        // gates (MIG1-KEYWORD-RELOCATE). Both are AS-IS KEYWORD ActivateClass effects (RaidSelfEffect /
+        // AllianceSelfEffect) that fire in the OnAllyAttack window opened at the [On Attack] point
+        // (AttackProcess.Attack, StackSkillInfos(OnAllyAttack)) — AS-IS AttackProcess.cs:197-199. That window is
+        // the SOLE firing path now (a printed keyword makes Permanent.HasRaid/HasAlliance true off the SAME
+        // ActivateClass the gate read, so keeping the gate here double-fired). The gate's RequestChoice firing-half
+        // is de-wired; the class survives only until G-clean. Progress stays here (a separate keyword, still
+        // engine-plumbed pending its own rehousing).
         ProgressImmunity.TryRegister(_context);
 
         if (attack.AttackerId is HeadlessEntityId counterAttackerId
@@ -745,10 +739,9 @@ public sealed class AttackProcess
 
         if (_context.AttackController.Current.AttackerId is HeadlessEntityId attackerId)
         {
-            // (MIG1-KEYWORD-RELOCATE) per-attack keyword markers (Raid/Alliance offered-once) — substrate for the
-            // keyword choices run at the counter head.
-            RaidAttackSwitch.ClearResolved(_context, attackerId);
-            AllianceAttackBoost.ClearResolved(_context, attackerId);
+            // (C-Atk RETIRED) the per-attack Raid/Alliance offered-once markers were substrate for the retired
+            // counter-head gate choices — no longer set (the OnAllyAttack window is per-collection, not a
+            // persistent per-attack marker), so nothing to clear.
             // (C-5/VR-6) drop any stale deferred-security-check park marker with the attack.
             SecurityResolver.ClearDeferredRemaining(_context, attackerId);
         }
