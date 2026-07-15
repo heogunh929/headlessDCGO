@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -76,9 +77,18 @@ async Task OpensEndOfTurnWindow()
     await PlaceFixtureDigimon(context, P2, "FOE", suspended: true);
     CardEffectRegistrar.RegisterCard(context, vortex, P1);
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1),
-        "the card-registered Vortex opens the end-of-turn effect-driven attack window");
-    AssertEqual(ChoiceType.EffectAttack, context.ChoiceController.PendingRequest!.Type, "an effect-attack choice is pending");
+    // (C-EoT-2) <Vortex> firing is RE-HOUSED from the invented gate to the AS-IS OnEndTurn window: the card's
+    // OnEndTurn <Vortex> ActivateClass (VortexSelfEffect) is now collected by AutoProcessing.GetSkillInfos and
+    // resolved by MultipleSkills -> VortexProcess. The EndOfTurnEffectAttack gate no longer fires <Vortex> (it
+    // is <Execute>-only). Single-fire (window XOR gate); live window firing witnessed by tests/C-EoT2.
+    using (HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context))
+    {
+        AssertTrue(AutoProcessing.GetSkillInfos(new System.Collections.Hashtable(), EffectTiming.OnEndTurn)
+            .Any(si => si.CardEffect is ActivateICardEffect),
+            "the OnEndTurn window collects the card-registered Vortex ActivateClass");
+    }
+    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
+        "the retired gate no longer opens a <Vortex> window (the window resolves it — see C-EoT2)");
 }
 
 // --- Helpers -------------------------------------------------------------

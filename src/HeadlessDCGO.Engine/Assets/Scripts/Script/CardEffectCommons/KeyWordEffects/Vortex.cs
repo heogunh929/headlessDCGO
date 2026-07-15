@@ -37,9 +37,51 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
     using System;
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+    using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
+        /// <summary>(C-EoT-2) AS-IS <c>CardEffectCommons.GainVortex</c> (KeyWordEffects/Vortex.cs:81) 1:1: register a
+        /// <see cref="CardEffectFactory.VortexEffect"/> <c>ActivateClass</c> on the target permanent's
+        /// <c>OnEndTurn</c> duration bucket via <see cref="AddEffectToPermanent"/> (W3 live). The granted Vortex
+        /// then fires through the SAME OnEndTurn window that collects a printed Vortex (GetSkillInfos →
+        /// MultipleSkills → VortexProcess), NOT the retired EndOfTurnEffectAttack gate. ADAPTATION (substrate only):
+        /// the AS-IS <c>Effects.CreateBuffEffect</c> VFX/SE loop is pure UI (no state) — stripped; the coroutine
+        /// becomes a completed <see cref="Task"/> (== the wave2 GainRaid/GainAlliance shape).</summary>
+        public static async Task GainVortex(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
+        {
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool CanUseCondition()
+            {
+                return IsPermanentExistsOnBattleArea(targetPermanent) &&
+                       !targetPermanent.TopCard.CanNotBeAffected(activateClass);
+            }
+
+            ActivateClass vortex = CardEffectFactory.VortexEffect(
+                targetPermanent: targetPermanent,
+                isInheritedEffect: false,
+                condition: CanUseCondition,
+                rootCardEffect: activateClass,
+                targetPermanent.TopCard);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent,
+                effectDuration: effectDuration,
+                card: card,
+                cardEffect: vortex,
+                timing: EffectTiming.OnEndTurn);
+
+            // AS-IS :110-114 CreateBuffEffect (pure VFX/SE) — stripped.
+            await Task.CompletedTask;
+        }
+
         /// <summary>(R2-A) AS-IS <c>CanActivateVortex</c> (KeyWordEffects/Vortex.cs:7, verbatim): on the battle
         /// area, this Digimon can make a Vortex attack, and either an opponent Digimon it can Vortex-attack
         /// exists OR a <c>VortexCanAttackPlayers</c> effect lets it attack the player. ADAPTATION: AS-IS

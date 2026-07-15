@@ -1,31 +1,45 @@
+using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
-using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// GR-006: the end-of-turn effect-driven-attack window for <Vortex> (and <Overclock>). Vortex had its
-// resolution machinery but no live trigger. EndOfTurnEffectAttack.TryOpen now offers it. AS-IS Vortex:
-// attack an opponent's DIGIMON (any, incl. unsuspended), NOT the player; the EndTurn action opens this
-// window before handing over the turn.
+// GR-006 (rewritten for C-EoT-2): <Vortex> end-of-turn firing is RE-HOUSED to the AS-IS OnEndTurn window and
+// RETIRED from the invented EndOfTurnEffectAttack gate.
+//
+// AS-IS Vortex (VortexProcess / CanActivateVortex, KeyWordEffects/Vortex.cs): the printed VortexSelfEffect
+// ActivateClass (returned by the card's CardEffects(OnEndTurn)) is collected by AutoProcessing.GetSkillInfos
+// and resolved by MultipleSkills -> VortexProcess -> SelectAttackEffect, offering an attack on an opponent's
+// Digimon it CanAttackTargetDigimon(isVortex) (a SUSPENDED Digimon; isVortex does NOT lift the suspended-defender
+// gate — only isExecute does, Permanent.cs:2311), and the PLAYER only while an IVortexCanAttackPlayersEffect
+// accepts this attacker (CanActivateVortex `|| PermanentHasVortexCanAttackPlayers`).
+//
+// These tests drive the WINDOW (not the retired gate) and assert:
+//   * the gate no longer opens a <Vortex> window (single-fire: window XOR gate);
+//   * the window offers a SUSPENDED opponent Digimon, and NOT the player without an enabler;
+//   * an IVortexCanAttackPlayersEffect on another permanent makes the PLAYER a target (K1), honoring its
+//     attackerCondition;
+//   * an UNSUSPENDED-only board opens no window (AS-IS CanAttackTargetDigimon: isVortex != isExecute — the old
+//     gate's invented TargetUnsuspended:true for <Vortex> was a divergence, now corrected);
+//   * the enabler alone does NOT grant Vortex.
+// The full printed+granted firing (both keywords) is witnessed in tests/C-EoT2.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("Vortex offers an attack on the opponent's Digimon — NOT the player (AS-IS)", VortexTargetsDigimonNotPlayer),
-    ("Vortex can target an UNSUSPENDED opponent Digimon (isVortex)", VortexHitsUnsuspended),
+    ("The retired gate opens NO <Vortex> window; the OnEndTurn window collects the printed Vortex", GateRetiredWindowCollects),
+    ("The window offers a SUSPENDED opponent Digimon — NOT the player (no VortexCanAttackPlayers)", WindowTargetsSuspendedNotPlayer),
+    ("An UNSUSPENDED-only opponent board opens no window (isVortex != isExecute — fidelity correction)", UnsuspendedOnlyNoWindow),
     ("A suspended Vortex Digimon opens no window (its attack would suspend it)", SuspendedVortexNoWindow),
-    ("EndTurn opens the Vortex window before handover; re-EndTurn then ends the turn", EndTurnOpensWindowLive),
-    ("(K1) VortexCanAttackPlayers marker -> the PLAYER becomes a Vortex target", MarkerAllowsPlayerTarget),
-    ("(K1) marker with no opponent Digimon -> the window still opens (player-only)", MarkerOpensPlayerOnlyWindow),
-    ("(K1) marker attackerCondition NOT matching the attacker -> player stays untargetable", MarkerAttackerConditionHonored),
-    ("(K1) the marker alone does NOT grant Vortex (un-flatten): no end-of-turn window", MarkerAloneIsNotVortex),
+    ("(K1) an IVortexCanAttackPlayersEffect enabler -> the PLAYER becomes a Vortex target", EnablerAllowsPlayerTarget),
+    ("(K1) enabler attackerCondition NOT matching -> the player stays untargetable", EnablerAttackerConditionHonored),
+    ("(K1) the enabler alone does NOT grant Vortex: no OnEndTurn window", EnablerAloneIsNotVortex),
 };
 
 var failures = new List<string>();
@@ -40,186 +54,168 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
 
-async Task VortexTargetsDigimonNotPlayer()
+async Task GateRetiredWindowCollects()
 {
     EngineContext context = Context();
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
-    var foe = await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
-    RegisterVortex(context, vortex, P1);
+    using var scope = AmbientMatchContext.Enter(context);
+    var vortex = await Place(context, P1, "TfxVortex", suspended: false);
+    await Place(context, P2, "FOE", suspended: true);
+    CardEffectRegistrar.RegisterCard(context, vortex, P1);
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opened");
-    var req = context.ChoiceController.PendingRequest!;
-    AssertEqual(ChoiceType.EffectAttack, req.Type, "an effect-attack choice is pending");
-    AssertTrue(req.Candidates.Any(c => c.Label.Contains(foe.Value, StringComparison.Ordinal)), "the opponent Digimon is a target");
-    AssertTrue(!req.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
-        "the PLAYER is NOT a Vortex target (AllowPlayerTarget:false)");
+    AssertTrue(AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Any(si => si.CardEffect is ActivateICardEffect),
+        "the OnEndTurn window collects the printed Vortex ActivateClass");
+    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
+        "the retired gate opens NO <Vortex> window (window resolves it — single-fire)");
 }
 
-async Task VortexHitsUnsuspended()
+async Task WindowTargetsSuspendedNotPlayer()
 {
     EngineContext context = Context();
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
-    var foe = await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: false); // UNsuspended
-    RegisterVortex(context, vortex, P1);
+    using var scope = AmbientMatchContext.Enter(context);
+    var vortex = await Place(context, P1, "TfxVortex", suspended: false);
+    var foe = await Place(context, P2, "FOE", suspended: true);
+    CardEffectRegistrar.RegisterCard(context, vortex, P1);
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opened");
-    AssertTrue(context.ChoiceController.PendingRequest!.Candidates.Any(c => c.Label.Contains(foe.Value, StringComparison.Ordinal)),
-        "an unsuspended opponent Digimon is a valid Vortex target (TargetUnsuspended)");
+    ChoiceRequest attack = await DriveToAttackSelect(context);
+    AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
+        "the suspended opponent Digimon is an offered Vortex target");
+    AssertTrue(!attack.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+        "the PLAYER is NOT a Vortex target without a VortexCanAttackPlayers effect");
+}
+
+async Task UnsuspendedOnlyNoWindow()
+{
+    EngineContext context = Context();
+    using var scope = AmbientMatchContext.Enter(context);
+    var vortex = await Place(context, P1, "TfxVortex", suspended: false);
+    await Place(context, P2, "FOE", suspended: false); // UNsuspended only -> not a legal Vortex target
+    CardEffectRegistrar.RegisterCard(context, vortex, P1);
+
+    await DriveWindow(context);
+    AssertTrue(!context.ChoiceController.Current.IsPending,
+        "no window opens — CanActivateVortex is false (isVortex does not lift the suspended-defender gate)");
 }
 
 async Task SuspendedVortexNoWindow()
 {
     EngineContext context = Context();
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: true); // already suspended
-    await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
-    RegisterVortex(context, vortex, P1);
+    using var scope = AmbientMatchContext.Enter(context);
+    var vortex = await Place(context, P1, "TfxVortex", suspended: true); // already suspended -> cannot attack
+    await Place(context, P2, "FOE", suspended: true);
+    CardEffectRegistrar.RegisterCard(context, vortex, P1);
 
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1), "a suspended Vortex Digimon opens no window");
+    await DriveWindow(context);
+    AssertTrue(!context.ChoiceController.Current.IsPending, "a suspended Vortex Digimon opens no window");
 }
 
-async Task EndTurnOpensWindowLive()
-{
-    var match = new DcgoMatch(EngineContext.CreateDefault(), new EngineTrace(), actionLegality: new LegalActionSetValidator());
-    var env = new HeadlessRlEnvironment(match);
-    await env.InitializeAsync(BuildMatchConfig());
-    EngineContext context = match.Context;
-
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
-    await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
-    RegisterVortex(context, vortex, P1);
-    context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
-    // A realistic MemoryPass state: memory is at/below the turn-end threshold (the only way a turn reaches
-    // MemoryPass in real play). Without this, the A-2 RD-6 end-of-turn re-check (EndTurnProcess:714) would read
-    // memory 0 > -threshold and KEEP the turn going instead of handing over.
-    context.MemoryController.Set(-HeadlessMainPhaseFlow.DefaultMemoryPassValue);
-
-    // 1) EndTurn opens the window instead of ending the turn.
-    LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
-    await match.ApplyActionAsync(endTurn);
-    await match.StepAsync();
-    AssertTrue(context.ChoiceController.Current.IsPending, "EndTurn opened a pending end-of-turn window");
-    AssertEqual(P1.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn did NOT hand over yet");
-
-    // 2) Decline the window, then EndTurn again -> the turn ends (Digimon is marked used).
-    LegalAction skip = match.GetLegalActions(P1).First(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
-    await match.ApplyActionAsync(skip);
-    await match.StepAsync();
-    LegalAction endTurn2 = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
-    await match.ApplyActionAsync(endTurn2);
-    await match.StepAsync();
-    AssertEqual(P2.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn handed over after the window closed");
-}
-
-// (K1) AS-IS CanActivateVortex: `... || PermanentHasVortexCanAttackPlayers(...)` — an active
-// IVortexCanAttackPlayersEffect makes the PLAYER a legal Vortex target (evaluated once per offer).
-
-async Task MarkerAllowsPlayerTarget()
+async Task EnablerAllowsPlayerTarget()
 {
     EngineContext context = Context();
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
-    var foe = await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
-    RegisterVortex(context, vortex, P1);
-    RegisterMarker(context, vortex, attackerCondition: null);
+    using var scope = AmbientMatchContext.Enter(context);
+    var vortex = await Place(context, P1, "TfxVortex", suspended: false);
+    var foe = await Place(context, P2, "FOE", suspended: true);
+    await PlaceEnabler(context, P1, "ENABLER", attackerCondition: null); // accepts any attacker
+    CardEffectRegistrar.RegisterCard(context, vortex, P1);
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opened");
-    var req = context.ChoiceController.PendingRequest!;
-    AssertTrue(req.Candidates.Any(c => c.Label.Contains(foe.Value, StringComparison.Ordinal)), "the opponent Digimon is still a target");
-    AssertTrue(req.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
-        "the PLAYER is a Vortex target while the marker is active");
+    ChoiceRequest attack = await DriveToAttackSelect(context);
+    AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
+        "the opponent Digimon is still a target");
+    AssertTrue(attack.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+        "the PLAYER is a Vortex target while an IVortexCanAttackPlayersEffect accepts the attacker");
 }
 
-async Task MarkerOpensPlayerOnlyWindow()
+async Task EnablerAttackerConditionHonored()
 {
     EngineContext context = Context();
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false);
-    RegisterVortex(context, vortex, P1);
-    RegisterMarker(context, vortex, attackerCondition: null);
+    using var scope = AmbientMatchContext.Enter(context);
+    var vortex = await Place(context, P1, "TfxVortex", suspended: false); // level 4
+    var foe = await Place(context, P2, "FOE", suspended: true);
+    await PlaceEnabler(context, P1, "ENABLER", attackerCondition: p => p.Level == 5); // attacker is Lv4 -> no match
+    CardEffectRegistrar.RegisterCard(context, vortex, P1);
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "no opponent Digimon, but canAttackPlayers -> window opens");
-    AssertTrue(context.ChoiceController.PendingRequest!.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
-        "the player is the offered target");
-}
-
-async Task MarkerAttackerConditionHonored()
-{
-    EngineContext context = Context();
-    var vortex = await PlaceDigimon(context, P1, "VTX", dp: 4000, suspended: false); // level 4
-    await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
-    RegisterVortex(context, vortex, P1);
-    RegisterMarker(context, vortex, attackerCondition: p => p.Level == 5); // attacker is Lv4 -> no match
-
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opened (Digimon target exists)");
-    AssertTrue(!context.ChoiceController.PendingRequest!.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+    ChoiceRequest attack = await DriveToAttackSelect(context);
+    AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
+        "the opponent Digimon is a target (window opened via the Digimon)");
+    AssertTrue(!attack.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
         "attackerCondition not matching -> the player is NOT a target (predicate honored)");
 }
 
-async Task MarkerAloneIsNotVortex()
+async Task EnablerAloneIsNotVortex()
 {
     EngineContext context = Context();
-    var plain = await PlaceDigimon(context, P1, "PLAIN", dp: 4000, suspended: false);
-    await PlaceDigimon(context, P2, "FOE", dp: 3000, suspended: true);
-    RegisterMarker(context, plain, attackerCondition: null); // marker only — NO Vortex grant
+    using var scope = AmbientMatchContext.Enter(context);
+    var plain = await Place(context, P1, "PLAIN", suspended: false); // no Vortex
+    await Place(context, P2, "FOE", suspended: true);
+    await PlaceEnabler(context, P1, "ENABLER", attackerCondition: null);
+    CardEffectRegistrar.RegisterCard(context, plain, P1);
 
-    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
-        "VortexCanAttackPlayers does not grant Vortex — no end-of-turn window (flatten regression)");
+    AssertEqual(0, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
+        "a VortexCanAttackPlayers effect does not grant Vortex — nothing collected");
+    await DriveWindow(context);
+    AssertTrue(!context.ChoiceController.Current.IsPending, "no end-of-turn window (VortexCanAttackPlayers != Vortex)");
 }
 
 // --- Helpers -------------------------------------------------------------
 
 EngineContext Context()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 71);
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 71, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
-    // (P7 test-fix) CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup).
-    context.TurnController.SetPhase(HeadlessPhase.Main);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // DoneStartGame true
     return context;
 }
 
-async Task<HeadlessEntityId> PlaceDigimon(EngineContext context, HeadlessPlayerId owner, string tag, int dp, bool suspended)
+async Task DriveWindow(EngineContext context)
+{
+    AutoProcessing ap = AutoProcessing.For(context);
+    try
+    {
+        await ap.StackSkillInfos(null, EffectTiming.OnEndTurn);
+        await ap.AutoProcessCheck();
+    }
+    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* parked */ }
+}
+
+// Drive the window to the AS-IS "Will you use Vortex?" optional, answer "yes", resume, and return the
+// VortexProcess -> SelectAttackEffect target-select choice.
+async Task<ChoiceRequest> DriveToAttackSelect(EngineContext context)
+{
+    await DriveWindow(context);
+    AssertTrue(context.ChoiceController.Current.IsPending, "the window opened the Vortex optional");
+    ChoiceRequest opt = context.ChoiceController.PendingRequest!;
+    AssertEqual(ChoiceType.OptionalEffect, opt.Type, "the pending choice is the AS-IS Vortex optional");
+    context.ChoiceController.ResolveChoice(ChoiceResult.Select(opt.Candidates[0].Id)); // "yes"
+    AutoProcessing ap = AutoProcessing.For(context);
+    try { await ap.ResumeSuspendedWindowsAsync(); }
+    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* re-parked on the attack select */ }
+    AssertTrue(context.ChoiceController.Current.IsPending, "answering 'yes' opened the SelectAttackEffect target select");
+    return context.ChoiceController.PendingRequest!;
+}
+
+async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner, string number, bool suspended)
 {
     var cards = (CardDatabase)context.CardRepository;
-    var def = new HeadlessEntityId($"DEF:{tag}");
-    cards.Upsert(new CardRecord(def, def.Value, tag,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["level"] = 4 }, CardType: "Digimon"));
-    var id = new HeadlessEntityId($"{owner.Value}:battle:{tag}");
+    var def = new HeadlessEntityId(number);
+    cards.Upsert(new CardRecord(def, number, number,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{number}");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, owner,
-        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["isSuspended"] = suspended }));
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = suspended }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
     return id;
 }
 
-static void RegisterVortex(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId controller)
+// A plain permanent that carries ONLY an IVortexCanAttackPlayersEffect (AS-IS VortexCanAttackPlayersStaticEffect)
+// via its cEntity — a separate card that lets a Vortex attacker target the player (K1). The Vortex attacker keeps
+// its own cEntity (printed Vortex), so this does not disturb the printed effect.
+async Task PlaceEnabler(EngineContext context, HeadlessPlayerId owner, string number, Func<Permanent, bool>? attackerCondition)
 {
-    var effect = KeywordBaseBatch2Factory.Create(KeywordBaseBatch2Kind.Vortex, cardId, targetEntityId: null, isInherited: false, isLinked: false);
-    var binding = KeywordBaseBatch2Factory.ToBinding(effect, controller, new EffectContext(controller, cardId));
-    context.EffectRegistry.Register(binding);
-}
-
-void RegisterMarker(EngineContext context, HeadlessEntityId sourceId, Func<Permanent, bool>? attackerCondition)
-{
-    // (P7 stage-B SEAM) VortexCanAttackPlayersClass is a new-model kind-class with no ToBinding/EffectRegistry
-    // bridge — the AS-IS-faithful path is the LIVE cEntity_EffectController.GetCardEffects scan
-    // NewModelContinuousScan.HasVortexCanAttackPlayers now performs. Attach the built effect to the source
-    // card's controller via the same seam every ported card definition class uses.
-    var cs = new CardSource(context, sourceId, P1);
+    var id = await Place(context, owner, number, suspended: false);
+    var cs = new CardSource(context, id, owner);
     ICardEffect built = CardEffectFactory.VortexCanAttackPlayersStaticEffect(
-        attackerCondition, false, cs, null, "VortexCanAttackPlayers");
+        attackerCondition!, false, cs, null!, "VortexCanAttackPlayers");
     cs.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(built);
 }
-
-static MatchConfig BuildMatchConfig()
-{
-    HeadlessPlayerId[] players = { new(1), new(2) };
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { BuildDeck(new HeadlessPlayerId(1), "P1"), BuildDeck(new HeadlessPlayerId(2), "P2") },
-        firstPlayerId: new HeadlessPlayerId(1));
-    return MatchConfig.Create(players, randomSeed: 17, setup: setup);
-}
-
-static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix) =>
-    new(playerId,
-        Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
-        Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T expected, T actual, string label)
@@ -228,8 +224,8 @@ static void AssertEqual<T>(T expected, T actual, string label)
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
 }
 
-// Minimal AS-IS-shaped CEntity_Effect: the same seam every ported card definition class (e.g. `class BT1_001 :
-// CEntity_Effect`) uses to surface its printed effect list to CardSource.EffectList/EffectList_ExceptAddedEffects.
+// Minimal AS-IS-shaped CEntity_Effect: the seam every ported card definition class uses to surface its printed
+// effect list. Returns the single effect at every timing (the continuous VortexCanAttackPlayers is read at None).
 sealed class TestCardEntityEffect : CEntity_Effect
 {
     private readonly ICardEffect _effect;

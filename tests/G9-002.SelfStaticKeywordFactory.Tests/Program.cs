@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -83,8 +84,15 @@ async Task VortexSelfEffectOpensWindow()
     var effect = CardEffectFactory.VortexSelfEffect(false, source, null);
     source.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effect);
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "the Vortex window opens for a card granted Vortex via VortexSelfEffect");
-    AssertEqual(ChoiceType.EffectAttack, context.ChoiceController.PendingRequest!.Type, "an effect-attack choice is pending");
+    // (C-EoT-2) <Vortex> firing is RE-HOUSED to the AS-IS OnEndTurn window: the VortexSelfEffect ActivateClass
+    // surfaced by the card's cEntity is collected by AutoProcessing.GetSkillInfos and resolved by MultipleSkills
+    // -> VortexProcess. The invented EndOfTurnEffectAttack gate no longer fires <Vortex> (single-fire: window XOR
+    // gate). Live window firing is witnessed by tests/C-EoT2 / GR-006.
+    AssertTrue(AutoProcessing.GetSkillInfos(new System.Collections.Hashtable(), EffectTiming.OnEndTurn)
+        .Any(si => si.CardEffect is ActivateICardEffect),
+        "the OnEndTurn window collects the card's VortexSelfEffect ActivateClass");
+    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
+        "the retired gate no longer opens a <Vortex> window (the window resolves it — see C-EoT2)");
 }
 
 async Task ScopedToOwnCard()

@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -12,7 +13,8 @@ using HeadlessDCGO.Engine.Headless.State;
 //   #1 BeforePayCost  -> playing it suspends 2 and pays the reduced cost (LIVE)
 //   #1 availability    -> offered as a legal play when full cost is unaffordable but reduced is (LIVE)
 //   #3 Alliance        -> registers as a live keyword binding on enter-play
-//   #4 Vortex          -> registers (OnEndTurn) and opens the end-of-turn attack window (LIVE)
+//   #4 Vortex          -> registers (OnEndTurn) and fires through the AS-IS OnEndTurn window (C-EoT-2; the
+//                          invented EndOfTurnEffectAttack gate is retired for <Vortex>). LIVE window firing = C-EoT2.
 //   #5 When Digivolving-> suspend 1, then delete a <=8000(+3000/suspended) opponent (activation flow)
 //   #6 All Turns       -> ReuseWhenDigivolving re-runs the [When Digivolving] effects (activation flow)
 
@@ -91,7 +93,19 @@ async Task VortexLive()
     CardEffectRegistrar.RegisterCard(context, id, P1);
 
     AssertTrue(ContinuousKeywordGate.HasKeyword(context, id, ContinuousKeywordGate.Vortex), "Vortex keyword is live after enter-play");
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(context, P1), "Vortex opens the end-of-turn effect-driven attack window");
+
+    // (C-EoT-2) <Vortex> firing is RE-HOUSED to the AS-IS OnEndTurn window: the card's CardEffects(OnEndTurn)
+    // returns VortexSelfEffect (an ActivateClass), collected by AutoProcessing.GetSkillInfos and resolved by
+    // MultipleSkills -> VortexProcess. The invented EndOfTurnEffectAttack gate no longer fires <Vortex> (it is
+    // <Execute>-only now) — single-fire (window XOR gate). Live window firing is witnessed by tests/C-EoT2.
+    using (AmbientMatchContext.Enter(context))
+    {
+        AssertTrue(AutoProcessing.GetSkillInfos(new System.Collections.Hashtable(), EffectTiming.OnEndTurn)
+            .Any(si => si.CardEffect is ActivateICardEffect),
+            "the OnEndTurn window collects EX8_074's printed Vortex ActivateClass");
+    }
+    AssertTrue(!EndOfTurnEffectAttack.TryOpen(context, P1),
+        "the retired gate no longer opens a <Vortex> window (the window resolves it — see C-EoT2)");
 }
 
 async Task WhenDigivolvingDelete()

@@ -31,9 +31,53 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
     using System;
     using System.Collections.Generic;
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+    using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
+        /// <summary>(C-EoT-2) AS-IS <c>CardEffectCommons.GainOverclock</c> (KeyWordEffects/Overclock.cs:106) 1:1:
+        /// register a trait-parameterised <see cref="CardEffectFactory.OverclockEffect"/> <c>ActivateClass</c> on the
+        /// target permanent's <c>OnEndTurn</c> duration bucket via <see cref="AddEffectToPermanent"/> (W3 live). The
+        /// granted Overclock then fires through the SAME OnEndTurn window that collects a printed Overclock
+        /// (GetSkillInfos → MultipleSkills → OverclockProcess), NOT the retired EndOfTurnEffectAttack gate.
+        /// ADAPTATION (substrate only): the AS-IS <c>Effects.CreateBuffEffect</c> VFX/SE loop is pure UI — stripped
+        /// (== the wave2 GainRaid/GainAlliance shape).</summary>
+        public static async Task GainOverclock(string trait, Permanent targetPermanent, EffectDuration effectDuration,
+            ICardEffect activateClass)
+        {
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool CanUseCondition()
+            {
+                return IsPermanentExistsOnBattleArea(targetPermanent) &&
+                       !targetPermanent.TopCard.CanNotBeAffected(activateClass);
+            }
+
+            ActivateClass overclock = CardEffectFactory.OverclockEffect(
+                trait: trait,
+                targetPermanent: targetPermanent,
+                isInheritedEffect: false,
+                condition: CanUseCondition,
+                rootCardEffect: activateClass,
+                targetPermanent.TopCard);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent,
+                effectDuration: effectDuration,
+                card: card,
+                cardEffect: overclock,
+                timing: EffectTiming.OnEndTurn);
+
+            // AS-IS :137-141 CreateBuffEffect (pure VFX/SE) — stripped.
+            await Task.CompletedTask;
+        }
+
         /// <summary>(P6 cluster2) AS-IS <c>CanActivateOverclock</c> (KeyWordEffects/Overclock.cs:15, verbatim).</summary>
         public static bool CanActivateOverclock(string trait, CardSource cardSource, ICardEffect activateClass)
         {
