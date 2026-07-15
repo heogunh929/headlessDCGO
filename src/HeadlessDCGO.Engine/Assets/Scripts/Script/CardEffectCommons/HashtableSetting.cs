@@ -97,6 +97,26 @@ public static partial class CardEffectCommons
 
         return hashtable;
     }
+
+    // ADAPTATION overload (C-Del 3c-1b battle PRE cut-in transport). The BattleResolver PRE cut-in opener has NO
+    // live IBattle object (battle-rehousing non-scope, like the OnDeletionHashtable boolean overload below), so it
+    // cannot use the AS-IS (List<Permanent>, ICardEffect, IBattle, bool) builder to mark the battle cause. It passes
+    // the DERIVED byBattle boolean instead: this delegates to the faithful builder (cardEffect/battle = null,
+    // exactly as AS-IS when the keys are absent) and stamps ByBattleCauseKey, which IsByBattle reads as a fallback
+    // (OnDeletion.cs dual-read: GetBattleFromHashtable != null OR the marker). AS-IS Destroy() populates the
+    // "battle" key from the LoserPermanents hashtable (CardController.cs:4700 "battle"=this → :3672 → :3694), so a
+    // battle PRE cut-in reports IsByBattle=true — the effect-delete sink (3b) passes NO marker (IsByBattle=false).
+    public static Hashtable WhenPermanentWouldRemoveFieldCheckHashtable(List<Permanent> permanents, bool byBattleCause, bool isDigixros = false)
+    {
+        Hashtable hashtable = WhenPermanentWouldRemoveFieldCheckHashtable(permanents, cardEffect: null!, battle: null!, isDigixros);
+
+        if (byBattleCause)
+        {
+            hashtable[ByBattleCauseKey] = true;
+        }
+
+        return hashtable;
+    }
     #endregion
 
     #region Hashtable used when check whether the permanent can activate [On Deletion], "Permanent leaves" or "Permanent returned to hand" effect
