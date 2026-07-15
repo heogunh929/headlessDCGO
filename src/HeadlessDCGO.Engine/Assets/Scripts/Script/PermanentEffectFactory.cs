@@ -1,5 +1,8 @@
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectFactory;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -167,4 +170,96 @@ public static class PermanentEffectFactory
             context,
             topCard));
     }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // (A군 4단계 / Execute) AS-IS ActivateClass overloads. These are the AS-IS
+    // PermanentEffectFactory.DeleteSelfEffect / AddDetailClass (DCGO PermanentEffectFactory.cs:11-47 / :146-161)
+    // that ExecuteProcess (CardEffectCommons/KeyWordEffects/Execute.cs) appends to Permanent.UntilEndAttackEffects.
+    // They coexist with the mirror-invented binding-rule overloads above (distinct signatures: Permanent-first vs
+    // string-key). The invented binding-rule model is left DEAD-BUT-PRESENT (0 src consumers) rather than deleted
+    // because it is welded to the Phase-3 rebuild aggregate contract (tests/G3J-002 + G3Z-001 registry + a result
+    // doc + the "23 gate goals" count in headless_phase3_shared_rule_effect_unit_test_results.md); its removal
+    // belongs to a rebuild-aggregate / G-clean batch that also rewrites those contract docs — see the batch report.
+    // ---------------------------------------------------------------------------------------------------------
+
+    #region Effect of a Permanent to Delete Itself
+    /// <summary>(A군 4단계) 1:1 mirror of AS-IS <c>PermanentEffectFactory.DeleteSelfEffect(permanent, cardEffect,
+    /// deleteOnOwnturn, deleteOnOpponentsTurn)</c> (PermanentEffectFactory.cs:11-47): an <c>ActivateClass</c>
+    /// "Delete this Digimon" whose <c>CanUse</c> gate is the target still on the battle area + not immune, split
+    /// by whose turn it is (owner-turn vs opponent-turn flags), and whose body deletes the permanent through
+    /// <see cref="CardEffectCommons.DestroyPermanentsClass"/>. Used by ExecuteProcess as the OnEndAttack
+    /// self-delete. ADAPTATION (substrate only): the coroutine
+    /// <c>ContinuousController.StartCoroutine(new DestroyPermanentsClass(...).Destroy())</c> becomes
+    /// <c>await new DestroyPermanentsClass(...).Destroy()</c> (async model, == every card's Destroy call).</summary>
+    public static CardEffects.ActivateClass DeleteSelfEffect(
+        CardEffectCommons.Permanent permanent,
+        CardEffectCommons.ICardEffect cardEffect,
+        bool deleteOnOwnturn = true,
+        bool deleteOnOpponentsTurn = true)
+    {
+        CardEffects.ActivateClass activateClass = new CardEffects.ActivateClass();
+        activateClass.SetUpICardEffect("Delete this Digimon", CanUseCondition, permanent.TopCard);
+        activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, false, "");
+        activateClass.SetEffectSourcePermanent(permanent);
+        return activateClass;
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            if (permanent.TopCard != null
+                && CardEffectCommons.CardEffectCommons.IsExistOnBattleArea(permanent.TopCard)
+                && !permanent.TopCard.CanNotBeAffected(cardEffect))
+            {
+                if (CardEffectCommons.CardEffectCommons.IsOwnerTurn(permanent.TopCard))
+                {
+                    return deleteOnOwnturn;
+                }
+                else
+                {
+                    return deleteOnOpponentsTurn;
+                }
+            }
+            return false;
+        }
+
+        bool CanActivateCondition(Hashtable hashtable)
+        {
+            return permanent.TopCard != null
+                && CardEffectCommons.CardEffectCommons.IsExistOnBattleArea(permanent.TopCard);
+        }
+
+        async Task ActivateCoroutine(Hashtable hashtable)
+        {
+            await new CardEffectCommons.DestroyPermanentsClass(
+                new List<CardEffectCommons.Permanent> { permanent },
+                CardEffectCommons.CardEffectCommons.CardEffectHashtable(activateClass)).Destroy();
+        }
+    }
+    #endregion
+
+    #region Add Detail for Display
+    /// <summary>(A군 4단계) 1:1 mirror of AS-IS <c>PermanentEffectFactory.AddDetailClass(targetPermanent, detail,
+    /// triggerEffect, activateClass)</c> (PermanentEffectFactory.cs:146-161): an <c>AddDetailClass</c> that shows
+    /// <paramref name="detail"/> on the target permanent while it exists and is not immune. Used by ExecuteProcess
+    /// (EffectTiming.None) to display "At end of attack, delete this Digimon." ADAPTATION: AS-IS
+    /// <c>permanent == targetPermanent</c> → InstanceId equality (mirror Permanent is a fresh wrapper per access,
+    /// as in <see cref="CollisionEffect(CardEffectCommons.Permanent, CardEffectCommons.ICardEffect)"/> /
+    /// <see cref="CanNotSwitchAttackTargetEffect"/>).</summary>
+    public static CardEffects.AddDetailClass AddDetailClass(
+        CardEffectCommons.Permanent targetPermanent, string detail, bool triggerEffect, CardEffectCommons.ICardEffect activateClass)
+    {
+        return CardEffectCommons.CardEffectFactory.AddDetailClass(CanUseCondition, PermanentCondition, detail, triggerEffect, activateClass.EffectSourceCard);
+
+        bool PermanentCondition(CardEffectCommons.Permanent permanent)
+        {
+            return permanent is not null
+                && permanent.InstanceId == targetPermanent.InstanceId;
+        }
+
+        bool CanUseCondition(Hashtable hashtable)
+        {
+            return CardEffectCommons.CardEffectCommons.IsPermanentExistsOnBattleArea(targetPermanent)
+                && !targetPermanent.TopCard.CanNotBeAffected(activateClass);
+        }
+    }
+    #endregion
 }

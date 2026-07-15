@@ -147,31 +147,24 @@ async Task ExecuteKeywordNormalAttackNoSelfDelete()
     AssertFalse(InZone(match, P1, ChoiceZone.Trash, attacker), "attacker not trashed");
 }
 
-// (Execute-1) the <Execute> end-of-turn window: the offer allows the PLAYER and unsuspended Digimon;
-// taking it arms the per-attack self-delete — the attacker is trashed when the window's attack ends.
+// (Execute-1 / A군 4단계) The invented EndOfTurnEffectAttack gate is RETIRED for <Execute> (the last of the 18
+// window-firing keywords). <Execute> now fires through the AS-IS OnEndTurn window (GetSkillInfos →
+// MultipleSkills → ExecuteProcess), where the offer allows the PLAYER and unsuspended Digimon and the
+// per-attack self-delete is appended to Permanent.UntilEndAttackEffects — witnessed end-to-end by
+// tests/A4-Execute (window fire + player/unsuspended targets + self-delete registration + no summoning-sickness
+// bypass + single-fire). This gate's TryOpen now opens NOTHING (single-fire: window only).
 async Task ExecuteEndOfTurnWindowSelfDeletes()
 {
     DcgoMatch match = await NewMatch();
     used.Clear();
     HeadlessEntityId attacker = await Establish(match, P1, dp: 9000, suspended: false, flag: null);
-    HeadlessEntityId defender = await Establish(match, P2, dp: 3000, suspended: false, flag: null);   // UNSUSPENDED
-    // (see NOTE above ExecuteKeywordNormalAttackNoSelfDelete) ExecuteSelfEffect's ActivateClass has no ToBinding
-    // and is excluded from registration — grant the live Execute keyword via SelfKeywordByNameEffect instead.
+    await Establish(match, P2, dp: 3000, suspended: false, flag: null);   // UNSUSPENDED
     match.Context.EffectRegistry.Register(
         new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Execute, isInheritedEffect: false, condition: null)
             .ToBinding($"exec:{attacker.Value}"));
 
-    AssertTrue(EndOfTurnEffectAttack.TryOpen(match.Context, P1), "the end-of-turn window offers the Execute attack");
-    ChoiceRequest offer = match.Context.ChoiceController.PendingRequest!;
-    AssertTrue(offer.Candidates.Any(c => c.Id.Value.EndsWith(":effect-attack-player", StringComparison.Ordinal)),
-        "the PLAYER is a legal Execute target (AS-IS canAttackPlayerCondition: () => true)");
-    AssertTrue(offer.Candidates.Any(c => c.Id == defender), "an UNSUSPENDED Digimon is a legal Execute target (isExecute)");
-
-    AssertTrue(EffectDrivenAttack.ResolveChoice(match.Context, ChoiceResult.Select(defender)), "Execute attack declared");
-    await DriveAttackAsync(match);
-
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, defender), "the 3000DP defender lost the battle");
-    AssertTrue(InZone(match, P1, ChoiceZone.Trash, attacker), "the Execute attacker self-deleted at the end of the WINDOW's attack");
+    AssertFalse(EndOfTurnEffectAttack.TryOpen(match.Context, P1),
+        "the invented EndOfTurnEffectAttack gate is RETIRED — <Execute> fires through the AS-IS OnEndTurn window (tests/A4-Execute)");
 }
 
 // (Execute-1) AS-IS Permanent.CanAttack: isExecute does NOT bypass summoning sickness — an Execute
