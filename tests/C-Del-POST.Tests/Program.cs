@@ -13,10 +13,15 @@
 //                 PermanentJustBeforeRemoveField). Gate replay RETIRED (sink/battle/gameflow/security).
 //   * Save      — window FIRES it (CanActivateSave = IsTopCardInTrashOnDeletion + a Tamer target). Gate
 //                 SaveOption RETIRED.
-//   * Ascension — window CANNOT fire it: CanActivateAscension -> CanActivateOnDeletion reads
-//                 CardSource.PermanentJustBeforeRemoveField, a service store the sink path never populates
-//                 (RD-P6C3-A3). Retiring the gate would leave [Ascension] firing nowhere -> honest STOP
-//                 (design item RD-3A-01). The gate is KEPT as the sole [Ascension] firing path.
+//   * Ascension — (C-Del 3c-3, 2026-07-16) window FIRES it. RD-P6C3-A3 RESOLVED: the universal sink / battle /
+//                 security deletion paths now CHARGE the PermanentJustBeforeRemoveField service store (AS-IS
+//                 CardController.cs:3781), so CanActivateAscension -> CanActivateOnDeletion's identity gate
+//                 (card.PermanentJustBeforeRemoveField == TopCard.PermanentJustBeforeRemoveField) is satisfied
+//                 for the self-deleted card. Gate TryAscensionAsync / Timing AscensionOption RETIRED (atomic with
+//                 the store charge, else double-fire). isOptional=false quirk (Commons/Ascension.cs:12) preserved:
+//                 the window forces the effect (no "Will you use Ascension?" optional) straight into
+//                 AscensionProcess's own "Will you place this card in security?" yes/no. Real cards BT25_034 /
+//                 BT25_040 print this shape ([OnDestroyedAnyone] -> AscensionSelfEffect); TfxAscension mirrors it.
 //
 // Harness: EngineContext.CreateDefault(deferredChoice:true) + TurnController(P1,P2) + Main phase (DoneStartGame),
 // under AmbientMatchContext.Enter. Consumers are Tfx fixtures (no real card ports these keywords: 미러 소비 0).
@@ -47,9 +52,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Save PRINTED: a deleted card fires the OnDestroyedAnyone window optional and is placed under the chosen Tamer", SavePrintedFiresViaWindow),
     ("Save: the retired gate (bare hasSave metadata, no printed effect) opens NO POST option (single-fire)", SaveGateRetired),
     ("Save CONTROL: a plain deleted card opens no Save window (false-green guard)", SaveControlStaysTrashed),
-    // --- Ascension (STOP: RD-3A-01) ---
-    ("Ascension PRINTED: does NOT fire through the window (RD-3A-01: PermanentJustBeforeRemoveField unpopulated)", AscensionPrintedDoesNotFireViaWindow),
-    ("Ascension: the gate is KEPT (not retired) — TryAscensionAsync still places a deleted [Ascension] card in security", AscensionGateStillFires),
+    // --- Ascension (C-Del 3c-3: window fires it; RD-P6C3-A3 resolved, gate retired) ---
+    ("Ascension PRINTED: fires through the OnDestroyedAnyone window (store charged) and is placed in security; isOptional=false quirk", AscensionPrintedFiresViaWindow),
+    ("Ascension CONTROL: a plain deleted card (no [Ascension]) opens no window (false-green guard)", AscensionControlStaysTrashed),
+    ("Ascension IDENTITY GATE: an on-field [Ascension] holder does NOT react to a DIFFERENT card's deletion (PermanentJustBeforeRemoveField mismatch)", AscensionIdentityGate),
 };
 
 var failures = new List<string>();
@@ -231,9 +237,9 @@ async Task SaveControlStaysTrashed()
     AssertTrue(InZone(context, P1, ChoiceZone.Trash, card), "the plain card stays trashed");
 }
 
-// ============================================================ ASCENSION (STOP: RD-3A-01)
+// ============================================================ ASCENSION (C-Del 3c-3: window fires it)
 
-async Task AscensionPrintedDoesNotFireViaWindow()
+async Task AscensionPrintedFiresViaWindow()
 {
     EngineContext context = NewContext();
     using var scope = AmbientMatchContext.Enter(context);
@@ -241,34 +247,79 @@ async Task AscensionPrintedDoesNotFireViaWindow()
     await Place(context, P2, "FOE");
     CardEffectRegistrar.RegisterCard(context, card, P1);
 
-    // The printed AscensionSelfEffect IS collected by the window while the card is on field...
+    // The printed AscensionSelfEffect IS collected by the window while the card is on field (wiring live)...
     var perm = new Permanent(context, card, P1);
     var ht = CardEffectCommons.OnDeletionHashtable(new List<Permanent> { perm }, byEffectCause: true, byBattleCause: false, false);
     AssertEqual(1, AutoProcessing.GetSkillInfos(ht, EffectTiming.OnDestroyedAnyone).Count,
-        "the printed AscensionSelfEffect IS collected by the OnDestroyedAnyone window (the wiring is live)");
+        "the printed AscensionSelfEffect IS collected by the OnDestroyedAnyone window");
 
-    // ...but on the universal sink deletion path CanActivateAscension is false (RD-P6C3-A3:
-    // PermanentJustBeforeRemoveField store unpopulated), so it does NOT fire. Retiring the gate would leave it
-    // firing NOWHERE — hence the honest STOP (RD-3A-01).
+    // Delete + drive: RD-P6C3-A3 resolved, so CanActivateAscension (identity gate) is now satisfied. Because
+    // Ascension's ActivateClass is isOptional=false (Commons/Ascension.cs:12 quirk), the window does NOT open a
+    // "Will you use Ascension?" optional first — it forces the effect straight into AscensionProcess's own
+    // "Will you place this card in security?" ModeChoice (the observable proof of the forced-activation quirk).
     await DeleteAndDrive(context, card);
-    AssertFalse(context.ChoiceController.Current.IsPending, "the printed Ascension opened no window prompt (RD-3A-01 STOP)");
-    AssertFalse(InZone(context, P1, ChoiceZone.Security, card), "the printed Ascension did NOT place the card in security via the window");
-    AssertTrue(InZone(context, P1, ChoiceZone.Trash, card), "the card stays in the trash (window cannot fire Ascension)");
+    AssertTrue(context.ChoiceController.Current.IsPending, "the printed Ascension FIRED through the window (store charged)");
+    ChoiceRequest prompt = context.ChoiceController.PendingRequest!;
+    AssertEqual(ChoiceType.ModeChoice, prompt.Type,
+        "isOptional=false quirk: the window forced the effect straight into AscensionProcess's own yes/no (a ModeChoice, NOT an OptionalEffect 'Will you use Ascension?')");
+    AssertTrue(prompt.Message.Contains("security", StringComparison.OrdinalIgnoreCase),
+        "the ModeChoice is AscensionProcess's 'Will you place this card in security?'");
+
+    // Answer "Yes" (userSelection#0) and resume: the effect completes, moving the card trash -> security top.
+    await AnswerYesToCompletion(context, prompt);
+    AssertTrue(InZone(context, P1, ChoiceZone.Security, card), "the printed Ascension placed the deleted card into security (window path)");
+    AssertFalse(InZone(context, P1, ChoiceZone.Trash, card), "the card left the trash");
+    // (K2) AS-IS AscensionProcess: AddSecurityCard(card, true) = the TOP of security.
+    AssertEqual(card, ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Security)[0],
+        "the card is the TOP security card (AS-IS toTop)");
 }
 
-async Task AscensionGateStillFires()
+async Task AscensionControlStaysTrashed()
 {
     EngineContext context = NewContext();
     using var scope = AmbientMatchContext.Enter(context);
-    // A card in the trash with the Ascension presence marker — the RETAINED gate places it in security.
-    var card = await PlaceNone(context, P1, "AscCard", flags: (DeletionReplacementGate.HasAscensionKey, true));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, card, ChoiceZone.None, ChoiceZone.Trash));
+    var card = await Place(context, P1, "PLAIN");
+    await Place(context, P2, "FOE");
+    CardEffectRegistrar.RegisterCard(context, card, P1);
 
-    bool fired = await DeletionReplacementGate.TryAscensionAsync(
-        context.CardInstanceRepository, context.ZoneMover, card, effectRegistry: context.EffectRegistry);
+    await DeleteAndDrive(context, card);
+    AssertFalse(context.ChoiceController.Current.IsPending, "a plain deleted card (no [Ascension]) opens no window (false-green guard)");
+    AssertTrue(InZone(context, P1, ChoiceZone.Trash, card), "the plain card stays trashed");
+}
 
-    AssertTrue(fired, "the KEPT Ascension gate still fires (not retired)");
-    AssertTrue(InZone(context, P1, ChoiceZone.Security, card), "the gate placed the deleted [Ascension] card in security");
+async Task AscensionIdentityGate()
+{
+    // The AS-IS identity gate (its "anyone"-timed name notwithstanding, [Ascension] is a SELF response): both
+    // CanTriggerOnDeletion (OnDeletion.cs:33 = the reacting card must be a source of a DELETED permanent) and
+    // CanActivateOnDeletion (:141 = card.PermanentJustBeforeRemoveField == the dead TopCard's) key the response
+    // to the LEAVING permanent's identity. Two IDENTICAL printed-[Ascension] holders A and B; delete ONLY A. A
+    // reacts (it is the deleted permanent); B — same printed effect, but a DIFFERENT permanent that did not leave
+    // — does NOT react. This isolates the identity: the ONLY difference between A and B is which one left.
+    EngineContext context = NewContext();
+    using var scope = AmbientMatchContext.Enter(context);
+    var a = await Place(context, P1, "TfxAscension", instance: "1:battle:AscA");
+    var b = await Place(context, P1, "TfxAscension", instance: "1:battle:AscB");
+    await Place(context, P2, "FOE");
+    CardEffectRegistrar.RegisterCard(context, a, P1);
+    CardEffectRegistrar.RegisterCard(context, b, P1);
+
+    // A window over A's deletion collects ONLY A's reactor — B's identical [Ascension] is NOT collected because B
+    // is not a source of the deleted permanent (CanTriggerOnDeletion identity), even though OnDestroyedAnyone is
+    // the "anyone" timing.
+    var deadPerm = new Permanent(context, a, P1);
+    var ht = CardEffectCommons.OnDeletionHashtable(new List<Permanent> { deadPerm }, byEffectCause: true, byBattleCause: false, false);
+    AssertEqual(1, AutoProcessing.GetSkillInfos(ht, EffectTiming.OnDestroyedAnyone).Count,
+        "only A's reactor is collected for A's deletion — B's identical [Ascension] does NOT react to a different permanent's deletion (CanTriggerOnDeletion identity)");
+
+    // Delete ONLY A. A fires (window prompt); B — same effect, different permanent — does not.
+    await DeleteAndDrive(context, a);
+    AssertTrue(context.ChoiceController.Current.IsPending, "A (the deleted permanent) reacted");
+    AssertEqual(ChoiceType.ModeChoice, context.ChoiceController.PendingRequest!.Type, "A's Ascension opened its own place-in-security prompt");
+    await AnswerYesToCompletion(context, context.ChoiceController.PendingRequest!);
+
+    AssertTrue(InZone(context, P1, ChoiceZone.Security, a), "A placed ITSELF in security (its own deletion)");
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, b), "B is still on the field (it was not deleted)");
+    AssertFalse(InZone(context, P1, ChoiceZone.Security, b), "B did NOT react to A's deletion (identity gate: different permanent)");
 }
 
 // ============================================================ HARNESS
@@ -300,6 +351,16 @@ async Task<ChoiceRequest> AnswerYesAndResume(EngineContext context, ChoiceReques
     catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { }
     AssertTrue(context.ChoiceController.Current.IsPending, "answering the optional 'yes' opened the effect's own choice");
     return context.ChoiceController.PendingRequest!;
+}
+
+// Answer a pending yes/no (ModeChoice / optional) "yes" (its first candidate) and resume the suspended window to
+// COMPLETION — the effect has no further choice (e.g. AscensionProcess after "yes" just moves the card). Unlike
+// AnswerYesAndResume, this does NOT assert a follow-up pending choice.
+async Task AnswerYesToCompletion(EngineContext context, ChoiceRequest prompt)
+{
+    context.ChoiceController.ResolveChoice(ChoiceResult.Select(prompt.Candidates[0].Id));
+    try { await AutoProcessing.For(context).ResumeSuspendedWindowsAsync(); }
+    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { }
 }
 
 ICardEffect GrantSource(EngineContext context, HeadlessEntityId hostId, string name)

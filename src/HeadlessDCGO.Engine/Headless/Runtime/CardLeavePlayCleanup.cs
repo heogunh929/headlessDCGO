@@ -217,6 +217,26 @@ public static class CardLeavePlayCleanup
 
             metadata[CardNamesJustBeforeRemoveFieldKey] = topCard.CardNames.ToArray();
             metadata[CardTraitsJustBeforeRemoveFieldKey] = topCard.CardTraits.ToArray();
+
+            // (RD-P6C3-A3) AS-IS `cardSource.PermanentJustBeforeRemoveField = permanent` (CardController.cs:3781;
+            // mirror faithful DestroyPermanentsClass.Destroy() :3534), 1:1: charge the per-match service store
+            // (CardSource.PermanentJustBeforeRemoveField, keyed by instance) on the TOP card AND every digivolution
+            // source, all pointing at the SAME leaving permanent (mirror `Permanent` identity = the top instance).
+            // This is the surface the AS-IS OnDeletion identity gate reads — CanActivateOnDeletion (OnDeletion.cs:141)
+            // requires `card.PermanentJustBeforeRemoveField == TopCard.PermanentJustBeforeRemoveField`, so without
+            // this charge a printed [Ascension]/[On Deletion] response collects (GetSkillInfos) but CanActivate=false
+            // (the divergent CardLeavePlayCleanup metadata key was NOT the surface CanActivateOnDeletion reads). The
+            // metadata key below is the persistent-identity echo; both are stamped. AS-IS ORDER: this snapshot runs
+            // AFTER the OnDestroyedAnyone/OnLeaveFieldAnyone stacks were built (collect-before-removal) and BEFORE the
+            // trash move — so the store is charged before the window RESOLVES (main-loop AutoProcessCheck), when the
+            // cards are already in the trash (IsExistOnTrash true). Context-only: the store is a live view keyed off
+            // the mirror CardSource/EngineContext; every production deletion path carries a context.
+            topCard.PermanentJustBeforeRemoveField = permanent;
+            foreach (HeadlessEntityId sourceId in DeletionReplacementGate.ReadSourceIds(record.Metadata))
+            {
+                new Assets.Scripts.Script.CardEffectCommons.CardSource(context, sourceId, record.OwnerId)
+                    .PermanentJustBeforeRemoveField = permanent;
+            }
         }
         else if (record.Metadata.TryGetValue(DeDigivolveHelpers.LevelKey, out object? rawLevel) && rawLevel is int level)
         {

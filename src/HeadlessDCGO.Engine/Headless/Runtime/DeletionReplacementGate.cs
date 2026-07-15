@@ -122,62 +122,19 @@ public static class DeletionReplacementGate
     // window would double-fire. Presence markers (HasFragmentKey / ContinuousKeywordGate.Fragment) and the trashValue
     // vocabulary key above are untouched. See keyword_rehoming_design_2026-07-15.md §5 / design item RD-3C2B.
 
-    /// <summary>
-    /// (C-17 Ascension) AFTER a Digimon is deleted, its controller may place the deleted card into the
-    /// security stack (AS-IS AscensionProcess: AddSecurityCard on deletion). Post-deletion response like
-    /// Fortitude; both deletion paths call it once the card has reached the trash. The AS-IS yes/no is the
-    /// POST keyword choice (canSkip) that gates this call. (K2) placement mirrors AS-IS
-    /// <c>AddSecurityCard(card, true)</c>: the TOP of security, face down — the generic Trash→Security move
-    /// used before inserted at the BOTTOM. The AS-IS <c>CanAddSecurity(activateClass)</c> restriction gate is
-    /// not folded: its effect (<c>CannotAddSecurityClass</c>) is an unported skeleton with no grants, so
-    /// there is nothing to consult yet (fidelity_debt).
-    ///
-    /// (C-Del 3a, 2026-07-15) NOT retired — unlike Fortitude/Save, the AS-IS OnDestroyedAnyone window CANNOT
-    /// fire a printed [Ascension] on the universal sink deletion path: AscensionProcess's activation gate
-    /// (CanActivateAscension → CanActivateOnDeletion) reads <c>CardSource.PermanentJustBeforeRemoveField</c>,
-    /// a per-match service store the sink path never populates (it writes only the divergent
-    /// CardLeavePlayCleanup metadata key). Retiring this gate would leave [Ascension] firing NOWHERE. Blocked
-    /// on design item RD-P6C3-A3 (PermanentJustBeforeRemoveField writer for the sink deletion slice). Witness
-    /// C-Del-POST confirms the printed AscensionSelfEffect collects but CanActivate=false. See design item
-    /// RD-3A-01 / keyword_rehoming_design_2026-07-15.md §F.3a.
-    /// </summary>
-    public static async Task<bool> TryAscensionAsync(
-        ICardInstanceRepository repository,
-        IZoneMover zoneMover,
-        HeadlessEntityId cardId,
-        CancellationToken cancellationToken = default, EffectRegistry? effectRegistry = null, long? addSecurityBatchId = null)
-    {
-        ArgumentNullException.ThrowIfNull(repository);
-        ArgumentNullException.ThrowIfNull(zoneMover);
-
-        if (!repository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
-            record is null ||
-            !HasReplacementKeyword(record, HasAscensionKey, ContinuousKeywordGate.Ascension, effectRegistry))
-        {
-            return false;
-        }
-
-        if (zoneMover is IZoneStateReader zones &&
-            !zones.GetCards(record.OwnerId, ChoiceZone.Trash).Contains(cardId))
-        {
-            return false;
-        }
-
-        // (F1-Tier1 OnAddSecurity P2-1) this Trash->Security add co-drains with the deletion batch that produced
-        // it, so stamp the SHARED-counter add-security id (allocated by the caller) rather than leaving it to fall
-        // back to the event Sequence — keeping the OnAddSecurity trigger in the one unified cross-batch order space.
-        await zoneMover.AddToSecurityAsync(record.OwnerId, cardId, faceUp: false, toTop: true, addSecurityBatchId, cancellationToken)
-            .ConfigureAwait(false);
-
-        repository.Upsert(record with
-        {
-            Metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
-            {
-                [AscendedKey] = true,
-            }
-        });
-        return true;
-    }
+    // (C-Del 3c-3 RETIRED, 2026-07-16) TryAscensionAsync — the invented POST-deletion Ascension firing-half
+    // (surfaced by DeletionReplacementTiming.AscensionOption) — is RETIRED. AS-IS [Ascension] now fires through
+    // the AS-IS OnDestroyedAnyone cut-in window: the printed AscensionSelfEffect ActivateClass is collected by
+    // GetSkillInfos and resolved by the window (AscensionProcess: the "Will you place this card in security?"
+    // yes/no, then Trash->Security top face-down). The window's activation gate CanActivateAscension ->
+    // CanActivateOnDeletion (OnDeletion.cs:141) reads CardSource.PermanentJustBeforeRemoveField, the per-match
+    // service store that the universal sink / battle / security deletion paths now CHARGE (RD-P6C3-A3 resolved:
+    // CardLeavePlayCleanup.RecordParametersJustBeforeRemoveField stamps it on the top card + every source, AS-IS
+    // CardController.cs:3781 / mirror :3534). Keeping this gate AND the window would DOUBLE-FIRE (the gate's
+    // presence scan reads the SAME live keyword state the window collects); charging the store and retiring the
+    // gate is ONE atomic batch. Presence markers (HasAscensionKey / ContinuousKeywordGate.Ascension) untouched;
+    // AscendedKey / AddToSecurity are now the window's job (AscensionProcess -> CardObjectController.AddSecurityCard).
+    // See keyword_rehoming_design_2026-07-15.md §5 (3c-3) / design item RD-3A-01 (now resolved).
 
     // (C-Del 3c-2b RETIRED, 2026-07-15) FindScapegoatSacrifice / FindScapegoatSacrificeCandidates — the invented
     // PRE would-be-deleted Scapegoat firing-half — are retired. AS-IS [Scapegoat] now fires through the PRE cut-in

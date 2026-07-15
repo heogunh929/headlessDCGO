@@ -27,9 +27,12 @@ public sealed class DeletionReplacementTiming
     public const string RequestIdPrefix = "deletion-replacement";
     public const char Delimiter = '#';
 
-    // (C-Del 3a) AscensionOption NOT retired — the AS-IS window cannot fire a printed [Ascension] on the sink
-    // path (CanActivateOnDeletion needs PermanentJustBeforeRemoveField, unpopulated: RD-P6C3-A3 / RD-3A-01).
-    public const string AscensionOption = "ascension";  // POST, no sub
+    // (C-Del 3c-3 RETIRED, 2026-07-16) AscensionOption — the last POST gate option — is retired. AS-IS [Ascension]
+    // now fires through the AS-IS OnDestroyedAnyone cut-in window (printed AscensionSelfEffect ActivateClass ->
+    // AscensionProcess), the CanActivateOnDeletion identity gate now satisfied because the deletion paths CHARGE the
+    // PermanentJustBeforeRemoveField store (RD-P6C3-A3 resolved). Keeping the gate AND the window would double-fire.
+    // With this gone, PostOptions surfaces NOTHING (the POST-choice scaffolding below is dead, retained only for the
+    // final G-clean pass). See keyword_rehoming_design_2026-07-15.md §5 (3c-3) / RD-3A-01 (resolved).
     // (PRIM-P0-timing batch 4) PRE, no built-in sub — a card-registered WhenPermanentWouldBeDeleted effect.
     // Activating it runs the card's own effect body (which prevents/replaces via ClearDeletion). Any target/cost
     // sub-pick the effect needs is handled inside the effect's own resolution.
@@ -37,8 +40,8 @@ public sealed class DeletionReplacementTiming
     // (C-Del 3c-2b RETIRED) The 8 PRE keyword options (Evade/Barrier/ArmorPurge/Scapegoat/Fragment/Decode/
     // Partition/Decoy) + their two-step target machinery (PendingOptionKey/FragmentRemainingKey/NeedsTarget) +
     // the cross-card sacrifice keys (SacrificeAwaitingKey/DecoyEligibleKey) are removed — those keywords fire
-    // through the AS-IS PRE cut-in window. Only AscensionOption (POST) + CustomWouldBeDeletedOption (PRE) remain,
-    // neither of which needs a two-step sub-target. See keyword_rehoming_design_2026-07-15.md §5 / RD-3C2B.
+    // through the AS-IS PRE cut-in window. Only CustomWouldBeDeletedOption (PRE) remains (3c-3 retired the last POST
+    // option, Ascension), and it needs no two-step sub-target. See keyword_rehoming_design_2026-07-15.md §5 / RD-3C2B.
 
     // --- PRE option set (shared with the sink's defer decision) --------------
 
@@ -100,19 +103,12 @@ public sealed class DeletionReplacementTiming
 
     private static IReadOnlyList<string> PostOptions(EngineContext context, IZoneStateReader zones, CardInstanceRecord record)
     {
-        var options = new List<string>();
-        // (C-Del 3a) Ascension STAYS a POST gate option — the AS-IS window cannot fire a printed [Ascension] on
-        // the universal sink deletion path (CanActivateOnDeletion reads the unpopulated PermanentJustBeforeRemoveField
-        // store: RD-P6C3-A3), so retiring it would leave [Ascension] firing nowhere (RD-3A-01, witness-confirmed).
-        if (DeletionReplacementGate.HasReplacementKeyword(record, DeletionReplacementGate.HasAscensionKey, ContinuousKeywordGate.Ascension, context.EffectRegistry))
-        {
-            options.Add(AscensionOption);
-        }
-
-        // (C-Del 3a RETIRED) Save no longer surfaces as an invented POST agent choice — it fires through the
-        // AS-IS OnDestroyedAnyone cut-in window (printed SaveEffect ActivateClass → SelectPermanentEffect).
-        // Decode/Partition were already MOVED to the PRE (would-be-deleted) window (see PreOptions).
-        return options;
+        // (C-Del 3c-3 RETIRED) Ascension — the last POST gate option — is retired; it fires through the AS-IS
+        // OnDestroyedAnyone cut-in window (printed AscensionSelfEffect ActivateClass → AscensionProcess). Save was
+        // retired in 3a; Decode/Partition were MOVED to the PRE window. No POST keyword surfaces here anymore, so
+        // this always returns empty (the POST-choice scaffolding is dead, retained for the final G-clean pass).
+        _ = (context, zones, record);
+        return Array.Empty<string>();
     }
 
     // (C-Del 3c-2b RETIRED) The Decode/Partition source-candidate helpers (FindDecodeSourceCandidates /
@@ -131,8 +127,8 @@ public sealed class DeletionReplacementTiming
         }
 
         // (C-Del 3c-2b) The former Priority 1 (two-step sub-target select for Scapegoat/Fragment/Decoy/Decode/
-        // Partition) is retired — the only surviving options (Ascension POST, CustomWouldBeDeleted PRE) need no
-        // sub-target, so surfacing is a single keyword step.
+        // Partition) is retired — the only surviving option (CustomWouldBeDeleted PRE; Ascension POST retired in
+        // 3c-3) needs no sub-target, so surfacing is a single keyword step.
 
         // Priority 2: PRE step-1 (would-be-deleted) choices.
         foreach (HeadlessEntityId cardId in ScanBattleArea(context, IsPreStep1Awaiting))
@@ -226,8 +222,8 @@ public sealed class DeletionReplacementTiming
             return DeletionReplacementResolveResult.Failure(ex.Message);
         }
 
-        // (C-Del 3c-2b) The former two-step (isStep2 → ResolveTargetStep) is retired — every surviving option
-        // (Ascension POST, CustomWouldBeDeleted PRE) resolves in a single keyword step with no sub-target.
+        // (C-Del 3c-2b) The former two-step (isStep2 → ResolveTargetStep) is retired — the surviving option
+        // (CustomWouldBeDeleted PRE; Ascension POST retired in 3c-3) resolves in a single keyword step with no sub-target.
         return await ResolveKeywordStep(context, cardId, result).ConfigureAwait(false);
     }
 
@@ -274,14 +270,11 @@ public sealed class DeletionReplacementTiming
 
         switch (option)
         {
-            // (C-Del 3c-2b RETIRED) Evade / Barrier / ArmorPurge cases removed — those keywords fire through the
-            // AS-IS PRE cut-in window (printed / granted ActivateClass sets willBeRemoveField=false / trashes the
-            // top). Only the POST Ascension gate (RD-3A-01) and the PRE CustomWouldBeDeleted bridge remain.
-            case AscensionOption:
-                // (C-Del 3a) NOT retired — the AS-IS window cannot fire a printed [Ascension] on the sink path
-                // (RD-P6C3-A3 / RD-3A-01), so this gate stays the sole [Ascension] firing path.
-                return await DeletionReplacementGate
-                    .TryAscensionAsync(context.CardInstanceRepository, context.ZoneMover, cardId, cancellationToken: default, effectRegistry: context.EffectRegistry, addSecurityBatchId: context.NextSecurityAddBatchId()).ConfigureAwait(false);
+            // (C-Del 3c-2b/3c-3 RETIRED) Evade / Barrier / ArmorPurge (PRE) and Ascension (POST) cases removed —
+            // those keywords fire through the AS-IS cut-in window (PRE: printed / granted ActivateClass sets
+            // willBeRemoveField=false / trashes the top; POST Ascension: printed AscensionSelfEffect -> AscensionProcess,
+            // the store-charge (RD-P6C3-A3) now satisfies CanActivateOnDeletion). Only the PRE CustomWouldBeDeleted
+            // bridge remains.
             case CustomWouldBeDeletedOption:
                 // (PRIM-P0-timing batch 4) run the card's own WhenPermanentWouldBeDeleted effect body(ies)
                 // and cancel the deletion (AS-IS willBeRemoveField=false). Activating this option IS the

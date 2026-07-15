@@ -82,9 +82,16 @@ async Task BattleDeletionSnapshotsKeywords()
     AssertTrue(InZone(ctx, P2, ChoiceZone.Trash, TargetId), "the defender was deleted by battle");
     AssertTrue(ReadFlag(ctx, TargetId, DeletionReplacementGate.HasAscensionKey),
         "the deletion-time keyword state was snapshotted");
-    AssertTrue(match.Context.ChoiceController.Current.IsPending &&
-        match.Context.ChoiceController.PendingRequest!.Type == ChoiceType.DeletionReplacement,
-        "the POST (Ascension) window opened for the battle-deleted keyword holder");
+    // (C-Del 3c-3) The invented Ascension POST gate is RETIRED; the printed AscensionSelfEffect now fires through
+    // the AS-IS OnDestroyedAnyone cut-in window, which the BATTLE deletion path also opens. RD-P6C3-A3 resolved:
+    // the battle path (BattleResolver -> CardLeavePlayCleanup.OnDeleted) now charges PermanentJustBeforeRemoveField,
+    // so CanActivateOnDeletion is satisfied and the collected AscensionSelfEffect resolves through the window (the
+    // pending choice is the window's own MultipleSkills machinery — an order/optional pick, NOT the retired
+    // DeletionReplacement gate). This witnesses the battle-path store charge; the full drive to security is
+    // witnessed on the sink path in tests/C-Del-POST (AscensionProcess's ModeChoice -> Trash->Security).
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the battle-deleted [Ascension] holder fired a window (not swept silently)");
+    AssertTrue(match.Context.ChoiceController.PendingRequest!.Type != ChoiceType.DeletionReplacement,
+        "it fired through the AS-IS OnDestroyedAnyone window — NOT the retired DeletionReplacement gate (single-fire)");
 }
 
 async Task SweepFinishDropsBindings()

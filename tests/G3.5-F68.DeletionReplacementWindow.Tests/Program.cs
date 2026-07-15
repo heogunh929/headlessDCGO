@@ -7,8 +7,9 @@
 // BT14_035 <Barrier>) and the real-factory-shape fixtures (TfxDecoy / TfxArmorPurge — no real card ported yet)
 // through that window. An OPTIONAL replacement surfaces as the window's OptionalEffect choice ("Will you use …?",
 // activate = the non-skip resolve); activate → pay cost + survive; decline → the state-based sweep finishes the
-// deletion. (Mirrors the AS-IS "you may".) Ascension stays a POST gate option (RD-3A-01) and Save fires via the
-// OnDestroyedAnyone window (3a) — those cases are unchanged.
+// deletion. (Mirrors the AS-IS "you may".) Ascension (C-Del 3c-3) and Save (3a) both now fire via the
+// OnDestroyedAnyone window — the invented POST gate options are retired (bare-marker no-op cases here; live
+// window firing witnessed in tests/C-Del-POST).
 //
 // The Retaliation→Evade chain case was QUARANTINED to tests/G3.5-F68R.RetaliationEvadeChain.Tests
 // (authorized-red: blocked by RD-CBTL-01 — battle Retaliation firing needs the live IBattle).
@@ -30,9 +31,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Effect deletion of an Evade Digimon opens a replacement choice (not auto-applied)", DeferOpensChoice),
     ("Activating Evade in the window suspends it and cancels the deletion", ActivateEvadeSurvives),
     ("Declining the window lets the deletion finish (swept to trash)", DeclineGetsDeleted),
-    ("Ascension opens a post-deletion choice once the card is in the trash", AscensionOpensPostChoice),
-    ("Activating Ascension places the deleted card into security", ActivateAscension),
-    ("Declining Ascension leaves the card in the trash", DeclineAscension),
+    ("Ascension (C-Del 3c-3 RETIRED): a bare hasAscension marker opens NO POST option (fires via the OnDestroyedAnyone window)", AscensionGateRetired),
     ("Scapegoat is a two-step choice: activate, then pick which ally to sacrifice", ScapegoatTwoStep),
     ("Fragment is a two-step choice: activate, then pick which sources to trash", FragmentTwoStep),
     ("Decoy: the Decoy holder deletes itself to save the marked ally (live-cardEffect Destroy path)", DecoySavesAlly),
@@ -109,42 +108,23 @@ async Task DeclineGetsDeleted()
     AssertFalse(ReadFlag(match, card, DeletionReplacementGate.IsSuspendedKey), "not suspended (Evade cost not paid)");
 }
 
-// --- Ascension (post-deletion; the RETAINED gate option — RD-3A-01) -------
+// --- Ascension (C-Del 3c-3 RETIRED; fires via the OnDestroyedAnyone window) -------
 
-async Task AscensionOpensPostChoice()
+async Task AscensionGateRetired()
 {
+    // (C-Del 3c-3 RETIRED) The invented Ascension POST option (DeletionReplacementTiming AscensionOption ->
+    // DeletionReplacementGate.TryAscensionAsync) is retired: AS-IS [Ascension] now fires through the
+    // OnDestroyedAnyone cut-in window from a printed AscensionSelfEffect, now that the deletion paths CHARGE the
+    // PermanentJustBeforeRemoveField store so CanActivateOnDeletion is satisfied (RD-P6C3-A3 resolved; witnessed
+    // live in tests/C-Del-POST). A BARE hasAscension metadata marker — no printed effect — no longer surfaces any
+    // POST agent choice, and the deleted card simply stays in the trash (single-fire: window only).
     (DcgoMatch match, HeadlessEntityId card) = await SetupAndDelete((DeletionReplacementGate.HasAscensionKey, true));
 
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, card), "ascension card was deleted to the trash first");
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "a post-deletion choice is open");
-    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
-}
-
-async Task ActivateAscension()
-{
-    (DcgoMatch match, HeadlessEntityId card) = await SetupAndDelete((DeletionReplacementGate.HasAscensionKey, true));
-
-    LegalAction activate = ResolveActions(match, P2).Single(a => a.Id.Value.Contains("#ascension", StringComparison.Ordinal));
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();
-
-    AssertTrue(InZone(match, P2, ChoiceZone.Security, card), "activated ascension places the card into security");
-    AssertFalse(InZone(match, P2, ChoiceZone.Trash, card), "card left the trash");
-    // (K2) AS-IS AscensionProcess: AddSecurityCard(card, true) = the TOP of security (index 0), not the bottom.
-    var zones = (IZoneStateReader)match.Context.ZoneMover;
-    AssertEqual(card, zones.GetCards(P2, ChoiceZone.Security)[0], "the card is the TOP security card (AS-IS toTop)");
-}
-
-async Task DeclineAscension()
-{
-    (DcgoMatch match, HeadlessEntityId card) = await SetupAndDelete((DeletionReplacementGate.HasAscensionKey, true));
-
-    LegalAction decline = ResolveActions(match, P2).Single(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
-    await match.ApplyActionAsync(decline);
-    await match.StepAsync();
-
-    AssertTrue(InZone(match, P2, ChoiceZone.Trash, card), "declining ascension leaves the card in the trash");
-    AssertFalse(InZone(match, P2, ChoiceZone.Security, card), "card not placed into security");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, card), "ascension card was deleted to the trash");
+    AssertFalse(ResolveActions(match, P2).Any(a => a.Id.Value.Contains("#ascension", StringComparison.Ordinal)),
+        "the retired Ascension POST option surfaces NO agent choice (single-fire: window only)");
+    AssertTrue(InZone(match, P2, ChoiceZone.Trash, card), "the deleted card stays in the trash (bare marker, no printed Ascension effect)");
+    AssertFalse(InZone(match, P2, ChoiceZone.Security, card), "the bare marker was NOT placed in security by the retired gate");
 }
 
 // --- Scapegoat (real EX8_061, two-step sub-selection) ---------------------
