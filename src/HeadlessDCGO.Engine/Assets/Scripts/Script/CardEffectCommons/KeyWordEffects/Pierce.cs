@@ -60,14 +60,49 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
     using System.Collections;
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
     using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
-        /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainPierce(...)</c> (KeyWordEffects/Pierce.cs:54) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
+        /// <summary>(C-Btl grant rehousing) AS-IS <c>CardEffectCommons.GainPierce</c>
+        /// (KeyWordEffects/Pierce.cs:54-85), 1:1: grant a target Digimon the [Piercing] trigger for the duration by
+        /// building the <see cref="CardEffectFactory.PierceEffect"/> ActivateClass and storing it in the target
+        /// permanent's <c>OnDetermineDoSecurityCheck</c> duration bucket via <see cref="AddEffectToPermanent"/>
+        /// (W3 live) — so the AS-IS "determine whether to do security check" window (BattleResolver.FinalizeAsync,
+        /// AS-IS CardController.cs:4731) picks it up. Replaces the invented <c>GainKeywordToPermanent</c> funnel
+        /// (ContinuousKeywordGate.Piercing continuous marker, which Permanent.HasPierce/the window never read).
+        /// ADAPTATION: AS-IS's terminal visual <c>CreateBuffEffect</c> has no headless substrate — dropped.</summary>
         public static async Task GainPierce(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
         {
-            GainPierce(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool CanUseCondition()
+            {
+                if (IsPermanentExistsOnBattleArea(targetPermanent))
+                {
+                    if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            ActivateClass pierce = CardEffectFactory.PierceEffect(
+                targetPermanent: targetPermanent, isInheritedEffect: false, condition: CanUseCondition,
+                rootCardEffect: activateClass, targetPermanent.TopCard);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+                cardEffect: pierce, timing: EffectTiming.OnDetermineDoSecurityCheck);
+
             await Task.CompletedTask;
         }
 

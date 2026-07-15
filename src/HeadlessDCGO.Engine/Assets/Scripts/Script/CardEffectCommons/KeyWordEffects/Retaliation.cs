@@ -49,14 +49,50 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
     using System.Collections;
     using System.Collections.Generic;
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
     using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
-        /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainRetaliation(...)</c> (KeyWordEffects/Retaliation.cs:136) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
+        /// <summary>(C-Btl grant rehousing) AS-IS <c>CardEffectCommons.GainRetaliation</c>
+        /// (KeyWordEffects/Retaliation.cs:136-166), 1:1: grant a target Digimon the [Retaliation] trigger for the
+        /// duration by building the <see cref="CardEffectFactory.RetaliationEffect"/> ActivateClass and storing it
+        /// in the target permanent's <c>OnDestroyedAnyone</c> duration bucket via <see cref="AddEffectToPermanent"/>
+        /// (W3 live) — so the AS-IS collect-before-removal deletion window (BattleResolver.FinalizeAsync) picks it up
+        /// and the post-battle AutoProcessCheck resolves <see cref="RetaliationProcess"/>. Replaces the
+        /// invented <c>GainKeywordToPermanent</c> funnel (ContinuousKeywordGate.Retaliation continuous marker, which
+        /// Permanent.HasRetaliation/the window never read). ADAPTATION: AS-IS's terminal visual
+        /// <c>CreateBuffEffect</c> (a Unity presentation coroutine) has no headless substrate — dropped.</summary>
         public static async Task GainRetaliation(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
         {
-            GainRetaliation(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool CanUseCondition()
+            {
+                if (IsPermanentExistsOnBattleArea(targetPermanent))
+                {
+                    if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            ActivateClass retaliation = CardEffectFactory.RetaliationEffect(
+                targetPermanent: targetPermanent, isInheritedEffect: false, condition: CanUseCondition,
+                rootCardEffect: activateClass, targetPermanent.TopCard);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+                cardEffect: retaliation, timing: EffectTiming.OnDestroyedAnyone);
+
             await Task.CompletedTask;
         }
 
