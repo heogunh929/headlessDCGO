@@ -274,6 +274,11 @@ public sealed class GameFlowProcessor
                     if (pending && (deletionReplacement.IsPreAwaiting(context, cardId) || IsBattleDeferred(context, cardId)
                         // (P6) a holder waiting on its sacrifice's fate is settled by SettleAwaitingSacrifices.
                         || IsSacrificeAwaiting(context, cardId)
+                        // (C-Del 3c-2b-pre / RD-3C2BP-01) a PRE-window-promoted member whose "would be deleted"
+                        // cut-in is STILL resolving is not finalized yet — AS-IS fixes destroyTargetPermanents_Fixed
+                        // only AFTER the WHOLE PRE cut-in completes for every target. Without this, a 2nd+ window-form
+                        // replacement in one Destroy is trashed mid-drain before its survival body runs.
+                        || IsPromotedAwaitingCutInWindow(context, cardId)
                         // (R2-P1-1) BATCH-MATE gate: a decided member of a deferred delete batch holds until
                         // EVERY member of the same batch id has decided — AS-IS Destroy() trashes the fixed
                         // list in ONE post-cut-in pass (all targets' cut-ins resolve, THEN the per-permanent
@@ -669,6 +674,26 @@ public sealed class GameFlowProcessor
     /// <c>willBeRemoveField</c> — i.e. the replacement fired and the card SURVIVES. A promoted card that kept
     /// <c>willBeRemoveField</c> set (the replacement declined / did not fire) is NOT a survivor and finalizes
     /// normally.</summary>
+    /// <summary>(C-Del 3c-2b-pre / RD-3C2BP-01) A PRE-window-promoted deferred deletion whose "would be deleted"
+    /// cut-in window (the <c>ForCutIn</c> pool the sink opens the PRE pair on) is STILL resolving must NOT be
+    /// finalized yet. AS-IS Destroy() fixes destroyTargetPermanents_Fixed — and trashes it — only AFTER the WHOLE
+    /// PRE cut-in (<c>TriggeredSkillProcess</c>) has completed for EVERY target (CardController.cs:3471-3496). When
+    /// TWO+ window-form replacements resolve in one Destroy, the state-based sweep is re-entered mid-drain
+    /// (AutoProcessing.DigimonLackDPProcess) BETWEEN the picks; without this hold it would finalize a member whose
+    /// survival body has not run yet (willBeRemoveField still true) and trash it, even though the resumed body would
+    /// spare it. Hold while a cut-in window is suspended; once it fully resolves the sweep finalizes the whole batch
+    /// on the settled willBeRemoveField (survivors spared / casualties trashed together).</summary>
+    private static bool IsPromotedAwaitingCutInWindow(EngineContext context, HeadlessEntityId cardId)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
+            !(instance.Metadata.TryGetValue(MatchStateMutationSink.PreWindowPromotedKey, out object? promoted) && promoted is true))
+        {
+            return false;
+        }
+
+        return Assets.Scripts.Script.AutoProcessing.ForCutIn(context).executingMultipleSkills is not null;
+    }
+
     private static bool IsPromotedSurvivor(EngineContext context, HeadlessEntityId cardId)
     {
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||

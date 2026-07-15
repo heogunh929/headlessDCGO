@@ -1843,8 +1843,25 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         IReadOnlyDictionary<string, object?>? moveMetadata = ReadBool(mutation.Values, SuppressOnPlayKey)
             ? new Dictionary<string, object?>(StringComparer.Ordinal) { [SuppressOnPlayKey] = true }
             : null;
+        // (C-Del 3c-2b-pre) AS-IS PlayPermanentClass.PlayPermanent (CardController.cs:1361-1363) runs
+        // CardObjectController.RemoveFromAllArea BEFORE placing the played card on the field: it detaches the
+        // card from any host permanent's digivolution stack (RemoveFromAllArea:392-402 -> Permanent.RemoveCardSource)
+        // AND withdraws it from whatever physical zone it sits in, then CreateNewPermanent places it in the battle
+        // area. A digivolution source physically sits OFF-FIELD (ChoiceZone.None), tracked ONLY by the host's
+        // sourceIds metadata — it is NOT in a DigivolutionCards zone-list — so its physical transport is
+        // None -> BattleArea (a DigivolutionCards from-zone would throw on the empty zone) and the "removal from
+        // DigivolutionCards" is the sourceIds detach. Without the detach a following deletion finalize
+        // (DeletionSourceTrash.TrashEvoSourcesAsync) reads the dead host's stale sourceIds and re-trashes the
+        // just-played source (the retiring DeletionReplacementGate.PlaySourceForFreeAsync did exactly this
+        // None->BattleArea move + detach). A source is embedded ⇔ the play root is DigivolutionCards.
+        bool fromDigivolutionStack = fromZone == ChoiceZone.DigivolutionCards;
+        ChoiceZone physicalFromZone = fromDigivolutionStack ? ChoiceZone.None : fromZone;
         _pendingAsync.Add(ct => zoneMover.MoveAsync(
-            new ZoneMoveRequest(owner, targetId, fromZone, ChoiceZone.BattleArea, faceUp, moveMetadata), ct));
+            new ZoneMoveRequest(owner, targetId, physicalFromZone, ChoiceZone.BattleArea, faceUp, moveMetadata), ct));
+        if (fromDigivolutionStack)
+        {
+            _pendingAsync.Add(ct => Runtime.DigivolutionStackHelpers.DetachSourceFromHostAsync(_repository, zoneMover, targetId, ct));
+        }
         // (G8-002) The effect played a card onto the field — auto-register its ported effects (no-op for
         // un-ported cards). Binding registration is zone-independent, so it is safe before the deferred move.
         _onCardEnteredPlay?.Invoke(targetId, owner);

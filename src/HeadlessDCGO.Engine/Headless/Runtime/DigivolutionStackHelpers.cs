@@ -359,6 +359,41 @@ public static class DigivolutionStackHelpers
         return true;
     }
 
+    /// <summary>(C-Del 3c-2b-pre) AS-IS <c>CardObjectController.RemoveFromAllArea</c>'s digivolution-stack detach
+    /// arm (CardObjectController.cs:381-403: scan every field permanent, and if it embeds the card as a buried
+    /// source, <c>permanent.RemoveCardSource(cardSource)</c>). Find the host whose stack still lists
+    /// <paramref name="sourceId"/> and detach it from that host's <c>sourceIds</c> (via the verified
+    /// <see cref="PlaySpecificSourceAsync"/> with <c>destination: None</c> = metadata removal, no physical move).
+    /// Returns true if a host was found and the source detached. Used by the window/sink free-play path
+    /// (<c>MatchStateMutationSink.ApplyPlayCard</c>), where AS-IS <c>PlayPermanentClass.PlayPermanent</c> runs
+    /// RemoveFromAllArea BEFORE placing the played card on the field (CardController.cs:1361-1363) — without it
+    /// the dead host's <c>sourceIds</c> keeps listing the just-played source, and the deletion finalize
+    /// (<c>DeletionSourceTrash.TrashEvoSourcesAsync</c>) re-trashes it.</summary>
+    public static async Task<bool> DetachSourceFromHostAsync(
+        ICardInstanceRepository repository,
+        IZoneMover zoneMover,
+        HeadlessEntityId sourceId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(zoneMover);
+        if (sourceId.IsEmpty)
+        {
+            return false;
+        }
+
+        foreach (CardInstanceRecord candidate in repository.Snapshot())
+        {
+            if (ReadSourceIds(candidate.Metadata).Any(id => id == sourceId))
+            {
+                return await PlaySpecificSourceAsync(
+                    repository, zoneMover, candidate.InstanceId, sourceId, ChoiceZone.None, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return false;
+    }
+
     private static async Task<int> RemoveSourcesAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
