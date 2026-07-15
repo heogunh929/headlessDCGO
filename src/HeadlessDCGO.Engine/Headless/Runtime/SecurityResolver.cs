@@ -295,13 +295,29 @@ public sealed class SecurityResolver
                 return SecurityDeferredCheckResult.StillDeferred();
             }
 
-            // Declined: the deletion is final.
-            ClearDeferredRemaining(context, attackerId);
-            await FinalizeSecurityBattleDeletionAsync(context, attackerId, attackingPlayer, cancellationToken).ConfigureAwait(false);
-            return SecurityDeferredCheckResult.Completed(attackerDeleted: true);
+            // (C-Del 3c-1c) an INTERACTIVE PRE cut-in window (WhenPermanentWouldBeDeleted → WhenRemoveField) parked
+            // this security-battle loser (a gate-invisible replacement — no gate keyword, so NeedsWindow is false).
+            // Unlike the GATE path (which clears pendingDeletion on survival), the ForCutIn body only set
+            // willBeRemoveField, leaving pendingDeletion set. Mirror BattleResolver's survivor fix
+            // (destroyTargetPermanents_Fixed, :3729-3732): a PRE-windowed attacker whose replacement CLEARED
+            // willBeRemoveField is SPARED (drops to the resume branch below); one that kept it set is a casualty.
+            if (BattleResolver.WasBattlePreWindowed(context, attackerId)
+                && !new Permanent(context, attackerId, attackingPlayer).willBeRemoveField)
+            {
+                BattleResolver.SpareBattlePreWindowSurvivor(context, attackerId);
+                // fall through to the "Survived: resume the remaining checks" logic below.
+            }
+            else
+            {
+                // Declined (gate) OR a PRE-window casualty (willBeRemoveField still set): the deletion is final.
+                ClearDeferredRemaining(context, attackerId);
+                await FinalizeSecurityBattleDeletionAsync(context, attackerId, attackingPlayer, cancellationToken).ConfigureAwait(false);
+                return SecurityDeferredCheckResult.Completed(attackerDeleted: true);
+            }
         }
 
-        // Survived: the replacement cleared pendingDeletion — resume the remaining checks.
+        // Survived: the replacement cleared pendingDeletion (gate) or the PRE-window survivor fix above spared it —
+        // resume the remaining checks.
         ClearDeferredRemaining(context, attackerId);
 
         // (C-5 adversarial review P1-1) AS-IS StopSecurityCheck re-evaluates at EVERY loop head
@@ -634,8 +650,129 @@ public sealed class SecurityResolver
             return SecurityBattleOutcome.Deferred;
         }
 
+        // (C-Del 3c-1c PRE cut-in transport) No GATE window is pending — open the AS-IS "would be deleted" PRE
+        // cut-in window (WhenPermanentWouldBeDeleted → WhenRemoveField) over the losing ATTACKER, the same pair
+        // AS-IS DestroyPermanentsClass.Destroy() opens for LoserPermanents. The security-battle loss exits through
+        // the SAME IBattle.Battle → DestroyPermanentsClass(LoserPermanents, hashtable).Destroy() as a field battle
+        // (CardController.cs:4179 → :4705 → :3690-3705), with the "battle" cause the LoserPermanents hashtable
+        // carries at :4700 — so the byBattle cut-in fires here too (Barrier is by-battle, Factory/Barrier.cs:53-55).
+        // The mirror security path never routes through the effect-delete sink, so this is SecurityResolver's
+        // analogue of BattleResolver's 3c-1b window (the sibling gap, RD-3C1B-01). A loser whose replacement keyword
+        // is gate-recognised is EXCLUDED (double-fire 0 — NeedsWindow above already returned false, so HasPreOption
+        // is false; the exclude inside the opener re-asserts the invariant).
+        SecurityPreWindowResult preResult = await OpenSecurityBattlePreCutInWindowAsync(
+            context, zoneReader, attackerId, attackerOwner, cancellationToken).ConfigureAwait(false);
+        if (preResult == SecurityPreWindowResult.Deferred)
+        {
+            // An INTERACTIVE would-be-deleted replacement paused the cut-in drain — promote to defer (3c-1): the
+            // attacker stays pendingDeletion (+ deletedByBattle + BattlePreWindowed), the loop parks the remaining
+            // checks at AttackPhase.DeletionReplacement, and FinalizeDeferredSecurityCheckAsync re-enters once the
+            // agent resolves the parked ForCutIn choice (the already-windowed loser skips re-opening and finalizes
+            // on willBeRemoveField).
+            return SecurityBattleOutcome.Deferred;
+        }
+
+        // (C-Del 3c-1c) SURVIVOR FIX — AS-IS Destroy() keeps in destroyTargetPermanents_Fixed only the marked
+        // permanents whose willBeRemoveField is STILL true (:3729-3732); a PRE replacement (mandatory, drained
+        // inline) that cleared it is filtered OUT and never trashed. A PRE-windowed attacker whose replacement
+        // CLEARED willBeRemoveField is SPARED — the security check continues (AS-IS StopSecurityCheck breaks only
+        // when the attacker is gone).
+        if (BattleResolver.WasBattlePreWindowed(context, attackerId)
+            && !new Permanent(context, attackerId, attackerOwner).willBeRemoveField)
+        {
+            BattleResolver.SpareBattlePreWindowSurvivor(context, attackerId);
+            return SecurityBattleOutcome.AttackerSurvived;
+        }
+
         await FinalizeSecurityBattleDeletionAsync(context, attackerId, attackerOwner, cancellationToken).ConfigureAwait(false);
         return SecurityBattleOutcome.AttackerDeleted;
+    }
+
+    /// <summary>(C-Del 3c-1c) Result of opening the security-battle PRE cut-in window: the drain completed inline
+    /// (<see cref="Drained"/>) or an INTERACTIVE replacement paused it (<see cref="Deferred"/>) and the security
+    /// check must park (promote-to-defer, 3c-1).</summary>
+    private enum SecurityPreWindowResult
+    {
+        Drained,
+        Deferred,
+    }
+
+    /// <summary>(C-Del 3c-1c PRE cut-in transport) Open the AS-IS "would be deleted" PRE cut-in window
+    /// (<c>WhenPermanentWouldBeDeleted → WhenRemoveField</c>) over the losing ATTACKER — SecurityResolver's
+    /// sibling of <see cref="BattleResolver"/>'s <c>OpenBattlePreCutInWindowAsync</c> (RD-3C1B-01). The security
+    /// battle has a single field loser (the attacker; the revealed security card is already trashed by the check),
+    /// so the window is over one permanent. Marks its <c>willBeRemoveField=true</c> (AS-IS :3684), stacks the two
+    /// cut-in windows with the DERIVED byBattle cause (AS-IS carries the live IBattle from the LoserPermanents
+    /// hashtable :4700; the mirror stamps ByBattleCauseKey, read by IsByBattle's dual-read), then drains the
+    /// cut-in. A mandatory replacement clears willBeRemoveField inline (the caller's survivor fix spares it); an
+    /// INTERACTIVE replacement pauses the drain → returns <see cref="SecurityPreWindowResult.Deferred"/> WITHOUT
+    /// re-throwing (the AttackPhase.DeletionReplacement park is the resume anchor; the caller stamps the remaining
+    /// checks and FinalizeDeferredSecurityCheckAsync re-enters, not ResolveAsync).
+    /// GATE COEXISTENCE — double-fire 0 (3b invariant): a loser whose replacement keyword is gate-recognised
+    /// (<c>HasPreOption(byBattle)</c> true) is EXCLUDED; the caller's <see cref="BattleResolver.NeedsWindow"/> check
+    /// already returned false so it is never in the target list, and a card already windowed this battle
+    /// (interactive re-entry) is skipped via the shared BattlePreWindowed marker.</summary>
+    private static async Task<SecurityPreWindowResult> OpenSecurityBattlePreCutInWindowAsync(
+        EngineContext context,
+        IZoneStateReader zones,
+        HeadlessEntityId attackerId,
+        HeadlessPlayerId attackerOwner,
+        CancellationToken cancellationToken)
+    {
+        if (!zones.GetCards(attackerOwner, ChoiceZone.BattleArea).Contains(attackerId))
+        {
+            return SecurityPreWindowResult.Drained;   // already left the field
+        }
+
+        if (BattleResolver.WasBattlePreWindowed(context, attackerId))
+        {
+            return SecurityPreWindowResult.Drained;   // already windowed this battle (defensive; the loop opens once)
+        }
+
+        // (double-fire 0) a gate-recognised replacement keyword card fired through the not-yet-retired gate.
+        if (context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? record) && record is not null &&
+            DeletionReplacementTiming.HasPreOption(context.CardInstanceRepository, zones, record, byBattle: true, context.EffectRegistry))
+        {
+            return SecurityPreWindowResult.Drained;
+        }
+
+        BattleResolver.MarkBattlePreWindowed(context, attackerId);
+        var toDelete = new List<Permanent>
+        {
+            new Permanent(context, attackerId, attackerOwner) { willBeRemoveField = true },   // AS-IS :3684 — mark before the cut-in
+        };
+
+        using AmbientMatchContext.Scope _preScope = AmbientMatchContext.Enter(context);
+        var cutIn = Assets.Scripts.Script.AutoProcessing.ForCutIn(context);
+        // AS-IS builds a FRESH WhenPermanentWouldRemoveFieldCheckHashtable per StackSkillInfos with the battle cause
+        // (CardController.cs:3690-3705). The mirror has no live IBattle (battle-rehousing non-scope), so it passes
+        // the DERIVED byBattle marker (IsByBattle dual-read). cardEffect stays null (RD-C1-CARDEFFECT-IDTHREAD).
+        await cutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, byBattleCause: true),
+            EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
+        await cutIn.StackSkillInfos(
+            CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, byBattleCause: true),
+            EffectTiming.WhenRemoveField).ConfigureAwait(false);
+
+        if (cutIn.HasAwaitingActivateEffects())   // AS-IS Destroy() :3707 gate
+        {
+            // AS-IS ShowDeleteEffect / ShrinkSecurityDigimonDisplay / HideDeleteEffect = UI (stripped).
+            try
+            {
+                await cutIn.TriggeredSkillProcess(false, null).ConfigureAwait(false);
+            }
+            catch (Exception preEx) when (preEx is WindowChoicePendingException or DeferredChoicePendingException)
+            {
+                // (C-Del 3c-1c promote-to-defer) an INTERACTIVE would-be-deleted replacement paused the cut-in
+                // drain. SWALLOW (no re-throw): the parked ForCutIn window keeps the pending choice; the attacker is
+                // already pendingDeletion (+ deletedByBattle) and BattlePreWindowed, so the sweep skips it
+                // (IsBattleDeferred) and FinalizeDeferredSecurityCheckAsync owns the finalize (the caller returns
+                // Deferred → the loop stamps the remaining checks + parks at DeletionReplacement).
+                return SecurityPreWindowResult.Deferred;
+            }
+        }
+
+        return SecurityPreWindowResult.Drained;
     }
 
     /// <summary>
@@ -653,6 +790,10 @@ public sealed class SecurityResolver
         // Settle the deferral markers first (pendingDeletion off, per-attack window markers cleared) so a
         // Fortitude-replayed card starts clean — mirrors the field battle's MarkDeletedByBattle.
         BattleResolver.MarkDeletedByBattle(context, attackerId);
+        // (C-Del 3c-1c) a PRE-windowed casualty kept willBeRemoveField=true (no replacement cleared it). AS-IS
+        // Destroy() resets it as the card is trashed (:3591) — clear the transient PRE-window markers so no stale
+        // flag rides the trashed (possibly Fortitude/Save-revived) instance. No-op on the plain non-windowed loss.
+        BattleResolver.ClearBattlePreWindowMarkers(context, attackerId);
 
         CardLeavePlayCleanup.OnDeleted(context.CardInstanceRepository, context.EffectRegistry, context, attackerId);
         await DeletionSourceTrash.TrashEvoSourcesAsync(

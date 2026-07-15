@@ -501,15 +501,33 @@ public sealed class BattleResolver
         return BattlePreWindowResult.Drained;
     }
 
-    private static bool WasBattlePreWindowed(EngineContext context, HeadlessEntityId cardId) =>
+    /// <summary>(C-Del 3c-1b) Whether this loser's battle PRE cut-in window was already opened this battle.
+    /// (C-Del 3c-1c) internal — the SECURITY-battle loss (SecurityResolver) reuses the SAME marker so its
+    /// deferred re-entry skips re-opening and drives the survivor/casualty split.</summary>
+    internal static bool WasBattlePreWindowed(EngineContext context, HeadlessEntityId cardId) =>
         ReadInstanceFlag(context, cardId, BattlePreWindowedKey);
+
+    /// <summary>(C-Del 3c-1c) Mark a battle loser (field or SECURITY-battle) as having had its PRE cut-in window
+    /// opened this battle — the security path shares BattleResolver's marker so re-entry is coherent.</summary>
+    internal static void MarkBattlePreWindowed(EngineContext context, HeadlessEntityId cardId) =>
+        MarkInstance(context, cardId, BattlePreWindowedKey);
+
+    /// <summary>(C-Del 3c-1c) Reset the transient PRE-window markers on a battle CASUALTY about to be trashed
+    /// (AS-IS Destroy() resets willBeRemoveField at :3591) — the field path clears them inline in
+    /// <see cref="FinalizeAsync"/>; the SECURITY-battle finalize (SecurityResolver) calls this.</summary>
+    internal static void ClearBattlePreWindowMarkers(EngineContext context, HeadlessEntityId cardId)
+    {
+        ClearInstanceFlag(context, cardId, BattlePreWindowedKey);
+        ClearInstanceFlag(context, cardId, "willBeRemoveField");
+    }
 
     /// <summary>(C-Del 3c-1b) A PRE would-be-deleted replacement cancelled this battle loser's deletion
     /// (willBeRemoveField cleared) — AS-IS Destroy() filters it OUT of destroyTargetPermanents_Fixed (:3729-3732)
     /// and never trashes it. Clear its deferral so it drops out of the casualty set and is a clean live permanent
     /// again (pendingDeletion off; the transient willBeRemoveField / BattlePreWindowed / deletedByBattle markers
-    /// removed — AS-IS resets willBeRemoveField at :3591).</summary>
-    private static void SpareBattlePreWindowSurvivor(EngineContext context, HeadlessEntityId cardId)
+    /// removed — AS-IS resets willBeRemoveField at :3591). (C-Del 3c-1c) internal — reused by the SECURITY-battle
+    /// deferred re-entry to spare a PRE-windowed survivor.</summary>
+    internal static void SpareBattlePreWindowSurvivor(EngineContext context, HeadlessEntityId cardId)
     {
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
         {
