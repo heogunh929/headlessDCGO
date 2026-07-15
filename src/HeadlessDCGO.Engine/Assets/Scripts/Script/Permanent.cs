@@ -3615,8 +3615,12 @@ public sealed class Permanent
     /// <summary>(MIG4) AS-IS <c>Permanent.AddDigivolutionCardsBottom(added, cardEffect, skipEffectAndActivateSkill,
     /// isFacedown)</c> (Permanent.cs:1133-1227): move each card off its current zone and append it to the bottom
     /// of the stack (loop-order append, no reversal — unlike Top). Same token guard and multi-zone-emit design
-    /// item as Top. AS-IS <c>isFacedown</c> (SetReverse the buried source) has no headless AddSources face write
-    /// — design item MIG4-ADDDIGI-FACEDOWN.</summary>
+    /// item as Top. AS-IS writes the buried source's face state in the per-card loop (:1194-1197): <c>isFacedown
+    /// =&gt; cardSource.SetReverse()</c> (IsFlipped = true), else <c>cardSource.SetFace()</c> (IsFlipped = false)
+    /// — mirrored via <see cref="SetSourceFaceState"/> on the shared <c>isFlipped</c> instance flag, BEFORE the
+    /// batch OnAddDigivolutionCards emit (AS-IS SetReverse precedes StackSkillInfos), so the read side
+    /// (<see cref="EffectList_ForCard"/>'s <c>if (!cardSource.IsFlipped)</c>) already excludes a face-down source's
+    /// inherited effects. (MIG4-ADDDIGI-FACEDOWN resolved.)</summary>
     public async Task AddDigivolutionCardsBottom(
         IReadOnlyList<CardSource> addedDigivolutionCards,
         HeadlessEntityId? causeEffectSourceId,
@@ -3630,12 +3634,6 @@ public sealed class Permanent
             return;
         }
 
-        if (isFacedown)
-        {
-            throw new NotSupportedException(
-                "Permanent.AddDigivolutionCardsBottom(isFacedown: true) has no headless primitive yet — design item MIG4-ADDDIGI-FACEDOWN.");
-        }
-
         bool hostIsToken = this.IsToken;
         var toAttach = new List<HeadlessEntityId>();
         foreach (CardSource card in addedDigivolutionCards)
@@ -3645,6 +3643,9 @@ public sealed class Permanent
             if (!hostIsToken && !card.IsToken)
             {
                 toAttach.Add(card.InstanceId);
+                // AS-IS Permanent.cs:1194-1197: SetReverse() when face-down, else SetFace() — in the per-card
+                // loop, i.e. before the batch OnAddDigivolutionCards emit below.
+                SetSourceFaceState(card.InstanceId, isFacedown);
             }
             else
             {
@@ -3666,6 +3667,34 @@ public sealed class Permanent
                 causeSourceId: causeEffectSourceId ?? default,
                 skipEffectAndActivateSkill: skipEffectAndActivateSkill).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>(MIG4-ADDDIGI-FACEDOWN) AS-IS per-source face write in
+    /// <c>AddDigivolutionCardsBottom</c> (Permanent.cs:1194-1197): <c>cardSource.SetReverse()</c> sets
+    /// <c>IsFlipped = true</c> and <c>cardSource.SetFace()</c> sets it false. The mirror <see cref="CardSource.IsFlipped"/>
+    /// is the shared <c>isFlipped</c> instance-metadata flag (CardSource.cs:531-533; same round-trip as
+    /// <c>SelectCardEffect.SetFaceMirror</c> — no new store): stamp boxed <c>true</c> for face-down, remove the key
+    /// for face-up (absent = face-up, exactly as <c>SetFaceMirror</c> clears it). The gameplay-hook side effects of
+    /// AS-IS <c>SetReverse/SetFace</c> (<c>GManager.OnCardFlippedChanged</c> / <c>OnSecurityStackChanged</c> — pure
+    /// UI redraw events, CardSource.cs:83-96) carry no rule effect and have no headless counterpart.</summary>
+    private void SetSourceFaceState(HeadlessEntityId cardId, bool faceDown)
+    {
+        if (!_context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
+        {
+            return;
+        }
+
+        var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal);
+        if (faceDown)
+        {
+            metadata["isFlipped"] = true;   // AS-IS SetReverse(): IsFlipped = true
+        }
+        else
+        {
+            metadata.Remove("isFlipped");   // AS-IS SetFace(): IsFlipped = false
+        }
+
+        _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
     }
 
     /// <summary>(MIG4) AS-IS <c>Permanent.AddLinkCard(addedLinkCard, cardEffect)</c> (Permanent.cs:1237-1294):
