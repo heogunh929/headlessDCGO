@@ -174,10 +174,7 @@ async Task ScapegoatAllyEvade(bool allyEvades)
     await match.StepAsync();
     // The single eligible ally is auto-taken by the mandatory pick (AS-IS single-candidate select);
     // the ALLY's own would-be-deleted (printed Evade) window is now open.
-    Console.Error.WriteLine($"DIAGN pend={match.Context.ChoiceController.Current.IsPending} type={match.Context.ChoiceController.PendingRequest?.Type} holder@BA={InZone(match, P2, ChoiceZone.BattleArea, holder)} holder@T={InZone(match, P2, ChoiceZone.Trash, holder)} ally@BA={InZone(match, P2, ChoiceZone.BattleArea, ally)} ally@T={InZone(match, P2, ChoiceZone.Trash, ally)} allySusp={ReadFlag(match, ally, DeletionReplacementGate.IsSuspendedKey)}");
-    Console.Error.WriteLine($"DIAGN2 allyPending={ReadFlag(match, ally, GameFlowProcessor.PendingDeletionKey)} allyWBR={ReadFlag(match, ally, "willBeRemoveField")} holderPending={ReadFlag(match, holder, GameFlowProcessor.PendingDeletionKey)} holderWBR={ReadFlag(match, holder, "willBeRemoveField")}");
     await match.StepAsync();
-    Console.Error.WriteLine($"DIAGN3 after extra step: pend={match.Context.ChoiceController.Current.IsPending} ally@T={InZone(match, P2, ChoiceZone.Trash, ally)} holder@T={InZone(match, P2, ChoiceZone.Trash, holder)}");
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "the sacrificed ally's own Evade window opened");
     if (allyEvades)
     {

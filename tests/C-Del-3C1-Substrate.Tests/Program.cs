@@ -31,6 +31,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BATCH-UNIT: [interactive-survivor, plain-casualty] in ONE Destroy — survivor spared, casualty trashed, ONE OnDeletion window", BatchSurvivorCasualty),
     ("CONTROL: a plain deleted card (no PRE effect) is trashed with no pause (false-green guard)", ControlTrashed),
     ("REAL AGENT: a MetadataActionProcessor ResolveChoice (OptionalEffect → ForCutIn window resume) spares the survivor", ProcessorResolvesSurvivor),
+    // (RD-3C1-01) trailing-op-after-promote witnesses: "delete an enemy Digimon; THEN draw 1".
+    ("RD-3C1-01 ①: interactive promote (USE) — the target EVADES and the TRAILING DRAW still runs after resume (not dropped)", TrailingDrawResumesOnUse),
+    ("RD-3C1-01 ②: interactive promote (DECLINE) — the target dies AND the trailing draw runs (unconditional trailing op)", TrailingDrawResumesOnDecline),
+    ("RD-3C1-01 ③: NON-interactive delete+draw in one flush runs inline, no promote/stash (no regression)", TrailingDrawInlineNoRegression),
 };
 
 var failures = new List<string>();
@@ -182,6 +186,104 @@ async Task ProcessorResolvesSurvivor()
     AssertFalse(InZone(context, P1, ChoiceZone.Trash, card), "the survivor is not in the trash");
 }
 
+// ---------- (RD-3C1-01) TRAILING STAGED OP AFTER AN INTERACTIVE-PRE PROMOTE ----------
+// AS-IS: an effect coroutine `yield return Destroy(target); Draw(1);`. When the target's would-be-deleted cut-in
+// PAUSES on an interactive replacement, the coroutine suspends AT the cut-in; on resume it finishes Destroy() THEN
+// runs the trailing Draw — regardless of whether the target survived. The sink stages [deleteThunk, drawThunk] in
+// ONE flush; the promote swallows the pause after the delete thunk, so the draw thunk would be DROPPED. The fix
+// stashes it under the batch id and REPLAYS it once the sweep finalizes the batch. These witnesses prove the draw
+// (a) does NOT run before the choice resolves, and (b) runs after resume in BOTH the survive and decline branches.
+
+async Task TrailingDrawResumesOnUse()
+{
+    EngineContext context = NewContext();
+    using var scope = AmbientMatchContext.Enter(context);
+    var card = await Place(context, P1, "TfxWouldBeDeletedInteractive");
+    await Place(context, P2, "FOE");
+    await PlaceLibrary(context, P1, "LIB1");
+    CardEffectRegistrar.RegisterCard(context, card, P1);
+    int handBefore = HandCount(context, P1);
+
+    // ONE effect flush: delete the enemy Digimon (staged first), THEN draw 1 (staged second).
+    MatchStateMutationSink sink = Sink(context);
+    sink.Apply(Delete(card));
+    sink.Apply(Draw(P1, 1));
+    await sink.FlushAsync();   // the interactive PRE pause is swallowed after the delete thunk; the draw is STASHED
+
+    AssertTrue(context.ChoiceController.Current.IsPending, "the interactive would-be-deleted replacement pends");
+    AssertEqual(handBefore, HandCount(context, P1), "the trailing draw has NOT run yet (stashed, awaiting batch finalize)");
+
+    // Resolve YES (use the replacement): the survivor is spared, then the sweep finalizes the batch and replays draw.
+    ChoiceRequest optional = context.ChoiceController.PendingRequest!;
+    await ResolveWindowOptional(context, ChoiceResult.Select(optional.Candidates[0].Id));
+    await new GameFlowProcessor().RunToStableAsync(context);
+
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, card), "the target used its replacement — it SURVIVES on the field");
+    AssertFalse(InZone(context, P1, ChoiceZone.Trash, card), "the survivor is not trashed");
+    AssertEqual(handBefore + 1, HandCount(context, P1), "the TRAILING DRAW executed after resume (RD-3C1-01: not dropped)");
+    AssertFalse(context.HasPromotedBatchTrailingOps, "the stash was consumed (no leftover trailing ops)");
+}
+
+async Task TrailingDrawResumesOnDecline()
+{
+    EngineContext context = NewContext();
+    using var scope = AmbientMatchContext.Enter(context);
+    var card = await Place(context, P1, "TfxWouldBeDeletedInteractive");
+    await Place(context, P2, "FOE");
+    await PlaceLibrary(context, P1, "LIB1");
+    CardEffectRegistrar.RegisterCard(context, card, P1);
+    int handBefore = HandCount(context, P1);
+
+    MatchStateMutationSink sink = Sink(context);
+    sink.Apply(Delete(card));
+    sink.Apply(Draw(P1, 1));
+    await sink.FlushAsync();
+
+    AssertTrue(context.ChoiceController.Current.IsPending, "the interactive replacement pends");
+    AssertEqual(handBefore, HandCount(context, P1), "the trailing draw has NOT run yet (stashed)");
+
+    // Resolve NO (decline): the target dies. AS-IS still runs the trailing draw after Destroy() completes.
+    await ResolveWindowOptional(context, ChoiceResult.Skip());
+    await new GameFlowProcessor().RunToStableAsync(context);
+
+    AssertTrue(InZone(context, P1, ChoiceZone.Trash, card), "the declined target was trashed (deletion proceeded)");
+    AssertFalse(InZone(context, P1, ChoiceZone.BattleArea, card), "the target left the battle area");
+    AssertEqual(handBefore + 1, HandCount(context, P1), "the TRAILING DRAW STILL executed after the deletion completed (unconditional trailing op)");
+    AssertFalse(context.HasPromotedBatchTrailingOps, "the stash was consumed");
+}
+
+async Task TrailingDrawInlineNoRegression()
+{
+    EngineContext context = NewContext();
+    using var scope = AmbientMatchContext.Enter(context);
+    var card = await Place(context, P1, "PLAIN");   // no interactive PRE replacement -> no promote, no stash
+    await Place(context, P2, "FOE");
+    await PlaceLibrary(context, P1, "LIB1");
+    CardEffectRegistrar.RegisterCard(context, card, P1);
+    int handBefore = HandCount(context, P1);
+
+    // The SAME "delete then draw" flush on a NON-interactive target: both run INLINE within FlushAsync (the pre-fix
+    // path). Proves the stash mechanism does not disturb the common case.
+    MatchStateMutationSink sink = Sink(context);
+    sink.Apply(Delete(card));
+    sink.Apply(Draw(P1, 1));
+    await sink.FlushAsync();
+
+    AssertFalse(context.ChoiceController.Current.IsPending, "a plain target opens no interactive replacement (no pause)");
+    AssertFalse(context.HasPromotedBatchTrailingOps, "no promote occurred -> nothing was stashed");
+    AssertTrue(InZone(context, P1, ChoiceZone.Trash, card), "the plain target was deleted inline");
+    AssertEqual(handBefore + 1, HandCount(context, P1), "the trailing draw ran inline in the same flush (no regression)");
+}
+
+// NOTE (RD-3C1-01, witness ④ scope): a trailing op that DEPENDS on the deletion RESULT (e.g. "delete; if it died,
+// draw") is NOT expressible through this sink-flush + promote-swallow path — the effect body stages every mutation
+// BEFORE the flush, so a staged trailing thunk cannot read the deletion outcome. AS-IS branch-after-Destroy logic
+// would require the body itself to suspend at the cut-in and re-run (the mutation-replay-journal path), which the
+// promote deliberately AVOIDS (it swallows so the enclosing body does not re-run). That body-level post-Destroy
+// branching is a separate, pre-existing property of the swallow design, orthogonal to RD-3C1-01 (which is strictly
+// about pre-staged trailing ops being dropped). No such witness is asserted here because the mechanism cannot carry
+// it — documented rather than fabricated.
+
 // ============================================================ HARNESS
 
 EngineContext NewContext()
@@ -228,6 +330,29 @@ EffectMutation Delete(HeadlessEntityId cardId) =>
     new(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("2:battle:FOE"),
         new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value });
 
+// (RD-3C1-01) A trailing draw mutation for the flush — the "then draw 1" of "delete an enemy Digimon; then draw 1".
+EffectMutation Draw(HeadlessPlayerId player, int count) =>
+    new(MatchStateMutationSink.DrawCardsKind, new HeadlessEntityId("2:battle:FOE"),
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            [MatchStateMutationSink.PlayerIdKey] = player,
+            [MatchStateMutationSink.CountKey] = count,
+        });
+
+async Task<HeadlessEntityId> PlaceLibrary(EngineContext ctx, HeadlessPlayerId owner, string num)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId(num);
+    cards.Upsert(new CardRecord(defId, num, num, new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:lib:{num}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner, Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.Library));
+    return id;
+}
+
+int HandCount(EngineContext context, HeadlessPlayerId player) =>
+    ((IZoneStateReader)context.ZoneMover).GetCards(player, ChoiceZone.Hand).Count;
+
 bool InZone(EngineContext context, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId cardId) =>
     ((IZoneStateReader)context.ZoneMover).GetCards(player, zone).Contains(cardId);
 
@@ -237,3 +362,4 @@ bool ReadFlag(EngineContext context, HeadlessEntityId cardId, string key) =>
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertFalse(bool v, string label) { if (v) throw new InvalidOperationException($"{label}: expected false."); }
+static void AssertEqual(int expected, int actual, string label) { if (expected != actual) throw new InvalidOperationException($"{label}: expected {expected}, got {actual}."); }

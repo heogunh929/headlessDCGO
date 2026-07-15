@@ -434,7 +434,72 @@ public sealed class GameFlowProcessor
             }
         }
 
+        // (RD-3C1-01) Replay the TRAILING staged ops of any interactive-PRE-promoted delete batch that has now
+        // FULLY finalized (every member decided this pass — spared or trashed — so none still carries the batch's
+        // pendingDeletion). The sink stashed these ops (the effect's statements AFTER `yield return Destroy()`, e.g.
+        // the DRAW of "delete an enemy Digimon; then draw 1") when the interactive cut-in pause was swallowed. Run
+        // them here — after the casualties were trashed and the batch OnDeletion was STACKED above, but before that
+        // OnDeletion window drains (the next RunToStable AutoProcess pass) — exactly the AS-IS coroutine's position
+        // resuming its trailing statements after Destroy() returns. A batch still awaiting its cut-in (members held
+        // as IsPromotedAwaitingCutInWindow, still pending) is skipped; its ops replay on the pass that finalizes it.
+        if (context.HasPromotedBatchTrailingOps)
+        {
+            foreach (long batchId in context.PromotedBatchTrailingOpBatchIds)
+            {
+                if (AnyPendingMemberOfBatch(context, zoneReader, batchId))
+                {
+                    continue;   // batch not fully finalized yet — hold the trailing ops for a later sweep pass
+                }
+
+                IReadOnlyList<Func<CancellationToken, Task>>? trailing = context.TakePromotedBatchTrailingOps(batchId);
+                if (trailing is null)
+                {
+                    continue;
+                }
+
+                foreach (Func<CancellationToken, Task> op in trailing)
+                {
+                    await op(cancellationToken).ConfigureAwait(false);
+                    progressed = true;
+                }
+            }
+        }
+
         return progressed;
+    }
+
+    /// <summary>(RD-3C1-01) Whether any FIELD member still carries the given deferred delete <paramref name="batchId"/>
+    /// as a pending deletion — i.e. the batch has not finished finalizing (a member is held awaiting its cut-in, or
+    /// undecided). Used to gate the trailing-op replay so it fires only once every member of a promoted batch has been
+    /// spared or trashed.</summary>
+    private static bool AnyPendingMemberOfBatch(EngineContext context, IZoneStateReader zoneReader, long batchId)
+    {
+        foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
+        {
+            if (playerId.IsEmpty)
+            {
+                continue;
+            }
+
+            foreach (ChoiceZone zone in FieldZones)
+            {
+                foreach (HeadlessEntityId cardId in zoneReader.GetCards(playerId, zone))
+                {
+                    if (!IsPendingDeletion(context, cardId) ||
+                        !context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) ||
+                        record is null ||
+                        !record.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? raw) ||
+                        raw is not long memberBatchId || memberBatchId != batchId)
+                    {
+                        continue;
+                    }
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

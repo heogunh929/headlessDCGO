@@ -168,6 +168,31 @@ async Task FortitudeBatchAtomicity()
     AssertEqual(2, order.Candidates.Count, "the ONE window collected BOTH batch members' Fortitude reactors (single stack — atomicity)");
     AssertTrue(InZone(context, P1, ChoiceZone.Trash, a) && InZone(context, P1, ChoiceZone.Trash, b),
         "both members reached the trash together before the shared window resolves (collect-before-removal)");
+
+    // (P2-2 upgrade) Drive the shared window to its TERMINAL state: resolve the order pick and every follow-up,
+    // resuming the parked MultipleSkills chain until it settles. AS-IS resolves the two collected reactors one at a
+    // time (the "resolve which first" order), each FortitudeProcess replaying its holder from the trash back to the
+    // battle area. Both members must end REVIVED — the atomicity claim proven all the way to both placements, not
+    // just the single-window collection.
+    var processor = new MetadataActionProcessor();
+    for (int guard = 0; guard < 32 && context.ChoiceController.Current.IsPending; guard++)
+    {
+        HeadlessChoiceState choice = context.ChoiceController.Current;
+        if (choice.IsPending && choice.Type == ChoiceType.WindowChoice)
+        {
+            await processor.ProcessAsync(
+                HeadlessActionFactory.ResolveChoice(choice.PlayerId!.Value, ChoiceResult.Select(choice.CandidateIds[0])), context);
+            continue;
+        }
+
+        await new GameFlowProcessor().RunToStableAsync(context);
+    }
+
+    AssertFalse(context.ChoiceController.Current.IsPending, "both Fortitude reactors resolved — the shared window settled");
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, a), "batch member A revived to the battle area (Fortitude replay)");
+    AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, b), "batch member B revived to the battle area (Fortitude replay)");
+    AssertFalse(InZone(context, P1, ChoiceZone.Trash, a), "member A is no longer in the trash (both revivals completed)");
+    AssertFalse(InZone(context, P1, ChoiceZone.Trash, b), "member B is no longer in the trash (both revivals completed)");
 }
 
 // ============================================================ SAVE

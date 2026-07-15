@@ -182,6 +182,53 @@ public sealed class EngineContext
     /// <c>Sequence</c> (a DIFFERENT counter space), which broke that cross-timing ordering invariant. Ids start at 1.</summary>
     public long NextSecurityAddBatchId() => Interlocked.Increment(ref _deletionBatchSequence);
 
+    // (RD-3C1-01) Trailing staged operations of an INTERACTIVE-PRE-promoted delete FLUSH — the sink ops staged
+    // AFTER the delete thunk that promoted the batch to a deferred deletion (e.g. the DRAW of "delete an enemy
+    // Digimon; then draw 1"). When an interactive would-be-deleted replacement (Evade/Barrier/ArmorPurge/Fragment)
+    // pauses the cut-in, MatchStateMutationSink.FlushAsync SWALLOWS the pause and the enclosing effect body does
+    // NOT re-run — so these already-staged ops would otherwise be LOST. They are stashed here (keyed by the promoted
+    // batch id, in original flush order) and REPLAYED by StateBasedDeletionSweepAsync once that batch fully finalizes
+    // (cut-in resolved, survivors spared / casualties trashed) — mirroring the AS-IS effect coroutine resuming its
+    // trailing statements after `yield return Destroy()` returns.
+    private readonly Dictionary<long, List<Func<CancellationToken, Task>>> _promotedBatchTrailingOps = new();
+
+    /// <summary>(RD-3C1-01) Stash the trailing staged ops of a promoted delete batch (original flush order preserved,
+    /// appended if the same batch id promotes more than once). No-op for the unstamped sentinel id 0.</summary>
+    public void StashPromotedBatchTrailingOps(long batchId, IReadOnlyList<Func<CancellationToken, Task>> ops)
+    {
+        if (batchId == 0 || ops.Count == 0)
+        {
+            return;
+        }
+
+        if (!_promotedBatchTrailingOps.TryGetValue(batchId, out List<Func<CancellationToken, Task>>? list))
+        {
+            list = new List<Func<CancellationToken, Task>>();
+            _promotedBatchTrailingOps[batchId] = list;
+        }
+
+        list.AddRange(ops);
+    }
+
+    /// <summary>(RD-3C1-01) Whether any promoted delete batch still has trailing ops awaiting replay.</summary>
+    public bool HasPromotedBatchTrailingOps => _promotedBatchTrailingOps.Count > 0;
+
+    /// <summary>(RD-3C1-01) The batch ids that currently hold stashed trailing ops (snapshot — safe to mutate the
+    /// registry while iterating).</summary>
+    public IReadOnlyList<long> PromotedBatchTrailingOpBatchIds => _promotedBatchTrailingOps.Keys.ToArray();
+
+    /// <summary>(RD-3C1-01) Remove and return a promoted batch's stashed trailing ops (null if none).</summary>
+    public IReadOnlyList<Func<CancellationToken, Task>>? TakePromotedBatchTrailingOps(long batchId)
+    {
+        if (_promotedBatchTrailingOps.TryGetValue(batchId, out List<Func<CancellationToken, Task>>? list))
+        {
+            _promotedBatchTrailingOps.Remove(batchId);
+            return list;
+        }
+
+        return null;
+    }
+
     /// <summary>(PRIM-P0 B.O.4 #1) The action whose cost is currently being paid, set by the play / digivolve /
     /// option action around its BeforePayCost window so a card's [BeforePayCost] effect can gate on WHICH cost
     /// it is (AS-IS ChangeCostClass rootCondition). <see cref="PayCostRoot.None"/> outside a pay window.</summary>
@@ -298,6 +345,7 @@ public sealed class EngineContext
         WindowResolution.ResetMatchState();
         ResetIfSupported(PlayerStatusController);
         Interlocked.Exchange(ref _deletionBatchSequence, 0);
+        _promotedBatchTrailingOps.Clear();
         CurrentState = ObservationSnapshot.Empty;
     }
 

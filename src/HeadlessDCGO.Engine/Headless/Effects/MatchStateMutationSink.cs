@@ -735,12 +735,12 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (a new resolution step) opens a FRESH discard batch rather than collapsing into the flushed one.
         _cachedDiscardBatchId = null;
         _cachedAddHandBatchId = null;
-        foreach (Func<CancellationToken, Task> operation in operations)
+        for (int opIndex = 0; opIndex < operations.Length; opIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                await operation(cancellationToken).ConfigureAwait(false);
+                await operations[opIndex](cancellationToken).ConfigureAwait(false);
             }
             catch (Exception opEx) when ((opEx is WindowChoicePendingException or Runtime.DeferredChoicePendingException)
                 && flushedDeleteBatch is { PromotedToDefer: true })
@@ -750,9 +750,23 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // pause — the flush is logically complete for this caller (the enclosing pick does NOT re-run its
                 // body), and the parked ForCutIn window keeps the pending choice: RunToStable pauses on it, the
                 // agent resolves it (resuming the ForCutIn pool), and the GameFlowProcessor sweep finalizes the
-                // batch on willBeRemoveField. The remaining staged operations of THIS flush are abandoned (the AS-IS
-                // Destroy() coroutine likewise suspends the enclosing effect at the cut-in yield — design item
-                // RD-3C1-01 notes any trailing SAME-flush staged op is dropped rather than replayed post-resume).
+                // batch on willBeRemoveField.
+                //
+                // (RD-3C1-01) The remaining staged operations of THIS flush are the effect's TRAILING statements
+                // that AS-IS runs when its `yield return Destroy()` coroutine RESUMES (e.g. the DRAW of "delete an
+                // enemy Digimon; then draw 1"). The former code ABANDONED them (silent loss of the trailing draw).
+                // Instead, stash them (in original flush order) under this batch's id: StateBasedDeletionSweepAsync
+                // REPLAYS them once the batch fully finalizes (cut-in resolved, survivors spared / casualties
+                // trashed), mirroring the AS-IS coroutine executing its trailing statements after Destroy() returns.
+                // Any same-batch delete thunk left in the slice re-invokes ExecuteStagedDeleteAsync, which
+                // short-circuits (batch.PromotedToDefer) — a harmless no-op that keeps the ORIGINAL order intact.
+                if (_context is not null && opIndex + 1 < operations.Length)
+                {
+                    var trailing = new Func<CancellationToken, Task>[operations.Length - (opIndex + 1)];
+                    Array.Copy(operations, opIndex + 1, trailing, 0, trailing.Length);
+                    _context.StashPromotedBatchTrailingOps(ResolveDeletionBatchId(), trailing);
+                }
+
                 break;
             }
         }
