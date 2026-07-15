@@ -1,25 +1,18 @@
-using HeadlessDCGO.Engine.Headless.Effects;
-using HeadlessDCGO.Engine.Headless.Rules;
-using HeadlessDCGO.Engine.Headless.Runtime;
-using HeadlessDCGO.Engine.Headless.Services;
+// (C2b) RETARGETED. The old EndAttackTriggerHook mechanism this suite exercised was retired at the SkillInfo
+// window cutover (C2) and physically deleted (C2b) — its live replacement is the inline OnEndAttack window opened
+// by the mirror AttackProcess (StackSkillInfos) + supply conversion, whose behavior is covered end-to-end by
+// F1-Tier2-OnEndAttack.Tests. The 6 hook-mechanism tests that constructed `new EndAttackTriggerHook(...)` were
+// removed with the type. The Phase-2 goal-row / AS-IS-reference documentation assertions (the evidence the
+// G2Z-001 aggregate contract depends on) are preserved verbatim, plus a cutover-state assertion that records the
+// hook's physical retirement.
 
 var root = FindRepositoryRoot();
-HeadlessPlayerId Player = new(1);
-HeadlessPlayerId Opponent = new(2);
-HeadlessEntityId AttackerId = new("attacker-001");
-HeadlessEntityId TargetId = new("target-001");
-HeadlessEntityId BlockerId = new("blocker-001");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("G2G-005 goal row and predecessors are satisfied", GoalRowAndPredecessorsAreSatisfied),
     ("AS-IS end attack trigger references are recorded", AsIsEndAttackReferencesAreRecorded),
-    ("End attack event records attack metadata and timing", EndAttackEventRecordsMetadata),
-    ("End attack hook collects and enqueues mandatory triggers", EndAttackHookEnqueuesMandatoryTriggers),
-    ("End attack hook defers optional triggers without enqueueing", EndAttackHookDefersOptionalTriggers),
-    ("End attack hook rejects unsupported events", EndAttackHookRejectsUnsupportedEvents),
-    ("End attack hook rejects unresolved attack without scheduler mutation", EndAttackHookRejectsUnresolvedAttack),
-    ("End attack hook is deterministic and source scoped", EndAttackHookIsDeterministicAndSourceScoped),
+    ("End attack trigger hook is retired; live coverage is the OnEndAttack window", EndAttackHookRetiredWithLiveCoverage),
 };
 
 var failures = new List<string>();
@@ -85,205 +78,21 @@ Task AsIsEndAttackReferencesAreRecorded()
     return Task.CompletedTask;
 }
 
-Task EndAttackEventRecordsMetadata()
+Task EndAttackHookRetiredWithLiveCoverage()
 {
-    HeadlessAttackState attack = ResolvedAttack(isBlocked: true);
-
-    GameEvent gameEvent = EndAttackTriggerHook.CreateEndAttackEvent(
-        sequence: 12,
-        attack,
-        kind: TimingWindowTriggerKind.Mandatory,
-        mode: EffectResolutionMode.CutIn,
-        priority: -3);
-
-    AssertEqual(GameEventType.AttackResolved, gameEvent.Type, "event type");
-    AssertEqual(12L, gameEvent.Sequence, "sequence");
-    AssertMetadata(gameEvent, AutoProcessingTriggerCollector.TriggerTimingKey, EndAttackTriggerHook.OnEndAttackTiming);
-    AssertMetadata(gameEvent, AutoProcessingTriggerCollector.TriggerKindKey, TimingWindowTriggerKind.Mandatory.ToString());
-    AssertMetadata(gameEvent, AutoProcessingTriggerCollector.ResolutionModeKey, EffectResolutionMode.CutIn.ToString());
-    AssertMetadata(gameEvent, AutoProcessingTriggerCollector.PriorityKey, -3);
-    AssertMetadata(gameEvent, EndAttackTriggerHook.AttackingPlayerIdKey, Player);
-    AssertMetadata(gameEvent, EndAttackTriggerHook.DefendingPlayerIdKey, Opponent);
-    AssertMetadata(gameEvent, EndAttackTriggerHook.AttackerIdKey, AttackerId);
-    AssertMetadata(gameEvent, EndAttackTriggerHook.AttackTargetIdKey, BlockerId);
-    AssertMetadata(gameEvent, EndAttackTriggerHook.BlockerIdKey, BlockerId);
-    AssertMetadata(gameEvent, EndAttackTriggerHook.AttackBlockedKey, true);
-    return Task.CompletedTask;
-}
-
-Task EndAttackHookEnqueuesMandatoryTriggers()
-{
-    var query = new InMemoryEffectQueryService();
-    EffectRequest turnPlayerEffect = CreateRequest("effect-turn", EndAttackTriggerHook.OnEndAttackTiming, Player, "turn-card");
-    EffectRequest opponentEffect = CreateRequest("effect-opponent", EndAttackTriggerHook.OnEndAttackTiming, Opponent, "opponent-card");
-    EffectRequest ignoredTiming = CreateRequest("effect-ignored", "OnSecurityCheck", Player, "turn-card");
-    query.Register(opponentEffect);
-    query.Register(ignoredTiming);
-    query.Register(turnPlayerEffect);
-    var scheduler = new EffectScheduler();
-    var hook = new EndAttackTriggerHook(new AutoProcessingTriggerCollector(query));
-
-    EndAttackTriggerHookResult result = hook.Process(
-        ResolvedAttack(),
-        sequence: 15,
-        scheduler,
-        turnPlayerId: Player,
-        nonTurnPlayerId: Opponent);
-
-    AssertTrue(result.IsSuccess, "hook success");
-    AssertEqual(EndAttackTriggerHook.OnEndAttackTiming, result.Timing, "timing");
-    AssertEqual(2, result.CollectedCount, "collected count");
-    AssertEqual(2, result.EnqueuedMandatoryCount, "enqueued mandatory count");
-    AssertEqual(0, result.DeferredOptionalCount, "deferred optional count");
-    AssertEqual(2, scheduler.PendingCount, "scheduler pending");
-    AssertEqual(2, scheduler.TotalEnqueuedCount, "scheduler total enqueued");
-    AssertEqual("effect-turn,effect-opponent", string.Join(",", result.MandatoryOrder!.OrderedMandatoryTriggers.Select(trigger => trigger.Request.EffectId.Value)), "mandatory order");
-    return Task.CompletedTask;
-}
-
-Task EndAttackHookDefersOptionalTriggers()
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(CreateRequest("effect-optional-a", EndAttackTriggerHook.OnEndAttackTiming, Player, "turn-card"));
-    query.Register(CreateRequest("effect-optional-b", EndAttackTriggerHook.OnEndAttackTiming, Opponent, "opponent-card"));
-    var scheduler = new EffectScheduler();
-    var hook = new EndAttackTriggerHook(new AutoProcessingTriggerCollector(query));
-
-    EndAttackTriggerHookResult result = hook.Process(
-        ResolvedAttack(),
-        sequence: 16,
-        scheduler,
-        turnPlayerId: Player,
-        nonTurnPlayerId: Opponent,
-        kind: TimingWindowTriggerKind.Optional);
-
-    AssertTrue(result.IsSuccess, "hook success");
-    AssertEqual(2, result.CollectedCount, "collected count");
-    AssertEqual(0, result.EnqueuedMandatoryCount, "mandatory enqueue");
-    AssertEqual(2, result.DeferredOptionalCount, "deferred optional count");
-    AssertEqual(0, scheduler.PendingCount, "scheduler pending");
-    return Task.CompletedTask;
-}
-
-Task EndAttackHookRejectsUnsupportedEvents()
-{
-    var hook = new EndAttackTriggerHook(new AutoProcessingTriggerCollector(new InMemoryEffectQueryService()));
-    var scheduler = new EffectScheduler();
-    var unsupportedEvent = new GameEvent(
-        4,
-        GameEventType.AttackResolved,
-        "Plain attack resolved event.",
-        new Dictionary<string, object?>());
-
-    EndAttackTriggerHookResult result = hook.Process(unsupportedEvent, scheduler, Player, Opponent);
-
-    AssertFalse(result.IsSuccess, "unsupported failure");
-    AssertContains(result.FailureReason, "not an end attack trigger event", "failure reason");
-    AssertEqual(0, scheduler.PendingCount, "scheduler unchanged");
-    return Task.CompletedTask;
-}
-
-Task EndAttackHookRejectsUnresolvedAttack()
-{
-    var hook = new EndAttackTriggerHook(new AutoProcessingTriggerCollector(new InMemoryEffectQueryService()));
-    var scheduler = new EffectScheduler();
-    HeadlessAttackState pending = PendingAttack();
-
-    EndAttackTriggerHookResult result = hook.Process(
-        pending,
-        sequence: 5,
-        scheduler,
-        turnPlayerId: Player,
-        nonTurnPlayerId: Opponent);
-
-    AssertFalse(result.IsSuccess, "pending failure");
-    AssertContains(result.FailureReason, "resolved non-pending attack", "failure reason");
-    AssertEqual(0, scheduler.PendingCount, "scheduler unchanged");
-    return Task.CompletedTask;
-}
-
-Task EndAttackHookIsDeterministicAndSourceScoped()
-{
-    var query = new InMemoryEffectQueryService();
-    query.Register(CreateRequest("effect-a", EndAttackTriggerHook.OnEndAttackTiming, Player, "card-a"));
-    query.Register(CreateRequest("effect-b", EndAttackTriggerHook.OnEndAttackTiming, Opponent, "card-b"));
-    var hook = new EndAttackTriggerHook(new AutoProcessingTriggerCollector(query));
-
-    string first = Snapshot(hook.Process(ResolvedAttack(), 21, new EffectScheduler(), Player, Opponent));
-    string second = Snapshot(hook.Process(ResolvedAttack(), 21, new EffectScheduler(), Player, Opponent));
-
-    AssertEqual(first, second, "repeated hook result");
-
+    // The old registry-currency EndAttackTriggerHook substrate was physically deleted at C2b.
     string hookPath = Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Effects", "EndAttackTriggerHook.cs");
-    string hookText = File.ReadAllText(hookPath);
-    AssertFalse(hookText.Contains("TODO", StringComparison.OrdinalIgnoreCase), "EndAttackTriggerHook must not contain TODO");
-    AssertFalse(hookText.Contains("UnityEngine", StringComparison.Ordinal), "EndAttackTriggerHook must not reference UnityEngine");
-    AssertFalse(hookText.Contains("MonoBehaviour", StringComparison.Ordinal), "EndAttackTriggerHook must not reference MonoBehaviour");
-    AssertContains(hookText, "CreateEndAttackEvent", "event API");
-    AssertContains(hookText, "OnEndAttack", "timing contract");
-    AssertContains(hookText, "OrderAndEnqueue", "trigger enqueue contract");
+    AssertFalse(File.Exists(hookPath), "retired EndAttackTriggerHook.cs must no longer exist");
+
+    // The mirror AttackProcess now opens the OnEndAttack window inline (StackSkillInfos / OnEndAttack emit), the
+    // AS-IS 1:1 mechanism; end-to-end behavior is covered by F1-Tier2-OnEndAttack.
+    string mirrorAttackProcess = File.ReadAllText(
+        Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "AttackProcess.cs"));
+    AssertContains(mirrorAttackProcess, "OnEndAttack", "mirror AttackProcess wires the OnEndAttack window");
+
+    string liveCoverage = Path.Combine(root, "tests", "F1-Tier2-OnEndAttack.Tests", "F1-Tier2-OnEndAttack.Tests.csproj");
+    AssertTrue(File.Exists(liveCoverage), "live OnEndAttack coverage suite (F1-Tier2-OnEndAttack) exists");
     return Task.CompletedTask;
-}
-
-HeadlessAttackState PendingAttack(bool isBlocked = false)
-{
-    HeadlessAttackState attack = new InMemoryHeadlessAttackController()
-        .DeclareAttack(Player, AttackerId, Opponent, isBlocked ? TargetId : null, isDirectAttack: !isBlocked);
-    return isBlocked ? attack with { BlockerId = BlockerId, TargetId = BlockerId, IsBlocked = true, IsDirectAttack = false } : attack;
-}
-
-HeadlessAttackState ResolvedAttack(bool isBlocked = false)
-{
-    var controller = new InMemoryHeadlessAttackController();
-    controller.DeclareAttack(Player, AttackerId, Opponent, isBlocked ? TargetId : null, isDirectAttack: !isBlocked);
-    if (isBlocked)
-    {
-        controller.SelectBlocker(BlockerId);
-    }
-
-    return controller.ResolveAttack("Attack flow completed.");
-}
-
-static EffectRequest CreateRequest(
-    string effectId,
-    string timing,
-    HeadlessPlayerId controllerId,
-    string source)
-{
-    var sourceId = new HeadlessEntityId(source);
-    return new EffectRequest(
-        new HeadlessEntityId(effectId),
-        controllerId,
-        timing,
-        new EffectContext(
-            controllerId,
-            controllerId,
-            sourceId,
-            triggerEntityId: sourceId,
-            targetEntityIds: Array.Empty<HeadlessEntityId>()));
-}
-
-static string Snapshot(EndAttackTriggerHookResult result)
-{
-    return string.Join(
-        ":",
-        result.IsSuccess,
-        result.EventSequence,
-        result.Timing,
-        result.CollectedCount,
-        result.EnqueuedMandatoryCount,
-        result.DeferredOptionalCount,
-        string.Join(",", result.Collection?.Triggers.Select(trigger => trigger.Request.EffectId.Value) ?? Array.Empty<string>()));
-}
-
-static void AssertMetadata(GameEvent gameEvent, string key, object expected)
-{
-    if (!gameEvent.Metadata.TryGetValue(key, out object? actual))
-    {
-        throw new InvalidOperationException($"Metadata '{key}' was not found.");
-    }
-
-    AssertEqual(expected, actual, $"metadata {key}");
 }
 
 void AssertComplete(string fileName)

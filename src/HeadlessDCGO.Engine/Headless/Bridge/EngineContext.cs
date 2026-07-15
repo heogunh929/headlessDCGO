@@ -108,10 +108,8 @@ public sealed class EngineContext
     /// next ResolveChoice resumes it without re-running the originating action (no re-pay).</summary>
     public HeadlessDCGO.Engine.Headless.Runtime.DeferredActivationController DeferredActivations { get; }
 
-    /// <summary>(Stage 5, Phase 3) Holds the trigger WINDOW suspended mid-resolution waiting for an agent order /
-    /// optional choice — the whole re-entrant window (cut-in frame stack + in-flight pick + recorded choice
-    /// answers), so the next ResolveChoice resumes it via <c>WindowResolver.DriveAsync</c>. Analogue of
-    /// <see cref="DeferredActivations"/> for a whole window rather than one activation.</summary>
+    /// <summary>(A-2 RD-6) Holds the per-match [End of Your Turn] window drain-once marker. (The old registry-currency
+    /// window continuation this once parked was retired at the SkillInfo cutover; only the EoT drain state survives.)</summary>
     public HeadlessDCGO.Engine.Headless.Effects.WindowResolutionController WindowResolution { get; }
 
     public IHeadlessPlayerStatusController PlayerStatusController { get; }
