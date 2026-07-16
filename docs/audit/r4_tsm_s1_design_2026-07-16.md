@@ -52,6 +52,14 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
 **리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
 
+## S3b-2① 착지 (2026-07-17) — 영구물 생성/스택 substrate 매핑
+**설계 판정 3건**:
+1. **창 개설 좌석=옵션 B(실행자 인라인)**: SkillWindowSupply의 OnEnterField 변환은 zone-move 메타의 키 유무로 게이트("presence == carries the params") — 실행자의 zone 진입은 메타 無로 이동시켜 supply GAP-drop, AS-IS :1694 StackSkillInfos(OnEnterFieldAnyone)를 인라인 그대로 유지(C1 inline-insert 관례). supply의 OnEnterField 항은 OLD 경로(PlayCardAction/DigivolveAction) 전용으로 잔존, S3c 은퇴 후보.
+2. **생성 op**: AS-IS 2단(`new Permanent(cards){IsSuspended}`+`CreateNewPermanent(permanent, frameID)` :479-510)은 뷰-모델에서 단일 op로 붕괴 — `CardObjectController.CreateNewPermanent(card, isSuspended, isBreedingArea)`: RemoveFromAllArea(:485 1:1)→zone 진입(프레임 슬롯 :488-491→BattleArea/Breeding append, 무프레임 ADAPTATION)→메타 init(isSuspended·EnteredThisTurnKey)→**G6-001 RegisterCard**(AS-IS 정적 효과 상주의 미러 등가)→뷰 반환. UI(:493-508) strip.
+3. **스택 op**: AS-IS `AddCardSource`(:1045, Insert(0)=top 교체)는 "영구물 identity=top의 존 상주"라서 — old top 존 이탈(**plain Move→None**=DigivolveAction targetRemoval의 검증 형태, leave-창 비발화)→새 카드 동존 진입(메타 無)→**AttachTargetAsSource 재사용**(sourceIds+N-1 병증 상속)→RegisterCard→**갱신 뷰 반환**(뷰 키=top 인스턴스라 in-place 변이→뷰 교체 ADAPTATION, 호출부 재바인딩 `permanent = await permanent.AddCardSource(card)`).
+**부수 착지**: `Permanent.EnterFieldTurnCount` 쓰기 표면(AS-IS 가변 int :1387 `=TurnCount`/:1500 jogress `=-1` → enteredThisTurn bool 캐리어 위 세터: value==현재턴⇒true·그 외⇒false; getter=비교형 재유도).
+**witness 5/5**(R4S3b): 생성 op(존 진입·IsSuspended·병증 스탬프·jogress -1 클리어·뷰 identity)+스택 op(top 교체·단일 영구물 유지·sourceIds 스레딩·병증 상속). **잔여=②Just-After 북키핑 store ③AddExecutingCard → 실행자 몸통 포팅.**
+
 ## S3b-2 부분 착지 (2026-07-17) — CanEvolve 엔진(RD-P6C1-2 read측 해소) + 공격 디스패치 실단언 flip
 **진화 비용 엔진 1:1**: CardSource에 `EvoCosts(:534-611)/CostList(:617-627)/CanEvolve(:1263-1285)` — added-requirement 3스캔(AS-IS 지연 Func 형태 그대로; AddedDigivolutionCosts(RD-P6B-15)와 같은 fold의 AS-IS-위치 판)+printed 요건(캐리어=`DigivolutionCostHelpers.ReadRequirements` — {TargetColor,TargetLevel,MemoryCost}=AS-IS EvoCost; null=Any는 substrate 확립 의미론)+ignore/색/레벨 게이트 중첩 verbatim. **STOP 스텁 2개 은퇴**: CanEvolve 확장(CardController)·CostList R2-C 스텁. DigivolveAction의 자체 legality 경로=컷오버까지 병행 이중석(동일 데이터, 문서화).
 **witness flip**: 보드-디지몬 CanSelect STOP 핀 → **공격 디스패치 실단언**으로 교체: staged 공격자의 시큐리티 공격이 펌프 스택에서 전 파이프라인(선언→카운터→블록→배틀→시큐리티 체크) 완주+시큐리티 1장 소비. choice-pause seam(WaitPendingChoiceUnderPump) 실구동 검증.

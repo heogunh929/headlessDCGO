@@ -20,6 +20,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("PlayCard dispatch reaches the AS-IS executor hand-off and STOPs honestly at RD-P6C1-4 (PlayPermanentClass/UseOptionClass unported — the S3b-2 batch)", PlayCardStopBoundary),
     ("(S3b-2 flip) DeclareAttack dispatch: a staged attacker's security attack resolves the full pipeline on the pump stack and consumes a security card", AttackDispatch),
     ("the pass/breeding surface stays fully live alongside the registered STOPs (S3a suite parity on this build)", PassSurfaceStillLive),
+    ("(S3b-2①) CreateNewPermanent: zone entry + suspended/entered metadata + effect registration + view identity", CreateNewPermanentOp),
+    ("(S3b-2①) AddCardSource: the new card becomes the zone-resident top, the old top threads into sourceIds, sickness inherits", AddCardSourceOp),
 };
 
 var failures = new List<string>();
@@ -125,6 +127,54 @@ async Task PassSurfaceStillLive()
 
     AssertTrue(match.IsTerminal(), "the pass-only game reached the deck-out terminal");
     AssertTrue(match.GetResult().WinnerId is not null, "a winner was marked");
+}
+
+async Task CreateNewPermanentOp()
+{
+    DcgoMatch match = await NewPumpMatchAsync(seed: 53);
+    await StepAsync(match);   // StartGame: hands drawn (mulligan pending is fine — the op is zone-level)
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+
+    var player = new Cec.Player(match.Context, P1);
+    Cec.CardSource card = player.HandCards.First(c => c.IsDigimon);
+
+    Cec.Permanent permanent = await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController
+        .CreateNewPermanent(card, isSuspended: true);
+
+    AssertEqual(1, Count(match, P1, ChoiceZone.BattleArea), "the card entered the battle area");
+    AssertEqual(card.InstanceId, permanent.TopCard.InstanceId, "the view keys on the entered card");
+    AssertTrue(permanent.IsSuspended, "the AS-IS initializer state (IsSuspended) landed in metadata");
+    AssertEqual(match.Context.TurnController.Current.TurnNumber, permanent.EnterFieldTurnCount,
+        "entered-this-turn stamped (AS-IS EnterFieldTurnCount == TurnCount)");
+
+    // AS-IS jogress writes EnterFieldTurnCount = -1 — the setter maps it onto the sickness carrier.
+    permanent.EnterFieldTurnCount = -1;
+    AssertEqual(-1, permanent.EnterFieldTurnCount, "the jogress -1 write clears the sickness flag");
+}
+
+async Task AddCardSourceOp()
+{
+    DcgoMatch match = await NewPumpMatchAsync(seed: 53);
+    await StepAsync(match);
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+
+    var player = new Cec.Player(match.Context, P1);
+    List<Cec.CardSource> digimons = player.HandCards.Where(c => c.IsDigimon).Take(2).ToList();
+    AssertTrue(digimons.Count == 2, "two hand digimons available");
+
+    Cec.Permanent permanent = await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController
+        .CreateNewPermanent(digimons[0], isSuspended: false);
+    HeadlessEntityId oldTopId = permanent.TopCard.InstanceId;
+
+    await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController.RemoveFromAllArea(digimons[1]);
+    permanent = await permanent.AddCardSource(digimons[1]);
+
+    AssertEqual(digimons[1].InstanceId, permanent.TopCard.InstanceId, "the new card is the top");
+    AssertEqual(1, Count(match, P1, ChoiceZone.BattleArea), "still ONE battle-area permanent (top swapped)");
+    AssertTrue(permanent.DigivolutionCards.Any(c => c.InstanceId == oldTopId),
+        "the old top threaded into the digivolution sources");
+    AssertEqual(match.Context.TurnController.Current.TurnNumber, permanent.EnterFieldTurnCount,
+        "sickness INHERITED from the under-card (N-1: both entered this turn)");
 }
 
 // --- Drivers -------------------------------------------------------------

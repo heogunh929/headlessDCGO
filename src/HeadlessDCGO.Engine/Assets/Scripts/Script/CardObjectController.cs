@@ -80,6 +80,61 @@ public static class CardObjectController
 
     #endregion
 
+    #region create a new permanent
+
+    /// <summary>(R4 S3b-2①) AS-IS <c>CardObjectController.CreateNewPermanent(permanent, frameID)</c>
+    /// (CardObjectController.cs:479-510). SUBSTRATE MAPPING: the mirror <see cref="Permanent"/> is a
+    /// zone-derived VIEW, so the AS-IS two-step — <c>new Permanent(cards){IsSuspended} +
+    /// CreateNewPermanent(permanent, frameID)</c> — collapses into this one op:
+    /// <list type="bullet">
+    /// <item>AS-IS :485 RemoveFromAllArea(top) — kept 1:1;</item>
+    /// <item>AS-IS :488-491 frame-slot assignment (<c>FieldPermanents[frameID] = permanent</c>) → the
+    /// authoritative zone ENTRY (BattleArea / BreedingArea append — the established no-frame/slot
+    /// adaptation, RD-P6C1-2 family);</item>
+    /// <item>the AS-IS <c>Permanent</c>-object initializer state (<c>IsSuspended</c>) + the sink's
+    /// entered-this-turn stamp → instance metadata;</item>
+    /// <item>G6-001: AS-IS effects live statically ON the card object — the mirror's equivalent is the
+    /// ported-effect auto-registration on field entry (<see cref="CardEffectRegistrar.RegisterCard"/>,
+    /// the same call the verified play/digivolve actions make);</item>
+    /// <item>AS-IS :493-508 SetFace / FieldPermanentCard instantiation / canvas position = UI (stripped).</item>
+    /// </list>
+    /// The zone entry carries NO OnEnterField supply metadata — the AS-IS executor opens the
+    /// OnEnterFieldAnyone window INLINE (PlayPermanentClass :1694), so the SkillWindowSupply conversion
+    /// GAP-drops this move (design doc S3b-2① — the supply half stays the OLD path's seat until S3c).</summary>
+    public static async Task<Permanent> CreateNewPermanent(
+        CardSource card,
+        bool isSuspended,
+        bool isBreedingArea = false,
+        CancellationToken cancellationToken = default)
+    {
+        EngineContext context = card.Context;
+
+        await RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+
+        await context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(
+                card.Owner,
+                card.InstanceId,
+                ChoiceZone.None,
+                isBreedingArea ? ChoiceZone.BreedingArea : ChoiceZone.BattleArea),
+            cancellationToken).ConfigureAwait(false);
+
+        if (context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? record) && record is not null)
+        {
+            var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+            {
+                ["isSuspended"] = isSuspended,
+                [MatchStateMutationSink.EnteredThisTurnKey] = true,
+            };
+            context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+        }
+
+        CardEffectRegistrar.RegisterCard(context, card.InstanceId, card.Owner);
+        return new Permanent(context, card.InstanceId, card.Owner);
+    }
+
+    #endregion
+
     #region remove permanent from field
 
     /// <summary>(R3-A) 1:1 of AS-IS <c>CardObjectController.RemoveField</c> (CardObjectController.cs:513-555): open
