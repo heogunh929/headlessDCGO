@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using AttackPermanentAction = HeadlessDCGO.Engine.Headless.Runtime.AttackPermanentAction;
 
 // D-A6: attack legality is now target-aware — a continuous "cannot attack <defender>" restriction
 // removes only that defender from the attack candidates (other defenders / direct attack remain).

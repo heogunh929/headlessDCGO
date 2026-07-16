@@ -159,6 +159,52 @@ public sealed class Player
         }
     }
 
+    // (R4 S3b) AS-IS Player "Action Queue" region (Player.cs:166-190): the main-phase intent queue the
+    // TurnStateMachine selection wait drains (QueueMainPhaseAction ← the AS-IS UI click / network packet; the
+    // headless producer is TurnFlowDriver's LegalAction conversion). The mirror Player is a per-access VIEW, so
+    // the queue lives in a match-scoped store keyed by (EngineContext, PlayerId) — the PlayerEffectListStore
+    // pattern.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<EngineContext, Dictionary<HeadlessPlayerId, Queue<MainPhaseAction>>> _mainPhaseActionStore = new();
+
+    private Queue<MainPhaseAction> mainPhaseActions
+    {
+        get
+        {
+            Dictionary<HeadlessPlayerId, Queue<MainPhaseAction>> byPlayer =
+                _mainPhaseActionStore.GetValue(Context, static _ => new Dictionary<HeadlessPlayerId, Queue<MainPhaseAction>>());
+            if (!byPlayer.TryGetValue(PlayerId, out Queue<MainPhaseAction>? queue))
+            {
+                queue = new Queue<MainPhaseAction>();
+                byPlayer[PlayerId] = queue;
+            }
+
+            return queue;
+        }
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>Player.QueueMainPhaseAction</c> (Player.cs:169-172).</summary>
+    public void QueueMainPhaseAction(MainPhaseAction action)
+    {
+        mainPhaseActions.Enqueue(action);
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>Player.DequeueMainPhaseAction</c> (Player.cs:174-182) — null on empty.</summary>
+    public MainPhaseAction? DequeueMainPhaseAction()
+    {
+        if (mainPhaseActions.Count == 0)
+        {
+            return null;
+        }
+
+        return mainPhaseActions.Dequeue();
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>Player.HasMainPhaseAction</c> (Player.cs:184-187).</summary>
+    public bool HasMainPhaseAction()
+    {
+        return mainPhaseActions.Count > 0;
+    }
+
     /// <summary>(R4 S3a) AS-IS <c>Player.CanHatch</c> (Player.cs:1168) — verbatim: a digitama remains to hatch
     /// and the breeding area is empty. <c>DigitamaLibraryCards</c> is the digitama-deck zone read (same shape as
     /// <see cref="LibraryCards"/>).</summary>

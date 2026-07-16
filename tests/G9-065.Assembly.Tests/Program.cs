@@ -6,6 +6,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
 // (AD1-A) Assembly special play — AS-IS: a rider on the ORDINARY play (CardController.cs:753-761, NOT a
 // fusion): the card declares an AssemblyCondition (AddAssemblyConditionClass at timing None, AD1_025 shape);

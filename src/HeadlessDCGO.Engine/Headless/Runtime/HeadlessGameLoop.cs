@@ -97,7 +97,11 @@ public sealed class HeadlessGameLoop(
         // the turn player could keep acting after their memory crossed into the negative. EvaluateAfter-
         // MemoryMutation is idempotent (no-op unless phase==Main, the actor is the turn player, and memory
         // <= -1), so re-evaluating each step is safe.
-        if (consumedAction is not null && !Context.RuleQueryService.IsTerminal())
+        // (R4 S3b) PUMP matches skip this: it is the OLD driver's seat of the AS-IS EndTurnCheck — the pump
+        // runs the real EndTurnCheck at every AS-IS pump point (TurnStateMachine :939-950 etc.), and the OLD
+        // eval's (Main, AwaitingMemoryPassEnd) cursor write would fight the pump's phase ownership.
+        if (consumedAction is not null && !Context.RuleQueryService.IsTerminal()
+            && TurnFlowPumpHost.Find(Context) is null)
         {
             HeadlessMemoryState settledMemory = Context.MemoryController.Current;
             new HeadlessMainPhaseFlow().EvaluateAfterMemoryMutation(

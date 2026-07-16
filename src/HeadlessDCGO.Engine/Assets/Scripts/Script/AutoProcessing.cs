@@ -1516,6 +1516,8 @@ public sealed class AutoProcessing
             //Handle attack steps
             while (GManager.instance.attackProcess.ActiveAttack())
             {
+                // (R4 S3b) pump choice-pause seam — see TurnStateMachine.WaitPendingChoiceUnderPump.
+                await TurnStateMachine.WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
                 // AS-IS :707 Debug.Log($"Active Attack, {...} Step") — log only (stripped).
                 await GManager.instance.attackProcess.ProcessNextState(cancellationToken);
 

@@ -121,6 +121,22 @@ public sealed class TurnStateMachine
     private int BurstTamerFrameID { get; set; }
     private int[] AppFusionFrameIDs { get; set; } = new int[0];
 
+    /// <summary>(R4 S3b) The pump translation of the AS-IS IN-COROUTINE selection wait inside the attack
+    /// machinery (block window / deletion-replacement / security-skill choices — the original suspends the
+    /// attack-stage coroutine until the player answers). The attack stages open a plain ChoiceController
+    /// request and park the attack phase (e.g. AttackPhase.Blocking); pump-driven, the body's attack pump must
+    /// idle at the choice-pause seam until the agent's ResolveChoice applies the answer (BlockTiming/
+    /// DeletionReplacement routing in MetadataActionProcessor), then advance the stage. Non-pump callers no-op
+    /// (the OLD driver pauses stepping on a pending choice at the RunToStable boundary instead).</summary>
+    internal static async Task WaitPendingChoiceUnderPump(EngineContext context)
+    {
+        if (Headless.Runtime.TurnFlowPumpHost.Find(context) is { } pumpHost)
+        {
+            await pumpHost.Gate.WaitUntilAsync(() => !context.ChoiceController.Current.IsPending)
+                .ConfigureAwait(false);
+        }
+    }
+
     /// <summary>AS-IS <c>StartGame()</c> (:341-504): initial hands, mulligan, security.</summary>
     public async Task StartGameAsync(CancellationToken cancellationToken = default)
     {
@@ -187,6 +203,7 @@ public sealed class TurnStateMachine
         // AS-IS :570-576 pump attacks caused this phase.
         while (attackProcess.ActiveAttack())
         {
+            await WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
@@ -228,6 +245,7 @@ public sealed class TurnStateMachine
         // AS-IS :632-638 pump attacks.
         while (attackProcess.ActiveAttack())
         {
+            await WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
@@ -277,6 +295,7 @@ public sealed class TurnStateMachine
         // AS-IS :688-694 pump attacks.
         while (attackProcess.ActiveAttack())
         {
+            await WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
@@ -372,6 +391,7 @@ public sealed class TurnStateMachine
         // AS-IS :821-828 pump attacks.
         while (attackProcess.ActiveAttack())
         {
+            await WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
@@ -408,18 +428,29 @@ public sealed class TurnStateMachine
         await autoProcessing.StackSkillInfos(null, EffectTiming.OnStartMainPhase).ConfigureAwait(false);
         await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
 
-        // AS-IS :910-933 CanSelect().
+        // AS-IS :910-933 CanSelect() — complete (R4 S3b: the three P1-junction card predicates landed).
         bool CanSelect()
         {
-            // AS-IS :917 permanent can use an effect / :921 permanent can attack — mirror seams live.
-            if (turnPlayer.GetFieldPermanents().Count(permanent => permanent.CanDeclareSkill()) > 0)
+            // You can play cards from your hand. (:913)
+            if (gameContext.TurnPlayer!.HandCards.Some((_card) => _card.CanPlayFromHandDuringMainPhase))
                 return true;
-            if (turnPlayer.GetFieldPermanents().Count(permanent => permanent.CanAttack(null)) > 0)
+
+            // There is a permanent in play that can use the effect. (:917)
+            if (gameContext.TurnPlayer!.GetFieldPermanents().Count(permanent => permanent.CanDeclareSkill()) > 0)
                 return true;
-            // AS-IS :913 HandCards.Some(CanPlayFromHandDuringMainPhase) / :925 HandCards.Count(CanDeclareSkill) /
-            //   :929 TrashCards.Count(CanDeclareSkill): CardSource.CanPlayFromHandDuringMainPhase and
-            //   CardSource.CanDeclareSkill are not yet on the mirror CardSource — P1-junction (play-from-hand /
-            //   hand+trash declarable predicates land with the play-cost / declare-skill card surface).
+
+            // There is a permanent in play that can attack. (:921)
+            if (gameContext.TurnPlayer!.GetFieldPermanents().Count(permanent => permanent.CanAttack(null)) > 0)
+                return true;
+
+            // I have a card in my hand that can use an effect. (:925)
+            if (gameContext.TurnPlayer!.HandCards.Count((_card) => _card.CanDeclareSkill) > 0)
+                return true;
+
+            // I have a card in my trash that can use an effect. (:929)
+            if (gameContext.TurnPlayer!.TrashCards.Count(_card => _card.CanDeclareSkill) > 0)
+                return true;
+
             return false;
         }
 
@@ -449,6 +480,7 @@ public sealed class TurnStateMachine
             // AS-IS :941-948 pump attacks.
             while (attackProcess.ActiveAttack())
             {
+                await WaitPendingChoiceUnderPump(_context).ConfigureAwait(false);
                 await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
                 await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
             }
@@ -473,21 +505,132 @@ public sealed class TurnStateMachine
 
             // AS-IS :969 StartCoroutine(SetMainPhase()) — SetMainPhase (:1354-2872) is pure UI (spot-audit: no
             //   rule mutation, no selection-intent field write) — non-scope.
-            // AS-IS :971-1253 selection-wait + AI auto-play + play/attack/effect dispatch = ACTION-QUEUE seam
-            //   (DequeueMainPhaseAction().Execute ≈ ProcessAsync; the intent fields PlayCard/UseCardEffect/
-            //   AttackingPermanent are set by the pushed HeadlessAction, not polled here). The dispatch region's
-            //   OWN EndTurnProcess call sites (:1149 pass-command / :1158 auto-pass) ride the same seam — the S3
-            //   driver routes the externalized Pass action to AutoProcessing.EndTurnProcess.
-            // (R4 S3a) Pump-driven, the :971 selection WAIT parks the pump here; the action DISPATCH body is the
-            //   S3b batch (design item RD-S3B-01) — until it lands the park condition is never satisfied, so an
-            //   S3a pump match intentionally rests at main entry. A dormant direct call (no pump host) keeps the
+
+            // AS-IS :971-1170 selection wait (R4 S3b live seam). The `yield return null` idle frame is the pump
+            //   park (TurnFlowGate); the AS-IS producer (UI click / network packet → Player.QueueMainPhaseAction)
+            //   is the TurnFlowDriver's LegalAction conversion. The AS-IS AI auto-play branch (:989-1160,
+            //   `IsAI && !isYou` RandomUtility bot) and the auto-pilot arm (:1155-1160 `isYou && isAuto && IsAI`
+            //   → EndTurnProcess) are the ORIGINAL's agent substitutes — the headless AGENT replaces them
+            //   (stripped; the agent passes explicitly via the mirror PassAction → PassTurn → EndTurnProcess,
+            //   the same :1149/:1158 EndTurnProcess destination). A dormant direct call (no pump host) keeps the
             //   P2a break contract.
-            if (Headless.Runtime.TurnFlowPumpHost.Find(_context) is { } mainPump)
+            while (PlayCard == null && UseCardEffect == null && AttackingPermanent == null)
             {
-                await mainPump.Gate.WaitUntilAsync(static () => false).ConfigureAwait(false);
+                if (Headless.Runtime.TurnFlowPumpHost.Find(_context) is not { } mainPump)
+                {
+                    goto EndMainPhase;   // dormant direct call: no selection source (P2a contract).
+                }
+
+                // AS-IS :973 yield return null — park until the driver queues an action.
+                await mainPump.Gate.WaitUntilAsync(() => gameContext.TurnPlayer!.HasMainPhaseAction() || endGame)
+                    .ConfigureAwait(false);
+
+                if (endGame)
+                {
+                    return;   // AS-IS :976-979 yield break
+                }
+
+                // AS-IS :983-986 (the non-AI arm — the only agent-facing path).
+                if (gameContext.TurnPlayer!.HasMainPhaseAction())
+                {
+                    MainPhaseAction? queued = gameContext.TurnPlayer!.DequeueMainPhaseAction();
+                    if (queued != null)
+                    {
+                        await queued.Execute(this).ConfigureAwait(false);
+                    }
+                }
+
+                // AS-IS :1164-1168 (a Pass ran EndTurnProcess inside Execute and drove the phase off Main).
+                if (gameContext.TurnPhase != GameContext.phase.Main)
+                {
+                    goto EndMainPhase;
+                }
             }
 
-            break;
+            // AS-IS :1172 ResetUI — stripped.
+
+            // AS-IS :1176-1196 use activation effect.
+            if (UseCardEffect != null)
+            {
+                if (UseCardEffect is ActivateICardEffect)
+                {
+                    if (UseCardEffect.CanUse(null))
+                    {
+                        UseCardEffect.SetIsDeclarative(true);
+
+                        // Count up the number of uses (:1184-1187).
+                        if (UseCardEffect.MaxCountPerTurn < 100)
+                        {
+                            UseCardEffect.EffectSourceCard.cEntity_EffectController.RegisterUseEffectThisTurn(UseCardEffect);
+                        }
+
+                        await autoProcessing.ActivateEffectProcess(UseCardEffect, null).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            // AS-IS :1198-1244 play cards.
+            else if (PlayCard != null)
+            {
+                // AS-IS :1200-1202 DeleteHandCardEffectCoroutine / ShowUseHandCardEffect_PlayCard — UI stripped.
+
+                Permanent? targetPermanent = null;
+
+                // AS-IS :1206-1209 fieldCardFrames[TargetFrameID].GetFramePermanent() — FRAME ADAPTATION (no
+                // frame/slot model, RD-P6C1-2 family): TargetFrameID indexes the turn player's field-permanent
+                // LIST (the driver produces it from the target-permanent action param); -1 = empty-frame play.
+                if (0 <= TargetFrameID && TargetFrameID <= gameContext.TurnPlayer!.GetFieldPermanents().Count - 1)
+                {
+                    targetPermanent = gameContext.TurnPlayer!.GetFieldPermanents()[TargetFrameID];
+                }
+
+                // AS-IS :1212 PlayLog — stripped.
+
+                PlayCardClass playCard = new PlayCardClass(
+                    cardSources: new List<CardSource>() { PlayCard },
+                    hashtable: null,
+                    payCost: true,
+                    targetPermanent: targetPermanent,
+                    isTapped: false,
+                    root: SelectCardEffect.Root.Hand,
+                    activateETB: true);
+
+                if (JogressEvoRootsFrameIDs != null)
+                {
+                    if (JogressEvoRootsFrameIDs.Length == 2)
+                    {
+                        playCard.SetJogress(JogressEvoRootsFrameIDs);
+                    }
+                }
+
+                // AS-IS :1234-1237 burst frame guard (fieldCardFrames bound) — frame-less: non-negative id only
+                // (SetBurst itself STOPs on the frame model, RD-P6C1-1).
+                if (BurstTamerFrameID >= 0)
+                {
+                    playCard.SetBurst(BurstTamerFrameID, PlayCard);
+                }
+
+                if (AppFusionFrameIDs != null && AppFusionFrameIDs.Length == 2)
+                {
+                    playCard.SetAppFusion(AppFusionFrameIDs);
+                }
+
+                await playCard.PlayCard().ConfigureAwait(false);
+            }
+
+            // AS-IS :1246-1250 attack.
+            else if (AttackingPermanent != null)
+            {
+                // AS-IS attackProcess.Attack(AttackingPermanent, DefendingPermanent, null) — mirror seat: the
+                // RD-9 declaration chokepoint (controller DeclareAttack + the mirror Attack :73-253 sequence).
+                Headless.Runtime.AttackDeclarationCommons.Declare(
+                    _context,
+                    turnPlayer.PlayerId,
+                    AttackingPermanent.InstanceId,
+                    gameContext.NonTurnPlayer!.PlayerId,
+                    DefendingPermanent?.InstanceId,
+                    isDirectAttack: DefendingPermanent == null);
+            }
         }
 
     // AS-IS EndMainPhase label (:1256; the :1258-1284 command-panel / timer UI under it is stripped).
@@ -539,6 +682,119 @@ public sealed class TurnStateMachine
         foreach (CardSource cardSource in gameContext.ActiveCardList)
         {
             cardSource.cEntity_EffectController.InitUseCountThisTurn();
+        }
+    }
+
+    // ==== (R4 S3b) AS-IS main-phase intent setters (:3050-3148) + PassTurn (:3364-3372) — the MainPhaseAction
+    // Execute targets. Index currencies are the AS-IS list indexes (GetFieldPermanents / ActiveCardList); the
+    // one FRAME currency (SetPlayCard's TargetFrameID) is adapted to the field-permanent list index (no
+    // frame/slot model — RD-P6C1-2 family, see the play-dispatch arm).
+
+    /// <summary>AS-IS <c>SetActSkill(permanentIndex, skillIndex)</c> (:3050-3065).</summary>
+    public void SetActSkill(int permanentIndex, int skillIndex)
+    {
+        List<Permanent> feild = gameContext.TurnPlayer!.GetFieldPermanents();   // AS-IS variable-name typo kept
+
+        if (permanentIndex < 0 || permanentIndex >= feild.Count)
+        {
+            return;
+        }
+
+        Permanent UseSkillPermanent = feild[permanentIndex];
+
+        if (0 <= skillIndex && skillIndex < UseSkillPermanent.EffectList(EffectTiming.OnDeclaration).Count)
+        {
+            this.UseCardEffect = UseSkillPermanent.EffectList(EffectTiming.OnDeclaration)[skillIndex];
+        }
+    }
+
+    /// <summary>AS-IS <c>SetActCardSkill(cardIndex, skillIndex)</c> (:3069-3082).</summary>
+    public void SetActCardSkill(int cardIndex, int skillIndex)
+    {
+        if (cardIndex < 0 || cardIndex >= gameContext.ActiveCardList.Count)
+        {
+            return;
+        }
+
+        CardSource UseSkillCard = gameContext.ActiveCardList[cardIndex];
+
+        if (0 <= skillIndex && skillIndex < UseSkillCard.CanDeclareSkillList.Count)
+        {
+            this.UseCardEffect = UseSkillCard.CanDeclareSkillList[skillIndex];
+        }
+    }
+
+    /// <summary>AS-IS <c>SetPlayCard(cardIndex, TargetFrameID, JogressEvoRootsFrameIDs, BurstTamerFrameID,
+    /// AppFusionFrameIDs)</c> (:3086-3124).</summary>
+    public void SetPlayCard(int cardIndex, int TargetFrameID, int[]? JogressEvoRootsFrameIDs, int BurstTamerFrameID, int[]? AppFusionFrameIDs)
+    {
+        if (cardIndex < 0 || cardIndex >= gameContext.ActiveCardList.Count)
+        {
+            return;
+        }
+
+        PlayCard = gameContext.ActiveCardList[cardIndex];
+        this.TargetFrameID = TargetFrameID;
+
+        if (JogressEvoRootsFrameIDs != null)
+        {
+            if (JogressEvoRootsFrameIDs.Length == 2)
+            {
+                this.JogressEvoRootsFrameIDs = new int[JogressEvoRootsFrameIDs.Length];
+
+                for (int i = 0; i < JogressEvoRootsFrameIDs.Length; i++)
+                {
+                    this.JogressEvoRootsFrameIDs[i] = JogressEvoRootsFrameIDs[i];
+                }
+            }
+        }
+
+        this.BurstTamerFrameID = BurstTamerFrameID;
+
+        if (AppFusionFrameIDs != null)
+        {
+            if (AppFusionFrameIDs.Length == 2)
+            {
+                this.AppFusionFrameIDs = new int[AppFusionFrameIDs.Length];
+
+                for (int i = 0; i < AppFusionFrameIDs.Length; i++)
+                {
+                    this.AppFusionFrameIDs[i] = AppFusionFrameIDs[i];
+                }
+            }
+        }
+    }
+
+    /// <summary>AS-IS <c>SetAttackingPermaent(permanentIndex, attackTargetPermanentIndex)</c> (:3127-3145) —
+    /// method-name typo preserved (mechanical mirror).</summary>
+    public void SetAttackingPermaent(int permanentIndex, int attackTargetPermanentIndex)
+    {
+        List<Permanent> turnPlayerField = gameContext.TurnPlayer!.GetFieldPermanents();
+        List<Permanent> nonTurnPlayerFeid = gameContext.NonTurnPlayer!.GetFieldPermanents();   // AS-IS typo kept
+
+        AttackingPermanent = null;
+        DefendingPermanent = null;
+
+        if (permanentIndex >= 0 && permanentIndex < turnPlayerField.Count)
+        {
+            AttackingPermanent = turnPlayerField[permanentIndex];
+        }
+
+        if (attackTargetPermanentIndex >= 0 && attackTargetPermanentIndex < nonTurnPlayerFeid.Count)
+        {
+            DefendingPermanent = nonTurnPlayerFeid[attackTargetPermanentIndex];
+        }
+    }
+
+    /// <summary>AS-IS <c>PassTurn()</c> (:3364-3372): the explicit pass — in Main, run EndTurnProcess with
+    /// <see cref="Passed"/> still true (the memory-jump arm). ADAPTATION: AS-IS ResetUI is stripped and the
+    /// fire-and-forget <c>StartCoroutine(EndTurnProcess())</c> is awaited inline (single-threaded coroutine
+    /// interleaving reaches the same completion point before the wait loop re-checks the phase).</summary>
+    public async Task PassTurn(CancellationToken cancellationToken = default)
+    {
+        if (gameContext.TurnPhase == GameContext.phase.Main)
+        {
+            await AutoProcessing.For(_context).EndTurnProcess(cancellationToken).ConfigureAwait(false);
         }
     }
 

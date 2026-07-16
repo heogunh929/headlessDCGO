@@ -20,9 +20,9 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("pump StartGame draws 5/5 and opens the mulligan choice", PumpStartGame),
     ("mulligan keep/keep deals security 5/5 and the pump advances to the BreedingDecision stop", PumpToBreeding),
-    ("breeding ACT hatches; the empty main auto-passes (AS-IS :958-960) and the pump stops at turn 2's breeding decision", PumpBreedingHatch),
-    ("breeding DECLINE leaves the breeding area empty; the turn still auto-passes to turn 2", PumpBreedingDecline),
-    ("a full pump-driven game runs to the deck-out terminal with a marked winner", PumpFullGame),
+    ("breeding ACT hatches; the main phase WAITS (S3b: CanSelect true) and an explicit pass flips to turn 2", PumpBreedingHatch),
+    ("breeding DECLINE leaves the breeding area empty; the pass still flips to turn 2", PumpBreedingDecline),
+    ("a full pump-driven game (pass-only agent) runs to the deck-out terminal with a marked winner", PumpFullGame),
     ("two same-seed pump matches stay digest-identical through the whole game", PumpDeterminism),
     ("a match without Install keeps the OLD driver behavior (no pump task, setup-owned mulligan)", OldDriverUnaffected),
 };
@@ -80,14 +80,18 @@ async Task PumpBreedingHatch()
     await PumpUntilAsync(match, m => m.HasPendingChoice());
     HeadlessPlayerId firstTurnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
 
-    // ACT -> hatch (CanHatch wins per AS-IS :804). With no playable/attackable/declarable option the main
-    // phase auto-passes (AS-IS :958 CanSelect() false -> :960 EndTurnProcess: pass jump Set(-3), threshold
-    // met, phase End), the turn flips, and the pump stops at TURN 2's breeding decision.
+    // ACT -> hatch (CanHatch wins per AS-IS :804). With playable starter cards in hand, CanSelect() is TRUE
+    // (S3b landed the real predicates), so the main phase WAITS at the selection seam; the agent passes
+    // explicitly (mirror PassAction -> PassTurn -> EndTurnProcess: pass jump Set(-3), threshold, End) and the
+    // pump stops at TURN 2's breeding decision.
     await ResolvePendingAsync(match, skip: false);
-    await PumpUntilAsync(match, m => m.HasPendingChoice() || m.IsTerminal());
-
+    await PumpUntilAsync(match, m => m.Context.TurnController.Current.Phase == HeadlessPhase.Main && !m.HasPendingChoice());
     AssertEqual(1, Count(match, firstTurnPlayer, ChoiceZone.BreedingArea), "digitama hatched into the breeding area");
-    AssertEqual(2, match.Context.TurnController.Current.TurnNumber, "the empty main auto-passed into turn 2");
+    AssertEqual(1, match.Context.TurnController.Current.TurnNumber, "the main phase WAITS in turn 1");
+
+    await PassAsync(match);
+    await PumpUntilAsync(match, m => m.HasPendingChoice() || m.IsTerminal());
+    AssertEqual(2, match.Context.TurnController.Current.TurnNumber, "the explicit pass flipped into turn 2");
     AssertEqual(ChoiceType.BreedingDecision, match.Context.ChoiceController.PendingRequest!.Type,
         "turn 2 opens the second player's breeding decision");
     AssertTrue(match.Context.TurnController.Current.TurnPlayerId!.Value != firstTurnPlayer, "turn flipped");
@@ -102,10 +106,12 @@ async Task PumpBreedingDecline()
     HeadlessPlayerId firstTurnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
 
     await ResolvePendingAsync(match, skip: true);    // DECLINE
-    await PumpUntilAsync(match, m => m.HasPendingChoice() || m.IsTerminal());
-
+    await PumpUntilAsync(match, m => m.Context.TurnController.Current.Phase == HeadlessPhase.Main && !m.HasPendingChoice());
     AssertEqual(0, Count(match, firstTurnPlayer, ChoiceZone.BreedingArea), "declined: nothing hatched");
-    AssertEqual(2, match.Context.TurnController.Current.TurnNumber, "the turn still auto-passed into turn 2");
+
+    await PassAsync(match);
+    await PumpUntilAsync(match, m => m.HasPendingChoice() || m.IsTerminal());
+    AssertEqual(2, match.Context.TurnController.Current.TurnNumber, "the pass flipped into turn 2");
 }
 
 async Task PumpFullGame()
@@ -172,7 +178,9 @@ async Task<DcgoMatch> NewPumpMatchAsync(int seed)
         enableMulligan: false);
     MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
 
-    DcgoMatch match = new(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    // (S3b) actionProcessor = TurnFlowDriver (main-phase actions -> mirror MainPhaseAction packets);
+    // UNVALIDATED engine/scripting mode — the legal-action table re-keying for pump matches is S3c scope.
+    DcgoMatch match = new(context, new EngineTrace(), actionProcessor: new TurnFlowDriver());
     await match.InitializeAsync(config);
     TurnFlowPumpHost.Install(context);
     return match;
@@ -230,15 +238,20 @@ async Task ResolvePendingAsync(DcgoMatch match, bool skip)
     }
 }
 
-// Drive a pump game to terminal: resolve every pending choice with ACT (non-skip), stepping between.
-// Returns the final turn number. Bounded so a wedged pump fails the witness instead of hanging it.
+// Drive a pump game to terminal with a pass-only agent: resolve every pending choice with ACT (non-skip),
+// pass at the main-phase selection wait, step otherwise. Returns the final turn number. Bounded so a wedged
+// pump fails the witness instead of hanging it.
 async Task<int> DriveToTerminalAsync(DcgoMatch match)
 {
-    for (int i = 0; i < 400 && !match.IsTerminal(); i++)
+    for (int i = 0; i < 800 && !match.IsTerminal(); i++)
     {
         if (match.HasPendingChoice())
         {
             await ResolvePendingAsync(match, skip: false);
+        }
+        else if (match.Context.TurnController.Current.Phase == HeadlessPhase.Main)
+        {
+            await PassAsync(match);   // (S3b) the main phase WAITS — the pass-only agent ends every turn.
         }
         else
         {
@@ -247,6 +260,22 @@ async Task<int> DriveToTerminalAsync(DcgoMatch match)
     }
 
     return match.Context.TurnController.Current.TurnNumber;
+}
+
+// (S3b) Send the explicit Pass action through the TurnFlowDriver (mirror PassAction -> PassTurn), then step
+// twice: the first step processes the action (queues the packet), the second releases the pump park.
+async Task PassAsync(DcgoMatch match)
+{
+    HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    var pass = new LegalAction(
+        new HeadlessEntityId($"witness:pass:{Guid.NewGuid():N}"),
+        turnPlayer,
+        HeadlessActionTypes.Pass,
+        new Dictionary<string, object?>());
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(pass);
+    await match.StepAsync();
+    await match.StepAsync();
 }
 
 // Step the match until the condition holds (the pump advances one park per step) — bounded so a wedged pump

@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
 // G9-007 (EX8_074 Stage 3, brick 3 — availability + #1<->#2 coupling). With memory floor -10:
 // a 6-cost card is UNaffordable at memory -5 (CanPay(6): -5-6=-11 < -10) but the BeforePayCost suspend

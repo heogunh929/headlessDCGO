@@ -331,6 +331,236 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanDeclareSkillList</c> (CardSource.cs:1047-1054) — verbatim: the
+    /// declarable main-skill effects (OnDeclaration timing, ActivateICardEffect, live CanUse gate).</summary>
+    public List<ICardEffect> CanDeclareSkillList =>
+        EffectList(EffectTiming.OnDeclaration)
+            .Filter(cardEffect => cardEffect is ActivateICardEffect && cardEffect.CanUse(null));
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanDeclareSkill</c> (CardSource.cs:1041).</summary>
+    public bool CanDeclareSkill => CanDeclareSkillList.Count > 0;
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanNotPlayThisOption</c> (CardSource.cs:184-249): an OPTION is
+    /// unplayable when an active <see cref="ICanNotPlayCardEffect"/> forbids it (players / field permanents /
+    /// itself-when-off-field — the E-3 continuous-scan family) or its colour requirement fails
+    /// (<see cref="MatchColorRequirement"/>). Non-options are never blocked here.</summary>
+    public bool CanNotPlayThisOption
+    {
+        get
+        {
+            if (!IsOption)
+            {
+                return false;
+            }
+
+            var gameContext = new GameContext(Context);
+
+            // the effects of players (AS-IS :194-208)
+            if (gameContext.Players
+                    .Map(player => player.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Some(cardEffect => cardEffect is ICanNotPlayCardEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)))
+            {
+                return true;
+            }
+
+            // the effects of permanents (:210-223)
+            if (gameContext.Players
+                    .Map(player => player.GetFieldPermanents())
+                    .Flat()
+                    .Map(permanent => permanent.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Some(cardEffect => cardEffect is ICanNotPlayCardEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)))
+            {
+                return true;
+            }
+
+            // the effects of itself, off-field only (:225-236)
+            if (ICardEffect.ResolvePermanentOfThisCard(this) == null)
+            {
+                if (EffectList(EffectTiming.None)
+                        .Some(cardEffect => cardEffect is ICanNotPlayCardEffect
+                            && cardEffect.CanUse(null)
+                            && ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)))
+                {
+                    return true;
+                }
+            }
+
+            // colour requirement (:238-245)
+            if (!MatchColorRequirement)
+            {
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanEnterField(cardEffect)</c> (CardSource.cs:1210-1258): the
+    /// <see cref="ICanNotPutFieldEffect"/> forbid scan — field permanents / players / itself-when-off-field.
+    /// (The play-pipeline bridge <c>PlayCardsBridge.CanEnterFieldByEffect</c> reproduces the same scan
+    /// wrapper-side; this is the AS-IS-position member the main-phase predicates read.)</summary>
+    public bool CanEnterField(ICardEffect? _cardEffect)
+    {
+        var gameContext = new GameContext(Context);
+
+        // the effects of permanents (:1214-1229)
+        if (gameContext.Players
+                .Map(player => player.GetFieldPermanents())
+                .Flat()
+                .Map(permanent => permanent.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotPutFieldEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotPutFieldEffect)cardEffect).CanNotPutField(this, _cardEffect)))
+        {
+            return false;
+        }
+
+        // the effects of players (:1231-1242)
+        if (gameContext.Players
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotPutFieldEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotPutFieldEffect)cardEffect).CanNotPutField(this, _cardEffect)))
+        {
+            return false;
+        }
+
+        // the effects of itself, off-field only (:1244-1256)
+        if (ICardEffect.ResolvePermanentOfThisCard(this) == null)
+        {
+            if (EffectList(EffectTiming.None)
+                    .Some(cardEffect => cardEffect is ICanNotPutFieldEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotPutFieldEffect)cardEffect).CanNotPutField(this, _cardEffect)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanPlayJogress(PayCost)</c> (CardSource.cs:2747-2792): some
+    /// jogress condition of this card is satisfiable by an ORDERED pair of the owner's battle digimons (each
+    /// slot's EvoRootCondition + the !CanNotEvolve restriction gate), with the jogress cost payable when
+    /// <paramref name="PayCost"/>. ADAPTATION: AS-IS <c>ParameterComparer.Enumerate</c> = the ordered-pair
+    /// enumeration, implemented locally (no mirror ParameterComparer — SelectPermanentEffect precedent);
+    /// <c>jogressCondition</c> = the mirror <c>JogressConditionOf()</c> accessor (P6C1).</summary>
+    public bool CanPlayJogress(bool PayCost)
+    {
+        List<JogressCondition>? conditions = this.JogressConditionOf();
+        if (conditions != null)
+        {
+            List<Permanent> battleDigimons = new Player(Context, Owner).GetBattleAreaDigimons();
+            foreach (JogressCondition condition in conditions)
+            {
+                if (battleDigimons.Count >= condition.elements.Length)
+                {
+                    foreach (Permanent[] permanents in OrderedPairs(battleDigimons))
+                    {
+                        if (permanents.Length == condition.elements.Length && permanents.Length == 2)
+                        {
+                            if (condition.elements[0].EvoRootCondition(permanents[0]) && !this.CanNotEvolve(permanents[0]))
+                            {
+                                if (condition.elements[1].EvoRootCondition(permanents[1]) && !this.CanNotEvolve(permanents[1]))
+                                {
+                                    if (PayCost)
+                                    {
+                                        int cost = condition.cost;
+                                        cost = GetChangedCostItselef(cost, SelectCardEffect.Root.Hand, permanents.ToList(), checkAvailability: true);
+                                        if (new Player(Context, Owner).MaxMemoryCost < cost)
+                                        {
+                                            return false;
+                                        }
+                                    }
+
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<Permanent[]> OrderedPairs(List<Permanent> permanents)
+    {
+        for (int i = 0; i < permanents.Count; i++)
+        {
+            for (int j = 0; j < permanents.Count; j++)
+            {
+                if (i != j)
+                {
+                    yield return new[] { permanents[i], permanents[j] };
+                }
+            }
+        }
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanPlayFromHandDuringMainPhase</c> (CardSource.cs:139-178) — the
+    /// main-phase CanSelect() hand term. FRAME ADAPTATIONS (the mirror has no frame/slot model, zones are
+    /// lists — established section-header adaptation, capacity half = design item RD-P6C1-2):
+    ///  * digimon arm (:143 <c>GetBattleAreaDigimons().Some(p =&gt; CanPlayCardTargetFrame(p.PermanentFrame,
+    ///    true, null))</c>): an OCCUPIED frame reduces CanPlayCardTargetFrame to the owner check + CanEvolve
+    ///    (the :1144 cost check is empty-frame-only) ⇒ <c>Some(p =&gt; this.CanEvolve(p, true))</c>.
+    ///  * permanent arm (:148-157 <c>CanPutFieldThisPermanentCard(true, null)</c> = some frame passes
+    ///    CanPlayCardTargetFrame): the empty-battle-frame path reduces to cost-payable + CanEnterField
+    ///    (frame availability = capacity, omitted per RD-P6C1-2).</summary>
+    public bool CanPlayFromHandDuringMainPhase
+    {
+        get
+        {
+            if (IsDigimon && new Player(Context, Owner).GetBattleAreaDigimons()
+                    .Some(permanent => this.CanEvolve(permanent, true)))
+            {
+                return true;
+            }
+
+            if (IsPermanentCard() && !IsOption)
+            {
+                if (!CanPlayJogress(true))
+                {
+                    // CanPutFieldThisPermanentCard(true, null), frame-less (see header).
+                    int playCost = PayingCost(SelectCardEffect.Root.Hand, null, checkAvailability: true);
+                    bool canPutField = new Player(Context, Owner).MaxMemoryCost >= playCost && CanEnterField(null);
+                    if (!canPutField)
+                    {
+                        return false;
+                    }
+                }
+            }
+            else if (IsOption)
+            {
+                if (CanNotPlayThisOption)
+                {
+                    return false;
+                }
+
+                // whether cost can be paid (:166-173)
+                List<int> costs = new List<int>() { this.PayingCost(SelectCardEffect.Root.Hand, null, checkAvailability: true) };
+                bool canPayCost = costs.Some(cost => new Player(Context, Owner).MaxMemoryCost >= cost);
+                if (!canPayCost) return false;
+            }
+
+            return true;
+        }
+    }
+
+    // AS-IS `_cEntity_Base.IsPermanent` (:148) — the printed permanent-type flag (Digimon/Tamer/DigiEgg), the
+    // same inline the MatchColorRequirement mirror uses.
+    private bool IsPermanentCard() => IsDigimon || IsTamer || IsDigiEgg;
+
     /// <summary>(A3 / P6C3 re-fold) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604):
     /// printed traits transformed by the card's OWN <see cref="IChangeTraitsEffect"/> effects
     /// (AS-IS scans self EffectList only, ungated by permanent membership; no Distinct).</summary>
