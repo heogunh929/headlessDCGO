@@ -22,3 +22,6 @@ PayingCost(CardSource.cs:635)→baseCost(진화=CostList.Min :617)→특수감�
 적대리뷰 렌즈: 2회-호출 verbatim(순수함수 등가)·2-패스 순서·**FoldPlayCost의 Root.None 전달=잠재 fidelity 갭**(AS-IS는 실root — root-의존 비용효과 시 발산, 재하우징 시 스레딩 교정)·버킷/registry 소거 원자성·CannotReduceCost 5장 과소면역 회귀.
 계기판: 발명 참조 6+ → 0, pay 진입=CardSource.PayingCost 단일.
 witness: AS-IS 소비 규모=ChangeCostClass 230장·버킷 광의 191장·ChangeDigivolutionCost 49장·CannotReduceCost 5장(대부분 기포팅 — 재하우징=재포팅 아님).
+
+## §F. R2-C 골 착지 + 적대리뷰 GO (2026-07-16)
+커밋 2(09bb3387 ①②·c3cb0819 ③, c1-cost-integration). pay 진입=CardSource.GetPayingCostWithBaseCost 완전 단일(9 pay-site 재배선 — 조사 4곳+발견 5곳), Root 스레딩 갭 교정(실소비 확인), 버킷 원자 소거(:961 미러), registry-key 면역 3키 flip(PRIM-P0.CannotReduceCost red→green). union 유지 판정=legacy NumericModifier 생산자 잔존(정직). STOP 2=RD-R2C-ASSEMBLY(비발화 실증)·RD-P6C1-2(CostList 비-live). 적대리뷰 6렌즈 전부 확인됨(2회-호출 순수성·fold 순서·root 등가·소거 원자성·과소면역 무회귀[실카드 5장=양쪽 다 미포팅 스켈레톤]·DigiXros 게이트 선행). **P2 원장 5**: root-조건 효과 미-witness(현 카드셋 무해=future fidelity 개선으로 명시)·canReduceCost knob 폐기(죽은 파라미터)·ExpireFixedCostCalc payer=actor vs owner 엣지·죽은 상수/매핑 잔존(cleanup 후속)·GetCostItself 발산(후속 배선 자연 지점). 스위트 329/107/436(신규 FAIL 0·red 1 해소).
