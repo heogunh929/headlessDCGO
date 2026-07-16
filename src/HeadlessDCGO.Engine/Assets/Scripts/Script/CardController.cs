@@ -3282,20 +3282,9 @@ public static class CardSourceAsIsPlayAccessors
     /// <c>CardSource.GetCostItself</c> (<c>Definition?.PlayCost ?? 0</c>).</summary>
     public static int BasePlayCostFromEntity(this CardSource card) => card.GetCostItself;
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CanEvolve(targetPermanent, checkAvailability, ignore)</c>
-    /// (CardSource.cs:1263) — the digivolution requirement+cost availability check. STOP: the mirror has no
-    /// AS-IS cost/requirement engine (design item RD-P6C1-2; the headless digivolve legality lives in
-    /// DigivolveAction/DigivolutionCostHelpers, a different seam).</summary>
-    public static bool CanEvolve(this CardSource card, Permanent targetPermanent, bool checkAvailability, CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None)
-    {
-        _ = card;
-        _ = targetPermanent;
-        _ = checkAvailability;
-        _ = ignore;
-        throw new NotSupportedException(
-            "STOP: CardSource.CanEvolve (AS-IS CardSource.cs:1263) — the AS-IS digivolution requirement/cost " +
-            "engine has no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (R4 S3b-2) The AS-IS CardSource.CanEvolve STOP extension stub is retired — the real 1:1 instance method
+    // (EvoCosts/CostList/CanEvolve, the printed+added digivolution cost engine) now lives on CardSource
+    // (CardSource.cs, R4 S3b-2); `card.CanEvolve(...)` calls resolve to that instance method.
 
     // (R2-C) The AS-IS CardSource.CostList STOP extension stub was retired — it is now the real (still-STOP,
     // printed-EvoCost-engine RD-P6C1-2) 1:1 instance method on CardSource (CardSource.cs, R2-C).

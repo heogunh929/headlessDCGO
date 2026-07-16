@@ -1175,20 +1175,9 @@ public sealed class CardSource
         return Math.Max(0, Cost);
     }
 
-    /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.CostList(targetPermanent, ignoreLevel,
-    /// checkAvailability)</c> (CardSource.cs:617-627 — the <c>EvoCosts</c> projection filtered to matching
-    /// paths). STOP: the printed <c>BaseEvoCostsFromEntity</c> half of the EvoCost engine (EvoCost value type +
-    /// card data) is a separate R1 lift (design item RD-P6C1-2); only reached by the (non-live) AS-IS mirror
-    /// PlayCard evolution path.</summary>
-    public List<int> CostList(Permanent targetPermanent, bool ignoreLevel, bool checkAvailability)
-    {
-        _ = targetPermanent;
-        _ = ignoreLevel;
-        _ = checkAvailability;
-        throw new NotSupportedException(
-            "STOP: CardSource.CostList (AS-IS CardSource.cs:617) — the printed EvoCost engine has no mirror " +
-            "(design item RD-P6C1-2); the live digivolution-cost base is DigivolutionCostHelpers, not this.");
-    }
+    // (R4 S3b-2) The R2-C CostList STOP stub is retired — the real 1:1 CostList (the EvoCosts projection,
+    // printed half carried by DigivolutionCostHelpers.ReadRequirements) lives in the digivolution cost engine
+    // region below (EvoCosts / CostList / CanEvolve).
 
     /// <summary>(C9) mirror of AS-IS <c>CardSource.IsLinked</c> (CardSource.cs:2947):
     /// <c>PermanentOfThisCard().LinkedCards.Contains(this)</c> — true while this card is a LINK card of a
@@ -1778,6 +1767,137 @@ public sealed class CardSource
         }
 
         return costs;
+    }
+
+    // ===== (R4 S3b-2) AS-IS printed+added digivolution cost engine — EvoCosts / CostList / CanEvolve =====
+    // AS-IS CardSource.EvoCosts (:534-611) / CostList (:617-627) / CanEvolve (:1263-1285), resolving STOP
+    // RD-P6C1-2 for the READ side. The three IAddDigivolutionRequirementEffect scan regions are the same fold
+    // AddedDigivolutionCosts (RD-P6B-15) carries — here kept as DEFERRED per-target Funcs exactly like AS-IS.
+    // The printed BaseEvoCostsFromEntity carrier is the substrate card data the digivolve pipeline already
+    // reads: DigivolutionCostHelpers.ReadRequirements(Definition) — {TargetColor, TargetLevel, MemoryCost} =
+    // AS-IS EvoCost {CardColor, Level, MemoryCost}; a null color/level (the "Any" fallback entry) matches all,
+    // the substrate's established Any semantics. DigivolveAction's own legality path stays live in parallel
+    // until the S3c cutover (documented dual-seat, same data).
+
+    /// <summary>(R4 S3b-2) AS-IS <c>CardSource.EvoCosts(ignore, checkAvailability)</c> (:534-611): the
+    /// digivolution cost candidates as per-target Funcs — the added-requirement scans (players / field
+    /// permanents / itself-when-off-permanent-or-own-source) then the printed entity costs with the
+    /// ignore-requirement / color / level gates.</summary>
+    public List<Func<Permanent, int>> EvoCosts(CardEffectCommons.IgnoreRequirement ignore, bool checkAvailability)
+    {
+        List<Func<Permanent, int>> EvoCosts = new List<Func<Permanent, int>>();
+        var gameContext = new GameContext(Context);
+
+        // the effects of players (:541-552)
+        EvoCosts = EvoCosts
+            .Concat(
+                gameContext.Players_ForTurnPlayer
+                    .Map(player => player.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Filter(cardEffect => cardEffect is IAddDigivolutionRequirementEffect && cardEffect.CanUse(null))
+                    .Map<ICardEffect, Func<Permanent, int>>(cardEffect =>
+                        (targetPermanent) => ((IAddDigivolutionRequirementEffect)cardEffect).GetEvoCost(targetPermanent, this, ignore, checkAvailability)))
+                    .ToList();
+
+        // the effects of permanents (:556-570)
+        EvoCosts = EvoCosts
+            .Concat(
+                gameContext.Players_ForTurnPlayer
+                    .Map(player => player.GetFieldPermanents())
+                    .Flat()
+                    .Map(permanent => permanent.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Filter(cardEffect => cardEffect is IAddDigivolutionRequirementEffect && cardEffect.CanUse(null))
+                    .Map<ICardEffect, Func<Permanent, int>>(cardEffect =>
+                        (targetPermanent) => ((IAddDigivolutionRequirementEffect)cardEffect).GetEvoCost(targetPermanent, this, ignore, checkAvailability)))
+                    .ToList();
+
+        // the effects of itself (:574-585) — off-permanent, or a digivolution source of its own permanent.
+        PermanentView permanentOfThisCard = PermanentOfThisCard();
+        if (permanentOfThisCard.IsEmpty || permanentOfThisCard.DigivolutionCards.Any(under => under.InstanceId == InstanceId))
+        {
+            EvoCosts = EvoCosts
+                .Concat(
+                    EffectList(EffectTiming.None)
+                        .Filter(cardEffect => cardEffect is IAddDigivolutionRequirementEffect && cardEffect.CanUse(null))
+                        .Map<ICardEffect, Func<Permanent, int>>(cardEffect =>
+                            (targetPermanent) => ((IAddDigivolutionRequirementEffect)cardEffect).GetEvoCost(targetPermanent, this, ignore, checkAvailability)))
+                        .ToList();
+        }
+
+        // printed entity costs (:587-609) — carrier: DigivolutionCostHelpers.ReadRequirements (see header).
+        IReadOnlyList<Headless.Effects.DigivolutionCostRequirement> printedRequirements =
+            Definition is { } definition
+                ? Headless.Effects.DigivolutionCostHelpers.ReadRequirements(definition)
+                : Array.Empty<Headless.Effects.DigivolutionCostRequirement>();
+        EvoCosts = EvoCosts
+            .Concat(
+                printedRequirements
+                    .Select<Headless.Effects.DigivolutionCostRequirement, Func<Permanent, int>>(evoCost =>
+                    (targetPermanent) =>
+                    {
+                        Player owner = new Player(Context, Owner);
+
+                        if (ignore.Equals(CardEffectCommons.IgnoreRequirement.All) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                            return evoCost.MemoryCost;
+
+                        if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Color) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                            || evoCost.TargetColor is null
+                            || targetPermanent.TopCard.CardColors.Contains(evoCost.TargetColor))
+                        {
+                            if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Level) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                                || evoCost.TargetLevel is null
+                                || targetPermanent.Level == evoCost.TargetLevel)
+                            {
+                                return evoCost.MemoryCost;
+                            }
+                        }
+
+                        return -1;
+                    }))
+                    .ToList();
+
+        return EvoCosts;
+    }
+
+    /// <summary>(R4 S3b-2) AS-IS <c>CardSource.CostList(targetPermanent, ignoreLevel, checkAvailability)</c>
+    /// (:617-627) — the payable digivolution costs onto the target.</summary>
+    public List<int> CostList(Permanent targetPermanent, bool ignoreLevel, bool checkAvailability)
+    {
+        CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None;
+
+        if (ignoreLevel)
+            ignore = CardEffectCommons.IgnoreRequirement.Level;
+
+        return EvoCosts(ignore, checkAvailability)
+                .Filter(evoCost => evoCost(targetPermanent) >= 0)
+                .Map(evoCost => evoCost(targetPermanent));
+    }
+
+    /// <summary>(R4 S3b-2) AS-IS <c>CardSource.CanEvolve(targetPermanent, checkAvailability, ignore)</c>
+    /// (:1263-1285): the CanNotEvolve restriction gate, then ANY digivolution cost path &gt;= 0.</summary>
+    public bool CanEvolve(Permanent targetPermanent, bool checkAvailability, CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None)
+    {
+        if (targetPermanent != null)
+        {
+            if (CanNotEvolve(targetPermanent))
+            {
+                return false;
+            }
+
+            if (targetPermanent.TopCard != null)
+            {
+                foreach (Func<Permanent, int> EvoCost in EvoCosts(ignore, checkAvailability))
+                {
+                    if (EvoCost(targetPermanent) >= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     // ===== (RD-P6B-17) ignore-color requirement — AS-IS CardSource.MatchColorRequirement scan ============

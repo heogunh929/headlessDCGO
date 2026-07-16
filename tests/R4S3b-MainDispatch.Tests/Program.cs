@@ -18,7 +18,7 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("PlayCard dispatch reaches the AS-IS executor hand-off and STOPs honestly at RD-P6C1-4 (PlayPermanentClass/UseOptionClass unported — the S3b-2 batch)", PlayCardStopBoundary),
-    ("with a battle digimon on board, CanSelect's hand-play term STOPs honestly at RD-P6C1-2 (CanEvolve — the digivolution requirement engine, the S3b-2 batch)", CanSelectEvolveStopBoundary),
+    ("(S3b-2 flip) DeclareAttack dispatch: a staged attacker's security attack resolves the full pipeline on the pump stack and consumes a security card", AttackDispatch),
     ("the pass/breeding surface stays fully live alongside the registered STOPs (S3a suite parity on this build)", PassSurfaceStillLive),
 };
 
@@ -65,28 +65,34 @@ async Task PlayCardStopBoundary()
     AssertTrue(fault!.Contains("RD-P6C1-4", StringComparison.Ordinal), $"the fault names the design item (got: {fault})");
 }
 
-async Task CanSelectEvolveStopBoundary()
+async Task AttackDispatch()
 {
+    // (S3b-2 flip) The CanEvolve engine landed (RD-P6C1-2 read side), so a staged battle digimon no longer
+    // gates CanSelect — the attack ARM is now exercisable end-to-end on the pump stack. STAGED board (fixture,
+    // R4P2a Place pattern): the play EXECUTOR is still the RD-P6C1-4 STOP, so the attacker is placed directly.
     DcgoMatch match = await NewPumpMatchAsync(seed: 31);
-    // STAGED board (fixture, R4P2a Place pattern): a battle digimon makes CanSelect's hand-play term evaluate
-    // the digimon arm — `hand digimon && GetBattleAreaDigimons().Some(CanEvolve)` — whose CanEvolve dependency
-    // is the registered RD-P6C1-2 STOP (the AS-IS digivolution requirement/cost engine has no mirror). The 1:1
-    // predicate STOPs rather than inventing an answer; pinned here so the S3b-2 engine port flips this witness
-    // to the real attack-dispatch assertions (the attack ARM is written and waits behind this same gate).
-    StageBattleDigimon(match, P1, dp: 3000);
+    HeadlessEntityId attackerId = StageBattleDigimon(match, P1, dp: 3000);
 
-    string? fault = null;
-    try
-    {
-        await ReachMainWaitAsync(match);
-    }
-    catch (NotSupportedException ex)
-    {
-        fault = ex.Message;
-    }
+    await ReachMainWaitAsync(match);
+    HeadlessPlayerId attackerOwner = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    HeadlessPlayerId defenderOwner = attackerOwner == P1 ? P2 : P1;
+    AssertEqual(P1, attackerOwner, "P1 is the staged attacker's owner and the first turn player");
 
-    AssertTrue(fault is not null, "the pump surfaced the CanEvolve STOP as a fault");
-    AssertTrue(fault!.Contains("RD-P6C1-2", StringComparison.Ordinal), $"the fault names the design item (got: {fault})");
+    // Turn 1: pass (summoning-sickness parity; the staged permanent attacks on P1's next turn).
+    await SendAsync(match, attackerOwner, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 2 && AtMainWait(m));
+    await SendAsync(match, defenderOwner, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 3 && AtMainWait(m));
+
+    int securityBefore = Count(match, defenderOwner, ChoiceZone.Security);
+    await SendAsync(match, attackerOwner, HeadlessActionTypes.DeclareAttack,
+        new Dictionary<string, object?> { [HeadlessActionParameterKeys.AttackerId] = attackerId.Value });
+    await DriveUntilAsync(match, m =>
+        Count(m, defenderOwner, ChoiceZone.Security) < securityBefore || m.IsTerminal());
+
+    AssertEqual(securityBefore - 1, Count(match, defenderOwner, ChoiceZone.Security),
+        "the security attack consumed one security card");
+    AssertTrue(!match.IsTerminal(), "the match continues after the first security check");
 }
 
 async Task PassSurfaceStillLive()
