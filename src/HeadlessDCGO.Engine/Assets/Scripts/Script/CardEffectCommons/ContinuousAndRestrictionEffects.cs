@@ -948,86 +948,43 @@ public sealed class ContinuousImmunityEffect : ICardEffect
 }
 
 
-/// <summary>(C-3) A continuous digivolution-source trash protection registered under
-/// <see cref="HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan"/> (AS-IS
-/// <c>CanNotTrashFromDigivolutionCardsClass</c>). Mirrors the class 1:1:
-/// <c>CanNotTrashFromDigivolutionCards(source, effect) = CardCondition(source) &amp;&amp; CardEffectCondition(effect)
-/// &amp;&amp; !source.IsFlipped</c>. Registered field-wide (no target) so the effect-trash scan finds it via
-/// <c>GetContinuousEffects(Scope)</c>, exactly like AS-IS scans every field permanent's
-/// <c>EffectList(EffectTiming.None)</c>. The DELETION path never consults this (AS-IS DiscardEvoRoots).</summary>
-public sealed class ContinuousTrashProtectionEffect : ICardEffect
+/// <summary>(R3-W3c-4) A minimal cause carrier — an <see cref="ICardEffect"/> whose only meaningful data is its
+/// <c>EffectSourceCard</c>. Used to route id/source-only substrate consumers (trash-protection filters,
+/// stack-trash immunity, …) through the AS-IS live joint-scan getters, every one of which takes the causing
+/// <c>ICardEffect</c> and reduces it to its non-null-ness / <c>EffectSourceCard</c> (the same reduction
+/// <c>ActivatedHashtableBridge.CauseStub</c> uses for driving-event payloads). The old-model
+/// <c>ContinuousTrashProtectionEffect</c> (which lowered this concept into a dead registry binding) is retired:
+/// the sole producer today is BT9_109's inline <c>CanNotTrashFromDigivolutionCardsClass</c>, served by the live
+/// <see cref="CardSource.CanNotTrashFromDigivolutionCards"/> scan.</summary>
+public sealed class BareCauseEffect : ICardEffect
 {
-    public ContinuousTrashProtectionEffect(
-        CardSource card,
-        Func<CardSource, bool> cardCondition,
-        Func<CardSource, bool> cardEffectCondition,
-        bool isInheritedEffect,
-        Func<bool>? condition)
+    /// <summary>A bare cause whose <c>EffectSourceCard</c> is <paramref name="sourceCard"/> (the AS-IS collapse of
+    /// the causing effect to its source card). Null <paramref name="sourceCard"/> yields a source-less cause.</summary>
+    public static BareCauseEffect For(CardSource? sourceCard)
     {
-        ArgumentNullException.ThrowIfNull(card);
-        ArgumentNullException.ThrowIfNull(cardCondition);
-        ArgumentNullException.ThrowIfNull(cardEffectCondition);
-        Card = card;
-        CardCondition = cardCondition;
-        CardEffectCondition = cardEffectCondition;
-        IsInheritedEffect = isInheritedEffect;
-        Condition = condition;
-    }
-
-    public CardSource Card { get; }
-
-    /// <summary>AS-IS <c>CanNotTrashFromDigivolutionCardsClass.CardCondition</c> — WHICH source (by name etc.)
-    /// this protection covers, evaluated against the source being trashed.</summary>
-    public Func<CardSource, bool> CardCondition { get; }
-
-    /// <summary>AS-IS <c>CanNotTrashFromDigivolutionCardsClass.CardEffectCondition</c> — WHICH trashing effect the
-    /// protection applies to. AS-IS takes the <c>ICardEffect</c>; the headless scan has only the effect's source
-    /// card, so this is evaluated over the CAUSING effect's source (BT9_109 = <c>effect != null</c> ⇒ always).</summary>
-    public Func<CardSource, bool> CardEffectCondition { get; }
-
-    public bool IsInheritedEffect { get; }
-
-    public Func<bool>? Condition { get; }
-
-    public EffectBinding ToBinding(string effectId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(effectId);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
-
-        Func<CardSource, bool> cardCondition = CardCondition;
-        Func<CardSource, bool> cardEffectCondition = CardEffectCondition;
-        // (joint-migration) AS-IS CanNotTrashFromDigivolutionCards(source, effect) = CardCondition(source)
-        // && CardEffectCondition(effect) && !source.IsFlipped, collapsed to f(source, cause).
-        values[HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan.JointPredicateKey] =
-            (Func<CardSource, CardSource, bool>)((sourceBeingTrashed, causeSource) =>
-                cardCondition(sourceBeingTrashed)
-                && cardEffectCondition(causeSource)
-                && !IsSourceFlipped(sourceBeingTrashed));
-
-        if (IsInheritedEffect)
+        var stub = new BareCauseEffect();
+        if (sourceCard is not null)
         {
-            values[ContinuousSelfModifierEffect.InheritedEffectKey] = true;
+            stub.SetEffectSourceCard(sourceCard);
         }
 
-        if (Condition is not null)
-        {
-            values[ContinuousSelfModifierEffect.ConditionKey] = Condition;
-        }
-
-        var context = new EffectContext(
-            Card.Controller, Card.Owner, Card.InstanceId, triggerEntityId: null,
-            // Registered field-wide (no target): the effect-trash scan enumerates the scope, not a per-card target.
-            targetEntityIds: Array.Empty<HeadlessEntityId>(),
-            values: values);
-        return new EffectBinding(
-            new EffectRequest(new HeadlessEntityId(effectId), Card.Controller, "Continuous", context),
-            keywords: null, EffectQueryRole.Continuous, new[] { HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan.Scope }, effect: null, duration: null);
+        return stub;
     }
 
-    // AS-IS `!cardSource.IsFlipped` — headless face state is the source instance's `isFlipped` metadata flag.
-    private static bool IsSourceFlipped(CardSource source) =>
-        source.Context.CardInstanceRepository.TryGetInstance(source.InstanceId, out CardInstanceRecord? inst)
-        && inst is not null && inst.Metadata.TryGetValue("isFlipped", out object? raw) && raw is true;
+    /// <summary>A bare cause whose <c>EffectSourceCard</c> resolves <paramref name="sourceId"/> to a
+    /// <see cref="CardSource"/> (owner read from the repository). Empty id yields a source-less cause.</summary>
+    public static BareCauseEffect For(EngineContext context, HeadlessEntityId sourceId)
+    {
+        if (sourceId.IsEmpty)
+        {
+            return new BareCauseEffect();
+        }
+
+        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance) && instance is not null
+            ? instance.OwnerId
+            : default;
+        return For(new CardSource(context, sourceId, owner, owner));
+    }
 }
 
 

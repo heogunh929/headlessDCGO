@@ -6,8 +6,8 @@ using HeadlessDCGO.Engine.Headless.Services;
 
 /// <summary>
 /// (E-3 extraction) The AS-IS field-effect-list MEMBERSHIP rule shared by every JOINT continuous scan that
-/// mirrors <c>player.GetFieldPermanents().EffectList(EffectTiming.None)</c> — currently
-/// <see cref="TrashProtectionScan"/> (CardSource.CanNotTrashFromDigivolutionCards) and
+/// mirrors <c>player.GetFieldPermanents().EffectList(EffectTiming.None)</c> — the R1-e getter
+/// <c>CardSource.CanNotTrashFromDigivolutionCards</c> and
 /// <see cref="CanNotPlayOptionScan"/> (CardSource.CanNotPlayThisOption). AS-IS
 /// <c>Permanent.EffectList(timing) = EffectList_ForCard(timing, TopCard)</c> (Permanent.cs:1373-1376), whose
 /// per-cardSource membership (Permanent.cs:1497-1546) is:

@@ -31,6 +31,16 @@ EngineContext NewCtx(HeadlessPlayerId turnPlayer, int seed)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
     ctx.TurnController.Initialize(new[] { P1, P2 }, turnPlayer);
+    // (R3-W3c-4) the live CanNotPlayThisOption scan evaluates each granting effect's CanUse -> CanActivate ->
+    // IsDisabled (GManager.instance) and CanTrigger (DoneStartGame = phase past Setup). Provide both, exactly as
+    // production's game loop does (the C3-Witness / G9-057 precedent). Cases that re-set the phase (the [Your Turn]
+    // unsuspend case) still do so explicitly below.
+    if (ctx.TurnController.Current.Phase is HeadlessPhase.None or HeadlessPhase.Setup)
+    {
+        ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    }
+
+    HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(ctx);
     return ctx;
 }
 

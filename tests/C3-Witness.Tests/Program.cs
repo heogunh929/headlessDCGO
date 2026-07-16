@@ -248,6 +248,12 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 42);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // past Setup -> DoneStartGame true (ICardEffect.CanTrigger gate)
+    // (R3-W3c-4) the R1-e live scan CardSource.CanNotTrashFromDigivolutionCards evaluates each granting effect's
+    // CanUse -> CanActivate -> IsDisabled, which reads GManager.instance (the ambient match scope). In production
+    // the game loop provides it; this direct-drive witness enters it explicitly (the G9-057 / W3c-1 precedent).
+    // Cases run sequentially, so scoping the latest context for the remainder of the flow is sufficient.
+    AmbientMatchContext.Enter(context);
     return context;
 }
 

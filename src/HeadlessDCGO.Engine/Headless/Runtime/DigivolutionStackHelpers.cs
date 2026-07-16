@@ -251,7 +251,7 @@ public static class DigivolutionStackHelpers
             // (C-3) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards() re-filters CanNotTrashFromDigivolutionCards-
             // protected sources (CardController.cs:5158-5160) — a defensive second filter over the already-narrowed
             // DigiBurst candidate pool. This is an EFFECT-trash path (no deletion caller), so protection is honoured.
-            if (IsTrashProtected(repository, cardId.Value, effectRegistry, context, causingEffectSourceId))
+            if (IsTrashProtected(repository, cardId.Value, context, causingEffectSourceId))
             {
                 continue;
             }
@@ -438,7 +438,7 @@ public static class DigivolutionStackHelpers
         // return-to-hand/deck. A protected source in the window is skipped and stays in the stack; the trash does
         // NOT reach deeper to make up the count (AS-IS collects the window by position, then filters).
         List<string> removed = destination == ChoiceZone.Trash && honorProtection
-            ? window.Where(value => !IsTrashProtected(repository, value, effectRegistry, context, causingEffectSourceId)).ToList()
+            ? window.Where(value => !IsTrashProtected(repository, value, context, causingEffectSourceId)).ToList()
             : window;
         List<string> remaining = sources.Where(value => !removed.Contains(value)).ToList();
 
@@ -527,7 +527,6 @@ public static class DigivolutionStackHelpers
     private static bool IsTrashProtected(
         ICardInstanceRepository repository,
         string sourceValue,
-        IEffectQueryService? effectRegistry,
         Bridge.EngineContext? context,
         HeadlessEntityId causingEffectSourceId)
     {
@@ -537,13 +536,27 @@ public static class DigivolutionStackHelpers
         }
 
         var sourceId = new HeadlessEntityId(sourceValue);
+        // Stamp (AS-IS in-flight willBeRemoveSources mirror) — honoured even without a live context.
         if (repository.TryGetInstance(sourceId, out CardInstanceRecord? source) && source is not null
             && source.Metadata.TryGetValue(CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true)
         {
             return true;
         }
 
-        return TrashProtectionScan.IsProtected(effectRegistry, repository, context, sourceId, causingEffectSourceId);
+        if (context is null || causingEffectSourceId.IsEmpty)
+        {
+            return false;
+        }
+
+        // (R3-W3c-4) AS-IS-literal live scan via the R1-e getter CardSource.CanNotTrashFromDigivolutionCards
+        // (delegated through CardEffectCommons.IsTrashProtectedSource) — the causing effect collapsed to its
+        // source card, exactly as the retired registry TrashProtectionScan did, but now over the LIVE
+        // EffectList(None) so BT9_109's kind-class (no ToBinding) is actually seen.
+        HeadlessPlayerId causeOwner = repository.TryGetInstance(causingEffectSourceId, out CardInstanceRecord? cause) && cause is not null
+            ? cause.OwnerId
+            : default;
+        var causeCard = new CardSource(context, causingEffectSourceId, causeOwner, causeOwner);
+        return CardEffectCommons.IsTrashProtectedSource(causeCard, sourceId);
     }
 
     // (F1-Tier2 OnAddDigivolutionCards) AS-IS AddDigivolutionCardsTop/Bottom (Permanent.cs:1109-1116 / 1213-1220)

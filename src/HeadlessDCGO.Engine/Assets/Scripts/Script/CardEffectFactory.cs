@@ -1259,19 +1259,34 @@ public static partial class CardEffectFactory
         }
     }
 
-    /// <summary>(C-3) <c>CanNotTrashFromDigivolutionCardsStaticEffect</c> — AS-IS
+    /// <summary>(C-3, R3-W3c-4 flip) <c>CanNotTrashFromDigivolutionCardsStaticEffect</c> — AS-IS
     /// <c>CanNotTrashFromDigivolutionCardsClass</c>: <c>CanNotTrashFromDigivolutionCards(source, effect) =
-    /// CardCondition(source) &amp;&amp; CardEffectCondition(effect) &amp;&amp; !source.IsFlipped</c>. Registers a
-    /// continuous protection under <see cref="HeadlessDCGO.Engine.Headless.Runtime.TrashProtectionScan"/> — the
-    /// EFFECT-trash filter consults it, the deletion path bypasses it (AS-IS DiscardEvoRoots).
-    /// <paramref name="cardCondition"/> = WHICH source (e.g. name contains "X Antibody");
-    /// <paramref name="cardEffectCondition"/> = WHICH effect (evaluated over the causing effect's source; BT9_109
-    /// = <c>effect != null</c> ⇒ always). <paramref name="condition"/> = the effect's own CanUse gate
-    /// (BT9_109 = host <c>IsExistOnBattleArea</c>) — protection lapses when the granting host leaves the field.</summary>
+    /// CardCondition(source) &amp;&amp; CardEffectCondition(effect) &amp;&amp; !source.IsFlipped</c>. Returns the
+    /// new-model kind-class <see cref="CardEffects.CanNotTrashFromDigivolutionCardsClass"/> (an
+    /// <c>ICanNotTrashFromDigivolutionCardsEffect</c>, no <c>ToBinding</c>) consumed by the R1-e live scan
+    /// <see cref="CardSource.CanNotTrashFromDigivolutionCards"/>; no registry binding. The EFFECT-trash filter
+    /// consults it, the deletion path bypasses it (AS-IS DiscardEvoRoots). <paramref name="cardCondition"/> =
+    /// WHICH source (e.g. name contains "X Antibody"); <paramref name="cardEffectCondition"/> = WHICH causing
+    /// effect (AS-IS <c>Func&lt;ICardEffect,bool&gt;</c> over the trashing effect; BT9_109 = <c>effect != null</c>
+    /// ⇒ always). <paramref name="condition"/> = the effect's own CanUse gate (BT9_109 = host
+    /// <c>IsExistOnBattleArea</c>) — protection lapses when the granting host leaves the field. BT9_109 itself
+    /// builds the kind-class inline (verbatim); this factory has no real-card producers.</summary>
     public static ICardEffect CanNotTrashFromDigivolutionCardsStaticEffect(
-        Func<CardSource, bool> cardCondition, Func<CardSource, bool> cardEffectCondition,
-        bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousTrashProtectionEffect(card, cardCondition, cardEffectCondition, isInheritedEffect, condition);
+        Func<CardSource, bool> cardCondition, Func<ICardEffect, bool> cardEffectCondition,
+        bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    {
+        var effect = new CardEffects.CanNotTrashFromDigivolutionCardsClass();
+        effect.SetUpICardEffect("[Digivolution cards] under this Digimon can't be trashed", CanUseCondition, card);
+        effect.SetUpCanNotTrashFromDigivolutionCardsClass(CardCondition: cardCondition, CardEffectCondition: cardEffectCondition);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+    }
 
     /// <summary>(E-3) <c>CanNotPlayOptionStaticEffect</c> — AS-IS <c>CanNotPlayClass</c>: a continuous
     /// "an Option matching <paramref name="cardCondition"/> cannot be played" effect scanned by the option-play

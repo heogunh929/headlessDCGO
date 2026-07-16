@@ -4677,21 +4677,28 @@ public static partial class CardEffectCommons
     // whose EffectSourceCard is <paramref name="card"/> — exactly the AS-IS `_cardEffect` argument collapsed.
     internal static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId)
     {
-        if (sourceId.IsEmpty)
+        if (sourceId.IsEmpty
+            || !card.Context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
+            || instance is null)
         {
             return false;
         }
 
-        if (card.Context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
-            && instance is not null
-            && instance.Metadata.TryGetValue(TrashProtectedKey, out object? raw) && raw is true)
+        // Headless mirror of the AS-IS in-flight willBeRemoveSources stamp (BT12_081-style play-out-of-stack;
+        // test-stamped TrashProtectedKey). The R1-e getter below ALSO checks the "willBeRemoveSources" instance
+        // flag, so both marks are honoured.
+        if (instance.Metadata.TryGetValue(TrashProtectedKey, out object? raw) && raw is true)
         {
             return true;
         }
 
-        return Headless.Runtime.TrashProtectionScan.IsProtected(
-            card.Context.EffectRegistry, card.Context.CardInstanceRepository, card.Context,
-            sourceId, card.InstanceId);
+        // (R3-W3c-4) AS-IS-literal live scan: the source being trashed evaluated against the causing effect
+        // (collapsed to its source card `card`, the same reduction the retired registry TrashProtectionScan used)
+        // via the R1-e getter CardSource.CanNotTrashFromDigivolutionCards — it scans every field/player/self
+        // EffectList(None) for a usable ICanNotTrashFromDigivolutionCardsEffect (BT9_109). The old registry scan
+        // never saw the kind-class (no ToBinding), so this rehousing is the load-bearing fidelity fix.
+        var sourceBeingTrashed = new CardSource(card.Context, sourceId, instance.OwnerId, instance.OwnerId);
+        return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(BareCauseEffect.For(card));
     }
 
     /// <summary>Mirror of the original <c>permanent.TopCard.HasLevel</c>: the host's top card carries a

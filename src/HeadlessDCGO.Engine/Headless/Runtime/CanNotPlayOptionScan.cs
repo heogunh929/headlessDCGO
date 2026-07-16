@@ -20,7 +20,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// </list>
 /// AS-IS then also returns true when <c>!MatchColorRequirement</c>; that half is the separately-wired
 /// <see cref="OptionColorRequirement"/> gate (kept distinct so both surface their own reason), so THIS scan
-/// covers only regions ①②③. Mirrors the <see cref="TrashProtectionScan"/> joint-scan substrate: producers embed
+/// covers only regions ①②③. Mirrors the live joint-scan substrate: producers embed
 /// the AS-IS <c>CanNotPlay</c> = <c>CardCondition(option)</c> into a single
 /// <c>Func&lt;CardSource /*option being played*/, bool&gt;</c>, gated by the effect's own CanUse
 /// (<see cref="ContinuousSelfModifierEffect.ConditionKey"/>). Field-scope bindings honour the AS-IS stack-position
@@ -57,6 +57,50 @@ public static class CanNotPlayOptionScan
         // AS-IS `this` — the option being played (the joint's argument).
         var option = new CardSource(context, optionCardId, owner, owner);
         ICardInstanceRepository repository = context.CardInstanceRepository;
+
+        // (R3-W3c-4) AS-IS-literal LIVE scan (CardSource.CanNotPlayThisOption regions ①②③, CardSource.cs:184-238):
+        // for each population, `cardEffect is ICanNotPlayCardEffect && cardEffect.CanUse(null) && CanNotPlay(option)`.
+        // This is what sees NEW-model CanNotPlayClass kind-classes (no ToBinding), e.g. BT8_057. Unioned with the
+        // registry scan below, which still serves old-model player-bucket grants (EX1_072 via
+        // AddCanNotPlayOptionToPlayer) until those are re-ported to the AS-IS player EffectList bucket
+        // (design item W3c-CANNOTPLAY-PLAYERBUCKET). The old ContinuousCanNotPlayOptionEffect is NOT an
+        // ICanNotPlayCardEffect, so the two halves never double-count.
+        var gameContext = new GameContext(context);
+        foreach (var player in gameContext.Players)
+        {
+            // region ①: every player's player.EffectList(None)
+            foreach (var ce in player.EffectList(EffectTiming.None))
+            {
+                if (ce is ICanNotPlayCardEffect p1 && ce.CanUse(null) && p1.CanNotPlay(option))
+                {
+                    return true;
+                }
+            }
+
+            // region ②: every field permanent's EffectList(None)
+            foreach (var permanent in player.GetFieldPermanents())
+            {
+                foreach (var ce in permanent.EffectList(EffectTiming.None))
+                {
+                    if (ce is ICanNotPlayCardEffect p2 && ce.CanUse(null) && p2.CanNotPlay(option))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // region ③: the option's own [None] effects when it is not (the top of) a field permanent.
+        if (option.PermanentOfThisCard().IsEmpty)
+        {
+            foreach (var ce in option.EffectList(EffectTiming.None))
+            {
+                if (ce is ICanNotPlayCardEffect p3 && ce.CanUse(null) && p3.CanNotPlay(option))
+                {
+                    return true;
+                }
+            }
+        }
 
         // Regions ① (player-scope) + ② (field permanents): registered continuous CanNotPlay bindings.
         foreach (EffectRequest request in context.EffectRegistry.GetContinuousEffects(new EffectQueryContext(Scope)))

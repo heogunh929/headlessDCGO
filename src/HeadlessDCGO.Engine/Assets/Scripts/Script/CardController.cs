@@ -1157,7 +1157,7 @@ public class ITrashDigivolutionCards
         // AS-IS :5158-5160 membership + CanNotTrashFromDigivolutionCards protection filter.
         List<CardSource> hostSources = _permanent.DigivolutionCards.ToList();
         _trashTargetCards = _trashTargetCards
-            .Where(cs => hostSources.Any(s => s.InstanceId == cs.InstanceId) && !CanNotTrashFromDigivolutionCards(context, causeId, cs.InstanceId))
+            .Where(cs => hostSources.Any(s => s.InstanceId == cs.InstanceId) && !CanNotTrashFromDigivolutionCards(context, _cardEffect, causeId, cs.InstanceId))
             .ToList();
 
         if (_trashTargetCards.Count == 0) return; // AS-IS :5162
@@ -1219,13 +1219,25 @@ public class ITrashDigivolutionCards
         }
     }
 
-    // AS-IS CardSource.CanNotTrashFromDigivolutionCards = the per-source stamp OR the continuous scan
-    // (self-contained duplicate of DigivolutionStackHelpers' private IsTrashProtected).
-    private static bool CanNotTrashFromDigivolutionCards(EngineContext context, HeadlessEntityId causeEffectSourceId, HeadlessEntityId sourceId)
+    // (R3-W3c-4) AS-IS CardController.cs:5158-5160 `cs.CanNotTrashFromDigivolutionCards(_cardEffect)` — the R1-e
+    // live scan (per-source willBeRemoveSources stamp OR a usable field/player/self ICanNotTrashFromDigivolutionCards
+    // effect, BT9_109). The live causing effect is threaded when available (AS-IS passes `_cardEffect` verbatim);
+    // an id-only dormant caller collapses it to its source card. Replaces the dead-registry TrashProtectionScan.
+    private static bool CanNotTrashFromDigivolutionCards(EngineContext context, ICardEffect? cardEffect, HeadlessEntityId causeEffectSourceId, HeadlessEntityId sourceId)
     {
-        bool stamped = context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? record) && record is not null
-            && record.Metadata.TryGetValue(CardEffectCommons.CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true;
-        return stamped || TrashProtectionScan.IsProtected(context.EffectRegistry, context.CardInstanceRepository, context, sourceId, causeEffectSourceId);
+        if (!context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? record) || record is null)
+        {
+            return false;
+        }
+
+        if (record.Metadata.TryGetValue(CardEffectCommons.CardEffectCommons.TrashProtectedKey, out object? raw) && raw is true)
+        {
+            return true;
+        }
+
+        var sourceBeingTrashed = new CardSource(context, sourceId, record.OwnerId, record.OwnerId);
+        ICardEffect cause = cardEffect ?? CardEffectCommons.BareCauseEffect.For(context, causeEffectSourceId);
+        return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(cause);
     }
 
     // (MIG2 precedent) willBeRemoveSources round-trip — key shared with ITrashLinkCards, helpers duplicated
