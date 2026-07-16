@@ -51,3 +51,11 @@ RD-GC2-01=R3-W3b 필수 · PlaySelfAtEndOfBattle(RD-P6C3-B2)=R6-Db 동승(선행
 4. **W3c-4 키/스캔 소비자 재하우징**: TrashProtectionScan(BT9_109)·CanNotPlayOptionScan(BT8_057)·SecurityResolver:530 구-타입·HeadlessMainPhaseFlow·CardSource.CardNames·Sink CanNotAddSecurity/Memory·DeDigivolveHelpers·ImmuneStackTrashing — 각 AS-IS EffectList is-스캔 이관+대응 flip+실카드 witness. (:2961/:3093 restriction 코어·:1495/:2827 트리거형·:2883 포함)
 5. **W3c-final**: 게이트 판독-half 은퇴+EffectRegistry/EffectBinding/LegacyBridge/registrar 물리 삭제+collector/GetEffectsForTiming 테스트 재조준(배치0 이월)+레지스트리-단언 스위트 정리 — 적대리뷰 필수.
 특수플레이 마커 5건=R6-Db 결합 유지. R6-Da/Db는 §F 그대로.
+
+## §H. B군 1라운드 마감 (2026-07-16)
+
+**통합 적대리뷰(14커밋 전수, 6렌즈)**: 초판 **NO-GO(P0-1)** — 생산자-선행 flip(Progress→버킷·CanNotAffected→kind-class)이 sink/Commons의 registry-단독 소비자를 사문화시켜 일반 면역 집행이 main 대비 소실(sink-직행 mutation 경로), 기존 witness 전량이 직독-단언이라 미검출. **같은 라운드 상환(36010cdb)**: 소비 7사이트(리뷰 6+누락 1=Commons:359 C-arm) live 재하우징 → `BlocksOpponentEffect` production 호출 0, sink-경로 실구동 witness 7/7(Ba-P0-1), P1-1(sink ApplyMemory gainer-키잉 부호-도출 교정), P2(RD-BCE-01 기록). 스위트 328/108/436, fail-set 전 구간 연속 동일. **리뷰 GO 조건 충족.** 그 외 flip 14패밀리=전수 반증 실패(확인됨), union 위험 조합 0.
+
+**1라운드 결산**: registry 판독 call-site 수십 곳 → AS-IS live 스캔(면역 계열 8+7·CanAdd 2·DeDigivolve·StackTrashing 9·CanNotPlay·TrashProtection·DontBattleSecurityDigimon·EndTurnMinMemory·joint 2·DP/SAttack-delta 5함수). 발명 파일 삭제 6(FactoryBinding·TrashProtectionScan·사문 훅/resolver·게이트 파일들 부분). 침묵 버그 실수정 3계열(BT9_109 트래시보호·DP-delta 무발화 28+장·P0-1 면역 사문화). Register 생산 24→14.
+
+**잔여 지도(2라운드)**: ①**R6-Da' 독립 region-골 재스코프**(activated 표현형 이관 — 구모델 ActivatedEffect의 cap-파티션/환불/executed 의미론은 AS-IS ActivateClass 미표현, 단순 flip=회계 소실; 창 컷오버 동형 설계 골) ②잔여 생산자: C-게이트 grant 코어 일부·E(RD-3C2B-02 EffectMutation live-effect 스레딩)·F(RD-P6C3-C1)·A2(player-bucket expiry)·ActivatedEffects 내 granted-continuous 6곳(corpus 삭제와 동승) ③ContinuousImmunityGate=compile-only 스텁(테스트 2종 재조준 후 삭제) ④registry 물리 삭제=①② 소멸 후. **R2-C ①②③이 ContinuousModifierGate 비용 3키를 걷음** — 다음 골로 확정.
