@@ -300,28 +300,49 @@ public static partial class CardEffectFactory
 
     // (P4 slice) ImmuneFromDPMinusStaticEffect moved to CardEffectFactory/ImmuneFromDPMinus.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-P0 B.O.6 / #5) <c>CannotReduceCostClass</c> — the play/digivolution cost of this card (or,
-    /// with <paramref name="permanentCondition"/>, the owner's matching cards) cannot be reduced. Registers a
-    /// continuous CostReduction/Immune restriction honoured by ContinuousModifierGate.Resolve{Play,Digivolution}Cost.
-    /// <paramref name="costKind"/> mirrors the AS-IS <c>targetPermanentsCondition</c>: <see cref="CostReductionScope.Digivolve"/>
-    /// (AS-IS count&gt;=1, e.g. BT5_021 "opponent can't reduce DIGIVOLUTION costs") protects ONLY the digivolution
-    /// cost — NOT the play cost; <see cref="CostReductionScope.Play"/> the reverse; <see cref="CostReductionScope.Both"/>
-    /// (default, trivial predicate) protects either.</summary>
-    public static ICardEffect CanNotReduceCostStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, CostReductionScope costKind = CostReductionScope.Both, bool scopeAnyPlayer = false)
+    /// <summary>(PRIM-P0 B.O.6 / R2-C ③) <c>CannotReduceCostClass</c> — the play/digivolution cost of the cards
+    /// matched by <paramref name="cardCondition"/>, paid by the players matched by <paramref name="playerCondition"/>,
+    /// cannot be reduced. NEW-MODEL flip: returns the AS-IS kind-class <see cref="CardEffects.CannotReduceCostClass"/>
+    /// (an <c>ICannotReduceCostEffect</c>, no <c>ToBinding</c>) consulted SOLELY by the AS-IS-literal live scan
+    /// <c>Player.CanReduceCost</c> (reached by the cost pipeline CardSource.GetPayingCostWithBaseCost — both its
+    /// legacy-fold canReduce knob and ChangeCostClass.GetCost's own veto). This retires the parallel registry
+    /// CostReduction/Immune representation (ReplacementHelpers.ImmuneFrom*CostReductionKey + the removed
+    /// ContinuousModifierGate.CostReductionImmune). <paramref name="costKind"/> is the AS-IS
+    /// <c>targetPermanentsCondition</c>: <see cref="CostReductionScope.Digivolve"/> (AS-IS count&gt;=1, e.g. BT5_021
+    /// "opponent can't reduce DIGIVOLUTION costs") protects ONLY the digivolution cost (the cost pipeline passes a
+    /// non-null target permanent for a digivolve); <see cref="CostReductionScope.Play"/> the reverse (play passes
+    /// null / no target); <see cref="CostReductionScope.Both"/> (default) protects either.</summary>
+    public static ICardEffect CanNotReduceCostStaticEffect(
+        Func<Player, bool> playerCondition, Func<CardSource, bool> cardCondition,
+        bool isInheritedEffect, CardSource card, Func<bool>? condition, CostReductionScope costKind = CostReductionScope.Both)
     {
-        string key = costKind switch
+        ArgumentNullException.ThrowIfNull(playerCondition);
+        ArgumentNullException.ThrowIfNull(cardCondition);
+
+        var effect = new CardEffects.CannotReduceCostClass();
+        effect.SetUpICardEffect("Can't reduce cost", CanUseCondition, card);
+        effect.SetUpCannotReduceCostClass(
+            playerCondition: PlayerCondition,
+            targetPermanentsCondition: TargetPermanentsCondition,
+            cardCondition: cardCondition);
+        effect.SetNotShowUI(true);
+        if (isInheritedEffect)
         {
-            CostReductionScope.Play => ReplacementHelpers.ImmuneFromPlayCostReductionKey,
-            CostReductionScope.Digivolve => ReplacementHelpers.ImmuneFromDigivolutionCostReductionKey,
-            _ => ReplacementHelpers.ImmuneFromCostReductionKey,
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+        bool PlayerCondition(Player player) => player != null && playerCondition(player);
+        // AS-IS targetPermanentsCondition (BT5_021 :50-61): a digivolution supplies >= 1 non-null target
+        // permanent; a plain play / option supplies none. The cost pipeline threads exactly this list.
+        bool TargetPermanentsCondition(List<Permanent> targetPermanents) => costKind switch
+        {
+            CostReductionScope.Digivolve => targetPermanents != null && targetPermanents.Exists(p => p != null),
+            CostReductionScope.Play => targetPermanents == null || !targetPermanents.Exists(p => p != null),
+            _ => true,
         };
-        // (#5) permanentCondition folds the AS-IS cardCondition (which card) AND playerCondition (the payer, via
-        // the permanent's OwnerId). scopeAnyPlayer:true lets it reach the OPPONENT's cards — e.g. BT5_021
-        // "your OPPONENT can't reduce DIGIVOLUTION costs" = permanentCondition p.OwnerId != card.Owner && IsDigimon,
-        // costKind Digivolve, scopeAnyPlayer true.
-        return permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, key, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, key, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), scopeAnyPlayer: scopeAnyPlayer);
     }
 
     /// <summary>(PRIM-P0 B.O.6; R3-W3c-4c B3 flip) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/>

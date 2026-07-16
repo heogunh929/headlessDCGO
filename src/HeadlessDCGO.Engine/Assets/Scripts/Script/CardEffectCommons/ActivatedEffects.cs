@@ -859,7 +859,8 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBo
             return true; // unknown cost → don't force the suspend
         }
 
-        int fullCost = ContinuousModifierGate.ResolvePlayCost(Card.Context, Card.InstanceId, baseCost);
+        // (R2-C) single AS-IS orchestrator; this BeforePayCost effect's card is played from hand (Root.Hand).
+        int fullCost = Card.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.Hand, targetPermanents: null);
         return Card.Context.MemoryController.CanPay(fullCost);
     }
 

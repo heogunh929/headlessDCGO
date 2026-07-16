@@ -745,6 +745,12 @@ public sealed class CardSource
     /// <see cref="ContinuousModifierGate.FoldLegacyDigivolutionCostModifiers"/>.</summary>
     public int GetPayingCostWithBaseCost(int baseCost, SelectCardEffect.Root root, List<Permanent>? targetPermanents, bool checkAvailability = false, int FixedCost = -1)
     {
+        // SUBSTRATE: the AS-IS cost scans (CanReduceCost / GetChangedCostItselef → CanUse → CheckEffectDisabledClass)
+        // read game state through the process-global GManager.instance; the mirror resolves that from
+        // AmbientMatchContext, so scope the match for the whole fold (a caller already in the same scope re-enters
+        // harmlessly) — same idiom as NewModelContinuousScan's public entry points.
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(Context);
+
         int Cost = FixedCost >= 0 ? FixedCost : baseCost;
 
         bool isEvolution = targetPermanents != null && targetPermanents.Some((permanent) => permanent != null);

@@ -123,7 +123,7 @@ public static partial class CardEffectCommons
                     && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
                     ? def.PlayCost ?? 0
                     : 0;
-                int cost = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, card.InstanceId, baseCost));
+                int cost = Math.Max(0, card.GetPayingCostWithBaseCost(baseCost, root, targetPermanents: null));
                 if (!context.MemoryController.CanPay(cost))
                 {
                     continue;

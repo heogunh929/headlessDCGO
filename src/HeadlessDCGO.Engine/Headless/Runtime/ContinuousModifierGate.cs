@@ -91,8 +91,7 @@ public static class ContinuousModifierGate
         }
 
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        bool effectiveCanReduce = playerCanReduce && !CostReductionImmune(context, cardId, result, isDigivolution: false);
-        return ModifierHelpers.ResolvePlayCost(cost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+        return ModifierHelpers.ResolvePlayCost(cost, result.Modifiers, canReduceCost: playerCanReduce).FinalValue;
     }
 
     /// <summary>(R2-C) Fold the mirror's legacy continuous DIGIVOLUTION-cost NumericModifier bindings (registry +
@@ -109,38 +108,17 @@ public static class ContinuousModifierGate
         }
 
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId, digivolveTargetPermanentId);
-        bool effectiveCanReduce = playerCanReduce && !CostReductionImmune(context, cardId, result, isDigivolution: true);
         IReadOnlyList<NumericModifier> ownGated =
             DigivolutionCostGateEffect.CollectOwnGatedModifiers(context, cardId, digivolveTargetPermanentId);
         IReadOnlyList<NumericModifier> modifiers = ownGated.Count == 0
             ? result.Modifiers
             : result.Modifiers.Concat(ownGated).ToArray();
-        return ModifierHelpers.ResolveDigivolutionCost(cost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+        return ModifierHelpers.ResolveDigivolutionCost(cost, modifiers, canReduceCost: playerCanReduce).FinalValue;
     }
 
-    /// <summary>(D-8 / #5) Whether a continuous "cost cannot be reduced" restriction targets the card for the
-    /// cost being resolved. A <c>Both</c>-scope immunity (parsed replacement) applies to either cost; a
-    /// <c>Play</c>- or <c>Digivolve</c>-scoped immunity applies only to its matching path (read as a raw scoped
-    /// binding, like the DP-minus source predicate), so a "can't reduce DIGIVOLUTION cost" effect does not block
-    /// the PLAY cost and vice versa.</summary>
-    private static bool CostReductionImmune(EngineContext context, HeadlessEntityId cardId, ContinuousEvaluationResult result, bool isDigivolution)
-    {
-        if (ReplacementHelpers.ImmuneFromCostReduction(cardId, result.Replacements).IsReplaced)
-        {
-            return true;   // Both-scope (protects either cost).
-        }
-
-        string kindKey = isDigivolution
-            ? ReplacementHelpers.ImmuneFromDigivolutionCostReductionKey
-            : ReplacementHelpers.ImmuneFromPlayCostReductionKey;
-        foreach (var effect in ContinuousScopeEvaluation.ApplicableEffects(context, Scope, cardId))
-        {
-            if (effect.Context.Values.TryGetValue(kindKey, out object? raw) && raw is bool flag && flag)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    // (R2-C ③) The registry-key cost-immunity consumer CostReductionImmune (D-8/#5, ImmuneFrom*CostReductionKey)
+    // was RETIRED: the sole immunity representation is now the live AS-IS Player.CanReduceCost scan
+    // (ICannotReduceCostEffect / CannotReduceCostClass), which the cost pipeline already re-derives as
+    // `playerCanReduce`. The ReplacementHelpers.ImmuneFrom*CostReductionKey constants + the factory that produced
+    // them (CardEffectFactory.CanNotReduceCostStaticEffect) are now dead / flipped to the kind-class.
 }
