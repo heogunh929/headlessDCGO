@@ -76,8 +76,14 @@ public sealed class TurnStateMachine
     /// <summary>AS-IS <c>TurnStateMachine.isFirstPlayerFirstTurn</c> (:26).</summary>
     public bool isFirstPlayerFirstTurn { get; set; } = true;
 
-    /// <summary>AS-IS <c>TurnStateMachine.TurnCount</c> (:29).</summary>
-    public int TurnCount { get; set; } = 0;
+    /// <summary>AS-IS <c>TurnStateMachine.TurnCount</c> (:29, read by cards via
+    /// <c>turnStateMachine.TurnCount</c> — e.g. the EnterFieldTurnCount comparisons in OptionEffect /
+    /// Permanent / FieldPermanentCard). (R4 P3 / P1 wrong-host resolution) A read-only view over the substrate
+    /// turn counter <see cref="HeadlessTurnState.TurnNumber"/> (1-indexed, same as AS-IS), sibling to
+    /// <see cref="DoneStartGame"/> — so a live card read sees the real turn number the turn-controller advances,
+    /// not a dormant-body local that stays 0 in live play. The AS-IS :550 in-body increment is the substrate
+    /// turn-advance (owned by the turn-controller today; S3 relocates the advance point into ActivePhaseAsync).</summary>
+    public int TurnCount => _context.TurnController.Current.TurnNumber;
 
     /// <summary>AS-IS <c>TurnStateMachine.IsSelecting</c> (:20).</summary>
     public bool IsSelecting { get; set; } = false;
@@ -143,8 +149,9 @@ public sealed class TurnStateMachine
 
         // AS-IS :539-548 SE / FirstObject / log — UI stripped.
 
-        // AS-IS :550 TurnCount++
-        TurnCount++;
+        // AS-IS :550 TurnCount++ — the mirror turn counter (HeadlessTurnState.TurnNumber) is advanced by the
+        //   substrate turn-controller at the turn boundary; TurnCount is now a read-only view over it (R4 P3 /
+        //   P1 resolution), so the increment is not a dormant-body mutation. S3 relocates the advance point here.
         // AS-IS :552 turnPlayer.TurnCount++ — mirror Player has no per-player TurnCount member
         //   (substrate PlayerTurnCounterController owns it). P1-junction: per-player turn count.
 
@@ -396,8 +403,6 @@ public sealed class TurnStateMachine
     public async Task EndPhaseAsync(CancellationToken cancellationToken = default)
     {
         AutoProcessing autoProcessing = AutoProcessing.For(_context);
-        Player turnPlayer = gameContext.TurnPlayer!;
-        Player nonTurnPlayer = gameContext.NonTurnPlayer!;
 
         // AS-IS :3154 log / :3158-3159 OffCardTarget UI — stripped.
 
@@ -410,40 +415,29 @@ public sealed class TurnStateMachine
         // AS-IS :3168 auto-processing check.
         await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
 
-        // === AS-IS :3170-3209 end-of-turn reset. (P3 RE-POINT) HeadlessEndTurnCleanupFlow.Cleanup(...) is the
-        //     established mirror of this whole reset block; P3 swaps the body below for a single delegating call.
-        //     Mirrored 1:1 here so the reset LIST stays witness-visible pre-re-point. ===
+        // === AS-IS :3170-3201 end-of-turn bucket reset. (P3 RE-POINT — single owner) HeadlessEndTurnCleanupFlow.Cleanup
+        //     is the established mirror of this whole reset block, and it is the SAME flow the live turn driver calls at
+        //     the turn boundary (MetadataActionProcessor). Delegating here deletes the duplicate bucket-reset body so
+        //     there is one owner. Cleanup owns:
+        //       * AS-IS :3171 `attackProcess.AttackCount = 0`   -> AttackController.ResetTurnAttackState()
+        //       * AS-IS :3177 player.UntilEachTurnEndEffects, :3179 player.UntilCalculateFixedCostEffect,
+        //         :3185 permanent.UntilEachTurnEndEffects, :3191 permanent.UntilOwnerTurnEndEffects,
+        //         :3194 player.UntilOpponentTurnEndEffects, :3196 player.UntilOwnerTurnEndEffects,
+        //         :3200 permanent.UntilOpponentTurnEndEffects   (the ten Until* duration buckets)
+        //       * plus the turn-end continuous-effect duration expiry and the card-metadata turn-end key clears.
+        //     The ending turn = the live turn-controller state (turnPlayer = the player whose turn is ending).
+        new HeadlessEndTurnCleanupFlow().Cleanup(_context, _context.TurnController.Current);
 
-        // AS-IS :3171 `attackProcess.AttackCount = 0` — mirror AttackProcess.AttackCount is a controller-backed
-        //   read-only view; the turn-boundary counter reset is a substrate concern (P3 / cleanup-flow). junction.
-        // AS-IS :3173 CardEffectCommons.CardPermanenceMap reset — no mirror analog (see ResetMainPhaseParameter). ADAPTATION.
+        // AS-IS :3173 CardEffectCommons.CardPermanenceMap reset — no mirror analog (see ResetMainPhaseParameter);
+        //   absent in Cleanup too. ADAPTATION.
+        // AS-IS :3181 `player.DigivolveCount_ThisTurn = 0` — junction: mirror Player has no DigivolveCount_ThisTurn
+        //   member; the substrate PlayerTurnCounterController owns this per-turn counter (the live driver resets it at
+        //   the turn boundary), so it is NOT part of Cleanup's bucket reset. P1/P3-junction (dormant: no double-reset).
 
-        foreach (Player player in gameContext.Players)
-        {
-            player.UntilEachTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();          // AS-IS :3177
-            player.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();    // AS-IS :3179
-            // AS-IS :3181 `player.DigivolveCount_ThisTurn = 0` — mirror Player has no DigivolveCount_ThisTurn
-            //   member (substrate PlayerTurnCounterController owns it). P1/P3-junction: per-turn digivolve reset.
-            foreach (Permanent permanent in player.GetFieldPermanents())
-            {
-                permanent.UntilEachTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3185
-            }
-        }
-
-        foreach (Permanent permanent in turnPlayer.GetFieldPermanents())
-        {
-            permanent.UntilOwnerTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();      // AS-IS :3191
-        }
-
-        nonTurnPlayer.UntilOpponentTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3194
-        turnPlayer.UntilOwnerTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();         // AS-IS :3196
-
-        foreach (Permanent permanent in nonTurnPlayer.GetFieldPermanents())
-        {
-            permanent.UntilOpponentTurnEndEffects = new List<Func<EffectTiming, ICardEffect>>();   // AS-IS :3200
-        }
-
-        // AS-IS :3204-3208 reset per-card use counts.
+        // AS-IS :3204-3208 reset per-card use counts. Junction: NOT owned by Cleanup (Cleanup clears the OLD
+        //   metadata-key use-count model; the live driver resets the NEW-model per-instance caps at the turn boundary
+        //   via CEntity_EffectControllerStore.ResetUseCountsForTurn). Kept direct as the AS-IS-position 1:1 mirror of
+        //   :3204-3208 so the EndPhase region stays faithful (dormant: no double-reset, 0 live callers).
         foreach (CardSource cardSource in gameContext.ActiveCardList)
         {
             cardSource.cEntity_EffectController.InitUseCountThisTurn();

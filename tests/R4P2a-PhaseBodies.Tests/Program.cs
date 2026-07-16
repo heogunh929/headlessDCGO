@@ -10,7 +10,7 @@ using TurnStateMachine = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCom
 // (R4 batch P2a) DORMANT phase-body witnesses. Each drives one AS-IS-region mirror method DIRECTLY
 // (gate-invisible: no driver, no action queue) and asserts the deterministic body order/outcome:
 //   * ActivePhaseAsync : reset (UntilOwnerTurnStartEffects) -> start-of-turn window -> unsuspend -> phase-end
-//     bucket reset, plus TurnCount++.
+//     bucket reset (TurnCount is a read-only view over the substrate turn number, R4 P3).
 //   * DrawPhaseAsync   : deck-out loss judgment (empty library, TurnCount != 1) marks the turn player.
 //   * EndPhaseAsync    : the end-of-turn reset LIST (every mirrored Until* bucket) is cleared.
 
@@ -19,7 +19,7 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("ActivePhaseAsync runs reset -> start-turn window -> unsuspend -> bucket reset, TurnCount++", ActiveOrder),
+    ("ActivePhaseAsync runs reset -> start-turn window -> unsuspend -> bucket reset (TurnCount views substrate)", ActiveOrder),
     ("DrawPhaseAsync judges deck-out as a loss for the empty-library turn player", DrawDeckOut),
     ("EndPhaseAsync clears the full end-of-turn reset list", EndResetList),
 };
@@ -55,11 +55,13 @@ async Task ActiveOrder()
     turnPlayer.UntilOwnerActivePhaseEffects = OneEffect();
 
     var tsm = TurnStateMachine.For(context);
-    AssertEqual(0, tsm.TurnCount, "TurnCount starts at 0");
+    // (R4 P3) TurnCount is now a read-only view over the substrate turn counter (HeadlessTurnState.TurnNumber);
+    //   the AS-IS :550 in-body increment is the substrate turn-advance (turn-controller today, S3 relocates it
+    //   here), so it is no longer a dormant-body mutation. The reset-ORDER below is this witness's real subject.
+    AssertEqual(context.TurnController.Current.TurnNumber, tsm.TurnCount, "TurnCount views substrate TurnNumber");
 
     await tsm.ActivePhaseAsync();
 
-    AssertEqual(1, tsm.TurnCount, "TurnCount++ (AS-IS :550)");
     // reset (:534) ran BEFORE the start-turn window + unsuspend (both below observed) — order preserved.
     AssertEqual(0, new Permanent(context, permA.InstanceId, P1).UntilOwnerTurnStartEffects.Count,
         "UntilOwnerTurnStartEffects reset (AS-IS :534-537)");
@@ -74,11 +76,17 @@ async Task ActiveOrder()
 
 async Task DrawDeckOut()
 {
-    EngineContext context = Board(turnPlayer: P1, phase: HeadlessPhase.Draw);
+    // (R4 P3) TurnCount now views the substrate turn number, so advance the turn-controller to turn 3 (two
+    //   EndTurns keep P1 the turn player: turn1=P1, turn2=P2, turn3=P1) — AS-IS :669 draws only when TurnCount != 1.
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 6162);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.EndTurn();   // turn 2, P2
+    context.TurnController.EndTurn();   // turn 3, P1
+    ((InMemoryHeadlessTurnController)context.TurnController).SetPhase(HeadlessPhase.Draw);
     using var scope = AmbientMatchContext.Enter(context);
-    // P1 library is empty (no cards placed there); NonTurnPlayer P1 must draw -> deck-out.
+    // P1 library is empty (no cards placed there); the turn player P1 must draw -> deck-out.
     var tsm = TurnStateMachine.For(context);
-    tsm.TurnCount = 2; // AS-IS :669 draw only when TurnCount != 1.
+    AssertEqual(3, tsm.TurnCount, "TurnCount == 3 (substrate, != 1 so DrawPhase draws)");
 
     await tsm.DrawPhaseAsync();
 
