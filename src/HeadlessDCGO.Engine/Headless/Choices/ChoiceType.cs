@@ -36,5 +36,10 @@ public enum ChoiceType
     // first" (AS-IS MultipleSkills OpenSelectCardPanel, _MaxCount:1) or "activate this optional effect? yes/no"
     // (AS-IS Activate_Optional). Candidate Id == the trigger's effect id; skip == "don't activate". Resolved by
     // WindowResolutionController resume in ResolveChoiceAsync, NOT by the OptionalPromptQueue.
-    WindowChoice
+    WindowChoice,
+    // (R4 S3a) the breeding-phase decision (AS-IS TurnStateMachine.cs:719-816, a bool ValueSelection —
+    // SendShouldHatch semantics): act (hatch when possible, else move — AS-IS both-possible resolves to hatch)
+    // vs decline (skip). One synthetic candidate; skip == decline. Pump-parked (TurnFlowPump) and resolved by
+    // the deposit seam in ResolveChoiceAsync.
+    BreedingDecision
 }

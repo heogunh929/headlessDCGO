@@ -458,6 +458,21 @@ public sealed class MetadataActionProcessor : IActionProcessor
                     .ChooseAsync(pendingRequest, cancellationToken)
                     .ConfigureAwait(false);
 
+            // (R4 S3a, decision 3 = B) A choice opened ON the TurnFlowPump stack (await-mode: the provider/port
+            // parked the pump in place) resolves by DEPOSIT: hand the parsed answer to the pump host and clear
+            // the controller. NO record-replay resume runs — the window/effect body is still live on the parked
+            // pump stack and consumes the answer in place when the task-runner's next step releases the gate.
+            // Routing through the legacy branches below would double-drive a body that never unwound.
+            if (TurnFlowPumpHost.Find(context) is { HasPendingPumpChoice: true } pumpHost)
+            {
+                HeadlessChoiceState pumpChoice = context.ChoiceController.ResolveChoice(result);
+                context.ChoiceController.ClearChoice();
+                pumpHost.DepositAnswer(result);
+                Dictionary<string, object?> pumpMetadata = MetadataWithChoice(action, pumpChoice);
+                pumpMetadata["pumpChoiceResolved"] = true;
+                return ActionProcessResult.Success("Pump-parked choice resolved.", pumpMetadata);
+            }
+
             // Block-timing choices must flow through BlockTiming so the blocker selection is applied
             // to the attack state (SelectBlocker); a plain ResolveChoice would clear the choice
             // without ever updating the pending attack (G3.5-005).

@@ -159,7 +159,7 @@ public sealed class DeferredChoiceProvider : IChoiceProvider, IDeferredChoiceCoo
         }
     }
 
-    public Task<ChoiceResult> ChooseAsync(ChoiceRequest request, CancellationToken cancellationToken = default)
+    public async Task<ChoiceResult> ChooseAsync(ChoiceRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
@@ -178,7 +178,22 @@ public sealed class DeferredChoiceProvider : IChoiceProvider, IDeferredChoiceCoo
         {
             ChoiceResult replayed = active.Answers[active.Cursor++];
             replayed.ThrowIfInvalid(request);
-            return Task.FromResult(replayed);
+            return replayed;
+        }
+
+        // (R4 S3a, decision 3 = B) AWAIT-mode: on the pump stack an unanswered choice parks the pump IN PLACE
+        // (the AS-IS in-coroutine WaitUntil) instead of throwing the re-run contract — the effect body's stack
+        // survives the park, so NOTHING re-runs and the replay frames stay untouched (this answer never enters
+        // them; the body consumes it directly, exactly like the original). Only a choice opened WHILE a pump
+        // segment executes takes this branch; the RunToStable-driven window keeps the unwind model.
+        if (TurnFlowPumpHost.FindExecuting() is { } pumpHost)
+        {
+            _controller.RequestChoice(request, RequestId(request));
+            pumpHost.MarkPumpChoice();
+            await pumpHost.Gate.WaitUntilAsync(() => pumpHost.HasDepositedAnswer).ConfigureAwait(false);
+            ChoiceResult deposited = pumpHost.TakeDepositedAnswer();
+            deposited.ThrowIfInvalid(request);
+            return deposited;
         }
 
         // (C-Del 3c-2b nested cycles) Idempotent re-ask: when the SAME unanswered question is still pending on

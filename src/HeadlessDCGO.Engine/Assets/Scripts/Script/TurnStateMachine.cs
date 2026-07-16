@@ -68,7 +68,7 @@ public sealed class TurnStateMachine
         set => _passedStore.GetValue(_context, static _ => new System.Runtime.CompilerServices.StrongBox<bool>(true)).Value = value;
     }
 
-    #region (R4 P2a) Turn-flow phase bodies — DORMANT AS-IS-region mirror (0 live callers)
+    #region (R4 P2a→S3a) Turn-flow phase bodies — AS-IS-region mirror (pump-driven when TurnFlowPump is installed)
 
     // (R4 batch P2a, design docs/audit/r4_tsm_s1_design_2026-07-16.md + r4_tsm_investigation_2026-07-16.md)
     // AS-IS-region 1:1 mirror of the TurnStateMachine phase bodies, assembled DORMANT: the live turn drivers
@@ -86,7 +86,11 @@ public sealed class TurnStateMachine
     //     the per-method `currentPhase` locals are gone. Cross-body phase state is the real substrate turn state.
     //   * P2b turn-end seam — RESOLVED at P2b: `AutoProcessing.EndTurnCheck / TurnEndMinMemory / EndTurnProcess`
     //     are mirrored (AutoProcessing.cs, AS-IS :630-727) and the phase bodies call them at the AS-IS positions.
-    //     Still DORMANT: nothing calls these six bodies until the S3 driver flip.
+    //
+    // (R4 S3a, decision 3 = B) The bodies are now driven by the INJECTABLE TurnFlowPump (Headless/Runtime/
+    // TurnFlowPump.cs — the AS-IS continuous driver chain: StartGame → {Active→Draw→Breeding→Main→End→flip}),
+    // installed per match via TurnFlowPumpHost.Install. The DEFAULT (OLD) driver is untouched until the S3c
+    // cutover approval — a match without Install never reaches these bodies.
 
     /// <summary>AS-IS <c>TurnStateMachine.isFirstPlayerFirstTurn</c> (:26).</summary>
     public bool isFirstPlayerFirstTurn { get; set; } = true;
@@ -296,13 +300,72 @@ public sealed class TurnStateMachine
         gameContext.TurnPhase = GameContext.phase.Breeding;   // AS-IS :715 (real write)
         IsSelecting = false;                                   // AS-IS :717
 
-        // AS-IS :719-816 breeding decision block. `Player.CanHatch` / `Player.CanMove` are not on the mirror
-        //   Player yet (P1-junction: breeding-eligibility predicates). The interactive hatch/move itself is
-        //   externalized to the established DISPATCH-ACTION seam (design "기존 디스패치 액션 seam 위임"): AS-IS
-        //   :804 `HatchDigiEggClass.Hatch()` → ZoneMover.HatchDigitamaAsync, AS-IS :810
-        //   `CardObjectController.MovePermanent(...)` → ZoneMover.MoveBreedingToBattleAsync, dispatched as
-        //   HatchDigitama / MoveBreedingToBattle HeadlessActions (choice-pause replaces the AS-IS
-        //   HasPlayerSelection poll at :788). ShowPhase (:721) is UI — stripped.
+        // AS-IS :719-816 breeding decision block (R4 S3a live seam). UI stripped: :721-723 ShowPhase wait,
+        //   :727-767 hatch-object/outline/commandText/autoHatch/AI-probability branches. The DECISION is the
+        //   AS-IS bool ValueSelection (SendShouldHatch semantics) — externalized as a
+        //   ChoiceType.BreedingDecision choice-pause replacing the :788 WaitWhile(HasPlayerSelection) poll,
+        //   parked on the TurnFlowPump gate and answered via the agent's ResolveChoice action (deposit seam).
+        //   Only reachable pump-driven: a dormant direct call sees no pump host and skips the block (the P2a
+        //   dormant contract), and AS-IS gates the whole block on CanHatch||CanMove anyway.
+        Player breedingPlayer = gameContext.TurnPlayer!;
+        if ((breedingPlayer.CanHatch || breedingPlayer.CanMove)
+            && Headless.Runtime.TurnFlowPumpHost.Find(_context) is { } breedingPump)
+        {
+            _context.ChoiceController.RequestChoice(
+                new Headless.Choices.ChoiceRequest(
+                    Headless.Choices.ChoiceType.BreedingDecision,
+                    breedingPlayer.PlayerId,
+                    breedingPlayer.CanHatch
+                        ? "BreedingPhase : Will you hatch Digiegg?"
+                        : "BreedingPhase : Will you move your Digimon to Battle Area?",
+                    minCount: 0,
+                    maxCount: 1,
+                    canSkip: true,
+                    Headless.Choices.ChoiceZone.Custom,
+                    new[]
+                    {
+                        new Headless.Choices.ChoiceCandidate(
+                            new Headless.Services.HeadlessEntityId("breeding:act"),
+                            breedingPlayer.CanHatch ? "hatch" : "move",
+                            Headless.Choices.ChoiceZone.Custom,
+                            IsSelectable: true,
+                            ownerId: breedingPlayer.PlayerId),
+                    }),
+                new Headless.Services.HeadlessEntityId("breeding:decision"));
+            breedingPump.MarkPumpChoice();
+            await breedingPump.Gate.WaitUntilAsync(() => breedingPump.HasDepositedAnswer).ConfigureAwait(false);
+            Headless.Choices.ChoiceResult breedSelection = breedingPump.TakeDepositedAnswer();
+            // AS-IS :789-790 DequeuePlayerSelection<ValueSelection>().ValueAsBool().
+            bool doAction_BreedingPhase = !breedSelection.IsSkipped && breedSelection.SelectedIds.Count > 0;
+
+            // AS-IS :792-794 hideCannotSelectObject/OffHatchObject/OffFieldCardTarget — UI stripped.
+            IsSelecting = true;   // AS-IS :797
+
+            if (gameContext.TurnPhase == GameContext.phase.Breeding)   // AS-IS :799
+            {
+                if (doAction_BreedingPhase)
+                {
+                    // AS-IS :802-812 — hatch WINS when both are possible (:804 `CanHatch || !CanMove`, quirk
+                    // preserved). :804 HatchDigiEggClass.Hatch() → ZoneMover.HatchDigitamaAsync and :810
+                    // CardObjectController.MovePermanent(breeding[0]) → ZoneMover.MoveBreedingToBattleAsync are
+                    // the established substrate seats (P2a mapping).
+                    if (breedingPlayer.CanHatch || !breedingPlayer.CanMove)
+                    {
+                        await _context.ZoneMover
+                            .HatchDigitamaAsync(breedingPlayer.PlayerId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    else if (!breedingPlayer.CanHatch || breedingPlayer.CanMove)
+                    {
+                        await _context.ZoneMover
+                            .MoveBreedingToBattleAsync(breedingPlayer.PlayerId, count: 1, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                }
+            }
+
+            gameContext.TurnPhase = GameContext.phase.Breeding;   // AS-IS :816
+        }
 
         // AS-IS :818 auto-processing check.
         await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
@@ -414,8 +477,16 @@ public sealed class TurnStateMachine
             //   (DequeueMainPhaseAction().Execute ≈ ProcessAsync; the intent fields PlayCard/UseCardEffect/
             //   AttackingPermanent are set by the pushed HeadlessAction, not polled here). The dispatch region's
             //   OWN EndTurnProcess call sites (:1149 pass-command / :1158 auto-pass) ride the same seam — the S3
-            //   driver routes the externalized Pass action to AutoProcessing.EndTurnProcess. The driver flip (S3)
-            //   supplies the action-queue drive; DORMANT here → break rather than spin without a selection source.
+            //   driver routes the externalized Pass action to AutoProcessing.EndTurnProcess.
+            // (R4 S3a) Pump-driven, the :971 selection WAIT parks the pump here; the action DISPATCH body is the
+            //   S3b batch (design item RD-S3B-01) — until it lands the park condition is never satisfied, so an
+            //   S3a pump match intentionally rests at main entry. A dormant direct call (no pump host) keeps the
+            //   P2a break contract.
+            if (Headless.Runtime.TurnFlowPumpHost.Find(_context) is { } mainPump)
+            {
+                await mainPump.Gate.WaitUntilAsync(static () => false).ConfigureAwait(false);
+            }
+
             break;
         }
 

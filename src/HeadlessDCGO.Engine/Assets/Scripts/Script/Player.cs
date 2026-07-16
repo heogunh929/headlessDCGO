@@ -159,6 +159,35 @@ public sealed class Player
         }
     }
 
+    /// <summary>(R4 S3a) AS-IS <c>Player.CanHatch</c> (Player.cs:1168) — verbatim: a digitama remains to hatch
+    /// and the breeding area is empty. <c>DigitamaLibraryCards</c> is the digitama-deck zone read (same shape as
+    /// <see cref="LibraryCards"/>).</summary>
+    public bool CanHatch => DigitamaLibraryCards.Count >= 1 && GetBreedingAreaPermanents().Count == 0;
+
+    /// <summary>(R4 S3a) AS-IS <c>Player.DigitamaLibraryCards</c> — the digitama deck as live views (the
+    /// <see cref="LibraryCards"/> shape over the DigitamaLibrary zone).</summary>
+    public List<CardSource> DigitamaLibraryCards
+    {
+        get
+        {
+            if (Context.ZoneMover is not IZoneStateReader zones)
+            {
+                return new List<CardSource>();
+            }
+
+            return zones.GetCards(PlayerId, ChoiceZone.DigitamaLibrary).ToArray()
+                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
+                .ToList();
+        }
+    }
+
+    /// <summary>(R4 S3a) AS-IS <c>Player.CanMove</c> (Player.cs:1172):
+    /// <c>GetBreedingAreaPermanents().Count(p =&gt; p.CanMove) &gt;= 1 &amp;&amp;
+    /// fieldCardFrames.Count(frame =&gt; frame.IsEmptyFrame()) &gt;= 1</c>. The empty-battle-frame capacity half
+    /// is the frame/slot model the mirror does not carry (zones are lists) — same established ADAPTATION as the
+    /// mirror <c>Permanent.CanMove</c> (capacity check omitted, design item RD-P6C1-2).</summary>
+    public bool CanMove => GetBreedingAreaPermanents().Count(permanent => permanent.CanMove) >= 1;
+
     /// <summary>(P6C1) AS-IS <c>Player.MaxMemoryCost</c> (Player.cs:1127-1146): the most memory this player can
     /// pay before the gauge pins at the opponent's +10 — AS-IS <c>PlayerID==0 ? |10 − Memory| : |Memory + 10|</c>
     /// on the seat-absolute gauge. Re-expressed on the verified player-relative read (<see cref="MemoryForPlayer"/>,
