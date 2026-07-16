@@ -34,3 +34,6 @@ P1 GameContext 갭필(~60줄) → P2a phase-body 휴면 조립(~400-600줄, live
 
 ## P3+P4 착지 (2026-07-17)
 P3(35dd7d44)=EndPhase→Cleanup re-point(AS-IS :3170-3208 전량 커버 대조, junction 3종 소유 판정)+TurnCount 정위치(P2a dormant 필드의 latent 0-반환 버그 교정→substrate 위임 view). P4(ff9f58f4)=shadow-run 하네스 — OLD-vs-OLD **bit-identical**(자연 종결 223/188스텝), 결정론 갭 0, S3 주입 seam 준비. **하네스 퍼징이 latent 엔진 버그 2건 표면화**: RD-R4P4-01=`DcgoMatch.StepAsync`가 ambient scope 미자체설정→block-with-collision NRE(기존 CEntity:88 계열의 정확한 위치 — 프로덕션 DcgoMatch 소비자 노출=S3 리뷰 대상·RL 환경 트랙 필수 수정)·RD-R4P4-02=ST1_15 자동선택 validator 위반. 둘 다 양측 동일 발생=결정론(발산 아님).
+
+## S2 착지 + 리뷰지점 2 GO (2026-07-17)
+S2(통합 2a8015e8): HeadlessPhase 6값+TurnStepCursor{PhaseStart,Starting,Unsuspending,AwaitingMemoryPassEnd}, 재키잉 9쌍 전단사, 소비자 전수 이관, 관측=6 one-hot+커서(정보-보존 단언), 재조준 15파일(단언 약화 0 — "23종"은 상한이었음), shadow 4판 bit-identical, fail-set 동일. **리뷰2 GO(P0/P1 0)**: 전단사·직독 0·계약 불변·DoneStartGame 진리표 동일 확인. P2 3건: ①커밋 메시지 "값·순서 1:1" 과장(None=0은 기존 관례, 이름-매핑이라 무해) ②`HeadlessTurnState.IsMainPhase`=dead 접근자(memory-pass 오포함 함정 — P2b/S3에서 dormant body가 IsMainPlayPhase 사용 확인+제거 권고) ③관측 shape 변경=결정 A 수용 비용(다운스트림 체크포인트 비호환 플래그).
