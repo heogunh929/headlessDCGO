@@ -11,7 +11,11 @@ var phase2Goals = new Phase2Goal[]
     new("G2C-002", "Player", "G2C-002_player_terminal_checks_unit_test_results.md", "G2C-002.Memory.security.deck.loss.check.Tests"),
     new("G2D-004", "Card", "G2D-004_digivolution_source_attach_unit_test_results.md", "G2D-004.Digivolution.source.attach.Tests"),
     new("G2E-005", "Action", "G2E-005_pass_cheat_guard_unit_test_results.md", "G2E-005.Pass.Cheat.guard.Tests"),
-    new("G2F-004", "AutoProcessing", "G2F-004_security_delayed_trigger_hook_unit_test_results.md", "G2F-004.Security.delayed.trigger.hook.Tests"),
+    // (B군 배치0, 2026-07-16) G2F-004's verification target (SecurityDelayedTriggerHook, a dead invented
+    // trigger-read path with zero production references after the window cutover) was physically deleted, so its
+    // dedicated test project is retired. The historical result document stays as the Phase-2 ledger; only the
+    // live-project existence assertion is waived for this entry (same convention as the G3Z-001 update for G3J-002).
+    new("G2F-004", "AutoProcessing", "G2F-004_security_delayed_trigger_hook_unit_test_results.md", "G2F-004.Security.delayed.trigger.hook.Tests", RetiredTestProject: true),
     new("G2G-005", "Attack", "G2G-005_end_attack_trigger_unit_test_results.md", "G2G-005.End.attack.trigger.Tests"),
 };
 
@@ -92,6 +96,12 @@ void PredecessorTestProjectsExist()
 {
     foreach (var goal in phase2Goals)
     {
+        if (goal.RetiredTestProject)
+        {
+            string retiredDirectory = Path.Combine(root, "tests", goal.TestProjectDirectory);
+            AssertTrue(!Directory.Exists(retiredDirectory), $"{goal.Id} retired test project stays deleted");
+            continue;
+        }
         string projectDirectory = Path.Combine(root, "tests", goal.TestProjectDirectory);
         string projectFile = Path.Combine(projectDirectory, $"{goal.TestProjectDirectory}.csproj");
         AssertTrue(Directory.Exists(projectDirectory), $"{goal.Id} test project directory exists");
@@ -281,7 +291,7 @@ static void AssertEqual<T>(T expected, T actual, string message)
     }
 }
 
-sealed record Phase2Goal(string Id, string Area, string ResultDocumentName, string TestProjectDirectory);
+sealed record Phase2Goal(string Id, string Area, string ResultDocumentName, string TestProjectDirectory, bool RetiredTestProject = false);
 
 sealed record Phase2AggregateEvidence(bool IsComplete, bool HasZeroFailedTests)
 {
