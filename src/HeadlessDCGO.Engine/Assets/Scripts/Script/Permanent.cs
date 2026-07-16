@@ -2761,6 +2761,38 @@ public sealed class Permanent
         return true;
     }
 
+    #region Immune From De-Digivolve
+    /// <summary>(R3-W3c-4c B5) AS-IS <c>Permanent.ImmuneFromDeDigivolve()</c> (Permanent.cs:826-847): TRUE when
+    /// some usable <c>IImmuneFromDeDigivolveEffect</c> on any player's field permanents' <c>EffectList(None)</c>
+    /// declares THIS permanent immune (<c>ImmuneDeDigivolve(this)</c>). AS-IS iterates <c>gameContext.Players</c>
+    /// (FULL roster; order-insensitive any-match) — ADAPTATION <c>new GameContext(_context).Players</c>. The
+    /// continuous de-digivolve immunity is subject-only (no causing effect), matching the AS-IS signature.</summary>
+    public bool ImmuneFromDeDigivolve()
+    {
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is IImmuneFromDeDigivolveEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((IImmuneFromDeDigivolveEffect)cardEffect1).ImmuneDeDigivolve(this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
     // ===== (R1-d) restriction / immunity predicate getters (AS-IS Permanent.cs) ================================
     // Each member is the AS-IS body verbatim (scan scope / interface / gate order / quirk preserved per member —
     // NOT uniformised). Established substrate ADAPTATIONs applied throughout (same as the R1-b/R1-c clusters):

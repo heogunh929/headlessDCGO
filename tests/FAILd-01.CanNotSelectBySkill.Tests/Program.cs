@@ -1,3 +1,4 @@
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
@@ -35,11 +36,30 @@ IReadOnlyList<ChoiceCandidate> Candidates(RestrictKind restrict, int skillOwner 
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 921);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R3-W3c-4c D-1) the live getter Permanent.CanSelectBySkill gates each effect with CanUse (→ CanTrigger, which
+    // requires DoneStartGame i.e. a live phase; → IsDisabled → GManager), so build the request under an ambient
+    // match scope in a live phase (FAILd-06 precedent).
+    ctx.TurnController.SetPhase(HeadlessDCGO.Engine.Headless.Runtime.HeadlessPhase.Main);
+    using var _ambient = AmbientMatchContext.Enter(ctx);
     var cards = (CardDatabase)ctx.CardRepository;
 
-    HeadlessEntityId Mk(HeadlessPlayerId owner, string tag)
+    var b = new HeadlessEntityId("p2:B");      // B is the one we protect (id used in the predicate below)
+
+    // (R3-W3c-4c D-1) the untargetability is now the AS-IS kind-class CanNotSelectBySkillClass carried on the
+    // PROTECTOR's LIVE EffectList (no registry binding); SelectPermanentEffect's untargetability gate is the
+    // AS-IS-literal live scan Permanent.CanSelectBySkill over field permanents' EffectList(None). The protector
+    // card dispatches to the TfxCanNotSelectBySkill fixture by CardNumber, whose static Predicate slot the harness
+    // sets to the joint AS-IS predicate CanNotSelectBySkill(candidate, skillSource) before placing.
+    TfxCanNotSelectBySkill.Predicate = restrict switch
     {
-        cards.Upsert(new CardRecord(new HeadlessEntityId(tag), tag, tag, new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        RestrictKind.GatedOpponentOnly => (candidate, skill) => candidate.InstanceId == b && skill.Owner == P2,
+        RestrictKind.Ungated => (candidate, skill) => candidate.InstanceId == b,
+        _ => null,
+    };
+
+    HeadlessEntityId Mk(HeadlessPlayerId owner, string tag, string? cardNumber = null)
+    {
+        cards.Upsert(new CardRecord(new HeadlessEntityId(tag), cardNumber ?? tag, tag, new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
         var id = new HeadlessEntityId($"{(owner == P1 ? "p1" : "p2")}:{tag}");
         ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId(tag), owner));
         ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
@@ -47,28 +67,9 @@ IReadOnlyList<ChoiceCandidate> Candidates(RestrictKind restrict, int skillOwner 
     }
 
     var a = Mk(P1, "A");
-    var b = Mk(P2, "B");                       // B is the one we protect
-    var protector = Mk(P1, "PROT");            // the card that grants the untargetability
-
-    if (restrict != RestrictKind.None)
-    {
-        // (true-scan) AS-IS joint predicate CanNotSelectBySkill(candidate, skillSource): B is protected;
-        // the gated case additionally requires the selecting skill to be the opponent's.
-        Func<CardSource, CardSource, bool> predicate = restrict == RestrictKind.GatedOpponentOnly
-            ? (candidate, skill) => candidate.InstanceId == b && skill.Owner == P2
-            : (candidate, skill) => candidate.InstanceId == b;
-        // CanNotSelectBySkillStaticEffect is declared to return the abstract ICardEffect base (its concrete
-        // result is the OLD-model CanNotSelectBySkillEffect, which DOES implement ToBinding — just not through
-        // the ICardEffect static type), so ToBinding is reached via the LegacyBindingBridge reflective dispatch
-        // rather than a direct call.
-        ICardEffect canNotSelectBySkill = CardEffectFactory.CanNotSelectBySkillStaticEffect(
-            predicate, new CardSource(ctx, protector, P1), condition: null);
-        if (!LegacyBindingBridge.TryToBinding(canNotSelectBySkill, "cnsbs", out HeadlessDCGO.Engine.Headless.Effects.EffectBinding? canNotSelectBinding) || canNotSelectBinding is null)
-        {
-            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotSelectBySkillStaticEffect");
-        }
-        ctx.EffectRegistry.Register(canNotSelectBinding);
-    }
+    _ = Mk(P2, "B");                                                   // B is the one we protect
+    var protector = Mk(P1, "PROT", cardNumber: "TfxCanNotSelectBySkill"); // grants the untargetability (live)
+    _ = protector;
 
     // The selecting skill's source instance (owned by skillOwner).
     var skillId = new HeadlessEntityId(skillOwner == 1 ? "p1:A" : "p2:B");

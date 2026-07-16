@@ -131,11 +131,39 @@ public sealed class HeadlessLegalActionDispatcher
             return false;
         }
 
-        // (joint-migration) canonical scan (AS-IS Permanent.CanMove): the move gate passes a null causing effect
-        // (CanNotMove(top, null)); RestrictionScan's default counterpart is null, so the joint predicate sees it.
-        if (RestrictionScan.IsRestricted(context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotMoveKey, cardId, default))
+        // (R3-W3c-4c D-1 flip) AS-IS Permanent.CanMove ICanNotMoveEffect scan (Permanent.cs:2878-2934): scan every
+        // player's field permanents' + players' EffectList(None) for a usable ICanNotMoveEffect whose predicate
+        // CanNotMove(TopCard, null) holds — the move gate passes a NULL causing effect (AS-IS CanNotMove(top, null)).
+        // The joint carrier CanNotMoveEffect now implements ICanNotMoveEffect, so this LIVE scan replaces the
+        // retired registry RestrictionScan(CannotMoveKey) 1:1 (only this restriction portion is flipped; the
+        // IsDigimon / egg-DP guards above stay as the GR-002 decomposition).
+        var movePermanent = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId);
+        Assets.Scripts.Script.CardEffectCommons.CardSource? moveTop = movePermanent.TopCard;
+        if (moveTop is not null)
         {
-            return false;
+            foreach (Assets.Scripts.Script.CardEffectCommons.Player scanPlayer in new Assets.Scripts.Script.CardEffectCommons.GameContext(context).Players)
+            {
+                foreach (Assets.Scripts.Script.CardEffectCommons.Permanent fieldPermanent in scanPlayer.GetFieldPermanents())
+                {
+                    foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect in fieldPermanent.EffectList(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None))
+                    {
+                        if (cardEffect is Assets.Scripts.Script.CardEffectCommons.ICanNotMoveEffect cannotMove
+                            && cardEffect.CanUse(null) && cannotMove.CanNotMove(moveTop, null))
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect in scanPlayer.EffectList(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None))
+                {
+                    if (cardEffect is Assets.Scripts.Script.CardEffectCommons.ICanNotMoveEffect cannotMove
+                        && cardEffect.CanUse(null) && cannotMove.CanNotMove(moveTop, null))
+                    {
+                        return false;
+                    }
+                }
+            }
         }
 
         // AS-IS `if (TopCard.IsDigiEgg && DP <= 0) return false;` (Permanent.cs:2069-2071): a Digi-Egg with no DP

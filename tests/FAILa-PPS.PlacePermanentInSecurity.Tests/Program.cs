@@ -1,8 +1,10 @@
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // FAIL-a (mapping remediation): PlacePermanentInSecurityAndProcessAccordingToResult must honour the AS-IS
@@ -32,22 +34,26 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task Place(bool isFaceUp, bool restrict, bool expectFaceUpEvent, bool expectPlaced)
 {
     EngineContext ctx = Ctx();
+    // (R3-W3c-4c B3) the placement routes through the sink's AddToSecurity restriction gate = the live
+    // Player.CanAddSecurity scan, which gates each effect with CanUse (→ CanTrigger, DoneStartGame → GManager),
+    // so drive the placement under an ambient match scope.
+    using var _ambient = AmbientMatchContext.Enter(ctx);
     var card = await Battle(ctx, "DIG");
     ctx.GameEventQueue.DrainPending();   // clear the battle-area move event
     if (restrict)
     {
-        // P1 can't add to security.
-        // CanNotAddSecurityStaticEffect is declared to return the abstract ICardEffect base (its concrete
-        // result is the OLD-model ContinuousPlayerScopeRestrictionEffect, which DOES implement ToBinding —
-        // just not through the ICardEffect static type), so ToBinding is reached via the LegacyBindingBridge
-        // reflective dispatch rather than a direct call.
-        ICardEffect cannotAddSecurity = CardEffectFactory.CanNotAddSecurityStaticEffect(
-            P1, isInheritedEffect: false, new CardSource(ctx, card, P1), condition: null);
-        if (!LegacyBindingBridge.TryToBinding(cannotAddSecurity, $"cnas:{card.Value}", out EffectBinding? cannotAddSecurityBinding) || cannotAddSecurityBinding is null)
-        {
-            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from CanNotAddSecurityStaticEffect");
-        }
-        ctx.EffectRegistry.Register(cannotAddSecurityBinding);
+        // (R3-W3c-4c B3) P1 can't add to security — grant the AS-IS kind-class CannotAddSecurityClass on a
+        // separate P1 field permanent (the live scan walks Players_ForTurnPlayer's field permanents); dispatched
+        // via the TfxCannotAddSecurity fixture by CardNumber.
+        TfxCannotAddSecurity.ScopePlayer = P1;
+        TfxCannotAddSecurity.CausingPredicate = null;
+        var gdef = new HeadlessEntityId("GRANT");
+        ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(gdef, "TfxCannotAddSecurity", "GRANT",
+            new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        var gid = new HeadlessEntityId("p1:battle:GRANT");
+        ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(gid, gdef, P1));
+        await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, gid, ChoiceZone.None, ChoiceZone.BattleArea));
+        ctx.GameEventQueue.DrainPending();   // clear the grantor's battle-area move event
     }
 
     await CardEffectCommons.PlacePermanentInSecurityAndProcessAccordingToResult(
@@ -75,6 +81,7 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 916);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);   // (R3-W3c-4c B3) past Setup so CanUse→CanTrigger passes.
     return ctx;
 }
 

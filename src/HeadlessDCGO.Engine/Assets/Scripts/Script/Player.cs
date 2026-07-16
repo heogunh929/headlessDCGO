@@ -372,12 +372,49 @@ public sealed class Player
 
     // ===== security rule gates =====
 
-    /// <summary>(MIG5) AS-IS <c>Player.CanAddSecurity(cardEffect)</c> (Player.cs:1469-1517): delegates to the
-    /// mirror <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity"/> (currently stubbed true,
-    /// pre-existing design item MIG3-CANADDSECURITY — the real CannotAddSecurity scan runs at the AddToSecurity
-    /// mutation choke, so a pre-check here can read true while the mutation later no-ops).</summary>
-    public bool CanAddSecurity(HeadlessEntityId? causeEffectSourceId) =>
-        Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity(Context, PlayerId, causeEffectSourceId);
+    /// <summary>(MIG5; R3-W3c-4c B3 flip) AS-IS <c>Player.CanAddSecurity(cardEffect)</c> (Player.cs:1469-1517): the
+    /// AS-IS-literal <c>ICannotAddSecurityEffect</c> LIVE scan over <c>Players_ForTurnPlayer</c>'s field permanents'
+    /// + own player-scope <c>EffectList(None)</c>, <c>CanUse(null)</c>-gated, calling
+    /// <c>cannotAddSecurity(this = the gaining player, cardEffect)</c>. The AS-IS <c>IsSecurityLooking</c> guard
+    /// (:1471) has no live headless reader (pre-existing design item MIG3-SECURITYLOOKING); it is delegated to
+    /// <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity"/> as before (stubbed true). The
+    /// causing effect is reconstructed from <paramref name="causeEffectSourceId"/> (the CardEffectCondition reads
+    /// only its source card). Was a bare stub with no restriction scan; the factory now produces the kind-class
+    /// <c>CannotAddSecurityClass</c> (no ToBinding) so this live scan is the sole reader.</summary>
+    public bool CanAddSecurity(HeadlessEntityId? causeEffectSourceId)
+    {
+        if (!Assets.Scripts.Script.SecurityRuleGateSeam.CanAddSecurity(Context, PlayerId, causeEffectSourceId))
+        {
+            return false;
+        }
+
+        ICardEffect cardEffect = BareCauseEffect.For(Context, causeEffectSourceId ?? default);
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICannotAddSecurityEffect && cardEffect1.CanUse(null)
+                        && ((ICannotAddSecurityEffect)cardEffect1).cannotAddSecurity(this, cardEffect))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect1 is ICannotAddSecurityEffect && cardEffect1.CanUse(null)
+                    && ((ICannotAddSecurityEffect)cardEffect1).cannotAddSecurity(this, cardEffect))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>(MIG5) AS-IS <c>Player.CanReduceSecurity()</c> (Player.cs:1521-1529): delegates to the mirror
     /// <see cref="Assets.Scripts.Script.SecurityRuleGateSeam.CanReduceSecurity"/> (stubbed true, pre-existing
@@ -473,14 +510,13 @@ public sealed class Player
         }
     }
 
-    /// <summary>(bridge W4, retires design item MIG5-CANADDMEMORY) AS-IS <c>Player.CanAddMemory(cardEffect)</c>
-    /// (Player.cs:1030-1075): the gauge cap (<c>MemoryForPlayer &gt;= 10</c>, :1032-1035), then the
-    /// ICannotAddMemoryEffect scan over both boards' + players' effects (:1037-1071). The mirror carrier of
-    /// that AS-IS interface is the <c>CannotAddMemoryKey</c> player-scope continuous binding
-    /// (<c>CardEffectFactory.CannotAddMemoryEffect</c>); this scan reproduces the sink's central AddMemoryKind
-    /// gain gate (<c>MatchStateMutationSink.IsPlayerRestricted</c> — private to the sink, and keyed there on
-    /// the mutation SOURCE's owner, while AS-IS keys on THIS gaining player) with the true AS-IS causing card
-    /// (<c>cardEffect.EffectSourceCard</c>) fed to a <c>CardEffectCondition</c> predicate.</summary>
+    /// <summary>(bridge W4; R3-W3c-4c B3 flip, retires design item MIG5-CANADDMEMORY) AS-IS
+    /// <c>Player.CanAddMemory(cardEffect)</c> (Player.cs:1030-1075): the gauge cap (<c>MemoryForPlayer &gt;= 10</c>,
+    /// :1032-1035), then the AS-IS-literal <c>ICannotAddMemoryEffect</c> LIVE scan over <c>Players_ForTurnPlayer</c>'s
+    /// field permanents' + own player-scope <c>EffectList(None)</c> (:1037-1071), <c>CanUse(null)</c>-gated, calling
+    /// <c>cannotAddMemory(this = the gaining player, cardEffect = the causing effect)</c>. Was the registry
+    /// player-scope <c>CannotAddMemoryKey</c> binding scan; the factory now produces the kind-class
+    /// <c>CannotAddMemoryClass</c> (no ToBinding) so the live scan is the sole reader.</summary>
     public bool CanAddMemory(ICardEffect cardEffect)
     {
         if (MemoryForPlayer >= 10)
@@ -488,46 +524,28 @@ public sealed class Player
             return false;
         }
 
-        foreach (EffectRequest effect in Context.EffectRegistry.GetContinuousEffects(
-            new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
         {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!(values.TryGetValue(RestrictionHelpers.CannotAddMemoryKey, out object? raw) && raw is true) ||
-                !(values.TryGetValue(PlayerScopeContinuousHelpers.PlayerScopeKey, out object? scopeRaw) && scopeRaw is true))
+            foreach (Permanent permanent in player.GetFieldPermanents())
             {
-                continue;
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICannotAddMemoryEffect && cardEffect1.CanUse(null)
+                        && ((ICannotAddMemoryEffect)cardEffect1).cannotAddMemory(this, cardEffect))
+                    {
+                        return false;
+                    }
+                }
             }
 
-            bool playerMatches =
-                (values.TryGetValue(PlayerScopeContinuousHelpers.ScopeAnyPlayerKey, out object? anyRaw) && anyRaw is true) ||
-                (values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid) && pid is int id && id == PlayerId.Value);
-            if (!playerMatches)
+            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
             {
-                continue;
-            }
-
-            // (P1-PG) AS-IS gates the scan with cardEffect1.CanUse(null) — a conditional restriction whose
-            // condition is currently false must not block the add.
-            if (values.TryGetValue(ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
-                && condRaw is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            // AS-IS cannotAddMemory(this, cardEffect) — the restriction's causing-effect predicate, fed the
-            // TRUE causing card. No predicate = block every add.
-            if (values.TryGetValue(RestrictionHelpers.CausingEffectPredicateKey, out object? predRaw)
-                && predRaw is Func<CardSource, bool> predicate)
-            {
-                if (cardEffect?.EffectSourceCard is { } causingCard && predicate(causingCard))
+                if (cardEffect1 is ICannotAddMemoryEffect && cardEffect1.CanUse(null)
+                    && ((ICannotAddMemoryEffect)cardEffect1).cannotAddMemory(this, cardEffect))
                 {
                     return false;
                 }
-
-                continue;
             }
-
-            return false;
         }
 
         return true;

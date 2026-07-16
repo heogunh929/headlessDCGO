@@ -1,9 +1,13 @@
 // PRIM-P0 B.O.6: CardEffectFactory.CanNotAddMemoryStaticEffect — a player-scope "cannot add memory" grant
 // consulted at the AddMemory mutation choke (AS-IS Player.CanAddMemory). A GAIN (positive add) by the
 // restricted player is blocked; a loss (negative) and SetMemory are unaffected.
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 HeadlessPlayerId P1 = new(1);
@@ -57,11 +61,15 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 7);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R3-W3c-4c B3) the live CannotAddMemory scan gates each effect with CanUse (→ CanTrigger, DoneStartGame),
+    // so put the match past Setup.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
 async Task AddMemory(EngineContext context, HeadlessPlayerId owner, int amount)
 {
+    using var _ambient = AmbientMatchContext.Enter(context);
     var srcId = new HeadlessEntityId($"{owner.Value}:battle:SRC");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, new HeadlessEntityId("DEF:SRC"), owner, Metadata: new Dictionary<string, object?>()));
     var sink = new MatchStateMutationSink(context.CardInstanceRepository, log: null, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
@@ -72,14 +80,17 @@ async Task AddMemory(EngineContext context, HeadlessPlayerId owner, int amount)
 
 void Grant(EngineContext context, HeadlessPlayerId player)
 {
+    // (R3-W3c-4c B3) Grant the AS-IS kind-class CannotAddMemoryClass on a FIELD permanent owned by `player`
+    // (the live scan walks Players_ForTurnPlayer's field permanents' EffectList(None)); dispatched via the
+    // TfxCannotAddMemory fixture by CardNumber, configured for the restricted player, no causing predicate.
+    TfxCannotAddMemory.ScopePlayer = player;
+    TfxCannotAddMemory.CausingPredicate = null;
+    var cards = (CardDatabase)context.CardRepository;
+    var def = new HeadlessEntityId("DEF:GRANT");
+    cards.Upsert(new CardRecord(def, "TfxCannotAddMemory", "GRANT", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var srcId = new HeadlessEntityId($"{player.Value}:battle:GRANT");
-    context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, new HeadlessEntityId("DEF:GRANT"), player, Metadata: new Dictionary<string, object?>()));
-    var card = new CardSource(context, srcId, player, player);
-    // CanNotAddMemoryStaticEffect's declared return type is the ICardEffect interface (ToBinding is not part
-    // of it); the concrete instance it always constructs is ContinuousPlayerScopeRestrictionEffect, which
-    // does carry ToBinding — cast to it (value/behavior unchanged).
-    var effect = (ContinuousPlayerScopeRestrictionEffect)CardEffectFactory.CanNotAddMemoryStaticEffect(player, isInheritedEffect: false, card, condition: null);
-    context.EffectRegistry.Register(effect.ToBinding($"{player.Value}:cannotAddMemory"));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, def, player, Metadata: new Dictionary<string, object?>()));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(player, srcId, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
 }
 
 static void AssertEqual<T>(T expected, T actual, string label)

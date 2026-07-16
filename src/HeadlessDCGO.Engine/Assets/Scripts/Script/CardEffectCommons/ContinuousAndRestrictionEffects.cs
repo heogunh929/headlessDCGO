@@ -972,18 +972,20 @@ public sealed class BareCauseEffect : ICardEffect
     }
 
     /// <summary>A bare cause whose <c>EffectSourceCard</c> resolves <paramref name="sourceId"/> to a
-    /// <see cref="CardSource"/> (owner read from the repository). Empty id yields a source-less cause.</summary>
+    /// <see cref="CardSource"/> (owner read from the repository). Empty id — OR an id that resolves to no live
+    /// instance (hence no owner) — yields a source-less cause: a <see cref="CardSource"/> requires a non-empty
+    /// controller, and an unresolvable cause matches no narrowed restriction predicate (AS-IS "unknown causing
+    /// source does not block a conditional restriction").</summary>
     public static BareCauseEffect For(EngineContext context, HeadlessEntityId sourceId)
     {
-        if (sourceId.IsEmpty)
+        if (sourceId.IsEmpty
+            || !(context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance) && instance is not null)
+            || instance.OwnerId.IsEmpty)
         {
             return new BareCauseEffect();
         }
 
-        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance) && instance is not null
-            ? instance.OwnerId
-            : default;
-        return For(new CardSource(context, sourceId, owner, owner));
+        return For(new CardSource(context, sourceId, instance.OwnerId, instance.OwnerId));
     }
 }
 
@@ -1193,7 +1195,7 @@ public sealed class ChangeCardNamesEffect : ICardEffect
 /// CHOSEN by a skill. Carries the AS-IS JOINT predicate <c>CanNotSelectBySkill(candidate, skillSource)</c> as a
 /// single runtime Func (NOT split into scope + causing) so a non-separable predicate is preserved, exactly like
 /// the original's <c>foreach permanent … effect.CanNotSelectBySkill(this, skill)</c> loop.</summary>
-public sealed class CanNotSelectBySkillEffect : ICardEffect
+public sealed class CanNotSelectBySkillEffect : ICardEffect, ICanNotSelectBySkillEffect
 {
     private readonly Func<CardSource, CardSource, bool> _predicate;
     private readonly Func<bool>? _condition;
@@ -1205,9 +1207,32 @@ public sealed class CanNotSelectBySkillEffect : ICardEffect
         Card = card;
         _predicate = predicate;
         _condition = condition;
+        // (R3-W3c-4c D-1) wire the base ICardEffect so the LIVE getter Permanent.CanSelectBySkill can consult
+        // this effect over a permanent's EffectList(None) (its scan gates on cardEffect.CanUse(null), which
+        // returns false unless a CanUseCondition is set). Mirrors the AS-IS SetUpICardEffect construction.
+        SetUpICardEffect("Can't be selected by skill", h => _condition is null || _condition(), card);
+        SetNotShowUI(true);
     }
 
     public CardSource Card { get; }
+
+    /// <summary>(R3-W3c-4c D-1 joint↔separate reconciliation) AS-IS
+    /// <c>ICanNotSelectBySkillEffect.CanNotSelectBySkill(permanent, cardEffect)</c>: the AS-IS kind-class ANDs a
+    /// SEPARATE <c>PermanentCondition(permanent)</c> and <c>CardEffectCondition(cardEffect)</c>. The headless
+    /// carrier instead holds the (possibly non-separable) JOINT predicate <c>f(candidate, skillSource)</c> as a
+    /// single Func (memory: scope+causing must NOT be split). This adapter maps the AS-IS interface args onto the
+    /// joint — the candidate = <c>permanent.TopCard</c>, the skill source = <c>cardEffect.EffectSourceCard</c> —
+    /// and reproduces the AS-IS non-null guards verbatim (both the permanent's top and the causing effect's source
+    /// must exist), so no card that AS-IS would treat as untargetable is missed and none is over-blocked.</summary>
+    public bool CanNotSelectBySkill(Permanent permanent, ICardEffect cardEffect)
+    {
+        if (permanent?.TopCard is not null && cardEffect?.EffectSourceCard is not null)
+        {
+            return _predicate(permanent.TopCard, cardEffect.EffectSourceCard);
+        }
+
+        return false;
+    }
 
     public EffectBinding ToBinding(string effectId)
     {
@@ -1327,7 +1352,7 @@ public sealed class CanNotBeRemovedEffect : ICardEffect
 /// <summary>(d-remediation, true-scan) AS-IS <c>ICanNotMoveEffect</c> / <c>Permanent.CanMove</c>: SCANNED over every
 /// field permanent's effects; while any usable one's predicate <c>CanNotMove(candidate, causing)</c> holds, the
 /// candidate cannot move (the move gate passes a null causing effect, AS-IS <c>CanNotMove(TopCard, null)</c>).</summary>
-public sealed class CanNotMoveEffect : ICardEffect
+public sealed class CanNotMoveEffect : ICardEffect, ICanNotMoveEffect
 {
     private readonly Func<CardSource, CardSource?, bool> _predicate;
     private readonly Func<bool>? _condition;
@@ -1339,9 +1364,29 @@ public sealed class CanNotMoveEffect : ICardEffect
         Card = card;
         _predicate = predicate;
         _condition = condition;
+        // (R3-W3c-4c D-1) wire the base ICardEffect so the LIVE getter Permanent.CanMove can consult this effect
+        // over a permanent's EffectList(None) (its scan gates on cardEffect.CanUse(null)). AS-IS SetUpICardEffect.
+        SetUpICardEffect("Can't move", h => _condition is null || _condition(), card);
+        SetNotShowUI(true);
     }
 
     public CardSource Card { get; }
+
+    /// <summary>(R3-W3c-4c D-1 joint↔separate reconciliation) AS-IS
+    /// <c>ICanNotMoveEffect.CanNotMove(cardSource, cardEffect)</c>: the AS-IS <c>CanNotMoveClass</c> ANDs a
+    /// SEPARATE <c>_cardCondition(cardSource)</c> and <c>_cardEffectCondition(cardEffect)</c>. The headless carrier
+    /// holds the JOINT predicate <c>f(candidate, causingSource)</c> as a single Func; this adapter maps the AS-IS
+    /// interface args onto it (the causing source = <c>cardEffect.EffectSourceCard</c>, or null — the move gate
+    /// passes <c>CanNotMove(TopCard, null)</c>, AS-IS Permanent.CanMove).</summary>
+    public bool CanNotMove(CardSource cardSource, ICardEffect cardEffect)
+    {
+        if (cardSource is not null)
+        {
+            return _predicate(cardSource, cardEffect?.EffectSourceCard);
+        }
+
+        return false;
+    }
 
     public EffectBinding ToBinding(string effectId)
     {

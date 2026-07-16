@@ -324,18 +324,57 @@ public static partial class CardEffectFactory
             : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, key, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), scopeAnyPlayer: scopeAnyPlayer);
     }
 
-    /// <summary>(PRIM-P0 B.O.6) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/> cannot add cards to
-    /// their security (AS-IS Player.CanAddSecurity). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
-    /// <c>CardEffectCondition</c> — the restriction fires only when the CAUSING effect matches (e.g.
-    /// IsOpponentEffect); null = block every add. Consulted at the AddToSecurity / Recover mutation chokes.</summary>
-    public static ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null) =>
-        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayer, RestrictionHelpers.CannotAddSecurityKey, scopeCardType: null, isInheritedEffect, condition, causingEffectPredicate: causingEffectPredicate);
+    /// <summary>(PRIM-P0 B.O.6; R3-W3c-4c B3 flip) <c>CannotAddSecurityClass</c> — <paramref name="scopePlayer"/>
+    /// cannot add cards to their security (AS-IS Player.CanAddSecurity). NEW-MODEL: returns the AS-IS kind-class
+    /// <see cref="CardEffects.CannotAddSecurityClass"/> (an <c>ICannotAddSecurityEffect</c>, no <c>ToBinding</c>)
+    /// consulted by the AS-IS-literal live scan <c>Player.CanAddSecurity</c> (reached by the AddToSecurity / Recover
+    /// mutation chokes). <paramref name="causingEffectPredicate"/> mirrors the AS-IS <c>CardEffectCondition</c> —
+    /// the restriction fires only when the CAUSING effect's source matches (e.g. IsOpponentEffect); null = block
+    /// every add (the AS-IS class requires a non-null CardEffectCondition, so null maps to <c>_ =&gt; true</c>).
+    /// PlayerCondition = "the gaining player is <paramref name="scopePlayer"/>" (the old player-scope binding).</summary>
+    public static ICardEffect CanNotAddSecurityStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
+    {
+        var effect = new CardEffects.CannotAddSecurityClass();
+        effect.SetUpICardEffect("Can't add security", CanUseCondition, card);
+        effect.SetUpCannotAddSecurityClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
+        effect.SetNotShowUI(true);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
 
-    /// <summary>(PRIM-P0 B.O.6) <c>CannotAddMemoryClass</c> — <paramref name="scopePlayer"/> cannot gain memory
-    /// (AS-IS Player.CanAddMemory). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
-    /// <c>CardEffectCondition</c> (null = block every gain). Consulted at the AddMemory mutation choke.</summary>
-    public static ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null) =>
-        new ContinuousPlayerScopeRestrictionEffect(card, scopePlayer, RestrictionHelpers.CannotAddMemoryKey, scopeCardType: null, isInheritedEffect, condition, causingEffectPredicate: causingEffectPredicate);
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+        bool PlayerCondition(Player player) => player.PlayerId == scopePlayer;
+        bool CardEffectCondition(ICardEffect cardEffect) =>
+            causingEffectPredicate is null || (cardEffect?.EffectSourceCard is { } src && causingEffectPredicate(src));
+    }
+
+    /// <summary>(PRIM-P0 B.O.6; R3-W3c-4c B3 flip) <c>CannotAddMemoryClass</c> — <paramref name="scopePlayer"/>
+    /// cannot gain memory (AS-IS Player.CanAddMemory). NEW-MODEL: returns the AS-IS kind-class
+    /// <see cref="CardEffects.CannotAddMemoryClass"/> (an <c>ICannotAddMemoryEffect</c>, no <c>ToBinding</c>)
+    /// consulted by the AS-IS-literal live scan <c>Player.CanAddMemory</c> (reached by the AddMemory mutation choke
+    /// and the card-flow <c>Player.AddMemory</c>). <paramref name="causingEffectPredicate"/> mirrors the AS-IS
+    /// <c>CardEffectCondition</c> (null = block every gain; maps to <c>_ =&gt; true</c>).</summary>
+    public static ICardEffect CanNotAddMemoryStaticEffect(HeadlessPlayerId scopePlayer, bool isInheritedEffect, CardSource card, Func<bool>? condition, Func<CardSource, bool>? causingEffectPredicate = null)
+    {
+        var effect = new CardEffects.CannotAddMemoryClass();
+        effect.SetUpICardEffect("Can't add memory", CanUseCondition, card);
+        effect.SetUpCannotAddMemoryClass(PlayerCondition: PlayerCondition, CardEffectCondition: CardEffectCondition);
+        effect.SetNotShowUI(true);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+        bool PlayerCondition(Player player) => player.PlayerId == scopePlayer;
+        bool CardEffectCondition(ICardEffect cardEffect) =>
+            causingEffectPredicate is null || (cardEffect?.EffectSourceCard is { } src && causingEffectPredicate(src));
+    }
 
     // (P4 KeyWord slice) AllianceStaticEffect moved to KeyWordEffects/Alliance.cs (AS-IS 1:1)
 
@@ -380,17 +419,46 @@ public static partial class CardEffectFactory
 
     // (P4 slice) InvertSAttackStaticEffect moved to CardEffectFactory/ChangeSAttack.cs (AS-IS 1:1)
 
-    /// <summary>(b-remediation) <c>ImmuneFromDeDigivolveStaticEffect</c> — AS-IS <c>ImmuneFromDeDigivolveClass</c>
-    /// (<c>IImmuneFromDeDigivolveEffect</c>, consumed by <c>Permanent.ImmuneFromDeDigivolve()</c>): a continuous
-    /// "cannot be de-digivolved" restriction on self (or, with <paramref name="permanentCondition"/>, the owner's
-    /// matching Digimon). Previously the consumer (DeDigivolveKind) only read a metadata flag that NOTHING wrote,
-    /// so the immunity could not be granted. Registers the restriction under the shared
-    /// <see cref="HeadlessDCGO.Engine.Headless.Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey"/> so the sink's
-    /// de-digivolve handler skips an immune target.</summary>
-    public static ICardEffect ImmuneFromDeDigivolveStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, HeadlessDCGO.Engine.Headless.Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, HeadlessDCGO.Engine.Headless.Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition));
+    /// <summary>(b-remediation; R3-W3c-4c B5 flip) <c>ImmuneFromDeDigivolveStaticEffect</c> — AS-IS
+    /// <c>ImmuneFromDeDigivolveClass</c> (<c>IImmuneFromDeDigivolveEffect</c>, consumed by
+    /// <c>Permanent.ImmuneFromDeDigivolve()</c>): a continuous "cannot be de-digivolved" restriction on self (or,
+    /// with <paramref name="permanentCondition"/>, the owner's matching Digimon). NEW-MODEL: returns the AS-IS
+    /// kind-class <see cref="CardEffects.ImmuneFromDeDigivolveClass"/> (an <c>IImmuneFromDeDigivolveEffect</c>, no
+    /// <c>ToBinding</c>) at <see cref="EffectTiming.None"/>; the LIVE consumer is the AS-IS-literal getter
+    /// <c>Permanent.ImmuneFromDeDigivolve()</c> (scans every field permanent's <c>EffectList(None)</c> for a usable
+    /// <c>IImmuneFromDeDigivolveEffect</c>) reached uniformly through <c>DeDigivolveHelpers.IsDeDigivolveImmune</c>
+    /// (CardController / ActivatedEffects / the mutation sink). AS-IS construction idiom mirrored (EX8_043):
+    /// SetUpICardEffect + SetUpImmuneFromDeDigivolveClass(PermanentCondition) — the class declares no ToBinding, so
+    /// nothing registers the old <c>CannotBeDeDigivolvedKey</c> binding (registry production stops here).</summary>
+    public static ICardEffect ImmuneFromDeDigivolveStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    {
+        var effect = new CardEffects.ImmuneFromDeDigivolveClass();
+        effect.SetUpICardEffect("Isn't affected by <De-Digivolve>", CanUseCondition, card);
+        effect.SetUpImmuneFromDeDigivolveClass(PermanentCondition: PermanentCondition);
+        effect.SetNotShowUI(true);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (permanentCondition is null)
+            {
+                // Old self-scope form (ContinuousSelfRestrictionEffect): protects exactly THIS card's permanent —
+                // the AS-IS self idiom `permanent == thisPermanent` (EX8_043, InstanceId equality).
+                Permanent? own = ICardEffect.ResolvePermanentOfThisCard(card);
+                return own is not null && permanent == own;
+            }
+
+            // Old player-scope form (ContinuousPlayerScopeRestrictionEffect): the owner's matching permanents.
+            return permanent.OwnerId == card.Owner && permanentCondition(permanent);
+        }
+    }
 
     /// <summary>(d-remediation) <c>CanNotSelectBySkillStaticEffect</c> — AS-IS <c>ICanNotSelectBySkillEffect</c> /
     /// <c>Permanent.CanSelectBySkill</c>: the protected permanent(s) cannot be CHOSEN as a target by a skill

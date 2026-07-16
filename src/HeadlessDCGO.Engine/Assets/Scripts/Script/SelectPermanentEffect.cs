@@ -194,11 +194,14 @@ public sealed class SelectPermanentEffect
         return _canEndSelectCondition is null ? request : request with { SelectionValidator = _canEndSelectCondition };
     }
 
-    /// <summary>(d-remediation, true-scan) AS-IS <c>Permanent.CanSelectBySkill(skill)</c>: SCAN every field
-    /// permanent's continuous effects (1:1 with the original's nested foreach), and for each
-    /// <c>CanNotSelectBySkill</c> effect that is usable, evaluate its JOINT predicate
-    /// <c>CanNotSelectBySkill(candidate, skillSource)</c>. Any match ⇒ the candidate cannot be chosen. No context
-    /// (legacy call path) ⇒ not untargetable.</summary>
+    /// <summary>(d-remediation; R3-W3c-4c D-1 flip) AS-IS <c>!Permanent.CanSelectBySkill(skill)</c>: a candidate is
+    /// untargetable when the AS-IS-literal LIVE getter <see cref="Permanent.CanSelectBySkill"/> reports it cannot be
+    /// chosen (it scans every field permanent's <c>EffectList(None)</c> for a usable <c>ICanNotSelectBySkillEffect</c>
+    /// whose joint predicate matches — identical to the CanTargetAsIs path). The selecting skill is the effect's
+    /// live <c>_cardEffect</c> when set (AS-IS <c>_cardEffect</c>), else a bare cause resolving <c>_sourceEntityId</c>
+    /// to its source card (only its <c>EffectSourceCard</c> is read by the untargetability predicate). Was the
+    /// registry-backed RestrictionScan; the joint carrier now implements <c>ICanNotSelectBySkillEffect</c> so the
+    /// live scan sees it. No context (legacy call path) ⇒ not untargetable.</summary>
     private bool IsUntargetableBySkill(HeadlessEntityId candidateId)
     {
         if (_context is null || candidateId.IsEmpty)
@@ -206,11 +209,8 @@ public sealed class SelectPermanentEffect
             return false;
         }
 
-        // (joint-migration) canonical scan (AS-IS Permanent.CanSelectBySkill): f(candidate, selecting skill source).
-        // The sentinel default source resolves to no instance ⇒ RestrictionScan's counterpart is null and the joint
-        // wrapper falls back to the candidate itself (self-cause), matching the prior behaviour.
-        return Headless.Runtime.RestrictionScan.IsRestricted(
-            _context, RestrictionHelpers.CannotBeSelectedBySkillKey, candidateId, _sourceEntityId);
+        ICardEffect skill = _cardEffect ?? CardEffectCommons.BareCauseEffect.For(_context, _sourceEntityId);
+        return !new Permanent(_context, candidateId).CanSelectBySkill(skill);
     }
 
     /// <summary>Map the configured Mode to one mutation per selected target. Attack/Custom yield no

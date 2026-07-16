@@ -32,10 +32,21 @@ async Task Run(bool immune, bool expectRemoved)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 920);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R3-W3c-4c B5) the live getter Permanent.ImmuneFromDeDigivolve() gates each effect with CanUse (→ CanTrigger,
+    // which requires DoneStartGame i.e. a live phase; → IsDisabled → GManager), so drive the sink under an ambient
+    // match scope in a live phase (A1/W3c-1/FAILd-06 precedent).
+    ctx.TurnController.SetPhase(HeadlessDCGO.Engine.Headless.Runtime.HeadlessPhase.Main);
+    using var _ambient = AmbientMatchContext.Enter(ctx);
     var cards = (CardDatabase)ctx.CardRepository;
 
     // Host with level 5 (above the rookie floor) and one under-source, so a de-digivolve WOULD remove the top.
-    cards.Upsert(new CardRecord(new HeadlessEntityId("H"), "H", "Host", new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 5 }, CardType: "Digimon"));
+    // (R3-W3c-4c B5) The continuous immunity is now the AS-IS kind-class ImmuneFromDeDigivolveClass carried on the
+    // host's LIVE EffectList (no registry binding); the immune case dispatches the host card definition to the
+    // TfxImmuneDeDigivolve fixture (self-scope "Isn't affected by <De-Digivolve>") by CardNumber. The live getter
+    // Permanent.ImmuneFromDeDigivolve() (via DeDigivolveHelpers.IsDeDigivolveImmune, consulted by the sink) walks
+    // the field permanents' EffectList(None) and finds it.
+    string hostNumber = immune ? "TfxImmuneDeDigivolve" : "H";
+    cards.Upsert(new CardRecord(new HeadlessEntityId("H"), hostNumber, "Host", new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 5 }, CardType: "Digimon"));
     var host = new HeadlessEntityId("p1:H");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(host, new HeadlessEntityId("H"), P1));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, host, ChoiceZone.None, ChoiceZone.BattleArea));
@@ -44,21 +55,6 @@ async Task Run(bool immune, bool expectRemoved)
     var under = new HeadlessEntityId("p1:U");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(under, new HeadlessEntityId("U"), P1));
     SetMeta(ctx, host, DigivolutionStackReader.SourceIdsKey, new[] { under.Value });
-
-    if (immune)
-    {
-        // ImmuneFromDeDigivolveStaticEffect is declared to return the abstract ICardEffect base (its concrete
-        // result is one of the OLD-model ContinuousSelfRestrictionEffect/ContinuousPlayerScopeRestrictionEffect,
-        // which DO implement ToBinding — just not through the ICardEffect static type), so ToBinding is reached
-        // via the LegacyBindingBridge reflective dispatch rather than a direct call.
-        ICardEffect immunity = CardEffectFactory.ImmuneFromDeDigivolveStaticEffect(
-            permanentCondition: null, isInheritedEffect: false, new CardSource(ctx, host, P1), condition: null);
-        if (!LegacyBindingBridge.TryToBinding(immunity, "imm:host", out EffectBinding? immunityBinding) || immunityBinding is null)
-        {
-            throw new InvalidOperationException("expected a legacy ToBinding-capable effect from ImmuneFromDeDigivolveStaticEffect");
-        }
-        ctx.EffectRegistry.Register(immunityBinding);
-    }
 
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController, ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);

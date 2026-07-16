@@ -669,11 +669,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 break;
             case DeDigivolveKind:
                 // (PRIM-W5 DigivolveIntoHandOrTrashCard) remove N top digivolution cards from the target.
-                // (b-remediation) AS-IS checks Permanent.ImmuneFromDeDigivolve() first — a CONTINUOUS "cannot be
-                // de-digivolved" restriction (ImmuneFromDeDigivolveClass) is a caller concern (needs the registry),
-                // so honour it here before scheduling the removal (DeDigivolveAsync itself still handles a
-                // metadata-stamped flag on the live top).
-                if (IsRestrictedFromCause(targetId, Runtime.DeDigivolveHelpers.CannotBeDeDigivolvedKey, mutation.SourceEntityId))
+                // (b-remediation; R3-W3c-4c B5 flip) AS-IS checks Permanent.ImmuneFromDeDigivolve() first — a
+                // CONTINUOUS "cannot be de-digivolved" restriction (ImmuneFromDeDigivolveClass) is honoured here
+                // before scheduling the removal (DeDigivolveAsync itself still handles a metadata-stamped flag on
+                // the live top). NEW-MODEL: routes through the AS-IS-literal LIVE getter
+                // (DeDigivolveHelpers.IsDeDigivolveImmune → Permanent.ImmuneFromDeDigivolve, a subject-only scan
+                // with NO causing-effect gate — matching the AS-IS signature) instead of the registry cause-scan.
+                if (_context is not null && Runtime.DeDigivolveHelpers.IsDeDigivolveImmune(_context, targetId))
                 {
                     _skipped.Add(mutation);
                     _applied.Add(new AppliedMutation(mutation.Kind, targetId, "restricted"));
@@ -1568,58 +1570,65 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     /// this is not tied to a card — it consults every player-scope continuous restriction binding.</summary>
     private bool IsPlayerRestricted(HeadlessPlayerId player, string restrictionKey, HeadlessEntityId causingSourceId)
     {
-        if (_effectRegistry is null || player.IsEmpty)
+        // (R3-W3c-4c B3 flip) AS-IS-literal LIVE scan for the CannotAddSecurity/CannotAddMemory restriction — the
+        // gaining <paramref name="player"/>'s add is blocked when a usable ICannotAdd{Security,Memory}Effect on any
+        // Players_ForTurnPlayer field permanent's or player's EffectList(None) says so (AS-IS Player.CanAddSecurity
+        // :1477-1513 / CanAddMemory :1037-1071 — the RESTRICTION portion only; the AddMemory gauge cap and the
+        // IsSecurityLooking guard belong to their own gates, not this per-mutation restriction check). Was the
+        // registry player-scope binding scan; the factory now produces the kind-classes (no ToBinding), so the
+        // live scan is the sole reader. The causing effect is reconstructed from <paramref name="causingSourceId"/>
+        // (the CardEffectCondition reads only its source card).
+        if (_context is null || player.IsEmpty)
         {
             return false;
         }
 
-        foreach (EffectRequest effect in _effectRegistry.GetContinuousEffects(new EffectQueryContext(ContinuousRestrictionGate.Scope)))
+        var gainingPlayer = new Assets.Scripts.Script.CardEffectCommons.Player(_context, player);
+        Assets.Scripts.Script.CardEffectCommons.ICardEffect cause =
+            Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(_context, causingSourceId);
+
+        bool IsSecurity = restrictionKey == Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddSecurityKey;
+        foreach (Assets.Scripts.Script.CardEffectCommons.Player scanPlayer in new Assets.Scripts.Script.CardEffectCommons.GameContext(_context).Players_ForTurnPlayer)
         {
-            IReadOnlyDictionary<string, object?> values = effect.Context.Values;
-            if (!(values.TryGetValue(restrictionKey, out object? raw) && raw is bool flag && flag) ||
-                !ReadBool(values, PlayerScopeContinuousHelpers.PlayerScopeKey))
+            foreach (Assets.Scripts.Script.CardEffectCommons.Permanent permanent in scanPlayer.GetFieldPermanents())
             {
-                continue;
-            }
-
-            bool playerMatches = ReadBool(values, PlayerScopeContinuousHelpers.ScopeAnyPlayerKey) ||
-                (values.TryGetValue(PlayerScopeContinuousHelpers.ScopePlayerIdKey, out object? pid) && pid is int id && id == player.Value);
-            if (!playerMatches)
-            {
-                continue;
-            }
-
-            // (P1-PG) AS-IS gates the CannotAddSecurity/CannotAddMemory scan with cardEffect.CanUse(null); a
-            // conditional restriction whose condition is currently false must NOT block the add.
-            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.ContinuousSelfModifierEffect.ConditionKey, out object? condRaw)
-                && condRaw is Func<bool> condition && !condition())
-            {
-                continue;
-            }
-
-            // (fidelity) AS-IS CannotAddSecurity/Memory carry a CardEffectCondition — the restriction fires only
-            // when the CAUSING effect matches (e.g. IsOpponentEffect). No predicate = block every add.
-            if (values.TryGetValue(Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CausingEffectPredicateKey, out object? predRaw)
-                && predRaw is Func<Assets.Scripts.Script.CardEffectCommons.CardSource, bool> predicate)
-            {
-                if (_context is null || causingSourceId.IsEmpty)
-                {
-                    continue;
-                }
-
-                HeadlessPlayerId causeOwner = _repository.TryGetInstance(causingSourceId, out CardInstanceRecord? cs) && cs is not null ? cs.OwnerId : default;
-                if (predicate(new Assets.Scripts.Script.CardEffectCommons.CardSource(_context, causingSourceId, causeOwner, causeOwner)))
+                if (ScanEffects(permanent.EffectList(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None)))
                 {
                     return true;
                 }
-
-                continue;
             }
 
-            return true;
+            if (ScanEffects(scanPlayer.EffectList(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None)))
+            {
+                return true;
+            }
         }
 
         return false;
+
+        bool ScanEffects(List<Assets.Scripts.Script.CardEffectCommons.ICardEffect> effects)
+        {
+            // AS-IS order (Player.CanAddSecurity/CanAddMemory): interface check FIRST, then CanUse(null), then the
+            // predicate — so CanUse (which touches GManager) is only reached for a matching restriction effect.
+            foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect in effects)
+            {
+                if (IsSecurity)
+                {
+                    if (cardEffect is Assets.Scripts.Script.CardEffectCommons.ICannotAddSecurityEffect s
+                        && cardEffect.CanUse(null) && s.cannotAddSecurity(gainingPlayer, cause))
+                    {
+                        return true;
+                    }
+                }
+                else if (cardEffect is Assets.Scripts.Script.CardEffectCommons.ICannotAddMemoryEffect m
+                    && cardEffect.CanUse(null) && m.cannotAddMemory(gainingPlayer, cause))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     /// <summary>(d-remediation, true-scan) AS-IS <c>Permanent.CanNotBeRemoved</c>: SCAN every field permanent's
