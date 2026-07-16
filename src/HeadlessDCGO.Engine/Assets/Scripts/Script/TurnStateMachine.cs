@@ -54,6 +54,20 @@ public sealed class TurnStateMachine
         set => _isExecutingStore.GetValue(_context, static _ => new System.Runtime.CompilerServices.StrongBox<bool>(false)).Value = value;
     }
 
+    // (R4 P2b) AS-IS TurnStateMachine.Passed (TurnStateMachine.cs:3150, `public bool Passed { get; set; } = true;`):
+    // the explicit-pass marker the turn-end seam reads — EndTurnCheck (AutoProcessing.cs:637) CLEARS it before a
+    // memory-threshold-triggered EndTurnProcess, so the "both passed in Main → gauge jumps to the opponent's 3"
+    // arm (:681-694) fires only for an explicit pass (PassTurn :3364 calls EndTurnProcess with Passed still true);
+    // EndTurnProcess re-arms it (:696). Match-scoped box for the same reason as `isExecuting` (the mirror
+    // TurnStateMachine is a per-access view; a per-instance field would not survive two `GManager.instance` reads).
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<EngineContext, System.Runtime.CompilerServices.StrongBox<bool>> _passedStore = new();
+
+    public bool Passed
+    {
+        get => _passedStore.GetValue(_context, static _ => new System.Runtime.CompilerServices.StrongBox<bool>(true)).Value;
+        set => _passedStore.GetValue(_context, static _ => new System.Runtime.CompilerServices.StrongBox<bool>(true)).Value = value;
+    }
+
     #region (R4 P2a) Turn-flow phase bodies — DORMANT AS-IS-region mirror (0 live callers)
 
     // (R4 batch P2a, design docs/audit/r4_tsm_s1_design_2026-07-16.md + r4_tsm_investigation_2026-07-16.md)
@@ -65,14 +79,14 @@ public sealed class TurnStateMachine
     // FirstObject / draggables) stripped, `WaitUntil`/`WaitWhile` interactive stops delegated to the established
     // choice-pause + action-queue seams.
     //
-    // TWO deferred seams are represented as CALL-SURFACE ONLY (no body mirror), by design:
-    //   * S2-cursor (decision 2 = option A): the AS-IS 6-value `gameContext.TurnPhase` write/read is represented
-    //     by a local `GameContext.phase currentPhase` cursor. The substrate step-position sub-cursor
-    //     (HeadlessTurnState) that S2 introduces does not exist yet, so cross-body phase state is a per-method
-    //     local; the mirror `GameContext.TurnPhase` is a computed getter (no setter).
-    //   * P2b turn-end seam: `AutoProcessing.EndTurnCheck / TurnEndMinMemory / EndTurnProcess` are NOT yet
-    //     mirrored (MultipleSkills-window-inseparable, P2b). Their call sites are left as commented call
-    //     surfaces; the `if (phase == End) return;` guards that read their result stay, reading the local cursor.
+    // The two P2a deferred seams are now RESOLVED (both were call-surface-only scaffolds):
+    //   * S2-cursor (decision 2 = option A) — RESOLVED at P2b: S2 landed the 6-value HeadlessPhase + TurnStepCursor
+    //     substrate, and GameContext.TurnPhase now has the AS-IS mutable-field SETTER (delegating to
+    //     TurnController.SetPhase), so the bodies read/write `gameContext.TurnPhase` directly, exactly as AS-IS —
+    //     the per-method `currentPhase` locals are gone. Cross-body phase state is the real substrate turn state.
+    //   * P2b turn-end seam — RESOLVED at P2b: `AutoProcessing.EndTurnCheck / TurnEndMinMemory / EndTurnProcess`
+    //     are mirrored (AutoProcessing.cs, AS-IS :630-727) and the phase bodies call them at the AS-IS positions.
+    //     Still DORMANT: nothing calls these six bodies until the S3 driver flip.
 
     /// <summary>AS-IS <c>TurnStateMachine.isFirstPlayerFirstTurn</c> (:26).</summary>
     public bool isFirstPlayerFirstTurn { get; set; } = true;
@@ -156,8 +170,8 @@ public sealed class TurnStateMachine
         // AS-IS :552 turnPlayer.TurnCount++ — mirror Player has no per-player TurnCount member
         //   (substrate PlayerTurnCounterController owns it). P1-junction: per-player turn count.
 
-        // AS-IS :554 phase = Active (S2-cursor).
-        GameContext.phase currentPhase = GameContext.phase.Active;
+        // AS-IS :554 gameContext.TurnPhase = Active (real write via the P2b TurnPhase setter).
+        gameContext.TurnPhase = GameContext.phase.Active;
 
         // AS-IS :557-561 showTurnPlayer / nextPhaseButton — UI stripped.
 
@@ -173,9 +187,9 @@ public sealed class TurnStateMachine
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
 
-        // AS-IS :579 turn-end check — P2b seam (body-mirror forbidden): may set currentPhase = End.
-        //   await autoProcessing.EndTurnCheck();   // P2b
-        if (currentPhase == GameContext.phase.End)
+        // AS-IS :579 turn-end check (P2b live seam — may drive TurnPhase to End).
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
+        if (gameContext.TurnPhase == GameContext.phase.End)
         {
             return;   // AS-IS :581-584
         }
@@ -213,8 +227,8 @@ public sealed class TurnStateMachine
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
-        // AS-IS :641 turn-end check — P2b seam.
-        //   await autoProcessing.EndTurnCheck();   // P2b
+        // AS-IS :641 turn-end check (no guard after — AS-IS falls through to the resets regardless).
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
 
         // AS-IS :643-647 reset active-phase-end lists.
         turnPlayer.UntilOwnerActivePhaseEffects = new List<Func<EffectTiming, ICardEffect>>();
@@ -230,16 +244,15 @@ public sealed class TurnStateMachine
         AutoProcessing autoProcessing = AutoProcessing.For(_context);
         AttackProcess attackProcess = AttackProcess.For(_context);
         Player turnPlayer = gameContext.TurnPlayer!;
-        GameContext.phase currentPhase = gameContext.TurnPhase;
 
-        // AS-IS :655 turn-end check — P2b seam.
-        //   await autoProcessing.EndTurnCheck();   // P2b
-        if (currentPhase == GameContext.phase.End)
+        // AS-IS :655 turn-end check (P2b live seam).
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
+        if (gameContext.TurnPhase == GameContext.phase.End)
         {
             return;   // AS-IS :657-660
         }
 
-        currentPhase = GameContext.phase.Draw;   // AS-IS :666 (S2-cursor)
+        gameContext.TurnPhase = GameContext.phase.Draw;   // AS-IS :666 (real write)
 
         // AS-IS :669-682 draw (skipped on turn 1).
         if (TurnCount != 1)
@@ -263,8 +276,8 @@ public sealed class TurnStateMachine
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
-        // AS-IS :696 turn-end check — P2b seam.
-        //   await autoProcessing.EndTurnCheck();   // P2b
+        // AS-IS :696 turn-end check (no guard after — AS-IS ends the phase body regardless).
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>AS-IS <c>BreedingPhase()</c> (:701-837): hatch / move (dispatch-action seam), attack pump.</summary>
@@ -272,17 +285,16 @@ public sealed class TurnStateMachine
     {
         AutoProcessing autoProcessing = AutoProcessing.For(_context);
         AttackProcess attackProcess = AttackProcess.For(_context);
-        GameContext.phase currentPhase = gameContext.TurnPhase;
 
-        // AS-IS :704 turn-end check — P2b seam.
-        //   await autoProcessing.EndTurnCheck();   // P2b
-        if (currentPhase == GameContext.phase.End)
+        // AS-IS :704 turn-end check (P2b live seam).
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
+        if (gameContext.TurnPhase == GameContext.phase.End)
         {
             return;   // AS-IS :706-709
         }
 
-        currentPhase = GameContext.phase.Breeding;   // AS-IS :715 (S2-cursor)
-        IsSelecting = false;                          // AS-IS :717
+        gameContext.TurnPhase = GameContext.phase.Breeding;   // AS-IS :715 (real write)
+        IsSelecting = false;                                   // AS-IS :717
 
         // AS-IS :719-816 breeding decision block. `Player.CanHatch` / `Player.CanMove` are not on the mirror
         //   Player yet (P1-junction: breeding-eligibility predicates). The interactive hatch/move itself is
@@ -300,9 +312,9 @@ public sealed class TurnStateMachine
             await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
             await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
         }
-        // AS-IS :831 turn-end check — P2b seam.
-        //   await autoProcessing.EndTurnCheck();   // P2b
-        if (currentPhase == GameContext.phase.End)
+        // AS-IS :831 turn-end check (P2b live seam).
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
+        if (gameContext.TurnPhase == GameContext.phase.End)
         {
             return;   // AS-IS :833-836
         }
@@ -315,7 +327,19 @@ public sealed class TurnStateMachine
         AutoProcessing autoProcessing = AutoProcessing.For(_context);
         AttackProcess attackProcess = AttackProcess.For(_context);
         Player turnPlayer = gameContext.TurnPlayer!;
-        GameContext.phase currentPhase = GameContext.phase.Main;   // AS-IS :897
+
+        // (P2-1, review-1) AS-IS :880 ENTRY turn-end check + :882-885 goto guard: the breeding-phase body may have
+        // driven memory past the threshold, so MainPhase re-checks BEFORE opening the OnStartMainPhase window (:905)
+        // — without this guard a turn that ended during Breeding would still fire the main-phase window.
+        await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
+        if (gameContext.TurnPhase == GameContext.phase.End)
+        {
+            goto EndMainPhase;   // AS-IS :882-885
+        }
+
+        // AS-IS :888-895 log + hand/field selection-status reset (OffHandCardTarget/OffFieldCardTarget) — UI stripped.
+
+        gameContext.TurnPhase = GameContext.phase.Main;   // AS-IS :897 (real write)
 
         // AS-IS :905 OnStartMainPhase window + :908 auto-processing check (pre-pump).
         await autoProcessing.StackSkillInfos(null, EffectTiming.OnStartMainPhase).ConfigureAwait(false);
@@ -365,35 +389,38 @@ public sealed class TurnStateMachine
                 await attackProcess.ProcessNextState(cancellationToken).ConfigureAwait(false);
                 await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
             }
-            // AS-IS :950 turn-end check — P2b seam: may set currentPhase = End.
-            //   await autoProcessing.EndTurnCheck();   // P2b
+            // AS-IS :950 turn-end check (P2b live seam — may drive TurnPhase to End).
+            await autoProcessing.EndTurnCheck(cancellationToken).ConfigureAwait(false);
 
             ResetMainPhaseParameter();   // AS-IS :953
 
-            if (currentPhase == GameContext.phase.Main)   // AS-IS :956
+            if (gameContext.TurnPhase == GameContext.phase.Main)   // AS-IS :956
             {
-                if (!CanSelect())                          // AS-IS :958
+                if (!CanSelect())                                   // AS-IS :958
                 {
-                    // AS-IS :960 EndTurnProcess — P2b seam (body-mirror forbidden): drives currentPhase off Main.
-                    //   await autoProcessing.EndTurnProcess();   // P2b
+                    // AS-IS :960 no-selectable-action auto turn-end (P2b live seam).
+                    await autoProcessing.EndTurnProcess(cancellationToken).ConfigureAwait(false);
                 }
             }
 
-            if (currentPhase != GameContext.phase.Main)   // AS-IS :964
+            if (gameContext.TurnPhase != GameContext.phase.Main)   // AS-IS :964
             {
-                break;   // AS-IS :966 goto EndMainPhase
+                goto EndMainPhase;   // AS-IS :966
             }
 
             // AS-IS :969 StartCoroutine(SetMainPhase()) — SetMainPhase (:1354-2872) is pure UI (spot-audit: no
             //   rule mutation, no selection-intent field write) — non-scope.
             // AS-IS :971-1253 selection-wait + AI auto-play + play/attack/effect dispatch = ACTION-QUEUE seam
             //   (DequeueMainPhaseAction().Execute ≈ ProcessAsync; the intent fields PlayCard/UseCardEffect/
-            //   AttackingPermanent are set by the pushed HeadlessAction, not polled here). The driver flip (S3)
+            //   AttackingPermanent are set by the pushed HeadlessAction, not polled here). The dispatch region's
+            //   OWN EndTurnProcess call sites (:1149 pass-command / :1158 auto-pass) ride the same seam — the S3
+            //   driver routes the externalized Pass action to AutoProcessing.EndTurnProcess. The driver flip (S3)
             //   supplies the action-queue drive; DORMANT here → break rather than spin without a selection source.
             break;
         }
 
-        // AS-IS EndMainPhase: (:1256-1284) command-panel / timer UI stripped.
+    // AS-IS EndMainPhase label (:1256; the :1258-1284 command-panel / timer UI under it is stripped).
+    EndMainPhase:
         ResetMainPhaseParameter();   // AS-IS :1283
         // AS-IS :1287 auto-processing check.
         await autoProcessing.AutoProcessCheck(cancellationToken).ConfigureAwait(false);
@@ -407,9 +434,8 @@ public sealed class TurnStateMachine
 
         // AS-IS :3154 log / :3158-3159 OffCardTarget UI — stripped.
 
-        // AS-IS :3162 phase = End (S2-cursor).
-        GameContext.phase currentPhase = GameContext.phase.End;
-        _ = currentPhase;
+        // AS-IS :3162 gameContext.TurnPhase = End (real write — idempotent when EndTurnProcess already set it).
+        gameContext.TurnPhase = GameContext.phase.End;
 
         isFirstPlayerFirstTurn = false;   // AS-IS :3165
 

@@ -93,17 +93,36 @@ public sealed class GameContext
     /// 6-value model (the former Setup/Unsuspend/MemoryPass splits moved to the <see cref="TurnStepCursor"/>
     /// sub-cursor), this map is now a near-identity — the step position within a phase is invisible to cards, exactly
     /// as in AS-IS (a card sees phase.Active during natural unsuspend, phase.Main during memory pass, phase.None
-    /// pre-game).</summary>
-    public phase TurnPhase => Turn.Phase switch
+    /// pre-game).
+    /// (R4 P2b) AS-IS <c>GameContext.TurnPhase</c> (GameContext.cs:126) is a plain mutable field; the SETTER mirrors
+    /// the engine-layer phase writes — the TurnStateMachine bodies (:554 Active / :666 Draw / :715 Breeding /
+    /// :897 Main / :3162 End) and <c>AutoProcessing.EndTurnProcess</c> (:717 End) — delegating to the substrate
+    /// <c>TurnController.SetPhase</c>. A phase write is a fresh phase entry, so the <see cref="TurnStepCursor"/>
+    /// resets to PhaseStart (the sub-cursor is substrate step state the AS-IS enum does not carry). No CARD writes
+    /// TurnPhase in AS-IS (write sites are the turn-flow layer only) — same discipline holds for ports.</summary>
+    public phase TurnPhase
     {
-        HeadlessPhase.None => phase.None,
-        HeadlessPhase.Active => phase.Active,
-        HeadlessPhase.Draw => phase.Draw,
-        HeadlessPhase.Breeding => phase.Breeding,
-        HeadlessPhase.Main => phase.Main,
-        HeadlessPhase.End => phase.End,
-        _ => phase.None,
-    };
+        get => Turn.Phase switch
+        {
+            HeadlessPhase.None => phase.None,
+            HeadlessPhase.Active => phase.Active,
+            HeadlessPhase.Draw => phase.Draw,
+            HeadlessPhase.Breeding => phase.Breeding,
+            HeadlessPhase.Main => phase.Main,
+            HeadlessPhase.End => phase.End,
+            _ => phase.None,
+        };
+        set => Context.TurnController.SetPhase(value switch
+        {
+            phase.None => HeadlessPhase.None,
+            phase.Active => HeadlessPhase.Active,
+            phase.Draw => HeadlessPhase.Draw,
+            phase.Breeding => HeadlessPhase.Breeding,
+            phase.Main => HeadlessPhase.Main,
+            phase.End => HeadlessPhase.End,
+            _ => HeadlessPhase.None,
+        });
+    }
 
     /// <summary>(MIG6) AS-IS <c>gameContext.PermanentsForTurnPlayer</c>: every battle-area permanent of every
     /// player, TURN player first (AS-IS <c>Players_ForTurnPlayer.SelectMany(GetBattleAreaPermanents)</c>).</summary>

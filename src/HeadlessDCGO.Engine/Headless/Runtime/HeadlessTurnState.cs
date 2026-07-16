@@ -29,9 +29,10 @@ public sealed record HeadlessTurnState(
     /// (Active, Unsuspending).</summary>
     public bool IsUnsuspendPhase => Phase == HeadlessPhase.Active && StepCursor == TurnStepCursor.Unsuspending;
 
-    /// <summary>(R4 S2) True for any Main-phase step (both the interactive main-play step and the memory-pass
-    /// end-of-main step). Use <see cref="IsMainPlayPhase"/> / <see cref="IsMemoryPassPhase"/> to distinguish.</summary>
-    public bool IsMainPhase => Phase == HeadlessPhase.Main;
+    // (R4 P2b, review-2 P2-②) The former `IsMainPhase` (any Main-phase step, memory-pass INCLUDED) is removed:
+    // it had 0 consumers and was a standing trap — every real gate wants the interactive main-play step only
+    // (IsMainPlayPhase) or the memory-pass step only (IsMemoryPassPhase); a raw Phase==Main read that genuinely
+    // wants both spells it out.
 
     /// <summary>(R4 S2) The interactive main-play step — former HeadlessPhase.Main, now (Main, PhaseStart);
     /// distinct from the memory-pass end-of-main step.</summary>
