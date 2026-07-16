@@ -1949,7 +1949,13 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             // (C-5 adversarial review P1-2) AS-IS ITrashDigivolutionCards ALSO yield-breaks on the host top
             // card's GENERAL effect immunity (`TopCard.CanNotBeAffected(cardEffect)`, CardController.cs:5154-5155)
             // — the same gate the return-to-hand/deck branch above already mirrors via BlocksOpponentEffect.
-            if (IsRestrictedFromCause(hostId, ImmuneStackTrashingKey, mutation.SourceEntityId)
+            // (R3-W3c B6) ImmuneFromStackTrashing rehomed from the ImmuneStackTrashingKey registry scan to the
+            // AS-IS-literal live getter Permanent.ImmuneFromStackTrashing(cardEffect) — the host permanent, cause
+            // = the causing effect collapsed to its source card (BareCauseEffect). Needs the EngineContext; a
+            // context-less sink can carry no live effect scan (nothing produced the flag anyway after the flip).
+            if ((_context is { } stackTrashCtx
+                    && new Assets.Scripts.Script.CardEffectCommons.Permanent(stackTrashCtx, hostId)
+                        .ImmuneFromStackTrashing(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId)))
                 || Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, hostId, mutation.SourceEntityId, _context))
             {
                 _skipped.Add(mutation);

@@ -353,8 +353,9 @@ public static partial class CardEffectCommons
     // host top card's general effect immunity (CanNotBeAffected). Mirrors AS-IS ITrashDigivolutionCards
     // (CardController.cs:5154-5156) for the helpers-direct mirrors that skip the sink.
     private static bool IsHostStackTrashGated(HeadlessEntityId hostId, CardSource sourceCard) =>
-        Headless.Runtime.RestrictionScan.IsRestricted(
-            sourceCard.Context, MatchStateMutationSink.ImmuneStackTrashingKey, hostId, sourceCard.InstanceId)
+        // (R3-W3c B6) ImmuneFromStackTrashing rehomed from the ImmuneStackTrashingKey registry scan to the
+        // AS-IS-literal live getter (host permanent, cause = the causing effect collapsed to its source card).
+        new Permanent(sourceCard.Context, hostId).ImmuneFromStackTrashing(BareCauseEffect.For(sourceCard.Context, sourceCard.InstanceId))
         || Headless.Runtime.ContinuousImmunityGate.BlocksOpponentEffect(
             sourceCard.Context.EffectRegistry, sourceCard.Context.CardInstanceRepository,
             hostId, sourceCard.InstanceId, sourceCard.Context);

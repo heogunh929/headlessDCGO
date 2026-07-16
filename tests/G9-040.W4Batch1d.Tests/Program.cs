@@ -107,26 +107,67 @@ async Task CanNotBeDestroyedByBattle()
     AssertTrue(!InBattle(context, P1, id), "effect deletion still deletes it");
 }
 
+// (R3-W3c B6) The ImmuneStackTrashing gate is now the AS-IS-literal live getter
+// Permanent.ImmuneFromStackTrashing(ICardEffect) — no registry binding. The host carries the AS-IS
+// ImmuneStackTrashingClass kind-class via the TfxImmuneStackTrashing fixture (BT21_060 shape: EffectCondition =
+// IsOpponentEffect), surfaced on its LIVE EffectList(None) through the card-number dispatch. The sink's
+// TrashDigivolutionCards gate (rehomed :1952) consults the live getter. Three cases exercise the cause predicate
+// (opponent vs own causing effect) and a no-immunity control:
+//   (a) immune fixture + OPPONENT causing source -> immune       -> the digivolution source is NOT trashed;
+//   (b) immune fixture + the host's OWN source    -> not immune    -> the source IS trashed (cause predicate);
+//   (c) no fixture (plain card) + opponent source  -> not immune    -> the source IS trashed (control).
 async Task ImmuneStackTrashing()
 {
+    await RunStackTrash(immuneFixture: true, opponentCause: true, expectSourceRemains: true);   // (a)
+    await RunStackTrash(immuneFixture: true, opponentCause: false, expectSourceRemains: false); // (b)
+    await RunStackTrash(immuneFixture: false, opponentCause: true, expectSourceRemains: false); // (c)
+}
+
+async Task RunStackTrash(bool immuneFixture, bool opponentCause, bool expectSourceRemains)
+{
     EngineContext context = Context();
-    var host = await Place(context, P1, "HOST");
-    var mat = await PlaceOffField(context, P1, "MAT");
-    context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? r);
-    context.CardInstanceRepository.Upsert(r! with { Metadata = new Dictionary<string, object?>(r!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = new[] { mat.Value } } });
-    var immuneEffect = CardEffectFactory.ImmuneStackTrashingClass(false, new CardSource(context, host, P1), null);
-    if (!LegacyBindingBridge.TryToBinding(immuneEffect, $"ist:{host.Value}", out var immuneBinding) || immuneBinding is null)
-        throw new InvalidOperationException($"{immuneEffect.GetType().Name} has no ToBinding bridge.");
-    context.EffectRegistry.Register(immuneBinding);
+    using var _ambient = AmbientMatchContext.Enter(context);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    var cards = (CardDatabase)context.CardRepository;
+
+    // Host on P1's battle area with one digivolution source under it. The immune host's card number dispatches
+    // to TfxImmuneStackTrashing (opponent-effect-gated stack-trash immunity); the plain host has no effect.
+    string hostNumber = immuneFixture ? "TfxImmuneStackTrashing" : "PLAINHOST";
+    cards.Upsert(new CardRecord(new HeadlessEntityId(hostNumber), hostNumber, "Host",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 5 }, CardType: "Digimon"));
+    var host = new HeadlessEntityId("p1:host");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(host, new HeadlessEntityId(hostNumber), P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, host, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    cards.Upsert(new CardRecord(new HeadlessEntityId("MAT"), "MAT", "Mat",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var mat = new HeadlessEntityId("p1:mat");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(mat, new HeadlessEntityId("MAT"), P1));
+    context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? hr);
+    context.CardInstanceRepository.Upsert(hr! with { Metadata = new Dictionary<string, object?>(hr!.Metadata, StringComparer.Ordinal) { ["sourceIds"] = new[] { mat.Value } } });
+
+    // The causing effect's source: an opponent (P2) card, or the host itself (own effect).
+    HeadlessEntityId cause;
+    if (opponentCause)
+    {
+        cards.Upsert(new CardRecord(new HeadlessEntityId("CAUSE"), "CAUSE", "Cause",
+            new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        cause = new HeadlessEntityId("p2:cause");
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(cause, new HeadlessEntityId("CAUSE"), P2));
+    }
+    else
+    {
+        cause = host;
+    }
 
     var sink = Sink(context);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.TrashDigivolutionCardsKind, host,
+    sink.Apply(new EffectMutation(MatchStateMutationSink.TrashDigivolutionCardsKind, cause,
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["targetEntityId"] = host.Value, ["count"] = 1 }));
     await sink.FlushAsync();
 
     context.CardInstanceRepository.TryGetInstance(host, out CardInstanceRecord? after);
     bool stillHasSource = after!.Metadata.TryGetValue("sourceIds", out object? raw) && raw is IEnumerable<string> ids && ids.Contains(mat.Value);
-    AssertTrue(stillHasSource, "digivolution source not trashed (immune)");
+    AssertTrue(stillHasSource == expectSourceRemains, $"source-remains == {expectSourceRemains} (immuneFixture={immuneFixture}, opponentCause={opponentCause})");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -167,8 +208,6 @@ async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
     return id;
 }
-
-Task<HeadlessEntityId> PlaceOffField(EngineContext context, HeadlessPlayerId owner, string tag) => Register(context, owner, tag);
 
 async Task<HeadlessEntityId> Register(EngineContext context, HeadlessPlayerId owner, string tag)
 {

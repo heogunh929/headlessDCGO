@@ -732,9 +732,12 @@ public static partial class CardEffectFactory
 
     // (P4 slice) CanNotBeTrashedBySkillStaticEffect moved to CardEffectFactory/CanNotBeTrashedByEffect.cs (AS-IS 1:1)
 
-    /// <summary>(PRIM-W4) <c>ImmuneStackTrashingClass</c> — alias of <see cref="CanNotBeTrashedBySkillStaticEffect"/>.</summary>
+    /// <summary>(PRIM-W4; R3-W3c B6 flip) <c>ImmuneStackTrashingClass</c> — alias of
+    /// <see cref="CanNotBeTrashedBySkillStaticEffect"/>. Now returns the AS-IS kind-class
+    /// <see cref="CardEffects.ImmuneStackTrashingClass"/> (no ToBinding → registers no legacy binding), served by
+    /// the live getter <c>Permanent.ImmuneFromStackTrashing(ICardEffect)</c>. Unconditional (null predicates).</summary>
     public static ICardEffect ImmuneStackTrashingClass(bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousSelfRestrictionEffect(card, MatchStateMutationSink.ImmuneStackTrashingKey, isInheritedEffect, condition);
+        CanNotBeTrashedBySkillStaticEffect(null!, null!, isInheritedEffect, card, condition!, "Isn't affected by trashing any stacked card");
 
     // (P4 ACTIVATED inline-mutation) 1:1 mirror of AS-IS CardEffectFactory.cs:622
     // ReplaceTopSecurityWithFaceUpOptionMainEffect. Replaces the old mirror-invented version.

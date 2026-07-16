@@ -331,8 +331,10 @@ public static class ActivatedEffectResolver
                 // just the trash) and (b) it holds >= Count TRASHABLE digivolution sources — the SAME gate the
                 // resolver's DigiBurst case applies before paying. Without these the skill is offered even when it
                 // cannot pay, a phantom legal move AS-IS's CanDeclareSkillList never surfaces.
-                if (!RestrictionScan.IsRestricted(
-                        context, MatchStateMutationSink.ImmuneStackTrashingKey, burst.Card.InstanceId, burst.Card.InstanceId)
+                // (R3-W3c B6) rehomed from the ImmuneStackTrashingKey registry scan to the AS-IS-literal live getter
+                // Permanent.ImmuneFromStackTrashing(_cardEffect): the burst card's permanent, cause = the burst's
+                // own effect (collapsed to its source card via BareCauseEffect), exactly IDigiBurst.CanDigiBurst.
+                if (!new Permanent(context, burst.Card.InstanceId).ImmuneFromStackTrashing(BareCauseEffect.For(context, burst.Card.InstanceId))
                     && CardEffectCommons.TrashableDigivolutionCount(burst.Card, burst.Card.InstanceId) >= burst.Count)
                 {
                     return true;
@@ -647,8 +649,8 @@ public static class ActivatedEffectResolver
                     // canEndNotMax select + `Some` gate — lands with its first ported witness; every current
                     // witness (ST4_13) is a fixed count.
                     IReadOnlyList<HeadlessEntityId> pool = CardEffectCommons.TrashableDigivolutionSourceIds(burst.Card, burst.Card.InstanceId);
-                    if (!RestrictionScan.IsRestricted(
-                            context, MatchStateMutationSink.ImmuneStackTrashingKey, burst.Card.InstanceId, burst.Card.InstanceId)
+                    // (R3-W3c B6) rehomed to the AS-IS-literal live getter (see the CanDeclare pass above).
+                    if (!new Permanent(context, burst.Card.InstanceId).ImmuneFromStackTrashing(BareCauseEffect.For(context, burst.Card.InstanceId))
                         && pool.Count >= burst.Count)
                     {
                         var candidates = pool

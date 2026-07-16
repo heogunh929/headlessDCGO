@@ -2793,6 +2793,40 @@ public sealed class Permanent
     }
     #endregion
 
+    #region Immune From Trashing Stack
+    /// <summary>(R3-W3c B6) AS-IS <c>Permanent.ImmuneFromStackTrashing(ICardEffect)</c> (Permanent.cs:853-876):
+    /// TRUE when some usable <c>IImmuneFromStackTrashingEffect</c> on any player's field permanents'
+    /// <c>EffectList(None)</c> declares THIS permanent immune from digivolution-stack trashing by the causing
+    /// <paramref name="effect"/> (<c>ImmuneStackTrashing(this, effect)</c>). AS-IS iterates
+    /// <c>gameContext.Players</c> (FULL roster; order-insensitive any-match) — ADAPTATION
+    /// <c>new GameContext(_context).Players</c>. The causing effect is threaded to the kind-class
+    /// <c>EffectCondition</c> (e.g. <c>IsOpponentEffect</c>), matching the AS-IS signature.</summary>
+    public bool ImmuneFromStackTrashing(ICardEffect effect)
+    {
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is IImmuneFromStackTrashingEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((IImmuneFromStackTrashingEffect)cardEffect1).ImmuneStackTrashing(this, effect))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
     // ===== (R1-d) restriction / immunity predicate getters (AS-IS Permanent.cs) ================================
     // Each member is the AS-IS body verbatim (scan scope / interface / gate order / quirk preserved per member —
     // NOT uniformised). Established substrate ADAPTATIONs applied throughout (same as the R1-b/R1-c clusters):

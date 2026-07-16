@@ -607,18 +607,18 @@ public class IDigiBurst
     // The AS-IS `_cardEffect` threaded to the protection/immunity gates — the causing effect's source card id.
     private HeadlessEntityId? CauseEffectSourceId => _cardEffect?.EffectSourceCard?.InstanceId;
 
-    // AS-IS Permanent.ImmuneFromStackTrashing(_cardEffect) — the same ImmuneStackTrashingKey restriction scan
-    // ITrashDigivolutionCards applies (self-contained-privates style; the continuous scan needs a cause —
-    // without one nothing matches a causing-effect-keyed immunity, as in the AS-IS null-cause scan).
+    // AS-IS Permanent.ImmuneFromStackTrashing(_cardEffect) (:2141). (R3-W3c B6) rehomed from the
+    // ImmuneStackTrashingKey registry scan to the AS-IS-literal live getter — scans every field permanent's
+    // EffectList(None) for a usable IImmuneFromStackTrashingEffect honouring the causing effect. A missing
+    // causing effect matches no cause-keyed immunity (as in the AS-IS null-cause scan); the guard preserves that.
     private bool ImmuneFromStackTrashing()
     {
-        if (CauseEffectSourceId is not { IsEmpty: false } causeId)
+        if (CauseEffectSourceId is not { IsEmpty: false })
         {
             return false;
         }
 
-        EngineContext context = _permanent.TopCard.Context;
-        return RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId);
+        return _permanent.ImmuneFromStackTrashing(_cardEffect!);
     }
 
     // (bridge W5) duplicate of ActivatedEffectResolver's private EmitJournaled/RunJournaledImmediate (B-1
@@ -848,7 +848,7 @@ public class IDegeneration
     public async Task Degeneration(CancellationToken cancellationToken = default)
     {
         // AS-IS :4803-4804 `_cardEffect == null` / `EffectSourceCard == null` — mandatory causing effect.
-        if (_causeEffectSourceId is not { IsEmpty: false } causeId) return;
+        if (_causeEffectSourceId is not { IsEmpty: false }) return;
         if (_permanent == null) return; // AS-IS :4805
         if (_permanent.TopCard == null) return; // AS-IS :4806 — structurally dead, kept for 1:1 shape.
 
@@ -856,8 +856,9 @@ public class IDegeneration
 
         if (ImmuneFromDeDigivolve(context, _permanent.InstanceId)) return; // AS-IS :4807
 
-        // AS-IS :4808 ImmuneFromStackTrashing(_cardEffect).
-        if (RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId)) return;
+        // AS-IS :4808 ImmuneFromStackTrashing(_cardEffect). (R3-W3c B6) rehomed to the AS-IS-literal live getter
+        // (threaded _cardEffect) from the ImmuneStackTrashingKey registry scan.
+        if (_permanent.ImmuneFromStackTrashing(_cardEffect!)) return;
 
         // AS-IS :4809 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed to the AS-IS-literal live scan
         // (threaded _cardEffect).
@@ -1002,7 +1003,7 @@ public class IMassDegeneration
 
     public async Task Degeneration(CancellationToken cancellationToken = default)
     {
-        if (_causeEffectSourceId is not { IsEmpty: false } causeId) return; // AS-IS :4970-4971
+        if (_causeEffectSourceId is not { IsEmpty: false }) return; // AS-IS :4970-4971
 
         // (substrate-necessitated) headless needs an EngineContext from a list member; behaviorally equivalent
         // to AS-IS's natural no-op on an empty/all-null list.
@@ -1015,7 +1016,8 @@ public class IMassDegeneration
             permanent != null
             && permanent.TopCard != null // structurally dead, kept for 1:1 shape.
             && !ImmuneFromDeDigivolve(context, permanent.InstanceId)
-            && !RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, permanent.InstanceId, causeId)
+            // (R3-W3c B6) rehomed to the AS-IS-literal live getter Permanent.ImmuneFromStackTrashing(_cardEffect).
+            && !permanent.ImmuneFromStackTrashing(_cardEffect!)
             // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
             && !permanent.TopCard.CanNotBeAffected(_cardEffect);
 
@@ -1145,8 +1147,8 @@ public class ITrashDigivolutionCards
 
         EngineContext context = _permanent.TopCard.Context;
 
-        // AS-IS :5154 ImmuneFromStackTrashing(_cardEffect).
-        if (RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId)) return;
+        // AS-IS :5154 ImmuneFromStackTrashing(_cardEffect). (R3-W3c B6) rehomed to the AS-IS-literal live getter.
+        if (_permanent.ImmuneFromStackTrashing(_cardEffect!)) return;
 
         // AS-IS :5155 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed from the registry gate to the
         // AS-IS-literal live ICanNotAffectedEffect scan — the live cause effect is threaded (_cardEffect).
@@ -2200,13 +2202,14 @@ public class ITrashStack
 
     public async Task TrashStack(CancellationToken cancellationToken = default)
     {
-        if (_causeEffectSourceId is not { IsEmpty: false } causeId) return; // AS-IS :5882-5883
+        if (_causeEffectSourceId is not { IsEmpty: false }) return; // AS-IS :5882-5883
         if (_permanent == null) return; // AS-IS :5884
         if (_permanent.TopCard == null) return; // AS-IS :5885 — structurally dead, kept for 1:1 shape.
 
         EngineContext context = _permanent.TopCard.Context;
 
-        if (RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId)) return; // AS-IS :5886
+        // AS-IS :5886 ImmuneFromStackTrashing(_cardEffect). (R3-W3c B6) rehomed to the AS-IS-literal live getter.
+        if (_permanent.ImmuneFromStackTrashing(_cardEffect!)) return;
         // AS-IS :5887 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed to the AS-IS-literal live scan.
         if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
 
