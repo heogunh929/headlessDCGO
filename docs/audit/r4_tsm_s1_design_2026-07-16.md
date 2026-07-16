@@ -24,3 +24,7 @@ P1 GameContext 갭필(~60줄) → P2a phase-body 휴면 조립(~400-600줄, live
 
 ## 리스크 잔여
 ①결정 2 사용자 판정 ②DoneStartGame 게이트 정확 지점(StartGameAsync :503 대응) ③P2b의 창 seam 정합(현 EndTurnAsync의 drain이 컷오버 후 신 창엔진과 어떤 관계인지 P2b 착수 시 재검증) ④SetMainPhase 게임룰-누수 spot-audit 미완(V-item) ⑤shadow-run 커버리지 공백=witness 보완.
+
+## 결정 2 확정 (2026-07-16, 사용자 판정): 옵션 A — AS-IS 6값 enum + substrate sub-커서
+**근거(사용자)**: DCGO2 원본이 계속 업데이트됨 — enum 발산 시 페이즈-관련 업스트림 변경마다 영구 번역세(로컬LLM 불가 판단). 일회성 churn > 영구세. (프로젝트 근본 명제=기계-diff 추적성과 정합.)
+**정제 설계**: 페이즈 enum=AS-IS 6값(게임 모델, 업스트림 1:1) + 스텝 위치=`HeadlessTurnState`의 명시적 substrate sub-커서(게임 페이즈 명명 금지 — resume 커서와 동류). 합법 액션 표 키=페이즈+커서. RL 관측=페이즈 one-hot 6+커서 feature(업스트림 페이즈 추가 시 enum·관측이 함께 의미 있게 확장). S2 스코프 갱신=HeadlessPhase 9→6+커서 도입+디스패처 재키잉+스위트 23종 재조준(일회성 비용 수용). P1/P2a는 결정-무관이라 선행 가능.
