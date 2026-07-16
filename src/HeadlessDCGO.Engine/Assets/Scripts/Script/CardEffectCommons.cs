@@ -1698,60 +1698,11 @@ public static partial class CardEffectCommons
         return permanentCondition is null || permanentCondition(view);
     }
 
-    // ===== (W6-G) Gain-keyword commons batch — 1:1 mirrors of KeyWordEffects/*.cs Gain* =====
-    // AS-IS shape (verbatim verified, primitive_w6_design.md W6-G): guards (target on field, source valid)
-    // -> target-locked permanentCondition -> live CanUse (on field && !CanNotBeAffected) -> the keyword's
-    // StaticEffect -> AddEffectToPermanent(duration bucket). Headless: one duration-tagged, card-TARGETED
-    // keyword binding (grant-time immunity refusal mirrors the AS-IS CanUse guard's first evaluation; the
-    // live remainder rides ConditionKey). Synchronous, returns true when registered (Gain-commons norm).
-
-    private static bool GainKeywordToPermanent(
-        Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard, string keyword, string gainName)
-    {
-        ArgumentNullException.ThrowIfNull(sourceCard);
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty)
-        {
-            return false;
-        }
-
-        EngineContext context = sourceCard.Context;
-        HeadlessEntityId targetId = targetPermanent.InstanceId;
-        HeadlessPlayerId targetOwner = targetPermanent.OwnerId;
-        var zones = (IZoneStateReader)context.ZoneMover;
-        if (!zones.GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId))
-        {
-            return false;   // AS-IS IsPermanentExistsOnBattleArea guard.
-        }
-
-        // AS-IS CanUse first evaluation: !target.CanNotBeAffected(activateClass) — an immune target refuses.
-        if (ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, sourceCard.InstanceId, context))
-        {
-            return false;
-        }
-
-        // AS-IS CanUseCondition is LIVE: on the battle area AND !CanNotBeAffected — a target that gains
-        // immunity AFTER the grant turns the granted effect off.
-        HeadlessEntityId grantSourceId = sourceCard.InstanceId;
-        Func<bool> liveCondition = () =>
-            ((IZoneStateReader)context.ZoneMover).GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId)
-            && !ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, grantSourceId, context);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [ContinuousSelfModifierEffect.ConditionKey] = liveCondition,
-        };
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
-            triggerEntityId: null, targetEntityIds: new[] { targetId }, values: values);
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:{gainName}:{targetId.Value}"),
-                sourceCard.Controller, "Continuous", effectContext),
-            keywords: new[] { keyword }, EffectQueryRole.Continuous, queryScopes: null,
-            effect: null, duration: effectDuration));
-        return true;
-    }
+    // (G-clean-2) The invented GainKeywordToPermanent registry-marker funnel is DELETED. Its 16 keyword
+    // callers now grant AS-IS 1:1 through the KeyWordEffects/*.cs Task Gain* overloads (AddEffectToPermanent
+    // duration bucket → EffectList_Added, read by Permanent.Has<Keyword> / the deletion & OnEndTurn & OnAllyAttack
+    // windows). BecomeDigimonThatCantDigivolve — the sole non-keyword caller — now grants TreatAsDigimon as a
+    // TreatAsDigimonStaticEffect in the None bucket, AS-IS 1:1.
 
     /// <summary>(W6 process) shared timed target-modifier grant — the AS-IS ChangeDigimonDP/SAttack shape
     /// (verbatim verified): guards, live CanUse (on field && !CanNotBeAffected), duration bucket.</summary>
@@ -2679,27 +2630,12 @@ public static partial class CardEffectCommons
         });
     }
 
-    /// <summary>AS-IS <c>BecomeDigimonThatCantDigivolve</c> (GiveEffect/TamerBecomesDigimon….cs:10,
-    /// verbatim): the Tamer becomes a Digimon (TreatAsDigimon) with base DP set to <paramref name="DP"/>
-    /// and cannot digivolve — three timed grants.</summary>
-    public static bool BecomeDigimonThatCantDigivolve(Permanent? targetPermanent, int DP, EffectDuration effectDuration, CardSource sourceCard)
-    {
-        ArgumentNullException.ThrowIfNull(sourceCard);
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty || DP < 0 ||
-            !IsPermanentExistsOnBattleArea(targetPermanent))
-        {
-            return false;
-        }
-
-        // treat as Digimon (the keyword the central IsDigimon chokepoint honours — K4).
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, Headless.Runtime.ContinuousKeywordGate.TreatAsDigimon, "becomeDigimon");
-        // base DP OVERRIDE (delta to reach the requested value).
-        ChangeBaseDigimonDP(targetPermanent, DP, effectDuration, sourceCard);
-        // cannot digivolve.
-        GainRestrictionToPermanent(targetPermanent, effectDuration, sourceCard,
-            RestrictionHelpers.CannotDigivolveKey, "becomeDigimonNoEvolve");
-        return true;
-    }
+    // (G-clean-2) The invented bool BecomeDigimonThatCantDigivolve(...CardSource) substrate — which routed
+    // TreatAsDigimon through the GainKeywordToPermanent funnel and the base-DP/no-evolve through the invented
+    // ChangeBaseDigimonDP / GainRestrictionToPermanent helpers — is DELETED. The AS-IS-signature
+    // Task BecomeDigimonThatCantDigivolve(Permanent, int, EffectDuration, ICardEffect) in
+    // GiveEffect/GiveEffectToPermanent/TamerBecomesDigimonThatCanNotDigivolve.cs now builds the three
+    // StaticEffects (TreatAsDigimon / ChangeBaseDP / CanNotDigivolve) and stores them in the None bucket, AS-IS 1:1.
 
     /// <summary>AS-IS <c>DrawAndDiscardCards</c> (CardEffectCommons.cs:1408, verbatim): draw N, then the
     /// trash player discards up to M chosen hand cards.</summary>
@@ -3163,21 +3099,16 @@ public static partial class CardEffectCommons
         return true;
     }
 
-    /// <summary>AS-IS <c>GainBlockerPlayerEffect</c> (KeyWordEffects/Blocker.cs:46, verbatim verified).</summary>
-    public static bool GainBlockerPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainBlockerPlayer", permanentCondition, keyword: ContinuousKeywordGate.Blocker);
-
-    /// <summary>AS-IS <c>GainRushPlayerEffect</c> (KeyWordEffects/Rush.cs:46).</summary>
-    public static bool GainRushPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainRushPlayer", permanentCondition, keyword: ContinuousKeywordGate.Rush);
-
+    // (G-clean-2) GainBlockerPlayerEffect / GainRushPlayerEffect / GainIcecladPlayerEffect (the invented
+    // GainToPlayerScope keyword-marker player-scope wrappers) are DELETED — the AS-IS-signature
+    // Task GainBlockerPlayerEffect / GainRushPlayerEffect / GainIcecladPlayerEffect (KeyWordEffects/*.cs) now
+    // build the keyword's StaticEffect and store it in the owning player's None bucket via AddEffectToPlayer,
+    // AS-IS 1:1 (read by Permanent.Has<Keyword>'s player.EffectList(None) scan). GainAlliancePlayerEffect is
+    // retained: Alliance is a firing-window keyword (C-Atk) whose player-scope grant still rides the surviving
+    // GainToPlayerScope funnel (out of the 충실-7 grant scope).
     /// <summary>AS-IS <c>GainAlliancePlayerEffect</c> (KeyWordEffects/Alliance.cs:180).</summary>
     public static bool GainAlliancePlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
         GainToPlayerScope(effectDuration, sourceCard, "gainAlliancePlayer", permanentCondition, keyword: ContinuousKeywordGate.Alliance);
-
-    /// <summary>AS-IS <c>GainIcecladPlayerEffect</c> (KeyWordEffects/Iceclad.cs:46).</summary>
-    public static bool GainIcecladPlayerEffect(Func<Permanent, bool>? permanentCondition, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainToPlayerScope(effectDuration, sourceCard, "gainIcecladPlayer", permanentCondition, keyword: ContinuousKeywordGate.Iceclad);
 
     /// <summary>AS-IS <c>GainCanNotUnsuspendPlayerEffect</c> (GiveEffectToPlayer/CanNotUnsuspend.cs:10,
     /// verbatim): <paramref name="isOnlyActivePhase"/> narrows to the turn player's permanents — headless
@@ -3370,74 +3301,13 @@ public static partial class CardEffectCommons
             ModifierHelpers.BaseDpDeltaKey, "changeBaseDp") || delta == 0;
     }
 
-    /// <summary>AS-IS <c>GainBlocker</c> (KeyWordEffects/Blocker.cs:10).</summary>
-    public static bool GainBlocker(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Blocker, "gainBlocker");
-
-    /// <summary>AS-IS <c>GainRush</c> (KeyWordEffects/Rush.cs:10).</summary>
-    public static bool GainRush(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Rush, "gainRush");
-
-    /// <summary>AS-IS <c>GainPierce</c> (KeyWordEffects/Pierce.cs:54).</summary>
-    public static bool GainPierce(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Piercing, "gainPierce");
-
-    /// <summary>AS-IS <c>GainRetaliation</c> (KeyWordEffects/Retaliation.cs:136).</summary>
-    public static bool GainRetaliation(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Retaliation, "gainRetaliation");
-
-    /// <summary>AS-IS <c>GainCollision</c> (KeyWordEffects/Collision.cs:10).</summary>
-    public static bool GainCollision(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Collision, "gainCollision");
-
-    /// <summary>AS-IS <c>GainJamming</c> (KeyWordEffects/Jamming.cs:10).</summary>
-    public static bool GainJamming(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Jamming, "gainJamming");
-
-    /// <summary>AS-IS <c>GainReboot</c> (KeyWordEffects/Reboot.cs:10).</summary>
-    public static bool GainReboot(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Reboot, "gainReboot");
-
-    /// <summary>AS-IS <c>GainAlliance</c> (KeyWordEffects/Alliance.cs:136).</summary>
-    public static bool GainAlliance(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Alliance, "gainAlliance");
-
-    /// <summary>AS-IS <c>GainEvade</c> (KeyWordEffects/Evade.cs:53).</summary>
-    public static bool GainEvade(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Evade, "gainEvade");
-
-    /// <summary>AS-IS <c>GainRaid</c> (KeyWordEffects/Raid.cs:81).</summary>
-    public static bool GainRaid(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Raid, "gainRaid");
-
-    /// <summary>AS-IS <c>GainVortex</c> (KeyWordEffects/Vortex.cs:81).</summary>
-    public static bool GainVortex(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Vortex, "gainVortex");
-
-    /// <summary>AS-IS <c>GainExecute</c> (KeyWordEffects/Execute.cs:103).</summary>
-    public static bool GainExecute(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Execute, "gainExecute");
-
-    /// <summary>AS-IS <c>GainFortitude</c> (KeyWordEffects/Fortitude.cs:67).</summary>
-    public static bool GainFortitude(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Fortitude, "gainFortitude");
-
-    /// <summary>AS-IS <c>GainIceclad</c> (KeyWordEffects/Iceclad.cs:10).</summary>
-    public static bool GainIceclad(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Iceclad, "gainIceclad");
-
-    /// <summary>AS-IS <c>GainBarrier</c> (KeyWordEffects/Barrier.cs:65).</summary>
-    public static bool GainBarrier(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard) =>
-        GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Barrier, "gainBarrier");
-
-    /// <summary>AS-IS <c>GainBlitz</c> (KeyWordEffects/Blitz.cs:51) — <c>isWhenDigivolving</c> accepted for
-    /// source-signature fidelity (the AS-IS flag only decides whether the Blitz prompt opens inside the
-    /// digivolve flow; the headless Blitz window reads the live keyword either way).</summary>
-    public static bool GainBlitz(Permanent? targetPermanent, EffectDuration effectDuration, CardSource sourceCard, bool isWhenDigivolving = false)
-    {
-        _ = isWhenDigivolving;
-        return GainKeywordToPermanent(targetPermanent, effectDuration, sourceCard, ContinuousKeywordGate.Blitz, "gainBlitz");
-    }
+    // (G-clean-2) The invented per-keyword bool Gain* wrappers (Blocker/Rush/Pierce/Retaliation/Collision/
+    // Jamming/Reboot/Alliance/Evade/Raid/Vortex/Execute/Fortitude/Iceclad/Barrier/Blitz) that routed grants
+    // through the GainKeywordToPermanent registry-marker funnel are DELETED. Every keyword's grant is now the
+    // AS-IS-signature Task Gain<Keyword>(Permanent, EffectDuration, ICardEffect) in KeyWordEffects/<Keyword>.cs,
+    // which builds the keyword's Static/ActivateClass effect and stores it in the target permanent's duration
+    // bucket via AddEffectToPermanent (read by Permanent.Has<Keyword> / the deletion window / the OnEndTurn
+    // window / OnAllyAttack), AS-IS 1:1.
 
     /// <summary>It is the card owner's turn.</summary>
     public static bool IsOwnerTurn(CardSource card)

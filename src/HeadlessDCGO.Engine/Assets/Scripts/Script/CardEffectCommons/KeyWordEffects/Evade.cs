@@ -13,10 +13,44 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 
 public static partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainEvade(...)</c> (KeyWordEffects/Evade.cs:53) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
+    /// <summary>(G-clean-2 grant rehousing) AS-IS <c>CardEffectCommons.GainEvade</c> (KeyWordEffects/Evade.cs:53),
+    /// 1:1: build the <see cref="CardEffectFactory.EvadeEffect"/> <c>ActivateClass</c> and store it in the target
+    /// permanent's <c>WhenPermanentWouldBeDeleted</c> duration bucket via <see cref="AddEffectToPermanent"/> — so the
+    /// PRE cut-in deletion window (sink / battle / security) collects it via GetSkillInfos and resolves
+    /// <see cref="EvadeProcess"/> (the retired DeletionReplacementGate firing-half already expects the bucket effect,
+    /// DeletionReplacementGate.cs:76). Replaces the invented <c>GainKeywordToPermanent</c> funnel (a
+    /// <c>ContinuousKeywordGate.Evade</c> registry marker the retired gate no longer reads — the granted keyword was
+    /// inert). ADAPTATION: the AS-IS terminal <c>CreateBuffEffect</c> VFX is dropped.</summary>
     public static async Task GainEvade(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        GainEvade(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
+        if (targetPermanent == null) return;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+        if (activateClass == null) return;
+        if (activateClass.EffectSourceCard == null) return;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ActivateClass evade = CardEffectFactory.EvadeEffect(
+            targetPermanent: targetPermanent, isInheritedEffect: false, condition: CanUseCondition,
+            rootCardEffect: activateClass, targetPermanent.TopCard);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+            cardEffect: evade, timing: EffectTiming.WhenPermanentWouldBeDeleted);
+
         await Task.CompletedTask;
     }
 

@@ -5,14 +5,55 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System.Threading;
 using System.Threading.Tasks;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Effects;
 
 public static partial class CardEffectCommons
 {
-    /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainBarrier(...)</c> (KeyWordEffects/Barrier.cs:65) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
+    /// <summary>(G-clean-2 grant rehousing) AS-IS <c>CardEffectCommons.GainBarrier</c> (KeyWordEffects/Barrier.cs:65),
+    /// 1:1: build the <see cref="CardEffectFactory.BarrierEffect"/> <c>ActivateClass</c> (card = <c>TopCard</c>, AS-IS)
+    /// and store it in the target permanent's <c>WhenPermanentWouldBeDeleted</c> duration bucket via
+    /// <see cref="AddEffectToPermanent"/> — so the PRE cut-in deletion window collects it via GetSkillInfos and
+    /// resolves <see cref="BarrierProcess"/> (the retired DeletionReplacementGate firing-half already expects the
+    /// bucket effect, DeletionReplacementGate.cs:76). Replaces the invented <c>GainKeywordToPermanent</c> funnel (a
+    /// <c>ContinuousKeywordGate.Barrier</c> registry marker the retired gate no longer reads). ADAPTATION: the AS-IS
+    /// terminal <c>CreateBuffEffect</c> VFX is dropped.</summary>
     public static async Task GainBarrier(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        GainBarrier(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
+        if (targetPermanent == null) return;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+        if (activateClass == null) return;
+        if (activateClass.EffectSourceCard == null) return;
+
+        CardSource card = activateClass.EffectSourceCard;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        ActivateClass barrier = CardEffectFactory.BarrierEffect(
+            targetPermanent: targetPermanent,
+            isInheritedEffect: false,
+            condition: CanUseCondition,
+            rootCardEffect: activateClass,
+            card: targetPermanent.TopCard);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: card,
+            cardEffect: barrier,
+            timing: EffectTiming.WhenPermanentWouldBeDeleted);
+
         await Task.CompletedTask;
     }
 

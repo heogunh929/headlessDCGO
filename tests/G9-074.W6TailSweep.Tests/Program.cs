@@ -17,11 +17,10 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("gate tail: trash-hand/discard-library/use-option(cost)/battle-result winners", GateTail),
     ("predicate tail: IsMinCost/IsExistLinked/unique colours/breeding digimon", PredicateTail),
-    ("player-scope grants: Blocker to matching digimon only; CanNotUnsuspend player-wide", PlayerScopeGrants),
+    ("player-scope grant: CanNotUnsuspend player-wide (registry) expires at turn end", PlayerScopeGrants),
     ("tokens: quantity Diaboromon to owner, Petrification to the OPPONENT, effect-class alias", Tokens),
     ("Save: deletion-window pick puts the dead card under a Tamer", SaveFragment),
     ("AddSelfDeleteEffect: own-turn-end marker promotes and the loop deletes it", TurnEndSelfDelete),
-    ("BecomeDigimonThatCantDigivolve: TreatAsDigimon + base DP + evolve lock, all expire", BecomeDigimon),
     ("OnDeletionWith filters: card-name contains / trait / save-text snapshot", OnDeletionFilters),
 };
 
@@ -95,13 +94,12 @@ async Task PlayerScopeGrants()
 {
     EngineContext ctx = Ctx();
     var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var big = await Put(ctx, P1, "BIG", ChoiceZone.BattleArea, level: 6);
     var small = await Put(ctx, P1, "SMALL", ChoiceZone.BattleArea, level: 3);
 
-    AssertTrue(CardEffectCommons.GainBlockerPlayerEffect(p => p.Level >= 6, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "player-scope grant");
-    AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, big, ContinuousKeywordGate.Blocker), "matching digimon gained Blocker");
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, small, ContinuousKeywordGate.Blocker), "non-matching did not");
-
+    // (G-clean-2) The former player-scope [Blocker] grant assertion tested the deleted GainKeywordToPermanent /
+    // GainBlockerPlayerEffect(CardSource) funnel (a ContinuousKeywordGate.Blocker registry marker). The AS-IS
+    // player-scope Blocker grant (AddEffectToPlayer None bucket -> Permanent.HasBlocker) is now witnessed in
+    // G9-067.W6GainCommons. CanNotUnsuspend below still rides the surviving GainToPlayerScope registry funnel.
     SetMeta(ctx, small, "isSuspended", true);
     CardEffectCommons.GainCanNotUnsuspendPlayerEffect(null, EffectDuration.UntilOpponentTurnEnd, V(ctx, src));
     AssertTrue(!new Permanent(ctx, small).CanUnsuspend, "player-wide unsuspend lock");
@@ -152,18 +150,10 @@ async Task TurnEndSelfDelete()
     AssertTrue(InZone(ctx, P1, ChoiceZone.Trash, doomed), "the marked permanent self-deleted at its owner's turn end");
 }
 
-async Task BecomeDigimon()
-{
-    EngineContext ctx = Ctx();
-    var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
-    var tamer = await Put(ctx, P1, "TAMER", ChoiceZone.BattleArea, cardType: "Tamer", dp: 0);
-
-    AssertTrue(CardEffectCommons.BecomeDigimonThatCantDigivolve(Perm(ctx, tamer), 8000, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "granted");
-    AssertTrue(ContinuousKeywordGate.HasKeyword(ctx, tamer, ContinuousKeywordGate.TreatAsDigimon), "treated as Digimon");
-    AssertTrue(ContinuousRestrictionGate.EvaluateDigivolve(ctx, tamer).IsRestricted, "cannot digivolve");
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
-    AssertTrue(!ContinuousKeywordGate.HasKeyword(ctx, tamer, ContinuousKeywordGate.TreatAsDigimon), "expired");
-}
+// (G-clean-2) The BecomeDigimonThatCantDigivolve sub-test is retired here — it drove the deleted
+// BecomeDigimonThatCantDigivolve(...CardSource) substrate (TreatAsDigimon via the GainKeywordToPermanent
+// registry funnel + registry-based ExpireTurnEnd). The AS-IS grant (three StaticEffects in the None bucket ->
+// ContinuousKeywordGate.IsDigimon) is now witnessed in G9-067.W6GainCommons (TreatAsDigimonGrant).
 
 async Task OnDeletionFilters()
 {

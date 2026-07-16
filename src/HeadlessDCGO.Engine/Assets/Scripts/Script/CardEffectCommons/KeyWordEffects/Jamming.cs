@@ -38,14 +38,49 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.KeyWordEff
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 {
     using System.Threading.Tasks;
+    using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
     using HeadlessDCGO.Engine.Headless.Effects;
 
     public static partial class CardEffectCommons
     {
-        /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.GainJamming(...)</c> (KeyWordEffects/Jamming.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
+        /// <summary>(G-clean-2 grant rehousing) AS-IS <c>CardEffectCommons.GainJamming</c>
+        /// (KeyWordEffects/Jamming.cs:10), 1:1: build the target-locked <see cref="CardEffectFactory.JammingStaticEffect"/>
+        /// (a named "Jamming" <c>CanNotBeDestroyedByBattleClass</c>) and store it in the target permanent's <c>None</c>
+        /// duration bucket via <see cref="AddEffectToPermanent"/> — read by <see cref="Permanent.HasJamming"/>'s
+        /// <c>EffectList(None)</c> <c>ICanNotBeDestroyedByBattleEffect</c> scan. Replaces the invented
+        /// <c>GainKeywordToPermanent</c> funnel. ADAPTATION: the AS-IS terminal <c>CreateBuffEffect</c> VFX is
+        /// dropped.</summary>
         public static async Task GainJamming(Permanent targetPermanent, EffectDuration effectDuration, ICardEffect activateClass)
         {
-            GainJamming(targetPermanent, effectDuration, activateClass?.EffectSourceCard);
+            if (targetPermanent == null) return;
+            if (!IsPermanentExistsOnBattleArea(targetPermanent)) return;
+            if (activateClass == null) return;
+            if (activateClass.EffectSourceCard == null) return;
+
+            CardSource card = activateClass.EffectSourceCard;
+
+            bool PermanentCondition(Permanent permanent) => permanent == targetPermanent;
+
+            bool CanUseCondition()
+            {
+                if (IsPermanentExistsOnBattleArea(targetPermanent))
+                {
+                    if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            CanNotBeDestroyedByBattleClass jamming = CardEffectFactory.JammingStaticEffect(
+                permanentCondition: PermanentCondition, isInheritedEffect: false, card: card, condition: CanUseCondition);
+
+            AddEffectToPermanent(
+                targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+                cardEffect: jamming, timing: EffectTiming.None);
+
             await Task.CompletedTask;
         }
     }
