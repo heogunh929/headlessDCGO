@@ -192,21 +192,26 @@ async Task CollisionImmuneDefenderNotForced()
     match.Context.EffectRegistry.Register(
         new SelfKeywordByNameEffect(new CardSource(match.Context, attacker, P1), ContinuousKeywordGate.Collision, isInheritedEffect: false, condition: null)
             .ToBinding($"col:{attacker.Value}"));
-    // The immune defender cannot be affected by the OPPONENT's Digimon effects (AS-IS SkillCondition shape).
-    // CanNotAffectedStaticEffect's declared return type is the AS-IS abstract ICardEffect base class (no
-    // ToBinding member); the concrete ContinuousImmunityEffect it returns still declares a real ToBinding —
-    // bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
+    // (R3-W3c-1) The immune defender cannot be affected by the OPPONENT's Digimon effects (AS-IS SkillCondition
+    // shape, now Func<ICardEffect,bool> over the causing effect). The flipped CanNotAffectedStaticEffect returns a
+    // new-model CanNotAffectedClass consumed by the LIVE CardSource.CanNotBeAffected scan (no registry) — attach it
+    // to the immune defender's live effect list. BlockTiming reads it via the AS-IS fakeCollisionClass live-scan
+    // check (Collision source = the attacker's top card).
+    var immuneCard = new CardSource(match.Context, immune, P2);
     ICardEffect cnaEffect = CardEffectFactory.CanNotAffectedStaticEffect(
         permanentCondition: null,
-        skillCondition: src => src.Owner != P2 && src.IsDigimon,
-        isInheritedEffect: false, card: new CardSource(match.Context, immune, P2), condition: null);
-    if (LegacyBindingBridge.TryToBinding(cnaEffect, $"cna:{immune.Value}", out EffectBinding? cnaBinding) && cnaBinding is not null)
-    {
-        match.Context.EffectRegistry.Register(cnaBinding);
-    }
+        skillCondition: e => e.EffectSourceCard is not null && e.EffectSourceCard.Owner != P2 && e.EffectSourceCard.IsDigimon,
+        isInheritedEffect: false, card: immuneCard, condition: null);
+    immuneCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(cnaEffect);
 
     match.Context.AttackController.DeclareAttack(P1, attacker, P2, targetId: null, isDirectAttack: true);
-    BlockTimingResult result = new BlockTiming().RequestBlockChoice(match.Context);
+    // (R3-W3c-1) BlockTiming's Collision immunity check now reads the live CanNotBeAffected scan (CanUse->IsDisabled
+    // reads GManager.instance) — enter the ambient scope (production drives block timing inside the game loop's scope).
+    BlockTimingResult result;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        result = new BlockTiming().RequestBlockChoice(match.Context);
+    }
 
     AssertTrue(result.IsSuccess, "block timing opened");
     AssertTrue(result.Candidates.Any(c => c.BlockerId == plain), "the plain defender is still forced");
@@ -345,4 +350,12 @@ static void AssertEqual<T>(T expected, T actual, string label)
     {
         throw new InvalidOperationException($"{label}: expected '{expected}', actual '{actual}'.");
     }
+}
+
+// (R3-W3c-1) attaches the built CanNotAffectedClass to a card's live effect list (the seam a ported card uses).
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

@@ -1200,27 +1200,64 @@ public static partial class CardEffectFactory
         bool canNoAction = false, bool isOpponentDeck = false, bool mutualConditions = false) =>
         new RevealMultiSelectEffect(card, revealCount, selectCardConditions, remainingCardsPlace, description, canNoAction, isOpponentDeck, mutualConditions);
 
-    /// <summary>(PRIM-W5/S2) <c>CanNotAffectedStaticEffect</c> — AS-IS <c>CanNotAffectedClass</c>:
-    /// <c>CanNotAffect(target, effect) = CardCondition(target) &amp;&amp; SkillCondition(effect)</c>. Registers a
-    /// continuous immunity under <see cref="HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate"/> (consumed by the sink's effect path),
-    /// carrying <paramref name="skillCondition"/> — the per-card predicate over the CAUSING effect's source that
-    /// decides WHICH effects the card is immune to (e.g. <c>src =&gt; src.Owner != card.Owner &amp;&amp; src.IsDigimon</c>
-    /// for "opponent's Digimon effects only"). <b>skillCondition must be provided to mirror the original</b>; null
-    /// falls back to opponent-only.</summary>
-    public static ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        // (C2) permanentCondition = AS-IS CardCondition (WHICH permanents are protected) — evaluated live
-        // against the protected target (previously accepted and dropped; null keeps the self-only grant).
-        //
-        // (R3-W3a) NOT flipped to the new-model CanNotAffectedClass — flip attempted and REVERTED by the fail-set
-        // gate: although the R1-e interface scan (CardSource.CanNotBeAffected, CardSource.cs:741) is live, the
-        // registry half of this immunity is ALSO a live behavioral consumer — GainCanNotBeDeletedByBattle
-        // (CardEffectCommons.cs:69, the AS-IS `!target.CanNotBeAffected(...)` grant-refusal mirror) and the
-        // ContinuousImmunityGate.BlocksOpponentEffect call sites (MatchStateMutationSink:527/1926/1944,
-        // BlockTiming:284, CardController:859/1010/1142/1301) all read the registry joint predicate ONLY
-        // (witnessed by G9-054/G9-057/P0R turning red under the flip). Design item RD-W3A-01: this factory flips
-        // only after those consumers are re-housed onto the live TopCard.CanNotBeAffected scan (the R3-W3a STOP
-        // report's consumer-side follow-up batch).
-        new ContinuousImmunityEffect(card, skillCondition, isInheritedEffect, condition, targetPredicate: ScopePred(permanentCondition));
+    /// <summary>(PRIM-W5/S2, R3-W3c-1) <c>CanNotAffectedStaticEffect</c> — AS-IS <c>CanNotAffectedClass</c>:
+    /// <c>CanNotAffect(target, effect) = CardCondition(target) &amp;&amp; SkillCondition(effect)</c>. Returns the
+    /// new-model kind-class <see cref="CardEffects.CanNotAffectedClass"/> (an <c>ICanNotAffectedEffect</c>) consumed
+    /// by the live <see cref="CardSource.CanNotBeAffected"/> scan; no registry binding. <paramref name="skillCondition"/>
+    /// is the AS-IS <c>Func&lt;ICardEffect,bool&gt;</c> over the CAUSING effect that decides WHICH effects the card is
+    /// immune to (e.g. <c>e =&gt; e.EffectSourceCard.Owner != card.Owner &amp;&amp; e.EffectSourceCard.IsDigimon</c> for
+    /// "opponent's Digimon effects only"); null falls back to opponent-only.</summary>
+    public static ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<ICardEffect, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    {
+        // (R3-W3c-1 flip / RD-W3A-01 RESOLVED) NEW-MODEL: returns the AS-IS kind-class CanNotAffectedClass
+        // (ICanNotAffectedEffect) instead of the old-model registry ContinuousImmunityEffect. The LIVE consumer is
+        // the R1-e interface scan CardSource.CanNotBeAffected (CardSource.cs:741 — `cardEffect is
+        // ICanNotAffectedEffect` over every field permanent's EffectList(None)). The three registry-half consumers
+        // that forced the R3-W3a REVERT are now rehomed onto that same live scan (see their R3-W3c-1 comments):
+        // GainCanNotBeDeletedByBattle (CardEffectCommons.cs), the ContinuousPlayerScopeRestrictionEffect immunity
+        // exemption (ContinuousAndRestrictionEffects.cs), and BlockTiming.HasBlocker. The surviving
+        // BlocksOpponentEffect sites (sink, other CardController pipelines, Commons continuous-grant cores) still
+        // read the registry but consume ONLY the Progress registry binding — this factory has 0 production callers
+        // (test-only), so no card immunity is lost. CanNotAffectedClass declares no ToBinding → the enter-play
+        // registrar registers NOTHING; availability is the live EffectList scan alone. AS-IS construction idiom
+        // mirrored: PermanentEffectFactory.DigimonEffectImmunity (SetUpICardEffect + SetUpCanNotAffectedClass).
+        var effect = new CardEffects.CanNotAffectedClass();
+        effect.SetUpICardEffect("Isn't affected by opponent's effect", CanUseCondition, card);
+        effect.SetUpCanNotAffectedClass(CardCondition: CardCondition, SkillCondition: SkillCondition);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+
+        // AS-IS CanNotAffectedClass.CardCondition (permanentCondition) — WHICH permanents are protected, evaluated
+        // live against the protected target CardSource. null keeps the AS-IS self-only grant (protected == holder).
+        bool CardCondition(CardSource protectedCard)
+        {
+            if (permanentCondition is null)
+            {
+                return protectedCard.InstanceId == card.InstanceId;
+            }
+
+            return permanentCondition(new Permanent(protectedCard.Context, protectedCard.InstanceId, protectedCard.Owner));
+        }
+
+        // AS-IS CanNotAffectedClass.SkillCondition — WHICH causing effects are blocked, evaluated over the causing
+        // ICardEffect. null keeps the opponent-only fallback (the causing effect is sourced by the holder's opponent,
+        // AS-IS IsOpponentEffect(cardEffect, card)).
+        bool SkillCondition(ICardEffect causingEffect)
+        {
+            if (skillCondition is not null)
+            {
+                return skillCondition(causingEffect);
+            }
+
+            return causingEffect.EffectSourceCard is not null && causingEffect.EffectSourceCard.Owner != card.Owner;
+        }
+    }
 
     /// <summary>(C-3) <c>CanNotTrashFromDigivolutionCardsStaticEffect</c> — AS-IS
     /// <c>CanNotTrashFromDigivolutionCardsClass</c>: <c>CanNotTrashFromDigivolutionCards(source, effect) =

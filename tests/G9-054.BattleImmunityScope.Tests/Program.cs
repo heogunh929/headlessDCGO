@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Choices;
@@ -106,7 +107,7 @@ async Task GainTimedGrant()
 
     AssertTrue(CardEffectCommons.GainCanNotBeDeletedByBattle(
         new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
-        new CardSource(ctx, src, P1), "test-grant"), "grant registered");
+        Grant(ctx, src, P1), "test-grant"), "grant registered");
 
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "the TARGET is battle-immune");
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, bystander), "the grant is target-locked (a bystander is not)");
@@ -123,7 +124,7 @@ async Task GainLiveGate()
     var target = await Place(ctx, P1, "TGT", level: 5);
     CardEffectCommons.GainCanNotBeDeletedByBattle(
         new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
-        new CardSource(ctx, src, P1), "test-live");
+        Grant(ctx, src, P1), "test-live");
 
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "immune while in play");
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, target, ChoiceZone.BattleArea, ChoiceZone.Trash));
@@ -135,15 +136,19 @@ async Task GainRefusedByImmunity()
     EngineContext ctx = Ctx();
     var src = await Place(ctx, P2, "ENEMYSRC", level: 4);   // OPPONENT grants -> blocked by CanNotBeAffected
     var target = await Place(ctx, P1, "TGT", level: 5);
+    // (R3-W3c-1) the flipped CanNotAffectedStaticEffect returns a new-model CanNotAffectedClass consumed by the LIVE
+    // CardSource.CanNotBeAffected scan; attach it to the target's live effect list (no registry binding).
+    var targetCard = new CardSource(ctx, target, P1);
     ICardEffect cnaEffect = CardEffectFactory.CanNotAffectedStaticEffect(
-        null, null, false, new CardSource(ctx, target, P1), null);
-    if (!LegacyBindingBridge.TryToBinding(cnaEffect, $"cna:{target.Value}", out EffectBinding? cnaBinding) || cnaBinding is null)
-        throw new InvalidOperationException($"{cnaEffect.GetType().Name} has no ToBinding bridge.");
-    ctx.EffectRegistry.Register(cnaBinding);
+        null, null, false, targetCard, null);
+    targetCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(cnaEffect);
 
+    // (R3-W3c-1) the grant-refusal guard now reads the live CanNotBeAffected scan (CanUse->IsDisabled reads
+    // GManager.instance) — enter the ambient match scope (production runs inside the game loop's scope).
+    using var _ = AmbientMatchContext.Enter(ctx);
     AssertTrue(!CardEffectCommons.GainCanNotBeDeletedByBattle(
         new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
-        new CardSource(ctx, src, P2), "test-refused"), "an immune target refuses the grant");
+        Grant(ctx, src, P2), "test-refused"), "an immune target refuses the grant");
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "nothing registered");
 }
 
@@ -158,7 +163,7 @@ async Task GainBattlePredicate()
     CardEffectCommons.GainCanNotBeDeletedByBattle(
         new Permanent(ctx, target, P1),
         (self, atk, def, defCard) => atk is not null && atk.TopCard.EqualsCardName("ATK"),
-        EffectDuration.UntilOpponentTurnEnd, new CardSource(ctx, src, P1), "test-pred");
+        EffectDuration.UntilOpponentTurnEnd, Grant(ctx, src, P1), "test-pred");
 
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "no attack in flight -> predicate false -> not immune");
     ctx.AttackController.DeclareAttack(P2, attacker, P1, target, isDirectAttack: false);
@@ -191,6 +196,15 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 5000, ["isSuspended"] = false }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
     return id;
+}
+
+// (R3-W3c-1) AS-IS GainCanNotBeDeletedByBattle takes the causing `ICardEffect activateClass` (its EffectSourceCard
+// is the grant source). Build a minimal ActivateClass sourced by `src` (owner determines opponent-relativity).
+ActivateClass Grant(EngineContext ctx, HeadlessEntityId src, HeadlessPlayerId owner)
+{
+    var a = new ActivateClass();
+    a.SetUpICardEffect("grant", _ => true, new CardSource(ctx, src, owner));
+    return a;
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }

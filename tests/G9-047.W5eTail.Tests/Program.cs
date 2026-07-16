@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -44,19 +45,25 @@ async Task ChangeCardNames()
 
 async Task CanNotAffected()
 {
-    // (S2) un-sealed: the immunity is now enforced by ContinuousImmunityGate. With null skillCondition the
-    // fallback is opponent-only — an opponent-sourced effect is blocked, an own effect is not.
+    // (R3-W3c-1) the flipped factory returns a new-model CanNotAffectedClass consumed by the LIVE
+    // CardSource.CanNotBeAffected scan (no registry). With null skillCondition the fallback is opponent-only —
+    // an opponent-sourced effect is blocked, an own effect is not.
     EngineContext ctx = Ctx();
     var id = await Place(ctx, P1, "SELF", "Digimon");
     var opp = await Place(ctx, P2, "OPP", "Digimon");
     var own = await Place(ctx, P1, "OWN", "Digimon");
-    var canNotAffectedEffect = CardEffectFactory.CanNotAffectedStaticEffect(null, null, false, new CardSource(ctx, id, P1), null);
-    if (!LegacyBindingBridge.TryToBinding(canNotAffectedEffect, $"cna:{id.Value}", out var canNotAffectedBinding) || canNotAffectedBinding is null)
-        throw new InvalidOperationException($"{canNotAffectedEffect.GetType().Name} has no ToBinding bridge.");
-    ctx.EffectRegistry.Register(canNotAffectedBinding);
+    var selfCard = new CardSource(ctx, id, P1);
+    var canNotAffectedEffect = CardEffectFactory.CanNotAffectedStaticEffect(null, null, false, selfCard, null);
+    selfCard.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(canNotAffectedEffect);
 
-    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, id, opp, ctx), "opponent effect blocked (immunity live)");
-    AssertTrue(!ContinuousImmunityGate.BlocksOpponentEffect(ctx.EffectRegistry, ctx.CardInstanceRepository, id, own, ctx), "own effect not blocked");
+    var oppCause = new ActivateClass();
+    oppCause.SetUpICardEffect("cause", _ => true, new CardSource(ctx, opp, P2));
+    var ownCause = new ActivateClass();
+    ownCause.SetUpICardEffect("cause", _ => true, new CardSource(ctx, own, P1));
+
+    using var _ = AmbientMatchContext.Enter(ctx);
+    AssertTrue(selfCard.CanNotBeAffected(oppCause), "opponent effect blocked (immunity live)");
+    AssertTrue(!selfCard.CanNotBeAffected(ownCause), "own effect not blocked");
 }
 
 // --- Helpers -------------------------------------------------------------
@@ -65,6 +72,8 @@ EngineContext Ctx()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 947);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (R3-W3c-1) DoneStartGame gate for the live CanNotBeAffected scan's CanUse(null) — see CanNotAffected test.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     return ctx;
 }
 
@@ -82,3 +91,10 @@ async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, st
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

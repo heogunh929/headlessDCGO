@@ -277,12 +277,39 @@ public sealed class BlockTiming
         // guarded per-defender by `!TopCard.CanNotBeAffected(fakeCollisionClass)` with the effect source =
         // the ATTACKER's top card — a defender immune to the attacker's (opponent-Digimon) effects is not
         // forced. The metadata key stays for test-set grants; the live check is the immunity gate.
+        // (R3-W3c-1) The immunity check is rehomed from the registry gate (ContinuousImmunityGate.
+        // BlocksOpponentEffect, which read the OLD-model joint predicate) to the AS-IS-literal live scan
+        // `!TopCard.CanNotBeAffected(fakeCollisionClass)` (Permanent.cs:2411-2415) — RD-W3A-01 consumer-side
+        // rehousing that unblocks the CanNotAffectedStaticEffect factory flip.
         return attackerHasCollision &&
             !ReadBool(blocker.Metadata, CannotBeAffectedByCollisionKey) &&
             !ReadBool(blockerCard.Metadata, CannotBeAffectedByCollisionKey) &&
             !(attack.AttackerId is HeadlessEntityId attackerId &&
-              ContinuousImmunityGate.BlocksOpponentEffect(
-                  context.EffectRegistry, context.CardInstanceRepository, blocker.InstanceId, attackerId, context));
+              DefenderIsCollisionImmune(context, attackerId, blocker.InstanceId, blocker.OwnerId));
+    }
+
+    /// <summary>(R3-W3c-1) AS-IS <c>Permanent.HasBlocker</c> Collision immunity check (Permanent.cs:2411-2415):
+    /// build the synthetic <c>fakeCollisionClass</c> (an <c>ActivateClass</c> named "Collision" whose effect
+    /// source is the ATTACKER's top card) and ask whether the DEFENDER's top card is immune to it via the live
+    /// <c>CardSource.CanNotBeAffected</c> scan (R1-e). AS-IS 1:1 — the attacker-sourced synthetic effect is
+    /// exactly what the original constructs (it never carried a real threaded effect here). The attacker's owner
+    /// is resolved from the repository (the attacker's top card's Owner), not the attack-state's controller field.</summary>
+    private static bool DefenderIsCollisionImmune(
+        EngineContext context,
+        HeadlessEntityId attackerId,
+        HeadlessEntityId blockerId,
+        HeadlessPlayerId blockerOwner)
+    {
+        if (!context.CardInstanceRepository.TryGetInstance(attackerId, out CardInstanceRecord? attacker) || attacker is null)
+        {
+            return false;
+        }
+
+        var attackerCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, attackerId, attacker.OwnerId);
+        var fakeCollisionClass = new Assets.Scripts.Script.CardEffects.ActivateClass();
+        fakeCollisionClass.SetUpICardEffect("Collision", _ => true, attackerCard);
+        var blockerCard = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, blockerId, blockerOwner);
+        return blockerCard.CanNotBeAffected(fakeCollisionClass);
     }
 
     private static bool CanSkipBlock(

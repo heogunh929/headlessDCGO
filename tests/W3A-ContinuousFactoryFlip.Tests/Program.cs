@@ -14,11 +14,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 // effect — the flip registers NOTHING (registration-stop asserts prove it), so green here IS the proof that the
 // new-model half of the union alone carries the behavior (the legacy registry half is force-empty by construction).
 //
-// NOTE: the second flip candidate (CanNotAffectedStaticEffect) was attempted and REVERTED by the fail-set gate —
-// its registry half is still a live behavioral consumer (GainCanNotBeDeletedByBattle grant-refusal +
-// ContinuousImmunityGate.BlocksOpponentEffect sink/controller/block sites; witnessed by G9-054/G9-057/P0R).
-// Design item RD-W3A-01: it flips only after those consumers are re-housed onto the live
-// TopCard.CanNotBeAffected scan (consumer-side follow-up batch).
+// NOTE: the second flip candidate (CanNotAffectedStaticEffect) is now ALSO flipped (R3-W3c-1, RD-W3A-01 RESOLVED):
+// it returns the new-model CanNotAffectedClass consumed by the live CardSource.CanNotBeAffected scan. The three
+// registry-half consumers that forced the earlier W3a REVERT were re-housed onto that live scan —
+// GainCanNotBeDeletedByBattle grant-refusal, the ContinuousPlayerScopeRestrictionEffect immunity exemption, and
+// BlockTiming.HasBlocker (witnessed by the re-aimed G9-054/G9-057/P0R/G9-047/G3.5-C910). The surviving
+// BlocksOpponentEffect sites (sink, other CardController pipelines) still read the registry but consume only the
+// Progress binding, so the flip lost no card immunity (this factory has 0 production callers).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);

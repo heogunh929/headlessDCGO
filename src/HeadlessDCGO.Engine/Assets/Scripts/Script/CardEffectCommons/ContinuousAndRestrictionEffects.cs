@@ -205,6 +205,10 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
         ArgumentNullException.ThrowIfNull(card);
         ArgumentException.ThrowIfNullOrWhiteSpace(restrictionKey);
         Card = card;
+        // (R3-W3c-1) carry the printing card as the base EffectSourceCard so that, when this restriction effect is
+        // passed AS-IS as the causing `cardEffect` to a subject's CanNotBeAffected scan (the :283 immunity exemption,
+        // AS-IS Permanent.cs:2267 `cardEffect1`), the immunity's SkillCondition can read the causing effect's source.
+        SetEffectSourceCard(card);
         _scopePlayerId = scopePlayerId;
         RestrictionKey = restrictionKey;
         ScopeCardType = scopeCardType;
@@ -273,15 +277,19 @@ public sealed class ContinuousPlayerScopeRestrictionEffect : ICardEffect
         // cannot-attack / cannot-block (Permanent.cs:2267/2290 attack, :2194 block player-scan) — a subject immune to
         // the printing card's effects is exempt. Only these kinds are immunity-checked in AS-IS (CanMove/CanSuspend/
         // CanUnsuspend do NOT check it), so the term is scoped to the confirmed set to avoid inventing immunity.
-        HeadlessEntityId holderId = Card.InstanceId;
+        // (R3-W3c-1) The immunity term is rehomed from the registry gate (ContinuousImmunityGate.BlocksOpponentEffect,
+        // which read the joint predicate registered by the OLD-model CanNotAffectedStaticEffect) to the AS-IS-literal
+        // live scan `!subject.CanNotBeAffected(this)` — AS-IS passes the restriction effect itself as `cardEffect1`
+        // (Permanent.cs:2267/2290), and this effect (`ContinuousPlayerScopeRestrictionEffect`) IS that ICardEffect.
+        // This is part of the RD-W3A-01 consumer-side rehousing that unblocks the CanNotAffectedStaticEffect flip.
+        ICardEffect self = this;
         bool immunityChecked = RestrictionKey == RestrictionHelpers.CannotAttackKey || RestrictionKey == RestrictionHelpers.CannotBlockKey;
         values[JointRestrictionEffect.PredicateKey(RestrictionKey)] = (Func<CardSource, CardSource?, bool>)((subject, cp) =>
             (anyPlayer || subject.Owner == scopePlayer)
             && (string.IsNullOrWhiteSpace(scopeType) || (subject.IsCardType(scopeType)))
             && (scopePred is null || scopePred(subject))
             && (causingP is null || (cp is not null && causingP(cp)))
-            && (!immunityChecked || !HeadlessDCGO.Engine.Headless.Runtime.ContinuousImmunityGate.BlocksOpponentEffect(
-                subject.Context.EffectRegistry, subject.Context.CardInstanceRepository, subject.InstanceId, holderId, subject.Context)));
+            && (!immunityChecked || !subject.CanNotBeAffected(self)));
 
         if (IsInheritedEffect)
         {

@@ -48,26 +48,36 @@ public static partial class CardEffectCommons
         Permanent targetPermanent,
         Func<Permanent, Permanent, Permanent, CardSource, bool>? canNotBeDestroyedByBattleCondition,
         EffectDuration effectDuration,
-        CardSource sourceCard,
+        ICardEffect activateClass,
         string effectName)
     {
-        ArgumentNullException.ThrowIfNull(sourceCard);
+        // (R3-W3c-1) AS-IS 1:1 signature restored: the causing effect is the live `ICardEffect activateClass`
+        // (GiveEffectToPermanent/CanNotBeDeletedByBattle.cs:11), NOT a bare source card. AS-IS :15-18 guards.
         if (targetPermanent is null)
         {
             return false;
         }
 
+        if (activateClass is null || activateClass.EffectSourceCard is null)
+        {
+            return false;   // AS-IS :15-16.
+        }
+
+        CardSource sourceCard = activateClass.EffectSourceCard;   // AS-IS :18 `CardSource card = activateClass.EffectSourceCard`.
         EngineContext context = sourceCard.Context;
         HeadlessEntityId targetId = targetPermanent.InstanceId;
         var zones = (IZoneStateReader)context.ZoneMover;
         if (targetId.IsEmpty || !zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BattleArea).Contains(targetId))
         {
-            return false;   // AS-IS: IsPermanentExistsOnBattleArea guard.
+            return false;   // AS-IS :14 IsPermanentExistsOnBattleArea guard.
         }
 
-        // AS-IS grant-time + live CanUse guard: !target.CanNotBeAffected(activateClass).
-        if (ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, sourceCard.InstanceId, context))
+        // (R3-W3c-1) AS-IS grant-time guard `!targetPermanent.TopCard.CanNotBeAffected(activateClass)` (AS-IS :26)
+        // — rehomed from the registry gate (ContinuousImmunityGate.BlocksOpponentEffect, which read the joint
+        // predicate registered by the OLD-model CanNotAffectedStaticEffect) to the AS-IS-literal live
+        // ICanNotAffectedEffect scan (CardSource.CanNotBeAffected, R1-e). This is the RD-W3A-01 consumer-side
+        // rehousing that unblocks the CanNotAffectedStaticEffect→CanNotAffectedClass factory flip.
+        if (targetPermanent.TopCard.CanNotBeAffected(activateClass))
         {
             return false;
         }
@@ -82,12 +92,10 @@ public static partial class CardEffectCommons
         // callers, so the conversion + G9-054 re-aim (registry-expiry → bucket cleanup) belongs with the W3c uniform
         // registry-expiry→bucket test migration. See report RD-W3B-BATTLEDEL-TESTWELD.
         HeadlessPlayerId targetOwner = targetPermanent.OwnerId;
-        HeadlessEntityId grantSourceId = sourceCard.InstanceId;
         Func<bool> liveCondition = () =>
             ((IZoneStateReader)context.ZoneMover).GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId)
-            // AS-IS CanUseCondition re-checks !CanNotBeAffected LIVE.
-            && !ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, grantSourceId, context);
+            // AS-IS CanUseCondition re-checks !CanNotBeAffected LIVE (AS-IS :23-29).
+            && !targetPermanent.TopCard.CanNotBeAffected(activateClass);
         var values = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             [BattleDeletionGate.PreventBattleDeletionKey] = true,
