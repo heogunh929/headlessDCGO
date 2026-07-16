@@ -37,3 +37,17 @@ RD-GC2-01=R3-W3b 필수 · PlaySelfAtEndOfBattle(RD-P6C3-B2)=R6-Db 동승(선행
 4. **R6-Da — activated factory flip**: 33 메서드→신모델, mixed 34장 자동 정리. CardEffectFactory.cs 공유로 R3-W3a와 순차.
 5. **R6-Db — 인라인 6장 re-port+Tfx 18 은퇴+corpus 삭제**: EX8_074=비용 파이프라인 STOP 유지, PlaySelfAtEndOfBattle 재판정 동반.
 소유권: 배치0 독립 / a·Da=CardEffectFactory.cs 순차 / b=Commons·KeyWordEffects(a와 서로소 가능) / c·Db=최종 일괄.
+
+## §G. 배치0·W3a·W3b 실측 후 개정 계획 (2026-07-16, 코디네이터 확정)
+
+**실측이 §F 계획을 정정한 것**: ①§B "dead 판독자 즉시 삭제"는 프로덕션-only 감사 — collector/GetEffectsForTiming은 테스트 13스위트가 live 소비(배치0 STOP, W3c-final 이월) ②§F W3a의 "union이라 flip 안전" 전제 붕괴 — union은 특정 kind만 배선, 31건 중 실질 안전 1메서드(DontHaveDP)뿐이고 CanNotAffected는 flip 후 게이트가 REVERT 강제(registry-half가 live 행동 소비자: GainCanNotBeDeletedByBattle+BlocksOpponentEffect 사이트, RD-W3A-01). 교훈: **flippability 판정은 tests/ 포함 전수 grep + 소비자 판독-half의 실배선 확인이 게이트**.
+
+**착지 성과**: 배치0(−1,355줄 사문 은퇴)·W3b(등록 6사이트 제거+CardEffectFactoryBinding 495줄 삭제+KeywordBaseBatch 등록=생산-사문 판명·제거+**Progress 완성**(RD-R2-01 스테일 STOP 은퇴, witness 3/3)+GiveEffect 과도기 분기 제거=버킷 단독 AS-IS 복원)·W3a(DontHaveDP flip+FAILd-04 해소). 계기판: Register live 24→18. 구조 발견: **DP-delta grant의 registry 소비자(ResolveDp)=사문** — 등록이 이미 발화하지 않음(28 live 카드), 버킷 전환=사문→발화 행동 변경이라 AS-IS 기대 도출 동반 필요.
+
+**개정 잔여 배치 (W3c 시리즈 — 소비자-측 AS-IS 재하우징 → 대응 flip 원자 묶음):**
+1. **W3c-1 면역/joint**: ContinuousImmunityGate.BlocksOpponentEffect 사이트(Sink:527/1926/1944·BlockTiming:284·CardController×4)를 AS-IS `TopCard.CanNotBeAffected` 직독 이관 + GainCanNotBeDeletedByBattle + ProgressImmunity:63 + CanNotAffected flip 재실행 + G9-054/057/P0R 재조준. joint-술어 kind-class 모델 교정(CanNotSelectBySkill/CanNotMove/CannotIgnoreDigivolutionCondition — 단일-Func joint 규약) 동승.
+2. **W3c-2 expiry 모델 flip**: EffectDurationExpiry(registry 만료 sweep)→버킷 만료(AS-IS 리셋 사이트) 일괄 + :95 GainCanNotBeDeletedByBattle 전환(RD-W3B-BATTLEDEL-TESTWELD, G9-054 재조준).
+3. **W3c-3 DP-delta 판정·전환**: :1747/:1800 — AS-IS에서 이 grant들의 기대 발화 도출(현행 미러=무발화 발명 상태 추정) 후 버킷 전환 + 28 live 카드 대표 witness. 행동-변경 배치라 별도 적대리뷰 권장.
+4. **W3c-4 키/스캔 소비자 재하우징**: TrashProtectionScan(BT9_109)·CanNotPlayOptionScan(BT8_057)·SecurityResolver:530 구-타입·HeadlessMainPhaseFlow·CardSource.CardNames·Sink CanNotAddSecurity/Memory·DeDigivolveHelpers·ImmuneStackTrashing — 각 AS-IS EffectList is-스캔 이관+대응 flip+실카드 witness. (:2961/:3093 restriction 코어·:1495/:2827 트리거형·:2883 포함)
+5. **W3c-final**: 게이트 판독-half 은퇴+EffectRegistry/EffectBinding/LegacyBridge/registrar 물리 삭제+collector/GetEffectsForTiming 테스트 재조준(배치0 이월)+레지스트리-단언 스위트 정리 — 적대리뷰 필수.
+특수플레이 마커 5건=R6-Db 결합 유지. R6-Da/Db는 §F 그대로.
