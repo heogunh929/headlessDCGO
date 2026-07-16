@@ -28,3 +28,6 @@ P1 GameContext 갭필(~60줄) → P2a phase-body 휴면 조립(~400-600줄, live
 ## 결정 2 확정 (2026-07-16, 사용자 판정): 옵션 A — AS-IS 6값 enum + substrate sub-커서
 **근거(사용자)**: DCGO2 원본이 계속 업데이트됨 — enum 발산 시 페이즈-관련 업스트림 변경마다 영구 번역세(로컬LLM 불가 판단). 일회성 churn > 영구세. (프로젝트 근본 명제=기계-diff 추적성과 정합.)
 **정제 설계**: 페이즈 enum=AS-IS 6값(게임 모델, 업스트림 1:1) + 스텝 위치=`HeadlessTurnState`의 명시적 substrate sub-커서(게임 페이즈 명명 금지 — resume 커서와 동류). 합법 액션 표 키=페이즈+커서. RL 관측=페이즈 one-hot 6+커서 feature(업스트림 페이즈 추가 시 enum·관측이 함께 의미 있게 확장). S2 스코프 갱신=HeadlessPhase 9→6+커서 도입+디스패처 재키잉+스위트 23종 재조준(일회성 비용 수용). P1/P2a는 결정-무관이라 선행 가능.
+
+## 리뷰지점 1 결과 (2026-07-17): GO — P0/P1 0
+6 body+EndGame region 대조 전부 확인됨(순서·경계값·EndPhase 리셋 :3170-3208 전량·winner→loser 방향), ADAPTATION 전부 순수 substrate 번역 판정, P1 판정 3종(Memory view 충실·TurnCount wrong-host·IsSecurityLooking=카드-WRITE 플래그라 view 불가) 전부 정당. **P2-1(P2b 필수 하위작업)**: MainPhaseAsync가 AS-IS :880 진입 EndTurnCheck+:882 goto 가드 누락 — P2b에서 OnStartMainPhase 창(:905) 앞에 진입 가드를 구조 삽입해야 함(단순 주석 아님). minor 전방주의: AutoProcessing 미러 시 gameContext.Memory 직접-write(:685/:690)는 MemoryController 경유 필수.
