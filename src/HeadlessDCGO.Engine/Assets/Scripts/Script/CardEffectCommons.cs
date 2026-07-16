@@ -1726,76 +1726,106 @@ public static partial class CardEffectCommons
     // windows). BecomeDigimonThatCantDigivolve — the sole non-keyword caller — now grants TreatAsDigimon as a
     // TreatAsDigimonStaticEffect in the None bucket, AS-IS 1:1.
 
-    /// <summary>(W6 process) shared timed target-modifier grant — the AS-IS ChangeDigimonDP/SAttack shape
-    /// (verbatim verified): guards, live CanUse (on field && !CanNotBeAffected), duration bucket.</summary>
-    private static bool ChangeDigimonStat(
+    // (R3-W3c-3) The DP/SAttack-delta grants no longer register a ContinuousModifierGate binding into the
+    // registry — that consumer (ContinuousEffectEvaluator.ResolveDp) is dead (0 live callers), so the delta
+    // never fired. They are restored to AS-IS 1:1: build the factory kind-class (ChangeDPClass /
+    // ChangeSAttackClass, an IChangeDPEffect / IChangeSAttackEffect) and store it into the target permanent's
+    // EffectTiming.None duration bucket via AddEffectToPermanent — which Permanent.DP / Permanent.SAttack scan
+    // LIVE (Permanent.cs:348 / :2500). ADAPTATION: the AS-IS ICardEffect activateClass is collapsed to its
+    // EffectSourceCard at the bridge boundary; real callers re-thread the original activateClass so the outer
+    // CanUseCondition's `!TopCard.CanNotBeAffected(activateClass)` immunity is verbatim (fallback: the produced
+    // kind-class, whose EffectSourceCard==sourceCard, so immunity resolves identically when null).
+
+    /// <summary>AS-IS <c>ChangeDigimonDP</c> (GiveEffect/GiveEffectToPermanent/ChangeDP.cs:10, verbatim):
+    /// timed ±DP on the target permanent, stored in its None duration bucket.</summary>
+    public static bool ChangeDigimonDP(
         Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
-        string deltaKey, string gainName)
+        ICardEffect? activateClass = null)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
-        if (targetPermanent is null || targetPermanent.InstanceId.IsEmpty || changeValue == 0)
+        if (targetPermanent is null) return false;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;
+        if (changeValue == 0) return false;
+
+        CardSource card = sourceCard;
+        CardEffects.ChangeDPClass changeDPClass = null!;
+
+        bool CanUseCondition()
         {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass ?? changeDPClass))
+                {
+                    return true;
+                }
+            }
+
             return false;
         }
 
-        EngineContext context = sourceCard.Context;
-        HeadlessEntityId targetId = targetPermanent.InstanceId;
-        HeadlessPlayerId targetOwner = targetPermanent.OwnerId;
-        var zones = (IZoneStateReader)context.ZoneMover;
-        if (!zones.GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId))
-        {
-            return false;
-        }
+        changeDPClass = CardEffectFactory.ChangeTargetDPStaticEffect(
+            targetPermanent: targetPermanent,
+            changeValue: changeValue,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition);
 
-        if (ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, sourceCard.InstanceId, context))
-        {
-            return false;
-        }
-
-        HeadlessEntityId grantSourceId = sourceCard.InstanceId;
-        Func<bool> liveCondition = () =>
-            ((IZoneStateReader)context.ZoneMover).GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId)
-            && !ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, grantSourceId, context);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            [deltaKey] = changeValue,
-            [ContinuousSelfModifierEffect.ConditionKey] = liveCondition,
-        };
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
-            triggerEntityId: null, targetEntityIds: new[] { targetId }, values: values);
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:{gainName}:{targetId.Value}:{Guid.NewGuid():N}"),
-                sourceCard.Controller, "Continuous", effectContext),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope },
-            effect: null, duration: effectDuration));
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+            cardEffect: changeDPClass, timing: EffectTiming.None);
         return true;
     }
-
-    /// <summary>AS-IS <c>ChangeDigimonDP</c> (GiveEffect/GiveEffectToPermanent/ChangeDP.cs:10, verbatim
-    /// verified): timed ±DP on the target permanent.</summary>
-    public static bool ChangeDigimonDP(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard) =>
-        ChangeDigimonStat(targetPermanent, changeValue, effectDuration, sourceCard, ModifierHelpers.DpDeltaKey, "changeDp");
 
     /// <summary>AS-IS <c>ChangeDigimonSAttack</c> (…/ChangeSAttack.cs:10; the overload's
     /// <paramref name="activateAnimation"/>/<paramref name="hashstring"/> are UI-only in the original).</summary>
     public static bool ChangeDigimonSAttack(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
-        bool activateAnimation = true, string? hashstring = null)
+        bool activateAnimation = true, string? hashstring = null, ICardEffect? activateClass = null)
     {
         _ = activateAnimation;
-        _ = hashstring;
-        return ChangeDigimonStat(targetPermanent, changeValue, effectDuration, sourceCard, ModifierHelpers.SecurityAttackDeltaKey, "changeSAttack");
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        if (targetPermanent is null) return false;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;
+        if (changeValue == 0) return false;
+
+        CardSource card = sourceCard;
+        CardEffects.ChangeSAttackClass changeSAttackClass = null!;
+
+        bool CanUseCondition()
+        {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass ?? changeSAttackClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        changeSAttackClass = CardEffectFactory.ChangeTargetSAttackStaticEffect(
+            targetPermanent: targetPermanent,
+            changeValue: changeValue,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition,
+            hashstring: hashstring);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+            cardEffect: changeSAttackClass, timing: EffectTiming.None);
+        return true;
     }
 
     /// <summary>AS-IS <c>ChangeDigimonDPPlayerEffect</c> (GiveEffect/GiveEffectToPlayer/ChangeDP.cs:10):
-    /// timed ±DP on EVERY permanent matching the predicate — a duration-tagged PLAYER-SCOPE modifier
-    /// (the AS-IS PermanentCondition folds the battle-area + !CanNotBeAffected guards; here the scope
-    /// evaluation supplies the battle-area half and the predicate carries the rest verbatim).</summary>
+    /// timed ±DP on EVERY permanent matching the predicate — a duration-tagged PLAYER-SCOPE modifier.
+    /// (R3-W3c-3) Restored to AS-IS 1:1: the dead registry ContinuousModifierGate binding is replaced by the
+    /// factory ChangeDPClass (a player-scope IChangeDPEffect whose PermanentCondition folds the battle-area +
+    /// !CanNotBeAffected(activateClass) + user predicate) stored in the OWNING PLAYER's None duration bucket
+    /// via AddEffectToPlayer — Permanent.DP scans it in its player-effect region (Permanent.cs:428).</summary>
     public static bool ChangeDigimonDPPlayerEffect(
-        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
+        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
+        ICardEffect? activateClass = null)
     {
         ArgumentNullException.ThrowIfNull(sourceCard);
         if (changeValue == 0)
@@ -1803,28 +1833,36 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        EngineContext context = sourceCard.Context;
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        CardSource card = sourceCard;
+        CardEffects.ChangeDPClass changeDPClass = null!;
+
+        bool PermanentCondition(Permanent permanent)
         {
-            [ModifierHelpers.DpDeltaKey] = changeValue,
-            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = sourceCard.Owner.Value,
-        };
-        if (permanentCondition is not null)
-        {
-            values[Headless.Effects.PlayerScopeContinuousHelpers.ScopePredicateKey] =
-                (Func<CardSource, bool>)(cs => permanentCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (!permanent.TopCard.CanNotBeAffected(activateClass ?? changeDPClass))
+                {
+                    if (permanentCondition == null || permanentCondition(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
-            triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:changeDpPlayer:{Guid.NewGuid():N}"),
-                sourceCard.Controller, "Continuous", effectContext),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope },
-            effect: null, duration: effectDuration));
+        bool CanUseCondition() => true;
+
+        changeDPClass = CardEffectFactory.ChangeDPStaticEffect(
+            permanentCondition: PermanentCondition,
+            changeValue: changeValue,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition,
+            effectName: null);
+
+        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeDPClass, timing: EffectTiming.None);
         return true;
     }
 
@@ -3271,21 +3309,51 @@ public static partial class CardEffectCommons
             RestrictionHelpers.CannotBeDeletedBySkillKey, "gainCanNotBeDeletedByEffect",
             causingEffectPredicate: cardEffectSourceCondition);
 
-    /// <summary>AS-IS <c>ChangeDigimonSAttackPlayerEffect</c> (GiveEffectToPlayer/ChangeSAttack.cs:10).</summary>
+    /// <summary>AS-IS <c>ChangeDigimonSAttackPlayerEffect</c> (GiveEffectToPlayer/ChangeSAttack.cs:10).
+    /// (R3-W3c-3) Restored to AS-IS 1:1: the dead registry ContinuousModifierGate binding (SecurityAttackDelta,
+    /// read by the retired ResolveSAttack fold) is replaced by the factory ChangeSAttackClass (a player-scope
+    /// IChangeSAttackEffect) stored in the OWNING PLAYER's None duration bucket via AddEffectToPlayer —
+    /// Permanent.SAttack scans it in its player-effect region.</summary>
     public static bool ChangeDigimonSAttackPlayerEffect(
-        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
+        Func<Permanent, bool>? permanentCondition, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
+        ICardEffect? activateClass = null)
     {
+        ArgumentNullException.ThrowIfNull(sourceCard);
         if (changeValue == 0)
         {
             return false;
         }
 
-        var extra = new Dictionary<string, object?>(StringComparer.Ordinal)
+        CardSource card = sourceCard;
+        CardEffects.ChangeSAttackClass changeSAttackClass = null!;
+
+        bool PermanentCondition(Permanent permanent)
         {
-            [ModifierHelpers.SecurityAttackDeltaKey] = changeValue,
-        };
-        return GainToPlayerScope(effectDuration, sourceCard, "changeSAttackPlayer", permanentCondition,
-            extraValues: extra, scopeOverride: ContinuousModifierGate.Scope);
+            if (IsPermanentExistsOnBattleArea(permanent))
+            {
+                if (!permanent.TopCard.CanNotBeAffected(activateClass ?? changeSAttackClass))
+                {
+                    if (permanentCondition == null || permanentCondition(permanent))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        bool CanUseCondition() => true;
+
+        changeSAttackClass = CardEffectFactory.ChangeSAttackStaticEffect(
+            permanentCondition: PermanentCondition,
+            changeValue: changeValue,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition);
+
+        AddEffectToPlayer(effectDuration: effectDuration, card: card, cardEffect: changeSAttackClass, timing: EffectTiming.None);
+        return true;
     }
 
     /// <summary>AS-IS <c>ChangePlayCostPlayerEffect</c> (GiveEffectToPlayer/ChangePlayCost.cs:11) —
@@ -3310,17 +3378,48 @@ public static partial class CardEffectCommons
 
     /// <summary>AS-IS <c>ChangeBaseDigimonDP</c> (GiveEffectToPermanent/ChangeOriginDP.cs:10, verbatim):
     /// SET the target's base DP to <paramref name="changeValue"/> for the duration (a base-DP override,
-    /// not a delta).</summary>
-    public static bool ChangeBaseDigimonDP(Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard)
+    /// not a delta). (R3-W3c-3) Restored to AS-IS 1:1: the dead registry ContinuousModifierGate binding
+    /// (baseDpDelta approximation) is replaced by the factory ChangeBaseDPClass (an IChangeBaseDPEffect whose
+    /// GetDP OVERWRITES base DP) stamped with SetActivatedTime and stored in the target's None duration
+    /// bucket via AddEffectToPermanent — Permanent.BaseDP scans it (ordered by ActivatedTime).</summary>
+    public static bool ChangeBaseDigimonDP(
+        Permanent? targetPermanent, int changeValue, EffectDuration effectDuration, CardSource sourceCard,
+        ICardEffect? activateClass = null)
     {
-        if (changeValue < 0 || targetPermanent is null)
+        ArgumentNullException.ThrowIfNull(sourceCard);
+        if (targetPermanent is null) return false;
+        if (!IsPermanentExistsOnBattleArea(targetPermanent)) return false;
+        if (changeValue == 0) return false;
+
+        CardSource card = sourceCard;
+        CardEffects.ChangeBaseDPClass changeBaseDPClass = null!;
+
+        bool CanUseCondition()
         {
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass ?? changeBaseDPClass))
+                {
+                    return true;
+                }
+            }
+
             return false;
         }
 
-        int delta = changeValue - targetPermanent.BaseDP;
-        return ChangeDigimonStat(targetPermanent, delta == 0 ? 0 : delta, effectDuration, sourceCard,
-            ModifierHelpers.BaseDpDeltaKey, "changeBaseDp") || delta == 0;
+        changeBaseDPClass = CardEffectFactory.ChangeBaseDPStaticEffect(
+            targetPermanent: targetPermanent,
+            changeValue: changeValue,
+            isInheritedEffect: false,
+            card: card,
+            condition: CanUseCondition);
+
+        changeBaseDPClass.SetActivatedTime(DateTime.Now);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent, effectDuration: effectDuration, card: card,
+            cardEffect: changeBaseDPClass, timing: EffectTiming.None);
+        return true;
     }
 
     // (G-clean-2) The invented per-keyword bool Gain* wrappers (Blocker/Rush/Pierce/Retaliation/Collision/

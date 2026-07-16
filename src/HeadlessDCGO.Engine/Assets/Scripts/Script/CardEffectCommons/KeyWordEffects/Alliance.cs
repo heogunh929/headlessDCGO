@@ -156,8 +156,8 @@ namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
             }
 
             int plusDp = tapPermanent.DP;
-            ChangeDigimonDP(targetPermanent, plusDp, EffectDuration.UntilEndAttack, card);
-            ChangeDigimonSAttack(targetPermanent, 1, EffectDuration.UntilEndAttack, card);
+            ChangeDigimonDP(targetPermanent, plusDp, EffectDuration.UntilEndAttack, card, activateClass);
+            ChangeDigimonSAttack(targetPermanent, 1, EffectDuration.UntilEndAttack, card, activateClass: activateClass);
         }
     }
 }

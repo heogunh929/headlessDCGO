@@ -11,7 +11,7 @@ public static partial class CardEffectCommons
     /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonDP(...)</c> (GiveEffect/GiveEffectToPermanent/ChangeDP.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
     public static async Task ChangeDigimonDP(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        ChangeDigimonDP(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard);
+        ChangeDigimonDP(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass);
         await Task.CompletedTask;
     }
 }

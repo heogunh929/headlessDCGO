@@ -14,7 +14,7 @@ public static partial class CardEffectCommons
     /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonSAttackPlayerEffect(...)</c> (GiveEffect/GiveEffectToPlayer/ChangeSAttack.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
     public static async Task ChangeDigimonSAttackPlayerEffect(Func<Permanent, bool> permanentCondition, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        ChangeDigimonSAttackPlayerEffect(permanentCondition, changeValue, effectDuration, activateClass?.EffectSourceCard);
+        ChangeDigimonSAttackPlayerEffect(permanentCondition, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass);
         await Task.CompletedTask;
     }
 }

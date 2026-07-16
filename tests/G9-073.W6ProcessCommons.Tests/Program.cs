@@ -39,6 +39,8 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task TimedStatMods()
 {
     EngineContext ctx = Ctx();
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // DoneStartGame gate (CanTrigger)
+    using var scope = AmbientMatchContext.Enter(ctx);
     var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var target = await Put(ctx, P1, "TGT", ChoiceZone.BattleArea, dp: 5000);
 
@@ -47,7 +49,10 @@ async Task TimedStatMods()
     AssertTrue(CardEffectCommons.ChangeDigimonSAttack(Perm(ctx, target), 1, EffectDuration.UntilOpponentTurnEnd, V(ctx, src)), "SA grant");
     AssertEqual(2, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).Strike, "+1 SA folded");
 
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (R3-W3c-3) AS-IS-false correction: the grant is no longer a registry binding, so it expires at the
+    // AS-IS bucket-reset site (HeadlessEndTurnCleanupFlow), not the EffectRegistry sweep. UntilOpponentTurnEnd
+    // (granted on P1's turn) elapses at the end of the OPPONENT's (P2's) turn.
+    ExpireOpponentTurnEnd(ctx);
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).DP, "DP expired at the boundary");
     AssertEqual(1, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, target).Strike, "SA expired");
 }
@@ -55,6 +60,8 @@ async Task TimedStatMods()
 async Task PlayerScopeDp()
 {
     EngineContext ctx = Ctx();
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // DoneStartGame gate (CanTrigger)
+    using var scope = AmbientMatchContext.Enter(ctx);
     var src = await Put(ctx, P1, "SRC", ChoiceZone.BattleArea);
     var big = await Put(ctx, P1, "BIG", ChoiceZone.BattleArea, level: 6);
     var small = await Put(ctx, P1, "SMALL", ChoiceZone.BattleArea, level: 3);
@@ -63,7 +70,8 @@ async Task PlayerScopeDp()
     AssertEqual(8000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, big).DP, "matching digimon buffed");
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, small).DP, "non-matching untouched (predicate 1:1)");
 
-    EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (R3-W3c-3) AS-IS-false correction: bucket-reset expiry (see TimedStatMods).
+    ExpireOpponentTurnEnd(ctx);
     AssertEqual(5000, new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, big).DP, "expired");
 }
 
@@ -195,6 +203,13 @@ EngineContext Ctx()
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
     return ctx;
 }
+
+// (R3-W3c-3) End the OPPONENT's (P2's) turn so UntilOpponentTurnEnd buckets granted on P1's turn reset —
+// the AS-IS bucket-reset path (HeadlessEndTurnCleanupFlow) that replaces the retired registry sweep.
+void ExpireOpponentTurnEnd(EngineContext ctx) =>
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
+        TurnNumber: 2, TurnPlayerId: P2, NonTurnPlayerId: P1,
+        Phase: HeadlessPhase.End, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
 
 async Task<HeadlessEntityId> Put(EngineContext ctx, HeadlessPlayerId owner, string tag, ChoiceZone zone,
     string cardType = "Digimon", int dp = 5000, int level = 4, int? playCost = null, string? name = null,

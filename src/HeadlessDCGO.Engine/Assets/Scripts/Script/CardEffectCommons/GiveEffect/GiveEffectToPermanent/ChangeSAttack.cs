@@ -12,14 +12,14 @@ public static partial class CardEffectCommons
     /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonSAttack(...)</c> (GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs:10) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
     public static async Task ChangeDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass)
     {
-        ChangeDigimonSAttack(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard);
+        ChangeDigimonSAttack(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateClass: activateClass);
         await Task.CompletedTask;
     }
 
     /// <summary>(BRIDGE) AS-IS <c>CardEffectCommons.ChangeDigimonSAttack(...)</c> (GiveEffect/GiveEffectToPermanent/ChangeSAttack.cs:62, the <c>activateAnimation</c>/<c>hashstring</c> overload) — AS-IS-signature overload; delegates to the verified substrate implementation.</summary>
     public static async Task ChangeDigimonSAttack(Permanent targetPermanent, int changeValue, EffectDuration effectDuration, ICardEffect activateClass, bool activateAnimation, string hashstring = null)
     {
-        ChangeDigimonSAttack(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateAnimation, hashstring);
+        ChangeDigimonSAttack(targetPermanent, changeValue, effectDuration, activateClass?.EffectSourceCard, activateAnimation, hashstring, activateClass);
         await Task.CompletedTask;
     }
 }
