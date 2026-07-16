@@ -955,7 +955,18 @@ public sealed class ContinuousImmunityEffect : ICardEffect
 /// <c>ActivatedHashtableBridge.CauseStub</c> uses for driving-event payloads). The old-model
 /// <c>ContinuousTrashProtectionEffect</c> (which lowered this concept into a dead registry binding) is retired:
 /// the sole producer today is BT9_109's inline <c>CanNotTrashFromDigivolutionCardsClass</c>, served by the live
-/// <see cref="CardSource.CanNotTrashFromDigivolutionCards"/> scan.</summary>
+/// <see cref="CardSource.CanNotTrashFromDigivolutionCards"/> scan.
+///
+/// (design item RD-BCE-01) <see cref="For(EngineContext, HeadlessEntityId)"/> collapses to a source-less cause
+/// (a fresh BareCauseEffect with no EffectSourceCard) when the id is empty/unresolvable, and both factories always
+/// return a NON-null ICardEffect. Some AS-IS restriction/immunity predicates distinguish a null causing effect
+/// (a RULE-sourced action, e.g. battle/end-of-turn, which many `CanNotAffect`/`CanNotBeTrashed` conditions treat
+/// as "not an opponent effect" ⇒ NOT immune) from a real-but-unknown source. A source-LESS BareCauseEffect is not
+/// byte-identical to AS-IS `null`: the getter's own `_cardEffect == null` early-out (CanNotBeAffected :743) is NOT
+/// taken, and an IsOpponentEffect check reads `EffectSourceCard?.Owner` = null-owner rather than short-circuiting.
+/// In practice the sink/Commons consumers here always carry a real card source (SourceEntityId / sourceCard), so
+/// this divergence is latent; revisit if a genuinely rule-sourced (null-cause) mutation is ever routed through a
+/// BareCauseEffect gate.</summary>
 public sealed class BareCauseEffect : ICardEffect
 {
     /// <summary>A bare cause whose <c>EffectSourceCard</c> is <paramref name="sourceCard"/> (the AS-IS collapse of

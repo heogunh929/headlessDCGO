@@ -356,9 +356,11 @@ public static partial class CardEffectCommons
         // (R3-W3c B6) ImmuneFromStackTrashing rehomed from the ImmuneStackTrashingKey registry scan to the
         // AS-IS-literal live getter (host permanent, cause = the causing effect collapsed to its source card).
         new Permanent(sourceCard.Context, hostId).ImmuneFromStackTrashing(BareCauseEffect.For(sourceCard.Context, sourceCard.InstanceId))
-        || Headless.Runtime.ContinuousImmunityGate.BlocksOpponentEffect(
-            sourceCard.Context.EffectRegistry, sourceCard.Context.CardInstanceRepository,
-            hostId, sourceCard.InstanceId, sourceCard.Context);
+        // (B군 P0-1) The general-immunity OR-arm (AS-IS CardController.cs:5155 TopCard.CanNotBeAffected) is likewise
+        // rehomed from the now-dead BlocksOpponentEffect registry scan to the live TopCard.CanNotBeAffected getter,
+        // symmetric with the sink stack-trash gate (MatchStateMutationSink :1959) — B6 parked this C-arm for the
+        // CanNotBeAffected batch (no partial flip).
+        || new Permanent(sourceCard.Context, hostId).TopCard.CanNotBeAffected(BareCauseEffect.For(sourceCard.Context, sourceCard.InstanceId));
 
     /// <summary>AS-IS <c>TrashLinkCardsAndProcessAccordingToResult</c> (CardEffectCommons.cs:567): trash the
     /// given link cards off their host; success = any actually trashed.</summary>
@@ -2981,8 +2983,11 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        if (ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, sourceCard.InstanceId, context))
+        // (B군 P0-1) AS-IS grant-time guard `!targetPermanent.TopCard.CanNotBeAffected(cardEffect)` — rehomed from
+        // the now-dead BlocksOpponentEffect registry scan (0 producers post W3c-1/2) to the AS-IS-literal live
+        // ICanNotAffectedEffect scan (W3c-1 idiom). The causing effect is collapsed to its source card
+        // (BareCauseEffect); an immune target refuses the grant.
+        if (targetPermanent.TopCard.CanNotBeAffected(BareCauseEffect.For(sourceCard)))
         {
             return false;
         }
@@ -2990,8 +2995,7 @@ public static partial class CardEffectCommons
         HeadlessEntityId grantSourceId = sourceCard.InstanceId;
         Func<bool> liveCondition = () =>
             ((IZoneStateReader)context.ZoneMover).GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId)
-            && !ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, targetId, grantSourceId, context)
+            && !new Permanent(context, targetId, targetOwner).TopCard.CanNotBeAffected(BareCauseEffect.For(context, grantSourceId))
             && (extraCondition is null || extraCondition());
         var values = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -3104,9 +3108,10 @@ public static partial class CardEffectCommons
         HeadlessEntityId grantSourceId = sourceCard.InstanceId;
 
         // AS-IS _PermanentCondition: on the battle area && !CanNotBeAffected && caller predicate — LIVE.
+        // (B군 P0-1) The !CanNotBeAffected term is rehomed from the now-dead BlocksOpponentEffect registry scan to
+        // the AS-IS-literal live TopCard.CanNotBeAffected getter (cause = the granting effect's source card).
         Func<CardSource, bool> scopePredicate = cs =>
-            !ContinuousImmunityGate.BlocksOpponentEffect(
-                context.EffectRegistry, context.CardInstanceRepository, cs.InstanceId, grantSourceId, context)
+            !new Permanent(cs.Context, cs.InstanceId, cs.Owner).TopCard.CanNotBeAffected(BareCauseEffect.For(context, grantSourceId))
             && (permanentCondition is null || permanentCondition(new Permanent(cs.Context, cs.InstanceId, cs.Owner)));
 
         var values = new Dictionary<string, object?>(StringComparer.Ordinal)

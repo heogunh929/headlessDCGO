@@ -31,7 +31,8 @@ using HeadlessDCGO.Engine.Headless.State;
 /// the mirror Permanent getters directly (SuspendKind → !Permanent.CanSuspend; effect-delete general immunity →
 /// !Permanent.CanBeDestroyed()); the cause-conditional and player-scope judgments read the shared substrate seams
 /// the mirror CardController / CardEffectCommons themselves consult (RestrictionScan / IsRestrictedByCauseNewModel,
-/// ContinuousImmunityGate.BlocksOpponentEffect = CardSource.CanNotBeAffected). What remains sink-local is pure
+/// and — since B군 P0-1 — the live TopCard.CanNotBeAffected getter directly, no longer the dead-registry
+/// ContinuousImmunityGate.BlocksOpponentEffect). What remains sink-local is pure
 /// zone-move APPLICATION substrate — repository Upsert, IZoneMover calls, metadata/batch-id stamping and CardMoved
 /// event emission. STOPs (R3): (RD-R2-02) RESOLVED AT ITS AS-IS HOME (R3-A): the mirror
 /// <see cref="Assets.Scripts.Script.DestroyPermanentsClass"/> now exists and threads the LIVE causing ICardEffect
@@ -523,8 +524,17 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         }
 
         // S2 (C-15 Progress): an active opponent-only immunity on the target prevents an opponent-sourced
-        // effect mutation. No-op unless an immunity is registered (source-relativity skips own/ally effects).
-        if (Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, targetId, mutation.SourceEntityId, _context))
+        // effect mutation. No-op unless an immunity is active (source-relativity skips own/ally effects).
+        // (B군 P0-1) Rehomed from the now-dead ContinuousImmunityGate.BlocksOpponentEffect registry scan (0
+        // producers after the W3c-1/2 CanNotAffectedStaticEffect→CanNotAffectedClass + ProgressImmunity→bucket
+        // flips) to the AS-IS-literal live getter TopCard.CanNotBeAffected — the same per-target gate the AS-IS
+        // mutation carriers apply (DestroyPermanentsClass CardController.cs:3679, HandBounce :2632,
+        // ReturnToDeckTop :2471, ReturnToDeckBottom :2305, PutSecurity :3525). The causing effect is collapsed to
+        // its source card (BareCauseEffect). Needs the EngineContext; a context-less unit sink never produced a
+        // live immunity, so it reports none — matching AS-IS, which always runs with full CardSource views.
+        if (_context is { } immunityCtx
+            && new Assets.Scripts.Script.CardEffectCommons.Permanent(immunityCtx, targetId, record.OwnerId)
+                .TopCard.CanNotBeAffected(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(immunityCtx, mutation.SourceEntityId)))
         {
             _skipped.Add(mutation);
             _log?.Warn($"Effect mutation '{mutation.Kind}' on '{targetId.Value}' was prevented by immunity (opponent effect).");
@@ -811,15 +821,39 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
         int amount = ReadInt(mutation.Values, AmountKey) ?? 0;
 
-        // (PRIM-P0 B.O.6) a "cannot add memory" restriction blocks a GAIN (positive add) for the source's owner
-        // (AS-IS Player.CanAddMemory gate). A memory loss / SetMemory is not a gain and is unaffected.
-        if (!isSet && amount > 0 && !mutation.SourceEntityId.IsEmpty &&
-            _repository.TryGetInstance(mutation.SourceEntityId, out CardInstanceRecord? src) && src is not null &&
-            IsPlayerRestricted(src.OwnerId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddMemoryKey, mutation.SourceEntityId))
+        // (PRIM-P0 B.O.6) a "cannot add memory" restriction blocks a memory GAIN (AS-IS Player.CanAddMemory —
+        // gated on the GAINING player, `this` = gainer, Player.cs:1030). SetMemory (isSet) is not routed here.
+        // (B군 P1-1) The mirror gauge is TURN-PLAYER-RELATIVE (Player.MemoryForPlayer :504-511 / AceOverflowGate
+        // .MemoryDelta): a POSITIVE delta raises the TURN player's memory (the turn player gains), a NEGATIVE delta
+        // raises the OPPONENT's (the opponent gains). So the real gainer is derived from the delta SIGN — NOT the
+        // causing effect's owner (`src.OwnerId`), which the earlier port keyed on. That mis-key gated the wrong
+        // player whenever a NON-turn-player effect drove the gain, and — because it only fired for `amount > 0` —
+        // never gated an opponent-gain expressed as a negative delta. AS-IS routes each gain through the gaining
+        // Player's own CanAddMemory; we reproduce that by resolving the gainer from the sign and scanning it.
+        // (A null cause is not gated, mirroring AS-IS `if (cardEffect != null)` — the empty-source guard.)
+        if (!isSet && amount != 0 && !mutation.SourceEntityId.IsEmpty && _context is { } memoryCtx
+            && memoryCtx.TurnController.Current.TurnPlayerId is { } turnPlayer)
         {
-            _skipped.Add(mutation);
-            _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "restricted"));
-            return;
+            HeadlessPlayerId gainer;
+            if (amount > 0)
+            {
+                gainer = turnPlayer;   // +delta raises the turn player's memory
+            }
+            else
+            {
+                // -delta raises the OPPONENT's memory (turn-player-relative gauge) — the opponent is the gainer.
+                Assets.Scripts.Script.CardEffectCommons.Player? opponent =
+                    new Assets.Scripts.Script.CardEffectCommons.Player(memoryCtx, turnPlayer).Enemy;
+                gainer = opponent is null ? default : opponent.PlayerId;
+            }
+
+            if (!gainer.IsEmpty
+                && IsPlayerRestricted(gainer, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotAddMemoryKey, mutation.SourceEntityId))
+            {
+                _skipped.Add(mutation);
+                _applied.Add(new AppliedMutation(mutation.Kind, mutation.SourceEntityId, "restricted"));
+                return;
+            }
         }
 
         if (isSet)
@@ -1930,9 +1964,14 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         if (returnToZone is ChoiceZone destination)
         {
             // (c-remediation) AS-IS ReturnToLibraryBottomDigivolutionCards checks `TopCard.CanNotBeAffected(CardEffect)`
-            // before returning — a host immune to the causing effect keeps its sources. Mirror it (general effect
-            // immunity), distinct from the trash-only ImmuneStackTrashing gate below.
-            if (Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, hostId, mutation.SourceEntityId, _context))
+            // (CardController.cs:5268) before returning — a host immune to the causing effect keeps its sources.
+            // Mirror it (general effect immunity), distinct from the trash-only ImmuneStackTrashing gate below.
+            // (B군 P0-1) Rehomed from the now-dead ContinuousImmunityGate.BlocksOpponentEffect registry scan to the
+            // AS-IS-literal live getter TopCard.CanNotBeAffected (cause = the causing effect collapsed to its source
+            // card). Context-less sink => no live immunity (nothing produced the flag after the flip).
+            if (_context is { } returnImmuneCtx
+                && new Assets.Scripts.Script.CardEffectCommons.Permanent(returnImmuneCtx, hostId)
+                    .TopCard.CanNotBeAffected(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(returnImmuneCtx, mutation.SourceEntityId)))
             {
                 _skipped.Add(mutation);
                 _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));
@@ -1948,15 +1987,18 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             // any cardEffectCondition against the causing effect's source.
             // (C-5 adversarial review P1-2) AS-IS ITrashDigivolutionCards ALSO yield-breaks on the host top
             // card's GENERAL effect immunity (`TopCard.CanNotBeAffected(cardEffect)`, CardController.cs:5154-5155)
-            // — the same gate the return-to-hand/deck branch above already mirrors via BlocksOpponentEffect.
+            // — the same gate the return-to-hand/deck branch above already mirrors.
             // (R3-W3c B6) ImmuneFromStackTrashing rehomed from the ImmuneStackTrashingKey registry scan to the
             // AS-IS-literal live getter Permanent.ImmuneFromStackTrashing(cardEffect) — the host permanent, cause
             // = the causing effect collapsed to its source card (BareCauseEffect). Needs the EngineContext; a
             // context-less sink can carry no live effect scan (nothing produced the flag anyway after the flip).
-            if ((_context is { } stackTrashCtx
-                    && new Assets.Scripts.Script.CardEffectCommons.Permanent(stackTrashCtx, hostId)
-                        .ImmuneFromStackTrashing(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId)))
-                || Runtime.ContinuousImmunityGate.BlocksOpponentEffect(_effectRegistry, _repository, hostId, mutation.SourceEntityId, _context))
+            // (B군 P0-1) The general-immunity OR-arm (AS-IS :5155 TopCard.CanNotBeAffected) is likewise rehomed
+            // from the now-dead BlocksOpponentEffect registry scan to the live TopCard.CanNotBeAffected getter.
+            if (_context is { } stackTrashCtx
+                    && (new Assets.Scripts.Script.CardEffectCommons.Permanent(stackTrashCtx, hostId)
+                            .ImmuneFromStackTrashing(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId))
+                        || new Assets.Scripts.Script.CardEffectCommons.Permanent(stackTrashCtx, hostId)
+                            .TopCard.CanNotBeAffected(Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(stackTrashCtx, mutation.SourceEntityId))))
             {
                 _skipped.Add(mutation);
                 _applied.Add(new AppliedMutation(mutation.Kind, hostId, "restricted"));

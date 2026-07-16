@@ -4,6 +4,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
+using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 
@@ -34,6 +35,7 @@ async Task Run(bool immune, bool expectReturned, bool expectEvent)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 917);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);   // (B군 P0-1) CanUse -> DoneStartGame for the live immunity scan
     var cards = (CardDatabase)ctx.CardRepository;
 
     // Host Digimon (P1) on the battle area with one digivolution source under it.
@@ -56,11 +58,21 @@ async Task Run(bool immune, bool expectReturned, bool expectEvent)
     if (immune)
     {
         // "This Digimon is unaffected by the opponent's Digimon effects."
-        ctx.EffectRegistry.Register(PermanentEffectFactory.DigimonEffectImmunity(new Permanent(ctx, host, P1)).ToBinding("imm:host"));
+        // (B군 P0-1) The return-sources gate (MatchStateMutationSink.cs:1935) now reads the LIVE
+        // CardSource.CanNotBeAffected scan, not the retired ContinuousImmunityGate registry. Grant the host a live
+        // CanNotAffectedClass on its effect list (opponent's Digimon effects only — the AS-IS DigimonEffectImmunity
+        // shape), the seam a ported card uses.
+        var hostCard = new CardSource(ctx, host, P1);
+        ICardEffect immunity = CardEffectFactory.CanNotAffectedStaticEffect(
+            permanentCondition: null,
+            skillCondition: e => e.EffectSourceCard is not null && e.EffectSourceCard.Owner != P1 && e.EffectSourceCard.IsDigimon,
+            isInheritedEffect: false, card: hostCard, condition: null);
+        hostCard.cEntity_EffectController.cEntity_Effect = new LiveImmunityEntityEffect(immunity);
     }
 
     ctx.GameEventQueue.DrainPending();
 
+    using var _ambient = AmbientMatchContext.Enter(ctx);
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, ctx.LogSink, ctx.ZoneMover, ctx.MemoryController,
         ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
@@ -107,3 +119,11 @@ void SetMeta(EngineContext ctx, HeadlessEntityId id, string key, object? value)
 }
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+// Returns the supplied CanNotAffectedClass from the host's live effect list (the seam a ported card definition uses).
+sealed class LiveImmunityEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public LiveImmunityEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}

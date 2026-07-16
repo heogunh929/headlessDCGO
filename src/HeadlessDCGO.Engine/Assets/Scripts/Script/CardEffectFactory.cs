@@ -1328,10 +1328,12 @@ public static partial class CardEffectFactory
         // ICanNotAffectedEffect` over every field permanent's EffectList(None)). The three registry-half consumers
         // that forced the R3-W3a REVERT are now rehomed onto that same live scan (see their R3-W3c-1 comments):
         // GainCanNotBeDeletedByBattle (CardEffectCommons.cs), the ContinuousPlayerScopeRestrictionEffect immunity
-        // exemption (ContinuousAndRestrictionEffects.cs), and BlockTiming.HasBlocker. The surviving
-        // BlocksOpponentEffect sites (sink, other CardController pipelines, Commons continuous-grant cores) still
-        // read the registry but consume ONLY the Progress registry binding — this factory has 0 production callers
-        // (test-only), so no card immunity is lost. CanNotAffectedClass declares no ToBinding → the enter-play
+        // exemption (ContinuousAndRestrictionEffects.cs), and BlockTiming.HasBlocker. (B군 P0-1 UPDATE) The last
+        // BlocksOpponentEffect consumers — the mutation sink (:527/1935/1959), the Commons continuous-grant cores
+        // (GainRestrictionToPermanent / GainToPlayerScope) and IsHostStackTrashGated — are now ALSO rehomed onto this
+        // same live CanNotBeAffected scan, so BlocksOpponentEffect has 0 production consumers. This flip is precisely
+        // what makes an immunity built here VISIBLE at those sites (before it, they read the dead registry and a
+        // CanNotAffectedClass grant WAS silently lost there). CanNotAffectedClass declares no ToBinding → the enter-play
         // registrar registers NOTHING; availability is the live EffectList scan alone. AS-IS construction idiom
         // mirrored: PermanentEffectFactory.DigimonEffectImmunity (SetUpICardEffect + SetUpCanNotAffectedClass).
         var effect = new CardEffects.CanNotAffectedClass();

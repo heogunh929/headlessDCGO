@@ -86,13 +86,18 @@ public static class ContinuousImmunityGate
         return false;
     }
 
-    // (R1-e / R3-W3c-1 / R3-W3c-2) CardSource.CanNotBeAffected reads an AS-IS-literal ICanNotAffectedEffect scan and
-    // no longer delegates here. As of R3-W3c-2 the registry "ContinuousImmunity" scope has ZERO production producers:
-    // ProgressImmunity flipped its attack-time grant to the UntilEndAttack bucket, and CanNotAffectedStaticEffect
-    // flipped to the CanNotAffectedClass kind-class (W3c-1, 0 production callers). So BlocksOpponentEffect's registry
-    // read is now ALWAYS false in production — a dead read. The surviving call sites are: MatchStateMutationSink
-    // (:527/1926/1944 — W3c-4, needs live-effect threading into EffectMutation, 불가침 this batch) and
-    // CardEffectCommons continuous-grant cores (:358/1750/1759/2945/2954/3069 — W3c-3/4, the numeric/joint registry
-    // model). The CardController pipelines were rehomed to the live TopCard.CanNotBeAffected scan in W3c-2. This file
-    // cannot be deleted until the sink + Commons call sites fold away (W3c-final).
+    // (R1-e / R3-W3c-1 / R3-W3c-2 / B군 P0-1) CardSource.CanNotBeAffected reads an AS-IS-literal ICanNotAffectedEffect
+    // scan and no longer delegates here. Both registry "ContinuousImmunity" producers are gone: ProgressImmunity
+    // flipped its attack-time grant to the UntilEndAttack bucket, and CanNotAffectedStaticEffect flipped to the
+    // CanNotAffectedClass kind-class (W3c-1). As of B군 P0-1 the LAST production consumers of BlocksOpponentEffect —
+    // the mutation sink (general-immunity :527, return-sources :1935, trash-sources :1959), the CardEffectCommons
+    // continuous-grant cores (GainRestrictionToPermanent grant-time + liveCondition, GainToPlayerScope scopePredicate)
+    // and IsHostStackTrashGated — were rehomed onto the live TopCard.CanNotBeAffected getter. So BlocksOpponentEffect
+    // now has ZERO production consumers; its registry read is fully dead.
+    //
+    // (B군 P0-1 residual) This file is NOT deleted yet only because two TEST suites still reference the gate directly:
+    // G3.5-C15.Progress (GateSourceRelativity + RegisterImmunity) and FAILa-03.PermanentEffectImmunity both probe
+    // BlocksOpponentEffect / register via JointPredicateKey+Scope against the vestigial registry path. They are
+    // false-green dead-path probes; retiring the gate needs them re-aimed to the live CanNotBeAffected scan (precedent:
+    // G9-057, G9-040 — already re-aimed). Until that follow-up the class stays as a compile-only stub.
 }

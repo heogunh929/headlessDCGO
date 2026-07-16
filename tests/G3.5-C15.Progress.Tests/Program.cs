@@ -56,13 +56,20 @@ async Task GateSourceRelativity()
 
 async Task SinkBlocksOpponentDelete()
 {
+    // (B군 P0-1) The sink's S2 general-immunity gate (MatchStateMutationSink.cs:527) was rehomed from the now-dead
+    // ContinuousImmunityGate.BlocksOpponentEffect registry scan to the LIVE CardSource.CanNotBeAffected getter. So
+    // the immunity must be a live CanNotAffectedClass on the protected card's effect list (the seam a ported card
+    // uses — G9-057 idiom), NOT a registry binding. The skillCondition is opponent-only (IsOpponentEffect).
     EngineContext context = await Field(("P1-Protected", P1), ("P2-Enemy", P2));
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);   // CanUse -> DoneStartGame gate
     var protectedId = new HeadlessEntityId("P1-Protected");
-    RegisterImmunity(context, protectedId, P1);
+    GrantLiveImmunity(context, protectedId, P1);
+    using var _ = AmbientMatchContext.Enter(context);
 
     await DeleteBy(context, protectedId, deleter: new HeadlessEntityId("P2-Enemy"));
 
-    AssertFalse(InZone(context, P1, ChoiceZone.Trash, protectedId), "an opponent delete is prevented by immunity");
+    AssertFalse(InZone(context, P1, ChoiceZone.Trash, protectedId), "an opponent delete is prevented by live immunity");
     AssertTrue(InZone(context, P1, ChoiceZone.BattleArea, protectedId), "the protected card survives");
 }
 
@@ -183,5 +190,26 @@ void SetFlag(EngineContext context, HeadlessEntityId cardId, string key)
 bool InZone(EngineContext context, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId cardId) =>
     ((IZoneStateReader)context.ZoneMover).GetCards(player, zone).Contains(cardId);
 
+// (B군 P0-1) Attach a LIVE opponent-only CanNotAffectedClass to the target card's effect list (permanentCondition
+// null => protects the holder). This is the AS-IS seam the live CardSource.CanNotBeAffected scan reads — the sink's
+// rehomed S2 gate consults it instead of the retired registry.
+void GrantLiveImmunity(EngineContext context, HeadlessEntityId targetId, HeadlessPlayerId owner)
+{
+    var card = new CardSource(context, targetId, owner);
+    ICardEffect immunity = CardEffectFactory.CanNotAffectedStaticEffect(
+        permanentCondition: null,
+        skillCondition: e => CardEffectCommons.IsOpponentEffect(e?.EffectSourceCard, card),
+        isInheritedEffect: false, card: card, condition: null);
+    card.cEntity_EffectController.cEntity_Effect = new LiveImmunityEntityEffect(immunity);
+}
+
 static void AssertTrue(bool value, string label) { if (!value) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertFalse(bool value, string label) { if (value) throw new InvalidOperationException($"{label}: expected false."); }
+
+// Returns the supplied CanNotAffectedClass from the card's live effect list (the seam a ported card definition uses).
+sealed class LiveImmunityEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public LiveImmunityEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
+}
