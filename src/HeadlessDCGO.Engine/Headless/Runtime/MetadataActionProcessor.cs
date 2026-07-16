@@ -1010,13 +1010,14 @@ public sealed class MetadataActionProcessor : IActionProcessor
         // relevant from the MemoryPass ending flow; the common case (no memory change, or a LOSS effect) still ends
         // (memory stays <= -threshold). The EoT effects already fired this frame; if the player later passes again
         // they re-fire (AS-IS re-runs the window each EndTurnProcess), bounded by their own once-per-turn caps.
-        if (previousTurn.Phase == HeadlessPhase.MemoryPass
+        if (previousTurn.IsMemoryPassPhase
             && !new HeadlessMainPhaseFlow().ShouldTurnEndAfterEndOfTurnWindow(context, previousTurn.TurnPlayerId))
         {
             // (task 6) the turn continues — allow the [End of Your Turn] window to re-fire the NEXT time this player
             // ends the turn (AS-IS re-runs it each EndTurnProcess), so clear the drained marker for this turn number.
             context.WindowResolution.EndOfTurnDrainedTurn = null;
-            HeadlessTurnState continuedTurn = context.TurnController.SetPhase(HeadlessPhase.Main);
+            // (R4 S2) revert to the interactive main-play step (Main, PhaseStart).
+            HeadlessTurnState continuedTurn = context.TurnController.SetPhase(HeadlessPhase.Main, TurnStepCursor.PhaseStart);
             Dictionary<string, object?> continueMetadata = MetadataWithTurn(action, continuedTurn);
             continueMetadata["turnContinued"] = true;
             return ActionProcessResult.Success(
@@ -1192,6 +1193,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
         Dictionary<string, object?> metadata = BaseMetadata(action);
         metadata[HeadlessActionParameterKeys.TurnNumber] = turn.TurnNumber;
         metadata[HeadlessActionParameterKeys.Phase] = turn.Phase.ToString();
+        metadata[HeadlessActionParameterKeys.StepCursor] = turn.StepCursor.ToString();
         metadata[HeadlessActionParameterKeys.TurnPlayerId] = turn.TurnPlayerId?.Value;
         metadata[HeadlessActionParameterKeys.NonTurnPlayerId] = turn.NonTurnPlayerId?.Value;
         metadata[HeadlessActionParameterKeys.IsFirstTurn] = turn.IsFirstTurn;
@@ -1204,6 +1206,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
     {
         Dictionary<string, object?> metadata = MetadataWithTurn(action, transition.Current);
         metadata[HeadlessActionParameterKeys.PreviousPhase] = transition.Previous.Phase.ToString();
+        metadata[HeadlessActionParameterKeys.PreviousStepCursor] = transition.Previous.StepCursor.ToString();
         metadata[HeadlessActionParameterKeys.PhaseOperations] = transition.Operations.ToArray();
         metadata[HeadlessActionParameterKeys.DrawnCardIds] = transition.DrawnCardIds.Select(id => id.Value).ToArray();
         metadata[HeadlessActionParameterKeys.DrawSkipped] = transition.DrawSkipped;

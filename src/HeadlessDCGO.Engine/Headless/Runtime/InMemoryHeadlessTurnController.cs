@@ -24,10 +24,12 @@ public sealed class InMemoryHeadlessTurnController : IHeadlessTurnController
         }
 
         HeadlessPlayerId turnPlayerId = ResolveFirstPlayer(firstPlayerId);
+        // (R4 S2) The former HeadlessPhase.Setup is now (None, Starting) — the pre-game setup step.
         Current = CreateState(
             turnNumber: 1,
             turnPlayerId,
-            HeadlessPhase.Setup);
+            HeadlessPhase.None,
+            TurnStepCursor.Starting);
     }
 
     public HeadlessTurnState AdvancePhase()
@@ -37,7 +39,11 @@ public sealed class InMemoryHeadlessTurnController : IHeadlessTurnController
             return Current;
         }
 
-        Current = Current with { Phase = HeadlessPhaseMapping.Next(Current.Phase) };
+        // (R4 S2) Walk the (phase, cursor) turn-step sequence — the driver keys on the full pair so the
+        // sub-cursor positions (setup / unsuspend) advance correctly.
+        (HeadlessPhase nextPhase, TurnStepCursor nextCursor) =
+            HeadlessPhaseMapping.NextStep(Current.Phase, Current.StepCursor);
+        Current = Current with { Phase = nextPhase, StepCursor = nextCursor };
         return Current;
     }
 
@@ -52,15 +58,16 @@ public sealed class InMemoryHeadlessTurnController : IHeadlessTurnController
         Current = CreateState(
             Current.TurnNumber + 1,
             nextPlayerId,
-            HeadlessPhase.Active);
+            HeadlessPhase.Active,
+            TurnStepCursor.PhaseStart);
 
         return Current;
     }
 
-    public HeadlessTurnState SetPhase(HeadlessPhase phase)
+    public HeadlessTurnState SetPhase(HeadlessPhase phase, TurnStepCursor cursor = TurnStepCursor.PhaseStart)
     {
         HeadlessPhaseMapping.EnsureDefined(phase);
-        Current = Current with { Phase = phase };
+        Current = Current with { Phase = phase, StepCursor = cursor };
         return Current;
     }
 
@@ -83,13 +90,15 @@ public sealed class InMemoryHeadlessTurnController : IHeadlessTurnController
     private HeadlessTurnState CreateState(
         int turnNumber,
         HeadlessPlayerId turnPlayerId,
-        HeadlessPhase phase)
+        HeadlessPhase phase,
+        TurnStepCursor cursor)
     {
         return new HeadlessTurnState(
             turnNumber,
             turnPlayerId,
             ResolveNonTurnPlayer(turnPlayerId),
             phase,
+            cursor,
             turnNumber == 1,
             _playerOrder.ToArray());
     }

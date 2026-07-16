@@ -48,7 +48,7 @@ async Task BlitzHasNoMemoryPassAttack()
     HeadlessEntityId attacker = await EstablishDigimon(match, P1, blitz: true);
 
     await PassAsync(match, P1);
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "phase is memory pass");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "phase is memory pass");
 
     // RD-CATK-BLITZ: the invented memory-pass firing-half is retired. A hasBlitz Digimon gets NO manual
     // memory-pass attack; Blitz now fires only through the OnEnterFieldAnyone / OnPlay window (C-Atk-Blitz.Tests).
@@ -62,7 +62,7 @@ async Task NonBlitzCannotAttackInMemoryPass()
     HeadlessEntityId attacker = await EstablishDigimon(match, P1, blitz: false);
 
     await PassAsync(match, P1);
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "phase is memory pass");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "phase is memory pass");
 
     AssertFalse(HasDeclaration(match, P1, attacker), "non-Blitz attacker produces no declaration in memory pass");
     AssertFalse(HasDeclareAttackAction(match, P1, attacker), "dispatcher exposes no DeclareAttack for the non-Blitz attacker");
@@ -74,7 +74,7 @@ async Task MemoryPassStillOffersEndTurn()
     await EstablishDigimon(match, P1, blitz: true);
 
     await PassAsync(match, P1);
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "phase is memory pass");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "phase is memory pass");
 
     AssertTrue(
         match.GetLegalActions(P1).Any(a => a.ActionType == HeadlessActionTypes.EndTurn),
@@ -86,7 +86,7 @@ async Task BlitzAttacksInMainPhase()
     DcgoMatch match = await BaseMatch();
     HeadlessEntityId attacker = await EstablishDigimon(match, P1, blitz: true);
 
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "still main phase");
+    AssertTrue(match.GetObservation().Turn.IsMainPlayPhase, "still main phase");
     AssertTrue(HasDeclaration(match, P1, attacker), "Blitz attacker can attack in the main phase too");
 }
 
@@ -95,7 +95,7 @@ async Task NonBlitzAttacksInMainPhase()
     DcgoMatch match = await BaseMatch();
     HeadlessEntityId attacker = await EstablishDigimon(match, P1, blitz: false);
 
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "still main phase");
+    AssertTrue(match.GetObservation().Turn.IsMainPlayPhase, "still main phase");
     AssertTrue(HasDeclaration(match, P1, attacker), "non-Blitz attacker attacks normally in the main phase (no regression)");
 }
 

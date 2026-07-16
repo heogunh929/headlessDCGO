@@ -81,7 +81,9 @@ public sealed class HeadlessMainPhaseFlow
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(transition);
 
-        if (transition.Current.Phase != HeadlessPhase.Main)
+        // (R4 S2) A fresh main-phase entry is the interactive main-play step (Main, PhaseStart) — NOT the
+        // memory-pass end-of-main step, which also has Phase == Main. Gate on IsMainPlayPhase.
+        if (!transition.Current.IsMainPlayPhase)
         {
             return MainPhaseMemoryResult.NotApplicable(
                 transition.Previous,
@@ -109,7 +111,9 @@ public sealed class HeadlessMainPhaseFlow
         ArgumentNullException.ThrowIfNull(action);
 
         HeadlessTurnState previousTurn = context.TurnController.Current;
-        if (previousTurn.Phase != HeadlessPhase.Main)
+        // (R4 S2) Pass is legal only during the interactive main-play step (Main, PhaseStart), not the
+        // memory-pass end-of-main step (which also has Phase == Main).
+        if (!previousTurn.IsMainPlayPhase)
         {
             throw new InvalidOperationException("Pass can only be processed during the Main phase.");
         }
@@ -117,7 +121,8 @@ public sealed class HeadlessMainPhaseFlow
         EnsureCurrentTurnPlayer(action, previousTurn, "pass the main phase");
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         HeadlessMemoryState currentMemory = context.MemoryController.Set(-DefaultMemoryPassValue);
-        HeadlessTurnState currentTurn = context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
+        // (R4 S2) The former SetPhase(MemoryPass) is now the (Main, AwaitingMemoryPassEnd) step.
+        HeadlessTurnState currentTurn = context.TurnController.SetPhase(HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd);
 
         return new MainPhaseMemoryResult(
             previousTurn,
@@ -142,7 +147,8 @@ public sealed class HeadlessMainPhaseFlow
         ArgumentNullException.ThrowIfNull(action);
 
         HeadlessTurnState previousTurn = context.TurnController.Current;
-        if (previousTurn.Phase != HeadlessPhase.Main)
+        // (R4 S2) A memory mutation only triggers a pass evaluation during interactive main-play (Main, PhaseStart).
+        if (!previousTurn.IsMainPlayPhase)
         {
             return MainPhaseMemoryResult.NotApplicable(
                 previousTurn,
@@ -180,7 +186,8 @@ public sealed class HeadlessMainPhaseFlow
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (previousTurn.Phase != HeadlessPhase.MemoryPass)
+        // (R4 S2) The former MemoryPass phase is the (Main, AwaitingMemoryPassEnd) step.
+        if (!previousTurn.IsMemoryPassPhase)
         {
             return MainPhaseMemoryResult.NotApplicable(
                 previousTurn,
@@ -220,7 +227,8 @@ public sealed class HeadlessMainPhaseFlow
         int turnEndMinMemory = ResolveTurnEndMinMemory(context, currentTurn.TurnPlayerId);
         if (currentMemory.Current <= -turnEndMinMemory)
         {
-            HeadlessTurnState memoryPassTurn = context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
+            // (R4 S2) The former SetPhase(MemoryPass) is now the (Main, AwaitingMemoryPassEnd) step.
+            HeadlessTurnState memoryPassTurn = context.TurnController.SetPhase(HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd);
             return new MainPhaseMemoryResult(
                 previousTurn,
                 memoryPassTurn,

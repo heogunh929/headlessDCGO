@@ -35,7 +35,7 @@ EngineContext NewCtx(HeadlessPlayerId turnPlayer, int seed)
     // IsDisabled (GManager.instance) and CanTrigger (DoneStartGame = phase past Setup). Provide both, exactly as
     // production's game loop does (the C3-Witness / G9-057 precedent). Cases that re-set the phase (the [Your Turn]
     // unsuspend case) still do so explicitly below.
-    if (ctx.TurnController.Current.Phase is HeadlessPhase.None or HeadlessPhase.Setup)
+    if (ctx.TurnController.Current.Phase is HeadlessPhase.None)
     {
         ctx.TurnController.SetPhase(HeadlessPhase.Main);
     }
@@ -256,7 +256,7 @@ int SecurityCount(EngineContext ctx, HeadlessPlayerId owner) =>
 
     var advance = new LegalAction(new HeadlessEntityId("advance-8578"), P1, "AdvancePhase", new Dictionary<string, object?>());
     PhaseTransitionResult transition = new HeadlessEarlyPhaseFlow().AdvanceAsync(ctx, advance).GetAwaiter().GetResult();
-    Check(transition.Current.Phase == HeadlessPhase.Unsuspend, "BT8_057 [Your Turn]: advanced into the unsuspend phase");
+    Check(transition.Current.IsUnsuspendPhase, "BT8_057 [Your Turn]: advanced into the unsuspend phase");
     new GameFlowProcessor().RunToStableAsync(ctx).GetAwaiter().GetResult();
 
     Check(SecurityCount(ctx, P2) == 1,

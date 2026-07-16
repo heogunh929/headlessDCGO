@@ -89,12 +89,14 @@ async Task SetupAdvancesThroughEarlyPhaseOrder()
     DcgoMatch match = await CreateInitializedMatchAsync();
     HeadlessPlayerId player = new(1);
 
-    AssertEqual(HeadlessPhase.Setup, match.GetObservation().Turn.Phase, "initial phase");
-    AssertEqual(HeadlessPhase.Active, await AdvancePhaseAsync(match, player), "active");
-    AssertEqual(HeadlessPhase.Unsuspend, await AdvancePhaseAsync(match, player), "unsuspend");
-    AssertEqual(HeadlessPhase.Draw, await AdvancePhaseAsync(match, player), "draw");
-    AssertEqual(HeadlessPhase.Breeding, await AdvancePhaseAsync(match, player), "breeding");
-    AssertEqual(HeadlessPhase.Main, await AdvancePhaseAsync(match, player), "main");
+    // (R4 S2) The former 9-value flow is now (phase, cursor) steps: Setup=(None,Starting),
+    // Active=(Active,PhaseStart), Unsuspend=(Active,Unsuspending), Draw, Breeding, Main=(Main,PhaseStart).
+    AssertTrue(match.GetObservation().Turn.IsSetupPhase, "initial phase");
+    AssertEqual((HeadlessPhase.Active, TurnStepCursor.PhaseStart), await AdvancePhaseAsync(match, player), "active");
+    AssertEqual((HeadlessPhase.Active, TurnStepCursor.Unsuspending), await AdvancePhaseAsync(match, player), "unsuspend");
+    AssertEqual((HeadlessPhase.Draw, TurnStepCursor.PhaseStart), await AdvancePhaseAsync(match, player), "draw");
+    AssertEqual((HeadlessPhase.Breeding, TurnStepCursor.PhaseStart), await AdvancePhaseAsync(match, player), "breeding");
+    AssertEqual((HeadlessPhase.Main, TurnStepCursor.PhaseStart), await AdvancePhaseAsync(match, player), "main");
 }
 
 async Task UnsuspendPhaseClearsEligibleCards()
@@ -112,7 +114,9 @@ async Task UnsuspendPhaseClearsEligibleCards()
     StepResult unsuspend = await ApplyAdvanceAsync(match, turnPlayer);
     ActionProcessResult result = LastActionResult(unsuspend);
 
-    AssertEqual(HeadlessPhase.Unsuspend.ToString(), result.Metadata[HeadlessActionParameterKeys.Phase], "phase metadata");
+    // (R4 S2) the former Unsuspend phase is now (Active, Unsuspending) — the metadata carries both.
+    AssertEqual(HeadlessPhase.Active.ToString(), result.Metadata[HeadlessActionParameterKeys.Phase], "phase metadata");
+    AssertEqual(TurnStepCursor.Unsuspending.ToString(), result.Metadata[HeadlessActionParameterKeys.StepCursor], "step cursor metadata");
     AssertStringSet(
         new[] { "turn-suspended", "opponent-reboot", "breeding-suspended" },
         ReadStringArray(result.Metadata, HeadlessActionParameterKeys.UnsuspendedCardIds),
@@ -231,7 +235,7 @@ async Task NonTurnPlayerCannotAdvanceEarlyPhase()
 
     AssertFalse(result.IsSuccess, "illegal advance success");
     AssertContains(result.Message, "Only the current turn player", "illegal advance message");
-    AssertEqual(HeadlessPhase.Setup, step.Observation.Turn.Phase, "phase unchanged");
+    AssertTrue(step.Observation.Turn.IsSetupPhase, "phase unchanged");
 }
 
 Task EarlyPhaseFilesHaveNoPlaceholderTodos()
@@ -278,9 +282,10 @@ static PlayerDeckSetup BuildDeck(
             .ToArray());
 }
 
-static async Task<HeadlessPhase> AdvancePhaseAsync(DcgoMatch match, HeadlessPlayerId playerId)
+static async Task<(HeadlessPhase Phase, TurnStepCursor Cursor)> AdvancePhaseAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    return (await ApplyAdvanceAsync(match, playerId)).Observation.Turn.Phase;
+    HeadlessTurnState turn = (await ApplyAdvanceAsync(match, playerId)).Observation.Turn;
+    return (turn.Phase, turn.StepCursor);
 }
 
 static async Task<StepResult> ApplyAdvanceAsync(DcgoMatch match, HeadlessPlayerId playerId)

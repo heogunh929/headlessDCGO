@@ -107,7 +107,7 @@ async Task LegalPassMovesToMemoryPass()
     await match.ApplyActionAsync(pass);
     StepResult step = await match.StepAsync();
 
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "phase after pass");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "phase after pass");
     AssertEqual(-HeadlessMainPhaseFlow.DefaultMemoryPassValue, match.Context.MemoryController.Current.Current, "memory after pass");
     GameEvent processed = step.Events.Last(e => e.Type == GameEventType.ActionProcessed);
     AssertMetadata(processed.Metadata, "success", true);
@@ -309,7 +309,7 @@ static string SnapshotTurnAndMemory(DcgoMatch match)
 {
     HeadlessTurnState turn = match.Context.TurnController.Current;
     HeadlessMemoryState memory = match.Context.MemoryController.Current;
-    return $"{turn.TurnNumber}:{turn.Phase}:{turn.TurnPlayerId?.Value}:{turn.NonTurnPlayerId?.Value}:{memory.Current}";
+    return $"{turn.TurnNumber}:{turn.Phase}:{turn.StepCursor}:{turn.TurnPlayerId?.Value}:{turn.NonTurnPlayerId?.Value}:{memory.Current}";
 }
 
 static void AssertMetadata(IReadOnlyDictionary<string, object?> metadata, string key, object? expected)

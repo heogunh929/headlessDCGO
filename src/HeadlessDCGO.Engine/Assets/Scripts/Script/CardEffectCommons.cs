@@ -3463,14 +3463,15 @@ public static partial class CardEffectCommons
 
     /// <summary>AS-IS <c>GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Active</c>
     /// (the unsuspend step of the turn). The AS-IS phase enum folds active+unsuspend into a single
-    /// <c>phase.Active</c>; the headless splits them, and the natural unsuspend runs in
-    /// <see cref="Headless.Runtime.HeadlessPhase.Unsuspend"/> — so the "unsuspend phase" gate reads that phase.
-    /// Distinguishes a natural unsuspend (a [Your Turn] OnUnTappedAnyone effect fires, BT8_057) from an
-    /// effect-driven mid-turn unsuspend during the Main phase (it does not).</summary>
+    /// <c>phase.Active</c>; the natural unsuspend runs at the substrate (Active, Unsuspending) step
+    /// (<see cref="Headless.Runtime.HeadlessTurnState.IsUnsuspendPhase"/>, former HeadlessPhase.Unsuspend) — so the
+    /// "unsuspend phase" gate reads that step-cursor. Distinguishes a natural unsuspend (a [Your Turn]
+    /// OnUnTappedAnyone effect fires, BT8_057) from an effect-driven mid-turn unsuspend during the Main phase
+    /// (it does not).</summary>
     public static bool IsUnsuspendPhase(CardSource card)
     {
         ArgumentNullException.ThrowIfNull(card);
-        return card.Context.TurnController.Current.Phase == Headless.Runtime.HeadlessPhase.Unsuspend;
+        return card.Context.TurnController.Current.IsUnsuspendPhase;
     }
 
     /// <summary>AS-IS <c>Player.DigivolveCount_ThisTurn</c>: how many times this card's owner has digivolved

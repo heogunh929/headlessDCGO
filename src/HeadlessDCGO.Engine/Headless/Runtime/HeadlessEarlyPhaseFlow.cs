@@ -39,7 +39,8 @@ public sealed class HeadlessEarlyPhaseFlow
         bool deckOut = false;
         string breedingAction = "None";
 
-        if (current.Phase == HeadlessPhase.Unsuspend)
+        // (R4 S2) The natural-unsuspend step is (Active, Unsuspending) — former HeadlessPhase.Unsuspend.
+        if (current.IsUnsuspendPhase)
         {
             unsuspendedCards = UnsuspendForTurnPlayer(context, current);
             if (unsuspendedCards.Count > 0)

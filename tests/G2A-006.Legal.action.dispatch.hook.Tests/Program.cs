@@ -93,20 +93,22 @@ async Task EarlyPhaseDispatchFollowsAdvancePhaseSequence()
 {
     DcgoMatch match = await CreateInitializedMatchAsync();
     HeadlessPlayerId first = new(1);
-    HeadlessPhase[] expectedAfterAdvance =
+    // (R4 S2) the former Active/Unsuspend split is now (Active, PhaseStart) / (Active, Unsuspending); assert on the
+    // full (phase, cursor) step so the sequence still distinguishes the unsuspend sub-step.
+    (HeadlessPhase Phase, TurnStepCursor Cursor)[] expectedAfterAdvance =
     {
-        HeadlessPhase.Active,
-        HeadlessPhase.Unsuspend,
-        HeadlessPhase.Draw,
-        HeadlessPhase.Breeding,
-        HeadlessPhase.Main
+        (HeadlessPhase.Active, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Active, TurnStepCursor.Unsuspending),
+        (HeadlessPhase.Draw, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Breeding, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Main, TurnStepCursor.PhaseStart)
     };
 
-    foreach (HeadlessPhase expectedPhase in expectedAfterAdvance)
+    foreach ((HeadlessPhase Phase, TurnStepCursor Cursor) expectedStep in expectedAfterAdvance)
     {
         LegalAction advance = SingleLegalAction(match, first, HeadlessActionTypes.AdvancePhase);
         StepResult step = await ApplyActionAsync(match, advance);
-        AssertEqual(expectedPhase, step.Observation.Turn.Phase, $"phase after {expectedPhase}");
+        AssertEqual(expectedStep, (step.Observation.Turn.Phase, step.Observation.Turn.StepCursor), $"phase after {expectedStep}");
     }
 }
 
@@ -118,7 +120,7 @@ async Task MainAndMemoryPassDispatchExposeExpectedActions()
 
     LegalAction pass = SingleLegalAction(match, first, HeadlessActionTypes.Pass);
     StepResult memoryPass = await ApplyActionAsync(match, pass);
-    AssertEqual(HeadlessPhase.MemoryPass, memoryPass.Observation.Turn.Phase, "memory pass phase");
+    AssertTrue(memoryPass.Observation.Turn.IsMemoryPassPhase, "memory pass phase");
 
     LegalAction endTurn = SingleLegalAction(match, first, HeadlessActionTypes.EndTurn);
     StepResult nextTurn = await ApplyActionAsync(match, endTurn);

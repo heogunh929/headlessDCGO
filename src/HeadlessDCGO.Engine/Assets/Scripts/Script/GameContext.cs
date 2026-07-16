@@ -88,10 +88,12 @@ public sealed class GameContext
     public Player? NonTurnPlayer =>
         Turn.NonTurnPlayerId is { IsEmpty: false } id ? new Player(Context, id) : null;
 
-    /// <summary>(MIG6) AS-IS <c>gameContext.TurnPhase</c> (13 card call sites): the AS-IS <see cref="phase"/>
-    /// value for the live <see cref="HeadlessPhase"/>. The headless-only phases (Setup/Unsuspend/MemoryPass)
-    /// map to their nearest AS-IS phase (Setup→None pre-game, Unsuspend→Active start-of-turn, MemoryPass→Main
-    /// end-of-main) — documented, not silent.</summary>
+    /// <summary>(MIG6; R4 S2) AS-IS <c>gameContext.TurnPhase</c> (13 card call sites): the AS-IS <see cref="phase"/>
+    /// value for the live <see cref="HeadlessPhase"/>. Since R4 S2 folded the substrate phase enum to the AS-IS
+    /// 6-value model (the former Setup/Unsuspend/MemoryPass splits moved to the <see cref="TurnStepCursor"/>
+    /// sub-cursor), this map is now a near-identity — the step position within a phase is invisible to cards, exactly
+    /// as in AS-IS (a card sees phase.Active during natural unsuspend, phase.Main during memory pass, phase.None
+    /// pre-game).</summary>
     public phase TurnPhase => Turn.Phase switch
     {
         HeadlessPhase.None => phase.None,
@@ -100,9 +102,6 @@ public sealed class GameContext
         HeadlessPhase.Breeding => phase.Breeding,
         HeadlessPhase.Main => phase.Main,
         HeadlessPhase.End => phase.End,
-        HeadlessPhase.Setup => phase.None,
-        HeadlessPhase.Unsuspend => phase.Active,
-        HeadlessPhase.MemoryPass => phase.Main,
         _ => phase.None,
     };
 

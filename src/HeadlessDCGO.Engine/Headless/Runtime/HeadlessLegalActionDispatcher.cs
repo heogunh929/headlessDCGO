@@ -44,16 +44,20 @@ public sealed class HeadlessLegalActionDispatcher
             return Array.Empty<LegalAction>();
         }
 
-        return (turn.Phase switch
+        // (R4 S2) Legal-action table re-keyed by (phase, step-cursor). Behaviour is identical to the former
+        // 9-value phase table: each old state's exposed action set is preserved by its (phase, cursor) pair.
+        //   Setup=(None,Starting) → AdvancePhase; Active/Unsuspend=(Active,*) → AdvancePhase; Draw → AdvancePhase;
+        //   Main-play=(Main,PhaseStart) → play; MemoryPass=(Main,AwaitingMemoryPassEnd) → EndTurn;
+        //   End → EndTurn; pure (None,PhaseStart) → none.
+        return ((turn.Phase, turn.StepCursor) switch
         {
-            HeadlessPhase.Setup or
-            HeadlessPhase.Active or
-            HeadlessPhase.Unsuspend or
-            HeadlessPhase.Draw => new[] { HeadlessActionFactory.AdvancePhase(playerId) },
+            (HeadlessPhase.None, TurnStepCursor.Starting) or
+            (HeadlessPhase.Active, _) or
+            (HeadlessPhase.Draw, _) => new[] { HeadlessActionFactory.AdvancePhase(playerId) },
             // D-6: the breeding step is a player DECISION — offer the available breeding actions
             // (hatch / move) plus AdvancePhase to decline, instead of auto-resolving it.
-            HeadlessPhase.Breeding => BuildBreedingActions(context, playerId),
-            HeadlessPhase.Main => new[] { HeadlessActionFactory.Pass(playerId) }
+            (HeadlessPhase.Breeding, _) => BuildBreedingActions(context, playerId),
+            (HeadlessPhase.Main, TurnStepCursor.PhaseStart) => new[] { HeadlessActionFactory.Pass(playerId) }
                 .Concat(new PlayCardAction().GetLegalActions(context, playerId))
                 .Concat(new DigivolveAction().GetLegalActions(context, playerId))
                 .Concat(new SpecialPlayAction().GetLegalActions(context, playerId))
@@ -67,10 +71,10 @@ public sealed class HeadlessLegalActionDispatcher
             // :217; Blitz is rehoused onto the [On Play]/[When Digivolving] window). AttackPermanentAction is still
             // concatenated for shape uniformity, but its phase gate yields no memory-pass declarations, so this
             // branch exposes just EndTurn.
-            HeadlessPhase.MemoryPass => new[] { HeadlessActionFactory.EndTurn(playerId) }
+            (HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd) => new[] { HeadlessActionFactory.EndTurn(playerId) }
                 .Concat(new AttackPermanentAction().GetLegalActions(context, playerId))
                 .ToArray(),
-            HeadlessPhase.End => new[] { HeadlessActionFactory.EndTurn(playerId) },
+            (HeadlessPhase.End, _) => new[] { HeadlessActionFactory.EndTurn(playerId) },
             _ => Array.Empty<LegalAction>()
         })
         .Where(action => !CheatActionGuard.IsCheatOrDebugAction(action.ActionType))

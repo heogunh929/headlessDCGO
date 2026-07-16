@@ -313,7 +313,7 @@ static string Digest(DcgoMatch match)
 
     // Turn (compared explicitly rather than via record == because HeadlessTurnState.PlayerOrder is a list,
     //   which records compare by reference — the digest compares its contents).
-    sb.AppendLine($"turn: n={t.TurnNumber} tp={PId(t.TurnPlayerId)} ntp={PId(t.NonTurnPlayerId)} phase={t.Phase} first={t.IsFirstTurn} order=[{string.Join(",", t.PlayerOrder.Select(p => p.Value))}]");
+    sb.AppendLine($"turn: n={t.TurnNumber} tp={PId(t.TurnPlayerId)} ntp={PId(t.NonTurnPlayerId)} phase={t.Phase} cursor={t.StepCursor} first={t.IsFirstTurn} order=[{string.Join(",", t.PlayerOrder.Select(p => p.Value))}]");
     sb.AppendLine($"terminal: {match.IsTerminal()}  pendingChoice: {match.HasPendingChoice()}");
     sb.AppendLine($"memory: cur={o.Memory.Current} min={o.Memory.Minimum} max={o.Memory.Maximum}");
 

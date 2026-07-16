@@ -13,6 +13,7 @@ var tests = new (string Name, Action Body)[]
     ("Turn controller initializes and advances through mapped flow", TurnControllerAdvancesThroughMappedFlow),
     ("EndTurn starts next player at AS-IS Active phase", EndTurnStartsNextPlayerAtActivePhase),
     ("Observation encoder exposes every mapped phase flag", ObservationEncoderExposesMappedPhaseFlags),
+    ("Former 9-value phase states map to unique (phase, cursor) pairs", NineValueStatesMapToUniquePhaseCursorPairs),
     ("Scoped phase mapping files contain no placeholder TODOs", ScopedPhaseFilesHaveNoPlaceholderTodos),
 };
 
@@ -73,18 +74,21 @@ void MappingDefinitionDocumentsPhaseFlows()
     AssertContains(document, "GameContext.phase.End", "end mapping");
     AssertContains(document, "ActivePhase unsuspend block", "unsuspend mapping");
     AssertContains(document, "PassTurn/EndTurnProcess", "memory pass mapping");
-    AssertContains(document, "HeadlessPhaseMapping.AsIsTurnSequence", "sequence mapping");
+    AssertContains(document, "HeadlessPhaseMapping.TurnStepSequence", "sequence mapping");
 }
 
 void AsIsPhaseAliasesMapToHeadlessPhases()
 {
-    AssertEqual(HeadlessPhase.Setup, HeadlessPhaseMapping.FromAsIsName("GameStateMachine setup"), "setup alias");
+    // (R4 S2) Aliases now map to the AS-IS 6-value phase model. The former Setup/Unsuspend/MemoryPass step names
+    // fold to their AS-IS phase (setup→None, unsuspend→Active, PassTurn→Main); the step position within a phase is
+    // the substrate TurnStepCursor, not a phase alias.
+    AssertEqual(HeadlessPhase.None, HeadlessPhaseMapping.FromAsIsName("GameStateMachine setup"), "setup alias");
     AssertEqual(HeadlessPhase.Active, HeadlessPhaseMapping.FromAsIsName("GameContext.phase.Active"), "active alias");
-    AssertEqual(HeadlessPhase.Unsuspend, HeadlessPhaseMapping.FromAsIsName("IUnsuspendPermanents"), "unsuspend alias");
+    AssertEqual(HeadlessPhase.Active, HeadlessPhaseMapping.FromAsIsName("IUnsuspendPermanents"), "unsuspend alias");
     AssertEqual(HeadlessPhase.Draw, HeadlessPhaseMapping.FromAsIsName("TurnStateMachine.DrawPhase"), "draw alias");
     AssertEqual(HeadlessPhase.Breeding, HeadlessPhaseMapping.FromAsIsName("raising"), "breeding alias");
     AssertEqual(HeadlessPhase.Main, HeadlessPhaseMapping.FromAsIsName("main phase"), "main alias");
-    AssertEqual(HeadlessPhase.MemoryPass, HeadlessPhaseMapping.FromAsIsName("PassTurn"), "memory pass alias");
+    AssertEqual(HeadlessPhase.Main, HeadlessPhaseMapping.FromAsIsName("PassTurn"), "memory pass alias");
     AssertEqual(HeadlessPhase.End, HeadlessPhaseMapping.FromAsIsName("GameContext.phase.End"), "end alias");
 
     AssertFalse(HeadlessPhaseMapping.TryFromAsIsName("unknown phase", out _), "unknown alias");
@@ -104,23 +108,26 @@ void HeadlessPhasesRoundTripToCanonicalAsIsNames()
 
 void AsIsTurnFlowSequenceIsFixed()
 {
-    var expected = new[]
+    // (R4 S2) The 8-step turn walk, now keyed by (phase, cursor). Each former 9-value phase state is one step,
+    // preserving the same eight distinct turn positions: setup / active / unsuspend / draw / breeding / main /
+    // memory-pass / end.
+    var expected = new (HeadlessPhase Phase, TurnStepCursor Cursor)[]
     {
-        HeadlessPhase.Setup,
-        HeadlessPhase.Active,
-        HeadlessPhase.Unsuspend,
-        HeadlessPhase.Draw,
-        HeadlessPhase.Breeding,
-        HeadlessPhase.Main,
-        HeadlessPhase.MemoryPass,
-        HeadlessPhase.End
+        (HeadlessPhase.None, TurnStepCursor.Starting),               // former Setup
+        (HeadlessPhase.Active, TurnStepCursor.PhaseStart),           // former Active
+        (HeadlessPhase.Active, TurnStepCursor.Unsuspending),         // former Unsuspend
+        (HeadlessPhase.Draw, TurnStepCursor.PhaseStart),             // former Draw
+        (HeadlessPhase.Breeding, TurnStepCursor.PhaseStart),         // former Breeding
+        (HeadlessPhase.Main, TurnStepCursor.PhaseStart),             // former Main
+        (HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd),  // former MemoryPass
+        (HeadlessPhase.End, TurnStepCursor.PhaseStart)               // former End
     };
 
-    AssertSequence(expected, HeadlessPhaseMapping.AsIsTurnSequence, "AS-IS turn flow sequence");
-    AssertEqual(HeadlessPhase.Setup, HeadlessPhaseMapping.Next(HeadlessPhase.None), "none next");
-    AssertEqual(HeadlessPhase.MemoryPass, HeadlessPhaseMapping.Next(HeadlessPhase.Main), "main next");
-    AssertEqual(HeadlessPhase.End, HeadlessPhaseMapping.Next(HeadlessPhase.MemoryPass), "memory pass next");
-    AssertEqual(HeadlessPhase.End, HeadlessPhaseMapping.Next(HeadlessPhase.End), "end next");
+    AssertSequence(expected, HeadlessPhaseMapping.TurnStepSequence, "AS-IS turn flow step sequence");
+    AssertEqual((HeadlessPhase.None, TurnStepCursor.Starting), HeadlessPhaseMapping.NextStep(HeadlessPhase.None, TurnStepCursor.PhaseStart), "none next");
+    AssertEqual((HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd), HeadlessPhaseMapping.NextStep(HeadlessPhase.Main, TurnStepCursor.PhaseStart), "main next");
+    AssertEqual((HeadlessPhase.End, TurnStepCursor.PhaseStart), HeadlessPhaseMapping.NextStep(HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd), "memory pass next");
+    AssertEqual((HeadlessPhase.End, TurnStepCursor.PhaseStart), HeadlessPhaseMapping.NextStep(HeadlessPhase.End, TurnStepCursor.PhaseStart), "end next");
     AssertFalse(HeadlessPhaseMapping.CanAdvance(HeadlessPhase.End), "end can advance");
 }
 
@@ -131,25 +138,29 @@ void TurnControllerAdvancesThroughMappedFlow()
 
     AssertEqual(1, controller.Current.TurnNumber, "initial turn");
     AssertEqual(new HeadlessPlayerId(1), controller.Current.TurnPlayerId, "initial turn player");
-    AssertEqual(HeadlessPhase.Setup, controller.Current.Phase, "initial phase");
+    // (R4 S2) initial state is the setup step = (None, Starting).
+    AssertEqual(HeadlessPhase.None, controller.Current.Phase, "initial phase");
+    AssertEqual(TurnStepCursor.Starting, controller.Current.StepCursor, "initial cursor");
     AssertTrue(controller.Current.IsSetupPhase, "setup helper");
 
-    var expected = new[]
+    // (R4 S2) AdvancePhase walks the (phase, cursor) step sequence — same distinct positions as the former
+    // 9-value flow.
+    var expected = new (HeadlessPhase Phase, TurnStepCursor Cursor)[]
     {
-        HeadlessPhase.Active,
-        HeadlessPhase.Unsuspend,
-        HeadlessPhase.Draw,
-        HeadlessPhase.Breeding,
-        HeadlessPhase.Main,
-        HeadlessPhase.MemoryPass,
-        HeadlessPhase.End,
-        HeadlessPhase.End
+        (HeadlessPhase.Active, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Active, TurnStepCursor.Unsuspending),
+        (HeadlessPhase.Draw, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Breeding, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Main, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd),
+        (HeadlessPhase.End, TurnStepCursor.PhaseStart),
+        (HeadlessPhase.End, TurnStepCursor.PhaseStart)
     };
 
-    foreach (HeadlessPhase phase in expected)
+    foreach ((HeadlessPhase Phase, TurnStepCursor Cursor) step in expected)
     {
         HeadlessTurnState state = controller.AdvancePhase();
-        AssertEqual(phase, state.Phase, $"advance to {phase}");
+        AssertEqual(step, (state.Phase, state.StepCursor), $"advance to {step}");
     }
 }
 
@@ -171,11 +182,14 @@ void EndTurnStartsNextPlayerAtActivePhase()
 
 void ObservationEncoderExposesMappedPhaseFlags()
 {
+    // (R4 S2) The former MemoryPass state is now (Main, AwaitingMemoryPassEnd). The observation exposes the
+    // 6-value phase one-hot AND the step-cursor one-hot, so the state is fully reconstructible.
     var turn = new HeadlessTurnState(
         TurnNumber: 1,
         TurnPlayerId: new HeadlessPlayerId(1),
         NonTurnPlayerId: new HeadlessPlayerId(2),
-        Phase: HeadlessPhase.MemoryPass,
+        Phase: HeadlessPhase.Main,
+        StepCursor: TurnStepCursor.AwaitingMemoryPassEnd,
         IsFirstTurn: true,
         PlayerOrder: new[] { new HeadlessPlayerId(1), new HeadlessPlayerId(2) });
 
@@ -188,9 +202,64 @@ void ObservationEncoderExposesMappedPhaseFlags()
         AssertTrue(features.ContainsKey($"turn.phase.{phase}"), $"observation flag for {phase}");
     }
 
-    AssertEqual((double)(int)HeadlessPhase.MemoryPass, features["turn.phaseIndex"], "memory pass phase index");
-    AssertEqual(1d, features["turn.phase.MemoryPass"], "memory pass flag");
-    AssertEqual(0d, features["turn.phase.Main"], "main flag");
+    foreach (TurnStepCursor cursor in HeadlessPhaseMapping.StepCursorOrder)
+    {
+        AssertTrue(features.ContainsKey($"turn.stepCursor.{cursor}"), $"observation flag for cursor {cursor}");
+    }
+
+    AssertEqual((double)(int)HeadlessPhase.Main, features["turn.phaseIndex"], "memory pass folds to main phase index");
+    AssertEqual((double)(int)TurnStepCursor.AwaitingMemoryPassEnd, features["turn.stepCursorIndex"], "memory pass step-cursor index");
+    AssertEqual(1d, features["turn.phase.Main"], "main phase flag");
+    AssertEqual(1d, features["turn.stepCursor.AwaitingMemoryPassEnd"], "memory pass cursor flag");
+    AssertEqual(0d, features["turn.stepCursor.PhaseStart"], "not main-play cursor flag");
+}
+
+// (R4 S2) Info-preservation gate: every former 9-value HeadlessPhase state maps to a UNIQUE (phase, cursor)
+// pair, so the 6-phase + step-cursor representation reconstructs the old model with no information loss. This
+// is the RL-observation soundness the encoder relies on — turn.phase.* one-hot × turn.stepCursor.* one-hot
+// uniquely identifies each former state.
+void NineValueStatesMapToUniquePhaseCursorPairs()
+{
+    var oldStatesToPairs = new (string OldName, HeadlessPhase Phase, TurnStepCursor Cursor)[]
+    {
+        ("None",       HeadlessPhase.None,     TurnStepCursor.PhaseStart),
+        ("Setup",      HeadlessPhase.None,     TurnStepCursor.Starting),
+        ("Active",     HeadlessPhase.Active,   TurnStepCursor.PhaseStart),
+        ("Unsuspend",  HeadlessPhase.Active,   TurnStepCursor.Unsuspending),
+        ("Draw",       HeadlessPhase.Draw,     TurnStepCursor.PhaseStart),
+        ("Breeding",   HeadlessPhase.Breeding, TurnStepCursor.PhaseStart),
+        ("Main",       HeadlessPhase.Main,     TurnStepCursor.PhaseStart),
+        ("MemoryPass", HeadlessPhase.Main,     TurnStepCursor.AwaitingMemoryPassEnd),
+        ("End",        HeadlessPhase.End,      TurnStepCursor.PhaseStart)
+    };
+
+    // Uniqueness: all nine (phase, cursor) pairs are distinct.
+    var pairs = oldStatesToPairs.Select(s => (s.Phase, s.Cursor)).ToArray();
+    AssertEqual(9, pairs.Distinct().Count(), "nine old states -> nine distinct (phase, cursor) pairs");
+
+    // Reconstruction: from a state's observation one-hots we can name the exact old state.
+    foreach ((string oldName, HeadlessPhase phase, TurnStepCursor cursor) in oldStatesToPairs)
+    {
+        var turn = new HeadlessTurnState(
+            TurnNumber: 1,
+            TurnPlayerId: new HeadlessPlayerId(1),
+            NonTurnPlayerId: new HeadlessPlayerId(2),
+            Phase: phase,
+            StepCursor: cursor,
+            IsFirstTurn: false,
+            PlayerOrder: new[] { new HeadlessPlayerId(1), new HeadlessPlayerId(2) });
+
+        var features = new ObservationEncoder()
+            .Encode(ObservationSnapshot.Empty with { Turn = turn })
+            .Features.ToDictionary(f => f.Name, f => f.Value, StringComparer.Ordinal);
+
+        HeadlessPhase decodedPhase = HeadlessPhaseMapping.ObservationPhaseOrder
+            .Single(p => features[$"turn.phase.{p}"] == 1d);
+        TurnStepCursor decodedCursor = HeadlessPhaseMapping.StepCursorOrder
+            .Single(c => features[$"turn.stepCursor.{c}"] == 1d);
+        AssertEqual(phase, decodedPhase, $"{oldName} phase reconstructed");
+        AssertEqual(cursor, decodedCursor, $"{oldName} cursor reconstructed");
+    }
 }
 
 void ScopedPhaseFilesHaveNoPlaceholderTodos()
@@ -198,6 +267,7 @@ void ScopedPhaseFilesHaveNoPlaceholderTodos()
     var scopedFiles = new[]
     {
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessPhase.cs"),
+        Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "TurnStepCursor.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessPhaseMapping.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessTurnState.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "IHeadlessTurnController.cs"),

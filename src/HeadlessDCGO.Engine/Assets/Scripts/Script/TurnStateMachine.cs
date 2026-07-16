@@ -30,12 +30,13 @@ public sealed class TurnStateMachine
     /// <summary>The per-match <see cref="GameContext"/> (AS-IS <c>turnStateMachine.gameContext</c>).</summary>
     public GameContext gameContext { get; }
 
-    /// <summary>(MIG6/rebuild) AS-IS <c>TurnStateMachine.DoneStartGame</c>: the initial setup sequence
+    /// <summary>(MIG6/rebuild; R4 S2) AS-IS <c>TurnStateMachine.DoneStartGame</c>: the initial setup sequence
     /// (mulligan + security deal) has completed, so triggered effects may fire (ICardEffect.CanTrigger gates on
-    /// this). Headless proxy: a match is active and past the Setup/None phases — effect resolution only runs
-    /// during live play, so this reads true throughout normal effect processing.</summary>
+    /// this). Headless proxy: a match is active and past phase None — effect resolution only runs during live play,
+    /// so this reads true throughout normal effect processing. (R4 S2 folded the former HeadlessPhase.Setup into the
+    /// (None, Starting) step, so the pre-game guard is now simply "phase is not None".)</summary>
     public bool DoneStartGame =>
-        _context.TurnController.Current.Phase is not HeadlessPhase.None and not HeadlessPhase.Setup;
+        _context.TurnController.Current.Phase is not HeadlessPhase.None;
 
     // (EFFECT-MODEL REBUILD / P2, design item P2-ISEXECUTING) AS-IS TurnStateMachine.isExecuting
     // (TurnStateMachine.cs:23, a plain mutable public bool). The foundation `ActivateICardEffectExtensionClass`
