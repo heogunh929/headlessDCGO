@@ -83,8 +83,16 @@ void GateDerivesBGroupKeywords()
     var card = PlaceDigimon(context, P2, "BG", dp: 3000);
     var plain = PlaceDigimon(context, P2, "BGPLAIN", dp: 3000);
     var effectContext = new EffectContext(P2, card);
-    KeywordBaseBatch1Factory.RegisterBaseBatch1(context.EffectRegistry, card, P2, effectContext);
-    KeywordBaseBatch2Factory.RegisterBaseBatch2(context.EffectRegistry, card, P2, effectContext);
+    // (R3-W3b) RegisterBaseBatch1/2 production entrypoints were deleted (0 production callers); this test exercises
+    // the still-live registry READ-half (presence union, retires at R3-W3c), so it constructs + registers inline.
+    foreach (var b1 in KeywordBaseBatch1Factory.CreateAll(card).Select(e => KeywordBaseBatch1Factory.ToBinding(e, P2, effectContext)))
+    {
+        context.EffectRegistry.Register(b1);
+    }
+    foreach (var b2 in KeywordBaseBatch2Factory.CreateAll(card).Select(e => KeywordBaseBatch2Factory.ToBinding(e, P2, effectContext)))
+    {
+        context.EffectRegistry.Register(b2);
+    }
 
     // B-group + the wired C-group keywords (Alliance/Overclock/Progress consumers now OR the gate).
     string[] sealed_ = {

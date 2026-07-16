@@ -72,6 +72,15 @@ public static partial class CardEffectCommons
             return false;
         }
 
+        // (R3-W3b) STOP — convertible-but-test-welded. The AS-IS 1:1 form is a bucket grant:
+        // CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(...) → AddEffectToPermanent(timing:None), read back by
+        // BattleDeletionGate via NewModelContinuousScan.HasCanNotBeDestroyedByBattle (BattleDeletionGate.cs:67, the
+        // permanent.EffectList(None) scan — verified to honour the same 4-arg predicate + PermanentCondition + CanUse).
+        // The registry-lowering below is kept because the sole consumer, the G9-054 test, is welded to the invented
+        // registry-expiry model (it drives EffectDurationExpiry.ExpireTurnEnd(registry) for turn-end expiry, which does
+        // NOT clear the AS-IS duration bucket — bucket expiry is HeadlessEndTurnCleanupFlow.Cleanup). There are 0 card
+        // callers, so the conversion + G9-054 re-aim (registry-expiry → bucket cleanup) belongs with the W3c uniform
+        // registry-expiry→bucket test migration. See report RD-W3B-BATTLEDEL-TESTWELD.
         HeadlessPlayerId targetOwner = targetPermanent.OwnerId;
         HeadlessEntityId grantSourceId = sourceCard.InstanceId;
         Func<bool> liveCondition = () =>
@@ -3528,27 +3537,28 @@ public static partial class CardEffectCommons
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(toCardCondition);
         ArgumentNullException.ThrowIfNull(targetPermanentCondition);
-        EngineContext context = card.Context;
+        // (R3-W3b) AS-IS 1:1: build the ChangeCostClass (digivolution-cost delta gated on the two-sided predicate)
+        // and store it in the OWNER player's None duration bucket via AddEffectToPlayer. The digivolution-cost gate
+        // reads it back through ContinuousModifierGate.ResolveDigivolutionCost, which UNIONs
+        // NewModelContinuousScan.FoldPlayCost (ContinuousModifierGate.cs:87 — the player.EffectList(None) IChangeCostEffect
+        // scan, threading the digivolving-TO card into CardCondition and the FROM permanent into PermanentsCondition),
+        // replacing the invented ContinuousModifierGate.Scope registry delta. The two-sided predicate maps directly:
+        // toCardCondition → cardCondition (the digivolving-TO card), targetPermanentCondition → permanentCondition via
+        // its TopCard (the digivolving-FROM permanent). FIDELITY DEBT (documented above, unchanged by this relocation).
+        var changeCostClass = CardEffectFactory.ChangeDigivolutionCostStaticEffect<int>(
+            changeValue: delta,
+            permanentCondition: permanent => targetPermanentCondition(permanent.TopCard),
+            cardCondition: toCardCondition,
+            rootCondition: null,
+            isInheritedEffect: false,
+            card: card,
+            condition: null,
+            setFixedCost: false);
 
-        Func<CardSource, CardSource, bool> twoSided = (toCard, targetCard) =>
-            toCardCondition(toCard) && targetPermanentCondition(targetCard);
-
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        if (changeCostClass != null)
         {
-            [Headless.Effects.PlayerScopeContinuousHelpers.PlayerScopeKey] = true,
-            [Headless.Effects.PlayerScopeContinuousHelpers.ScopePlayerIdKey] = card.Owner.Value,
-            [Headless.Effects.PlayerScopeContinuousHelpers.ScopeDigivolveTargetPredicateKey] = twoSided,
-            [Headless.Effects.DigivolutionCostHelpers.DigivolutionCostDeltaKey] = delta,
-        };
-        var effectContext = new Headless.Effects.EffectContext(
-            card.Controller, card.Owner, card.InstanceId,
-            triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>(), values: values);
-        context.EffectRegistry.Register(new Headless.Effects.EffectBinding(
-            new Headless.Effects.EffectRequest(
-                new HeadlessEntityId($"{card.InstanceId.Value}:digivolveCostPlayer:{Guid.NewGuid():N}"),
-                card.Controller, "Continuous", effectContext),
-            keywords: null, Headless.Services.EffectQueryRole.Continuous,
-            new[] { ContinuousModifierGate.Scope }, effect: null, duration: duration));
+            AddEffectToPlayer(effectDuration: duration, card: card, cardEffect: changeCostClass, timing: EffectTiming.None);
+        }
     }
 
     /// <summary>AS-IS <c>IsPermanentExistsOnOpponentBattleArea</c> (:448).</summary>

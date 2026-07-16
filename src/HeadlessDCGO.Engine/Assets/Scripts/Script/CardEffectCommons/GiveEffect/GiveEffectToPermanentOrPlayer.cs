@@ -35,28 +35,11 @@ public static partial class CardEffectCommons
             return;
         }
 
-        // TRANSITIONAL (batch C): OLD-model effects lower to a registry binding (LegacyBindingBridge left the
-        // ICardEffect contract's ToBinding); keep that substrate path so the live legacy gates keep reading them.
-        if (LegacyBindingBridge.TryToBinding(
-                cardEffect,
-                $"{card.InstanceId.Value}:addEffect:{targetPermanent.InstanceId.Value}:{Guid.NewGuid():N}",
-                out EffectBinding? binding) && binding is not null)
-        {
-            var retargeted = new EffectContext(
-                binding.Request.Context.SourcePlayerId,
-                binding.Request.Context.OwnerPlayerId,
-                binding.Request.Context.SourceEntityId,
-                binding.Request.Context.TriggerEntityId,
-                targetEntityIds: new[] { targetPermanent.InstanceId },
-                values: binding.Request.Context.Values);
-            card.Context.EffectRegistry.Register(new EffectBinding(
-                new EffectRequest(binding.Request.EffectId, binding.Request.ControllerId, binding.Request.Timing, retargeted),
-                binding.Keywords, binding.QueryRoles, binding.QueryScopes, binding.Effect, effectDuration));
-            return;
-        }
-
-        // AS-IS 1:1 (GiveEffectToPermanentOrPlayer.cs:13-50) — NEW-model effect: store the deferred selector in the
-        // target permanent's duration bucket.
+        // (R3-W3b) AS-IS 1:1 (GiveEffectToPermanentOrPlayer.cs:13-50): store the deferred selector in the target
+        // permanent's duration bucket. The pre-R3 transitional LegacyBindingBridge registry-lowering branch that used
+        // to precede this (for OLD-model effects still exposing ToBinding) is retired: every live caller passes a
+        // NEW-model ActivateClass (no ToBinding), so the registry branch was inert. The bucket path is the sole path,
+        // matching AS-IS exactly.
         Func<EffectTiming, ICardEffect> getCardEffect = GetCardEffectByEffectTiming(timing: timing, cardEffect: cardEffect);
 
         switch (effectDuration)

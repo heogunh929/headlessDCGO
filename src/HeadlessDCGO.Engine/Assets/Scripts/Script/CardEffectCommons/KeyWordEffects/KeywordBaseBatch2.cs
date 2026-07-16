@@ -349,27 +349,9 @@ public static class KeywordBaseBatch2Factory
             effect);
     }
 
-    public static IReadOnlyList<EffectBinding> RegisterBaseBatch2(
-        EffectRegistry registry,
-        HeadlessEntityId sourceEntityId,
-        HeadlessPlayerId controllerId,
-        EffectContext context,
-        HeadlessEntityId? targetEntityId = null,
-        bool isInherited = false,
-        bool isLinked = false)
-    {
-        ArgumentNullException.ThrowIfNull(registry);
-        EffectBinding[] bindings = CreateAll(sourceEntityId, targetEntityId, isInherited, isLinked)
-            .Select(effect => ToBinding(effect, controllerId, context))
-            .ToArray();
-
-        foreach (EffectBinding binding in bindings)
-        {
-            registry.Register(binding);
-        }
-
-        return Array.AsReadOnly(bindings);
-    }
+    // (R3-W3b / RD-GC2-01) RegisterBaseBatch2 (the batch registry-registration entrypoint) DELETED: zero production
+    // callers — see the KeywordBaseBatch1.cs note (A군 rehoused every live firing/presence path; remaining callers
+    // were test apparatus, re-aimed). CreateAll/ToBinding stay for the old-model Kind-dispatch weld — R6-Db scope.
 
     // (C1w) The inherited/non-inherited pair of the SAME Batch2 keyword on the SAME source (AS-IS BT16_025's two
     // PartitionSelfEffect grants) are DISTINCT effects and must coexist in the registry. Give the inherited grant a

@@ -23,7 +23,9 @@ var phase3Goals = new Phase3Goal[]
     new("G3H-002", "Restrictions", "G3H-002_cannot_restriction_helpers_unit_test_results.md", "G3H-002.Cannot.restriction.helper.Tests"),
     new("G3I-001", "Replacement", "G3I-001_replacement_prevention_helpers_unit_test_results.md", "G3I-001.Replacement.prevention.helper.Tests"),
     new("G3I-002", "Continuous", "G3I-002_continuous_effect_evaluator_unit_test_results.md", "G3I-002.Continuous.effect.evaluator.Tests"),
-    new("G3J-001", "Factory", "G3J-001_card_effect_factory_binding_unit_test_results.md", "G3J-001.CardEffectFactory.binding.Tests"),
+    // (R3-W3b) G3J-001 (CardEffectFactory binding) dropped: the invented CardEffectFactoryBinding registry-rule
+    // model it gated was physically deleted (0 src consumers — same teardown as G3J-002's
+    // PermanentEffectFactoryBinding below). Phase-3 gate goals: 22 -> 21.
     // (G-clean) G3J-002 (PermanentEffectFactory binding) dropped: the invented string-key binding-rule model it
     // gated was physically deleted (0 src consumers). Phase-3 gate goals: 23 -> 22.
     new("G3K-001", "Selection", "G3K-001_effect_selection_helpers_unit_test_results.md", "G3K-001.Effect.selection.helper.Tests"),
@@ -136,8 +138,8 @@ void AggregateDocumentRecordsGateCounts()
 {
     string text = File.ReadAllText(Phase3AggregateDocumentPath());
 
-    AssertTrue(text.Contains("Required Phase 3 gate goals: 22", StringComparison.Ordinal), "required gate count");
-    AssertTrue(text.Contains("Complete Phase 3 gate goals: 22", StringComparison.Ordinal), "complete gate count");
+    AssertTrue(text.Contains("Required Phase 3 gate goals: 21", StringComparison.Ordinal), "required gate count");
+    AssertTrue(text.Contains("Complete Phase 3 gate goals: 21", StringComparison.Ordinal), "complete gate count");
     AssertTrue(text.Contains("Blocked Phase 3 gate goals: 0", StringComparison.Ordinal), "blocked gate count");
     AssertTrue(text.Contains("Failed Phase 3 gate goals: 0", StringComparison.Ordinal), "failed gate count");
 }

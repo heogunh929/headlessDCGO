@@ -116,24 +116,16 @@ Task FactoryCreatesFourKeywordEffects()
 
 Task KeywordEffectsRegisterDeterministicBindings()
 {
-    InMemoryEffectRegistry registry = new();
+    // (R3-W3b) Re-aimed: RegisterBaseBatch1 (the registry-registration entrypoint) was deleted — 0 production
+    // callers. The deterministic-CONSTRUCTION contract (CreateAll + ToBinding count/order/keywords) remains.
     EffectContext context = CreateContext(new Dictionary<string, object?> { [KeywordBaseBatch1ContextKeys.MatchState] = CreateState() });
 
-    IReadOnlyList<EffectBinding> bindings = KeywordBaseBatch1Factory.RegisterBaseBatch1(
-        registry,
-        KeywordSource,
-        PlayerOne,
-        context);
+    IReadOnlyList<EffectBinding> bindings = KeywordBaseBatch1Factory.CreateAll(KeywordSource)
+        .Select(effect => KeywordBaseBatch1Factory.ToBinding(effect, PlayerOne, context))
+        .ToArray();
 
     AssertEqual(4, bindings.Count, "binding count");
-    AssertEqual("Blocker,Jamming,Reboot,Piercing", string.Join(",", bindings.Select(binding => binding.Request.Context.SourceEntityId == KeywordSource ? binding.Keywords[0] : "bad")), "registered order");
-    AssertEqual(1, registry.GetKeywordEffects("Blocker").Count, "blocker registry");
-    AssertEqual(1, registry.GetKeywordEffects("Jamming").Count, "jamming registry");
-    AssertEqual(1, registry.GetKeywordEffects("Reboot").Count, "reboot registry");
-    AssertEqual(1, registry.GetKeywordEffects("Piercing").Count, "piercing registry");
-    AssertEqual(1, registry.GetKeywordEffects("Pierce").Count, "AS-IS pierce alias");
-    AssertEqual(1, registry.GetReplacementEffects(new EffectQueryContext(KeywordBaseBatch1Scopes.SecurityBattleDeletion, sourceEntityId: KeywordSource)).Count, "jamming replacement query");
-    AssertEqual(1, registry.GetModifierEffects(new EffectQueryContext(KeywordBaseBatch1Scopes.RebootUnsuspend, sourceEntityId: KeywordSource)).Count, "reboot modifier query");
+    AssertEqual("Blocker,Jamming,Reboot,Piercing", string.Join(",", bindings.Select(binding => binding.Request.Context.SourceEntityId == KeywordSource ? binding.Keywords[0] : "bad")), "built order");
     return Task.CompletedTask;
 }
 

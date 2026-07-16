@@ -301,28 +301,13 @@ public static class KeywordBaseBatch1Factory
             effect);
     }
 
-    public static IReadOnlyList<EffectBinding> RegisterBaseBatch1(
-        EffectRegistry registry,
-        HeadlessEntityId sourceEntityId,
-        HeadlessPlayerId controllerId,
-        EffectContext context,
-        HeadlessEntityId? targetEntityId = null,
-        bool isInherited = false,
-        bool isLinked = false)
-    {
-        ArgumentNullException.ThrowIfNull(registry);
-        KeywordBaseBatch1Effect[] effects = CreateAll(sourceEntityId, targetEntityId, isInherited, isLinked).ToArray();
-        EffectBinding[] bindings = effects
-            .Select(effect => ToBinding(effect, controllerId, context))
-            .ToArray();
-
-        foreach (EffectBinding binding in bindings)
-        {
-            registry.Register(binding);
-        }
-
-        return Array.AsReadOnly(bindings);
-    }
+    // (R3-W3b / RD-GC2-01) RegisterBaseBatch1 (the batch registry-registration entrypoint) DELETED: it had ZERO
+    // production callers — every live keyword firing/presence path was rehoused in A군 (printed = factory
+    // ActivateClass via CardEffects, granted = Gain* → AddEffectToPermanent duration buckets, presence =
+    // NewModelContinuousScan union) — so no production binding of this batch was ever registered. The remaining
+    // callers were test apparatus (G3G-001 re-aimed to construction-only; GR-005 registers inline against the
+    // still-live registry read-half until R3-W3c). CreateAll/ToBinding stay: the Kind-dispatch corpus
+    // (ContinuousAndRestrictionEffects.cs old-model weld) still references the effect classes — R6-Db scope.
 
     public static HeadlessEntityId EffectId(KeywordBaseBatch1Kind kind, HeadlessEntityId sourceEntityId)
     {

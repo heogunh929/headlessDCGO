@@ -151,30 +151,16 @@ Task FactoryCreatesFourKeywordEffects()
 
 Task KeywordEffectsRegisterDeterministicBindings()
 {
-    InMemoryEffectRegistry registry = new();
+    // (R3-W3b) Re-aimed: RegisterBaseBatch2 (the registry-registration entrypoint) was deleted — 0 production
+    // callers. The deterministic-CONSTRUCTION contract (CreateAll + ToBinding count/order/keywords) remains.
     EffectContext context = CreateContext(KeywordSource, new Dictionary<string, object?> { [KeywordBaseBatch2ContextKeys.MatchState] = CreateState() });
 
-    IReadOnlyList<EffectBinding> bindings = KeywordBaseBatch2Factory.RegisterBaseBatch2(
-        registry,
-        KeywordSource,
-        PlayerOne,
-        context);
+    IReadOnlyList<EffectBinding> bindings = KeywordBaseBatch2Factory.CreateAll(KeywordSource)
+        .Select(effect => KeywordBaseBatch2Factory.ToBinding(effect, PlayerOne, context))
+        .ToArray();
 
     AssertEqual(10, bindings.Count, "binding count");
-    AssertEqual("Rush,Blitz,Retaliation,Armor Purge,Decode,Alliance,Vortex,Overclock,Partition,Progress", string.Join(",", bindings.Select(binding => binding.Keywords[0])), "registered order");
-    AssertEqual(1, registry.GetKeywordEffects("Progress").Count, "progress registry");
-    AssertEqual(1, registry.GetKeywordEffects("Partition").Count, "partition registry");
-    AssertEqual(1, registry.GetKeywordEffects("Overclock").Count, "overclock registry");
-    AssertEqual(1, registry.GetKeywordEffects("Vortex").Count, "vortex registry");
-    AssertEqual(1, registry.GetKeywordEffects("Alliance").Count, "alliance registry");
-    AssertEqual(1, registry.GetKeywordEffects("Decode").Count, "decode registry");
-    AssertEqual(1, registry.GetKeywordEffects("Rush").Count, "rush registry");
-    AssertEqual(1, registry.GetKeywordEffects("Blitz").Count, "blitz registry");
-    AssertEqual(1, registry.GetKeywordEffects("Retaliation").Count, "retaliation registry");
-    AssertEqual(1, registry.GetKeywordEffects("Armor Purge").Count, "armor registry");
-    AssertEqual(1, registry.GetKeywordEffects("ArmorPurge").Count, "AS-IS armor alias");
-    AssertEqual(1, registry.GetContinuousEffects(new EffectQueryContext(KeywordBaseBatch2Scopes.BlitzAttack, sourceEntityId: KeywordSource)).Count, "blitz continuous query");
-    AssertEqual(1, registry.GetReplacementEffects(new EffectQueryContext(KeywordBaseBatch2Scopes.ArmorPurgeReplacement, sourceEntityId: KeywordSource)).Count, "armor replacement query");
+    AssertEqual("Rush,Blitz,Retaliation,Armor Purge,Decode,Alliance,Vortex,Overclock,Partition,Progress", string.Join(",", bindings.Select(binding => binding.Keywords[0])), "built order");
     return Task.CompletedTask;
 }
 
