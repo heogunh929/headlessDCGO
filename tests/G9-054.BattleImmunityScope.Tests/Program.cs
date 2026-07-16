@@ -105,15 +105,23 @@ async Task GainTimedGrant()
     var target = await Place(ctx, P1, "TGT", level: 5);
     var bystander = await Place(ctx, P1, "OTHER", level: 5);
 
+    // (R3-W3c-2) AS-IS callers ALWAYS pass a non-null 4-arg battle condition (AD1_011, etc.); the bucket path
+    // (CanNotBeDestroyedByBattleClass) gates its whole body on `condition != null`, so a null condition grants NO
+    // immunity — spelled `(_,_,_,_) => true` here (trivially true for a battle participant), NOT null.
     AssertTrue(CardEffectCommons.GainCanNotBeDeletedByBattle(
-        new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
+        new Permanent(ctx, target, P1), (p, atk, def, defCard) => true, EffectDuration.UntilOpponentTurnEnd,
         Grant(ctx, src, P1), "test-grant"), "grant registered");
 
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "the TARGET is battle-immune");
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, bystander), "the grant is target-locked (a bystander is not)");
 
-    // The opponent's turn ends -> the duration bucket expires (AS-IS UntilOpponentTurnEnd).
-    HeadlessDCGO.Engine.Headless.Effects.EffectDurationExpiry.ExpireTurnEnd(ctx.EffectRegistry, P2);
+    // (R3-W3c-2) The opponent's turn ends -> the AS-IS UntilOpponentTurnEnd BUCKET is reset by the AS-IS reset site
+    // (HeadlessEndTurnCleanupFlow), NOT the invented registry-expiry sweep. The grant lives in the target's
+    // UntilOpponentTurnEndEffects (target is its owner's permanent), cleared when the non-turn player (P1) is scoped
+    // at P2's turn end.
+    new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
+        TurnNumber: 1, TurnPlayerId: P2, NonTurnPlayerId: P1,
+        Phase: HeadlessPhase.End, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "immunity expired at the opponent's turn end");
 }
 
@@ -123,7 +131,7 @@ async Task GainLiveGate()
     var src = await Place(ctx, P1, "SRC", level: 4);
     var target = await Place(ctx, P1, "TGT", level: 5);
     CardEffectCommons.GainCanNotBeDeletedByBattle(
-        new Permanent(ctx, target, P1), null, EffectDuration.UntilOpponentTurnEnd,
+        new Permanent(ctx, target, P1), (p, atk, def, defCard) => true, EffectDuration.UntilOpponentTurnEnd,
         Grant(ctx, src, P1), "test-live");
 
     AssertTrue(BattleDeletionGate.PreventsBattleDeletion(ctx, target), "immune while in play");

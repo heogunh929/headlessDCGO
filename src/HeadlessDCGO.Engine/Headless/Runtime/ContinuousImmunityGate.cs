@@ -86,11 +86,13 @@ public static class ContinuousImmunityGate
         return false;
     }
 
-    // (R1-e) CardSource.CanNotBeAffected has been rehoused to an AS-IS-literal ICanNotAffectedEffect scan and no
-    // longer delegates here (its only remaining reference to this type is a doc <see cref>). 잔존=R2 몫: the surviving
-    // BlocksOpponentEffect call sites are all R2 rule/pipeline judgements — MatchStateMutationSink (effect-mutation
-    // application), CardController (deletion/return/bounce pipelines), CardEffectCommons (rule-process game logic),
-    // BlockTiming, ProgressImmunity — plus the producer factories that still register into the registry Scope. They
-    // fold away as those consumers are rehoused to `permanent.TopCard.CanNotBeAffected(cardEffect)` in R2; this file
-    // cannot be deleted until then.
+    // (R1-e / R3-W3c-1 / R3-W3c-2) CardSource.CanNotBeAffected reads an AS-IS-literal ICanNotAffectedEffect scan and
+    // no longer delegates here. As of R3-W3c-2 the registry "ContinuousImmunity" scope has ZERO production producers:
+    // ProgressImmunity flipped its attack-time grant to the UntilEndAttack bucket, and CanNotAffectedStaticEffect
+    // flipped to the CanNotAffectedClass kind-class (W3c-1, 0 production callers). So BlocksOpponentEffect's registry
+    // read is now ALWAYS false in production — a dead read. The surviving call sites are: MatchStateMutationSink
+    // (:527/1926/1944 — W3c-4, needs live-effect threading into EffectMutation, 불가침 this batch) and
+    // CardEffectCommons continuous-grant cores (:358/1750/1759/2945/2954/3069 — W3c-3/4, the numeric/joint registry
+    // model). The CardController pipelines were rehomed to the live TopCard.CanNotBeAffected scan in W3c-2. This file
+    // cannot be deleted until the sink + Commons call sites fold away (W3c-final).
 }

@@ -3,6 +3,7 @@
 // a passive static effect. Engine: ContinuousImmunityGate (opponent-only immunity, source-relativity) +
 // the mutation sink immunity check; ProgressImmunity auto-registers the immunity at attack declaration;
 // grant GrantProgress -> hasProgress.
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
@@ -18,7 +19,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("The sink skips an opponent delete on an immune card", SinkBlocksOpponentDelete),
     ("The sink still applies an OWN delete on an immune card", SinkAllowsOwnDelete),
     ("A non-immune card is deleted by the opponent normally", NonImmuneDeleted),
-    ("ProgressImmunity registers on attack and expires at attack end", ProgressRegistersAndExpires),
+    ("ProgressImmunity grants to the UntilEndAttack bucket on attack and expires at attack end", ProgressRegistersAndExpires),
 };
 
 var failures = new List<string>();
@@ -90,19 +91,39 @@ async Task ProgressRegistersAndExpires()
 {
     EngineContext context = await Field(("P1-Attacker", P1), ("P2-Enemy", P2));
     var attackerId = new HeadlessEntityId("P1-Attacker");
+
+    // (R3-W3c-2) PRODUCER FLIP: TryRegister now appends the AS-IS CanNotAffectedClass to the attacker's
+    // UntilEndAttack bucket (AS-IS ProgressProcess), read back LIVE by CardSource.CanNotBeAffected — NOT the
+    // invented registry binding. CanUse->IsDisabled reads GManager.instance, so drive it inside the ambient
+    // match scope with a started game (same harness as W3B-Progress / G9-054).
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    using var _scope = AmbientMatchContext.Enter(context);
     SetFlag(context, attackerId, ProgressImmunity.HasProgressKey);
 
-    // P1 attacker declares an attack; Progress passively registers the opponent-effect immunity.
+    // P1 attacker declares an attack; Progress passively grants the opponent-effect immunity to the bucket.
     context.AttackController.DeclareAttack(P1, attackerId, P2, targetId: null, isDirectAttack: true);
     ProgressImmunity.TryRegister(context);
 
-    AssertTrue(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, attackerId, new HeadlessEntityId("P2-Enemy"), context),
-        "Progress immunity is active during the attack");
+    ICardEffect opponentProbe = OpponentProbe(context, new HeadlessEntityId("P2-Enemy"), P2);
+    AssertTrue(new CardSource(context, attackerId, P1).CanNotBeAffected(opponentProbe),
+        "Progress immunity is active during the attack (bucket granted + live scan read)");
 
-    EffectDurationExpiry.ExpireAttackEnd(context.EffectRegistry);
+    // (R3-W3c-2) expiry is the AS-IS UntilEndAttack bucket reset (AttackProcess.Cleanup :489-495), NOT the
+    // registry-expiry sweep — reset the attacker's bucket + the per-attack applied marker, exactly as Cleanup does.
+    new Permanent(context, attackerId, P1).UntilEndAttackEffects = new();
+    ProgressImmunity.ClearApplied(context, attackerId);
 
-    AssertFalse(ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, attackerId, new HeadlessEntityId("P2-Enemy"), context),
-        "Progress immunity expires at attack end");
+    AssertFalse(new CardSource(context, attackerId, P1).CanNotBeAffected(opponentProbe),
+        "Progress immunity expires at attack end (bucket reset)");
+}
+
+// A probe ICardEffect whose EffectSourceCard is the given field card — the AS-IS "causing effect" the
+// CanNotBeAffected scan hands to the granted immunity's SkillCondition (IsOpponentEffect checks its source owner).
+ICardEffect OpponentProbe(EngineContext ctx, HeadlessEntityId sourceId, HeadlessPlayerId owner)
+{
+    var source = new CardSource(ctx, sourceId, owner);
+    return CardEffectFactory.ProgressStaticEffect(isInheritedEffect: false, card: source, condition: () => true);
 }
 
 // --- Harness -------------------------------------------------------------

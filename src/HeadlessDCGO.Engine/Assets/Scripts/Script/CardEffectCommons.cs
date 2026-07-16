@@ -82,39 +82,44 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        // (R3-W3b) STOP — convertible-but-test-welded. The AS-IS 1:1 form is a bucket grant:
-        // CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(...) → AddEffectToPermanent(timing:None), read back by
-        // BattleDeletionGate via NewModelContinuousScan.HasCanNotBeDestroyedByBattle (BattleDeletionGate.cs:67, the
-        // permanent.EffectList(None) scan — verified to honour the same 4-arg predicate + PermanentCondition + CanUse).
-        // The registry-lowering below is kept because the sole consumer, the G9-054 test, is welded to the invented
-        // registry-expiry model (it drives EffectDurationExpiry.ExpireTurnEnd(registry) for turn-end expiry, which does
-        // NOT clear the AS-IS duration bucket — bucket expiry is HeadlessEndTurnCleanupFlow.Cleanup). There are 0 card
-        // callers, so the conversion + G9-054 re-aim (registry-expiry → bucket cleanup) belongs with the W3c uniform
-        // registry-expiry→bucket test migration. See report RD-W3B-BATTLEDEL-TESTWELD.
-        HeadlessPlayerId targetOwner = targetPermanent.OwnerId;
-        Func<bool> liveCondition = () =>
-            ((IZoneStateReader)context.ZoneMover).GetCards(targetOwner, ChoiceZone.BattleArea).Contains(targetId)
-            // AS-IS CanUseCondition re-checks !CanNotBeAffected LIVE (AS-IS :23-29).
-            && !targetPermanent.TopCard.CanNotBeAffected(activateClass);
-        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        // (R3-W3c-2 / RD-W3B-BATTLEDEL-TESTWELD RESOLVED) BUCKET TRANSITION — AS-IS 1:1
+        // (GiveEffect/GiveEffectToPermanent/CanNotBeDeletedByBattle.cs:36-47): build the
+        // CanNotBeDestroyedByBattleClass via the factory (carrying the 4-arg battle predicate + the
+        // PermanentCondition `permanent == targetPermanent` + the live CanUseCondition) and store it in the target's
+        // duration bucket via AddEffectToPermanent(timing:None). Read back by BattleDeletionGate via
+        // NewModelContinuousScan.HasCanNotBeDestroyedByBattle (BattleDeletionGate.cs:67 — the permanent.EffectList(None)
+        // scan). Expiry is now the AS-IS reset site (HeadlessEndTurnCleanupFlow for the turn-end durations), NOT the
+        // invented registry-expiry sweep. This retires the registry-lowering (0 card callers; the G9-054 test is
+        // re-aimed to drive the bucket cleanup).
+        bool PermanentCondition(Permanent permanent) => permanent == targetPermanent;
+
+        bool CanUseCondition()
         {
-            [BattleDeletionGate.PreventBattleDeletionKey] = true,
-            [ContinuousSelfModifierEffect.ConditionKey] = liveCondition,
-        };
-        if (canNotBeDestroyedByBattleCondition is not null)
-        {
-            values[BattleDeletionGate.BattleConditionKey] = canNotBeDestroyedByBattleCondition;
+            if (IsPermanentExistsOnBattleArea(targetPermanent))
+            {
+                if (!targetPermanent.TopCard.CanNotBeAffected(activateClass))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
-        var effectContext = new EffectContext(
-            sourceCard.Controller, sourceCard.Owner, sourceCard.InstanceId,
-            triggerEntityId: null, targetEntityIds: new[] { targetId }, values: values);
-        context.EffectRegistry.Register(new EffectBinding(
-            new EffectRequest(
-                new HeadlessEntityId($"{sourceCard.InstanceId.Value}:gainCanNotBeDeletedByBattle:{targetId.Value}:{effectName}"),
-                sourceCard.Controller, "Continuous", effectContext),
-            keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope },
-            effect: null, duration: effectDuration));
+        CardEffects.CanNotBeDestroyedByBattleClass canNotBeDestroyedByBattleClass = CardEffectFactory.CanNotBeDestroyedByBattleStaticEffect(
+            canNotBeDestroyedByBattleCondition: canNotBeDestroyedByBattleCondition!,
+            permanentCondition: PermanentCondition,
+            isInheritedEffect: false,
+            card: sourceCard,
+            condition: CanUseCondition,
+            effectName: effectName);
+
+        AddEffectToPermanent(
+            targetPermanent: targetPermanent,
+            effectDuration: effectDuration,
+            card: sourceCard,
+            cardEffect: canNotBeDestroyedByBattleClass,
+            timing: EffectTiming.None);
         return true;
     }
 

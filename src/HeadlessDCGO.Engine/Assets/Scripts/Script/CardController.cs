@@ -828,18 +828,22 @@ public class IDestroySecurity
 /// </summary>
 public class IDegeneration
 {
-    public IDegeneration(Permanent permanent, int degenerationCount, HeadlessEntityId? causeEffectSourceId, bool? degenerationCountRuling = null)
+    public IDegeneration(Permanent permanent, int degenerationCount, HeadlessEntityId? causeEffectSourceId, bool? degenerationCountRuling = null, ICardEffect? cardEffect = null)
     {
         _permanent = permanent;
         _degenerationCount = degenerationCount;
         _causeEffectSourceId = causeEffectSourceId;
         _degenerationCountRuling = degenerationCountRuling;
+        _cardEffect = cardEffect;
     }
 
     Permanent _permanent = null!;
     int _degenerationCount;
     readonly HeadlessEntityId? _causeEffectSourceId;
     readonly bool? _degenerationCountRuling;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS `ICardEffect _cardEffect` re-threaded alongside the cause id
+    // so the S2 immunity check reads the AS-IS-literal live scan (TopCard.CanNotBeAffected). null on rule paths.
+    readonly ICardEffect? _cardEffect;
 
     public async Task Degeneration(CancellationToken cancellationToken = default)
     {
@@ -855,8 +859,9 @@ public class IDegeneration
         // AS-IS :4808 ImmuneFromStackTrashing(_cardEffect).
         if (RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId)) return;
 
-        // AS-IS :4809 TopCard.CanNotBeAffected(_cardEffect).
-        if (ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, _permanent.InstanceId, causeId, context)) return;
+        // AS-IS :4809 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed to the AS-IS-literal live scan
+        // (threaded _cardEffect).
+        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
 
         int maxCount = Math.Min(_permanent.DigivolutionCards.Count, _degenerationCount);
 
@@ -976,17 +981,21 @@ public class IDegeneration
 /// </summary>
 public class IMassDegeneration
 {
-    public IMassDegeneration(List<Permanent> permanents, int degenerationCount, HeadlessEntityId? causeEffectSourceId, bool? degenerationCountRuling = null)
+    public IMassDegeneration(List<Permanent> permanents, int degenerationCount, HeadlessEntityId? causeEffectSourceId, bool? degenerationCountRuling = null, ICardEffect? cardEffect = null)
     {
         _permanents = permanents;
         _degenerationCount = degenerationCount;
         _causeEffectSourceId = causeEffectSourceId;
         _degenerationCountRuling = degenerationCountRuling; // ctor parity; unread (dead count-select region).
+        _cardEffect = cardEffect;
     }
 
     readonly List<Permanent> _permanents;
     readonly int _degenerationCount;
     readonly HeadlessEntityId? _causeEffectSourceId;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS live `_cardEffect` threaded for the S2 immunity live scan
+    // (TopCard.CanNotBeAffected). No mirror caller yet — AS-IS-shaped for when a de-digivolve card lands.
+    readonly ICardEffect? _cardEffect;
 #pragma warning disable CS0414 // AS-IS dead field (count-select region commented out) — kept for ctor/field parity.
     readonly bool? _degenerationCountRuling;
 #pragma warning restore CS0414
@@ -1007,7 +1016,8 @@ public class IMassDegeneration
             && permanent.TopCard != null // structurally dead, kept for 1:1 shape.
             && !ImmuneFromDeDigivolve(context, permanent.InstanceId)
             && !RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, permanent.InstanceId, causeId)
-            && !ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, permanent.InstanceId, causeId, context);
+            // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
+            && !permanent.TopCard.CanNotBeAffected(_cardEffect);
 
         List<Permanent> permanentsFixed = _permanents.Where(ValidTarget).ToList();
 
@@ -1138,8 +1148,9 @@ public class ITrashDigivolutionCards
         // AS-IS :5154 ImmuneFromStackTrashing(_cardEffect).
         if (RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId)) return;
 
-        // AS-IS :5155 TopCard.CanNotBeAffected(_cardEffect).
-        if (ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, _permanent.InstanceId, causeId, context)) return;
+        // AS-IS :5155 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed from the registry gate to the
+        // AS-IS-literal live ICanNotAffectedEffect scan — the live cause effect is threaded (_cardEffect).
+        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
 
         if (_permanent.HasNoDigivolutionCards) return; // AS-IS :5156
 
@@ -1297,9 +1308,9 @@ public class ITrashLinkCards
         // keyed on the causing effect's source (null cause = rules trash, never blocked).
         if (_causeEffectSourceId is { } causeId && !causeId.IsEmpty)
         {
-            EngineContext context0 = _permanent.TopCard.Context;
-            if (ContinuousImmunityGate.BlocksOpponentEffect(
-                context0.EffectRegistry, context0.CardInstanceRepository, _permanent.InstanceId, causeId, context0))
+            // (R3-W3c-2) rehomed from the registry gate to the AS-IS-literal live scan (the live cause effect is
+            // threaded, _cardEffect); AS-IS :5268 `TopCard.CanNotBeAffected(_cardEffect)`.
+            if (_permanent.TopCard.CanNotBeAffected(_cardEffect))
             {
                 return;
             }
@@ -1439,16 +1450,20 @@ public class ITrashLinkCards
 /// </summary>
 public class ReturnToLibraryBottomDigivolutionCardsClass
 {
-    public ReturnToLibraryBottomDigivolutionCardsClass(Permanent permanent, List<CardSource> cardSources, HeadlessEntityId? causeEffectSourceId)
+    public ReturnToLibraryBottomDigivolutionCardsClass(Permanent permanent, List<CardSource> cardSources, HeadlessEntityId? causeEffectSourceId, ICardEffect? cardEffect = null)
     {
         _permanent = permanent;
         _cardSources = cardSources is null ? null : new List<CardSource>(cardSources);
         _causeEffectSourceId = causeEffectSourceId;
+        _cardEffect = cardEffect;
     }
 
     Permanent _permanent = null!;
     List<CardSource>? _cardSources;
     readonly HeadlessEntityId? _causeEffectSourceId;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS live `_cardEffect` threaded for the S2 immunity live scan.
+    // No mirror caller yet — AS-IS-shaped for when a return-digivolution-cards card lands.
+    readonly ICardEffect? _cardEffect;
 
     public async Task ReturnToLibraryBottomDigivolutionCards(CancellationToken cancellationToken = default)
     {
@@ -1465,8 +1480,9 @@ public class ReturnToLibraryBottomDigivolutionCardsClass
         if (_cardSources.Count == 0) return; // AS-IS :5375
 
         // AS-IS :5377-5379 GetCardEffectFromHashtable + CanNotBeAffected — null cause is never blocked.
-        if (_causeEffectSourceId is { IsEmpty: false } causeId
-            && ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, _permanent.InstanceId, causeId, context))
+        // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
+        if (_causeEffectSourceId is { IsEmpty: false }
+            && _permanent.TopCard.CanNotBeAffected(_cardEffect))
         {
             return;
         }
@@ -1793,7 +1809,8 @@ public class SuspendPermanentsClass
 
                     if (_causeEffectSourceId is { IsEmpty: false } cause)
                     {
-                        if (ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, permanent.InstanceId, cause, context))
+                        // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
+                        if (permanent.TopCard.CanNotBeAffected(_cardEffect))
                         {
                             return false;
                         }
@@ -1927,8 +1944,9 @@ public class IUnsuspendPermanents
             && permanent.TopCard != null // structurally dead, kept for 1:1 shape.
             && permanent.IsSuspended
             && CardEffectCommons.CardEffectCommons.CanUnsuspend(permanent)
+            // (R3-W3c-2) rehomed to the AS-IS-literal live scan (threaded _cardEffect).
             && (_causeEffectSourceId is not { IsEmpty: false } cause
-                || !ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, permanent.InstanceId, cause, context));
+                || !permanent.TopCard.CanNotBeAffected(_cardEffect));
 
         List<Permanent> untappedPermanents = _permanents.Where(IsUnsuspendTarget).ToList();
         _ = untappedPermanents; // AS-IS keeps the pre-cut-in list alive for the cut-in region below.
@@ -2149,17 +2167,21 @@ public class AceOverflowClass
 /// </summary>
 public class ITrashStack
 {
-    public ITrashStack(Permanent permanent, int trashCount, HeadlessEntityId? causeEffectSourceId, bool fromTop = true)
+    public ITrashStack(Permanent permanent, int trashCount, HeadlessEntityId? causeEffectSourceId, bool fromTop = true, ICardEffect? cardEffect = null)
     {
         _permanent = permanent;
         _trashCount = trashCount;
         _causeEffectSourceId = causeEffectSourceId;
         _fromTop = fromTop; // AS-IS :5867/5872 — accepted, never branched on (dead param, preserved).
+        _cardEffect = cardEffect;
     }
 
     Permanent _permanent = null!;
     int _trashCount;
     readonly HeadlessEntityId? _causeEffectSourceId;
+    // (C1b RD-C1-CARDEFFECT-IDTHREAD / R3-W3c-2) AS-IS live `_cardEffect` threaded for the S2 immunity live scan.
+    // No mirror caller yet — AS-IS-shaped for when a trash-stack card lands.
+    readonly ICardEffect? _cardEffect;
 #pragma warning disable CS0414 // AS-IS dead field (fromTop stored, never read in the AS-IS loop either).
     readonly bool _fromTop;
 #pragma warning restore CS0414
@@ -2173,7 +2195,8 @@ public class ITrashStack
         EngineContext context = _permanent.TopCard.Context;
 
         if (RestrictionScan.IsRestricted(context, MatchStateMutationSink.ImmuneStackTrashingKey, _permanent.InstanceId, causeId)) return; // AS-IS :5886
-        if (ContinuousImmunityGate.BlocksOpponentEffect(context.EffectRegistry, context.CardInstanceRepository, _permanent.InstanceId, causeId, context)) return; // AS-IS :5887
+        // AS-IS :5887 TopCard.CanNotBeAffected(_cardEffect). (R3-W3c-2) rehomed to the AS-IS-literal live scan.
+        if (_permanent.TopCard.CanNotBeAffected(_cardEffect)) return;
 
         // AS-IS :5889 `_permanent.StackCards.Count` = TopCard + DigivolutionCards (no headless StackCards
         // property — provably inert cap, kept for literal fidelity).

@@ -746,6 +746,9 @@ public sealed class AttackProcess
             // persistent per-attack marker), so nothing to clear.
             // (C-5/VR-6) drop any stale deferred-security-check park marker with the attack.
             SecurityResolver.ClearDeferredRemaining(_context, attackerId);
+            // (R3-W3c-2) clear the Progress per-attack dedup marker alongside the UntilEndAttack bucket reset
+            // above (the bucket held the Progress CanNotAffectedClass; both expire here — AS-IS Cleanup :489-495).
+            Headless.Runtime.ProgressImmunity.ClearApplied(_context, attackerId);
         }
 
         // AS-IS :503-509 — field resets + State = None.

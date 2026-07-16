@@ -625,7 +625,7 @@ public sealed class SelectPermanentEffect
             case Mode.Degenerate: // AS-IS :1001-1007 per-permanent IDegeneration(selected, count, _cardEffect).
                 foreach (Permanent selectedPermanent in _targetPermanents)
                 {
-                    await new IDegeneration(selectedPermanent, _degenerationCount, causeId)
+                    await new IDegeneration(selectedPermanent, _degenerationCount, causeId, cardEffect: _cardEffect)
                         .Degeneration().ConfigureAwait(false);
                 }
 

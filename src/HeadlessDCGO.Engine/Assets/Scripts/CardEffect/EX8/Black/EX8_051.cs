@@ -128,7 +128,7 @@ public sealed class EX8_051 : CEntity_Effect
 
                 async Task SelectPermanentCoroutine(Permanent permanent)
                 {
-                    await new IDegeneration(permanent, 1, activateClass.EffectSourceCard?.InstanceId).Degeneration();
+                    await new IDegeneration(permanent, 1, activateClass.EffectSourceCard?.InstanceId, cardEffect: activateClass).Degeneration();
                 }
             }
         }
