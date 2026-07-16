@@ -3110,10 +3110,10 @@ public class PlayCardClass
 
             #endregion
 
-            // AS-IS :851 `card.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();`
-            // — adaptation (8): the mirror carrier of that per-player bucket is the
-            // EffectDuration.UntilCalculateFixedCost binding set (same clear PlayCardAction.cs:169 performs).
-            Headless.Effects.EffectDurationExpiry.ExpireFixedCostCalc(card.Context.EffectRegistry);
+            // AS-IS :851/:961 `card.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();`
+            // — (R2-C) cleared ATOMICALLY across BOTH mirror carriers: the player bucket AND the
+            // EffectDuration.UntilCalculateFixedCost registry binding set (same atomic clear the live pay chokes perform).
+            Headless.Effects.EffectDurationExpiry.ExpireFixedCostCalc(card.Context, card.Owner);
 
             if (endPlayCard)
             {
@@ -3297,35 +3297,12 @@ public static class CardSourceAsIsPlayAccessors
             "engine has no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
     }
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CostList(targetPermanent, ignoreLevel, checkAvailability)</c>
-    /// (CardSource.cs:617-628 — the <c>EvoCosts</c> projection). STOP: RD-P6C1-2.</summary>
-    public static List<int> CostList(this CardSource card, Permanent targetPermanent, bool ignoreLevel, bool checkAvailability)
-    {
-        _ = card;
-        _ = targetPermanent;
-        _ = ignoreLevel;
-        _ = checkAvailability;
-        throw new NotSupportedException(
-            "STOP: CardSource.CostList (AS-IS CardSource.cs:617) — the AS-IS EvoCosts/requirement engine has " +
-            "no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (R2-C) The AS-IS CardSource.CostList STOP extension stub was retired — it is now the real (still-STOP,
+    // printed-EvoCost-engine RD-P6C1-2) 1:1 instance method on CardSource (CardSource.cs, R2-C).
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.GetPayingCostWithBaseCost(baseCost, root, targetPermanents,
-    /// checkAvailability, FixedCost)</c> (CardSource.cs:664-751 — DigiXros/Assembly reductions +
-    /// <c>GetChangedCostItselef</c> + <c>GetChangedPayingCost</c> modifier scans + the 0 floor). STOP:
-    /// RD-P6C1-2 (the MIG5 PLAY-COST gap).</summary>
-    public static int GetPayingCostWithBaseCost(this CardSource card, int baseCost, SelectCardEffect.Root root, List<Permanent> targetPermanents, bool checkAvailability = false, int FixedCost = -1)
-    {
-        _ = card;
-        _ = baseCost;
-        _ = root;
-        _ = targetPermanents;
-        _ = checkAvailability;
-        _ = FixedCost;
-        throw new NotSupportedException(
-            "STOP: CardSource.GetPayingCostWithBaseCost (AS-IS CardSource.cs:664) — the AS-IS play-cost " +
-            "modifier engine has no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (R2-C) The AS-IS CardSource.GetPayingCostWithBaseCost STOP extension stub was retired — it is now the real
+    // 1:1 instance method on CardSource (CardSource.cs, R2-C). `card.GetPayingCostWithBaseCost(...)` calls here
+    // resolve to that instance method.
 
     /// <summary>(P6C1) AS-IS <c>CardSource.CanJogressFromTargetPermanents(targetPermanents, PayCost)</c>
     /// (CardSource.cs:2846). STOP: RD-P6C1-2.</summary>

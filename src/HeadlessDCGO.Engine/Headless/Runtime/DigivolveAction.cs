@@ -60,7 +60,8 @@ public sealed class DigivolveAction
                 continue;
             }
 
-            int fusionCost = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, cardId, condition.cost));
+            // (R2-C) App-Fusion is a play-cost (from hand) fold through the single AS-IS orchestrator.
+            int fusionCost = Math.Max(0, view.GetPayingCostWithBaseCost(condition.cost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null));
             foreach (HeadlessEntityId hostId in zoneReader.GetCards(playerId, ChoiceZone.BattleArea))
             {
                 var host = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, hostId, playerId);
@@ -223,8 +224,9 @@ public sealed class DigivolveAction
 
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
-        // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
-        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+        // F-1.7 / (R2-C): fixed cost locked — expire one-shot "until cost is calculated" modifiers atomically
+        // (registry + payer player bucket).
+        EffectDurationExpiry.ExpireFixedCostCalc(context, action.PlayerId);
         IReadOnlyList<HeadlessEntityId> sourceIds = AttachTargetAsSource(
             context.CardInstanceRepository,
             payload.CardId,
@@ -352,7 +354,8 @@ public sealed class DigivolveAction
             return DigivolveValidation.Illegal("App-Fusion link material does not match.");
         }
 
-        int expected = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, payload.CardId, condition.cost));
+        int expected = Math.Max(0, new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.CardId, playerId, playerId)
+            .GetPayingCostWithBaseCost(condition.cost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null));
         if (payload.MemoryCost != expected)
         {
             return DigivolveValidation.Illegal($"App-Fusion cost {payload.MemoryCost} does not match {expected}.");
@@ -578,12 +581,37 @@ public sealed class DigivolveAction
             return false;
         }
 
-        // D-8: fold in continuous digivolution-cost modifiers (effect-driven ±cost), honouring a
-        // continuous "cost cannot be reduced" replacement. Static cost is the base. (BT1_109) pass the
-        // digivolving-FROM target permanent so a two-sided player-scope cost predicate can gate on it.
-        evolutionCost = ContinuousModifierGate.ResolveDigivolutionCost(context, cardId, baseCost, digivolveTargetPermanentId: targetCardId);
+        // (R2-C) fold the digivolution-cost pipeline through the single AS-IS orchestrator. A non-null target
+        // permanent (the AS-IS "digivolving FROM" permanent, targetCardId) selects the digivolution branch
+        // (digivolution-metric legacy fold + the moving card's own dispatch-first cost gate) and threads through
+        // to the IChangeCostEffect scan (BT1_109's two-sided predicate). Root = the moving card's source zone.
+        var evoTargetPermanents = new List<Assets.Scripts.Script.CardEffectCommons.Permanent>
+        {
+            new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetCardId, instance.OwnerId),
+        };
+        evolutionCost = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId)
+            .GetPayingCostWithBaseCost(baseCost, MovingCardRoot(context, instance.OwnerId, cardId), evoTargetPermanents);
         error = null;
         return true;
+    }
+
+    /// <summary>(R2-C) The AS-IS play/digivolve <c>Root</c> for the moving card = its current source zone (Hand,
+    /// Trash, DigivolutionCards for a re-digivolve of a source, …). Threaded into the cost pipeline for the
+    /// root-conditioned <see cref="Assets.Scripts.Script.CardEffectInterfaces"/> cost effects.</summary>
+    private static Assets.Scripts.Script.SelectCardEffect.Root MovingCardRoot(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId cardId)
+    {
+        if (context.ZoneMover is IZoneStateReader zones)
+        {
+            foreach (KeyValuePair<ChoiceZone, IReadOnlyList<HeadlessEntityId>> pair in zones.Snapshot(owner))
+            {
+                if (pair.Value.Contains(cardId))
+                {
+                    return Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.RootFromZone(pair.Key);
+                }
+            }
+        }
+
+        return Assets.Scripts.Script.SelectCardEffect.Root.Hand;
     }
 
     /// <summary>(F-5.3) Whether a continuous "ignore digivolution requirement" effect applies for the

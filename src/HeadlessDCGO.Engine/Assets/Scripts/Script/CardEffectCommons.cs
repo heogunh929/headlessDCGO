@@ -1891,6 +1891,24 @@ public static partial class CardEffectCommons
     /// onto the entering CardMoved event so the played card's OWN [On Play]/OnEnterField triggers are dropped
     /// ("Any [On Play] effects on the Digimon played with this effect don't activate", BT3_109/110); other
     /// cards' reactions to it entering are unaffected.</summary>
+    /// <summary>(R2-C) Map the play-source <see cref="ChoiceZone"/> to the AS-IS <see cref="SelectCardEffect.Root"/>
+    /// threaded into the cost pipeline (root-conditioned <see cref="IChangeCostEffect"/> gates). Zones with no
+    /// Root analog (battle/breeding area, digitama library) map to <c>None</c>.</summary>
+    internal static SelectCardEffect.Root RootFromZone(ChoiceZone zone) => zone switch
+    {
+        ChoiceZone.Library => SelectCardEffect.Root.Library,
+        ChoiceZone.Trash => SelectCardEffect.Root.Trash,
+        ChoiceZone.Clock => SelectCardEffect.Root.Clock,
+        ChoiceZone.Security => SelectCardEffect.Root.Security,
+        ChoiceZone.Custom => SelectCardEffect.Root.Custom,
+        ChoiceZone.Hand => SelectCardEffect.Root.Hand,
+        ChoiceZone.Recollection => SelectCardEffect.Root.Recollection,
+        ChoiceZone.Execution => SelectCardEffect.Root.Execution,
+        ChoiceZone.DigivolutionCards => SelectCardEffect.Root.DigivolutionCards,
+        ChoiceZone.LinkedCards => SelectCardEffect.Root.LinkedCards,
+        _ => SelectCardEffect.Root.None,
+    };
+
     public static async Task PlayPermanentCards(
         IReadOnlyList<CardSource> cardSources, CardSource sourceCard, bool payCost, bool isTapped,
         ChoiceZone root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
@@ -1917,7 +1935,7 @@ public static partial class CardEffectCommons
                     && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
                     ? def.PlayCost ?? 0
                     : 0;
-                cost = fixedCost >= 0 ? fixedCost : Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, cs.InstanceId, baseCost));
+                cost = fixedCost >= 0 ? fixedCost : Math.Max(0, cs.GetPayingCostWithBaseCost(baseCost, RootFromZone(root), targetPermanents: null));
             }
 
             var values = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -3594,7 +3612,9 @@ public static partial class CardEffectCommons
             && cardSource.Context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
             ? def.PlayCost ?? 0
             : 0;
-        int cost = fixedCost >= 0 ? fixedCost : ContinuousModifierGate.ResolvePlayCost(cardSource.Context, cardSource.InstanceId, baseCost);
+        // (R2-C) single AS-IS orchestrator. Root.None — a can-pay availability gate carries no source-zone
+        // context (root-dependent cost effects are threaded at the actual play choke).
+        int cost = fixedCost >= 0 ? fixedCost : cardSource.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.None, targetPermanents: null);
         return cardSource.Context.MemoryController.CanPay(Math.Max(0, cost));
     }
 

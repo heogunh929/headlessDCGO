@@ -18,11 +18,13 @@ public static class ContinuousModifierGate
     /// <summary>Query scope used for continuous re-evaluation (shared with the other gates).</summary>
     public const string Scope = ContinuousRestrictionGate.Scope;
 
-    // (R1-b) The Security-Attack surface (ResolveSecurityAttack) was rehoused into the AS-IS reader
-    // Permanent.Strike / Strike_AllowMinus / SecurityAttackChanges — consumers now read `new Permanent(...).Strike`
-    // directly and the gate method was removed. The remaining ResolvePlayCost / ResolveDigivolutionCost members
-    // are the play/digivolution-cost cluster, which belongs to CardSource (AS-IS CardSource.CanPayCost /
-    // GetChangedCostItselef / GetChangedPayingCost) and is rehoused in R1-d — this file stays until then.
+    // (R2-C) ResolvePlayCost / ResolveDigivolutionCost are now THIN DELEGATES to the single AS-IS pay-cost
+    // orchestrator CardSource.GetPayingCostWithBaseCost — the play/digivolution-cost logic (DigiXros/Assembly,
+    // the GetChangedCostItselef/GetChangedPayingCost IChangeCostEffect fold, the legacy substrate NumericModifier
+    // union, the 0 floor) lives there 1:1. These wrappers are retained (not deleted) because direct test callers
+    // still use them; the mirror's live play/digivolve/option chokes call GetPayingCostWithBaseCost directly with
+    // the real source root. The `Root.None` here matches the previous FoldPlayCost hard-coding for those direct
+    // callers (root-dependent cost effects are exercised only via the live chokes, which thread the real root).
     public static int ResolvePlayCost(
         EngineContext context, HeadlessEntityId cardId, int basePlayCost, bool canReduceCost = true,
         IReadOnlyList<HeadlessEntityId>? targetPermanentIds = null)
@@ -33,20 +35,15 @@ public static class ContinuousModifierGate
             return basePlayCost;
         }
 
-        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
-        // D-8: a continuous "cost cannot be reduced" replacement (AS-IS ICannotReduceCostEffect) forces
-        // reductions off, mirroring ContinuousDpGate's DP-reduction immunity. (#5) This is the PLAY-cost path,
-        // so a DIGIVOLUTION-only immunity must NOT apply here.
-        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(context, cardId, result, isDigivolution: false);
-        int legacyResolved = ModifierHelpers.ResolvePlayCost(basePlayCost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
-
-        // (P6 STAGE B) UNION the new-model IChangeCostEffect fold (AS-IS CardSource.GetChangedCostItselef +
-        // GetChangedPayingCost) over the legacy binding result — same disjoint-interface union as SAttack/DP.
-        // `targetPermanentIds` threads real battle-area permanents through for the target-permanent-conditioned
-        // shape (ChangePlayCostStaticEffect's PermanentsCondition) — absent at the real call sites today (no
-        // caller builds an evolution-target list for a plain play), so it defaults to none.
-        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldPlayCost(
-            context, cardId, legacyResolved, canReduceCost: effectiveCanReduce, targetPermanentIds: targetPermanentIds);
+        _ = canReduceCost; // (R2-C) the invented external knob is subsumed by the live Player.CanReduceCost veto.
+        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(cardId, out var inst) && inst is not null
+            ? inst.OwnerId
+            : default;
+        var cardSource = new CardSource(context, cardId, owner);
+        List<Permanent>? targetPermanents = targetPermanentIds is null
+            ? null
+            : targetPermanentIds.Select(id => new Permanent(context, id, owner)).ToList();
+        return cardSource.GetPayingCostWithBaseCost(basePlayCost, Assets.Scripts.Script.SelectCardEffect.Root.None, targetPermanents);
     }
 
     public static int ResolveDigivolutionCost(
@@ -59,34 +56,66 @@ public static class ContinuousModifierGate
             return baseDigivolutionCost;
         }
 
-        // (BT1_109) pass the digivolving-FROM target permanent so a two-sided player-scope cost predicate
-        // ("...digivolve one of your green Digimon from level 5 to level 6...") can gate on it. Default id
-        // leaves single-sided effects unchanged.
+        _ = canReduceCost;
+        HeadlessPlayerId owner = context.CardInstanceRepository.TryGetInstance(cardId, out var inst) && inst is not null
+            ? inst.OwnerId
+            : default;
+        var cardSource = new CardSource(context, cardId, owner);
+        // A non-null target permanent forces the digivolution branch (digivolution-metric legacy fold + the
+        // moving card's own dispatch-first DigivolutionCostGateEffect); its InstanceId (possibly empty) is the
+        // AS-IS "digivolving FROM" permanent id threaded to the own-gated collection.
+        var targetPermanents = new List<Permanent> { new Permanent(context, digivolveTargetPermanentId, owner) };
+        return cardSource.GetPayingCostWithBaseCost(baseDigivolutionCost, Assets.Scripts.Script.SelectCardEffect.Root.None, targetPermanents);
+    }
+
+    // ===== (R2-C) LEGACY substrate cost fold — the mirror mid-migration NumericModifier bindings only =========
+    // The AS-IS cost pipeline (CardSource.GetPayingCostWithBaseCost) has NO registry. These helpers are the
+    // substrate half the mirror still needs while some continuous cost effects (BeforePayCostReduction /
+    // ChangePlayCostPlayer producers, the dispatch-first DigivolutionCostGateEffect) are expressed as legacy
+    // NumericModifier bindings rather than new-model IChangeCostEffect kind-classes. CardSource.
+    // GetPayingCostWithBaseCost UNIONs the result of these over the base cost, THEN runs the AS-IS-1:1 new-model
+    // scan (GetChangedCostItselef / GetChangedPayingCost). `playerCanReduce` is the live CannotReduceCost veto
+    // (Player.CanReduceCost) the caller already computed; it is ANDed with the (R2-C ③ transitional) registry
+    // CostReductionImmune so a mid-migration registry immunity keeps applying until ③ retires it.
+
+    /// <summary>(R2-C) Fold the mirror's legacy continuous PLAY-cost NumericModifier bindings over
+    /// <paramref name="cost"/>. Used by <see cref="CardSource.GetPayingCostWithBaseCost"/> as its substrate union
+    /// step.</summary>
+    public static int FoldLegacyPlayCostModifiers(
+        EngineContext context, HeadlessEntityId cardId, int cost, bool playerCanReduce)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardId.IsEmpty)
+        {
+            return cost;
+        }
+
+        ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId);
+        bool effectiveCanReduce = playerCanReduce && !CostReductionImmune(context, cardId, result, isDigivolution: false);
+        return ModifierHelpers.ResolvePlayCost(cost, result.Modifiers, canReduceCost: effectiveCanReduce).FinalValue;
+    }
+
+    /// <summary>(R2-C) Fold the mirror's legacy continuous DIGIVOLUTION-cost NumericModifier bindings (registry +
+    /// the moving card's own dispatch-first <see cref="DigivolutionCostGateEffect"/>) over
+    /// <paramref name="cost"/>.</summary>
+    public static int FoldLegacyDigivolutionCostModifiers(
+        EngineContext context, HeadlessEntityId cardId, int cost,
+        HeadlessEntityId digivolveTargetPermanentId, bool playerCanReduce)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (cardId.IsEmpty)
+        {
+            return cost;
+        }
+
         ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, Scope, cardId, digivolveTargetPermanentId);
-        // (#5) DIGIVOLUTION-cost path — a PLAY-only immunity must NOT apply here.
-        bool effectiveCanReduce = canReduceCost && !CostReductionImmune(context, cardId, result, isDigivolution: true);
-        // (G5 / BT3_031 / BT3_111) additionally fold the MOVING card's OWN gated cost statics, read dispatch-first
-        // (they live on a card in hand, which the continuous registrar does not scan). Folded together with the
-        // registry modifiers so the "cannot be reduced" replacement + cost floor apply once, uniformly.
+        bool effectiveCanReduce = playerCanReduce && !CostReductionImmune(context, cardId, result, isDigivolution: true);
         IReadOnlyList<NumericModifier> ownGated =
             DigivolutionCostGateEffect.CollectOwnGatedModifiers(context, cardId, digivolveTargetPermanentId);
         IReadOnlyList<NumericModifier> modifiers = ownGated.Count == 0
             ? result.Modifiers
             : result.Modifiers.Concat(ownGated).ToArray();
-        int legacyResolved = ModifierHelpers.ResolveDigivolutionCost(baseDigivolutionCost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
-
-        // (P6 STAGE B) UNION the new-model IChangeCostEffect fold — AS-IS's digivolution-cost path folds the
-        // SAME CardSource.GetChangedCostItselef/GetChangedPayingCost IChangeCostEffect scan as the play-cost
-        // path (CardSource.cs:741/743, called uniformly for both play and evolve; `isEvolution` only branches
-        // the DigiXros/Assembly special-cost regions, not this scan). ChangeDigivolutionCostStaticEffect always
-        // builds isChangePayingCost:true (ChangeDigivolutionCost.cs), so it folds in FoldPlayCost's second
-        // (paying) group. `digivolveTargetPermanentId` is the AS-IS "digivolving FROM" target permanent
-        // (PermanentsCondition needs a real matching battle/breeding-area permanent — CardEffectCommons.
-        // IsPermanentExistsOnField, a superset of IsPermanentExistsOnBattleArea covering breeding too; passing
-        // it here as the sole target is correct for the common single-target case).
-        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldPlayCost(
-            context, cardId, legacyResolved, canReduceCost: effectiveCanReduce,
-            targetPermanentIds: digivolveTargetPermanentId.IsEmpty ? null : new[] { digivolveTargetPermanentId });
+        return ModifierHelpers.ResolveDigivolutionCost(cost, modifiers, canReduceCost: effectiveCanReduce).FinalValue;
     }
 
     /// <summary>(D-8 / #5) Whether a continuous "cost cannot be reduced" restriction targets the card for the

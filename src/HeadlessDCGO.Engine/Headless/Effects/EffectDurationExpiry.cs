@@ -65,4 +65,18 @@ public static class EffectDurationExpiry
         ArgumentNullException.ThrowIfNull(registry);
         return registry.RemoveWhere(binding => binding.Duration == EffectDuration.UntilCalculateFixedCost);
     }
+
+    /// <summary>(R2-C) Expire the fixed-cost-calc duration ATOMICALLY across BOTH mirror carriers: the registry
+    /// <see cref="EffectDuration.UntilCalculateFixedCost"/> bindings AND <paramref name="payer"/>'s per-play
+    /// <c>Player.UntilCalculateFixedCostEffect</c> bucket (AS-IS <c>CardController.cs:961</c> clears the bucket on
+    /// each play). Called at every pay-completion choke so a bucket-form BeforePayCost effect cannot leak into
+    /// the next play of the same turn.</summary>
+    public static int ExpireFixedCostCalc(HeadlessDCGO.Engine.Headless.Bridge.EngineContext context, HeadlessPlayerId payer)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        int removed = ExpireFixedCostCalc(context.EffectRegistry);
+        new Assets.Scripts.Script.CardEffectCommons.Player(context, payer).UntilCalculateFixedCostEffect =
+            new List<Func<Assets.Scripts.Script.CardEffectCommons.EffectTiming, Assets.Scripts.Script.CardEffectCommons.ICardEffect>>();
+        return removed;
+    }
 }
