@@ -11,41 +11,51 @@ public sealed class HeadlessMainPhaseFlow
     public const int DefaultMemoryPassValue = 3;
     public const int DefaultTurnEndMinMemory = 1;
 
-    /// <summary>(d-remediation) AS-IS AutoProcessing.TurnEndMinMemory: default <see cref="DefaultTurnEndMinMemory"/>,
-    /// overridden by any ChangeEndTurnMinMemory effect on the turn player's board (the ported cards SET it).</summary>
+    /// <summary>(d-remediation, R3-W3c-4b B2) AS-IS <c>AutoProcessing.TurnEndMinMemory</c> (AutoProcessing.cs:645-671):
+    /// seed 1, folded LIVE across every usable <see cref="IChangeEndTurnMinMemoryEffect"/> on (1) the players'
+    /// own effects then (2) the players' field permanents' effects — <c>Players_ForTurnPlayer</c> (BOTH players,
+    /// turn player first), each effect's <c>GetMinMemory(seed)</c> updating the running value. Rehoused from the
+    /// retired registry <c>ContinuousScopeEvaluation.ApplicableEffects</c> key-read to this AS-IS-literal live
+    /// scan so the new-model kind-class producer (<see cref="CardEffects.ChangeEndTurnMinMemoryClass"/>) is seen.
+    /// The ported cards (BT14_081/BT17_069) SET a constant, so the fold reduces to last-write-wins.</summary>
     private static int ResolveTurnEndMinMemory(EngineContext context, HeadlessPlayerId? turnPlayer)
     {
-        if (turnPlayer is not { } player || context.ZoneMover is not IZoneStateReader zones)
+        if (turnPlayer is not { })
         {
             return DefaultTurnEndMinMemory;
         }
 
-        int threshold = DefaultTurnEndMinMemory;
-        // (RD-6 both-player scan / design item #67) AS-IS TurnEndMinMemory scans Players_ForTurnPlayer — BOTH
-        // players, turn player FIRST — folding
-        // each IChangeEndTurnMinMemory effect's GetMinMemory (AutoProcessing.cs:645-671). An effect can sit on
-        // EITHER board (e.g. one that raises the min memory the OPPONENT must reach to end this turn lives on the
-        // non-turn player's card), so scanning only the turn player missed those. The ported cards
-        // (BT14_081/BT17_069) SET a fixed value (GetMinMemory returns a constant, per FAILd-07), so last-write-wins
-        // over the turn-player-first order mirrors the fold for the common single-effect case; a dependent-fold
-        // multi-effect edge is deferred (no such ported card). No live change today — the ported cards are
-        // turn-player-board — so this is latent infra for an opponent-board threshold card.
-        foreach (HeadlessPlayerId scanPlayer in
-            new[] { player }.Concat(context.TurnController.Current.PlayerOrder.Where(p => p != player && !p.IsEmpty)))
+        int turnEndMinMemory = DefaultTurnEndMinMemory;
+        var gameContext = new GameContext(context);
+
+        // #region the effects of players (AS-IS :651-657)
+        foreach (Player scanPlayer in gameContext.Players_ForTurnPlayer)
         {
-            foreach (HeadlessEntityId cardId in zones.GetCards(scanPlayer, ChoiceZone.BattleArea))
+            foreach (ICardEffect cardEffect in scanPlayer.EffectList(EffectTiming.None))
             {
-                foreach (EffectRequest effect in ContinuousScopeEvaluation.ApplicableEffects(context, ContinuousRestrictionGate.Scope, cardId))
+                if (cardEffect is IChangeEndTurnMinMemoryEffect changeEffect && cardEffect.CanUse(null))
                 {
-                    if (effect.Context.Values.TryGetValue(ModifierHelpers.EndTurnMinMemoryKey, out object? raw) && raw is int minMemory)
+                    turnEndMinMemory = changeEffect.GetMinMemory(turnEndMinMemory);
+                }
+            }
+        }
+
+        // #region the effects of permanents (AS-IS :659-667)
+        foreach (Player scanPlayer in gameContext.Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in scanPlayer.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is IChangeEndTurnMinMemoryEffect changeEffect && cardEffect.CanUse(null))
                     {
-                        threshold = minMemory;
+                        turnEndMinMemory = changeEffect.GetMinMemory(turnEndMinMemory);
                     }
                 }
             }
         }
 
-        return threshold;
+        return turnEndMinMemory;
     }
 
     /// <summary>(A-2 / RD-6) The turn-end threshold RE-CHECK after the [End of Your Turn] window drains, mirroring

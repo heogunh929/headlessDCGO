@@ -30,6 +30,10 @@ async Task Run(bool ignoreBattle, bool expectAttackerAlive)
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 925);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
+    // (R3-W3c-4b B1) the DontBattleSecurityDigimon interface scan gates each effect with CanUse (→ CanTrigger/
+    // CanActivate → GManager.instance), so drive it under an ambient match scope (A1/W3c-1 precedent).
+    using var _ambient = AmbientMatchContext.Enter(ctx);
     var cards = (CardDatabase)ctx.CardRepository;
 
     // Attacker (P1), DP 5000.

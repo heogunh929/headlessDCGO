@@ -517,19 +517,40 @@ public sealed class SecurityResolver
     /// intrinsic "Ignore Battle" marker (dispatched at EffectTiming.None) says the attacker must not battle it.</summary>
     private static bool RevealedSecurityCardSkipsBattle(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
     {
-        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null
-            || !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? definition) || definition is null
-            || !Assets.Scripts.Script.CardEffectCommons.CardEffectDispatch.TryCreateForCard(definition, out Assets.Scripts.Script.CardEffectCommons.CEntity_Effect? effect) || effect is null)
-        {
-            return false;
-        }
-
+        // (R3-W3c-4b B1) AS-IS CardController.cs:4136-4169 — when the broken security card is a Digimon, the
+        // attacker does NOT battle it if a usable IDontBattleSecurityDigimonEffect (CanUse-gated with the "Card"
+        // hashtable, then DontBattleSecurityDigimon evaluated against the revealed card) is found on (1) the
+        // revealed security card's own effects OR (2) any player's effects. Rehoused from the retired concrete
+        // DontBattleSecurityDigimonEffect.SkipsBattle scan to this AS-IS-literal interface scan so the new-model
+        // kind-class producer (DontBattleSecurityDigimonClass) is seen.
         var revealed = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, owner, owner);
-        foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect in effect.CardEffects(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None, revealed))
+        var hashtable = new System.Collections.Hashtable { { "Card", revealed } };
+
+        // #region the security Digimon's effect (AS-IS :4134-4150)
+        foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect
+            in revealed.EffectList(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None))
         {
-            if (cardEffect is Assets.Scripts.Script.CardEffectCommons.DontBattleSecurityDigimonEffect marker && marker.SkipsBattle(revealed))
+            if (cardEffect is Assets.Scripts.Script.CardEffectCommons.IDontBattleSecurityDigimonEffect
+                && cardEffect.CanUse(hashtable)
+                && ((Assets.Scripts.Script.CardEffectCommons.IDontBattleSecurityDigimonEffect)cardEffect).DontBattleSecurityDigimon(revealed))
             {
                 return true;
+            }
+        }
+
+        // #region player's effect (AS-IS :4152-4171)
+        foreach (Assets.Scripts.Script.CardEffectCommons.Player player
+            in new Assets.Scripts.Script.CardEffectCommons.GameContext(context).Players_ForTurnPlayer)
+        {
+            foreach (Assets.Scripts.Script.CardEffectCommons.ICardEffect cardEffect
+                in player.EffectList(Assets.Scripts.Script.CardEffectCommons.EffectTiming.None))
+            {
+                if (cardEffect is Assets.Scripts.Script.CardEffectCommons.IDontBattleSecurityDigimonEffect
+                    && cardEffect.CanUse(hashtable)
+                    && ((Assets.Scripts.Script.CardEffectCommons.IDontBattleSecurityDigimonEffect)cardEffect).DontBattleSecurityDigimon(revealed))
+                {
+                    return true;
+                }
             }
         }
 

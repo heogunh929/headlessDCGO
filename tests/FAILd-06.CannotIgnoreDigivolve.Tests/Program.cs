@@ -33,10 +33,18 @@ async Task Run(bool grantIgnoreColor, bool cannotIgnore, bool expectLegal)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 926);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.MemoryController.Set(5);
+    // (R3-W3c-4b D) the CanIgnoreDigivolutionRequirement veto scan gates each effect with CanUse (→ GManager),
+    // so drive the digivolve under an ambient match scope (A1/W3c-1 precedent).
+    using var _ambient = AmbientMatchContext.Enter(context);
 
-    // Target = Blue Lv4; the evolving card requires Red@4 (colour mismatch).
-    var target = await PlaceBase(context, "BLUEBASE", "Blue", 4);
+    // Target = Blue Lv4; the evolving card requires Red@4 (colour mismatch). (R3-W3c-4b D) When the CannotIgnore
+    // lock is under test, the target battle-area card carries the effect via its definition (the
+    // TfxCannotIgnoreDigivolution fixture, dispatched by CardNumber) — the AS-IS-literal live veto scan
+    // Player.CanIgnoreDigivolutionRequirement walks the field permanents' EffectList(None); the effect is no
+    // longer a registry binding.
+    var target = await PlaceBase(context, "BLUEBASE", "Blue", 4, cannotIgnore ? "TfxCannotIgnoreDigivolution" : null);
     var evo = await PlaceEvolve(context, "EVO", "Red@4", 2);
 
     if (grantIgnoreColor)
@@ -46,20 +54,6 @@ async Task Run(bool grantIgnoreColor, bool cannotIgnore, bool expectLegal)
             new CardSource(context, evo, P1), DigivolveAction.IgnoreColorRequirementKey, false, null).ToBinding("ignore-color"));
     }
 
-    if (cannotIgnore)
-    {
-        // BT8_059: a battle-area card forbids ignoring digivolution requirements board-wide (joint predicate = always).
-        // CannotIgnoreDigivolutionConditionStaticEffect's declared return type is the AS-IS abstract ICardEffect
-        // base class (no ToBinding member); the concrete CannotIgnoreDigivolutionConditionEffect it returns still
-        // declares a real ToBinding — bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
-        ICardEffect cannotIgnoreEffect = CardEffectFactory.CannotIgnoreDigivolutionConditionStaticEffect(
-            (_, _) => true, new CardSource(context, target, P1), condition: null);
-        if (LegacyBindingBridge.TryToBinding(cannotIgnoreEffect, "cannot-ignore", out EffectBinding? cannotIgnoreBinding) && cannotIgnoreBinding is not null)
-        {
-            context.EffectRegistry.Register(cannotIgnoreBinding);
-        }
-    }
-
     ActionProcessResult result = await new DigivolveAction()
         .ProcessAsync(HeadlessActionFactory.Digivolve(P1, evo, target, memoryCost: 2), context);
 
@@ -67,11 +61,11 @@ async Task Run(bool grantIgnoreColor, bool cannotIgnore, bool expectLegal)
         throw new InvalidOperationException($"digivolve legal expected {expectLegal}, got {result.IsSuccess} ({result.Message})");
 }
 
-async Task<HeadlessEntityId> PlaceBase(EngineContext context, string tag, string color, int level)
+async Task<HeadlessEntityId> PlaceBase(EngineContext context, string tag, string color, int level, string? effectCardNumber = null)
 {
     var cards = (CardDatabase)context.CardRepository;
     var defId = new HeadlessEntityId(tag);
-    cards.Upsert(new CardRecord(defId, tag, tag,
+    cards.Upsert(new CardRecord(defId, effectCardNumber ?? tag, tag,
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { color }, ["level"] = level, ["dp"] = 3000 }, CardType: "Digimon"));
     var id = new HeadlessEntityId($"p1:battle:{tag}");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, P1,

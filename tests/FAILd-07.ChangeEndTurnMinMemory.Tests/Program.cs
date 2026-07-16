@@ -34,25 +34,20 @@ bool Passes(int memory, int? minMemory)
     EngineContext context = EngineContext.CreateDefault(randomSeed: 927);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
     context.TurnController.SetPhase(HeadlessPhase.Main);
+    // (R3-W3c-4b B2) the live IChangeEndTurnMinMemory scan gates each effect with CanUse (→ GManager), so drive
+    // the turn-pass evaluation under an ambient match scope (A1/W3c-1 precedent).
+    using var _ambient = AmbientMatchContext.Enter(context);
 
-    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("C"), "C", "C",
+    // (R3-W3c-4b B2) ChangeEndTurnMinMemory is now a new-model kind-class (no ToBinding) consumed by the
+    // AS-IS-literal live scan HeadlessMainPhaseFlow.ResolveTurnEndMinMemory, which walks each field permanent's
+    // EffectList(None). So the effect is attached to the card via its effect DEFINITION (the TfxChangeEndTurnMinMemory
+    // fixture, dispatched by CardNumber) rather than registered into the registry. The fixture returns minMemory 3.
+    string cardNumber = minMemory is int ? "TfxChangeEndTurnMinMemory" : "C";
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("C"), cardNumber, "C",
         new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
     var card = new HeadlessEntityId("p1:C");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(card, new HeadlessEntityId("C"), P1));
     context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, card, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
-
-    if (minMemory is int m)
-    {
-        // ChangeEndTurnMinMemoryStaticEffect's declared return type is the AS-IS abstract ICardEffect base class
-        // (no ToBinding member); the concrete ContinuousSelfModifierEffect it returns still declares a real
-        // ToBinding — bridge via LegacyBindingBridge (see CardEffectCommons/LegacyActivatedBridge.cs).
-        ICardEffect cetmmEffect = CardEffectFactory.ChangeEndTurnMinMemoryStaticEffect(
-            m, isInheritedEffect: false, new CardSource(context, card, P1), condition: null);
-        if (LegacyBindingBridge.TryToBinding(cetmmEffect, "cetmm", out EffectBinding? cetmmBinding) && cetmmBinding is not null)
-        {
-            context.EffectRegistry.Register(cetmmBinding);
-        }
-    }
 
     HeadlessMemoryState state = context.MemoryController.Set(memory);
     var action = HeadlessActionFactory.AdvancePhase(P1);

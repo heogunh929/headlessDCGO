@@ -625,10 +625,20 @@ public sealed class DigivolveAction
     /// <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c>. Any match ⇒ ignore-grants are negated.</summary>
     private static bool IsDigivolveIgnoreBlocked(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId playerId, HeadlessEntityId targetId, HeadlessPlayerId targetOwner)
     {
-        // (joint-migration) canonical scan (AS-IS Player.CanIgnoreDigivolutionRequirement): joint
-        // f(digivolvingCard, target under-card). Any match ⇒ ignore-grants are negated.
-        return RestrictionScan.IsRestricted(
-            context, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotIgnoreDigivolutionConditionKey, cardId, targetId);
+        // (R3-W3c-4b D) AS-IS Player.CanIgnoreDigivolutionRequirement (Player.cs:1422-1465): the live
+        // ICannotIgnoreDigivolutionConditionEffect veto scan; "ignore-blocked" is its NEGATION. Rehoused from the
+        // retired registry RestrictionScan (JointRestrictionEffect) to the AS-IS-literal live getter so the
+        // new-model kind-class producer (CannotIgnoreDigivolutionConditionClass) is seen. digivolvingCard =
+        // cardSource(cardId); target under-card = Permanent(targetId).
+        if (cardId.IsEmpty || targetId.IsEmpty || playerId.IsEmpty || targetOwner.IsEmpty)
+        {
+            return false;
+        }
+
+        var player = new Player(context, playerId);
+        var target = new Permanent(context, targetId, targetOwner);
+        var digivolvingCard = new CardSource(context, cardId, playerId, playerId);
+        return !player.CanIgnoreDigivolutionRequirement(target, digivolvingCard);
     }
 
     private static bool HasContinuousFlag(EngineContext context, HeadlessPlayerId playerId, HeadlessEntityId cardId, string flagKey)

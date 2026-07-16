@@ -460,12 +460,26 @@ public static partial class CardEffectFactory
         }
     }
 
-    /// <summary>(d-remediation) <c>DontBattleSecurityDigimonStaticEffect</c> — AS-IS <c>DontBattleSecurityDigimonClass</c>:
-    /// intrinsic "Ignore Battle" marker (EX4_013). Returned by the card at <see cref="EffectTiming.None"/>; the
-    /// security resolver consults it when the card is revealed as a security Digimon and skips the attacker battle.
-    /// <paramref name="cardSourceCondition"/> = AS-IS CardSourceCondition (usually <c>cs == card</c>).</summary>
-    public static ICardEffect DontBattleSecurityDigimonStaticEffect(Func<CardSource, bool> cardSourceCondition, CardSource card, Func<bool>? condition) =>
-        new DontBattleSecurityDigimonEffect(card, cardSourceCondition, condition);
+    /// <summary>(d-remediation, R3-W3c-4b B1 flip) <c>DontBattleSecurityDigimonStaticEffect</c> — AS-IS
+    /// <c>DontBattleSecurityDigimonClass</c>: intrinsic "Ignore Battle" marker (EX4_013). Returns the new-model
+    /// kind-class <see cref="CardEffects.DontBattleSecurityDigimonClass"/> (an
+    /// <c>IDontBattleSecurityDigimonEffect</c>, no <c>ToBinding</c>) consumed by the security resolver's
+    /// AS-IS-literal interface scan (CardController.cs:4136-4169). Returned by the card at
+    /// <see cref="EffectTiming.None"/>; the resolver consults it when the card is revealed as a security Digimon
+    /// and skips the attacker battle. <paramref name="cardSourceCondition"/> = AS-IS CardSourceCondition
+    /// (usually <c>cs == card</c>); <paramref name="condition"/> = the effect's own CanUse gate (AS-IS
+    /// <c>CanUseIgnoreBattle</c>, abstracted). The only producer is TfxIgnoreBattle (no real-card producers).</summary>
+    public static ICardEffect DontBattleSecurityDigimonStaticEffect(Func<CardSource, bool> cardSourceCondition, CardSource card, Func<bool>? condition)
+    {
+        var effect = new CardEffects.DontBattleSecurityDigimonClass();
+        effect.SetUpICardEffect("Ignore Battle", CanUseCondition, card);
+        effect.SetUpDontBattleSecurityDigimonClass(CardSourceCondition: cardSourceCondition);
+        effect.SetIsSecurityEffect(true);
+        effect.SetNotShowUI(true);
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+    }
 
     /// <summary>(d-remediation) <c>CannotIgnoreDigivolutionConditionStaticEffect</c> — AS-IS
     /// <c>ICannotIgnoreDigivolutionConditionEffect</c> / <c>Player.CanIgnoreDigivolutionRequirement</c>: while this
@@ -473,18 +487,46 @@ public static partial class CardEffectFactory
     /// requirements") — it negates the ignore-level/ignore-colour grants. Registered board-wide (scopeAnyPlayer,
     /// so the digivolve target is in scope); honoured by DigivolveAction's evolution-condition gate. Default
     /// <paramref name="scopeAnyPlayer"/>:true mirrors the AS-IS global scan.</summary>
-    /// <summary>(true-scan) AS-IS <c>SetUpCannotIgnoreDigivolutionConditionClass</c>: <paramref name="predicate"/>
-    /// is the AS-IS joint <c>cannotIgnoreDigivolutionCondition(digivolvingCard, target)</c>, evaluated by scanning
-    /// EVERY field effect in DigivolveAction. BT8_059 uses <c>(_, _) =&gt; true</c> (global lock).</summary>
-    public static ICardEffect CannotIgnoreDigivolutionConditionStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null) =>
-        new CannotIgnoreDigivolutionConditionEffect(card, predicate, condition);
+    /// <summary>(true-scan, R3-W3c-4b D flip) AS-IS <c>CannotIgnoreDigivolutionConditionClass</c>:
+    /// <paramref name="predicate"/> is the AS-IS joint <c>cannotIgnoreDigivolutionCondition(digivolvingCard,
+    /// target)</c>. Returns the new-model kind-class <see cref="CardEffects.CannotIgnoreDigivolutionConditionClass"/>
+    /// (an <c>ICannotIgnoreDigivolutionConditionEffect</c>, no <c>ToBinding</c>) consumed by the live getter
+    /// <see cref="Player.CanIgnoreDigivolutionRequirement"/> (scanned by DigivolveAction); no registry binding. The
+    /// kind-class exposes the AS-IS 3-arg predicate <c>(player, targetPermanent, cardSource)</c>; the joint maps as
+    /// <c>predicate(cardSource /*digivolvingCard*/, targetPermanent.TopCard /*target*/)</c>. BT8_059 uses
+    /// <c>(_, _) =&gt; true</c> (global lock).</summary>
+    public static ICardEffect CannotIgnoreDigivolutionConditionStaticEffect(Func<CardSource, CardSource, bool> predicate, CardSource card, Func<bool>? condition = null)
+    {
+        var effect = new CardEffects.CannotIgnoreDigivolutionConditionClass();
+        effect.SetUpICardEffect("Players can't ignore digivolution requirements", CanUseCondition, card);
+        effect.SetUpCannotIgnoreDigivolutionConditionClass(
+            (player, targetPermanent, cardSource) => predicate(cardSource, targetPermanent.TopCard));
+        return effect;
 
-    /// <summary>(d-remediation) <c>ChangeEndTurnMinMemoryStaticEffect</c> — AS-IS <c>IChangeEndTurnMinMemoryEffect</c>
-    /// / <c>AutoProcessing.TurnEndMinMemory</c>: SETS the memory the opponent must reach for the turn to auto-end
-    /// (default 1) to <paramref name="minMemory"/> (BT14_081/BT17_069 set it to 3, so the turn player keeps acting
-    /// until memory is -3). Registered self-scoped; the turn-pass gate scans the turn player's cards for the value.</summary>
-    public static ICardEffect ChangeEndTurnMinMemoryStaticEffect(int minMemory, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
-        new ContinuousSelfModifierEffect(card, ModifierHelpers.EndTurnMinMemoryKey, minMemory, isInheritedEffect, condition);
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+    }
+
+    /// <summary>(d-remediation, R3-W3c-4b B2 flip) <c>ChangeEndTurnMinMemoryStaticEffect</c> — AS-IS
+    /// <c>ChangeEndTurnMinMemoryClass</c> / <c>AutoProcessing.TurnEndMinMemory</c>: SETS the memory the opponent
+    /// must reach for the turn to auto-end (default 1) to <paramref name="minMemory"/> (BT14_081/BT17_069 set it
+    /// to 3, AS-IS <c>SetUpChangeEndTurnMinMemoryClass(minMemory =&gt; 3)</c>). Returns the new-model kind-class
+    /// <see cref="CardEffects.ChangeEndTurnMinMemoryClass"/> (an <c>IChangeEndTurnMinMemoryEffect</c>, no
+    /// <c>ToBinding</c>) consumed by the AS-IS-literal live scan in <see cref="Headless.Runtime.HeadlessMainPhaseFlow"/>;
+    /// no registry binding.</summary>
+    public static ICardEffect ChangeEndTurnMinMemoryStaticEffect(int minMemory, bool isInheritedEffect, CardSource card, Func<bool>? condition)
+    {
+        var effect = new CardEffects.ChangeEndTurnMinMemoryClass();
+        effect.SetUpICardEffect("The turn end condition min-memory", CanUseCondition, card);
+        effect.SetUpChangeEndTurnMinMemoryClass(_ => minMemory);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+    }
 
     /// <summary>(d-remediation) <c>ChangeBaseCardNameStaticEffect</c> — AS-IS <c>ChangeBaseCardNameClass</c>: SETS
     /// the target's original card name to <paramref name="newName"/> (BT14_097 "original name is [Sukamon]"),
