@@ -31,3 +31,6 @@ P1 GameContext 갭필(~60줄) → P2a phase-body 휴면 조립(~400-600줄, live
 
 ## 리뷰지점 1 결과 (2026-07-17): GO — P0/P1 0
 6 body+EndGame region 대조 전부 확인됨(순서·경계값·EndPhase 리셋 :3170-3208 전량·winner→loser 방향), ADAPTATION 전부 순수 substrate 번역 판정, P1 판정 3종(Memory view 충실·TurnCount wrong-host·IsSecurityLooking=카드-WRITE 플래그라 view 불가) 전부 정당. **P2-1(P2b 필수 하위작업)**: MainPhaseAsync가 AS-IS :880 진입 EndTurnCheck+:882 goto 가드 누락 — P2b에서 OnStartMainPhase 창(:905) 앞에 진입 가드를 구조 삽입해야 함(단순 주석 아님). minor 전방주의: AutoProcessing 미러 시 gameContext.Memory 직접-write(:685/:690)는 MemoryController 경유 필수.
+
+## P3+P4 착지 (2026-07-17)
+P3(35dd7d44)=EndPhase→Cleanup re-point(AS-IS :3170-3208 전량 커버 대조, junction 3종 소유 판정)+TurnCount 정위치(P2a dormant 필드의 latent 0-반환 버그 교정→substrate 위임 view). P4(ff9f58f4)=shadow-run 하네스 — OLD-vs-OLD **bit-identical**(자연 종결 223/188스텝), 결정론 갭 0, S3 주입 seam 준비. **하네스 퍼징이 latent 엔진 버그 2건 표면화**: RD-R4P4-01=`DcgoMatch.StepAsync`가 ambient scope 미자체설정→block-with-collision NRE(기존 CEntity:88 계열의 정확한 위치 — 프로덕션 DcgoMatch 소비자 노출=S3 리뷰 대상·RL 환경 트랙 필수 수정)·RD-R4P4-02=ST1_15 자동선택 validator 위반. 둘 다 양측 동일 발생=결정론(발산 아님).
