@@ -13,12 +13,31 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// mirrors e.g. <c>gameContext.Players_ForTurnPlayer.Map(p =&gt; p.GetBattleAreaDigimons())</c>. Delegates to the
 /// substrate <see cref="IHeadlessTurnController"/> (seat order / turn player / phase) + zone reads.
 ///
-/// SCOPE: only accessors with a clean, verified delegate are exposed. AS-IS <c>IsSecurityLooking</c> (10 card
-/// call sites) has NO live EngineContext source — it lives on a visibility SNAPSHOT, and the headless model
-/// deliberately replaced the AS-IS "IsSelecting/IsSecurityLooking" polling with the choice-pause mechanism
-/// (asis-mirror-migration-decision). Not stubbed here (a compile-error is a clearer card-port signal than a
-/// throwing property) — design item MIG6-SECURITYLOOKING. Memory / TurnCount accessors land when a witnessed
-/// card needs them (design item MIG6-GAMECONTEXT-EXTRA).</summary>
+/// SCOPE: only accessors with a clean, verified delegate are exposed.
+///
+/// (R4 P1 gap-fill, 2026-07-16) AS-IS <c>Memory</c> (GameContext.cs:27) IS exposed — it is a genuine
+/// GameContext member with a live delegate (<see cref="Context"/>.MemoryController.Current.Current, the single
+/// signed turn-player-relative gauge the mirror <c>Player.MemoryForPlayer</c> already reads as
+/// "gameContext.Memory"). The other two R4 P1 candidates are STOPPED, not invented:
+/// • <c>TurnCount</c> — NOT a GameContext member in AS-IS (zero <c>gameContext.TurnCount</c> call sites); it is
+///   owned by <c>TurnStateMachine</c> (TurnStateMachine.cs:29, read via <c>turnStateMachine.TurnCount</c>). Its
+///   faithful mirror home is the sibling shim <see cref="TurnStateMachine"/> (which already mirrors DoneStartGame /
+///   isExecuting by delegating to the same TurnController), NOT here — placing it on GameContext would be a
+///   wrong-host invention. The value exists in substrate (<c>HeadlessTurnState.TurnNumber</c>, 1-indexed like
+///   AS-IS TurnCount), so the additive is trivial once landed on the correct file (deferred: outside this file's
+///   sole ownership / R4 P2a phase-body scope).
+/// • <c>IsSecurityLooking</c> (10 card call sites) has NO live EngineContext source — the only substrate holder
+///   (<c>GameContextStateAccessor.IsSecurityLooking</c>) is never instantiated/set, i.e. dead. It is a mutable
+///   <c>{ get; set; }</c> flag WRITTEN by cards (BT14_033/BT14_093/ST10_06/BT16_024) around an interactive
+///   "look at security" window; the headless model deliberately replaced that IsSelecting/IsSecurityLooking
+///   polling with the choice-pause mechanism (asis-mirror-migration-decision), where the interactive select IS
+///   the look and is atomic (no concurrent effect observes a mid-look state). Its consumers are already covered:
+///   the CanAddSecurity/CanReduceSecurity guards (Player.cs:1471/1523) delegate to
+///   <c>SecurityRuleGateSeam</c> (stubbed as if IsSecurityLooking==false), and the face-down visibility reads
+///   (CardObjectController:373 / Permanent:1092) are subsumed by choice-pause reveal. A faithful mirror would
+///   need a match-scoped mutable box (the <c>isExecuting</c> pattern) to host the writes on this stateless VIEW —
+///   substrate state the existing decision deliberately avoided ("a compile-error is a clearer card-port signal
+///   than a throwing/constant property"). Not stubbed here — design item MIG6-SECURITYLOOKING (unchanged).</summary>
 public sealed class GameContext
 {
     /// <summary>(MIG6) 1:1 mirror of AS-IS <c>GameContext.phase</c> (GameContext.cs:116-124).</summary>
@@ -40,6 +59,15 @@ public sealed class GameContext
     public EngineContext Context { get; }
 
     private HeadlessTurnState Turn => Context.TurnController.Current;
+
+    /// <summary>(R4 P1) AS-IS <c>GameContext.Memory</c> (GameContext.cs:22-28) — the single shared, signed memory
+    /// gauge (range [-10, 10]; positive favours the turn player). This stateless VIEW delegates to the live
+    /// substrate source, <see cref="Context"/>.MemoryController.Current.Current — the SAME value the mirror
+    /// <c>Player.MemoryForPlayer</c> (Player.cs) reads as AS-IS "gameContext.Memory" before re-signing per seat,
+    /// and that <c>AceOverflowGate.MemoryDelta</c> / the play-cost pipeline mutate. Read-only here (a card port
+    /// that WRITES memory mirrors <c>Player.AddMemory</c> / <c>SetFixedMemory</c>, which route through the
+    /// controller — AS-IS never assigns <c>gameContext.Memory</c> from a card, only through Player memory ops).</summary>
+    public int Memory => Context.MemoryController.Current.Current;
 
     /// <summary>(MIG6) AS-IS <c>GameContext.Players</c>: every seated player.</summary>
     public List<Player> Players =>

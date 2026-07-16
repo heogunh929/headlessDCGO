@@ -21,6 +21,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("TurnPhase maps HeadlessPhase to the AS-IS phase enum", PhaseMapping),
     ("PermanentsForTurnPlayer returns both players' battle-area permanents, turn first", PermanentsTurnFirst),
     ("TurnStateMachine.For(context).gameContext exposes the same GameContext", AccessPath),
+    ("Memory reflects the live MemoryController gauge (R4 P1)", MemoryReflectsGauge),
 };
 
 var failures = new List<string>();
@@ -86,6 +87,21 @@ Task AccessPath()
     EngineContext context = Board(turnPlayer: P1);
     var gc = TurnStateMachine.For(context).gameContext;
     AssertEqual(P1, gc.TurnPlayer!.PlayerId, "gameContext via TurnStateMachine.For");
+    return Task.CompletedTask;
+}
+
+Task MemoryReflectsGauge()
+{
+    // (R4 P1) gameContext.Memory is a live VIEW over the substrate memory gauge — not a captured constant.
+    EngineContext context = Board(turnPlayer: P1);
+    var gc = new GameContext(context);
+    AssertEqual(0, gc.Memory, "default gauge is 0");
+    context.MemoryController.Set(3);
+    AssertEqual(3, gc.Memory, "reads the turn player's +3 after Set");
+    context.MemoryController.Set(-4);
+    AssertEqual(-4, gc.Memory, "reflects a subsequent -4 through the same view");
+    context.MemoryController.Add(2);
+    AssertEqual(-2, gc.Memory, "reflects Add(2) => -2");
     return Task.CompletedTask;
 }
 
