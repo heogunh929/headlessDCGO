@@ -46,6 +46,12 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 
 **결정 3 확정 (2026-07-17, 사용자 판정): 옵션 B — AS-IS 케이던스 복원.** 근거(사용자 확인): B=AS-IS 원본 구조(연속 코루틴 펌프+인터랙티브 지점만 정지), OLD 스텝 분절(AdvancePhase 액션)=헤드리스 초기 발명물 — 원본에 없는 분절을 살리려 원본에 없는 세그먼트 경계를 body에 새기는 A는 프로젝트 원칙 역방향. 에이전트 노출 결정=원본 플레이어 결정과 동일해짐(부화/플레이/패스). shadow 게이트 경계=인터랙티브-정지 경계별 상태 동일성+최종 궤적 동등으로 재정의.
 
+## S3 실행 설계 (2026-07-17, 결정 3=B 후속) — 사용자 확인 대기
+**펌프 구조**: `TurnFlowPump`(신규, substrate) — StartGameAsync 후 `{Active→Draw→Breeding→Main→End→flip}` 루프를 미러 body 호출로 연속 실행하는 단일 async 태스크. 정지=**await-게이트**(TCS 인라인-연속, 단일 스레드 결정론): 파크 지점에서 조건 미충족 시 제어가 동기적으로 호스트에 반환, 에이전트 액션이 조건을 채우면 게이트 완성→body가 **제자리 재개**(C# async 연속 = AS-IS 코루틴 프레임 보존의 정확한 등가). 기존 EngineTaskRunner(IEnumerator 전용)는 부적합 판정 — async Task body를 스텝할 수 없음; TCS-게이트가 WaitUntil의 async 번역.
+**정지 지점 4종**(전부 기존 외부화의 재소비): ①멀리건=MulliganCoordinator choice ②창 choice=**await-모드 choice 포트**(현행 throw 계약(WindowChoicePendingException+continuation 기록)은 RunToStable 구동용 — 펌프 구동에선 포트가 choice 개설 후 게이트 await, MultipleSkills body 무변경, 해소 시 제자리 재개; continuation 기록·ResumeSuspendedWindowsAsync는 컷오버 시 은퇴 후보) ③브리딩 결정=디스패치 액션 ④메인 선택 대기=AS-IS :971-1253 디스패치 영역 미러(인텐트=LegalAction, 실행=기존 액션 클래스).
+**배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
+**리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
+
 ## P2b 착지 (2026-07-17) — 턴-말 seam 이관 + P2-1 + 창 seam 재검증
 **턴-말 트리오 미러**: `AutoProcessing.EndTurnCheck/TurnEndMinMemory/EndTurnProcess`(AS-IS :630-727) AS-IS-위치 1:1(IEnumerator→Task). 번역 4건: ①`Passed`=미러 TSM에 AS-IS :3150 신설(match-scoped box, isExecuting 동형) ②:683-693 좌석-절대 게이지 쓰기(PlayerID 0/1 분기)→턴-상대 좌표 `Set(-3)` 단일 환원(양팔 동치 증명 주석; live PassTurn과 동일값) ③:694 memoryObject.SetMemory=UI strip(Player.cs:559 판례) ④:722 SetMainPhase=UI 재장전 strip(룰 내용="Main 유지·펌프 계속"). TurnEndMinMemory는 live HeadlessMainPhaseFlow.ResolveTurnEndMinMemory(W3c-4b B2)와 한시 이중 보유 — S3에서 flow 사본 은퇴.
 **S2-cursor 스캐폴드 해소**: `GameContext.TurnPhase`에 AS-IS(:126 가변 필드) SETTER 신설(TurnController.SetPhase 위임, 커서=PhaseStart 리셋) — dormant body의 per-method `currentPhase` 로컬 전량 제거, 전 body가 AS-IS처럼 gameContext.TurnPhase 직접 읽기/쓰기(:554/:666/:715/:897/:3162). seam 호출 8지점 활성화(:579/:641/:655/:696/:704/:831/:880/:950).
