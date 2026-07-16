@@ -6,9 +6,15 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// FAIL-d: DontHaveDP (AS-IS IDontHaveDPEffect / Permanent.HasDP==false) was MISSING. DontHaveDPStaticEffect now
-// makes ContinuousDpGate.ResolveDp return the -1 no-DP sentinel, overriding the base DP AND every DP modifier
-// (AS-IS Permanent.DP returns -1 outright when !HasDP).
+// FAIL-d: DontHaveDP (AS-IS IDontHaveDPEffect / Permanent.HasDP==false) makes Permanent.DP return the -1 no-DP
+// sentinel, overriding the base DP AND every DP modifier (AS-IS Permanent.DP returns -1 outright when !HasDP).
+//
+// (R3-W3a retarget) This test previously asserted the RETIRED registry path (LegacyBindingBridge lowering of the
+// old-model restriction + a registry DpDeltaKey modifier) — both halves went dead when R1-a rehoused Permanent.DP
+// to the live EffectList interface scan, leaving the test red-on-a-dead-path. It now asserts the AS-IS truth
+// path: the flipped DontHaveDPStaticEffect returns the new-model DontHaveDPClass (IDontHaveDPEffect) and the DP
+// modifier is a new-model ChangeDPClass, both surfaced through the card's live cEntity_Effect seam and read by
+// Permanent.HasDP / GetDP (the FAILb-01 idiom).
 
 const int Base = 3000;
 
@@ -34,30 +40,39 @@ int Resolve(int dpDelta, bool dontHaveDp)
     HeadlessPlayerId P1 = new(1);
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 924);
     ctx.TurnController.Initialize(new[] { P1, new HeadlessPlayerId(2) }, P1);
+    // CanTrigger/CanUse gate on DoneStartGame (mirror proxy: phase past None/Setup); the DP-change effect
+    // live-gates on IsExistOnBattleAreaDigimon, so the card must be a battle-area Digimon.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
     ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("C"), "C", "C",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = Base }, CardType: "Digimon"));
     var id = new HeadlessEntityId("p1:C");
     ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId("C"), P1));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     var card = new CardSource(ctx, id, P1);
 
+    // GManager.instance reads inside CanUse/IsDisabled resolve the match through this ambient scope.
+    using var _scope = AmbientMatchContext.Enter(ctx);
+
+    var effects = new List<ICardEffect>();
     if (dpDelta != 0)
     {
-        ctx.EffectRegistry.Register(new ContinuousSelfModifierEffect(card, ModifierHelpers.DpDeltaKey, dpDelta, false, null).ToBinding($"dp:{id.Value}"));
+        effects.Add(CardEffectFactory.ChangeSelfDPStaticEffect(dpDelta, false, card, null));
     }
 
     if (dontHaveDp)
     {
-        // DontHaveDPStaticEffect's declared return type is the AS-IS abstract ICardEffect base class (which has
-        // no ToBinding member); the concrete ContinuousSelfRestrictionEffect/ContinuousPlayerScopeRestrictionEffect
-        // it actually returns still declare a real ToBinding — bridge via LegacyBindingBridge (the sanctioned
-        // reflective lowering for exactly this shape, see CardEffectCommons/LegacyActivatedBridge.cs).
-        ICardEffect nodpEffect = CardEffectFactory.DontHaveDPStaticEffect(
-            permanentCondition: null, isInheritedEffect: false, card, condition: null);
-        if (LegacyBindingBridge.TryToBinding(nodpEffect, $"nodp:{id.Value}", out EffectBinding? nodpBinding) && nodpBinding is not null)
-        {
-            ctx.EffectRegistry.Register(nodpBinding);
-        }
+        effects.Add(CardEffectFactory.DontHaveDPStaticEffect(permanentCondition: null, isInheritedEffect: false, card, condition: null));
     }
 
+    card.cEntity_EffectController.cEntity_Effect = new TestCardEntityEffect(effects);
+
     return new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(ctx, id).DP;
+}
+
+sealed class TestCardEntityEffect : CEntity_Effect
+{
+    private readonly List<ICardEffect> _effects;
+    public TestCardEntityEffect(List<ICardEffect> effects) { _effects = effects; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) =>
+        timing == EffectTiming.None ? _effects : new List<ICardEffect>();
 }

@@ -418,12 +418,47 @@ public static partial class CardEffectFactory
 
     /// <summary>(d-remediation) <c>DontHaveDPStaticEffect</c> — AS-IS <c>IDontHaveDPEffect</c> /
     /// <c>Permanent.HasDP==false</c>: the protected permanent(s) are treated as having NO DP — AS-IS
-    /// <c>Permanent.DP</c> then returns -1, overriding the base DP and every DP modifier. Registers a continuous
-    /// restriction honoured at the top of <c>ContinuousDpGate.ResolveDp</c>.</summary>
-    public static ICardEffect DontHaveDPStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool scopeAnyPlayer = false) =>
-        permanentCondition is null
-            ? new ContinuousSelfRestrictionEffect(card, RestrictionHelpers.DontHaveDpKey, isInheritedEffect, condition)
-            : new ContinuousPlayerScopeRestrictionEffect(card, card.Owner, RestrictionHelpers.DontHaveDpKey, scopeCardType: null, isInheritedEffect, condition, ScopePred(permanentCondition), scopeAnyPlayer: scopeAnyPlayer);
+    /// <c>Permanent.DP</c> then returns -1, overriding the base DP and every DP modifier.</summary>
+    public static ICardEffect DontHaveDPStaticEffect(Func<Permanent, bool>? permanentCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition, bool scopeAnyPlayer = false)
+    {
+        // (R3-W3a narrow flip) NEW-MODEL: returns the AS-IS kind-class DontHaveDPClass (IDontHaveDPEffect)
+        // instead of the old-model registry restriction. Judgment basis: the LIVE consumer is the R1-a interface
+        // scan Permanent.HasDP (Permanent.cs:127-147 — `cardEffect is IDontHaveDPEffect` over every field
+        // permanent's EffectList(None)); the old DontHaveDpKey registry binding has ZERO readers (dead —
+        // superseded by the R1 rehousing), so the old-model form was inert. AS-IS construction idiom mirrored:
+        // BT17_014 (SetUpICardEffect "Don't have DP" + SetUpDontHaveDPClass(PermanentCondition) + SetNotShowUI).
+        // DontHaveDPClass declares no ToBinding, so LegacyBindingBridge.TryToBinding returns false and the
+        // enter-play registrar (CardEffectRegistrar.cs:234) registers NOTHING — registry production stops here;
+        // availability is the live EffectList scan alone.
+        var effect = new CardEffects.DontHaveDPClass();
+        effect.SetUpICardEffect("Don't have DP", CanUseCondition, card);
+        effect.SetUpDontHaveDPClass(PermanentCondition: PermanentCondition);
+        effect.SetNotShowUI(true);
+        if (isInheritedEffect)
+        {
+            effect.SetIsInheritedEffect(true);
+        }
+
+        return effect;
+
+        bool CanUseCondition(Hashtable hashtable) => condition == null || condition();
+
+        bool PermanentCondition(Permanent permanent)
+        {
+            if (permanentCondition is null)
+            {
+                // Old self-scope form (ContinuousSelfRestrictionEffect): strips DP from exactly THIS card's
+                // permanent — the AS-IS self idiom `permanent == selectedPermanent` (BT17_014, InstanceId equality).
+                Permanent? own = ICardEffect.ResolvePermanentOfThisCard(card);
+                return own is not null && permanent == own;
+            }
+
+            // Old player-scope form (ContinuousPlayerScopeRestrictionEffect): the owner's matching permanents;
+            // scopeAnyPlayer widens the scope to every player's (the old scopeAnyPlayer knob folded into the
+            // predicate — the new-model HasDP scan itself is board-wide, AS-IS Permanent.cs:128).
+            return (scopeAnyPlayer || permanent.OwnerId == card.Owner) && permanentCondition(permanent);
+        }
+    }
 
     /// <summary>(d-remediation) <c>DontBattleSecurityDigimonStaticEffect</c> — AS-IS <c>DontBattleSecurityDigimonClass</c>:
     /// intrinsic "Ignore Battle" marker (EX4_013). Returned by the card at <see cref="EffectTiming.None"/>; the
@@ -1175,6 +1210,16 @@ public static partial class CardEffectFactory
     public static ICardEffect CanNotAffectedStaticEffect(Func<Permanent, bool>? permanentCondition, Func<CardSource, bool>? skillCondition, bool isInheritedEffect, CardSource card, Func<bool>? condition) =>
         // (C2) permanentCondition = AS-IS CardCondition (WHICH permanents are protected) — evaluated live
         // against the protected target (previously accepted and dropped; null keeps the self-only grant).
+        //
+        // (R3-W3a) NOT flipped to the new-model CanNotAffectedClass — flip attempted and REVERTED by the fail-set
+        // gate: although the R1-e interface scan (CardSource.CanNotBeAffected, CardSource.cs:741) is live, the
+        // registry half of this immunity is ALSO a live behavioral consumer — GainCanNotBeDeletedByBattle
+        // (CardEffectCommons.cs:69, the AS-IS `!target.CanNotBeAffected(...)` grant-refusal mirror) and the
+        // ContinuousImmunityGate.BlocksOpponentEffect call sites (MatchStateMutationSink:527/1926/1944,
+        // BlockTiming:284, CardController:859/1010/1142/1301) all read the registry joint predicate ONLY
+        // (witnessed by G9-054/G9-057/P0R turning red under the flip). Design item RD-W3A-01: this factory flips
+        // only after those consumers are re-housed onto the live TopCard.CanNotBeAffected scan (the R3-W3a STOP
+        // report's consumer-side follow-up batch).
         new ContinuousImmunityEffect(card, skillCondition, isInheritedEffect, condition, targetPredicate: ScopePred(permanentCondition));
 
     /// <summary>(C-3) <c>CanNotTrashFromDigivolutionCardsStaticEffect</c> — AS-IS
