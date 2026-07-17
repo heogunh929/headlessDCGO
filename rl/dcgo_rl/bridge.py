@@ -20,10 +20,16 @@ def repo_root() -> Path:
 
 
 def host_dll_path() -> Path:
-    return (
-        repo_root()
-        / "tools" / "RlBridgeHost" / "bin" / "Debug" / "net8.0" / "RlBridgeHost.dll"
-    )
+    """호스트 DLL — Release 우선(펌프-era 처리량 §7: Release 2배), 없으면 Debug 폴백.
+
+    빌드 구성 간 스텝열 동일(결정론)은 rl_env_design §7에서 실측 — 구성 선택은 속도만 바꾼다.
+    """
+    base = repo_root() / "tools" / "RlBridgeHost" / "bin"
+    for config in ("Release", "Debug"):
+        candidate = base / config / "net8.0" / "RlBridgeHost.dll"
+        if candidate.exists():
+            return candidate
+    return base / "Release" / "net8.0" / "RlBridgeHost.dll"
 
 
 def local_vocab_hash(vocab: CardVocabulary) -> str:
@@ -50,7 +56,7 @@ class BridgeClient:
         if not dll.exists():
             raise BridgeError(
                 f"RlBridgeHost not built: {dll}\n"
-                "run: dotnet build tools/RlBridgeHost/RlBridgeHost.csproj"
+                "run: dotnet build tools/RlBridgeHost/RlBridgeHost.csproj -c Release"
             )
 
         cmd = ["dotnet", str(dll)]

@@ -25,6 +25,9 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from dcgo_rl.bridge import BridgeClient
+from dcgo_rl.cards import CardIndex
+from dcgo_rl.decks.providers import FixedPoolProvider
+from dcgo_rl.decks.recipe import load_recipe_file
 from dcgo_rl.envs import DcgoSeatEnv
 from dcgo_rl.league.matchup import MatchupMatrix
 from dcgo_rl.league.opponents import LeagueOpponentPool, PolicyOpponent
@@ -140,8 +143,10 @@ def main() -> None:
     parser.add_argument("--n-envs", type=int, default=4)
     parser.add_argument("--freeze-every", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--init", type=str, default="../runs/l0-300k/policy.zip",
-                        help="시작 정책(L0 산출물에서 이어서). 'fresh'면 밑바닥부터")
+    parser.add_argument("--init", type=str, default="../runs/l0-pump/policy.zip",
+                        help="시작 정책(pump-era L0 산출물에서 이어서). 'fresh'면 밑바닥부터")
+    parser.add_argument("--recipes", nargs="*", default=None,
+                        help="덱 레시피 파일들 — L0 학습 때와 같은 풀이어야 스냅샷 호환(deck_context)")
     parser.add_argument("--weakness-min-games", type=int, default=30)
     parser.add_argument("--rating-window", type=float, default=200.0)
     parser.add_argument("--out", type=str, default="../runs/league-l1")
@@ -171,11 +176,18 @@ def main() -> None:
         store, sampler, ratings, matrix, learner_id=LEARNER, sample_rng=random.Random(args.seed)
     )
 
+    recipe_paths = [str(Path(p).resolve()) for p in (args.recipes or [])]
+
+    def load_pool():
+        index = CardIndex.load()
+        return FixedPoolProvider([load_recipe_file(Path(p), index) for p in recipe_paths])
+
     def make_env(rank: int):
         def _thunk():
             env = DcgoSeatEnv(
                 experiment_seed=args.seed * 1000 + rank,
                 opponent=pool,
+                deck_provider=(load_pool() if recipe_paths else None),
                 result_log=str(out_dir / f"results-env{rank}.jsonl"),
                 log_level=args.log_level,
                 event_log=(str(out_dir / f"event-env{rank}.jsonl") if args.log_level != "OFF" else None),
@@ -203,8 +215,10 @@ def main() -> None:
         "obs_schema_hash": obs_schema_hash,
         "vocab_version": vocab_version,
         "arch": "mlp+card-embed",
-        "deck_context": ["starter:ST1", "starter:ST2"],
-        "card_pool": "ST1+ST2",
+        "deck_context": (
+            [Path(p).stem for p in recipe_paths] if recipe_paths else ["starter:ST1", "starter:ST2"]
+        ),
+        "card_pool": ("recipes-180clean" if recipe_paths else "ST1+ST2"),
     }
     callback = LeagueCallback(
         pool, ratings, matrix, store, args.freeze_every, meta_base, out_dir / "league_log.jsonl"

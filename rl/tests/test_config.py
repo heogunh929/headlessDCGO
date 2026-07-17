@@ -25,7 +25,7 @@ class ExperimentConfigTests(unittest.TestCase):
         self.assertEqual(config.experiment, "l0-fixed-pair")
         self.assertEqual(config.seed, 42)
         self.assertEqual(config.deck_source.type, "fixed")
-        self.assertEqual(len(config.deck_source.recipes), 2)
+        self.assertEqual(len(config.deck_source.recipes), 4)  # B3: 모노컬러 4종 레시피
         self.assertEqual(config.policy.arch, "mlp")
         self.assertTrue(config.policy.learn)
         self.assertFalse(config.league.enabled)

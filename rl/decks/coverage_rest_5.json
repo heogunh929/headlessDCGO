@@ -1,0 +1,100 @@
+{
+  "name": "coverage_rest_5",
+  "source": "operator",
+  "main": [
+    {
+      "card": "ST16_14",
+      "count": 4
+    },
+    {
+      "card": "ST5_09",
+      "count": 4
+    },
+    {
+      "card": "ST5_11",
+      "count": 4
+    },
+    {
+      "card": "ST7_10",
+      "count": 4
+    },
+    {
+      "card": "BT13_023",
+      "count": 2
+    },
+    {
+      "card": "BT14_035",
+      "count": 2
+    },
+    {
+      "card": "BT16_025",
+      "count": 2
+    },
+    {
+      "card": "BT19_024",
+      "count": 2
+    },
+    {
+      "card": "BT19_071",
+      "count": 2
+    },
+    {
+      "card": "BT1_010",
+      "count": 2
+    },
+    {
+      "card": "BT1_011",
+      "count": 2
+    },
+    {
+      "card": "BT1_012",
+      "count": 2
+    },
+    {
+      "card": "BT1_015",
+      "count": 2
+    },
+    {
+      "card": "BT1_016",
+      "count": 2
+    },
+    {
+      "card": "BT1_017",
+      "count": 2
+    },
+    {
+      "card": "BT1_018",
+      "count": 2
+    },
+    {
+      "card": "BT1_022",
+      "count": 2
+    },
+    {
+      "card": "BT1_023",
+      "count": 2
+    },
+    {
+      "card": "BT1_025",
+      "count": 2
+    },
+    {
+      "card": "BT1_026",
+      "count": 2
+    },
+    {
+      "card": "BT1_029",
+      "count": 2
+    }
+  ],
+  "digitama": [
+    {
+      "card": "EX10_002",
+      "count": 3
+    },
+    {
+      "card": "EX6_001",
+      "count": 1
+    }
+  ]
+}

@@ -1,12 +1,14 @@
-# L0 — Mode A 최소형: 고정 덱 2개, 리그 off (dev design §2, roadmap L0)
-# 레시피 경로는 rl/ 기준 상대경로. 실제 레시피는 운영자가 던진다(FR-3.1) — 외부 텍스트/내부 JSON 둘 다 허용.
+# L0 — Mode A (pump-era B3): 클린 180장 풀 레시피, 리그 off (dev design §2, roadmap L0)
+# 레시피 경로는 rl/ 기준 상대경로 — build_recipes.py 산출물(모노컬러 4종). 재생성: python build_recipes.py
 experiment: l0-fixed-pair
 seed: 42
 deck_source:
   type: fixed
   recipes:
-    - decks/st1_red.json
-    - decks/st2_blue.json
+    - decks/red_st1_bt.json
+    - decks/blue_st2_bt.json
+    - decks/yellow_st3_bt.json
+    - decks/green_st4_bt.json
 policy:
   arch: mlp
   init: null

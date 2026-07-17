@@ -1,0 +1,68 @@
+{
+  "name": "green_st4_bt",
+  "source": "operator",
+  "main": [
+    {
+      "card": "ST4_03",
+      "count": 4
+    },
+    {
+      "card": "ST4_04",
+      "count": 4
+    },
+    {
+      "card": "ST4_10",
+      "count": 4
+    },
+    {
+      "card": "ST4_11",
+      "count": 4
+    },
+    {
+      "card": "ST4_12",
+      "count": 4
+    },
+    {
+      "card": "ST4_13",
+      "count": 4
+    },
+    {
+      "card": "ST4_14",
+      "count": 4
+    },
+    {
+      "card": "ST4_15",
+      "count": 4
+    },
+    {
+      "card": "ST4_16",
+      "count": 4
+    },
+    {
+      "card": "BT1_066",
+      "count": 4
+    },
+    {
+      "card": "BT1_067",
+      "count": 4
+    },
+    {
+      "card": "BT1_068",
+      "count": 4
+    },
+    {
+      "card": "BT22_044",
+      "count": 2
+    }
+  ],
+  "digitama": [
+    {
+      "card": "ST4_01",
+      "count": 4
+    },
+    {
+      "card": "BT1_007",
+      "count": 1
+    }
+  ]
+}

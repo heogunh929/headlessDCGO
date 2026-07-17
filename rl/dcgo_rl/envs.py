@@ -17,6 +17,7 @@ import gymnasium as gym
 import numpy as np
 
 from dcgo_rl.bridge import BridgeClient
+from dcgo_rl.decks.providers import DeckProvider
 from dcgo_rl.seeding import derive_match_seed
 
 OpponentPolicy = Callable[[dict, random.Random], int]
@@ -41,10 +42,14 @@ class DcgoSeatEnv(gym.Env):
         result_log: str | None = None,
         log_level: str = "OFF",
         event_log: str | None = None,
+        deck_provider: DeckProvider | None = None,
     ):
         super().__init__()
+        if decks is not None and deck_provider is not None:
+            raise ValueError("decks and deck_provider are mutually exclusive")
         self._client = BridgeClient(result_log=result_log, log_level=log_level, event_log=event_log)
         self._decks = decks or {"1": "starter:ST1", "2": "starter:ST2"}
+        self._deck_provider = deck_provider
         self._experiment_seed = experiment_seed
         self._max_steps = max_steps
         self._opponent = opponent
@@ -71,6 +76,11 @@ class DcgoSeatEnv(gym.Env):
         self._agent_seat = 1 if (not self._alternate_seats or self._episode % 2 == 0) else 2
         self._match_rng = random.Random(match_seed)
         self._episode += 1
+
+        if self._deck_provider is not None:
+            # 덱 샘플링도 match_seed 파생 rng — 같은 (experiment_seed, episode)면 같은 매치업 (NFR-3).
+            deck_a, deck_b = self._deck_provider.next_matchup(self._match_rng)
+            self._decks = {"1": deck_a.to_json(), "2": deck_b.to_json()}
 
         msg = self._client.reset(match_seed, self._decks, self._max_steps)
         msg = self._advance_opponent(msg)

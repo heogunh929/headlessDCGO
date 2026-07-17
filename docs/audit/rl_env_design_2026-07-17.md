@@ -216,7 +216,7 @@ after 잔여 핫스팟(=(b) 원장, RD-RLENV-06): LINQ ToArray 계열 24.0%(`Pla
 |---|---|---|---|
 | B1 | **계측 정합 회복** (RL층+테스트만) | G13-003 펌프 재조준(legacy ctor→CreatePumpDriven, stale `EffectResolved` 속성→행동 지표[플레이/공격/시큐리티 소진] 또는 창-경로 계측으로 교체 — 엔진 이벤트 재배선은 RD-RLENV-02로 등재만); A1/A2 LEGACY SCAFFOLD의 펌프판 witness 추가; determinism/병렬 verifier 실행 테스트 승격; 처리량 베이스라인 하네스(steps/sec·ms/판 수치 고정) | G13-003 10/10 green(펌프) + 병렬 결정론 witness green + 베이스라인 수치 기록 |
 | B2 | **처리량** | 엔진 프로파일(판당 11s 소재 확정 — RD-RLENV-03; 엔진 수정은 프로파일 결과로 항목화해 사용자 확인 후 별도 배치); RL측 다중 프로세스 벡터화(`SubprocVecEnv`×N + host 풀) | N-프로세스 aggregate steps/sec 실측 ≥ 5×단일(선형성) + 프로파일 보고서(핫스팟 상위 5) |
-| B3 | **학습 루프 재검증(pump-era L0/L1)** | 209장 풀 레시피 2~4종 확정(witness 카드 포함, ST 스타터+BT1/BT2); MaskablePPO 스모크 재실행; L1 리그 재가동(스냅샷 신규 — 구 스냅샷은 OLD-cadence 궤적이라 폐기) | 스모크 무크래시 + eval vs 랜덤 유의미 우위 + 관측/마스크 차원 계약 무변(해시 일치) |
+| B3 | **학습 루프 재검증(pump-era L0/L1)** | 209장 풀 레시피 2~4종 확정(witness 카드 포함, ST 스타터+BT1/BT2); MaskablePPO 스모크 재실행; L1 리그 재가동(스냅샷 신규 — 구 스냅샷은 OLD-cadence 궤적이라 폐기) | 스모크 무크래시 + eval vs 랜덤 유의미 우위 + 관측/마스크 차원 계약 무변(해시 일치) **[B3 상환(2026-07-17) — 3부 §B3.1~.5: eval 99.2% CI95=[95.4%,99.9%], 게이트 전부 PASS]** |
 | B4 | **퍼징 수확 계층** | D6 표의 보강 4종(호스트 result 확장·strict 프로파일 캠페인 러너·reason 집계·seed-replay 게이트); 대량 랜덤/약정책 롤아웃 캠페인(209장 풀 전 카드 노출 커버리지 리포트) | 캠페인 ≥10⁴판 완주(크래시=수확·파이프라인 무중단) + 카드 노출 커버리지 리포트 + 수확 원장 회부 ≥1회전 |
 | B5 | **다중-선택 표면 + 풀 확대 게이트** (엔진 공사 포함 — 사용자 승인 선행) | RD-RLENV-01(순차 부분-선택: 디스패처 세션 열거+Confirm 레인+A1 경계 수용) + factored 스키마 v2(+1~2슬롯, 버전 증가) + A3 잔여 witness(조인트-검증기 카드 = BT20_098 포팅과 동승) | 조인트-검증기 witness green(교착 0) + 기존 스위트 무회귀 + 스키마 버전 핸드셰이크 검증 |
 
@@ -233,3 +233,91 @@ after 잔여 핫스팟(=(b) 원장, RD-RLENV-06): LINQ ToArray 계열 24.0%(`Pla
 - **RD-RLENV-05**: `SpecialPlay` 펌프 분기 제외(`HeadlessLegalActionDispatcher.cs:47-52`) — DigiXros/Assembly STOP 클러스터 상환 시 펌프 표에 복귀(RD-P6C1-5/RD-R5-04 후속). 그때까지 해당 카드는 RL 관점에서 플레이 불가 레인.
 - **확인 항목**: BT3 포팅분 부재(§6) — 메모리 기록("BT2/BT3 완료")과 트리 불일치. 브랜치 유실인지 기록 오류인지 착수 전 판정.
   - **사용자 확정(2026-07-17): 실측 209장이 정본, 메모리 기록(BT3 포팅)이 stale** — 재작업으로 소실된 것이 아니라 기록이 구식. 조사 불요, **종결**.
+
+---
+
+# 3부. B3 실행 기록 (2026-07-17) — 학습 루프 재검증(pump-era L0/L1)
+
+## §B3.1 L0/L1 재조준 (변경 목록 — 전부 RL층/학습 스크립트, 엔진 무접촉)
+기존 Python 학습 슬라이스 위치: `rl/train.py`(L0 MaskablePPO+카드임베딩), `rl/train_league.py`(L1 리그/Elo/스냅샷), `rl/dcgo_rl/`(bridge/envs/cards/decks/league/policy), venv=`rl/.venv`(torch 2.12.1, sb3-contrib 2.9.0, gymnasium 1.3.0 — 신규 의존성 없음).
+
+| 파일 | 재조준 내용 |
+|---|---|
+| `rl/dcgo_rl/bridge.py` | 호스트 DLL Debug 하드코딩 → **Release 우선, Debug 폴백**(§7 실측: 구성 간 스텝열 동일·속도 2배) |
+| `rl/dcgo_rl/envs.py` | `DcgoSeatEnv`에 `deck_provider` 추가 — 매 reset마다 `FixedPoolProvider`가 match_seed-파생 rng로 매치업 샘플(NFR-3 유지). 기존 고정-덱 경로 무변 |
+| `rl/train.py` | `--recipes`(레시피 풀 학습), 기본 `--n-envs 8`, eval 기본 120판+Wilson CI, meta에 obs/action 크기·eval 전적 기록, 기본 out=`../runs/l0-pump` |
+| `rl/evaluate.py` | 평가 리포트 확장: 승/패/절단 수 + **Wilson 95% CI**; `--recipes`(학습과 동일 풀 평가) |
+| `rl/train_league.py` | `--init` 기본 → `../runs/l0-pump/policy.zip`(pump-era 재생성 경로), `--recipes` + 스냅샷 meta의 deck_context/card_pool 갱신 |
+| `rl/configs/l0_fixed_pair.yaml` | 실존하지 않던 레시피 참조 → `build_recipes.py` 산출 4종으로 교체 |
+| `rl/build_recipes.py` | **신설**: 클린 풀 스캔(엔진 dispatch 규약 미러) + 덱 레시피 생성기(재생성 경로) |
+| `runs/l0-smoke`·`runs/l0-300k`·`runs/league-l1` | **폐기(삭제)** — OLD-cadence 궤적 체크포인트/리그 스냅샷(설계 결정). 재생성 경로 = §B3.4 |
+
+주: RlVectorHost는 마스크-랜덤 롤아웃/퍼징 러너(정책 인터페이스 없음). PPO는 on-policy라 오프라인 랜덤 데이터로 학습 불가 — 학습용 벡터화 데이터 생성은 **같은 토폴로지**(RlBridgeHost 자식 N프로세스 = D5 1차안, §7.4 procs 모드가 실증)를 `SubprocVecEnv×N`으로 구동한다.
+
+## §B3.2 덱 레시피 (클린 179장 풀, `rl/decks/*.json`)
+- 풀 산출: 포팅 209(카드번호=클래스명 dispatch 미러) − 파일 STOP 마커 29 − **잠복-STOP 1**(`AD1_025`: 파일에 STOP 마커 없으나 `AddAssemblyConditionClass` 부여로 CardController Assembly play arm의 RD-P6C1-5 throw 격발 — B3 검증 롤아웃에서 실측 수확) = **클린 179**.
+- AS-IS 덱 규칙 확인(`DCGO/Assets/Scripts/Script/DeckBuildingRule.cs`·`EditDeck.cs` "50+5"): **메인 정확히 50장, 카드당 최대 4장, 디지타마 ≤5장** — 전 레시피 준수.
+- 구성(모노컬러 4종 = 학습 풀, ST 스타터 코어 + 동색 BT1/BT2 필; witness 카드 ST1_15 포함):
+
+| 레시피 | 색/전략 | 구성 |
+|---|---|---|
+| `red_st1_bt` | 적 — ST1 어그로 코어 + BT1/BT2 적 | 50+5 (15 distinct) |
+| `blue_st2_bt` | 청 — ST2 컨트롤 코어 + BT 청 | 50+5 (15 distinct) |
+| `yellow_st3_bt` | 황 — ST3 시큐리티 코어 + BT 황 | 50+5 (15 distinct) |
+| `green_st4_bt` | 녹 — ST4 코어(엔진 StarterDecks 미수록, 포팅분 4장씩) + BT 녹 | 50+5 (13 distinct) |
+| `coverage_rest_1..5` | 잔여 커버리지(자/백/흑/혼색 포함, 2장씩) — B4 퍼징 캠페인용 | 각 50+4 |
+
+- 커버리지: **179/179 클린 카드가 최소 1덱에 등장**(생성기 출력이 검증). 결정적 생성 — `cd rl && python build_recipes.py`.
+- 엔진 수용 검증: 9덱 × (미러+체인) 18쌍 전판 랜덤 롤아웃 — **18/18 자연 종결, 셋업 거부 0, 크래시 0, step_cap 0**(maxSteps 500).
+
+## §B3.3 L0 스모크 + 평가 (게이트 실측)
+조건: 30,000 agent-steps, `SubprocVecEnv×8`(RlBridgeHost Release 자식 8프로세스), seed 42, 모노 4레시피 풀, MaskablePPO(MlpPolicy+CardEmbeddingExtractor — L0 알고리즘 그대로, 신규 발명 0).
+
+| 게이트 | 판정 | 실측 |
+|---|---|---|
+| ① 스모크 전 구간 무크래시 | **PASS** | 학습 1,441판 + 평가 120판 전판 자연 종결(step_cap/stalled/aborted/예외 0) |
+| ② 학습 정책 vs 랜덤 통계적 우위 | **PASS** | **99.2% (119W/1L/120판, 절단 0), Wilson CI95=[95.4%, 99.9%]** — 50% 대비 압도적 |
+| ③ 관측/마스크 차원 계약 무변 | **PASS** | obs 3088·action 599·vocab 4206, obsSchemaHash `b09a5218…` 학습 전/후·검증 프로브 동일 |
+
+- 학습 곡선(학습-중 탐색 포함 winrate, 에피소드 4분위): **Q1 0.69 → Q2 0.84 → Q3 0.93 → Q4 0.94** — 단조 상승.
+- 처리량: **21.3 agent-steps/sec**(학습기 gradient 연산과 8워커가 6C/12T를 공유 — §7.4 랜덤-롤아웃 51 steps/sec 대비 학습 포함 실효치). 30k 스모크 벽시계 = 23.5분 + 평가 ~9분.
+- L1 리그 재가동(8,000스텝, freeze 2,000, DummyVecEnv×4, 동일 레시피 풀, init=l0-pump): 스냅샷 4개 신규 편입(`st-league-s001..s004`), **게이트 3/3 — 레이팅 상승(learner 1315), weakness 샘플링 발동(64회), 시드 재현 대전 일치**. 12.0 steps/sec.
+- 잠복-STOP 수확 1건: `AD1_025`(§B3.2) — B4 수확 계층의 선행 실증(레시피 검증 롤아웃이 잡음).
+
+## §B3.4 재현 절차 (명령 시퀀스)
+```bash
+# 0) 호스트 빌드 (1회)
+dotnet build tools/RlBridgeHost/RlBridgeHost.csproj -c Release
+
+# 1) 덱 레시피 생성 (결정적 — 산출물 rl/decks/*.json)
+cd rl && .venv/bin/python build_recipes.py
+
+# 2) 셀프플레이 데이터 생성 + L0 학습 + 평가 + 체크포인트 (일체형)
+.venv/bin/python train.py --steps 30000 --n-envs 8 --vec subproc --seed 42 \
+  --eval-matches 120 \
+  --recipes decks/red_st1_bt.json decks/blue_st2_bt.json \
+            decks/yellow_st3_bt.json decks/green_st4_bt.json \
+  --out ../runs/l0-pump
+# 산출: ../runs/l0-pump/policy.zip + meta.json(계약 해시·eval 전적·CI) + results-env*.jsonl
+
+# 3) 평가만 재실행(체크포인트 관리 — 임의 시점 재평가)
+.venv/bin/python evaluate.py ../runs/l0-pump/policy.zip --matches 120 --seed 819 \
+  --recipes decks/red_st1_bt.json decks/blue_st2_bt.json \
+            decks/yellow_st3_bt.json decks/green_st4_bt.json
+
+# 4) L1 리그 재가동 (스냅샷 신규 — freeze 주기마다 runs/league-l1-pump/snapshots/에 편입)
+.venv/bin/python train_league.py --steps 8000 --freeze-every 2000 --n-envs 4 \
+  --recipes decks/red_st1_bt.json decks/blue_st2_bt.json \
+            decks/yellow_st3_bt.json decks/green_st4_bt.json \
+  --out ../runs/league-l1-pump
+```
+체크포인트 관리 규약: `runs/<실험>/policy.zip`+`meta.json`(obs_schema_hash·vocab_version 동봉 — 로드 시 대조로 OLD-cadence/스키마 드리프트 차단), 리그 스냅샷=`runs/<실험>/snapshots/` + `ratings.json`·`matchup.sqlite`. OLD-cadence 산출물은 2026-07-17 전량 삭제됨 — 위 시퀀스가 유일 재생성 경로.
+
+## §B3.5 실행 로그 (게이트 판정·회귀)
+- RL 스위트(학습과 병행 실행, Release): **M2-001 11/11 · M4-001 9/9 · G13-003 PASS · R4RL-01 6/6 · RLB1-01 3/3** — 전부 green, 무회귀. rl/ Python 유닛 **41/41**.
+- B3 게이트 종합 판정: **GO** (§B3.3 표 3항목 전부 PASS + L1 리그 게이트 3/3).
+- 남는 리스크(원장):
+  1. 잠복-STOP은 정적 마커 스캔으로 전수 식별 불가 — `AD1_025`형(인프라 throw 격발)이 더 있을 수 있음. 완화: 레시피 검증 롤아웃(§B3.2) + B4 캠페인이 전수 노출. 학습 파이프라인은 예외=보상 0 종결이라 크래시가 아니라 수확(D6).
+  2. 학습 실효 처리량 21.3 steps/sec — 학습기(torch)와 env 워커의 코어 경합. 대규모(≥10⁶ 스텝) 캠페인은 물리 ≥8코어 장비 또는 학습기/롤아웃 분리 필요(성능 작업은 사용자 동결 지시로 미착수).
+  3. 평가·리그 게이트는 vs-랜덤/자기-스냅샷 기준 — 절대 실력 척도 아님(L2+ 몫). 스모크 게이트로는 충분.
+  4. coverage_rest 덱은 전략적 정합성이 낮은 커버리지 파일 — 학습 풀엔 모노 4종만, coverage는 B4 퍼징 캠페인 전용.
