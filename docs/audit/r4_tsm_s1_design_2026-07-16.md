@@ -52,6 +52,15 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
 **리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
 
+## S3c-c 착지 (2026-07-17) — shadow 확대·발산 판정 (9a6df8e2, 컷오버 승인 대기)
+**기본 정책 21게임**(5+16시드, 캡 140): 전부 경계-동일, 16게임 자연 종국(81턴 덱아웃) 도달 — **종국 승자 판정까지 OLD=NEW**.
+**확장 정책(진화+옵션)이 결함 3건 적발** — 게이트의 존재 이유 실증:
+1. **NEW 버그(수정)**: EvoCosts printed 투영이 요건 리스트만 소비 → 과허용. 진짜 캐리어=`CardRecord.EvolutionCondition` 토큰("Color@Level(:Cost)", OLD MatchesEvolutionCondition과 동일 게이트). 부수: :813 진화 재검증 게이트 STOP 실체화(소유자+CanEvolve 환원).
+2. **코퍼스-방언 갭(브릿지)**: 코퍼스가 [When Digivolving]을 전용 키로 리맵 등록(배치-2 관례) → AS-IS-충실 실행자(OnEnterFieldAnyone+게이트)에서 침묵. 실행자에 DISPATCH-REMAP BRIDGE(진화 시 WhenDigivolving 동시 개설). 코퍼스 재키잉 시 브릿지 은퇴.
+3. **OLD latent 원장 2건**: **RD-S3C-01**=OLD [When Digivolving] **이중발화**(전용 emit+공급 변환 이중 창 혐의; 산술 증거="2장 트래시" 효과가 OLD에서 3장=2+1회. NEW 1회=AS-IS 정본 — 컷오버로 자연 소멸, 리뷰3 확증 대상) · **RD-S3C-02**=OLD ActivateOption의 ST1_15 조합-검증 throw(은퇴 경로 엣지, 리뷰3 판정).
+**게이트 의미론 확정**: 발산=판정 REPORT(원장 대조), [OLD]-측 오류=원장, 스위트 실패=NEW-측/일반 오류만. **커버리지**: 플레이·진화(연쇄 3단)·옵션·공격·시큐리티 배틀·부화·패스·EoT창·자동 턴종료·덱아웃 종국 / 미커버=특수플레이(RD-P6C1-5/RD-R5-04 STOP 등재)·블록(방어측 블로커 없는 정책 — witness별도 커버)·본선 카드풀 밖 효과.
+**전체 스위트**: 333/107, fail-set=base 바이트 동일.
+
 ## S3c-a 착지 (2026-07-17) — shadow OLD-vs-NEW 하네스 + 5시드 경계-동일
 **재정의 프로토콜(결정 3)**: 두 드라이버는 액션 통화가 달라 P4 lockstep이 정의 불가 — ①단일 결정론 정책(멀리건 keep·부화·공격-우선/플레이/패스)이 게임-수준 결정을 내리고 각 측이 자기 통화로 번역(OLD=legal 테이블 선택+AdvancePhase/EndTurn 스텝 구동, NEW=펌프 정지 seam) ②비교 경계=양 모델이 공유하는 인터랙티브-정지 — **턴별 메인-진입**(OLD=(Main,PhaseStart)+무choice, NEW=펌프 메인 park)+종국 ③RNG 패리티 전제(셔플=공용 setup·드로=RNG 미소비) 게임별 검증 내장 ④발산=자동판정 아닌 REPORT(경계·diff·결정 트레일)=S3c-c 분석 입력.
 **결과: 5/5 게임 경계-동일(41턴 캡, 실플레이·공격·부화·시큐리티 배틀 포함)**. 캡 도달=정책 교착(종국 미검증) — S3c-c에서 N·캡 확대+종국 정책 보강. 하네스 교훈: 공격/저비용 플레이는 같은 턴 메인으로 복귀 — 루프=결정 반복+턴 전환 시 비교(턴당 1결정 구조는 오판).
