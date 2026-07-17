@@ -34,24 +34,57 @@ public sealed record DigivolutionStack
 {
     private readonly IReadOnlyList<StackedCard> _cards;
 
+    // (RD-RLENV-03 / B2 substrate-only) Lazily cached UnderCards projection. Every stack read on the
+    // hot effect-scan path (CardSource.PermanentOfThisCard and friends) touched UnderCards, and the
+    // previous Take().ToArray() per ACCESS dominated allocation churn. The record is immutable after
+    // construction, so the projection is computed at most once. Semantics unchanged: same content,
+    // same ordering, still exposed as IReadOnlyList. (No equality/`with` consumers exist for this
+    // record, so the extra cache field does not alter any observed comparison.)
+    private StackedCard[]? _underCardsCache;
+
     public DigivolutionStack(IReadOnlyList<StackedCard> cards)
     {
         ArgumentNullException.ThrowIfNull(cards);
 
-        StackedCard[] snapshot = cards.ToArray();
-        if (snapshot.Any(card => card is null))
+        // (RD-RLENV-03 / B2 substrate-only) Validation rewritten allocation-free — this constructor was
+        // the single hottest frame in the B2 profile (49% exclusive CPU: LINQ ToArray + Any + Select/
+        // Distinct HashSet per construction, millions of constructions per game). The checks, their
+        // ORDER, exception types and messages are IDENTICAL to the original LINQ form:
+        //   1) null element        -> ArgumentException(nameof(cards))
+        //   2) duplicate ids       -> InvalidOperationException
+        //   3) Top role placement  -> InvalidOperationException
+        int count = cards.Count;
+        StackedCard[] snapshot = count == 0 ? Array.Empty<StackedCard>() : new StackedCard[count];
+        for (int i = 0; i < count; i++)
         {
-            throw new ArgumentException("Digivolution stack must not contain null cards.", nameof(cards));
+            snapshot[i] = cards[i];
         }
 
-        if (snapshot.Select(card => card.InstanceId).Distinct().Count() != snapshot.Length)
+        for (int i = 0; i < count; i++)
         {
-            throw new InvalidOperationException("Digivolution stack instance ids must be unique.");
+            if (snapshot[i] is null)
+            {
+                throw new ArgumentException("Digivolution stack must not contain null cards.", nameof(cards));
+            }
         }
 
-        if (snapshot.Length > 0)
+        // Uniqueness: stacks are shallow (a handful of cards), so a pairwise scan beats a HashSet and
+        // allocates nothing. Same predicate as Select(InstanceId).Distinct().Count() != Length.
+        for (int i = 1; i < count; i++)
         {
-            for (int i = 0; i < snapshot.Length - 1; i++)
+            HeadlessEntityId id = snapshot[i].InstanceId;
+            for (int j = 0; j < i; j++)
+            {
+                if (snapshot[j].InstanceId.Equals(id))
+                {
+                    throw new InvalidOperationException("Digivolution stack instance ids must be unique.");
+                }
+            }
+        }
+
+        if (count > 0)
+        {
+            for (int i = 0; i < count - 1; i++)
             {
                 if (snapshot[i].Role == StackRole.Top)
                 {
@@ -59,7 +92,7 @@ public sealed record DigivolutionStack
                 }
             }
 
-            if (snapshot[^1].Role != StackRole.Top)
+            if (snapshot[count - 1].Role != StackRole.Top)
             {
                 throw new InvalidOperationException("The topmost card must have the Top role.");
             }
@@ -82,6 +115,29 @@ public sealed record DigivolutionStack
     public int BaseDp => TopCard?.BaseDp ?? 0;
 
     /// <summary>Cards beneath the top, i.e. the digivolution sources (eggs + lower digivolutions).</summary>
-    public IReadOnlyList<StackedCard> UnderCards =>
-        _cards.Count <= 1 ? Array.Empty<StackedCard>() : _cards.Take(_cards.Count - 1).ToArray();
+    public IReadOnlyList<StackedCard> UnderCards
+    {
+        get
+        {
+            if (_cards.Count <= 1)
+            {
+                return Array.Empty<StackedCard>();
+            }
+
+            // (RD-RLENV-03 / B2) Same content/order as the former Take(Count-1).ToArray() per access,
+            // computed once per (immutable) stack instance.
+            if (_underCardsCache is null)
+            {
+                var under = new StackedCard[_cards.Count - 1];
+                for (int i = 0; i < under.Length; i++)
+                {
+                    under[i] = _cards[i];
+                }
+
+                _underCardsCache = under;
+            }
+
+            return _underCardsCache;
+        }
+    }
 }

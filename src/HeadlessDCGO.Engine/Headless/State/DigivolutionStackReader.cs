@@ -21,6 +21,26 @@ public static class DigivolutionStackReader
     public const string DpKey = "dp";
     public const string LevelKey = "level";
 
+    // (RD-RLENV-03 / B2 substrate-only) Memoized read: the B2 profile put this reader (and the stack
+    // ctor/projections under it) at ~76% of total CPU — it is re-invoked for every battle-area card on
+    // every mirror effect scan (CardSource.PermanentOfThisCard et al.), while its output is a PURE
+    // function of (top CardInstanceRecord, the under-cards' CardInstanceRecords, immutable definitions).
+    // CardInstanceRecord is an immutable record (metadata copied into a ReadOnlyDictionary at init;
+    // every mutation path Upserts a NEW record — and every sourceIds writer stores a fresh string[]),
+    // so a cache keyed on the top record's object identity, VALIDATED against the current object
+    // identity of every under-card record it was built from, provably returns the identical value the
+    // un-cached rebuild would produce. Entries are held weakly per record (no cross-match leak; keys
+    // die with the match's repository) and are immutable, so concurrent matches (RLB1-01) see no shared
+    // mutable state.
+    private sealed record CacheEntry(
+        DigivolutionStack Stack,
+        ICardInstanceRepository Repository,
+        ICardRepository Definitions,
+        HeadlessEntityId[] UnderIds,
+        CardInstanceRecord?[] UnderRecords);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardInstanceRecord, CacheEntry> Cache = new();
+
     public static DigivolutionStack Read(
         ICardInstanceRepository instances,
         ICardRepository cards,
@@ -36,20 +56,57 @@ public static class DigivolutionStackReader
             return DigivolutionStack.Empty;
         }
 
-        // Under-cards, deepest (DigiEgg) first.
-        IReadOnlyList<HeadlessEntityId> underBottomToTop = ReadSourceIds(topInstance.Metadata)
-            .Reverse()
-            .ToArray();
-
-        var stacked = new List<StackedCard>(underBottomToTop.Count + 1);
-        for (int index = 0; index < underBottomToTop.Count; index++)
+        if (Cache.TryGetValue(topInstance, out CacheEntry? cached) &&
+            ReferenceEquals(cached.Repository, instances) &&
+            ReferenceEquals(cached.Definitions, cards) &&
+            UnderRecordsUnchanged(instances, cached))
         {
-            StackRole role = index == 0 ? StackRole.DigiEgg : StackRole.Digivolution;
-            stacked.Add(BuildCard(instances, cards, underBottomToTop[index], role));
+            return cached.Stack;
         }
 
-        stacked.Add(BuildCard(instances, cards, topCardId, StackRole.Top, topInstance));
-        return new DigivolutionStack(stacked);
+        // Under-cards, deepest (DigiEgg) first. (RD-RLENV-03 / B2 substrate-only) The former
+        // Reverse().ToArray() + List<> buildup allocated three intermediate collections per read on the
+        // hottest path in the engine; the projection is now a single exact-size array indexed in reverse
+        // (identical order and roles: stored newest-under-card first, so stacked[0] = last stored id =
+        // the DigiEgg).
+        IReadOnlyList<HeadlessEntityId> underNewestFirst = ReadSourceIds(topInstance.Metadata);
+        int underCount = underNewestFirst.Count;
+        var stacked = new StackedCard[underCount + 1];
+        var underIds = underCount == 0 ? Array.Empty<HeadlessEntityId>() : new HeadlessEntityId[underCount];
+        var underRecords = underCount == 0 ? Array.Empty<CardInstanceRecord?>() : new CardInstanceRecord?[underCount];
+        for (int index = 0; index < underCount; index++)
+        {
+            StackRole role = index == 0 ? StackRole.DigiEgg : StackRole.Digivolution;
+            HeadlessEntityId underId = underNewestFirst[underCount - 1 - index];
+            instances.TryGetInstance(underId, out CardInstanceRecord? underRecord);
+            underIds[index] = underId;
+            underRecords[index] = underRecord;
+            stacked[index] = BuildCard(instances, cards, underId, role, underRecord);
+        }
+
+        stacked[underCount] = BuildCard(instances, cards, topCardId, StackRole.Top, topInstance);
+        var stack = new DigivolutionStack(stacked);
+        Cache.AddOrUpdate(topInstance, new CacheEntry(stack, instances, cards, underIds, underRecords));
+        return stack;
+    }
+
+    // A cached entry is valid only while every under-card id still resolves to the SAME record object it
+    // was built from (including "still missing" for ids that had no record). Any Upsert of an under card
+    // replaces its record object and fails this check, forcing a rebuild.
+    private static bool UnderRecordsUnchanged(ICardInstanceRepository instances, CacheEntry entry)
+    {
+        HeadlessEntityId[] ids = entry.UnderIds;
+        CardInstanceRecord?[] records = entry.UnderRecords;
+        for (int i = 0; i < ids.Length; i++)
+        {
+            instances.TryGetInstance(ids[i], out CardInstanceRecord? current);
+            if (!ReferenceEquals(current, records[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static StackedCard BuildCard(
@@ -89,7 +146,16 @@ public static class DigivolutionStackReader
 
         return raw switch
         {
+            // (RD-RLENV-03 / B2) The canonical storage is already an indexable id list — return it
+            // uncopied. Only Read consumes this (locally, single-threaded, no escape), so dropping the
+            // defensive ToArray is observation-equivalent.
+            IReadOnlyList<HeadlessEntityId> entityIdList => entityIdList,
             IEnumerable<HeadlessEntityId> entityIds => entityIds.ToArray(),
+            // (RD-RLENV-03 / B2) string[] is the canonical stored shape (every writer stores
+            // Select(id => id.Value).ToArray()) — parse it with an exact-size loop instead of the LINQ
+            // Where/Select/ToArray chain (LargeArrayBuilder was ~33% of total CPU at this call rate).
+            // Identical filter (null/whitespace skipped) and order.
+            string[] stringArray => ParseStringIds(stringArray),
             IEnumerable<string> stringIds => stringIds
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => new HeadlessEntityId(value))
@@ -100,6 +166,35 @@ public static class DigivolutionStackReader
                 .ToArray(),
             _ => Array.Empty<HeadlessEntityId>(),
         };
+    }
+
+    private static IReadOnlyList<HeadlessEntityId> ParseStringIds(string[] values)
+    {
+        int count = 0;
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(values[i]))
+            {
+                count++;
+            }
+        }
+
+        if (count == 0)
+        {
+            return Array.Empty<HeadlessEntityId>();
+        }
+
+        var ids = new HeadlessEntityId[count];
+        int next = 0;
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(values[i]))
+            {
+                ids[next++] = new HeadlessEntityId(values[i]);
+            }
+        }
+
+        return ids;
     }
 
     private static int? ReadInt(IReadOnlyDictionary<string, object?>? metadata, string key)

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- (RL B2 / D5) N-way vectorized self-play runner over the seat protocol v1.
+       Two modes share ONE driver: 'procs' spawns N RlBridgeHost child processes (stdio transport,
+       crash isolation — the D5 first-choice vectorization), 'tasks' runs N in-process SeatMatchHost
+       workers (transport-free; safety proven by RLB1-01 parallel determinism). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HeadlessDCGO.Engine\HeadlessDCGO.Engine.csproj" />
+    <ProjectReference Include="..\..\src\HeadlessDCGO.Rl\HeadlessDCGO.Rl.csproj" />
+    <ProjectReference Include="..\RlBridgeHost\RlBridgeHost.csproj" />
+  </ItemGroup>
+</Project>

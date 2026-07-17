@@ -10,6 +10,16 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
     private readonly List<GameEvent> _events = new();
     private readonly IRandomSource _randomSource;
 
+    // (RD-RLENV-03 / B2 substrate-only) Per-(player, zone) snapshot cache for GetCards. The mirror
+    // effect scans call GetCards at enormous frequency (every PermanentOfThisCard / IsExistInSecurity
+    // hits it), and the former unconditional cards.ToArray() per call was a top-3 allocation source in
+    // the B2 profile. Invariant that keeps this SEMANTICS-INVARIANT: every mutation of a live zone list
+    // flows through GetZone (the single accessor that hands out the mutable List) or RemoveFromAllZones
+    // — both invalidate the affected cache entries BEFORE the caller can mutate, so a cached array is
+    // only ever served while its list is untouched. Served arrays are never mutated by this class
+    // (invalidation replaces them), so callers keep the same frozen-snapshot semantics as before.
+    private readonly Dictionary<(HeadlessPlayerId PlayerId, ChoiceZone Zone), IReadOnlyList<HeadlessEntityId>> _cardsSnapshotCache = new();
+
     /// <summary>(RD-R3-02) The repository that keys the <see cref="Assets.Scripts.Script.CardEffectCommons.
     /// PermanentBookkeepingStore"/> for this match — wired by the EngineContext constructor. When set,
     /// <see cref="MoveCard"/> is the AS-IS Permanent-object lifetime chokepoint: ANY move that changes a
@@ -43,7 +53,14 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
             return Array.Empty<HeadlessEntityId>();
         }
 
-        return cards.ToArray();
+        if (_cardsSnapshotCache.TryGetValue((playerId, zone), out IReadOnlyList<HeadlessEntityId>? cachedSnapshot))
+        {
+            return cachedSnapshot;
+        }
+
+        HeadlessEntityId[] snapshot = cards.ToArray();
+        _cardsSnapshotCache[(playerId, zone)] = snapshot;
+        return snapshot;
     }
 
     public IReadOnlyDictionary<ChoiceZone, IReadOnlyList<HeadlessEntityId>> Snapshot(HeadlessPlayerId playerId)
@@ -391,6 +408,7 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
     {
         _zones.Clear();
         _events.Clear();
+        _cardsSnapshotCache.Clear();
     }
 
     private void MoveCardToSingleZone(
@@ -529,7 +547,15 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
 
     private void RemoveFromAllZones(HeadlessPlayerId playerId, HeadlessEntityId cardId)
     {
-        foreach (List<HeadlessEntityId> cards in GetPlayerZones(playerId).Values)
+        // (RD-RLENV-03 / B2) This is the one mutation path that bypasses GetZone — invalidate the
+        // player's cached snapshots before touching the live lists.
+        Dictionary<ChoiceZone, List<HeadlessEntityId>> playerZones = GetPlayerZones(playerId);
+        foreach (ChoiceZone zone in playerZones.Keys)
+        {
+            _cardsSnapshotCache.Remove((playerId, zone));
+        }
+
+        foreach (List<HeadlessEntityId> cards in playerZones.Values)
         {
             cards.Remove(cardId);
         }
@@ -537,6 +563,11 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
 
     private List<HeadlessEntityId> GetZone(HeadlessPlayerId playerId, ChoiceZone zone)
     {
+        // (RD-RLENV-03 / B2) GetZone hands out the LIVE mutable list — every in-class mutation flows
+        // through here (audited: MoveCard/AddToZone/RemoveCardFromZone/Shuffle*/TrashSecurity/
+        // MoveFromZoneTop), so invalidating the snapshot at hand-out keeps GetCards' cache coherent.
+        _cardsSnapshotCache.Remove((playerId, zone));
+
         Dictionary<ChoiceZone, List<HeadlessEntityId>> playerZones = GetPlayerZones(playerId);
 
         if (!playerZones.TryGetValue(zone, out List<HeadlessEntityId>? cards))

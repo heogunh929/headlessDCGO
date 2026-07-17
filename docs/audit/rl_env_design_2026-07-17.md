@@ -121,6 +121,53 @@ Base: `0b339cfc`(main, RD-R4P4-01 가족 완결). 조사+설계 전용(엔진 �
 
 - §7 seat-프로토콜 실측(5.7 steps/sec, med 11,221ms)과 사실상 동일 — **전송(JSON/stdio)을 제거해도 처리량 불변 = 병목은 엔진 결정점 드라이브라는 §7 심증을 in-process에서 재확증**(D3 판단 유지, RD-RLENV-03이 B2 프로파일링 대상). B2의 before 수치는 이 표로 고정.
 
+### §7.2 B2 엔진 프로파일 실측 (2026-07-17 — RD-RLENV-03 상환)
+방법: dotnet-trace CPU 샘플링(RLB1-02 10판, seed 1000~1009, Release) + speedscope 귀속 스크립트 + 일회성 프로브 `tests/RLB2-01.EngineProfile.Tests`(엔진 소스 무계측 — 공개 표면 스톱워치 + 전-궤적 다이제스트 witness). 스텝 유형별 분해(before): choice-해소 스텝 평균 **96ms**, 메인 액션 스텝 평균 **183ms**(DeclareAttack 277 · Digivolve 189 · PlayCard 151 · Pass 140 · ActivateOption 126ms); 결정점당 양측 합법표 재열거 17.4ms; env.Observe(관측+마스크 인코딩) **0.1ms**.
+
+**핫스팟 순위표 (before, 전체 CPU 대비 %)**:
+
+| # | 함수/서브시스템 | incl | excl | 층 |
+|---|---|---|---|---|
+| 1 | `DigivolutionStack..ctor` (LINQ 검증: ToArray+Any+Distinct/HashSet) | 51.2% | **49.4%** | substrate |
+| 2 | `DigivolutionStackReader.Read` (스택 재구축; ①③④ 포함 계열이 전 샘플의 **~86%** 경로상) | 68.3% | ~14% | substrate |
+| 3 | `CardSource.PermanentOfThisCard()` (보드 스캔×호출빈도) | 59.7% | 17.4% | 미러 |
+| 4 | `ReadSourceIds` LINQ Where/Select/ToArray (LargeArrayBuilder) | — | 14.5% | substrate |
+| 5 | `CEntity_EffectController.GetCardEffects` (효과-스캔 진입점) | 79.1% | ~5% | 미러 |
+| 6 | `Permanent.get_DP` (연속효과 폴드) | 42.6% | — | 미러 |
+| 7 | `CardEffectCommons.IsExistInSecurity` (GetCards 복사+Contains) | 4.8% | 4.8% | 미러(비용은 substrate GetCards) |
+| 8 | `InMemoryZoneMover.GetCards` 호출당 ToArray 복사 | — | (④·⑦에 분산) | substrate |
+
+루트-우선 분해: 펌프 세그먼트(TaskRunner/TurnFlowPump) 43.9% · GetActionMask 재열거 25.1% · RunToStable 24.9% · apply-합법성 5.0% · 관측 스냅샷+인코딩 **0.14%**. **가설 평결**: "관측 3,088피처 재계산" **기각**(0.1%), "GetActionMask 재열거"·"RunToStable 반복" = 루트로는 실재하나 그 아래 실비용의 ~85%가 **DigivolutionStack 읽기-모델 재구축**(매 효과-스캔이 카드별 스택을 풀 재구축 — 진짜 병목은 존 스캔 자체가 아니라 스캔당 스택 재구축·재파스·재검증), "CWT/dict 재생성" = 방향 반대(CWT **추가**가 해법이었음).
+
+### §7.3 (a) substrate-전용 개선 적용분 + after 수치
+적용 3건(전부 `Headless/` substrate, 미러 무접촉):
+1. `Headless/State/DigivolutionStack.cs` — ctor 검증 무할당 재작성(동일 검사·순서·예외) + `UnderCards` 지연 캐시(불변 레코드).
+2. `Headless/State/DigivolutionStackReader.cs` — **순수-함수 메모이제이션**: CWT<top `CardInstanceRecord`, entry>, 히트 시 under-카드 레코드 **전수 ref-검증**(Upsert=새 레코드 불변식 → 값-동일성 증명 가능) + `ReadSourceIds` string[] 수동 파스 + 중간 컬렉션 제거.
+3. `Headless/Services/InMemoryZoneMover.cs` — `GetCards` (player,zone) 스냅샷 캐시. 무효화 초크 = `GetZone`(가변 리스트의 유일 반출구, 뮤테이션 전 무효화) + `RemoveFromAllZones`(유일 우회 경로) + `ResetMatchState`. 반환 배열은 불변-스냅샷 의미 유지.
+
+| 지표 (RLB1-02, seed 1000~1009) | before | after | 배수 |
+|---|---|---|---|
+| steps/sec (in-process 단일) | 5.6~5.7 | **13.5** | **2.4×** |
+| 판당 ms (med/min/max) | 11,909 / 2,861 / 25,582 | **4,998 / 1,453 / 9,233** | 2.4× |
+
+의미론-불변 실증: RLB2-01 전-궤적 다이제스트(스텝별 양측 합법표 전체+관측 3,088벡터 전체+factored 마스크+턴/메모리+종결/존카운트, SHA256) **10/10 bit-identical**(개선 3건 각각의 단계에서도 동일) + RLB1-01 3/3(병렬 결정론) + R4S3c shadow **2/2 IDENTICAL + secwin IDENTICAL** + R4S3a 7/7 · R4S3b 13/13 · M2-001 11/11 · M4-001 9/9 · R4RL-01 6/6 · G13-003 green.
+
+after 잔여 핫스팟(=(b) 원장, RD-RLENV-06): LINQ ToArray 계열 24.0%(`Player.SecurityCards` 8.3 · `GetZonePermanents` 6.6 · `GameContext.OrderedFrom` 4.8 등) · List AddRange/Resize 13.0%(`CanNotBeAffected` 4.3 포함) · 문자열 해시(레포 dict) 5.6% · `Permanent.HasDP` 4.6% · `PermanentOfThisCard` 본문 3.2% — 전부 미러층 `EffectList` 재-스캔 아키텍처 비용. `IsExistInSecurity`는 존-캐시 후 <2%로 소멸.
+
+### §7.4 벡터화 러너 실측 (신설 `tools/RlVectorHost`)
+단일 드라이버·2모드(마스크-랜덤 셀프플레이, seat 프로토콜 v1, 부모가 seed 공유큐 분배 + 결과 JSONL 수집): `procs` = RlBridgeHost 자식 N프로세스(stdio, 크래시 격리 — D5 1차안 그대로), `tasks` = in-process SeatMatchHost N워커(RLB1-01이 안전성 witness). 동일 48게임(seed 1000~1047), 6C/12T(Ryzen 5600GT):
+
+| 모드 | workers | steps/sec | 동일-작업 1w 대비 |
+|---|---|---|---|
+| procs | 1 | 11.5~11.6 | 1× |
+| procs | 8 | **50.1~51.7** | **4.3~4.5×** |
+| procs | 12 | 50.2 | 4.3× |
+| tasks (기본 workstation GC) | 8 | 31.0~31.7 | 2.7× |
+| tasks (**DOTNET_gcServer=1**) | 1 / 8 | 11.4 / **51.9** | **4.55×** |
+
+- **게이트(≥5× 단일) 판정: 이 개발기에서는 4.3~4.55×로 미달** — 두 전송·GC 구성 모두 ~51 steps/sec에서 동일 플래토(8w=12w), 즉 러너가 아니라 **하드웨어 천장**(물리 6코어+SMT·올코어 클럭). 물리 ≥8코어 장비에서 5× 기대는 유지(러너측 병목 증거 없음). 자식 프로세스 server GC는 **역효과**(28.2), tasks 모드는 server GC **필수**(31.7→51.9).
+- 종합: B2-before 단일 5.7 steps/sec 대비 **aggregate 51.9 = 9.1×** (엔진 (a) 2.4× × 벡터화 4.5×). 30k-스텝 스모크: 87분 → **~10분**.
+
 ---
 
 # 2부. 설계 초안 (결정 지점 D1~D7)
@@ -178,7 +225,10 @@ Base: `0b339cfc`(main, RD-R4P4-01 가족 완결). 조사+설계 전용(엔진 �
 ## 설계 항목 원장 (엔진측 필요 변경 — 이번 트랙에서 수정 금지, 등재만)
 - **RD-RLENV-01**: 다중-선택 choice의 디스패처 표면(순차 부분-선택 세션 + Confirm; `SelectionValidator(set)` 최종 심판 재사용) — D1/B5. 근거: `HeadlessLegalActionDispatcher.cs:214-220`.
 - **RD-RLENV-02**: `EffectResolved` 이벤트 발행이 OLD `GameFlowProcessor` 드레인 카운터에 결박(`DcgoMatch.cs:245-252`) — 창-경로 해소 계수로 재배선 또는 이벤트 은퇴. 부수: `SecurityCheck` 이벤트 발행처 0.
-- **RD-RLENV-03**: 펌프 결정점당 ~175ms — `DrivePumpToDecision` 루프의 반복 `GetActionMask()` 전열거(연속효과 라이브 스캔 포함) 재계산 의심. 프로파일 후 항목 분해(B2).
+- **RD-RLENV-03**: 펌프 결정점당 ~175ms — `DrivePumpToDecision` 루프의 반복 `GetActionMask()` 전열거(연속효과 라이브 스캔 포함) 재계산 의심. 프로파일 후 항목 분해(B2). **[B2 상환(2026-07-17)]** 실측으로 심증 교정: 실비용의 ~86%는 마스크/관측이 아니라 **효과-스캔당 DigivolutionStack 읽기-모델 풀 재구축**(§7.2). substrate-전용 (a) 3건 적용(§7.3, 다이제스트 10/10 동일 실증) → 2.4×. 잔여는 RD-RLENV-06(미러층, STOP)·RD-RLENV-07(구조)로 분해.
+- **RD-RLENV-06** (b — 미러 수정 필요, **STOP·구현 금지**): (a) 상환 후 잔여 핫스팟이 전부 미러층 `EffectList` 재-스캔 아키텍처에 귀속(§7.3 after 잔여표): ① `Player.get_SecurityCards`/`GetZonePermanents`/`GameContext.OrderedFrom`의 접근당 LINQ Select/ToArray(합산 ~24%) ② `CardSource.PermanentOfThisCard()` 본문의 호출당 보드 스캔+`UnderCards.Any` 클로저(11% incl) ③ `CEntity_EffectController.GetCardEffects`의 호출당 리스트 재구축+필드/시큐리티/플레이어 3중 AddSkill 스캔(38% incl) ④ `CardSource.CanNotBeAffected` AddRange churn ⑤ `Permanent.DP/HasDP` 연속효과 폴드 재계산(39%/11% incl). 전부 AS-IS 1:1 미러 소스 — 개선하려면 AS-IS-동형 캐시/인덱스 구조 설계가 선행돼야 하며 이 트랙에서는 등재만.
+- **RD-RLENV-07** (c — 구조 변경 설계 항목): 결정점당 미러 효과-스캔의 **무효화-epoch 기반 상위 캐싱**(효과-리스트/연속효과 폴드 결과를 상태-뮤테이션 epoch에 결박, 미러 코드 무접촉으로 substrate 경계에서 재사용) — RD-RLENV-06을 미러 수정 없이 우회할 수 있는 유일 후보이나, 뮤테이션 초크포인트 전수 식별(효과 부여/만료·bookkeeping 리셋 포함)이 선행 조건. 관측 증분화는 **불요 판정**(관측+인코딩 실측 0.14%, §7.2 가설 기각).
+- **운영 노트(B2)**: in-process 병렬(tasks 모드·학습 벡터화)은 `DOTNET_gcServer=1` 필수(§7.4: 31.7→51.9 steps/sec); 다중 프로세스 자식에는 server GC 금지(역효과 28.2).
 - **RD-RLENV-04**: 토큰/부여효과 id의 `Guid.NewGuid()`(`CardEffectCommons.cs:2493` 외 4곳) — seed-무관 id 발산. 상태-digest 기반 검증 도입 시 결정론 id 채번으로 교체 필요.
 - **RD-RLENV-05**: `SpecialPlay` 펌프 분기 제외(`HeadlessLegalActionDispatcher.cs:47-52`) — DigiXros/Assembly STOP 클러스터 상환 시 펌프 표에 복귀(RD-P6C1-5/RD-R5-04 후속). 그때까지 해당 카드는 RL 관점에서 플레이 불가 레인.
 - **확인 항목**: BT3 포팅분 부재(§6) — 메모리 기록("BT2/BT3 완료")과 트리 불일치. 브랜치 유실인지 기록 오류인지 착수 전 판정.
