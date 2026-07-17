@@ -68,7 +68,10 @@ void SchemaLanesAreContiguous()
     AssertEqual(resolveChoiceOffset + (5 + 1) + 1, s.MoveBreedingOffset, "move-breeding offset");
     // (G8-006) SpecialPlay lane (one slot per hand card) appended last, after the breeding singletons.
     AssertEqual(resolveChoiceOffset + (5 + 1) + 1 + 1, s.SpecialPlayOffset, "special-play offset");
-    int expectedTotal = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1)) + (5 + 1) + 1 + 1 + 4;
+    // (B5-3, v2) Multi-select session Confirm — single slot appended after SpecialPlay, all prior
+    // offsets untouched.
+    AssertEqual(resolveChoiceOffset + (5 + 1) + 1 + 1 + 4, s.ConfirmChoiceOffset, "confirm-choice offset appended last");
+    int expectedTotal = 4 + 4 + 4 + (4 * 3) + (3 * (3 + 1)) + (5 + 1) + 1 + 1 + 4 + 1;
     AssertEqual(expectedTotal, s.TotalSize, "total size");
 }
 

@@ -23,7 +23,8 @@ using HeadlessDCGO.Engine.Headless.Services;
 //      main-phase action step) plus the read-surface costs (GetLegalActions x2, Observe/Encode),
 //      complementing the dotnet-trace sampling profile with agent-step-level attribution.
 //
-// Usage: dotnet run [digest|time|both] [games]   (default: both 10, seeds 1000..1009 as pinned in §7.1)
+// Usage: dotnet run [digest|time|both|behavior] [games]   (default: both 10, seeds 1000..1009 as pinned
+// in §7.1; `behavior` = the B5-3 encoding-independent reduced digest, see below)
 
 string mode = args.Length > 0 ? args[0] : "both";
 int games = args.Length > 1 && int.TryParse(args[1], out int parsed) ? parsed : 10;
@@ -44,6 +45,24 @@ if (mode is "digest" or "both")
     }
 }
 
+// (B5-3) `behavior` mode — BEHAVIOR-EQUIVALENCE digest for encoding-surface work. The full digest
+// above folds the raw observation vector and factored mask bits, so any DESIGNED encoding change
+// (obs schema growth, factored schema version bump) breaks bit-identity by construction. This
+// reduced digest folds only the behavior-carrying material — the sorted both-player legal table,
+// every chosen action id with turn/phase/memory, the terminal result and final zone counts — and
+// must stay bit-identical across an encoding-only change (proof the schema change did not alter
+// what the engine does, only how it is reported).
+if (mode is "behavior")
+{
+    Console.WriteLine("== behavior-equivalence digests (encoding-independent material) ==");
+    for (int i = 0; i < games; i++)
+    {
+        int seed = BaseSeed + i;
+        (string digest, int steps) = await RunDigestGameAsync(seed, includeEncodingSurface: false);
+        Console.WriteLine($"seed={seed} steps={steps} digest={digest}");
+    }
+}
+
 if (mode is "time" or "both")
 {
     Console.WriteLine("\n== stopwatch decomposition (per agent-step type) ==");
@@ -60,7 +79,7 @@ if (mode is "time" or "both")
 
 Console.WriteLine("\nPASS RLB2-01 probe complete.");
 
-async Task<(string Digest, int Steps)> RunDigestGameAsync(int seed)
+async Task<(string Digest, int Steps)> RunDigestGameAsync(int seed, bool includeEncodingSurface = true)
 {
     (DcgoMatch match, HeadlessRlEnvironment env) = await CreateMatchAsync(seed);
     var rng = new Random(seed);
@@ -109,22 +128,28 @@ async Task<(string Digest, int Steps)> RunDigestGameAsync(int seed)
             .Append('\n');
 
         // Whole encoded observation + factored mask: witnesses the observation surface bit-for-bit.
-        double[] obs = st.ObservationVector;
-        material.Append("obs:");
-        foreach (double v in obs)
+        // Skipped in `behavior` mode — these two lines are the ENCODING surface, the exact thing a
+        // designed schema change is allowed to move.
+        if (includeEncodingSurface)
         {
-            material.Append(v.ToString("R")).Append(';');
+            double[] obs = st.ObservationVector;
+            material.Append("obs:");
+            foreach (double v in obs)
+            {
+                material.Append(v.ToString("R")).Append(';');
+            }
+
+            material.Append('\n');
+            double[] fmask = st.FactoredActionMaskVector;
+            material.Append("fmask:");
+            for (int b = 0; b < fmask.Length; b++)
+            {
+                if (fmask[b] != 0) { material.Append(b).Append(';'); }
+            }
+
+            material.Append('\n');
         }
 
-        material.Append('\n');
-        double[] fmask = st.FactoredActionMaskVector;
-        material.Append("fmask:");
-        for (int b = 0; b < fmask.Length; b++)
-        {
-            if (fmask[b] != 0) { material.Append(b).Append(';'); }
-        }
-
-        material.Append('\n');
         if (st.IsTerminal) { break; }
     }
 

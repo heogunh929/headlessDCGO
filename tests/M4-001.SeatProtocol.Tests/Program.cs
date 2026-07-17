@@ -54,7 +54,9 @@ async Task HandshakeAdvertisesSchema()
     JsonObject welcome = await SendAsync(host, Hello());
     AssertEqual("welcome", TypeOf(welcome), "welcome reply");
     AssertTrue(welcome["obsSize"]!.GetValue<int>() > 0, "obs size positive");
-    AssertEqual(599, welcome["actionSize"]!.GetValue<int>(), "default factored size");
+    // (B5-3) factored-v2: 599 + the appended multi-select Confirm slot (설계 §B5.7 — prior offsets stable).
+    AssertEqual(600, welcome["actionSize"]!.GetValue<int>(), "default factored size (v2)");
+    AssertEqual("factored-v2", welcome["actionSchemaVersion"]!.GetValue<string>(), "schema version handshake");
     AssertTrue(welcome["vocabSize"]!.GetValue<int>() > 4000, "vocab covers the card pool");
     AssertEqual(64, welcome["vocabHash"]!.GetValue<string>().Length, "sha256 vocab hash");
     AssertEqual(64, welcome["obsSchemaHash"]!.GetValue<string>().Length, "sha256 obs schema hash");

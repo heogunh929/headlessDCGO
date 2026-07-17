@@ -13,7 +13,11 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// </summary>
 public sealed record FactoredActionSchema
 {
-    public const int Version = 1;
+    // v2 (B5-3, 설계 §B5.7): +1 Confirm slot appended LAST (599→600 at default capacities); every
+    // pre-existing offset is unchanged. The 16 ResolveChoice candidate slots double as the
+    // multi-select session's toggle lanes (설계 핀 1) — same index shape, context-dependent meaning
+    // resolved deterministically from the pending-choice state (see MapAction).
+    public const int Version = 2;
 
     public FactoredActionSchema(
         int maxHand = 16,
@@ -46,6 +50,11 @@ public sealed record FactoredActionSchema
         // (G8-006) Special play (DigiXros / DNA / Blast) — one slot per hand card (the recipe selects the
         // materials). Appended last to keep all prior offsets stable.
         SpecialPlayOffset = offset; offset += maxHand;
+        // (B5-3, 설계 §B5.5/§B5.7) Multi-select session Confirm — ONE slot: the session's Confirm action
+        // (a ResolveChoice carrying the current partial set) is a single lane regardless of which
+        // candidates are picked; the per-candidate structure lives on the toggle lanes (= the reused
+        // ResolveChoice candidate slots). Appended last so every v1 offset stays stable.
+        ConfirmChoiceOffset = offset; offset += 1;
         TotalSize = offset;
     }
 
@@ -76,6 +85,8 @@ public sealed record FactoredActionSchema
     public int ResolveChoiceOffset { get; }
 
     public int SpecialPlayOffset { get; }
+
+    public int ConfirmChoiceOffset { get; }
 
     public int HatchDigitamaOffset { get; }
 
@@ -148,26 +159,45 @@ public sealed class FactoredPositionContext
 
     public FactoredPositionContext(
         Func<HeadlessPlayerId, ChoiceZone, IReadOnlyList<HeadlessEntityId>> zoneResolver,
-        IReadOnlyList<HeadlessEntityId> choiceCandidates)
+        IReadOnlyList<HeadlessEntityId> choiceCandidates,
+        bool multiSelectSessionActive = false)
     {
         _zoneResolver = zoneResolver ?? throw new ArgumentNullException(nameof(zoneResolver));
         _choiceCandidates = choiceCandidates ?? throw new ArgumentNullException(nameof(choiceCandidates));
+        MultiSelectSessionActive = multiSelectSessionActive;
     }
+
+    /// <summary>
+    /// (B5-3, 설계 핀 1) True while the pending choice runs as a multi-select partial-selection
+    /// session — the dispatcher's session-open condition (<c>Type != Count &amp;&amp; MaxCount &gt; 1</c>,
+    /// HeadlessLegalActionDispatcher.BuildChoiceResolutionActions) recomputed from the same state, so
+    /// the candidate-lane meaning ("size-1 resolution" vs "session toggle") and the ResolveChoice
+    /// mapping ("candidate lane" vs "Confirm slot") are deterministic from the choice state alone.
+    /// </summary>
+    public bool MultiSelectSessionActive { get; }
 
     public static FactoredPositionContext FromContext(EngineContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        IReadOnlyList<HeadlessEntityId> candidates = context.ChoiceController.PendingRequest is { } request
+        ChoiceRequest? request = context.ChoiceController.PendingRequest;
+        IReadOnlyList<HeadlessEntityId> candidates = request is not null
             ? request.Candidates.Select(candidate => candidate.Id).ToArray()
             : Array.Empty<HeadlessEntityId>();
+
+        // Mirror of the dispatcher's session-open boundary (B5-2): non-Count, MaxCount>1. The
+        // unsatisfiable-forced demotion (§B5.6) never opens a pending choice, so a pending request
+        // matching this shape IS a live session.
+        bool sessionActive = request is not null &&
+            request.Type != ChoiceType.Count &&
+            request.MaxCount > 1;
 
         Func<HeadlessPlayerId, ChoiceZone, IReadOnlyList<HeadlessEntityId>> resolver =
             context.ZoneMover is IZoneStateReader zones
                 ? zones.GetCards
                 : static (_, _) => Array.Empty<HeadlessEntityId>();
 
-        return new FactoredPositionContext(resolver, candidates);
+        return new FactoredPositionContext(resolver, candidates, sessionActive);
     }
 
     public int HandIndex(HeadlessPlayerId player, HeadlessEntityId cardId) => IndexIn(player, ChoiceZone.Hand, cardId);
@@ -315,11 +345,32 @@ public static class FactoredActionEncoder
                 return (schema.DeclareAttackOffset + (attacker * (schema.MaxField + 1)) + targetSlot, "DeclareAttack");
             }
 
+            // (B5-3, 설계 핀 1) A session toggle occupies the candidate's ResolveChoice lane slot — the
+            // candidate lane doubles as the toggle lane. No collision with ResolveChoice mappings: while
+            // a session is active the only non-skip ResolveChoice on the table is the Confirm, which maps
+            // to its own dedicated slot below.
+            case HeadlessActionTypes.NormalizedToggleChoiceCandidate:
+            {
+                int candidate = positions.ChoiceIndex(ReadId(action, HeadlessActionParameterKeys.ChoiceCandidateId));
+                return (LaneIndex(schema.ResolveChoiceOffset, candidate, schema.MaxChoice), "ToggleChoiceCandidate");
+            }
+
             case HeadlessActionTypes.NormalizedResolveChoice:
             {
                 if (ReadBool(action, HeadlessActionParameterKeys.ChoiceSkipped))
                 {
                     return (schema.ResolveChoiceOffset + schema.MaxChoice, "ResolveChoice");
+                }
+
+                // (B5-3) While a multi-select session is active, the dispatcher's only non-skip
+                // ResolveChoice is the Confirm carrying the CURRENT partial set — a single action per
+                // state, so it gets the single dedicated Confirm slot (설계 §B5.5 Confirm lane). Outside a
+                // session the lane keeps its v1 meaning: a complete size-1 resolution on the candidate's
+                // slot. The two readings never overlap because the session flag is derived from the same
+                // pending-choice state the dispatcher enumerates from (deterministic, 설계 핀 1).
+                if (positions.MultiSelectSessionActive)
+                {
+                    return (schema.ConfirmChoiceOffset, "ConfirmChoice");
                 }
 
                 HeadlessEntityId first = FirstSelectedId(action);

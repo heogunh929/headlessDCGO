@@ -143,7 +143,12 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
         features.Add(new ObservationFeature("choice.candidateCount", choice.CandidateCount));
         features.Add(new ObservationFeature("choice.selectedCount.known", Bool(choice.SelectedCount.HasValue)));
         features.Add(new ObservationFeature("choice.selectedCount", choice.SelectedCount ?? choice.SelectedIds.Count));
-        features.Add(new ObservationFeature("choice.selectedIds.count", choice.SelectedIds.Count));
+        // (B5-3, 설계 §B5.4) While the choice is pending this reports the multi-select session's partial
+        // count (PendingSelectedIds); resolved states keep the final SelectedIds count. Outside a session
+        // both lists are empty during IsPending, so pre-B5 trajectories read the same value as before.
+        features.Add(new ObservationFeature(
+            "choice.selectedIds.count",
+            choice.IsPending ? choice.PendingSelectedIds.Count : choice.SelectedIds.Count));
     }
 
     private static void AddAttackFeatures(
@@ -310,6 +315,7 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
         ObservationSnapshot snapshot)
     {
         IReadOnlyList<HeadlessEntityId> candidates = snapshot.Choice.CandidateIds;
+        IReadOnlyList<HeadlessEntityId> pendingSelected = snapshot.Choice.PendingSelectedIds;
         Dictionary<HeadlessEntityId, CardObservation> lookup = BuildCardLookup(snapshot);
 
         for (int index = 0; index < _options.MaxChoiceCandidates; index++)
@@ -330,6 +336,16 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
             {
                 features.Add(new ObservationFeature($"{prefix}.cardId", CardIdOf(card)));
             }
+
+            // (B5-3, 설계 §B5.4) Per-candidate partial-selection bit — whether this candidate is toggled
+            // ON in the pending multi-select session. Required signal: the factored mask cannot carry it
+            // (a picked candidate's toggle lane stays legal for DE-selection, so mask bits look the same
+            // either way) and a stateless policy has no other way to see its own partial picks. The
+            // perspective filter (HeadlessGameLoop) strips PendingSelectedIds for non-choosers, so this
+            // bit encodes 0 outside the chooser's seat — AS-IS local-variable non-exposure.
+            features.Add(new ObservationFeature(
+                $"{prefix}.selected",
+                Bool(id is { } cid && pendingSelected.Contains(cid))));
         }
 
         features.Add(new ObservationFeature(
