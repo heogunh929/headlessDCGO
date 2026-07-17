@@ -109,6 +109,8 @@ public static class DeDigivolveHelpers
         metadata.Remove(DeletedByBattleKey);
         metadata.Remove(DeletedByEffectKey);
         repository.Upsert(promoted with { Metadata = metadata });
+        // (R4 S3b-2②) same persistence for the just-after bookkeeping store (the AS-IS object survives).
+        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, cardId, sources[0]);
 
         if (gameEventQueue is not null)
         {
@@ -195,6 +197,8 @@ public static class DeDigivolveHelpers
             metadata.Remove(DeletedByBattleKey);
             metadata.Remove(DeletedByEffectKey);
             repository.Upsert(promoted with { Metadata = metadata });
+            // (R4 S3b-2②) same persistence for the just-after bookkeeping store (the AS-IS object survives).
+            Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, currentTopId, promotedId);
 
             currentTopId = promotedId;
             removed++;

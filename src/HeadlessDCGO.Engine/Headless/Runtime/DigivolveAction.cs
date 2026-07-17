@@ -1034,6 +1034,9 @@ public sealed class DigivolveAction
             ["enteredThisTurn"] = inheritedEnteredThisTurn
         };
         repository.Upsert(card with { Metadata = metadata });
+        // (R4 S3b-2②) the AS-IS Permanent OBJECT persists across the top swap — carry its just-after
+        // bookkeeping (PlayingEffect / LevelJustAfterPlayed / …) to the new top key.
+        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, targetCardId, cardId);
         return sourceIds;
     }
 

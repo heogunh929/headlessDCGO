@@ -52,6 +52,12 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
 **리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
 
+## S3b-2② 착지 (2026-07-17) — Just-After 북키핑 store
+**AS-IS 표면 전수 확정**: 쓰기=실행자 단독(PlayPermanentClass :1535-1569)·읽기=미포팅 카드 코퍼스(EX3/EX4/EX5/LM/ST10/BT11의 LevelJustAfterPlayed/PlayCost/Traits/CardNamesJustAfterDigivolved 스캔)+IsDigivolvedByTheEffect 커먼즈(DigivolvingEffect)·리셋=없음(수명=AS-IS Permanent 객체 수명=필드 체류).
+**store 설계**: `PermanentBookkeepingStore`(신규, CardEffectCommons/) — **repository-키** ConditionalWeakTable(재키 소유 op 2곳이 EngineContext 없이 repository만 보유), 엔트리=AS-IS 9필드 verbatim(이름·기본값), live ICardEffect 참조=A1 인메모리 판례. **수명 매핑 CREATE/PERSIST/DIE**: ①CREATE=CreateNewPermanent에서 Reset(재플레이 카드가 전생 북키핑을 보면 안 됨) ②PERSIST=top 교체 소유 op 2곳에서 ReKey — DigivolveAction.AttachTargetAsSource(자연 진화·미러 AddCardSource 공용)+DeDigivolveHelpers(DeDigivolveAsync promote·ArmorPurgeTopAsync) ③DIE=RemoveField에서 Reset. Permanent에 9 프로퍼티 표면(AS-IS :3686-3941 선언 미러).
+**동반 착지**: `CardEffectCommons.IsDigivolvedByTheEffect` 스켈레톤→1:1 실포팅(DigivolvingEffect 착지로 unblock; 뷰 참조-동등=InstanceId 동등 ADAPTATION).
+**witness**: R4S3b 6/6 — 신규 수명 테스트(뷰-안정 쓰기→top 교체 후 생존(재키)→필드 이탈 후 사망(리셋)→재플레이 신생 기본값).
+
 ## S3b-2① 착지 (2026-07-17) — 영구물 생성/스택 substrate 매핑
 **설계 판정 3건**:
 1. **창 개설 좌석=옵션 B(실행자 인라인)**: SkillWindowSupply의 OnEnterField 변환은 zone-move 메타의 키 유무로 게이트("presence == carries the params") — 실행자의 zone 진입은 메타 無로 이동시켜 supply GAP-drop, AS-IS :1694 StackSkillInfos(OnEnterFieldAnyone)를 인라인 그대로 유지(C1 inline-insert 관례). supply의 OnEnterField 항은 OLD 경로(PlayCardAction/DigivolveAction) 전용으로 잔존, S3c 은퇴 후보.

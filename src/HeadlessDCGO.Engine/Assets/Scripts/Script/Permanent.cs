@@ -3816,6 +3816,75 @@ public sealed class Permanent
             context: _context).ConfigureAwait(false);
     }
 
+    // ==== (R4 S3b-2②) AS-IS "just-after" bookkeeping fields (Permanent.cs:3686-3941) — carried by the
+    // match-scoped PermanentBookkeepingStore (the mirror Permanent is a per-access view; see the store header
+    // for the CREATE/PERSIST/DIE lifetime mapping). Names, defaults and mutability verbatim.
+
+    /// <summary>AS-IS <c>Permanent.PlayingEffect</c> (:3686) — the effect that PLAYED this permanent (null for
+    /// a normal main-phase play).</summary>
+    public ICardEffect? PlayingEffect
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.DigivolvingEffect</c> (:3690) — the effect that DIGIVOLVED this permanent
+    /// (null for a normal digivolve; read by <c>CardEffectCommons.IsDigivolvedByTheEffect</c>).</summary>
+    public ICardEffect? DigivolvingEffect
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.LevelJustAfterPlayed</c> (:3890, −1 = never played).</summary>
+    public int LevelJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.PlayCostJustAfterPlayed</c> (:3894, −1 = never played / no play cost).</summary>
+    public int PlayCostJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.CardNamesJustAfterPlayed</c> (:3898).</summary>
+    public List<string> CardNamesJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.CardNamesJustAfterDigivolved</c> (:3902).</summary>
+    public List<string> CardNamesJustAfterDigivolved
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.TraitsJustAfterPlayed</c> (:3906).</summary>
+    public List<string> TraitsJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.IsBurstDigivolved</c> (:3938).</summary>
+    public bool IsBurstDigivolved
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.IsAppFusion</c> (Permanent.cs, sibling of IsBurstDigivolved).</summary>
+    public bool IsAppFusion
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion = value;
+    }
+
     /// <summary>(R4 S3b-2①) AS-IS <c>Permanent.AddCardSource(cardSource)</c> (Permanent.cs:1045-1053): the new
     /// card becomes this permanent's stack TOP (AS-IS <c>cardSources.Insert(0, cardSource)</c>; face handling =
     /// the zone move's face stamp). SUBSTRATE MAPPING: the mirror permanent's identity IS its top card's zone

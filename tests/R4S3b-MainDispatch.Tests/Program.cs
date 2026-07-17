@@ -22,6 +22,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("the pass/breeding surface stays fully live alongside the registered STOPs (S3a suite parity on this build)", PassSurfaceStillLive),
     ("(S3b-2①) CreateNewPermanent: zone entry + suspended/entered metadata + effect registration + view identity", CreateNewPermanentOp),
     ("(S3b-2①) AddCardSource: the new card becomes the zone-resident top, the old top threads into sourceIds, sickness inherits", AddCardSourceOp),
+    ("(S3b-2②) just-after bookkeeping: view-stable writes, PERSISTS across the top swap (re-key), DIES on field leave (reset)", BookkeepingLifetime),
 };
 
 var failures = new List<string>();
@@ -175,6 +176,40 @@ async Task AddCardSourceOp()
         "the old top threaded into the digivolution sources");
     AssertEqual(match.Context.TurnController.Current.TurnNumber, permanent.EnterFieldTurnCount,
         "sickness INHERITED from the under-card (N-1: both entered this turn)");
+}
+
+async Task BookkeepingLifetime()
+{
+    DcgoMatch match = await NewPumpMatchAsync(seed: 59);
+    await StepAsync(match);
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+
+    var player = new Cec.Player(match.Context, P1);
+    List<Cec.CardSource> digimons = player.HandCards.Where(c => c.IsDigimon).Take(2).ToList();
+
+    // CREATE: the executor-shaped writes land on the store and read back through a FRESH view.
+    Cec.Permanent permanent = await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController
+        .CreateNewPermanent(digimons[0], isSuspended: false);
+    permanent.LevelJustAfterPlayed = 3;
+    permanent.PlayCostJustAfterPlayed = 4;
+    permanent.TraitsJustAfterPlayed = new List<string> { "D-Brigade" };
+    Cec.Permanent freshView = new(match.Context, permanent.TopCard.InstanceId, P1);
+    AssertEqual(3, freshView.LevelJustAfterPlayed, "a fresh view reads the same entry (match-scoped store)");
+    AssertEqual(4, freshView.PlayCostJustAfterPlayed, "play cost survives the view boundary");
+
+    // PERSIST: the top swap (AddCardSource → AttachTargetAsSource) re-keys the entry to the new top.
+    HeadlessEntityId oldTop = permanent.TopCard.InstanceId;
+    await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController.RemoveFromAllArea(digimons[1]);
+    permanent = await permanent.AddCardSource(digimons[1]);
+    AssertEqual(3, permanent.LevelJustAfterPlayed, "the AS-IS object persists: played-level survives digivolving");
+    AssertTrue(permanent.TraitsJustAfterPlayed.Contains("D-Brigade"), "played-traits survive digivolving");
+
+    // DIE: leaving the field drops the entry — a fresh life reads AS-IS defaults.
+    await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController.RemoveField(permanent, ignoreOverflow: true);
+    Cec.Permanent rePlayed = await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController
+        .CreateNewPermanent(permanent.TopCard, isSuspended: false);
+    AssertEqual(-1, rePlayed.LevelJustAfterPlayed, "a re-played card starts a FRESH bookkeeping life (default -1)");
+    AssertEqual(0, rePlayed.TraitsJustAfterPlayed.Count, "fresh life: empty played-traits");
 }
 
 // --- Drivers -------------------------------------------------------------

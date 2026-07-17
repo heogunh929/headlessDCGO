@@ -129,6 +129,10 @@ public static class CardObjectController
             context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
         }
 
+        // (R4 S3b-2②) fresh AS-IS `new Permanent(...)` semantics: a re-played card must not see the
+        // just-after bookkeeping of its previous life.
+        PermanentBookkeepingStore.Reset(context.CardInstanceRepository, card.InstanceId);
+
         CardEffectRegistrar.RegisterCard(context, card.InstanceId, card.Owner);
         return new Permanent(context, card.InstanceId, card.Owner);
     }
@@ -171,6 +175,10 @@ public static class CardObjectController
             await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, from, ChoiceZone.None),
                 cancellationToken).ConfigureAwait(false);
+
+            // (R4 S3b-2②) the AS-IS Permanent object dies with the field slot — its just-after bookkeeping
+            // must not survive into a later life of the same card instance.
+            PermanentBookkeepingStore.Reset(context.CardInstanceRepository, permanent.InstanceId);
         }
     }
 
