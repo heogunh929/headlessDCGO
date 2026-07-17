@@ -403,18 +403,24 @@ public sealed class DcgoMatch
     public IReadOnlyList<LegalAction> GetLegalActions(HeadlessPlayerId playerId)
     {
         EnsureInitialized();
+        // Same ambient discipline as StepAsync/ApplyActionAsync (RD-R4P4-01): mirror predicates reached
+        // from the legality/observation tables read GManager.instance via AmbientMatchContext — wire the
+        // scope uniformly on every public read surface, not just where an NRE has been observed.
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
         return _gameLoop.GetLegalActions(playerId);
     }
 
     public IReadOnlyList<LegalAction> PendingActions()
     {
         EnsureInitialized();
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
         return _gameLoop.PendingActions();
     }
 
     public ObservationSnapshot GetObservation()
     {
         EnsureInitialized();
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
         return _gameLoop.GetObservation(_isTerminal, _config.PlayerIds);
     }
 
@@ -422,12 +428,14 @@ public sealed class DcgoMatch
     public ObservationSnapshot GetObservation(HeadlessPlayerId? perspectivePlayerId)
     {
         EnsureInitialized();
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
         return _gameLoop.GetObservation(_isTerminal, _config.PlayerIds, perspectivePlayerId);
     }
 
     public ActionMask GetActionMask()
     {
         EnsureInitialized();
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
         return _gameLoop.GetActionMask(_config.PlayerIds);
     }
 
