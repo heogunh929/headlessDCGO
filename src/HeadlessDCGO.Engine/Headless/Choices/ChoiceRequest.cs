@@ -81,6 +81,16 @@ public sealed record ChoiceRequest
     /// so try-reject-retry is the contract. Skips are not validated.</summary>
     public Func<IReadOnlyList<HeadlessEntityId>, bool>? SelectionValidator { get; init; }
 
+    /// <summary>(B5-1, 설계 §B5.5) An optional PATH-DEPENDENT per-pick gate (AS-IS
+    /// <c>canTargetCondition_ByPreSelecetedList(PreSelected, item)</c> — the second leg of the AS-IS
+    /// three-part validator structure, SelectPermanentEffect.SetUp :12-23): given the current partial
+    /// selection (in pick order) and one further candidate, may that candidate be picked NOW? Evaluated at
+    /// tap time by the dispatcher's toggle-lane filter (B5-2; at MaxCount the AS-IS replace-last preview
+    /// passes the list minus its last element — SelectHandEffect.cs:280-296). Additive and unread in B5-1:
+    /// nothing populates or evaluates it yet, so existing requests are byte-for-byte unaffected.
+    /// Distinct from <see cref="SelectionValidator"/>, which judges the completed SET at confirm time.</summary>
+    public Func<IReadOnlyList<HeadlessEntityId>, HeadlessEntityId, bool>? PartialPickGate { get; init; }
+
     public IReadOnlyList<ChoiceCandidate> SelectableCandidates =>
         Candidates.Where(candidate => candidate.IsSelectable).ToArray();
 }

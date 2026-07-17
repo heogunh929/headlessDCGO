@@ -259,11 +259,15 @@ public sealed class HeadlessGameLoop(
     // (M2) Candidate identity belongs to the chooser's information set only: a reveal-style choice
     // (e.g. deck-top RevealAndSelect) legitimately shows the chooser cards the opponent must not see,
     // so any non-chooser perspective gets the candidate ids withheld (CandidateCount stays).
+    // (B5-1, 설계 §B5.7) The partial-selection session is likewise chooser-only: AS-IS PreSelected is a
+    // local variable of the selecting client — the opponent only sees "The opponent is selecting cards."
+    // (SelectPermanentEffect.cs:624), the network learns the picks once, at confirm — so non-chooser
+    // perspectives get PendingSelectedIds withheld too.
     private static HeadlessChoiceState FilterChoiceForPerspective(
         HeadlessChoiceState choice,
         HeadlessPlayerId? perspectivePlayerId)
     {
-        if (choice.CandidateIds.Count == 0 ||
+        if ((choice.CandidateIds.Count == 0 && choice.PendingSelectedIds.Count == 0) ||
             perspectivePlayerId is not { } viewer ||
             choice.PlayerId is not { } chooser ||
             chooser == viewer)
@@ -271,7 +275,11 @@ public sealed class HeadlessGameLoop(
             return choice;
         }
 
-        return choice with { CandidateIds = Array.Empty<HeadlessEntityId>() };
+        return choice with
+        {
+            CandidateIds = Array.Empty<HeadlessEntityId>(),
+            PendingSelectedIds = Array.Empty<HeadlessEntityId>()
+        };
     }
 
     private IReadOnlyList<PlayerObservation> BuildPlayerObservations(

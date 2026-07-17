@@ -41,6 +41,11 @@ public static class HeadlessActionParameterKeys
     public const string ChoiceSkipped = "choiceSkipped";
     public const string ChoicePending = "choicePending";
     public const string ChoiceResolved = "choiceResolved";
+    // (B5-1, 설계 §B5.6) Marks a no-select demotion of an unsatisfiable FORCED batch choice (Hand/Card
+    // surfaces: AS-IS bounded search fails -> SetTargetHandCards(null) -> _noSelect, SelectHandEffect.cs
+    // :504-570/:595-608). Defined here so the demotion is a counted fuzzing-harvest channel (D6) from its
+    // first wiring; no producer until the dispatcher demotion lands in B5-2.
+    public const string UnsatisfiableForcedChoice = "unsatisfiableForcedChoice";
     public const string FromZone = "fromZone";
     public const string ToZone = "toZone";
     public const string FaceUp = "faceUp";

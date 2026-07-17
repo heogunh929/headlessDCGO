@@ -24,6 +24,16 @@ public sealed record HeadlessChoiceState(
     // can carry candidate identity; the game loop strips this for non-chooser perspectives.
     public IReadOnlyList<HeadlessEntityId> CandidateIds { get; init; } = Array.Empty<HeadlessEntityId>();
 
+    // (B5-1, 설계 §B5.4) Partial-selection session scratchpad: the candidates the chooser has toggled ON
+    // so far, in PICK ORDER (the substrate translation of the AS-IS selection session's local accumulator
+    // `List<T> PreSelectedPermanents` / `PreSelectedHandCards` — SelectPermanentEffect.cs:362,
+    // SelectHandEffect.cs:253; pick order is semantic there: SetSelectedIndexText numbers picks 1..n and
+    // order-sensitive modes such as PutLibraryBottom consume the list in pick order). May be non-empty only
+    // while IsPending; Resolve/Clear always empties it. NOT yet exposed on any observation/serialization
+    // surface (that is B5-3); the dispatcher does not populate it until B5-2 — in B5-1 every real
+    // trajectory keeps it empty, so existing behavior is bit-identical.
+    public IReadOnlyList<HeadlessEntityId> PendingSelectedIds { get; init; } = Array.Empty<HeadlessEntityId>();
+
     public static HeadlessChoiceState Empty { get; } = new(
         RequestId: null,
         Type: ChoiceType.Unknown,
