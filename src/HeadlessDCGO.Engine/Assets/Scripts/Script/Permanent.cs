@@ -3816,6 +3816,10 @@ public sealed class Permanent
             context: _context).ConfigureAwait(false);
     }
 
+    /// <summary>(R4 S3b-2) AS-IS <c>Permanent.StackCards</c> (Permanent.cs:884) — verbatim: every stacked card
+    /// EXCEPT the link cards (top + digivolution sources).</summary>
+    public List<CardSource> StackCards => cardSources.Filter(cardSource => !LinkedCards.Contains(cardSource));
+
     // ==== (R4 S3b-2②) AS-IS "just-after" bookkeeping fields (Permanent.cs:3686-3941) — carried by the
     // match-scoped PermanentBookkeepingStore (the mirror Permanent is a per-access view; see the store header
     // for the CREATE/PERSIST/DIE lifetime mapping). Names, defaults and mutability verbatim.

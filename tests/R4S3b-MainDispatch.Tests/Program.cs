@@ -17,12 +17,13 @@ HeadlessPlayerId P2 = new(2);
 
 var tests = new (string Name, Func<Task> Body)[]
 {
-    ("PlayCard dispatch reaches the AS-IS executor hand-off and STOPs honestly at RD-P6C1-4 (PlayPermanentClass/UseOptionClass unported — the S3b-2 batch)", PlayCardStopBoundary),
+    ("(S3b-2 몸통 flip) PlayCard dispatch runs the REAL executor: cost paid, permanent enters, bookkeeping stamped, exhausted memory auto-ends the turn", PlayCardDispatch),
     ("(S3b-2 flip) DeclareAttack dispatch: a staged attacker's security attack resolves the full pipeline on the pump stack and consumes a security card", AttackDispatch),
     ("the pass/breeding surface stays fully live alongside the registered STOPs (S3a suite parity on this build)", PassSurfaceStillLive),
     ("(S3b-2①) CreateNewPermanent: zone entry + suspended/entered metadata + effect registration + view identity", CreateNewPermanentOp),
     ("(S3b-2①) AddCardSource: the new card becomes the zone-resident top, the old top threads into sourceIds, sickness inherits", AddCardSourceOp),
     ("(S3b-2②) just-after bookkeeping: view-stable writes, PERSISTS across the top swap (re-key), DIES on field leave (reset)", BookkeepingLifetime),
+    ("(S3b-2 몸통) a PLAY-agent full game: real ST1/ST2 plays + [On Play] windows + attacks on the pump stack, to a terminal, deterministically", PlayAgentFullGame),
 };
 
 var failures = new List<string>();
@@ -42,30 +43,39 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 // --- Tests ---------------------------------------------------------------
 
-async Task PlayCardStopBoundary()
+async Task PlayCardDispatch()
 {
+    // (S3b-2 몸통 flip) RD-P6C1-4 resolved: the PlayCardClass hand-off now drives the REAL
+    // PlayPermanentClass executor on the pump stack — pay pipeline → zone entry (S3b-2① op) →
+    // bookkeeping (S3b-2② store) → inline OnEnterFieldAnyone window.
     DcgoMatch match = await NewPumpMatchAsync(seed: 31);
     await ReachMainWaitAsync(match);
     HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
 
-    (HeadlessEntityId cardId, _) = FirstPlayableDigimon(match, turnPlayer);
-    // The dispatch arm runs PlayCardClass.PlayCard 1:1 — the pay half executes, then the AS-IS
-    // PlayPermanentClass/UseOptionClass hand-off is the registered STOP (RD-P6C1-4). The pump surfaces it as a
-    // deterministic engine fault (EngineTaskRunner rethrows a Faulted task) — pinned here so the S3b-2 port
-    // flips THIS witness to the real play assertions.
-    string? fault = null;
-    try
+    (HeadlessEntityId cardId, int cost) = FirstPlayableDigimon(match, turnPlayer);
+    int handBefore = Count(match, turnPlayer, ChoiceZone.Hand);
+    int fieldBefore = Count(match, turnPlayer, ChoiceZone.BattleArea);
+
+    await SendAsync(match, turnPlayer, HeadlessActionTypes.PlayCard,
+        new Dictionary<string, object?> { [HeadlessActionParameterKeys.CardId] = cardId.Value });
+    await DriveUntilAsync(match, m => Count(m, turnPlayer, ChoiceZone.BattleArea) > fieldBefore || m.IsTerminal());
+
+    AssertEqual(fieldBefore + 1, Count(match, turnPlayer, ChoiceZone.BattleArea), "the digimon entered the battle area");
+    AssertEqual(handBefore - 1, Count(match, turnPlayer, ChoiceZone.Hand), "the card left the hand");
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
     {
-        await SendAsync(match, turnPlayer, HeadlessActionTypes.PlayCard,
-            new Dictionary<string, object?> { [HeadlessActionParameterKeys.CardId] = cardId.Value });
-    }
-    catch (NotSupportedException ex)
-    {
-        fault = ex.Message;
+        var played = new Cec.Permanent(match.Context, cardId, turnPlayer);
+        AssertTrue(played.LevelJustAfterPlayed >= 3, $"LevelJustAfterPlayed stamped (got {played.LevelJustAfterPlayed})");
+        AssertEqual(cost, played.PlayCostJustAfterPlayed, "PlayCostJustAfterPlayed stamped with the printed cost");
     }
 
-    AssertTrue(fault is not null, "the pump surfaced the executor STOP as a fault");
-    AssertTrue(fault!.Contains("RD-P6C1-4", StringComparison.Ordinal), $"the fault names the design item (got: {fault})");
+    // Memory 0 − cost crosses the threshold: the pump-loop EndTurnCheck (AS-IS :950) auto-ends the turn and
+    // the gauge re-signs to +cost for the new turn player.
+    await DriveUntilAsync(match, m =>
+        m.Context.TurnController.Current.TurnPlayerId!.Value != turnPlayer || m.IsTerminal());
+    AssertEqual(2, match.Context.TurnController.Current.TurnNumber, "the exhausted memory ended turn 1");
+    AssertEqual(cost, match.Context.MemoryController.Current.Current, "gauge re-signed to +cost for the new turn player");
 }
 
 async Task AttackDispatch()
@@ -210,6 +220,113 @@ async Task BookkeepingLifetime()
         .CreateNewPermanent(permanent.TopCard, isSuspended: false);
     AssertEqual(-1, rePlayed.LevelJustAfterPlayed, "a re-played card starts a FRESH bookkeeping life (default -1)");
     AssertEqual(0, rePlayed.TraitsJustAfterPlayed.Count, "fresh life: empty played-traits");
+}
+
+async Task PlayAgentFullGame()
+{
+    // The scripted deterministic PLAY agent: at every main wait, play the cheapest playable hand digimon; if
+    // none, attack security with the first ready attacker; else pass. Choices: breeding = act, others = act.
+    // Runs REAL card effects ([On Play] draws / memory effects of ST1/ST2) through the executor on the pump
+    // stack. Two same-seed games must stay digest-identical to the terminal.
+    DcgoMatch a = await DriveFullPlayGameAsync(seed: 67);
+    DcgoMatch b = await DriveFullPlayGameAsync(seed: 67);
+
+    AssertTrue(a.IsTerminal() && b.IsTerminal(), "both play-agent games reached a terminal");
+    AssertTrue(a.GetResult().WinnerId is not null || a.GetResult().IsDraw, "a verdict was recorded");
+    AssertEqual(Digest(a), Digest(b), "same-seed play-agent games are digest-identical at the terminal");
+}
+
+async Task<DcgoMatch> DriveFullPlayGameAsync(int seed)
+{
+    DcgoMatch match = await NewPumpMatchAsync(seed);
+    await StepAsync(match);
+    for (int i = 0; i < 2; i++)
+    {
+        await ResolvePendingAsync(match, skip: true);   // keep both opening hands
+    }
+
+    int lastTurn = 0;
+    for (int i = 0; i < 1200 && !match.IsTerminal(); i++)
+    {
+        if (Environment.GetEnvironmentVariable("S3B2_DEBUG") == "1" && (i % 25 == 0 || match.Context.TurnController.Current.TurnNumber != lastTurn))
+        {
+            lastTurn = match.Context.TurnController.Current.TurnNumber;
+            HeadlessTurnState t = match.Context.TurnController.Current;
+            Console.Error.WriteLine($"  [drive {i}] turn:{t.TurnNumber} phase:{t.Phase} choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "-"} mem:{match.Context.MemoryController.Current.Current} p1F:{Count(match, P1, ChoiceZone.BattleArea)} p2F:{Count(match, P2, ChoiceZone.BattleArea)}");
+            Console.Error.Flush();
+        }
+
+        if (match.HasPendingChoice())
+        {
+            await ResolvePendingAsync(match, skip: false);
+            continue;
+        }
+
+        if (!AtMainWait(match))
+        {
+            await StepAsync(match);
+            continue;
+        }
+
+        HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
+        using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+        var player = new Cec.Player(match.Context, turnPlayer);
+
+        // ATTACK-first agent (games end by security depletion, not deck-out) and a small board cap (the
+        // frame-less battle area is uncapped — RD-P6C1-2 — so an unbounded play-first agent grows O(board²)
+        // scans and drags the game past the deck).
+        Cec.Permanent? attacker = player.GetFieldPermanents()
+            .FirstOrDefault(p => p.CanAttack(null));
+
+        Cec.CardSource? playable = player.GetFieldPermanents().Count >= 4
+            ? null
+            : player.HandCards
+                .Where(c => c.IsDigimon && c.CanPlayFromHandDuringMainPhase
+                    // keep the drive to NEW plays (the digivolve intent rides TargetCardId — out of this witness's scope)
+                    && new Cec.Player(match.Context, turnPlayer).MaxMemoryCost >= c.PayingCost(HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect.Root.Hand, null, checkAvailability: true))
+                .OrderBy(c => c.PayingCost(HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect.Root.Hand, null, checkAvailability: true))
+                .FirstOrDefault();
+
+        if (attacker is not null)
+        {
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.DeclareAttack,
+                new Dictionary<string, object?> { [HeadlessActionParameterKeys.AttackerId] = attacker.InstanceId.Value });
+        }
+        else if (playable is not null)
+        {
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.PlayCard,
+                new Dictionary<string, object?> { [HeadlessActionParameterKeys.CardId] = playable.InstanceId.Value });
+        }
+        else
+        {
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+        }
+    }
+
+    AssertTrue(match.IsTerminal(), "the play-agent game reached a terminal within the drive bound");
+    return match;
+}
+
+static string Digest(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    HeadlessTurnState t = match.Context.TurnController.Current;
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine($"turn:{t.TurnNumber} player:{t.TurnPlayerId?.Value} phase:{t.Phase} cursor:{t.StepCursor}");
+    sb.AppendLine($"memory:{match.Context.MemoryController.Current.Current}");
+    sb.AppendLine($"winner:{match.GetResult().WinnerId?.Value} draw:{match.GetResult().IsDraw}");
+    foreach (HeadlessPlayerId p in new[] { new HeadlessPlayerId(1), new HeadlessPlayerId(2) })
+    {
+        foreach (ChoiceZone z in new[] { ChoiceZone.Hand, ChoiceZone.Library, ChoiceZone.Security, ChoiceZone.BreedingArea, ChoiceZone.BattleArea, ChoiceZone.Trash })
+        {
+            if (match.Context.ZoneMover is IZoneStateReader zones)
+            {
+                sb.AppendLine($"p{p.Value}:{z}:{string.Join(",", zones.GetCards(p, z).Select(c => c.Value))}");
+            }
+        }
+    }
+
+    return sb.ToString();
 }
 
 // --- Drivers -------------------------------------------------------------

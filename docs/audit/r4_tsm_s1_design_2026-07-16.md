@@ -52,6 +52,20 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
 **리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
 
+## S3b-2 몸통 착지 (2026-07-17) — PlayPermanentClass/UseOptionClass 1:1 (RD-P6C1-4 해소)
+**PlayPermanentClass(:1150-1703)**: ctor/Set* 6종/필드/isJogress·isAppFusion verbatim. PlayPermanent 본문 —
+DigiXros Select 1:1(HasDigiXros 도달 시 내부 STOP=RD-R5-04)·Assembly Select=STOP RD-P6C1-5(PlayCardClass 판례)·
+프레임 표적(:1290-1340)=**배치가능성 판정으로 환원**(브리딩=빈 브리딩+CanEnterField(PayCost:false 어댑테이션)·배틀=용량 생략 RD-P6C1-2, 룰 게이트=:1350 CanPlayAsNewPermanent(미러 무-isBreedingArea 파라미터 주석))·
+진화 arm=S3b-2① AddCardSource(뷰 재바인딩)·신규 arm=CreateNewPermanent+EnterFieldTurnCount 1:1·
+jogress arm 완전 이식(루트=필드-리스트 인덱스 어댑테이션, DiscardEvoRoots/RemoveField/링크 트래시/AddDigivolutionCardsTop/InitUseCountThisTurn)·
+시큐리티-루트=IReduceSecurity(null-ref emit-now 분기)·:1526-1529=OnDigivolveCompletedAsync(검증 op)·
+버스트 턴엔드 트래시=STOP RD-P6C1-6(도달 불가: 상류 STOP)·북키핑 9필드 기록(②store)·
+"move permanents(hybrid)"=순수 캔버스 UI strip·AddDigivolutiuonCards* 4호출=**빈-상태 no-op 증명+가드**(상태 생산자 0; 미래 생산자는 STOP 발화, 침묵 불가)·
+꼬리=CardEffectCondition verbatim+OnEnterFieldHashtable(기존 빌더)+**인라인 OnEnterFieldAnyone**(설계 옵션 B — zone 진입 무-메타로 supply GAP-drop, 단일 개설자).
+**UseOptionClass(:1704-1902)**: Execution 존 파킹(③op)·OnUseOption 창+배경효과·OptionSkill 발동 루프·OptionResolution 3스캔+해소 루프 verbatim·**다중-해소 픽**(:1855-1880 selectCardPanel)=ChoiceProvider.ChooseAsync(펌프-await/RunToStable-throw 공용 계약)·트래시 꼬리.
+**핸드오프 STOP 교체**: PlayCardClass.PlayCard 꼬리(:868-960)=실제 핸드오프(SetJogress/SetBurstDigivolved/SetAppFusion/SetIsBreedingArea+PlayPermanent→UseOption). 부수: Permanent.StackCards(:884) 미러.
+**witness 7/7**: PlayCard 실단언(비용·진입·북키핑 스탬프·임계 자동 턴종료)+**플레이-에이전트 풀게임**(공격-우선+보드캡 4 — 용량-생략 어댑테이션에서 play-first는 O(보드²) 성장으로 비종결, 공격-우선으로 시큐리티 소모 종결; 실 ST1/ST2 [On Play] 창·공격·배틀 전부 펌프 스택, 동일-시드 2게임 종국 다이제스트 동일).
+
 ## S3b-2② 착지 (2026-07-17) — Just-After 북키핑 store
 **AS-IS 표면 전수 확정**: 쓰기=실행자 단독(PlayPermanentClass :1535-1569)·읽기=미포팅 카드 코퍼스(EX3/EX4/EX5/LM/ST10/BT11의 LevelJustAfterPlayed/PlayCost/Traits/CardNamesJustAfterDigivolved 스캔)+IsDigivolvedByTheEffect 커먼즈(DigivolvingEffect)·리셋=없음(수명=AS-IS Permanent 객체 수명=필드 체류).
 **store 설계**: `PermanentBookkeepingStore`(신규, CardEffectCommons/) — **repository-키** ConditionalWeakTable(재키 소유 op 2곳이 EngineContext 없이 repository만 보유), 엔트리=AS-IS 9필드 verbatim(이름·기본값), live ICardEffect 참조=A1 인메모리 판례. **수명 매핑 CREATE/PERSIST/DIE**: ①CREATE=CreateNewPermanent에서 Reset(재플레이 카드가 전생 북키핑을 보면 안 됨) ②PERSIST=top 교체 소유 op 2곳에서 ReKey — DigivolveAction.AttachTargetAsSource(자연 진화·미러 AddCardSource 공용)+DeDigivolveHelpers(DeDigivolveAsync promote·ArmorPurgeTopAsync) ③DIE=RemoveField에서 Reset. Permanent에 9 프로퍼티 표면(AS-IS :3686-3941 선언 미러).
