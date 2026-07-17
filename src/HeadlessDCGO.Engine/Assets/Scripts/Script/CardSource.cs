@@ -1825,39 +1825,113 @@ public sealed class CardSource
                         .ToList();
         }
 
-        // printed entity costs (:587-609) — carrier: DigivolutionCostHelpers.ReadRequirements (see header).
-        IReadOnlyList<Headless.Effects.DigivolutionCostRequirement> printedRequirements =
-            Definition is { } definition
-                ? Headless.Effects.DigivolutionCostHelpers.ReadRequirements(definition)
-                : Array.Empty<Headless.Effects.DigivolutionCostRequirement>();
+        // printed entity costs (:587-609) — carrier: the AS-IS EvoCost {CardColor, Level, MemoryCost} rides the
+        // card data as the EvolutionCondition token string "Color@Level(:Cost)" (the G8-001 encoding — the SAME
+        // gate DigivolveAction.MatchesEvolutionCondition enforces on the OLD path; the S3c-a shadow caught the
+        // earlier ReadRequirements-only projection over-permitting because the requirement list carries only the
+        // Any-cost fallback for condition-string cards). Falls back to ReadRequirements entries when no
+        // condition string exists. Non-Color@Level tokens (definition / card-number / card-type conditions)
+        // gate on the live top card's identity, cost = the token suffix or the printed EvolutionCost.
         EvoCosts = EvoCosts
-            .Concat(
-                printedRequirements
-                    .Select<Headless.Effects.DigivolutionCostRequirement, Func<Permanent, int>>(evoCost =>
-                    (targetPermanent) =>
+            .Concat(PrintedEvoCosts()
+                .Select<PrintedEvoCost, Func<Permanent, int>>(evoCost =>
+                (targetPermanent) =>
+                {
+                    Player owner = new Player(Context, Owner);
+
+                    if (ignore.Equals(CardEffectCommons.IgnoreRequirement.All) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                        return evoCost.MemoryCost;
+
+                    if (evoCost.TokenMatch is { } tokenMatch)
                     {
-                        Player owner = new Player(Context, Owner);
+                        // definition/number/type condition — no color/level halves to ignore separately.
+                        return tokenMatch(targetPermanent) ? evoCost.MemoryCost : -1;
+                    }
 
-                        if (ignore.Equals(CardEffectCommons.IgnoreRequirement.All) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
-                            return evoCost.MemoryCost;
-
-                        if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Color) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
-                            || evoCost.TargetColor is null
-                            || targetPermanent.TopCard.CardColors.Contains(evoCost.TargetColor))
+                    if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Color) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                        || evoCost.CardColor is null
+                        || targetPermanent.TopCard.CardColors.Contains(evoCost.CardColor))
+                    {
+                        if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Level) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                            || evoCost.Level is null
+                            || targetPermanent.Level == evoCost.Level)
                         {
-                            if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Level) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
-                                || evoCost.TargetLevel is null
-                                || targetPermanent.Level == evoCost.TargetLevel)
-                            {
-                                return evoCost.MemoryCost;
-                            }
+                            return evoCost.MemoryCost;
                         }
+                    }
 
-                        return -1;
-                    }))
-                    .ToList();
+                    return -1;
+                }))
+                .ToList();
 
         return EvoCosts;
+    }
+
+    /// <summary>One printed digivolution path (the AS-IS <c>EvoCost</c> value): a Color@Level cost, or a
+    /// definition/number/type-conditioned cost (<see cref="TokenMatch"/> non-null).</summary>
+    private sealed record PrintedEvoCost(string? CardColor, int? Level, int MemoryCost, Func<Permanent, bool>? TokenMatch = null);
+
+    /// <summary>The printed digivolution paths of this card — EvolutionCondition tokens first (the G8-001
+    /// "Color@Level(:Cost)" encoding, cost falling back to the printed EvolutionCost), else the
+    /// DigivolutionCostHelpers requirement entries (explicit metadata conditions / the Any-cost record).</summary>
+    private List<PrintedEvoCost> PrintedEvoCosts()
+    {
+        var costs = new List<PrintedEvoCost>();
+        if (Definition is not { } definition)
+        {
+            return costs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(definition.EvolutionCondition))
+        {
+            foreach (string rawToken in definition.EvolutionCondition
+                .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string token = rawToken;
+                if (token.StartsWith("definition:", StringComparison.OrdinalIgnoreCase))
+                {
+                    token = token["definition:".Length..];
+                }
+                else if (token.StartsWith("from:", StringComparison.OrdinalIgnoreCase))
+                {
+                    token = token["from:".Length..];
+                }
+
+                int at = token.IndexOf('@');
+                if (at > 0 && at < token.Length - 1)
+                {
+                    string color = token[..at].Trim();
+                    string rest = token[(at + 1)..];
+                    int colon = rest.IndexOf(':');
+                    string levelText = (colon >= 0 ? rest[..colon] : rest).Trim();
+                    int cost = colon >= 0 && int.TryParse(rest[(colon + 1)..].Trim(), out int tokenCost)
+                        ? tokenCost
+                        : definition.EvolutionCost ?? 0;
+                    if (int.TryParse(levelText, out int level) && color.Length > 0)
+                    {
+                        costs.Add(new PrintedEvoCost(color, level, cost));
+                        continue;
+                    }
+                }
+
+                // definition / card-number / card-type condition token — identity gate on the live top card.
+                string identity = token;
+                costs.Add(new PrintedEvoCost(null, null, definition.EvolutionCost ?? 0,
+                    targetPermanent => targetPermanent.TopCard is { } top
+                        && (string.Equals(identity, top.Definition?.Id.Value, StringComparison.Ordinal)
+                            || string.Equals(identity, top.Definition?.CardNumber, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(identity, top.Definition?.CardType, StringComparison.OrdinalIgnoreCase))));
+            }
+
+            return costs;
+        }
+
+        foreach (Headless.Effects.DigivolutionCostRequirement requirement in Headless.Effects.DigivolutionCostHelpers.ReadRequirements(definition))
+        {
+            costs.Add(new PrintedEvoCost(requirement.TargetColor, requirement.TargetLevel, requirement.MemoryCost));
+        }
+
+        return costs;
     }
 
     /// <summary>(R4 S3b-2) AS-IS <c>CardSource.CostList(targetPermanent, ignoreLevel, checkAvailability)</c>

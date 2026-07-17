@@ -25,13 +25,49 @@ using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
-int[] seeds = { 101, 202, 303, 404, 505 };
-const int TurnCap = 40;
+// Suite default = 5 games / 40-turn cap; the S3c-c cutover gate scales via env:
+//   S3C_GAMES=<n> S3C_SEED_BASE=<b> S3C_TURN_CAP=<t>  (seeds = b, b+101, b+202, ...)
+int gameCount = int.TryParse(Environment.GetEnvironmentVariable("S3C_GAMES"), out int g) ? g : 5;
+int seedBase = int.TryParse(Environment.GetEnvironmentVariable("S3C_SEED_BASE"), out int sb) ? sb : 101;
+int TurnCap = int.TryParse(Environment.GetEnvironmentVariable("S3C_TURN_CAP"), out int tc) ? tc : 40;
+int[] seeds = Enumerable.Range(0, gameCount).Select(i => seedBase + i * 101).ToArray();
+
+// One-shot data probe: S3C_PROBE=ST1_09:ST1_02 prints the printed requirements + both paths' verdicts.
+if (Environment.GetEnvironmentVariable("S3C_PROBE") is { Length: > 0 } probe)
+{
+    string[] pair = probe.Split(':');
+    EngineContext probeCtx = NewContext(1);
+    var db = (CardDatabase)probeCtx.CardRepository;
+    foreach (string num in pair)
+    {
+        HeadlessDCGO.Engine.Headless.Services.CardRecord? rec = db.Snapshot().FirstOrDefault(c => c.CardNumber == num);
+        Console.WriteLine($"--- {num}: def={rec?.Id.Value} type={rec?.CardType} evoCost={rec?.EvolutionCost} level={(rec?.Metadata.TryGetValue("level", out object? lv) == true ? lv : "?")}");
+        if (rec is not null)
+        {
+            foreach (var req in HeadlessDCGO.Engine.Headless.Effects.DigivolutionCostHelpers.ReadRequirements(rec))
+            {
+                Console.WriteLine($"    req id={req.Id} cost={req.MemoryCost} lvl={req.TargetLevel?.ToString() ?? "any"} color={req.TargetColor ?? "any"} type={req.TargetCardType ?? "any"}");
+            }
+        }
+    }
+
+    return;
+}
 
 var reports = new List<GameReport>();
 foreach (int seed in seeds)
 {
-    reports.Add(await RunShadowGameAsync(seed));
+    GameReport r0 = await RunShadowGameAsync(seed);
+    reports.Add(r0);
+    Console.WriteLine($"[game] seed {r0.Seed}: {(r0.Identical ? "IDENTICAL" : "DIVERGED")} turns:{r0.TurnsCompared} " +
+        $"terminalOld:{r0.OldTerminal} terminalNew:{r0.NewTerminal}{(r0.Completed ? "" : " HARNESS-ERROR:" + r0.HarnessError)}");
+    Console.Out.Flush();
+    if (!r0.Identical)
+    {
+        Console.WriteLine($"  divergence at {r0.DivergenceBoundary}:");
+        Console.WriteLine(r0.DivergenceDiff);
+        Console.Out.Flush();
+    }
 }
 
 int identical = reports.Count(r => r.Identical);
@@ -47,12 +83,15 @@ foreach (GameReport r in reports)
     }
 }
 
-// The harness itself must complete every game (a wedge/exception is a harness failure); divergences are
-// FINDINGS for the S3c-c cutover analysis, reported above and summarized in the exit line.
-if (reports.Any(r => !r.Completed))
+// GATE SEMANTICS: divergences are FINDINGS (judged in the S3c-c analysis, e.g. the OLD [When Digivolving]
+// double-fire ledger RD-S3C-01), and an error raised INSIDE the RETIRING OLD driver ("[OLD] ..." — e.g. the
+// ST1_15 option combination-validator throw, ledger RD-S3C-02) is likewise a reported finding. The suite FAILS
+// only on a NEW-side or general harness error — the gate protects the SURVIVING driver's correctness.
+var hardErrors = reports.Where(r => !r.Completed && !r.HarnessError.Contains("[OLD]")).ToList();
+if (hardErrors.Count > 0)
 {
-    Console.Error.WriteLine("FAIL: a shadow game did not complete (wedge/exception).");
-    foreach (GameReport r in reports.Where(r => !r.Completed))
+    Console.Error.WriteLine("FAIL: a shadow game hit a NEW-side/general harness error.");
+    foreach (GameReport r in hardErrors)
     {
         Console.Error.WriteLine($"  seed {r.Seed}: {r.HarnessError}");
     }
@@ -97,7 +136,7 @@ async Task<GameReport> RunShadowGameAsync(int seed)
         // same turn's main), compare the boundary digest whenever a NEW turn's main is first reached, and take
         // ONE policy decision per iteration — until a terminal or the cap.
         int lastComparedTurn = 0;
-        for (int step = 0; step < 600; step++)
+        for (int step = 0; step < TurnCap * 20; step++)
         {
             bool oldAtMain = await DriveOldToMainWaitAsync(oldMatch);
             bool newAtMain = await DriveNewToMainWaitAsync(newMatch);
@@ -165,6 +204,11 @@ async Task<GameReport> RunShadowGameAsync(int seed)
 
             // ONE policy decision, executed on both sides in their own currency.
             PolicyDecision decision = DecideMain(newMatch);
+            if (Environment.GetEnvironmentVariable("S3C_TRAIL") == "1")
+            {
+                Console.Error.WriteLine($"  [t{oldTurn}] {decision.Kind} {decision.Target.Value} {(decision.EvoTarget.Value ?? "")} mem:{newMatch.Context.MemoryController.Current.Current}");
+                Console.Error.Flush();
+            }
             await ApplyMainOnOldAsync(oldMatch, decision);
             await ApplyMainOnNewAsync(newMatch, decision);
         }
@@ -188,10 +232,35 @@ PolicyDecision DecideMain(DcgoMatch match)
     HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
     var player = new Cec.Player(match.Context, turnPlayer);
 
+    // Coverage: DIGIVOLVE when a hand digimon can evolve onto a board digimon (exercises the evolution arm
+    // + the digivolve draw on both sides).
+    foreach (Cec.CardSource handCard in player.HandCards.Where(c => c.IsDigimon)
+        .OrderBy(c => c.InstanceId.Value, StringComparer.Ordinal))
+    {
+        Cec.Permanent? evoTarget = player.GetBattleAreaDigimons()
+            .FirstOrDefault(pm => handCard.CanEvolve(pm, true)
+                && player.MaxMemoryCost >= (handCard.CostList(pm, ignoreLevel: false, checkAvailability: true).DefaultIfEmpty(int.MaxValue).Min()));
+        if (evoTarget is not null)
+        {
+            return new PolicyDecision(PolicyKind.Digivolve, handCard.InstanceId, evoTarget.InstanceId);
+        }
+    }
+
     Cec.Permanent? attacker = player.GetFieldPermanents().FirstOrDefault(p => p.CanAttack(null));
     if (attacker is not null)
     {
         return new PolicyDecision(PolicyKind.Attack, attacker.InstanceId);
+    }
+
+    // Coverage: OPTION plays (exercises UseOptionClass / the OLD ActivateOption currency).
+    Cec.CardSource? option = player.HandCards
+        .Where(c => c.IsOption && !c.IsDigimon && c.CanPlayFromHandDuringMainPhase
+            && player.MaxMemoryCost >= c.PayingCost(HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect.Root.Hand, null, checkAvailability: true))
+        .OrderBy(c => c.InstanceId.Value, StringComparer.Ordinal)
+        .FirstOrDefault();
+    if (option is not null)
+    {
+        return new PolicyDecision(PolicyKind.PlayOption, option.InstanceId);
     }
 
     if (player.GetFieldPermanents().Count < 4)
@@ -221,8 +290,17 @@ async Task ApplyMainOnNewAsync(DcgoMatch match, PolicyDecision decision)
                 new Dictionary<string, object?> { [HeadlessActionParameterKeys.AttackerId] = decision.Target.Value });
             break;
         case PolicyKind.Play:
+        case PolicyKind.PlayOption:
             await SendAsync(match, turnPlayer, HeadlessActionTypes.PlayCard,
                 new Dictionary<string, object?> { [HeadlessActionParameterKeys.CardId] = decision.Target.Value });
+            break;
+        case PolicyKind.Digivolve:
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.PlayCard,
+                new Dictionary<string, object?>
+                {
+                    [HeadlessActionParameterKeys.CardId] = decision.Target.Value,
+                    [HeadlessActionParameterKeys.TargetCardId] = decision.EvoTarget.Value,
+                });
             break;
         default:
             await SendAsync(match, turnPlayer, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
@@ -252,6 +330,26 @@ async Task ApplyMainOnOldAsync(DcgoMatch match, PolicyDecision decision)
                 && ReadId(a, HeadlessActionParameterKeys.CardId) == decision.Target.Value);
             if (play is null) throw new InvalidOperationException($"OLD legal table offers no play for {decision.Target.Value}");
             await ApplyAsync(match, play);
+            break;
+        }
+        case PolicyKind.PlayOption:
+        {
+            LegalAction? opt = Legal(match, turnPlayer).FirstOrDefault(a =>
+                (HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedActivateOption
+                 || HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedPlayCard)
+                && ReadId(a, HeadlessActionParameterKeys.CardId) == decision.Target.Value);
+            if (opt is null) throw new InvalidOperationException($"OLD legal table offers no option play for {decision.Target.Value}");
+            await ApplyAsync(match, opt);
+            break;
+        }
+        case PolicyKind.Digivolve:
+        {
+            LegalAction? evo = Legal(match, turnPlayer).FirstOrDefault(a =>
+                HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedDigivolve
+                && ReadId(a, HeadlessActionParameterKeys.CardId) == decision.Target.Value
+                && ReadId(a, HeadlessActionParameterKeys.TargetCardId) == decision.EvoTarget.Value);
+            if (evo is null) throw new InvalidOperationException($"OLD legal table offers no digivolve for {decision.Target.Value} onto {decision.EvoTarget.Value}");
+            await ApplyAsync(match, evo);
             break;
         }
         default:
@@ -404,7 +502,40 @@ static EngineContext NewContext(int seed)
 
 async Task ResolvePendingAsync(DcgoMatch match, bool skip)
 {
-    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    ChoiceRequest pending = match.Context.ChoiceController.PendingRequest!;
+    HeadlessPlayerId chooser = pending.PlayerId;
+
+    // Find a VALID selection deterministically BEFORE applying: iterate lexicographic candidate
+    // combinations (k = max(1,minCount) .. maxCount) and test the request's own SelectionValidator locally —
+    // identical candidate order on both sides = identical pick, and no engine-side rejection round-trips.
+    if (!skip)
+    {
+        var selectable = pending.Candidates.Where(c => c.IsSelectable).Select(c => c.Id).ToArray();
+        int kMax = Math.Min(Math.Max(pending.MaxCount, 1), selectable.Length);
+        for (int k = Math.Max(1, pending.MinCount); k <= kMax; k++)
+        {
+            foreach (var ids in Combinations(selectable, k))
+            {
+                if (pending.SelectionValidator is null || pending.SelectionValidator(ids))
+                {
+                    var combo = new LegalAction(
+                        new HeadlessEntityId($"shadow:resolve:{string.Join("+", ids.Select(i => i.Value))}"),
+                        chooser,
+                        HeadlessActionTypes.ResolveChoice,
+                        new Dictionary<string, object?> { [HeadlessActionParameterKeys.ChoiceSelectedIds] = string.Join(",", ids.Select(i => i.Value)) });
+                    await ApplyAsync(match, combo);
+                    return;
+                }
+            }
+        }
+
+        // No valid combination — skip if allowed, else surface as a harness error.
+        if (!pending.CanSkip)
+        {
+            throw new InvalidOperationException($"no valid selection combination for pending {pending.Type} (candidates:{selectable.Length} min:{pending.MinCount} max:{pending.MaxCount})");
+        }
+    }
+
     LegalAction? action;
     using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
     {
@@ -416,7 +547,7 @@ async Task ResolvePendingAsync(DcgoMatch match, bool skip)
 
     if (action is null)
     {
-        throw new InvalidOperationException($"no ResolveChoice action for pending {match.Context.ChoiceController.PendingRequest!.Type}");
+        throw new InvalidOperationException($"no ResolveChoice action for pending {pending.Type}");
     }
 
     await ApplyAsync(match, action);
@@ -424,10 +555,18 @@ async Task ResolvePendingAsync(DcgoMatch match, bool skip)
 
 async Task ApplyAsync(DcgoMatch match, LegalAction action)
 {
-    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
-    await match.ApplyActionAsync(action);
-    await match.StepAsync();
-    await match.StepAsync();
+    string side = TurnFlowPumpHost.Find(match.Context) is null ? "OLD" : "NEW";
+    try
+    {
+        using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+        await match.ApplyActionAsync(action);
+        await match.StepAsync();
+        await match.StepAsync();
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException($"[{side}] {action.ActionType} {action.Id.Value}: {ex.Message}", ex);
+    }
 }
 
 async Task SendAsync(DcgoMatch match, HeadlessPlayerId player, string actionType, Dictionary<string, object?> parameters)
@@ -503,6 +642,21 @@ static string Digest(DcgoMatch match)
     return sb.ToString();
 }
 
+static IEnumerable<IReadOnlyList<HeadlessEntityId>> Combinations(HeadlessEntityId[] items, int k)
+{
+    if (k > items.Length) yield break;
+    var idx = Enumerable.Range(0, k).ToArray();
+    while (true)
+    {
+        yield return idx.Select(i => items[i]).ToArray();
+        int pos = k - 1;
+        while (pos >= 0 && idx[pos] == items.Length - k + pos) pos--;
+        if (pos < 0) yield break;
+        idx[pos]++;
+        for (int j = pos + 1; j < k; j++) idx[j] = idx[j - 1] + 1;
+    }
+}
+
 static string DiffLines(string a, string b)
 {
     string[] la = a.Split('\n');
@@ -523,9 +677,9 @@ static string DiffLines(string a, string b)
     return sb.ToString();
 }
 
-enum PolicyKind { Attack, Play, Pass }
+enum PolicyKind { Attack, Play, PlayOption, Digivolve, Pass }
 
-readonly record struct PolicyDecision(PolicyKind Kind, HeadlessEntityId Target);
+readonly record struct PolicyDecision(PolicyKind Kind, HeadlessEntityId Target, HeadlessEntityId EvoTarget = default);
 
 class GameReport
 {

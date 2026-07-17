@@ -3009,16 +3009,20 @@ public class PlayCardClass
                             {
                                 if (!GetIgnoreRequirement(CardEffectCommons.IgnoreRequirement.Level))
                                 {
-                                    // AS-IS :813: `if (!GetIgnoreRequirement(Level) && !card.
-                                    // CanPlayCardTargetFrame(targetPermanents[0].PermanentFrame, PayCost,
-                                    // CardEffect, root: Root, fixedCost: -1)) { endPlayCard = true; playFailed
-                                    // = true; }` — needs Permanent.PermanentFrame (frame model, RD-P6C1-1) AND
-                                    // the play-cost/requirement engine (RD-P6C1-2): STOP (the short-circuit on
-                                    // GetIgnoreRequirement(Level) is preserved).
-                                    throw new NotSupportedException(
-                                        "STOP: CanPlayCardTargetFrame needs the frame model + the play-cost/" +
-                                        "requirement engine — design items RD-P6C1-1/RD-P6C1-2, " +
-                                        "docs/audit/rebuild_p6_cluster1_notes.md.");
+                                    // AS-IS :813 `!card.CanPlayCardTargetFrame(targetPermanents[0].PermanentFrame,
+                                    // PayCost, CardEffect, root: Root, fixedCost: -1)` — (R4 S3c-c) the former STOP
+                                    // is now REAL: the OCCUPIED-frame arm of CanPlayCardTargetFrame (:1116-1195)
+                                    // reduces to the frame-owner gate (:1140) + CanEvolve(framePermanent,
+                                    // checkAvailability: true) (:1160-1165; the :1144 cost check is
+                                    // empty-frame-only), and the requirement engine landed at S3b-2
+                                    // (EvoCosts/CanEvolve). Frame identity = the target permanent itself
+                                    // (RD-P6C1-1 adaptation).
+                                    if (targetPermanents[0].OwnerId != card.Owner
+                                        || !card.CanEvolve(targetPermanents[0], true))
+                                    {
+                                        endPlayCard = true;
+                                        playFailed = true;
+                                    }
                                 }
                             }
                             else if (isJogress)
@@ -3657,6 +3661,22 @@ public class PlayPermanentClass
             hashtable: effectHashtable,
             timing: EffectTiming.OnEnterFieldAnyone,
             cardEffectCondition: CardEffectCondition).ConfigureAwait(false);
+
+        // (R4 S3c-c, DISPATCH-REMAP BRIDGE) AS-IS fires [When Digivolving] members THROUGH this same
+        // OnEnterFieldAnyone stack (discriminated by the CanTriggerWhenDigivolving hashtable gate) — but the
+        // ported card corpus registers those effects under the mirror's DEDICATED WhenDigivolving key (the
+        // batch-2 BT1_025/BT1_062 remap, because the OLD driver dispatches digivolves via
+        // DigivolveAction's WhenDigivolving emit). Until the corpus re-keys to the literal AS-IS timing, the
+        // executor must speak the corpus's dialect: an EVOLUTION play ALSO opens the WhenDigivolving window
+        // (same hashtable/gates — a member's own CanTrigger discriminates). The S3c-a shadow caught this:
+        // ST2_09's opponent-source trash fired on OLD and stayed silent on the pump path.
+        if (isEvolution)
+        {
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                hashtable: effectHashtable,
+                timing: EffectTiming.WhenDigivolving,
+                cardEffectCondition: CardEffectCondition).ConfigureAwait(false);
+        }
 
         #endregion
     }

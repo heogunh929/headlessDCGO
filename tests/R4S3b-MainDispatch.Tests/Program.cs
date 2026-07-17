@@ -25,7 +25,36 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(S3b-2②) just-after bookkeeping: view-stable writes, PERSISTS across the top swap (re-key), DIES on field leave (reset)", BookkeepingLifetime),
     ("(S3b-2 몸통) a PLAY-agent full game: real ST1/ST2 plays + [On Play] windows + attacks on the pump stack, to a terminal, deterministically", PlayAgentFullGame),
     ("(S3c-b) the pump legal-action table: main wait exposes Pass+plays (no AdvancePhase/EndTurn), auto-flow phases expose nothing, choices expose ResolveChoice only", PumpLegalTable),
+    ("(S3c-c repro) an EVOLVED permanent's death trashes its WHOLE stack (top + digivolution sources)", EvolvedDeathTrashesStack),
 };
+
+async Task EvolvedDeathTrashesStack()
+{
+    DcgoMatch match = await NewPumpMatchAsync(seed: 83);
+    await StepAsync(match);
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+
+    var player = new Cec.Player(match.Context, P1);
+    List<Cec.CardSource> digimons = player.HandCards.Where(c => c.IsDigimon).Take(2).ToList();
+
+    // Build an evolved stack via the S3b-2① ops (the same seam the pump digivolve uses).
+    Cec.Permanent permanent = await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController
+        .CreateNewPermanent(digimons[0], isSuspended: false);
+    HeadlessEntityId sourceId = permanent.TopCard.InstanceId;
+    await HeadlessDCGO.Engine.Assets.Scripts.Script.CardObjectController.RemoveFromAllArea(digimons[1]);
+    permanent = await permanent.AddCardSource(digimons[1]);
+    HeadlessEntityId topId = permanent.TopCard.InstanceId;
+    AssertEqual(1, permanent.DigivolutionCards.Count, "stack has one source under the top");
+
+    // Kill it through the shared deletion pipeline (the AS-IS destroy: DiscardEvoRoots + field removal + trash).
+    await new Cec.DestroyPermanentsClass(
+        new List<Cec.Permanent> { permanent }, null).Destroy();
+
+    var trash = (match.Context.ZoneMover as IZoneStateReader)!.GetCards(P1, ChoiceZone.Trash);
+    AssertTrue(trash.Contains(topId), "the evolved TOP went to the trash");
+    AssertTrue(trash.Contains(sourceId), $"the digivolution SOURCE went to the trash (got trash: {string.Join(",", trash.Select(c => c.Value))})");
+    AssertEqual(0, Count(match, P1, ChoiceZone.BattleArea), "the battle area is empty");
+}
 
 var failures = new List<string>();
 foreach (var test in tests)
