@@ -52,6 +52,14 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
 **리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
 
+## S3c-d 은퇴 원장 (2026-07-17, 사용자 컷오버 승인 후 — 소비자 전수 감사 완료)
+**총판정: 즉시 삭제 0항** — 물리 은퇴는 단계적(B군 registry 물리삭제 게이트 패턴).
+- **근본 게이트 G1(항1~5·8 연동)**: HeadlessGameLoop 기본 프로세서(MetadataActionProcessor)를 pump로 플립+디스패처의 AdvancePhase/EndTurn 발행 중단 — 그 전까지 프로덕션 기본 매치가 소비. 차단=OLD 스텝-액션 위 테스트 코퍼스(항3 실질 광범위·항8 throw 계약 15스위트: W1b-Resume·C-Del 계열·C-Atk 계열·C-EoT2·A4·GR-006·G3.5-F68·P1r-Sec·W-EoTFIX).
+- **경량 즉시 가능 2건**: 항7 CanEnterFieldByEffect 브리지 사본(내부 2호출부→실물 CanEnterField 재배선; ICanNotPutFieldEffect 생산자 0=동작 no-op) · 항1 부속 ResolveBreedingAsync(호출부 0=死코드).
+- **독립 재배선 2건**: 항6 supply OnEnterField/WhenDigivolving 변환(다운스트림 소비 카드 0=DORMANT; 삭제=PlayCardAction/DigivolveAction enriched emit 제거+W2-SkillWindowSupply 재조준) · 항9 진화 legality 이중석(A=DigivolveAction/DigivolutionCostHelpers 소비자 — BT1_078·ActivatedEffects·CardEffectCommons 코스트 게이트 — 를 B=미러 CanEvolve/EvoCosts로 이관 후 병합; B의 ReadRequirements 재사용은 공유 데이터층이라 잔존).
+- 항4 EoT 마커=항3 EndTurnAsync 은퇴와 동시 삭제(NEW 대체=per-effect 캡). 항5=항2 은퇴 시 원본(AutoProcessing.TurnEndMinMemory) 정본 승격.
+**S3c-d 실행 스코프(이번 배치)**: 펌프 승격(RL/신규 표면)+legacy 강등 문서화+경량 2건, 물리 삭제=후속 골("OLD 스텝-코퍼스 재조준") 등재.
+
 ## S3c-c 착지 (2026-07-17) — shadow 확대·발산 판정 (9a6df8e2, 컷오버 승인 대기)
 **기본 정책 21게임**(5+16시드, 캡 140): 전부 경계-동일, 16게임 자연 종국(81턴 덱아웃) 도달 — **종국 승자 판정까지 OLD=NEW**.
 **확장 정책(진화+옵션)이 결함 3건 적발** — 게이트의 존재 이유 실증:

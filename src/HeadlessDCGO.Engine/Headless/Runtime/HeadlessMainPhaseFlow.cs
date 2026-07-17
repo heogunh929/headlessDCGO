@@ -6,6 +6,11 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
+// LEGACY TEST SCAFFOLD (R4 S3c-d1): the OLD step-cadence driver's main-phase/turn-end body (EndTurn,
+// memory-pass cursor, PostActionMemorySettle). It survives ONLY for the pre-R4 test corpus; new/RL
+// matches use the TurnFlowPump (DcgoMatch.CreatePumpDriven), where the real AS-IS EndTurnCheck runs
+// in-pump and this flow is skipped (HeadlessGameLoop pump guard). Physical retirement gate = the
+// suite re-targeting goal (design doc S3c-d ledger).
 public sealed class HeadlessMainPhaseFlow
 {
     public const int DefaultMemoryPassValue = 3;

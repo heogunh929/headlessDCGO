@@ -28,17 +28,16 @@ public sealed class HeadlessRlEnvironment
 
     private static DcgoMatch CreateDefaultMatch(HeadlessRlEnvironmentOptions options)
     {
-        IActionLegality? legality = options.EnforceAgentActionLegality
-            ? new LegalActionSetValidator()
-            : null;
-
-        // R2-4: honour the strict-unbound profile flag so the default RL match can be the
-        // strict + validated profile (mirrors DcgoMatch.CreateStrictValidated) in a single option.
-        return new DcgoMatch(
+        // (R4 S3c-d1, pump promotion) The default agent-facing match is PUMP-DRIVEN: the AS-IS
+        // TurnFlowPump owns the turn cadence (StartGame/mulligan/security, phase auto-flow, EndTurnCheck)
+        // and the step-cadence actions (AdvancePhase/EndTurn) are illegal. The OLD driver survives only
+        // as the pre-R4 test scaffold behind the plain DcgoMatch constructor (supply an external match).
+        // R2-4: the strict-unbound profile flag is still honoured so the default RL match can be the
+        // strict + validated profile in a single option.
+        return DcgoMatch.CreatePumpDriven(
             EngineContext.CreateDefault(strictUnbound: options.StrictUnbound),
             new EngineTrace(),
-            actionProcessor: null,
-            actionLegality: legality);
+            enforceActionLegality: options.EnforceAgentActionLegality);
     }
 
     public async Task<RlStepResult> InitializeAsync(
@@ -46,12 +45,14 @@ public sealed class HeadlessRlEnvironment
         CancellationToken cancellationToken = default)
     {
         await _match.InitializeAsync(config, cancellationToken).ConfigureAwait(false);
+        await DrivePumpToDecisionAsync(cancellationToken).ConfigureAwait(false);
         return Observe();
     }
 
     public async Task<RlStepResult> ResetAsync(CancellationToken cancellationToken = default)
     {
         await _match.ResetAsync(cancellationToken).ConfigureAwait(false);
+        await DrivePumpToDecisionAsync(cancellationToken).ConfigureAwait(false);
         return Observe();
     }
 
@@ -197,11 +198,68 @@ public sealed class HeadlessRlEnvironment
         }
 
         StepResult stepResult = await _match.StepAsync(cancellationToken).ConfigureAwait(false);
+        stepResult = await DrivePumpAfterActionAsync(stepResult, cancellationToken).ConfigureAwait(false);
 
         return Encode(stepResult with
         {
             Events = applyResult.Events.Concat(stepResult.Events).ToArray()
         });
+    }
+
+    // (R4 S3c-d1) PUMP DRIVE: on a pump-driven match one public StepAsync advances the continuous pump by
+    // at most one park segment (HeadlessGameLoop steps the TaskRunner BEFORE processing the queued action,
+    // so the segment an action releases runs on the FOLLOWING step). The agent-surface contract is "return
+    // at the next decision point", so after an action we always take that follow-up step, then keep
+    // stepping while the match is quiescent-empty (not terminal, no pending choice, no legal action for
+    // any player). Bounded as a safety net — the pump parks deterministically at every decision stop.
+    private const int PumpDriveStepBound = 128;
+
+    private async Task<StepResult> DrivePumpAfterActionAsync(
+        StepResult stepResult,
+        CancellationToken cancellationToken)
+    {
+        if (!_match.IsPumpDriven || stepResult.IsTerminal)
+        {
+            return stepResult;
+        }
+
+        List<GameEvent> events = new(stepResult.Events);
+        StepResult current = await _match.StepAsync(cancellationToken).ConfigureAwait(false);
+        events.AddRange(current.Events);
+
+        for (int i = 0;
+            i < PumpDriveStepBound
+                && !current.IsTerminal
+                && !current.HasPendingChoice
+                && current.ActionMask.LegalActions.Count == 0;
+            i++)
+        {
+            current = await _match.StepAsync(cancellationToken).ConfigureAwait(false);
+            events.AddRange(current.Events);
+        }
+
+        return current with { Events = events.ToArray() };
+    }
+
+    // (R4 S3c-d1) Initialize/Reset leave a pump match with the pump task enqueued but not yet run —
+    // drive it to the first decision point (the AS-IS StartGame mulligan choice) so the returned
+    // observation is actionable. No-op on a non-pump (legacy/external) match.
+    private async Task DrivePumpToDecisionAsync(CancellationToken cancellationToken)
+    {
+        if (!_match.IsPumpDriven)
+        {
+            return;
+        }
+
+        for (int i = 0;
+            i < PumpDriveStepBound
+                && !_match.IsTerminal()
+                && !_match.HasPendingChoice()
+                && _match.GetActionMask().LegalActions.Count == 0;
+            i++)
+        {
+            await _match.StepAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public RlStepResult Encode(StepResult stepResult)

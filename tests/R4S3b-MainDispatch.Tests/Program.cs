@@ -26,7 +26,68 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(S3b-2 몸통) a PLAY-agent full game: real ST1/ST2 plays + [On Play] windows + attacks on the pump stack, to a terminal, deterministically", PlayAgentFullGame),
     ("(S3c-b) the pump legal-action table: main wait exposes Pass+plays (no AdvancePhase/EndTurn), auto-flow phases expose nothing, choices expose ResolveChoice only", PumpLegalTable),
     ("(S3c-c repro) an EVOLVED permanent's death trashes its WHOLE stack (top + digivolution sources)", EvolvedDeathTrashesStack),
+    ("(S3c-d1) CreatePumpDriven promotion: pump installed at init (setup normalized), first step opens the mulligan, no step-cadence actions", PumpFactoryPromotion),
 };
+
+async Task PumpFactoryPromotion()
+{
+    // The promoted factory: a DEFAULT setup (hand 5 / security 5) must be normalized to pump ownership
+    // (deck seeding + shuffle kept), the pump task must be installed by InitializeAsync itself, and the
+    // OLD step-cadence actions must be absent from every legal table.
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 89);
+    CardBaseEntityLoader.LoadInto((CardDatabase)context.CardRepository);
+    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1"), d2 = StarterDecks.Get("ST2");
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[]
+        {
+            new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
+            new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
+        },
+        firstPlayerId: P1);   // deliberately DEFAULT hand/security/mulligan — the factory must normalize
+    MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: 89, setup: setup);
+
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
+    await match.InitializeAsync(config);
+
+    // (a) pump installed at initialize + agent profile + setup normalization (pump owns the deal).
+    AssertTrue(match.IsPumpDriven, "the factory marks the match pump-driven");
+    AssertTrue(TurnFlowPumpHost.Find(context) is not null, "the pump host service is registered at init");
+    AssertTrue(context.TaskRunner.PendingTaskCount >= 1, "the pump task is enqueued on the TaskRunner at init");
+    AssertTrue(match.EnforcesActionLegality, "the agent legality boundary is on by default");
+    AssertEqual(0, Count(match, P1, ChoiceZone.Hand), "setup dealt NO hand (normalized: StartGame owns the deal)");
+    AssertEqual(0, Count(match, P1, ChoiceZone.Security), "setup dealt NO security (normalized)");
+    AssertTrue(Count(match, P1, ChoiceZone.Library) > 0, "deck seeding kept (library populated)");
+
+    // (b) the first step runs the pump into StartGame: hands dealt, mulligan choice open.
+    await StepAsync(match);
+    AssertTrue(match.HasPendingChoice(), "first step opens a pending choice");
+    AssertEqual(ChoiceType.Mulligan, match.Context.ChoiceController.PendingRequest!.Type, "the choice is the mulligan");
+    AssertEqual(5, Count(match, P1, ChoiceZone.Hand), "the pump dealt the AS-IS opening hand");
+
+    // (c) NO step-cadence actions on any legal table: during the mulligan, then at the main wait.
+    foreach (HeadlessPlayerId p in new[] { P1, P2 })
+    {
+        AssertTrue(Legal(match, p).All(a =>
+            HeadlessActionTypes.Normalize(a.ActionType) != HeadlessActionTypes.NormalizedAdvancePhase
+            && HeadlessActionTypes.Normalize(a.ActionType) != HeadlessActionTypes.NormalizedEndTurn),
+            $"no AdvancePhase/EndTurn for player {p.Value} during the mulligan");
+    }
+
+    for (int i = 0; i < 2; i++)
+    {
+        await ResolvePendingAsync(match, skip: true);
+    }
+
+    await DriveUntilAsync(match, AtMainWait);
+    HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    IReadOnlyList<LegalAction> table = Legal(match, turnPlayer);
+    AssertTrue(table.Any(a => HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedPass),
+        "the main wait offers Pass");
+    AssertTrue(table.All(a =>
+        HeadlessActionTypes.Normalize(a.ActionType) != HeadlessActionTypes.NormalizedAdvancePhase
+        && HeadlessActionTypes.Normalize(a.ActionType) != HeadlessActionTypes.NormalizedEndTurn),
+        "no AdvancePhase/EndTurn at the main wait on a factory pump match");
+}
 
 async Task EvolvedDeathTrashesStack()
 {

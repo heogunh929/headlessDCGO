@@ -5,6 +5,11 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
+// LEGACY TEST SCAFFOLD (R4 S3c-d1): as the DcgoMatch default processor this is the OLD step-cadence
+// turn driver (AdvancePhase/EndTurn + HeadlessEarlyPhaseFlow/HeadlessMainPhaseFlow). The OLD driver
+// survives ONLY for the pre-R4 test corpus; new/RL matches use the TurnFlowPump (DcgoMatch.CreatePumpDriven),
+// whose TurnFlowDriver still delegates its system/choice/zone arms here (that seam is NOT legacy).
+// Physical retirement gate = the suite re-targeting goal (design doc S3c-d ledger).
 public sealed class MetadataActionProcessor : IActionProcessor
 {
     public async Task<ActionProcessResult> ProcessAsync(

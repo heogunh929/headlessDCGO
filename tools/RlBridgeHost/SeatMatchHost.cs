@@ -226,7 +226,16 @@ public sealed class SeatMatchHost
         }
 
         HeadlessPlayerId[] players = { new(1), new(2) };
-        MatchSetupConfig setup2 = MatchSetupConfig.Create(deckSetups, firstPlayerId: players[0]);
+        // (R4 S3c-d1, pump promotion) Setup seeds DECKS ONLY: the pump's StartGameAsync owns the opening
+        // hand deal, the mulligan choices and the security deal (hand 0 / security 0 / setup-mulligan off;
+        // deck seeding + seeded shuffle kept). CreatePumpDriven normalizes this anyway — explicit here so
+        // the protocol reference implementation states the pump-era setup contract.
+        MatchSetupConfig setup2 = MatchSetupConfig.Create(
+            deckSetups,
+            firstPlayerId: players[0],
+            initialHandSize: 0,
+            initialSecuritySize: 0,
+            enableMulligan: false);
         MatchConfig config = MatchConfig.Create(players, randomSeed: seed, setup: setup2);
 
         _matchId = $"m-{seed}-{_matchCounter++}";
@@ -249,10 +258,11 @@ public sealed class SeatMatchHost
             eventLog = new MatchEventLog(_logLevel, _eventWriter, _matchId);
         }
 
-        var match = new DcgoMatch(
+        // (R4 S3c-d1, pump promotion) The agent-facing match is PUMP-DRIVEN: the AS-IS TurnFlowPump owns
+        // the turn cadence; AdvancePhase/EndTurn are illegal; the first decision point is the mulligan.
+        DcgoMatch match = DcgoMatch.CreatePumpDriven(
             context,
             new EngineTrace(),
-            actionLegality: new LegalActionSetValidator(),
             eventLog: eventLog);
         await match.InitializeAsync(config);
 
@@ -260,6 +270,10 @@ public sealed class SeatMatchHost
         _steps = 0;
         _pendingSeat = null;
         _deckNames = deckNames;
+
+        // Run the pump to its first decision stop (the StartGame mulligan choice) so the first turn
+        // message carries a non-empty mask.
+        await DrivePumpToDecisionAsync();
 
         return NextTurnOrResult();
     }
@@ -289,7 +303,39 @@ public sealed class SeatMatchHost
         await _match.StepAsync();
         _steps++;
 
+        // (R4 S3c-d1) Pump cadence: the game loop steps the TaskRunner BEFORE processing the queued
+        // action, so the pump segment this action releases runs on the FOLLOWING step; then drive the
+        // auto-flow (no-choice, no-legal-action) stretch to the next decision point.
+        await DrivePumpToDecisionAsync(afterAction: true);
+
         return NextTurnOrResult();
+    }
+
+    // (R4 S3c-d1) Bounded pump drive — the seat protocol's "next decision point" contract on the
+    // continuous pump driver. Stops at: terminal, a pending choice, or any seat holding legal actions.
+    private async Task DrivePumpToDecisionAsync(bool afterAction = false)
+    {
+        const int PumpDriveStepBound = 128;
+        DcgoMatch match = _match!;
+        if (!match.IsPumpDriven || match.IsTerminal())
+        {
+            return;
+        }
+
+        if (afterAction)
+        {
+            await match.StepAsync();
+        }
+
+        for (int i = 0;
+            i < PumpDriveStepBound
+                && !match.IsTerminal()
+                && !match.HasPendingChoice()
+                && match.GetActionMask().LegalActions.Count == 0;
+            i++)
+        {
+            await match.StepAsync();
+        }
     }
 
     private IReadOnlyList<string> NextTurnOrResult()
@@ -485,6 +531,8 @@ public sealed class SeatMatchHost
             },
             firstPlayerId: players[0]);
 
+        // Schema probe only (no gameplay): feature composition depends on options/player count, not on the
+        // turn driver, so a plain (non-pump) match is sufficient and cheapest here.
         var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
         match.InitializeAsync(MatchConfig.Create(players, randomSeed: 0, setup: setup))
             .GetAwaiter()

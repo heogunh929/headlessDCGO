@@ -5,6 +5,11 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
+// LEGACY TEST SCAFFOLD (R4 S3c-d1): the OLD step-cadence driver's early-phase body (the AdvancePhase
+// arm — Active/Draw/Breeding step model). It survives ONLY for the pre-R4 test corpus; new/RL matches
+// use the TurnFlowPump (DcgoMatch.CreatePumpDriven), where the mirror TurnStateMachine phase bodies
+// run continuously and AdvancePhase is illegal. Physical retirement gate = the suite re-targeting
+// goal (design doc S3c-d ledger).
 public sealed class HeadlessEarlyPhaseFlow
 {
     public async Task<PhaseTransitionResult> AdvanceAsync(
@@ -127,39 +132,8 @@ public sealed class HeadlessEarlyPhaseFlow
             movedBreedingCards);
     }
 
-    private static async Task<BreedingPhaseResult> ResolveBreedingAsync(
-        EngineContext context,
-        HeadlessTurnState turn,
-        CancellationToken cancellationToken)
-    {
-        HeadlessPlayerId playerId = turn.TurnPlayerId!.Value;
-        int digitamaCount = GetZoneCount(context, playerId, ChoiceZone.DigitamaLibrary);
-        int breedingCount = GetZoneCount(context, playerId, ChoiceZone.BreedingArea);
-
-        if (digitamaCount > 0 && breedingCount == 0)
-        {
-            HeadlessEntityId? hatched = await context.ZoneMover
-                .HatchDigitamaAsync(playerId, cancellationToken)
-                .ConfigureAwait(false);
-            return new BreedingPhaseResult(
-                hatched.HasValue ? "Hatch" : "Skip",
-                hatched,
-                Array.Empty<HeadlessEntityId>());
-        }
-
-        if (breedingCount > 0)
-        {
-            IReadOnlyList<HeadlessEntityId> movedCards = await context.ZoneMover
-                .MoveBreedingToBattleAsync(playerId, count: 1, cancellationToken)
-                .ConfigureAwait(false);
-            return new BreedingPhaseResult(
-                movedCards.Count > 0 ? "MoveToBattle" : "Skip",
-                null,
-                movedCards);
-        }
-
-        return new BreedingPhaseResult("Skip", null, Array.Empty<HeadlessEntityId>());
-    }
+    // (R4 S3c-d, 은퇴 원장 항1 부속) The auto-resolving ResolveBreedingAsync helper was DEAD CODE (0 callers
+    // since D-6 made breeding a player decision) — deleted with its BreedingPhaseResult record.
 
     private static IReadOnlyList<HeadlessEntityId> UnsuspendForTurnPlayer(
         EngineContext context,
@@ -301,7 +275,3 @@ public sealed record PhaseTransitionResult(
     HeadlessEntityId? HatchedCardId,
     IReadOnlyList<HeadlessEntityId> MovedBreedingCardIds);
 
-internal sealed record BreedingPhaseResult(
-    string Action,
-    HeadlessEntityId? HatchedCardId,
-    IReadOnlyList<HeadlessEntityId> MovedCardIds);

@@ -139,6 +139,16 @@ public sealed class TurnFlowPumpHost
             return existing;
         }
 
+        return Reinstall(context);
+    }
+
+    /// <summary>(R4 S3c-d1) Fresh install for a match (re)initialization: HeadlessGameLoop.Reset cleared
+    /// the TaskRunner (any previous pump task died with it), so a stale host must NOT be reused — register
+    /// a NEW host (service registration overwrites) and enqueue a NEW pump task. First-time install
+    /// degenerates to <see cref="Install"/>.</summary>
+    public static TurnFlowPumpHost Reinstall(EngineContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
         TurnFlowPumpHost host = new();
         context.RegisterService(host);
         context.TaskRunner.Enqueue(new TurnFlowPumpTask(context, host));
