@@ -47,7 +47,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(§B5.6) completability: pure count-forced shortfall (selectable < MinCount) demotes without any search", () => Pure(CompletabilityCountForced)),
     ("(§B5.6) demotion boundary: CanSkip / MinCount<=1 / Count-type shapes are never demoted", () => Pure(CompletabilityDemotionBoundary)),
     ("(§B5.6) 200-evaluation cap is deterministic: pass inside the cap found, pass beyond the cap not found", () => Pure(CompletabilityCapBoundary)),
-    ("(B5-1 계약) live match: toggles do NOT perturb the dispatcher table, and a listed resolve still lands", DispatcherTableUnchangedByToggles),
+    ("(§B5.5 보존 경계) live match: MaxCount<=1 table ignores toggles (bit-identical), and a listed resolve still lands", DispatcherTableUnchangedByToggles),
     ("(§B5.7 시점 필터) live match: PendingSelectedIds is chooser-only; non-chooser view gets it stripped", PendingSelectedIdsPerspectiveStrip),
 };
 
@@ -302,7 +302,11 @@ void CompletabilityCapBoundary()
 
 async Task DispatcherTableUnchangedByToggles()
 {
-    (DcgoMatch match, HeadlessEntityId[] hand) = await PendingHandChoiceMatchAsync(seed: 61);
+    // (B5-2 re-pin) The B5-1 version pinned "no lane reads PendingSelectedIds" for ANY shape; after the
+    // B5-2 flip that contract holds exactly on the PRESERVED boundary (설계 §B5.5): MaxCount<=1 requests
+    // keep the pre-session table and stay indifferent to partial state. MaxCount>1 session behavior is
+    // witnessed by R4RL-03 (flip-level).
+    (DcgoMatch match, HeadlessEntityId[] hand) = await PendingHandChoiceMatchAsync(seed: 61, maxCount: 1);
 
     static string[] TableFingerprint(DcgoMatch m, HeadlessPlayerId p) =>
         m.GetLegalActions(p)
@@ -312,9 +316,12 @@ async Task DispatcherTableUnchangedByToggles()
 
     string[] before = TableFingerprint(match, P1);
     AssertTrue(before.Length > 0, "the pending choice exposes a resolution table");
+    AssertTrue(
+        before.All(row => !row.Contains(HeadlessActionTypes.ToggleChoiceCandidate)),
+        "MaxCount<=1 never opens a session (no toggle lanes on the preserved boundary)");
 
-    // B5-1 contract: the dispatcher does not read PendingSelectedIds — toggling must not add, remove,
-    // or reshape ANY lane (no toggle lanes, no Confirm lane until B5-2 flips the surface).
+    // Preserved boundary: the dispatcher does not read PendingSelectedIds for MaxCount<=1 — toggling must
+    // not add, remove, or reshape ANY lane.
     match.Context.ChoiceController.ToggleCandidate(hand[0]);
     match.Context.ChoiceController.ToggleCandidate(hand[1]);
     string[] after = TableFingerprint(match, P1);
@@ -370,7 +377,7 @@ ChoiceRequest ForcedPairRequest(HeadlessEntityId[] ids, Func<IReadOnlyList<Headl
         SelectionValidator = validator,
     };
 
-async Task<(DcgoMatch Match, HeadlessEntityId[] Hand)> PendingHandChoiceMatchAsync(int seed)
+async Task<(DcgoMatch Match, HeadlessEntityId[] Hand)> PendingHandChoiceMatchAsync(int seed, int maxCount = 2)
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: seed);
     var db = (CardDatabase)context.CardRepository;
@@ -395,7 +402,7 @@ async Task<(DcgoMatch Match, HeadlessEntityId[] Hand)> PendingHandChoiceMatchAsy
     HeadlessEntityId[] candidates = hand.Take(3).ToArray();
 
     context.ChoiceController.RequestChoice(new ChoiceRequest(
-        ChoiceType.HandCard, P1, "discard one", minCount: 1, maxCount: 2, canSkip: false, ChoiceZone.Hand,
+        ChoiceType.HandCard, P1, "discard one", minCount: 1, maxCount: maxCount, canSkip: false, ChoiceZone.Hand,
         candidates.Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true)).ToArray()),
         new HeadlessEntityId("r4rl02:test-choice"));
     return (match, candidates);

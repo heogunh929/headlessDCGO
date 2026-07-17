@@ -385,6 +385,25 @@ public static class HeadlessActionFactory
         return Create(HeadlessActionTypes.ResolveChoice, playerId, actionId, parameters);
     }
 
+    /// <summary>(B5-2, 설계 §B5.5) One AS-IS selection tap: toggle <paramref name="candidateId"/> in/out of the
+    /// pending choice's partial selection (SelectHandEffect.cs OnClickHandCard :269-322 — Contains→Remove, else
+    /// Add / replace-last at max). Applies via <see cref="InMemoryHeadlessChoiceController.ToggleCandidate"/>;
+    /// never resolves the choice.</summary>
+    public static LegalAction ToggleChoiceCandidate(
+        HeadlessPlayerId playerId,
+        HeadlessEntityId candidateId,
+        string? actionId = null)
+    {
+        return Create(
+            HeadlessActionTypes.ToggleChoiceCandidate,
+            playerId,
+            actionId ?? BuildActionId(playerId, HeadlessActionTypes.ToggleChoiceCandidate, actionId, candidateId.Value).Value,
+            new Dictionary<string, object?>
+            {
+                [HeadlessActionParameterKeys.ChoiceCandidateId] = candidateId
+            });
+    }
+
     public static LegalAction ClearChoice(HeadlessPlayerId playerId, string? actionId = null)
     {
         return Create(HeadlessActionTypes.ClearChoice, playerId, actionId);

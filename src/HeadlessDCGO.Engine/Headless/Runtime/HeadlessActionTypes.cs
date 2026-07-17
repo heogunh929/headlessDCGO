@@ -28,6 +28,10 @@ public static class HeadlessActionTypes
     public const string ClearAttack = "ClearAttack";
     public const string RequestChoice = "RequestChoice";
     public const string ResolveChoice = "ResolveChoice";
+    // (B5-2, 설계 §B5.5) One tap of the AS-IS incremental selection loop (SelectHandEffect.cs OnClickHandCard
+    // :269-322 / SelectPermanentEffect.cs :428-474): toggles a candidate in/out of the pending choice's
+    // partial-selection scratchpad. Game state is untouched; only ResolveChoice (the Confirm lane) resolves.
+    public const string ToggleChoiceCandidate = "ToggleChoiceCandidate";
     public const string ClearChoice = "ClearChoice";
     public const string ShuffleDeck = "ShuffleDeck";
     public const string EnqueueEffect = "EnqueueEffect";
@@ -63,6 +67,7 @@ public static class HeadlessActionTypes
     public const string NormalizedClearAttack = "CLEARATTACK";
     public const string NormalizedRequestChoice = "REQUESTCHOICE";
     public const string NormalizedResolveChoice = "RESOLVECHOICE";
+    public const string NormalizedToggleChoiceCandidate = "TOGGLECHOICECANDIDATE";
     public const string NormalizedClearChoice = "CLEARCHOICE";
     public const string NormalizedShuffleDeck = "SHUFFLEDECK";
     public const string NormalizedEnqueueEffect = "ENQUEUEEFFECT";

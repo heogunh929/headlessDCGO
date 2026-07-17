@@ -78,6 +78,7 @@ public sealed class DeferredChoiceProvider : IChoiceProvider, IDeferredChoiceCoo
 
     private readonly IHeadlessChoiceController _controller;
     private readonly List<Frame> _frames = new();
+    private readonly List<ChoiceDemotionRecord> _demotions = new();
     private int _activeDepth;
 
     public DeferredChoiceProvider(IHeadlessChoiceController controller)
@@ -181,6 +182,30 @@ public sealed class DeferredChoiceProvider : IChoiceProvider, IDeferredChoiceCoo
             return replayed;
         }
 
+        // (B5-2, 설계 §B5.6/리스크 4) THE single demotion seat: an unsatisfiable FORCED batch request
+        // (MinCount>1 && !CanSkip, non-Count, with no confirmable selection within the RD-R4P4-02 bounded
+        // search) is resolved AT OPEN TIME as an empty Select — the AS-IS Hand/Panel AI branch's bounded
+        // search failing into SetTargetHandCards(null) -> _noSelect (SelectHandEffect.cs :496-570 -> :595-608),
+        // moved to open time so a partial-selection session only ever opens with a completable confirmation.
+        // No pending choice registers (no session, no stall), the pump is NOT parked, and the empty result
+        // deliberately bypasses ChoiceResult.Validate (empty fails the MinCount range — the sanctioned bypass,
+        // confined to this seat); the mirror Select* surfaces accept it as selected.Count==0 -> noSelect=true
+        // (SelectHandEffect.cs:460-461). The demotion is RECORDED and drained by HeadlessGameLoop into the
+        // unsatisfiableForcedChoice metadata/trace marking so it stays observable (퍼징 수확 D6 채널) —
+        // it never demotes a satisfiable request (ChoiceCompletability guards the shape AND the search).
+        // Deterministic across re-runs: the same request shape yields the same verdict, so the legacy unwind
+        // model's replay cursor alignment is unaffected (a demoted request never occupies a frame slot).
+        if (ChoiceCompletability.IsUnsatisfiableForcedChoice(request))
+        {
+            _demotions.Add(new ChoiceDemotionRecord(
+                request.PlayerId,
+                request.Type,
+                request.MinCount,
+                request.MaxCount,
+                request.Candidates.Count(candidate => candidate.IsSelectable)));
+            return ChoiceResult.Select(Array.Empty<HeadlessEntityId>());
+        }
+
         // (R4 S3a, decision 3 = B) AWAIT-mode: on the pump stack an unanswered choice parks the pump IN PLACE
         // (the AS-IS in-coroutine WaitUntil) instead of throwing the re-run contract — the effect body's stack
         // survives the park, so NOTHING re-runs and the replay frames stay untouched (this answer never enters
@@ -211,6 +236,22 @@ public sealed class DeferredChoiceProvider : IChoiceProvider, IDeferredChoiceCoo
         throw new DeferredChoicePendingException(request);
     }
 
+    /// <summary>(B5-2, 설계 §B5.6) Drains the no-select demotions recorded since the last drain. Consumed by
+    /// <see cref="HeadlessGameLoop.StepAsync"/> once per step to stamp the
+    /// <see cref="HeadlessActionParameterKeys.UnsatisfiableForcedChoice"/> marking onto the step's action
+    /// metadata / trace / event stream (리스크 4: the bypass stays observable, never silently green).</summary>
+    public IReadOnlyList<ChoiceDemotionRecord> DrainDemotions()
+    {
+        if (_demotions.Count == 0)
+        {
+            return Array.Empty<ChoiceDemotionRecord>();
+        }
+
+        ChoiceDemotionRecord[] drained = _demotions.ToArray();
+        _demotions.Clear();
+        return drained;
+    }
+
     private static HeadlessEntityId RequestId(ChoiceRequest request)
     {
         return new HeadlessEntityId($"deferred-choice:{request.PlayerId.Value}:{request.Type}");
@@ -231,3 +272,13 @@ public sealed class DeferredChoiceProvider : IChoiceProvider, IDeferredChoiceCoo
         return ChoiceResult.Select(state.SelectedIds);
     }
 }
+
+/// <summary>(B5-2, 설계 §B5.6) One recorded no-select demotion of an unsatisfiable forced batch choice —
+/// the observable ledger entry behind the <see cref="HeadlessActionParameterKeys.UnsatisfiableForcedChoice"/>
+/// marking (D6 수확 계수 단위).</summary>
+public sealed record ChoiceDemotionRecord(
+    HeadlessPlayerId PlayerId,
+    Choices.ChoiceType Type,
+    int MinCount,
+    int MaxCount,
+    int SelectableCount);

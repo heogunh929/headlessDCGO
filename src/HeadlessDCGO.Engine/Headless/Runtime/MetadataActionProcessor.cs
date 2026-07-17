@@ -59,6 +59,7 @@ public sealed class MetadataActionProcessor : IActionProcessor
             HeadlessActionTypes.NormalizedClearAttack => ClearAttack(action, context),
             HeadlessActionTypes.NormalizedRequestChoice => RequestChoice(action, context),
             HeadlessActionTypes.NormalizedResolveChoice => await ResolveChoiceAsync(action, context, cancellationToken).ConfigureAwait(false),
+            HeadlessActionTypes.NormalizedToggleChoiceCandidate => ToggleChoiceCandidate(action, context),
             HeadlessActionTypes.NormalizedClearChoice => ClearChoice(action, context),
             HeadlessActionTypes.NormalizedShuffleDeck => await ShuffleDeckAsync(action, context, cancellationToken).ConfigureAwait(false),
             HeadlessActionTypes.NormalizedEnqueueEffect => EnqueueEffect(action, context),
@@ -819,6 +820,51 @@ public sealed class MetadataActionProcessor : IActionProcessor
             Dictionary<string, object?> metadata = MetadataWithChoice(action, context.ChoiceController.Current);
             metadata["error"] = ex.Message;
             return ActionProcessResult.Failure("Choice resolve failed.", metadata);
+        }
+    }
+
+    /// <summary>(B5-2, 설계 §B5.5) One AS-IS selection tap: apply a ToggleChoiceCandidate action to the pending
+    /// choice's partial-selection scratchpad (<see cref="IHeadlessChoiceController.ToggleCandidate"/> — AS-IS
+    /// OnClickHandCard :269-322 Contains→Remove / Add / replace-last). Pure controller-state transition: no game
+    /// state mutates, no effect resumes, and on a pump match the parked pump stays parked (only the Confirm lane's
+    /// ResolveChoice deposits an answer) — so this same seat serves both the pump and legacy surfaces (the
+    /// TurnFlowDriver's default arm delegates here). Per-pick gates (PartialPickGate) are NOT re-evaluated here:
+    /// the dispatcher's toggle lanes filter them at enumeration time and the A1 legality boundary enforces table
+    /// membership for the agent path, mirroring AS-IS registering click handlers only on selectable cards.</summary>
+    private static ActionProcessResult ToggleChoiceCandidate(
+        LegalAction action,
+        EngineContext context)
+    {
+        if (!context.ChoiceController.Current.IsPending)
+        {
+            return ActionProcessResult.Failure(
+                "ToggleChoiceCandidate action was received without a pending choice.",
+                BaseMetadata(action));
+        }
+
+        if (!HeadlessActionPayloadReader.TryReadEntityId(
+                action, HeadlessActionParameterKeys.ChoiceCandidateId, out HeadlessEntityId candidateId, out string? idError))
+        {
+            return ActionProcessResult.Failure(
+                idError ?? "ToggleChoiceCandidate action is missing a candidate id.",
+                BaseMetadata(action));
+        }
+
+        try
+        {
+            HeadlessChoiceState choice = context.ChoiceController.ToggleCandidate(candidateId);
+            Dictionary<string, object?> metadata = MetadataWithChoice(action, choice);
+            metadata[HeadlessActionParameterKeys.ChoiceCandidateId] = candidateId.Value;
+            metadata[HeadlessActionParameterKeys.ChoicePendingSelectedIds] = choice.PendingSelectedIds
+                .Select(pendingId => pendingId.Value)
+                .ToArray();
+            return ActionProcessResult.Success("Choice candidate toggled.", metadata);
+        }
+        catch (ArgumentException ex)
+        {
+            Dictionary<string, object?> failure = MetadataWithChoice(action, context.ChoiceController.Current);
+            failure["error"] = ex.Message;
+            return ActionProcessResult.Failure("Choice candidate toggle failed.", failure);
         }
     }
 

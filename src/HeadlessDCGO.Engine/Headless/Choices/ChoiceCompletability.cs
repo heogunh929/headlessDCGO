@@ -20,13 +20,18 @@ using HeadlessDCGO.Engine.Headless.Services;
 /// the canEndNotMax early-end surface), lexicographic combinations in candidate order within a size,
 /// capped at 200 validator evaluations (표면별 AS-IS cap 200/1000 중 기채택 200 — §B5 리스크 5:
 /// existence 판정 목적이라 실차이는 조합수&gt;200 경계뿐, RD-R4P4-02 채택값과의 일관성 우선).
-/// ScriptedChoiceProvider itself is deliberately untouched in B5-1 (배치 핀: provider 층 무접촉 —
-/// RD-R4P4-02 witness ST1_15 불변); consolidating the two copies of the search rides B5-2's provider-layer
-/// wiring.
+/// (B5-2, 설계 리스크 2) The search now lives here ONCE as <see cref="TryFindPassingSelection"/> and
+/// ScriptedChoiceProvider consumes it — same loop, same cap accounting, so the provider's observable
+/// answers (RD-R4P4-02 witness ST1_15 included) are unchanged.
 ///
-/// B5-1 boundary: NO runtime call site — wiring the demotion into the dispatcher/controller changes
-/// behavior (a today-stalling forced request would start resolving) and is B5-2 scope, together with the
-/// <see cref="Runtime.HeadlessActionParameterKeys.UnsatisfiableForcedChoice"/> action-metadata marking.</summary>
+/// Runtime seat (B5-2, 설계 §B5.6/리스크 4): the demotion is wired in EXACTLY ONE place —
+/// <see cref="Runtime.DeferredChoiceProvider.ChooseAsync"/>, the substrate's choice-OPEN point for
+/// agent-facing effect choices on both surfaces (pump await-mode and the legacy unwind model). An
+/// unsatisfiable forced request returns an empty Select to the effect without ever registering a pending
+/// choice (no session opens, no Validate runs on the empty set — the sanctioned bypass), and the demotion
+/// is recorded for the game loop to surface as the
+/// <see cref="Runtime.HeadlessActionParameterKeys.UnsatisfiableForcedChoice"/> metadata/trace marking
+/// (퍼징 수확 D6 계수 채널; green-은폐 차단).</summary>
 public static class ChoiceCompletability
 {
     /// <summary>(설계 §B5.6) The demotion predicate for session opening: a FORCED batch selection
@@ -65,33 +70,51 @@ public static class ChoiceCompletability
             return true;
         }
 
-        // Loop structure kept 1:1 with ScriptedChoiceProvider.CreateFallbackChoice :89-105 (the
-        // RD-R4P4-02 translation) so both surfaces judge "a passing set exists within 200 evaluations"
-        // identically — same order, same cap accounting.
+        return TryFindPassingSelection(
+            selectable, request.MinCount, request.MaxCount, request.SelectionValidator, out _);
+    }
+
+    /// <summary>The single copy of the RD-R4P4-02 deterministic bounded search (loop structure 1:1 with the
+    /// former ScriptedChoiceProvider.CreateFallbackChoice :89-105, which now delegates here — B5-2 리스크 2
+    /// 통합): sizes from min(<paramref name="maxCount"/>, selectable) down to <paramref name="minCount"/>,
+    /// lexicographic combinations in candidate order within a size, capped at 200 validator evaluations.
+    /// Returns the FIRST passing selection (the provider's auto-pick) or false when none passes within the
+    /// cap (the completability verdict) — both consumers judge identically by construction.</summary>
+    public static bool TryFindPassingSelection(
+        IReadOnlyList<HeadlessEntityId> selectable,
+        int minCount,
+        int maxCount,
+        Func<IReadOnlyList<HeadlessEntityId>, bool> validator,
+        out HeadlessEntityId[]? selection)
+    {
+        ArgumentNullException.ThrowIfNull(selectable);
+        ArgumentNullException.ThrowIfNull(validator);
+
+        HeadlessEntityId[] pool = selectable as HeadlessEntityId[] ?? selectable.ToArray();
         int tries = 0;
-        for (int size = Math.Min(request.MaxCount, selectable.Length); size >= request.MinCount && tries < 200; size--)
+        for (int size = Math.Min(maxCount, pool.Length); size >= minCount && tries < 200; size--)
         {
-            foreach (HeadlessEntityId[] combination in Combinations(selectable, size))
+            foreach (HeadlessEntityId[] combination in Combinations(pool, size))
             {
                 if (++tries > 200)
                 {
                     break;
                 }
 
-                if (request.SelectionValidator(combination))
+                if (validator(combination))
                 {
+                    selection = combination;
                     return true;
                 }
             }
         }
 
+        selection = null;
         return false;
     }
 
     /// <summary>Lexicographic k-combinations of <paramref name="items"/> in candidate order (deterministic —
-    /// the substrate translation of the AS-IS AI's bounded random subset retry). Same enumeration as
-    /// ScriptedChoiceProvider.Combinations :112-141 (kept duplicated until the B5-2 provider-layer pass —
-    /// see the class remarks).</summary>
+    /// the substrate translation of the AS-IS AI's bounded random subset retry).</summary>
     private static IEnumerable<HeadlessEntityId[]> Combinations(HeadlessEntityId[] items, int size)
     {
         if (size < 0 || size > items.Length)

@@ -90,10 +90,13 @@ async Task<(DcgoMatch Match, HeadlessEntityId Good1, HeadlessEntityId Poison, He
     var poison = new HeadlessEntityId("p2:battle:POISON");
     var good2 = new HeadlessEntityId("p2:battle:GOOD2");
 
-    // A single-pick-capable request carrying an AS-IS combination gate (CanEndSelect rides the request as
-    // the SelectionValidator — the established SelectPermanentEffect route): non-empty AND not the poison id.
+    // A single-pick request carrying an AS-IS combination gate (CanEndSelect rides the request as the
+    // SelectionValidator — the established SelectPermanentEffect route): non-empty AND not the poison id.
+    // (B5-2 re-pin) maxCount 2 -> 1: MaxCount>1 non-Count requests now open the partial-selection SESSION
+    // (R4RL-03's witnesses), and the RD-S3D-01 single-pick filter witness is pinned on the PRESERVED
+    // boundary — MaxCount==1 keeps the pre-session table byte-for-byte (설계 §B5.10 게이트 5).
     var request = new ChoiceRequest(
-        ChoiceType.Permanent, P1, "pick a target", minCount: 0, maxCount: 2, canSkip: false,
+        ChoiceType.Permanent, P1, "pick a target", minCount: 0, maxCount: 1, canSkip: false,
         ChoiceZone.BattleArea,
         new[]
         {

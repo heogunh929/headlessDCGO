@@ -112,6 +112,50 @@ public sealed class HeadlessGameLoop(
         _stepIndex++;
         List<string> messages = new();
 
+        // (B5-2, 설계 §B5.6/리스크 4) Surface every no-select demotion the deferred provider performed during
+        // this step (pump segments, action processing, or flow effects alike): the Validate bypass must stay
+        // observable — stamp the unsatisfiableForcedChoice marking onto the step's action metadata (when an
+        // action was processed this step), the trace, and the step messages (-> GameEvent stream), so the
+        // fuzzing-harvest channel (D6) can count it and a silent green is impossible.
+        if (Context.ChoiceProvider is DeferredChoiceProvider deferredChoiceProvider)
+        {
+            IReadOnlyList<ChoiceDemotionRecord> demotions = deferredChoiceProvider.DrainDemotions();
+            if (demotions.Count > 0)
+            {
+                foreach (ChoiceDemotionRecord demotion in demotions)
+                {
+                    messages.Add(
+                        $"Unsatisfiable forced choice demoted to no-select for player {demotion.PlayerId.Value} " +
+                        $"({demotion.Type}, min {demotion.MinCount}, max {demotion.MaxCount}, selectable {demotion.SelectableCount}).");
+                    _traceSink.Record(
+                        "choice",
+                        "Unsatisfiable forced choice demoted to no-select.",
+                        new Dictionary<string, object?>
+                        {
+                            [HeadlessActionParameterKeys.UnsatisfiableForcedChoice] = true,
+                            [HeadlessActionParameterKeys.PlayerId] = demotion.PlayerId.Value,
+                            [HeadlessActionParameterKeys.ChoiceType] = demotion.Type.ToString(),
+                            [HeadlessActionParameterKeys.ChoiceMinCount] = demotion.MinCount,
+                            [HeadlessActionParameterKeys.ChoiceMaxCount] = demotion.MaxCount,
+                            ["selectableCount"] = demotion.SelectableCount
+                        });
+                }
+
+                if (actionResult is not null)
+                {
+                    actionResult = actionResult with
+                    {
+                        Metadata = MergeMetadata(actionResult.Metadata, new Dictionary<string, object?>
+                        {
+                            [HeadlessActionParameterKeys.UnsatisfiableForcedChoice] = true,
+                            ["unsatisfiableForcedChoiceCount"] = demotions.Count
+                        })
+                    };
+                    _lastActionResult = actionResult;
+                }
+            }
+        }
+
         if (resolvedEffectCount > 0)
         {
             messages.Add($"Resolved effects: {resolvedEffectCount}");

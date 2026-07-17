@@ -84,59 +84,18 @@ public sealed class ScriptedChoiceProvider : IChoiceProvider
         // smaller sizes (the canEndNotMax early-end surface), lexicographic within a size, capped at the
         // AS-IS 200 evaluations. When nothing passes, fall through to the previous pick so the invalid
         // confirmation surfaces at ThrowIfInvalid exactly as before.
-        if (request.SelectionValidator is not null && !request.SelectionValidator(selectedIds))
+        // (B5-2, 설계 리스크 2) The search loop itself is consolidated into
+        // ChoiceCompletability.TryFindPassingSelection — the identical loop/cap, so the provider's observable
+        // answers are unchanged; this call is the completability check's exact twin by construction.
+        if (request.SelectionValidator is not null && !request.SelectionValidator(selectedIds)
+            && ChoiceCompletability.TryFindPassingSelection(
+                selectable, request.MinCount, request.MaxCount, request.SelectionValidator,
+                out HeadlessEntityId[]? passing)
+            && passing is not null)
         {
-            int tries = 0;
-            for (int size = Math.Min(request.MaxCount, selectable.Length); size >= request.MinCount && tries < 200; size--)
-            {
-                foreach (HeadlessEntityId[] combination in Combinations(selectable, size))
-                {
-                    if (++tries > 200)
-                    {
-                        break;
-                    }
-
-                    if (request.SelectionValidator(combination))
-                    {
-                        return ChoiceResult.Select(combination);
-                    }
-                }
-            }
+            return ChoiceResult.Select(passing);
         }
 
         return ChoiceResult.Select(selectedIds);
-    }
-
-    /// <summary>Lexicographic k-combinations of <paramref name="items"/> in candidate order (deterministic —
-    /// the substrate translation of the AS-IS AI's bounded random subset retry).</summary>
-    private static IEnumerable<HeadlessEntityId[]> Combinations(HeadlessEntityId[] items, int size)
-    {
-        if (size < 0 || size > items.Length)
-        {
-            yield break;
-        }
-
-        int[] indexes = Enumerable.Range(0, size).ToArray();
-        while (true)
-        {
-            yield return indexes.Select(index => items[index]).ToArray();
-
-            int position = size - 1;
-            while (position >= 0 && indexes[position] == items.Length - size + position)
-            {
-                position--;
-            }
-
-            if (position < 0)
-            {
-                yield break;
-            }
-
-            indexes[position]++;
-            for (int next = position + 1; next < size; next++)
-            {
-                indexes[next] = indexes[next - 1] + 1;
-            }
-        }
     }
 }

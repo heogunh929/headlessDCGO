@@ -36,6 +36,10 @@ public static class HeadlessActionParameterKeys
     public const string ChoiceCanSkip = "choiceCanSkip";
     public const string ChoiceSourceZone = "choiceSourceZone";
     public const string ChoiceCandidateIds = "choiceCandidateIds";
+    // (B5-2, 설계 §B5.5) The single candidate a ToggleChoiceCandidate action taps (AS-IS OnClick* card).
+    public const string ChoiceCandidateId = "choiceCandidateId";
+    // (B5-2) The pending partial selection after a toggle, surfaced in the toggle's result metadata.
+    public const string ChoicePendingSelectedIds = "choicePendingSelectedIds";
     public const string ChoiceSelectedIds = "choiceSelectedIds";
     public const string ChoiceSelectedCount = "choiceSelectedCount";
     public const string ChoiceSkipped = "choiceSkipped";

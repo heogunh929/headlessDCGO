@@ -34,6 +34,10 @@ public sealed class LegalActionSetValidator : IActionLegality
         HeadlessActionTypes.NormalizedAdvancePhase,
         HeadlessActionTypes.NormalizedEndTurn,
         HeadlessActionTypes.NormalizedResolveChoice,
+        // (B5-2, 설계 §B5.5/§B5.7) The multi-select session's toggle lane is an agent action: generation and
+        // acceptance share the dispatcher table, so the per-pick gate filtering (PartialPickGate) done at
+        // enumeration time is enforced at apply time by table membership (W9 boundary).
+        HeadlessActionTypes.NormalizedToggleChoiceCandidate,
         // D-6: breeding-step decisions are now agent actions, not auto-resolved.
         HeadlessActionTypes.NormalizedHatchDigitama,
         HeadlessActionTypes.NormalizedMoveBreedingToBattle,
