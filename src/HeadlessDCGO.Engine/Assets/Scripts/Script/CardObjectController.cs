@@ -213,6 +213,30 @@ public static class CardObjectController
 
     #region add card to security
 
+    /// <summary>(R4 S3b-2③) 1:1 of AS-IS <c>CardObjectController.AddExecutingCard</c>
+    /// (CardObjectController.cs:957-972): skip when already executing; withdraw from everywhere; a non-token
+    /// goes face-up onto the owner's EXECUTING pile (AS-IS <c>Owner.ExecutingCards.Insert(0, …)</c> → the
+    /// substrate Execution zone; SetFace = the move's face stamp; <c>Init()</c> = the transient-view no-op,
+    /// file header). The option executor (UseOptionClass) parks the resolving option here.</summary>
+    public static async Task AddExecutingCard(CardSource cardSource, CancellationToken cancellationToken = default)
+    {
+        EngineContext context = cardSource.Context;
+
+        if (CurrentZoneOf(context, cardSource.Owner, cardSource.InstanceId) == ChoiceZone.Execution)
+        {
+            return;
+        }
+
+        await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+
+        if (!cardSource.IsToken)
+        {
+            await context.ZoneMover.MoveAsync(
+                new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, ChoiceZone.None, ChoiceZone.Execution, FaceUp: true),
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>(R3-A / RD-P6C2-1) 1:1 of AS-IS <c>CardObjectController.AddSecurityCard</c>
     /// (CardObjectController.cs:976-1007): if the card is not already in security, withdraw it from all areas, then a
     /// DigiEgg goes to the digitama library and a non-token card is inserted (face-down unless faceUp) into the

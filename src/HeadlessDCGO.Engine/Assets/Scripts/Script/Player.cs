@@ -205,6 +205,24 @@ public sealed class Player
         return mainPhaseActions.Count > 0;
     }
 
+    /// <summary>(R4 S3b-2③) AS-IS <c>Player.ExecutingCards</c> (Player.cs:522, a public list field) — the
+    /// resolving option card's parking pile as live views (the <see cref="LibraryCards"/> shape over the
+    /// Execution zone). UseOptionClass gates its resolution/trash tail on membership here.</summary>
+    public List<CardSource> ExecutingCards
+    {
+        get
+        {
+            if (Context.ZoneMover is not IZoneStateReader zones)
+            {
+                return new List<CardSource>();
+            }
+
+            return zones.GetCards(PlayerId, ChoiceZone.Execution).ToArray()
+                .Select(cardId => new CardSource(Context, cardId, PlayerId, PlayerId))
+                .ToList();
+        }
+    }
+
     /// <summary>(R4 S3a) AS-IS <c>Player.CanHatch</c> (Player.cs:1168) — verbatim: a digitama remains to hatch
     /// and the breeding area is empty. <c>DigitamaLibraryCards</c> is the digitama-deck zone read (same shape as
     /// <see cref="LibraryCards"/>).</summary>
