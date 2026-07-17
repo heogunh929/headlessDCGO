@@ -52,6 +52,15 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **배치 분할(신중 모드 소단위 유지)**: S3a=펌프 기반시설(TurnFlowPump+await-게이트+await-모드 포트)+StartGame/멀리건+조기 페이즈 연속 실행 → S3b=MainPhase 디스패치 영역(:971-1253) 미러+Pass→EndTurnProcess 라우팅 → S3c=shadow OLD-vs-NEW(경계=인터랙티브-정지+최종 궤적)+**사용자 컷오버 승인**+은퇴(EarlyPhaseFlow 블록·MainPhaseFlow invented eval·AdvancePhase/EndTurn body·EndOfTurnDrainedTurn 마커·TurnEndMinMemory flow 사본)+리뷰3. 각 배치=전체 스위트 게이트. NEW 드라이버는 S3c 승인 전까지 주입식(기본값=OLD 무변).
 **리스크 ② 착지점**: DoneStartGame=멀리건 choice 해소+시큐리티 배분 완료 후 펌프가 루프 진입하는 지점(AS-IS :503 대응) — S3a에서 확정.
 
+## S3c-a 착지 (2026-07-17) — shadow OLD-vs-NEW 하네스 + 5시드 경계-동일
+**재정의 프로토콜(결정 3)**: 두 드라이버는 액션 통화가 달라 P4 lockstep이 정의 불가 — ①단일 결정론 정책(멀리건 keep·부화·공격-우선/플레이/패스)이 게임-수준 결정을 내리고 각 측이 자기 통화로 번역(OLD=legal 테이블 선택+AdvancePhase/EndTurn 스텝 구동, NEW=펌프 정지 seam) ②비교 경계=양 모델이 공유하는 인터랙티브-정지 — **턴별 메인-진입**(OLD=(Main,PhaseStart)+무choice, NEW=펌프 메인 park)+종국 ③RNG 패리티 전제(셔플=공용 setup·드로=RNG 미소비) 게임별 검증 내장 ④발산=자동판정 아닌 REPORT(경계·diff·결정 트레일)=S3c-c 분석 입력.
+**결과: 5/5 게임 경계-동일(41턴 캡, 실플레이·공격·부화·시큐리티 배틀 포함)**. 캡 도달=정책 교착(종국 미검증) — S3c-c에서 N·캡 확대+종국 정책 보강. 하네스 교훈: 공격/저비용 플레이는 같은 턴 메인으로 복귀 — 루프=결정 반복+턴 전환 시 비교(턴당 1결정 구조는 오판).
+
+## S3c-b 착지 (2026-07-17) — legal-action 표 재키잉 (RL 액션 공간 확정)
+**디스패처 펌프 분기**: TurnFlowPumpHost 존재 시 — pending choice=기존 ResolveChoice 분기 공용(브리딩 결정 포함) / 그 외 유일 표면=**(Main, PhaseStart) 메인 대기**: Pass+PlayCard+Digivolve+ActivateOption+MainSkillActivate+DeclareAttack(기존 빌더 재사용; 파라미터는 TurnFlowDriver가 패킷 변환). AdvancePhase/EndTurn/브리딩 액션/memory-pass 대기=전부 은퇴(자동 흐름). SpecialPlay=생략(RD-P6C1-5/RD-R5-04 컴포넌트 STOP까지).
+**TurnFlowDriver 보강**: ActivateOption→PlayCard 패킷(AS-IS에서 옵션 플레이=카드 플레이)·SpecialPlay=Illegal(정직 거부).
+**witness**: R4S3b 8/8(신규: 메인 대기 표면·자동-흐름 공집합·choice-단독·비-턴 플레이어 공집합·스텝 액션 부재).
+
 ## S3b-2 몸통 착지 (2026-07-17) — PlayPermanentClass/UseOptionClass 1:1 (RD-P6C1-4 해소)
 **PlayPermanentClass(:1150-1703)**: ctor/Set* 6종/필드/isJogress·isAppFusion verbatim. PlayPermanent 본문 —
 DigiXros Select 1:1(HasDigiXros 도달 시 내부 STOP=RD-R5-04)·Assembly Select=STOP RD-P6C1-5(PlayCardClass 판례)·

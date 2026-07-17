@@ -135,6 +135,35 @@ public sealed class TurnFlowDriver : IActionProcessor
                     "ActivateMain(card)");
             }
 
+            case HeadlessActionTypes.NormalizedActivateOption:
+            {
+                // (S3c-b) The AS-IS main-phase option play IS a card play (PlayCardClass → UseOptionClass);
+                // the OLD ActivateOption currency maps onto the same PlayCard packet.
+                if (!TryReadEntityId(action, HeadlessActionParameterKeys.CardId, out HeadlessEntityId optionId))
+                {
+                    return ActionProcessResult.Failure("ActivateOption action is missing a cardId.", Base(action));
+                }
+
+                int optionIndex = IndexOfActiveCard(gameContext, optionId);
+                if (optionIndex < 0)
+                {
+                    return ActionProcessResult.Failure($"Card {optionId.Value} is not an active card.", Base(action));
+                }
+
+                return Queue(
+                    action, context,
+                    new Cec.PlayCardAction(optionIndex, -1, null, -1, null),
+                    "ActivateOption(play)");
+            }
+
+            case HeadlessActionTypes.NormalizedSpecialPlay:
+                // (S3c-b) The pump's special-play seams (Assembly / DigiXros parameterized fusion plays) are
+                // the registered component STOPs — honest rejection until RD-P6C1-5 / RD-R5-04 port.
+                return ActionProcessResult.Illegal(
+                    action,
+                    "SpecialPlay is not available on a pump match yet (Assembly/DigiXros component cluster — design items RD-P6C1-5 / RD-R5-04).",
+                    Base(action));
+
             case HeadlessActionTypes.NormalizedAdvancePhase:
             case HeadlessActionTypes.NormalizedEndTurn:
                 // Decision 3 = B: the invented step cadence is not part of the pump surface — phases flow

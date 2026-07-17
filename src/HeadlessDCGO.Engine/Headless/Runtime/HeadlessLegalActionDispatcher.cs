@@ -44,6 +44,29 @@ public sealed class HeadlessLegalActionDispatcher
             return Array.Empty<LegalAction>();
         }
 
+        // (R4 S3c-b, decision 3 = B) PUMP match action table: the invented step cadence (AdvancePhase / EndTurn
+        // / breeding actions) is retired — phases auto-flow in the TurnFlowPump, breeding is a CHOICE (covered
+        // by the pending-choice branch above), the memory-pass "awaiting" step does not exist (EndTurnCheck
+        // auto-ends), and the ONLY action surface is the MAIN selection wait: Pass + the main-phase plays.
+        // SpecialPlay is omitted: the pump's special-play seams are the registered component STOPs
+        // (RD-P6C1-5 Assembly / RD-R5-04 DigiXros) until that cluster ports.
+        if (TurnFlowPumpHost.Find(context) is not null)
+        {
+            if (turn.Phase != HeadlessPhase.Main || turn.StepCursor != TurnStepCursor.PhaseStart)
+            {
+                return Array.Empty<LegalAction>();
+            }
+
+            return new[] { HeadlessActionFactory.Pass(playerId) }
+                .Concat(new PlayCardAction().GetLegalActions(context, playerId))
+                .Concat(new DigivolveAction().GetLegalActions(context, playerId))
+                .Concat(new OptionActivateAction().GetLegalActions(context, playerId))
+                .Concat(new MainSkillActivateAction().GetLegalActions(context, playerId))
+                .Concat(new AttackPermanentAction().GetLegalActions(context, playerId))
+                .Where(action => !CheatActionGuard.IsCheatOrDebugAction(action.ActionType))
+                .ToArray();
+        }
+
         // (R4 S2) Legal-action table re-keyed by (phase, step-cursor). Behaviour is identical to the former
         // 9-value phase table: each old state's exposed action set is preserved by its (phase, cursor) pair.
         //   Setup=(None,Starting) → AdvancePhase; Active/Unsuspend=(Active,*) → AdvancePhase; Draw → AdvancePhase;

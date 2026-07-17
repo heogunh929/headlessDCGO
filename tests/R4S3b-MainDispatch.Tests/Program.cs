@@ -24,6 +24,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(S3b-2①) AddCardSource: the new card becomes the zone-resident top, the old top threads into sourceIds, sickness inherits", AddCardSourceOp),
     ("(S3b-2②) just-after bookkeeping: view-stable writes, PERSISTS across the top swap (re-key), DIES on field leave (reset)", BookkeepingLifetime),
     ("(S3b-2 몸통) a PLAY-agent full game: real ST1/ST2 plays + [On Play] windows + attacks on the pump stack, to a terminal, deterministically", PlayAgentFullGame),
+    ("(S3c-b) the pump legal-action table: main wait exposes Pass+plays (no AdvancePhase/EndTurn), auto-flow phases expose nothing, choices expose ResolveChoice only", PumpLegalTable),
 };
 
 var failures = new List<string>();
@@ -329,6 +330,42 @@ static string Digest(DcgoMatch match)
     return sb.ToString();
 }
 
+async Task PumpLegalTable()
+{
+    DcgoMatch match = await NewPumpMatchAsync(seed: 71);
+    await StepAsync(match);
+
+    // During the mulligan choice: chooser sees ResolveChoice only; the other player sees nothing.
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    HeadlessPlayerId other = chooser == P1 ? P2 : P1;
+    AssertTrue(Legal(match, chooser).All(a => a.ActionType == HeadlessActionTypes.ResolveChoice),
+        "pending choice: chooser sees ResolveChoice only");
+    AssertEqual(0, Legal(match, other).Count, "pending choice: the other player sees nothing");
+
+    for (int i = 0; i < 2; i++)
+    {
+        await ResolvePendingAsync(match, skip: true);
+    }
+
+    // Drive to the breeding decision: still a CHOICE (no breeding phase actions on a pump match).
+    await DriveUntilAsync(match, m => m.HasPendingChoice());
+    AssertEqual(ChoiceType.BreedingDecision, match.Context.ChoiceController.PendingRequest!.Type, "breeding stop is a choice");
+    HeadlessPlayerId breeder = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    AssertTrue(Legal(match, breeder).All(a => a.ActionType == HeadlessActionTypes.ResolveChoice),
+        "breeding stop exposes ResolveChoice only (no HatchDigitama/AdvancePhase actions)");
+    await ResolvePendingAsync(match, skip: true);
+
+    // At the main wait: Pass + plays/attacks — and NO step-cadence actions.
+    await DriveUntilAsync(match, AtMainWait);
+    HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    IReadOnlyList<LegalAction> table = Legal(match, turnPlayer);
+    AssertTrue(table.Any(a => HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedPass), "main wait offers Pass");
+    AssertTrue(table.Any(a => HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedPlayCard), "main wait offers plays");
+    AssertTrue(table.All(a => HeadlessActionTypes.Normalize(a.ActionType) != HeadlessActionTypes.NormalizedAdvancePhase), "NO AdvancePhase on a pump match");
+    AssertTrue(table.All(a => HeadlessActionTypes.Normalize(a.ActionType) != HeadlessActionTypes.NormalizedEndTurn), "NO EndTurn on a pump match");
+    AssertEqual(0, Legal(match, turnPlayer == P1 ? P2 : P1).Count, "the non-turn player has no main actions");
+}
+
 // --- Drivers -------------------------------------------------------------
 
 async Task<DcgoMatch> NewPumpMatchAsync(int seed)
@@ -434,6 +471,12 @@ static async Task StepAsync(DcgoMatch match)
 {
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
     await match.StepAsync();
+}
+
+static IReadOnlyList<LegalAction> Legal(DcgoMatch match, HeadlessPlayerId player)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    return match.GetLegalActions(player);
 }
 
 // Stage a synthetic battle-area digimon (R4P2a Place fixture pattern) — the RD-P6C1-4 STOP blocks the real
