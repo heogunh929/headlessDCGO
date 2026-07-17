@@ -35,7 +35,10 @@ public sealed class DigivolveAction
         {
             foreach (HeadlessEntityId targetCardId in targetCards)
             {
-                if (!TryGetEvolutionCost(context, cardId, targetCardId, out int evolutionCost, out _))
+                // (RD-R3-01) the DECLARED cost — the printed requirement table now carries the real
+                // EvolutionCondition tokens (no Any fallback), so the ignore/added-requirement paths must
+                // supply their own costs here exactly as Validate resolves them.
+                if (!TryGetDeclaredEvolutionCost(context, playerId, cardId, targetCardId, out int evolutionCost, out _))
                 {
                     continue;
                 }
@@ -208,7 +211,7 @@ public sealed class DigivolveAction
             int beforePayResolved = await ActivatedEffectResolver
                 .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.BeforePayCost, cancellationToken)
                 .ConfigureAwait(false);
-            if (beforePayResolved > 0 && TryGetEvolutionCost(context, payload.CardId, payload.TargetCardId, out int reResolvedCost, out _))
+            if (beforePayResolved > 0 && TryGetDeclaredEvolutionCost(context, action.PlayerId, payload.CardId, payload.TargetCardId, out int reResolvedCost, out _))
             {
                 memoryCost = reResolvedCost;
             }
@@ -448,17 +451,19 @@ public sealed class DigivolveAction
         CardRecord evolvingCard = context.CardRepository.GetCard(card.DefinitionId);
         CardRecord targetCard = context.CardRepository.GetCard(target.DefinitionId);
 
-        if (!TryGetEvolutionCost(context, payload.CardId, payload.TargetCardId, out int repositoryCost, out string? costError))
+        // (RD-R3-01) the declared cost resolves the printed requirement table (the real EvolutionCondition
+        // tokens), the AS-IS EvoCosts ignore gates and the FR2/M-3 added-path override in ONE seat, shared
+        // with GetLegalActions — the table and the validator can no longer disagree on the cost. A declared
+        // cost that is unresolvable BECAUSE no printed path matches the target IS the failed evolution
+        // condition (AS-IS: an empty CostList == CanEvolve false), so keep the established condition wording.
+        if (!TryGetDeclaredEvolutionCost(context, playerId, payload.CardId, payload.TargetCardId, out int repositoryCost, out string? costError))
         {
-            return DigivolveValidation.Illegal(costError ?? "Card evolution cost was not found.", card.DefinitionId, target.DefinitionId);
-        }
-
-        // (FR2/M-3) When the printed condition fails and the digivolve uses an ADDED requirement, that added
-        // path's OWN cost applies (AS-IS costEquation() ?? digivolutionCost) instead of the printed cost.
-        if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
-            && TryGetAddedDigivolutionCost(context, payload.CardId, playerId, targetCard, payload.TargetCardId, target.OwnerId, out int addedPathCost))
-        {
-            repositoryCost = addedPathCost;
+            return MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
+                ? DigivolveValidation.Illegal(costError ?? "Card evolution cost was not found.", card.DefinitionId, target.DefinitionId)
+                : DigivolveValidation.Illegal(
+                    $"Target card '{target.DefinitionId}' does not satisfy evolution condition '{evolvingCard.EvolutionCondition}'.",
+                    card.DefinitionId,
+                    target.DefinitionId);
         }
 
         if (payload.MemoryCost != repositoryCost)
@@ -593,6 +598,66 @@ public sealed class DigivolveAction
             .GetPayingCostWithBaseCost(baseCost, MovingCardRoot(context, instance.OwnerId, cardId), evoTargetPermanents);
         error = null;
         return true;
+    }
+
+    /// <summary>(RD-R3-01) The DECLARED digivolution cost — the single seat behind both the legal-action
+    /// table (<see cref="GetLegalActions"/>) and <c>Validate</c>. Resolution order mirrors the AS-IS printed
+    /// cost engine (CardSource.EvoCosts :587-609 / PayingCost costList.Min()):
+    /// ① the printed requirement table (the real EvolutionCondition tokens since RD-R3-01 — no Any fallback),
+    ///   Min over the matching paths;
+    /// ② when no printed path matches, the AS-IS ignore gates re-open the printed costs — a full
+    ///   ignore-requirement grant waives colour+level (IgnoreRequirement.All), a colour-ignore grant waives
+    ///   the colour half only — both negated while a CannotIgnoreDigivolutionCondition effect is live;
+    /// ③ (FR2/M-3) when the printed condition fails and an ADDED requirement path matches, that path's OWN
+    ///   cost overrides (AS-IS costEquation() ?? digivolutionCost).</summary>
+    internal static bool TryGetDeclaredEvolutionCost(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId,
+        HeadlessEntityId targetCardId,
+        out int cost,
+        out string? error)
+    {
+        bool resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error);
+
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
+            !context.CardInstanceRepository.TryGetInstance(targetCardId, out CardInstanceRecord? targetInstance) || targetInstance is null ||
+            !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? evolvingCard) || evolvingCard is null ||
+            !context.CardRepository.TryGetCard(targetInstance.DefinitionId, out CardRecord? targetCard) || targetCard is null)
+        {
+            return resolved;
+        }
+
+        bool printedMatches = MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard);
+        if (resolved && printedMatches)
+        {
+            return true;
+        }
+
+        // ② the ignore gates (AS-IS EvoCosts :592-607, negation-gated by Player.CanIgnoreDigivolutionRequirement).
+        if (!resolved && !IsDigivolveIgnoreBlocked(context, cardId, playerId, targetCardId, targetInstance.OwnerId))
+        {
+            if (CanIgnoreDigivolutionRequirement(context, playerId, cardId))
+            {
+                resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error, ignoreLevel: true, ignoreColor: true);
+            }
+
+            if (!resolved && CanIgnoreColorRequirement(context, playerId, cardId))
+            {
+                resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error, ignoreColor: true);
+            }
+        }
+
+        // ③ (FR2/M-3) the added-path cost override when the printed condition fails.
+        if (!printedMatches
+            && TryGetAddedDigivolutionCost(context, cardId, playerId, targetCard, targetCardId, targetInstance.OwnerId, out int addedPathCost))
+        {
+            cost = addedPathCost;
+            error = null;
+            resolved = true;
+        }
+
+        return resolved;
     }
 
     /// <summary>(R2-C) The AS-IS play/digivolve <c>Root</c> for the moving card = its current source zone (Hand,

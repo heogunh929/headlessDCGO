@@ -12,7 +12,8 @@ public sealed record DigivolutionCostRequirement
         int? targetLevel = null,
         string? targetColor = null,
         string? targetCardType = null,
-        string? targetDefinitionId = null)
+        string? targetDefinitionId = null,
+        string? targetIdentity = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         if (memoryCost < 0)
@@ -31,6 +32,7 @@ public sealed record DigivolutionCostRequirement
         TargetColor = NormalizeOptional(targetColor);
         TargetCardType = NormalizeOptional(targetCardType);
         TargetDefinitionId = NormalizeOptional(targetDefinitionId);
+        TargetIdentity = NormalizeOptional(targetIdentity);
     }
 
     public string Id { get; }
@@ -44,6 +46,14 @@ public sealed record DigivolutionCostRequirement
     public string? TargetCardType { get; }
 
     public string? TargetDefinitionId { get; }
+
+    /// <summary>(RD-R3-01) A non-Color@Level EvolutionCondition identity token (definition / card-number /
+    /// card-type condition): the target's TOP card must match this token on its definition id (Ordinal) OR
+    /// card number (OrdinalIgnoreCase) OR card type (OrdinalIgnoreCase) — the OR-of-three gate of the mirror
+    /// <c>CardSource.PrintedEvoCosts</c> TokenMatch and <c>DigivolveAction.MatchesEvolutionCondition</c>'s
+    /// legacy-token arm. Unlike <see cref="TargetDefinitionId"/>/<see cref="TargetCardType"/> (AND-composed
+    /// metadata conditions), this is a single disjunctive gate.</summary>
+    public string? TargetIdentity { get; }
 
     public static DigivolutionCostRequirement Any(string id, int memoryCost)
     {
@@ -194,6 +204,11 @@ public static class DigivolutionCostHelpers
     public const string DigivolutionCostsKey = "digivolutionCosts";
     public const string EvolutionCostsKey = "evolutionCosts";
     public const string EvoCostsKey = "evoCosts";
+
+    /// <summary>(RD-R3-01) The card-data loader's structured evolution-condition metadata key
+    /// (CardBaseEntityLoader: <c>metadata["evolutionConditions"]</c> = the "Color@Level:Cost" token strings,
+    /// the SAME encoding joined into <c>CardRecord.EvolutionCondition</c>).</summary>
+    public const string EvolutionConditionsKey = "evolutionConditions";
     public const string DigivolutionCostDeltaKey = "digivolutionCostDelta";
     public const string DigivolutionPayingCostDeltaKey = "digivolutionPayingCostDelta";
     public const string DigivolutionCostModifiersKey = "digivolutionCostModifiers";
@@ -297,7 +312,18 @@ public static class DigivolutionCostHelpers
         ArgumentNullException.ThrowIfNull(card);
 
         var requirements = new List<DigivolutionCostRequirement>();
-        requirements.AddRange(ReadRequirementsFromMetadata(card.Metadata));
+        // (RD-R3-01) the printed EvolutionCondition tokens are the CANONICAL digivolution requirements — the
+        // same "Color@Level(:Cost)" encoding the mirror CardSource.PrintedEvoCosts parses (the AS-IS
+        // BaseEvoCostsFromEntity {CardColor, Level, MemoryCost} carrier). Before this gap-fill the loader's
+        // conditions were invisible here (only the {digivolutionCosts, evolutionCosts, evoCosts} metadata keys
+        // were scanned) and every condition card degraded to the Any(EvolutionCost) fallback, so multi-path
+        // cards (e.g. BT10_026 Blue@4:4 / Blue@5:2) resolved the wrong cost in the legal-action table.
+        requirements.AddRange(ParseEvolutionCondition(card.EvolutionCondition, card.EvolutionCost));
+        if (requirements.Count == 0)
+        {
+            requirements.AddRange(ReadRequirementsFromMetadata(card.Metadata, card.EvolutionCost));
+        }
+
         if (requirements.Count == 0 && card.EvolutionCost.HasValue)
         {
             requirements.Add(DigivolutionCostRequirement.Any("cardRecordEvolutionCost", card.EvolutionCost.Value));
@@ -307,6 +333,72 @@ public static class DigivolutionCostHelpers
             .OrderBy(requirement => requirement.MemoryCost)
             .ThenBy(requirement => requirement.Id, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    /// <summary>(RD-R3-01) The single canonical EvolutionCondition token parser, shared by BOTH digivolution
+    /// cost seats (this helper's requirement table AND the mirror <c>CardSource.PrintedEvoCosts</c>). Grammar
+    /// 1:1 with the mirror/AS-IS carrier: tokens split on <c>, ; |</c>; an optional <c>definition:</c> /
+    /// <c>from:</c> prefix is stripped; <c>Color@Level(:Cost)</c> yields a colour+level requirement whose cost
+    /// falls back to the printed <paramref name="printedEvolutionCost"/> (?? 0) when the <c>:Cost</c> suffix is
+    /// absent; any other token is an identity condition (<see cref="DigivolutionCostRequirement.TargetIdentity"/>)
+    /// at the printed cost. Token order is preserved (AS-IS BaseEvoCostsFromEntity data order). A token whose
+    /// resolved cost (or level) is negative is dropped — observably identical to AS-IS, where a negative-cost
+    /// path exists but is filtered by <c>CostList</c>'s <c>&gt;= 0</c> gate and so is never payable (and no
+    /// negative level/cost exists in the shipped card corpus).</summary>
+    public static IReadOnlyList<DigivolutionCostRequirement> ParseEvolutionCondition(
+        string? evolutionCondition,
+        int? printedEvolutionCost)
+    {
+        var requirements = new List<DigivolutionCostRequirement>();
+        if (string.IsNullOrWhiteSpace(evolutionCondition))
+        {
+            return requirements;
+        }
+
+        string[] tokens = evolutionCondition
+            .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (int index = 0; index < tokens.Length; index++)
+        {
+            string token = tokens[index];
+            if (token.StartsWith("definition:", StringComparison.OrdinalIgnoreCase))
+            {
+                token = token["definition:".Length..];
+            }
+            else if (token.StartsWith("from:", StringComparison.OrdinalIgnoreCase))
+            {
+                token = token["from:".Length..];
+            }
+
+            string id = $"evolutionCondition[{index.ToString(CultureInfo.InvariantCulture)}]";
+            int at = token.IndexOf('@');
+            if (at > 0 && at < token.Length - 1)
+            {
+                string color = token[..at].Trim();
+                string rest = token[(at + 1)..];
+                int colon = rest.IndexOf(':');
+                string levelText = (colon >= 0 ? rest[..colon] : rest).Trim();
+                int cost = colon >= 0 && int.TryParse(rest[(colon + 1)..].Trim(), out int tokenCost)
+                    ? tokenCost
+                    : printedEvolutionCost ?? 0;
+                if (int.TryParse(levelText, out int level) && color.Length > 0)
+                {
+                    if (cost >= 0 && level >= 0)
+                    {
+                        requirements.Add(new DigivolutionCostRequirement(id, cost, level, color));
+                    }
+
+                    continue;
+                }
+            }
+
+            // definition / card-number / card-type condition token — identity gate on the target's top card.
+            if (printedEvolutionCost is null or >= 0)
+            {
+                requirements.Add(new DigivolutionCostRequirement(id, printedEvolutionCost ?? 0, targetIdentity: token));
+            }
+        }
+
+        return requirements;
     }
 
     public static IReadOnlyList<PlayCostModifier> ReadModifiers(
@@ -376,6 +468,19 @@ public static class DigivolutionCostHelpers
             return false;
         }
 
+        // (RD-R3-01) identity-token condition (mirror CardSource.PrintedEvoCosts TokenMatch): OR over the
+        // target's definition id / card number / card type. There are no colour/level halves to waive
+        // separately, so only the FULL ignore (both flags — the AS-IS IgnoreRequirement.All arm, which returns
+        // the cost before the TokenMatch gate) bypasses it; ignoreColor/ignoreLevel alone do not.
+        if (requirement.TargetIdentity is not null &&
+            !(ignoreLevel && ignoreColor) &&
+            !(string.Equals(requirement.TargetIdentity, targetCard.Id.Value, StringComparison.Ordinal) ||
+                string.Equals(requirement.TargetIdentity, targetCard.CardNumber, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(requirement.TargetIdentity, targetCard.CardType, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
         return requirement.TargetDefinitionId is null ||
             string.Equals(requirement.TargetDefinitionId, targetCard.Id.Value, StringComparison.Ordinal) ||
             string.Equals(requirement.TargetDefinitionId, targetCard.CardNumber, StringComparison.OrdinalIgnoreCase);
@@ -436,17 +541,35 @@ public static class DigivolutionCostHelpers
     }
 
     private static IEnumerable<DigivolutionCostRequirement> ReadRequirementsFromMetadata(
-        IReadOnlyDictionary<string, object?> metadata)
+        IReadOnlyDictionary<string, object?> metadata,
+        int? printedEvolutionCost)
     {
-        foreach (string key in new[] { DigivolutionCostsKey, EvolutionCostsKey, EvoCostsKey })
+        // (RD-R3-01) the loader's structured `evolutionConditions` key is scanned too — for CardRecords built
+        // without the joined EvolutionCondition string. Each flattened STRING item under THAT key is a token
+        // run through the canonical parser; the legacy keys keep their exact prior (dictionary-only) read.
+        foreach (string key in new[] { DigivolutionCostsKey, EvolutionCostsKey, EvoCostsKey, EvolutionConditionsKey })
         {
             if (!metadata.TryGetValue(key, out object? rawCosts) || rawCosts is null)
             {
                 continue;
             }
 
+            bool parseStringTokens = string.Equals(key, EvolutionConditionsKey, StringComparison.Ordinal);
             foreach (object? rawRequirement in FlattenObjects(rawCosts))
             {
+                if (rawRequirement is string tokenText)
+                {
+                    if (parseStringTokens)
+                    {
+                        foreach (DigivolutionCostRequirement parsed in ParseEvolutionCondition(tokenText, printedEvolutionCost))
+                        {
+                            yield return parsed;
+                        }
+                    }
+
+                    continue;
+                }
+
                 if (TryReadRequirement(rawRequirement, out DigivolutionCostRequirement? requirement))
                 {
                     yield return requirement!;

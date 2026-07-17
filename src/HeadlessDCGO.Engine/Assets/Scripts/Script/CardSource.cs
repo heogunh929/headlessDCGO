@@ -1873,7 +1873,11 @@ public sealed class CardSource
 
     /// <summary>The printed digivolution paths of this card — EvolutionCondition tokens first (the G8-001
     /// "Color@Level(:Cost)" encoding, cost falling back to the printed EvolutionCost), else the
-    /// DigivolutionCostHelpers requirement entries (explicit metadata conditions / the Any-cost record).</summary>
+    /// DigivolutionCostHelpers requirement entries (explicit metadata conditions / the Any-cost record).
+    /// (RD-R3-01) the token parse itself is the SHARED canonical parser
+    /// (<see cref="Headless.Effects.DigivolutionCostHelpers.ParseEvolutionCondition"/>) — the DigivolveAction
+    /// seat's requirement table reads the SAME parse, ending the dual-parser drift review 3 flagged. Token
+    /// order is preserved (AS-IS BaseEvoCostsFromEntity data order).</summary>
     private List<PrintedEvoCost> PrintedEvoCosts()
     {
         var costs = new List<PrintedEvoCost>();
@@ -1884,43 +1888,21 @@ public sealed class CardSource
 
         if (!string.IsNullOrWhiteSpace(definition.EvolutionCondition))
         {
-            foreach (string rawToken in definition.EvolutionCondition
-                .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (Headless.Effects.DigivolutionCostRequirement requirement in
+                Headless.Effects.DigivolutionCostHelpers.ParseEvolutionCondition(definition.EvolutionCondition, definition.EvolutionCost))
             {
-                string token = rawToken;
-                if (token.StartsWith("definition:", StringComparison.OrdinalIgnoreCase))
+                if (requirement.TargetIdentity is { } identity)
                 {
-                    token = token["definition:".Length..];
-                }
-                else if (token.StartsWith("from:", StringComparison.OrdinalIgnoreCase))
-                {
-                    token = token["from:".Length..];
-                }
-
-                int at = token.IndexOf('@');
-                if (at > 0 && at < token.Length - 1)
-                {
-                    string color = token[..at].Trim();
-                    string rest = token[(at + 1)..];
-                    int colon = rest.IndexOf(':');
-                    string levelText = (colon >= 0 ? rest[..colon] : rest).Trim();
-                    int cost = colon >= 0 && int.TryParse(rest[(colon + 1)..].Trim(), out int tokenCost)
-                        ? tokenCost
-                        : definition.EvolutionCost ?? 0;
-                    if (int.TryParse(levelText, out int level) && color.Length > 0)
-                    {
-                        costs.Add(new PrintedEvoCost(color, level, cost));
-                        continue;
-                    }
+                    // definition / card-number / card-type condition token — identity gate on the live top card.
+                    costs.Add(new PrintedEvoCost(null, null, requirement.MemoryCost,
+                        targetPermanent => targetPermanent.TopCard is { } top
+                            && (string.Equals(identity, top.Definition?.Id.Value, StringComparison.Ordinal)
+                                || string.Equals(identity, top.Definition?.CardNumber, StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(identity, top.Definition?.CardType, StringComparison.OrdinalIgnoreCase))));
+                    continue;
                 }
 
-                // definition / card-number / card-type condition token — identity gate on the live top card.
-                string identity = token;
-                costs.Add(new PrintedEvoCost(null, null, definition.EvolutionCost ?? 0,
-                    targetPermanent => targetPermanent.TopCard is { } top
-                        && (string.Equals(identity, top.Definition?.Id.Value, StringComparison.Ordinal)
-                            || string.Equals(identity, top.Definition?.CardNumber, StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(identity, top.Definition?.CardType, StringComparison.OrdinalIgnoreCase))));
+                costs.Add(new PrintedEvoCost(requirement.TargetColor, requirement.TargetLevel, requirement.MemoryCost));
             }
 
             return costs;

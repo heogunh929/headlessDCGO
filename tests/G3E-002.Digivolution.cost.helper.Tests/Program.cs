@@ -272,10 +272,13 @@ async Task<DcgoMatch> CreateMatchAsync(
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 43);
     CardDatabase cards = (CardDatabase)context.CardRepository;
+    // (RD-R3-01) no condition string: the printed EvolutionCondition tokens are now the CANONICAL cost
+    // requirements (both seats parse them first), so a hybrid fixture (condition string for legality +
+    // digivolutionCosts metadata for costs) would resolve the condition-token cost, not the metadata cost
+    // this suite pins. The metadata requirements alone carry both the gate and the cost here.
     cards.Upsert(CreateEvolveCard(
         evolutionCost: null,
-        metadata: evolutionMetadata,
-        condition: "Digimon"));
+        metadata: evolutionMetadata));
     cards.Upsert(CreateTargetCard("Red", 3, playCost: 3));
 
     for (int index = 3; index <= 12; index++)
