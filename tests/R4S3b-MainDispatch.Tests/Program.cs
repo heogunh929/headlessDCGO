@@ -27,6 +27,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(S3c-b) the pump legal-action table: main wait exposes Pass+plays (no AdvancePhase/EndTurn), auto-flow phases expose nothing, choices expose ResolveChoice only", PumpLegalTable),
     ("(S3c-c repro) an EVOLVED permanent's death trashes its WHOLE stack (top + digivolution sources)", EvolvedDeathTrashesStack),
     ("(S3c-d1) CreatePumpDriven promotion: pump installed at init (setup normalized), first step opens the mulligan, no step-cadence actions", PumpFactoryPromotion),
+    ("(리뷰3 P2-3) pump-match blocker path: block choice opens, blocker substitutes as the battle target (suspend + DP deletion, no security check), the game continues", PumpBlockerBattle),
 };
 
 async Task PumpFactoryPromotion()
@@ -197,6 +198,68 @@ async Task AttackDispatch()
     AssertEqual(securityBefore - 1, Count(match, defenderOwner, ChoiceZone.Security),
         "the security attack consumed one security card");
     AssertTrue(!match.IsTerminal(), "the match continues after the first security check");
+}
+
+async Task PumpBlockerBattle()
+{
+    // (리뷰3 P2-3) A pump match hosts TWO attack drivers: the body's attack pump loops (TurnStateMachine
+    // :941-948 etc., parked at WaitPendingChoiceUnderPump while a choice is pending) AND GameFlowProcessor.
+    // RunToStableAsync step 3, which stays resident in every DcgoMatch step. The shadow policy never blocks,
+    // so this interleaving was uncovered: resolving an IN-ATTACK choice lets the FLOW complete the residual
+    // attack stages within the same step, and the pump's attack loop wakes to an ActiveAttack()==false idle
+    // no-op. This witness pins the AS-IS outcome across that seam: declare -> Blocker choice (defender-owned,
+    // attack parked at Blocking) -> resolve WITH the blocker -> SwitchDefender substitutes the blocker as the
+    // battle target (suspend + DP compare deletes the weaker attacker, NO security check) -> the pump returns
+    // to the main wait and the turn still flips.
+    DcgoMatch match = await NewPumpMatchAsync(seed: 31);
+    HeadlessEntityId attackerId = StageBattleDigimon(match, P1, dp: 3000);
+    HeadlessEntityId blockerId = StageBattleDigimon(match, P2, dp: 5000, hasBlocker: true);
+
+    await ReachMainWaitAsync(match);
+    HeadlessPlayerId attackerOwner = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    HeadlessPlayerId defenderOwner = attackerOwner == P1 ? P2 : P1;
+    AssertEqual(P1, attackerOwner, "P1 is the staged attacker's owner and the first turn player");
+
+    // Turns 1-2: pass (summoning-sickness parity — the AttackDispatch pattern).
+    await SendAsync(match, attackerOwner, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 2 && AtMainWait(m));
+    await SendAsync(match, defenderOwner, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 3 && AtMainWait(m));
+
+    int securityBefore = Count(match, defenderOwner, ChoiceZone.Security);
+    await SendAsync(match, attackerOwner, HeadlessActionTypes.DeclareAttack,
+        new Dictionary<string, object?> { [HeadlessActionParameterKeys.AttackerId] = attackerId.Value });
+    await DriveUntilAsync(match, m => m.HasPendingChoice());
+
+    // The block stage opened the choice and BOTH drivers idle on it: the pump parks at the choice-pause seam,
+    // the flow's RunToStableAsync pauses on the pending choice — the attack stays parked at Blocking.
+    AssertEqual(ChoiceType.Blocker, match.Context.ChoiceController.PendingRequest!.Type, "the block window opened as a pending choice");
+    AssertEqual(defenderOwner, match.Context.ChoiceController.PendingRequest!.PlayerId, "the DEFENDER owns the block choice");
+    AssertEqual(AttackPhase.Blocking, match.Context.AttackController.Current.Phase, "the attack parked at the Blocking stage");
+    AssertTrue(match.Context.AttackController.Current.IsDirectAttack, "the declared attack was the direct (security) attack");
+    AssertTrue(!IsSuspendedMeta(match, blockerId), "the blocker is unsuspended while the choice is open");
+
+    // Resolve WITH the blocker (the only candidate). The residual stages (Blocking -> Combat -> battle ->
+    // Resolved) complete flow-side within this resolution step; the pump attack loop then wakes as the idle
+    // no-op. Any crash/divergence here is the review-3 P2-3 escalation case.
+    await ResolvePendingAsync(match, skip: false);
+
+    AssertTrue(IsSuspendedMeta(match, blockerId), "blocking SUSPENDED the blocker (AS-IS SwitchDefender Tap)");
+    AssertTrue(ZoneCards(match, defenderOwner, ChoiceZone.BattleArea).Contains(blockerId),
+        "the higher-DP blocker survived the battle on the field");
+    AssertTrue(ZoneCards(match, attackerOwner, ChoiceZone.Trash).Contains(attackerId),
+        "the attacker LOST the DP compare against the substituted blocker and was deleted to the trash");
+    AssertEqual(securityBefore, Count(match, defenderOwner, ChoiceZone.Security),
+        "the blocked attack never checked security (target substituted to the blocker)");
+    AssertTrue(!match.Context.AttackController.Current.IsPending, "the attack fully resolved");
+    AssertTrue(!match.IsTerminal(), "the game continues after the blocked battle");
+
+    // Liveness across the seam: the pump (woken from its idle no-op) re-parks at the main wait, and the turn
+    // still flips on an explicit pass — the double-driver interleaving did not wedge the match.
+    await DriveUntilAsync(match, AtMainWait);
+    AssertEqual(3, match.Context.TurnController.Current.TurnNumber, "still the attacker's turn at the post-battle main wait");
+    await SendAsync(match, attackerOwner, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 4 && AtMainWait(m));
 }
 
 async Task PassSurfaceStillLive()
@@ -571,12 +634,18 @@ static IReadOnlyList<LegalAction> Legal(DcgoMatch match, HeadlessPlayerId player
 
 // Stage a synthetic battle-area digimon (R4P2a Place fixture pattern) — the RD-P6C1-4 STOP blocks the real
 // play path, so the attack witness constructs its board directly.
-static HeadlessEntityId StageBattleDigimon(DcgoMatch match, HeadlessPlayerId owner, int dp)
+static HeadlessEntityId StageBattleDigimon(DcgoMatch match, HeadlessPlayerId owner, int dp, bool hasBlocker = false)
 {
     EngineContext context = match.Context;
     var defId = new HeadlessEntityId($"DEF:staged:{owner.Value}");
+    var definitionMetadata = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["level"] = 3 };
+    if (hasBlocker)
+    {
+        definitionMetadata[BlockTiming.HasBlockerKey] = true;   // the G3.5-A3 blocker fixture convention
+    }
+
     ((CardDatabase)context.CardRepository).Upsert(new CardRecord(defId, "Staged", "Staged",
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp, ["level"] = 3 }, CardType: "Digimon"));
+        definitionMetadata, CardType: "Digimon"));
     var id = new HeadlessEntityId($"card:staged:{owner.Value}");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner));
     context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
@@ -600,6 +669,24 @@ static (HeadlessEntityId Id, int Cost) FirstPlayableDigimon(DcgoMatch match, Hea
 static int Count(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone)
 {
     return match.Context.ZoneMover is IZoneStateReader zones ? zones.GetCards(player, zone).Count : -1;
+}
+
+static IReadOnlyList<HeadlessEntityId> ZoneCards(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone)
+{
+    return match.Context.ZoneMover is IZoneStateReader zones
+        ? zones.GetCards(player, zone)
+        : Array.Empty<HeadlessEntityId>();
+}
+
+// The G3.5-A3 suspend probe: the isSuspended instance-metadata flag (the BlockTiming.SuspendBlocker write).
+static bool IsSuspendedMeta(DcgoMatch match, HeadlessEntityId cardId)
+{
+    if (!match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
+    {
+        throw new InvalidOperationException($"Missing instance '{cardId}'.");
+    }
+
+    return record.Metadata.TryGetValue(BlockTiming.IsSuspendedKey, out object? raw) && raw is bool flag && flag;
 }
 
 

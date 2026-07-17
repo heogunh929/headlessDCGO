@@ -95,6 +95,12 @@ public sealed class TurnFlowDriver : IActionProcessor
                 if (TryReadEntityId(action, HeadlessActionParameterKeys.AttackTargetId, out HeadlessEntityId attackTargetId))
                 {
                     targetIndex = IndexOfFieldPermanent(gameContext.NonTurnPlayer!, attackTargetId);
+                    if (targetIndex < 0)
+                    {
+                        // An explicit target that fails to resolve is an illegal action, not a silent
+                        // fallback into a direct (security) attack — same honesty contract as PlayCard.
+                        return ActionProcessResult.Failure($"Attack target {attackTargetId.Value} is not a field permanent.", Base(action));
+                    }
                 }
 
                 return Queue(

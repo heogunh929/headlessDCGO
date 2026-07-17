@@ -202,9 +202,11 @@ public sealed class HeadlessMainPhaseFlow
                 "NotMemoryPass");
         }
 
-        HeadlessMemoryState currentMemory = context.MemoryController.Current.Current < 0
-            ? context.MemoryController.Set(Math.Abs(context.MemoryController.Current.Current))
-            : context.MemoryController.Current;
+        // COORDINATE TRANSLATION: the mirror gauge is turn-player-relative (AS-IS is seat-absolute and needs
+        // no re-sign at the flip), so the exact translation is unconditional negation Set(-m) — |m| is only
+        // equivalent for m<=0 and flips the sign wrong when m>0 (TurnEndMinMemory<0 effects). (review3 P2-1)
+        HeadlessMemoryState currentMemory =
+            context.MemoryController.Set(-context.MemoryController.Current.Current);
 
         return new MainPhaseMemoryResult(
             previousTurn,

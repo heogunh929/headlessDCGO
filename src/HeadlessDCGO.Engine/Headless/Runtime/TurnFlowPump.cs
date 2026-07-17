@@ -308,12 +308,10 @@ public static class TurnFlowPump
             // F-1.7: leftover "until cost is calculated" one-shot modifiers expire at the boundary.
             EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
             // COORDINATE TRANSLATION: the mirror memory gauge is turn-player-relative (AS-IS is seat-absolute,
-            // which needs no re-sign at the flip). Re-sign for the incoming player — same op the OLD
-            // CompleteMemoryPassTurn performs (HeadlessMainPhaseFlow.cs:200-202). ADAPTATION.
-            if (context.MemoryController.Current.Current < 0)
-            {
-                context.MemoryController.Set(Math.Abs(context.MemoryController.Current.Current));
-            }
+            // which needs no re-sign at the flip). Re-sign for the incoming player — the exact translation of
+            // the flip is unconditional negation Set(-m): |m| is only equivalent for m<=0 and would flip the
+            // sign wrong when the turn ends with m>0 (TurnEndMinMemory<0 effects). ADAPTATION (review3 P2-1).
+            context.MemoryController.Set(-context.MemoryController.Current.Current);
         }
     }
 
