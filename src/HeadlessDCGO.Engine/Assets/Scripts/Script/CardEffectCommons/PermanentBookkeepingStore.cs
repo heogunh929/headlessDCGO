@@ -8,13 +8,21 @@
 //
 // The mirror Permanent is a per-access VIEW keyed by its TOP card's InstanceId, so the AS-IS object lifetime
 // maps onto this store as:
-//  * CREATE  — a fresh AS-IS `new Permanent(...)` = Reset(topId) at CardObjectController.CreateNewPermanent
+//  * CREATE  — a fresh AS-IS `new Permanent(...)` = Reset(topId) as the top card ENTERS a field zone
 //              (a re-played card must NOT see the bookkeeping of its previous life);
 //  * PERSIST — the AS-IS object survives a top swap (digivolve: the executor's AddCardSource / the digivolve
-//              action; de-digivolve: the under-card promote) = ReKey(oldTop, newTop) at the two ops that own
-//              a top swap (DigivolveAction.AttachTargetAsSource / DeDigivolveHelpers' promote);
-//  * DIE     — the permanent leaves the field (the AS-IS object is dropped) = Reset(topId) at
-//              CardObjectController.RemoveField.
+//              action; de-digivolve/ArmorPurge: the under-card promote) = ReKey(oldTop, newTop) at the ops that
+//              own a top swap (DigivolveAction.AttachTargetAsSource callers / DeDigivolveHelpers' promotes);
+//  * DIE     — the permanent leaves the field (the AS-IS object is dropped) = Reset(topId) as the top card
+//              LEAVES a field zone.
+//
+// (RD-R3-02) CREATE/DIE are enforced at the single physical zone chokepoint — InMemoryZoneMover.MoveCard
+// resets the entry on ANY move that changes the card's field-zone membership (enters or leaves
+// BattleArea/BreedingArea), so every path (play action, effect play, sink deletion, GameFlowProcessor's
+// deferred/no-DP finalize, bounce, deck return, security return, battle loss, jogress root removal, token
+// vanish, ...) shares the same lifetime seat instead of per-call-site Reset wiring. A top SWAP is expressed as
+// a leave+enter move PAIR while the AS-IS Permanent object PERSISTS — those moves are stamped with
+// PermanentContinuityKey by their owning op (which then calls ReKey), so the chokepoint leaves them alone.
 //
 // KEYING: by ICardInstanceRepository (1:1 with the match; the two re-key owners hold the repository but not the
 // EngineContext). Entries hold live ICardEffect references (PlayingEffect/DigivolvingEffect) — the approved A1
@@ -59,6 +67,17 @@ public sealed class PermanentBookkeepingEntry
 
 public static class PermanentBookkeepingStore
 {
+    /// <summary>(RD-R3-02) ZoneMoveRequest.Metadata marker: this move is one half of a top-SWAP pair (the AS-IS
+    /// Permanent object PERSISTS across it — digivolve / de-digivolve / ArmorPurge promote). The zone-mover
+    /// lifetime chokepoint skips the CREATE/DIE Reset for a marked move; the owning op calls
+    /// <see cref="ReKey"/> instead.</summary>
+    public const string PermanentContinuityKey = "permanentContinuity";
+
+    /// <summary>Shared, immutable move metadata carrying only <see cref="PermanentContinuityKey"/> — for the
+    /// top-swap moves that need no other metadata.</summary>
+    public static readonly IReadOnlyDictionary<string, object?> ContinuityMoveMetadata =
+        new Dictionary<string, object?>(StringComparer.Ordinal) { [PermanentContinuityKey] = true };
+
     private static readonly ConditionalWeakTable<ICardInstanceRepository, Dictionary<HeadlessEntityId, PermanentBookkeepingEntry>> _store = new();
 
     private static Dictionary<HeadlessEntityId, PermanentBookkeepingEntry> Entries(ICardInstanceRepository repository) =>
@@ -99,6 +118,14 @@ public static class PermanentBookkeepingStore
         {
             entries.Remove(oldTopId);
             entries[newTopId] = entry;
+        }
+        else
+        {
+            // (RD-R3-02) stale-block: the OLD top never wrote an entry (e.g. a token / never-stamped
+            // permanent), but the NEW top key may still hold an entry from a PREVIOUS life of that card
+            // instance — the persisting permanent's bookkeeping is the (absent) old top's, so the new key
+            // must read AS-IS field defaults, not the stale entry.
+            entries.Remove(newTopId);
         }
     }
 }

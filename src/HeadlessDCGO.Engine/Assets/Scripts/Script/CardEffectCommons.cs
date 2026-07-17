@@ -2114,13 +2114,17 @@ public static partial class CardEffectCommons
             if (!payCost || context.MemoryController.CanPay(cost))
             {
                 // The Arts/ArtsDigivolve stacking sequence (target off -> card on -> fold under -> window).
+                // (RD-R3-02) both halves marked as top-swap continuity — the AS-IS Permanent persists across
+                // the digivolve; AttachTargetAsSource ReKeys the bookkeeping below.
                 ChoiceZone targetZone = zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BreedingArea).Contains(targetId)
                     ? ChoiceZone.BreedingArea
                     : ChoiceZone.BattleArea;
                 await context.ZoneMover.MoveAsync(
-                    new ZoneMoveRequest(targetPermanent.OwnerId, targetId, targetZone, ChoiceZone.None), cancellationToken).ConfigureAwait(false);
+                    new ZoneMoveRequest(targetPermanent.OwnerId, targetId, targetZone, ChoiceZone.None,
+                        Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
                 await context.ZoneMover.MoveAsync(
-                    new ZoneMoveRequest(targetPermanent.OwnerId, selected, rootZone, targetZone), cancellationToken).ConfigureAwait(false);
+                    new ZoneMoveRequest(targetPermanent.OwnerId, selected, rootZone, targetZone,
+                        Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
                 if (payCost && cost > 0)
                 {
                     context.MemoryController.Pay(cost);

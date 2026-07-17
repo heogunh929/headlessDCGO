@@ -57,6 +57,14 @@ public sealed class EngineContext
             Array.Empty<HeadlessPlayerId>(),
             randomSeed: randomSource is IRandomStateReader randomStateReader ? randomStateReader.CurrentSeed : 0);
 
+        // (RD-R3-02) the zone mover IS the field-entry/leave chokepoint for the AS-IS Permanent-object
+        // lifetime (PermanentBookkeepingStore CREATE/DIE) — key it with this match's instance repository.
+        // Wired here (not in CreateDefault) so every context construction path gets the lifetime seat.
+        if (zoneMover is InMemoryZoneMover inMemoryZoneMover)
+        {
+            inMemoryZoneMover.BookkeepingRepository ??= cardInstanceRepository;
+        }
+
         RegisterCoreServices();
     }
 

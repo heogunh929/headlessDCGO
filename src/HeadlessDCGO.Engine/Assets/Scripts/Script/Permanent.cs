@@ -3918,13 +3918,18 @@ public sealed class Permanent
             fieldZone = Headless.Choices.ChoiceZone.BattleArea;
         }
 
+        // (RD-R3-02) both halves of the top swap carry the continuity marker: the AS-IS Permanent object
+        // PERSISTS across AddCardSource, so the zone-mover lifetime chokepoint must not Reset either card's
+        // bookkeeping — AttachTargetAsSource ReKeys it below.
         await _context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(controller, oldTopId, fieldZone, Headless.Choices.ChoiceZone.None),
+            new ZoneMoveRequest(controller, oldTopId, fieldZone, Headless.Choices.ChoiceZone.None,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
 
         Headless.Choices.ChoiceZone cardFrom = CurrentZoneOf(cardSource.Owner, cardSource.InstanceId);
         await _context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(controller, cardSource.InstanceId, cardFrom, fieldZone),
+            new ZoneMoveRequest(controller, cardSource.InstanceId, cardFrom, fieldZone,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
 
         Headless.Runtime.DigivolveAction.AttachTargetAsSource(

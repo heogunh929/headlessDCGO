@@ -129,9 +129,10 @@ public static class CardObjectController
             context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
         }
 
-        // (R4 S3b-2②) fresh AS-IS `new Permanent(...)` semantics: a re-played card must not see the
-        // just-after bookkeeping of its previous life.
-        PermanentBookkeepingStore.Reset(context.CardInstanceRepository, card.InstanceId);
+        // (R4 S3b-2② → RD-R3-02) fresh AS-IS `new Permanent(...)` semantics (a re-played card must not see
+        // the just-after bookkeeping of its previous life) are enforced by the zone-mover lifetime chokepoint
+        // at the None→field move above (InMemoryZoneMover.MoveCard) — shared by EVERY field-entry path, not
+        // just this one.
 
         CardEffectRegistrar.RegisterCard(context, card.InstanceId, card.Owner);
         return new Permanent(context, card.InstanceId, card.Owner);
@@ -176,9 +177,9 @@ public static class CardObjectController
                 new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, from, ChoiceZone.None),
                 cancellationToken).ConfigureAwait(false);
 
-            // (R4 S3b-2②) the AS-IS Permanent object dies with the field slot — its just-after bookkeeping
-            // must not survive into a later life of the same card instance.
-            PermanentBookkeepingStore.Reset(context.CardInstanceRepository, permanent.InstanceId);
+            // (R4 S3b-2② → RD-R3-02) the AS-IS Permanent object dies with the field slot — its just-after
+            // bookkeeping reset is enforced by the zone-mover lifetime chokepoint at the field→None move
+            // above (InMemoryZoneMover.MoveCard), shared by EVERY field-leave path, not just this one.
         }
     }
 

@@ -168,12 +168,16 @@ public sealed class DigivolveAction
         // OnEnterFieldHashtable params for the DORMANT SkillWindowSupply. Read BEFORE the target leaves the field.
         int preDigivolveTargetLevel =
             new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.TargetCardId, action.PlayerId, action.PlayerId).Level;
+        // (RD-R3-02) both halves of the top swap carry the continuity marker: the AS-IS Permanent object
+        // PERSISTS across a digivolve, so the zone-mover lifetime chokepoint must not Reset either card's
+        // bookkeeping — AttachTargetAsSource ReKeys it below.
         ZoneMoveResult targetRemoval = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
                 payload.TargetCardId,
                 targetZone,
-                ChoiceZone.None),
+                ChoiceZone.None,
+                Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
         // (C1d RDW-04) enrich the digivolve entry with the AS-IS OnEnterFieldHashtable params (isEvolution=true;
         // evoRoots == evoRootTops == the pre-digivolve top = the target; oldLevels = [pre-digivolve level]; root
@@ -188,6 +192,8 @@ public sealed class DigivolveAction
             [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = new[] { payload.TargetCardId.Value },
             [SkillWindowSupply.OnEnterFieldOldLevelsKey] = new[] { preDigivolveTargetLevel },
             [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
+            // (RD-R3-02) the entering half of the top swap — see the targetRemoval marker above.
+            [Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey] = true,
         };
         ZoneMoveResult cardMovement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
