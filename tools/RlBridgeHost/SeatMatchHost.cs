@@ -24,7 +24,11 @@ public sealed class SeatMatchHost
     private readonly string? _resultLogPath;
     private readonly MatchLogLevel _logLevel;
     private readonly string? _eventLogPath;
+    private readonly bool _strictUnbound;
     private StreamWriter? _eventWriter;
+
+    // (B4/D6 수확 계층) 직전 내부 오류의 포렌식 — aborted result에 1회 동봉 후 소거.
+    private JsonObject? _lastException;
 
     // 세션 상태
     private bool _helloDone;
@@ -52,12 +56,14 @@ public sealed class SeatMatchHost
         FactoredActionSchema? schema = null,
         string? resultLogPath = null,
         MatchLogLevel logLevel = MatchLogLevel.Off,
-        string? eventLogPath = null)
+        string? eventLogPath = null,
+        bool strictUnbound = false)
     {
         _schema = schema ?? FactoredActionSchema.Default;
         _resultLogPath = resultLogPath;
         _logLevel = logLevel;
         _eventLogPath = eventLogPath;
+        _strictUnbound = strictUnbound;
     }
 
     public async Task<IReadOnlyList<string>> HandleLineAsync(string line)
@@ -88,6 +94,19 @@ public sealed class SeatMatchHost
         catch (Exception ex)
         {
             // 내부 오류: 진행 중 매치는 보상 0으로 종결(프로토콜 §5).
+            // (B4/D6 수확 계층) 예외 포렌식을 aborted result에 동봉 — 스택/타입/스텝이 result JSONL로
+            // 남아 캠페인 드라이버가 seed·덱쌍·직전 액션열과 함께 결함 레코드로 수확한다(도구층 필드
+            // 추가만 — 엔진 무수정). 프로토콜 소비자에겐 additive 필드라 기존 계약 무변.
+            Exception root = ex.GetBaseException();
+            _lastException = new JsonObject
+            {
+                ["type"] = ex.GetType().FullName,
+                ["message"] = ex.Message,
+                ["rootType"] = root.GetType().FullName,
+                ["rootMessage"] = root.Message,
+                ["stack"] = TruncateForForensics(root.StackTrace ?? ex.StackTrace),
+                ["atStep"] = _steps
+            };
             var responses = new List<string> { Error("internal", $"{ex.GetType().Name}: {ex.Message}") };
             if (_match is not null)
             {
@@ -200,7 +219,8 @@ public sealed class SeatMatchHost
         int seed = node["seed"]?.GetValue<int>() ?? 0;
         _maxSteps = node["maxSteps"]?.GetValue<int>() ?? DefaultMaxSteps;
 
-        EngineContext context = EngineContext.CreateDefault(randomSeed: seed);
+        // (B4/D6) 퍼징 캠페인은 strict 프로파일 고정(unbound 효과 = 하드 실패 → 예외 채널로 수확).
+        EngineContext context = EngineContext.CreateDefault(randomSeed: seed, strictUnbound: _strictUnbound);
         var database = (CardDatabase)context.CardRepository;
         CardBaseEntityLoader.LoadInto(database);
 
@@ -435,6 +455,12 @@ public sealed class SeatMatchHost
             ["turns"] = finalObs?.Turn.TurnNumber ?? 0
         };
 
+        if (_lastException is not null)
+        {
+            result["exception"] = _lastException;
+            _lastException = null;
+        }
+
         string line = result.ToJsonString();
         AppendResultLog(line);
         _match = null;
@@ -632,5 +658,16 @@ public sealed class SeatMatchHost
     private static string Sha256(string text)
     {
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+    }
+
+    private static string? TruncateForForensics(string? stack)
+    {
+        const int MaxStackChars = 6000;
+        if (stack is null)
+        {
+            return null;
+        }
+
+        return stack.Length <= MaxStackChars ? stack : stack[..MaxStackChars] + "\n... (truncated)";
     }
 }

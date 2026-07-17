@@ -217,7 +217,7 @@ after 잔여 핫스팟(=(b) 원장, RD-RLENV-06): LINQ ToArray 계열 24.0%(`Pla
 | B1 | **계측 정합 회복** (RL층+테스트만) | G13-003 펌프 재조준(legacy ctor→CreatePumpDriven, stale `EffectResolved` 속성→행동 지표[플레이/공격/시큐리티 소진] 또는 창-경로 계측으로 교체 — 엔진 이벤트 재배선은 RD-RLENV-02로 등재만); A1/A2 LEGACY SCAFFOLD의 펌프판 witness 추가; determinism/병렬 verifier 실행 테스트 승격; 처리량 베이스라인 하네스(steps/sec·ms/판 수치 고정) | G13-003 10/10 green(펌프) + 병렬 결정론 witness green + 베이스라인 수치 기록 |
 | B2 | **처리량** | 엔진 프로파일(판당 11s 소재 확정 — RD-RLENV-03; 엔진 수정은 프로파일 결과로 항목화해 사용자 확인 후 별도 배치); RL측 다중 프로세스 벡터화(`SubprocVecEnv`×N + host 풀) | N-프로세스 aggregate steps/sec 실측 ≥ 5×단일(선형성) + 프로파일 보고서(핫스팟 상위 5) |
 | B3 | **학습 루프 재검증(pump-era L0/L1)** | 209장 풀 레시피 2~4종 확정(witness 카드 포함, ST 스타터+BT1/BT2); MaskablePPO 스모크 재실행; L1 리그 재가동(스냅샷 신규 — 구 스냅샷은 OLD-cadence 궤적이라 폐기) | 스모크 무크래시 + eval vs 랜덤 유의미 우위 + 관측/마스크 차원 계약 무변(해시 일치) **[B3 상환(2026-07-17) — 3부 §B3.1~.5: eval 99.2% CI95=[95.4%,99.9%], 게이트 전부 PASS]** |
-| B4 | **퍼징 수확 계층** | D6 표의 보강 4종(호스트 result 확장·strict 프로파일 캠페인 러너·reason 집계·seed-replay 게이트); 대량 랜덤/약정책 롤아웃 캠페인(209장 풀 전 카드 노출 커버리지 리포트) | 캠페인 ≥10⁴판 완주(크래시=수확·파이프라인 무중단) + 카드 노출 커버리지 리포트 + 수확 원장 회부 ≥1회전 |
+| B4 | **퍼징 수확 계층** | D6 표의 보강 4종(호스트 result 확장·strict 프로파일 캠페인 러너·reason 집계·seed-replay 게이트); 대량 랜덤/약정책 롤아웃 캠페인(209장 풀 전 카드 노출 커버리지 리포트) | 캠페인 ≥10⁴판 완주(크래시=수확·파이프라인 무중단) + 카드 노출 커버리지 리포트 + 수확 원장 회부 ≥1회전 **[B4 상환(2026-07-18) — 5부: 10,044판 완주·결함 0·재검 100/100, 게이트 전부 PASS]** |
 | B5 | **다중-선택 표면 + 풀 확대 게이트** (엔진 공사 포함 — 사용자 승인 선행) | RD-RLENV-01(순차 부분-선택: 디스패처 세션 열거+Confirm 레인+A1 경계 수용) + factored 스키마 v2(+1~2슬롯, 버전 증가) + A3 잔여 witness(조인트-검증기 카드 = BT20_098 포팅과 동승) | 조인트-검증기 witness green(교착 0) + 기존 스위트 무회귀 + 스키마 버전 핸드셰이크 검증 |
 
 순서 근거: B1은 신뢰 기반(red/사문 정리) 없이는 이후 게이트 판정 불가. B2가 B3 앞 — 현 5.7 steps/sec로는 L0 재검증이 87분/30k라 가능은 하나, 리그(B3)와 캠페인(B4)은 처리량 없이 무의미. B5는 풀 확대 전 필수이나 현 풀 비발화라 최후순.
@@ -321,3 +321,186 @@ cd rl && .venv/bin/python build_recipes.py
   2. 학습 실효 처리량 21.3 steps/sec — 학습기(torch)와 env 워커의 코어 경합. 대규모(≥10⁶ 스텝) 캠페인은 물리 ≥8코어 장비 또는 학습기/롤아웃 분리 필요(성능 작업은 사용자 동결 지시로 미착수).
   3. 평가·리그 게이트는 vs-랜덤/자기-스냅샷 기준 — 절대 실력 척도 아님(L2+ 몫). 스모크 게이트로는 충분.
   4. coverage_rest 덱은 전략적 정합성이 낮은 커버리지 파일 — 학습 풀엔 모노 4종만, coverage는 B4 퍼징 캠페인 전용.
+
+---
+
+# 4부. §B5 설계 (2026-07-17) — 다중-선택 표면: 순차 부분-선택 액션화 (설계만, 구현 금지)
+
+설계 핀 4개(사용자 확정): ① 토글 의미론(탭-재탭 동형, 고정 액션 공간 유지) ② 전체 취소는 optional만(기존 skip 레인; 강제는 재구성만) ③ 교착-방지=토글 존재로 탈출 경로 보장("유효 완성 남는 픽만 노출" 대안 기각) ④ 불충족-강제-선택은 AS-IS 실동작을 확인해 미러. 본 절은 AS-IS 정밀 분석(§B5.1-2)→미러 현황(§B5.3)→설계(§B5.4-7)→witness/배치/게이트(§B5.8-10) 순.
+
+## §B5.1 AS-IS 증분 선택 루프 정밀 분석 (실코드 근거)
+
+**공통 루프(3 표면 동형)** — `SelectPermanentEffect.cs`(필드) / `SelectHandEffect.cs`(손) / `SelectCardPanel.cs`(SelectCardEffect·RevealLibrary가 위임하는 패널):
+- **PreSelected 누적**: 선택 세션의 부분 상태는 `List<T> PreSelectedPermanents/PreSelectedHandCards/_preSelectedHandCardList` — **Activate() 코루틴의 로컬 변수**(SelectPermanentEffect.cs:362, SelectHandEffect.cs:253). 순서 보존 리스트(픽 순서가 의미론 — SetSelectedIndexText가 1..n 표기, PutLibraryBottom "낮은 번호가 위" 등 순서-민감 모드 존재).
+- **탭/재탭 토글 실코드**: `OnClick*` — 이미 리스트에 있으면 `Remove`(해제), 없으면 per-pick 게이트(`_canTargetCondition_ByPreSelecetedList(PreSelected, item)`) 통과 시 `Add`(SelectPermanentEffect.cs:428-474, SelectHandEffect.cs:269-322). **핀 1의 AS-IS 앵커 확정.**
+- **MaxCount 도달 시**: 추가탭 차단이 아니라 **replace-last** — `RemoveAt(Count-1)` 후 `Add(new)`(SelectPermanentEffect.cs:457-463, SelectHandEffect.cs:303-310, SelectCardPanel.cs:481-482). 자동확정은 **옵션 의존**: `!ContinuousController.checkBeforeEndingSelection && 강제(!canNoSelect && !canEndNotMax) && count==max`일 때만 즉시 EndSelect(:466-473). 그 옵션의 기본값은 **true(확인 ON)**(ContinuousController.cs:955 `GetBool(key, true)`) → **AS-IS 기본 동작 = 명시적 확정 버튼**.
+- **확정 버튼 활성 조건 = CanEndSelect(PreSelected)**: `(count==max || (count<=max && canEndNotMax)) && (canEndSelectCondition?.Invoke(set) ?? true)`(SelectPermanentEffect.cs:221-239, SelectHandEffect.cs:575-591, SelectCardPanel.cs:568-600 — 패널판은 `maxCount<=0`이면 무조건 true). **매 탭 후 재평가**(CheckEndSelect가 모든 클릭 경로에서 호출) — 즉 조인트 검증기의 평가 시점 = **탭마다**(버튼 표시용) + **확정 시**(Permanent만 최종 재검사 :748; Hand는 최종 재검사 없음).
+- **검증기 이원 구조(시그니처)**: ① per-item `Func<T,bool> canTargetCondition`(후보 산정) ② 경로-의존 per-pick `Func<List<T>,T,bool> canTargetCondition_ByPreSelecetedList`(부분 상태 대비 개별 게이트, 탭 시점 평가) ③ 집합 `Func<List<T>,bool> canEndSelectCondition`(확정 게이트). 세 표면 모두 동일 3분 구조(SelectPermanentEffect.SetUp :12-23, SelectHandEffect :18-31, SelectCardPanel.OpenSelectCardPanel :81-87).
+- **MinCount는 존재하지 않음** — AS-IS의 "최소"는 `maxCount`(강제)·`0`(canNoSelect/canEndNotMax) 둘뿐. 미러 ChoiceRequest.MinCount는 이 이분법의 번역(강제=maxCount, 아니면 0 — SelectCardEffect.cs:742 등).
+- **전체 취소(skip)**: "No Selection" 백버튼은 **PreSelected.Count==0 && canNoSelect일 때만** 표시(SelectPermanentEffect.cs:539-570, SelectHandEffect.cs:433-446). 즉 AS-IS에서도 부분 상태에서 접으려면 **먼저 토글로 전부 해제**해야 skip이 나타남 — **핀 2와 정확히 동형**(강제 효과는 skip 자체가 없고 재구성만 가능).
+- **강제 자동선택 숏컷**: Permanent만 — 강제이고 후보수==maxCount면 전원 자동선택+즉시 확정, 세션 없음(:366-399; 미러 SelectPermanentEffect.cs:531 기이식). Hand/Panel에는 없음.
+- **부분 상태의 관측 노출**: PreSelected는 **선택자 클라이언트의 로컬 변수** — 상대에게는 "The opponent is selecting cards." 문구만(:624). 네트워크 전송은 확정 시 1회(RPC SetTargetFrames/SetTargetHandCards). **상대는 부분 선택을 관측 불가**(단, 필드-대상 선택의 아웃라인은 상대 화면에 미표시 — 선택 완료 후 타겟 화살표만 공유). 미러 시점 필터 규칙의 앵커.
+
+**AI 분기(헤드리스의 AS-IS 동형)**: 후보 무작위 maxCount-부분집합을 canEndSelectCondition 통과까지 재시도 — Permanent 200회(:648-681), Hand 1000회(:496-570). per-pick byPreSelectedList 게이트는 **AI 분기에서 미평가**(joint만 검사).
+
+## §B5.2 핀 4 판정 — AS-IS 불충족-강제-선택 실동작 (표면별로 갈림)
+
+| 표면 | 개설 전 판정 | 불충족 시 실동작 | 근거 |
+|---|---|---|---|
+| **SelectPermanentEffect** | **있음 — 조합 전수 검사**: `active()`가 강제(!canNoSelect && !canEndNotMax)일 때 후보<maxCount → false, `ParameterComparer.Enumerate(후보, maxCount)` 전 조합에 CanEndSelect 하나도 통과 못 하면 → false | **효과 전체 무발화**(선택 자체가 열리지 않음; afterSelect 코루틴만 빈 리스트로 실행) — **개설-시점 판정 확정** | AS-IS :196-214(원본), 미러 :460-485(기이식 — 검증기 없으면 조합 열거 단락) |
+| **SelectHandEffect** | **없음** — `active()`=매칭 카드 ≥1뿐(:147-160). 후보<maxCount 검사도, 조합 검사도 없음 | 인간 UI: **소프트락**(확정 버튼 영구 비활성, skip 없음, 탈출 부재). AI: 후보<max 또는 1000회 실패 → `SetTargetHandCards(null)` → `CardIDList==null` → `_noSelect=true` — **강제여도 no-select 강등으로 탈출**(:504-570→:604). 하류에 CanEndSelect 최종 게이트 없음(`if (!_noSelect)` 뿐) → 강등이 그대로 수용됨 | AS-IS :147-160, :496-570, :595-608 |
+| **SelectCardPanel** (SelectCardEffect/RevealLibrary) | **없음** — `SelectCardEffect.active()`=선택가능 ≥1(:303-327) | 인간 UI: 소프트락(패널 EndSelect 버튼 비활성). AI/원격 분기는 SelectCardEffect 쪽 랜덤 재시도 + null 강등(Hand와 동형) | AS-IS SelectCardPanel.cs:568-600 |
+
+**판정**: "개설-시점 판정 유력" 가설은 **Permanent 표면에서만 성립**. Hand/Panel 표면의 AS-IS 실동작은 "개설 후, 유한 탐색 실패 시 no-select(null) 강등"(AI 분기 = 헤드리스 동형 경로)이며 인간 경로의 소프트락은 UI 결함이지 미러 대상이 아님(헤드리스에 인간 대기 루프가 없음 — AI 분기가 이미 그 표면의 결정 경로). **미러 원칙: 표면별 AS-IS를 각각 미러** — Permanent=개설-시점 조합 검사(기이식), Hand/Card=개설 시점 유한 탐색 실패 → no-select 강등(§B5.6). 발명(부분합 검사, "유효 완성 남는 픽만 노출") 불요 — 핀 3 논거 유지.
+
+## §B5.3 미러/substrate 현황 대조 (read-only 실측)
+
+- **미러 Select* 해소 방식**: 3 표면 모두 `RunAsIsSelectionAsync` — ① byPreSelectedList 없으면 **배치 ChoiceRequest 1회**(min=(canNoSelect||canEndNotMax)?0:max, max=선택가능수로 클램프, canSkip=canNoSelect, 조인트 검증기는 `SelectionValidator`로 탑재 — SelectPermanentEffect.cs:687-727, SelectHandEffect.cs:425-462, SelectCardEffect.cs:735-770) ② byPreSelectedList 있으면 **per-pick 순차 루프**(maxCount:1 요청 반복, canEndNow면 skip 겸용 — 교착-세이프, 이미 순차화됨).
+- **pending choice 구조**: `ChoiceRequest`(MinCount/MaxCount/CanSkip/Candidates(IsSelectable)/`SelectionValidator: Func<IReadOnlyList<HeadlessEntityId>,bool>` — ChoiceRequest.cs:82) + `HeadlessChoiceState`(candidateIds는 M2에서 관측 노출용 기존재, SelectedIds는 **resolved 후에만** 채워짐 — InMemoryHeadlessChoiceController.cs:36-41). 최종 심판=`ChoiceResult.Validate`(중복/비후보/범위/조인트 — ChoiceResult.cs:62-94).
+- **디스패처 choice 액션 생성**(HeadlessLegalActionDispatcher.BuildChoiceResolutionActions :221-267): Count형=min..max 레인, `MinCount<=1<=MaxCount`형=후보당 1레인(**B1 단일-선택 검증 필터**: 싱글턴이 SelectionValidator 불통과면 레인 제외, RD-S3D-01 :245-249), skip 레인. **`MinCount>1` = 액션 0개**(skip 가능 시 skip만). **추가 실측 갭**: `MinCount<=1 && MaxCount>1`(up-to-N 배치)도 **1장 초과 선택 불가**(size-1 해소만 생성) — 다중-선택 결핍은 강제형 교착만이 아니라 optional up-to-N의 **표현력 결손**이기도 함.
+- **§4 "현 풀 비발화" 정정 — 실황 1건 발견**: `<Fragment <3>>` 키워드(`CardEffectCommons/KeyWordEffects/Fragment.cs:49-65` — SelectCardEffect maxCount:3, canNoSelect:false, canEndNotMax:false, 진화원 3장 트래시)를 **EX8_051**(STOP 마커 없음, dispatch 가능, `rl/decks/coverage_rest_4.json` 포함)이 보유. 진화 스택 ≥3에서 삭제-회피 창이 열리면 min=max=3 배치 요청 → **디스패처 액션 0 → stalled/no_mappable_action**. §4의 grep(SelectHandEffect.cs:432 모양)이 키워드 공통층을 놓친 것. B4 캠페인이 이 모양을 수확할 것으로 예상 — **B5의 실카드 witness 후보이자 시급도 상향 근거**(다만 학습 모노 4덱에는 부재라 L0/L1 비차단은 유지). **[B4 실측(2026-07-18): 미수확 — coverage_rest_4 포함 2,232판 전부 자연 종결·stalled 0. 랜덤 정책이 발화 경로(진화원 ≥3 스택 구축+삭제-회피 창) 미도달 판정(§B4.5) — 수확 부재≠부재 증명, W8 픽스처가 지정 witness로 유지.]**
+- **부분-선택 누적 상태의 위치 후보**: (a) pending choice 확장(HeadlessChoiceState에 세션 필드) vs (b) 별도 substrate 상태(TurnFlowPumpHost류 ambient). §B5.4에서 (a) 채택.
+- **ScriptedChoiceProvider와의 관계**: 순차화는 **디스패처/에이전트 표면에서만** 일어남 — `IChoiceProvider.ChooseAsync` 계약(배치 요청 1회 → 완결 답 1회)은 무변. ScriptedChoiceProvider(RD-R4P4-02의 결정론 200-cap 탐색 폴백 :55-108)와 PolicyChoiceProvider는 세션을 아예 보지 않음. DeferredChoiceProvider의 pump await(:189-197)·deposit(:MetadataActionProcessor.cs:466-483)도 무변 — Confirm이 만든 완결 ChoiceResult가 기존 경로로 예치됨.
+
+## §B5.4 상태 모델 — **택1: (a) pending choice 확장** (부분 집합은 HeadlessChoiceState의 세션 필드)
+
+`HeadlessChoiceState`에 init-only 확장(기존 레코드 필드 무변 — Empty/기존 생성자 하위호환):
+- `PendingSelectedIds: IReadOnlyList<HeadlessEntityId>`(기본 빈 배열) — **픽 순서 보존 리스트**(AS-IS PreSelected 리스트의 번역; 순서-민감 모드와 SetSelectedIndexText 동형). IsPending 동안만 비어있지 않을 수 있음; Resolve/Clear 시 소거.
+- 컨트롤러에 토글 전이 API 1개: `ToggleCandidate(id)` — 있으면 제거, 없으면 (per-pick 게이트는 디스패처가 이미 필터) count<Max면 append, count==Max면 **replace-last**(AS-IS :457-463 미러). 상태 전이는 순수 함수(record with) — 결정론 자명.
+
+**근거(vs (b) 별도 상태)**: ① **결정론/수명** — pending choice와 수명이 정확히 일치(개설→확정/skip), 별도 상태면 소거 시점(효과 abort·terminal·ClearChoice 경로 전부)을 이중 관리해야 함. ② **직렬화/관측** — HeadlessChoiceState는 이미 ObservationSnapshot에 실리고 시점 필터(`FilterChoiceForPerspective`, HeadlessGameLoop.cs:259-274)가 있음 — **비선택자에게 CandidateIds와 함께 PendingSelectedIds도 스트립**(AS-IS 로컬-변수 비노출 동형)하는 한 줄 확장으로 관측 규칙 완결. ③ **ResolveChoice 계약 호환** — ChoiceRequest/ChoiceResult/Validate 무변; 세션은 "확정 전 스크래치패드"일 뿐 최종 심판은 기존 `ChoiceResult.Validate(request)` 그대로(원장 RD-RLENV-01의 사상 유지). ④ pump await-모드·DeferredChoiceProvider 재실행 프레임과 무간섭(제공자는 세션을 모름).
+
+**관측 노출 shape**: 선택자 관측에 per-후보 선택 비트 추가 — `choice.candidate.{i}.selected`(MaxChoice=16개, ObservationEncoder.AddChoiceCandidateFeatures :480-505에 1피처 추가) + 기존 `choice.selectedIds.count`(:146)가 IsPending 중 PendingSelectedIds.Count를 반영하도록 재지정. 토글 상태는 마스크로 식별 불가(토글 레인은 선택/미선택 모두 legal)이므로 **선택 비트는 필수**(stateless MLP가 부분 상태를 알 길이 이것뿐). → **obs 스키마 변경 = obsSchemaHash 자연 변경**(§B5.7).
+
+## §B5.5 액션 표 생성 규칙 (세션 열거)
+
+**세션 개설 조건**: pending choice가 `Type!=Count`이고 **`MaxCount>1`**일 때(강제 MinCount>1 + optional up-to-N 모두 포섭). `MaxCount<=1`·Count형은 현행 표 그대로(B1 필터 포함) — **기존 궤적 보존 경계**. 개설 전에 §B5.6의 불충족-강제 강등 검사가 선행.
+
+디스패처 BuildChoiceResolutionActions의 세션 분기(매 GetLegalActions마다 상태에서 재계산 — 저장 없음):
+| 레인 | 생성 규칙 | AS-IS 앵커 |
+|---|---|---|
+| **토글**(기존 ResolveChoice 후보 레인 16개 재사용) | 후보 i가 `PendingSelectedIds`에 **있으면 항상 legal**(해제 — 핀 3의 탈출 보장). **없으면**: `IsSelectable` && (count<Max \|\| count==Max[replace-last]) — per-pick 경로-의존 게이트가 요청에 있으면(§B5.9 B5-2에서 ChoiceRequest에 optional `PartialPickGate: Func<IReadOnlyList<Id>,Id,bool>` 추가) 현재 부분 상태로 **탭 시점 평가**(AS-IS :439-450 동형; replace-last 시 AS-IS처럼 마지막 원소 제외 리스트로 평가 — SelectHandEffect.cs:280-296의 `_PreSelectedList` 구성 미러) | :428-474 |
+| **Confirm**(신설 1레인) | `CanEndSelect(PendingSelectedIds)` 통과 시에만 생성: `(count==Max \|\| (count<=Max && canEndNotMax[미러 번역: count>=MinCount])) && (SelectionValidator?.Invoke(부분 리스트) ?? true)` — **매 스텝 재평가**(AS-IS CheckEndSelect=탭마다 동형). 액션은 `ResolveChoice` + `ChoiceSelectedIds=PendingSelectedIds`(픽 순서 그대로) — **기존 ResolveChoice 액션형 재사용**(신 액션타입은 토글만) | :481-497 |
+| **Skip**(기존 레인) | `CanSkip && PendingSelectedIds.Count==0`일 때만(AS-IS 백버튼 표시 조건 :539-570 — **핀 2**: 부분 상태에서는 토글로 비운 뒤에만 skip 가능; 강제는 애초에 CanSkip=false) | :539-570 |
+
+- **토글 액션**: 신규 normalized 타입 `ToggleChoiceCandidate`(파라미터: candidateId) — `LegalActionSetValidator.AgentFacingTypes` 등재(표-멤버십 검증 자동 성립), MetadataActionProcessor 핸들러는 컨트롤러 `ToggleCandidate` 호출만(게임 상태 무변, 효과 재개 없음 — pump는 계속 파킹). Confirm만이 기존 resolve 경로(pump deposit :466-483 / 레거시 분기)로 진입.
+- **자동확정 미채택**: AS-IS 자동확정은 사용자 옵션이고 **기본값 OFF(확인 ON)**(ContinuousController.cs:955) — 명시적 Confirm이 AS-IS 기본 동작이므로 자동확정은 미러하지 않음(스텝 수만 다름, 상태 동일).
+- **강제 자동선택 숏컷**(pool==max, Permanent)은 미러층에서 이미 세션 없이 해소(:531) — 디스패처 무관.
+- **incremental(byPreSelectedList) 미러 경로 유지**: 이미 maxCount:1 요청 순차 루프로 교착-세이프 — 세션 대상 아님(MaxCount==1 요청만 생성). 단 그 루프는 되돌리기(un-pick)가 없음 — RD-W4-2(prefix-monotone 한정 무손실) 기존 원장 유지.
+
+## §B5.6 불충족-강제 처리 (핀 4 — 표면별 AS-IS 미러)
+
+- **Permanent**: 미러 `active()`의 개설-시점 조합 전수 검사가 **이미 1:1**(SelectPermanentEffect.cs:460-485) — 불충족-강제 요청은 substrate에 도달 자체를 안 함. 엔진 수정 0.
+- **Hand/Card(패널)**: AS-IS 실동작 = 개설 후 유한 탐색 실패 시 null(no-select) 강등(§B5.2). 미러 번역 = **세션 개설 시점의 결정론 완성-가능성 검사**: `MinCount>1 && !CanSkip`(+SelectionValidator 보유) 요청에 대해 ScriptedChoiceProvider의 기존 결정론 조합 탐색(:87-105 — max-size부터 사전식, AS-IS AI cap의 기번역; cap은 표면별 AS-IS값 200/1000 중 **기존 200 유지** — 이미 RD-R4P4-02에서 채택된 번역)을 재사용해 **통과 조합이 하나도 없으면 세션을 열지 않고 no-select 강등으로 즉시 해소**(빈 SelectedIds — 미러 Select*는 `selected.Count==0 → noSelect=true`로 기수용, SelectHandEffect.cs:460-461). 검증기 없는 순수 count-강제(후보<MinCount)는 조합 탐색 없이 즉시 강등(AS-IS `ValidCards.Count >= maxCount` 게이트 실패 → null과 동형). **주의**: 강등은 `ChoiceResult.Skip()`이 아니라 **빈 Select**로 표현(Validate가 !CanSkip skip을 거부하므로; 빈 Select는 MinCount 범위 실패라 Validate 우회 필요 — 강등 경로는 Validate 앞의 컨트롤러/디스패처 층에서 처리하고 사유를 액션 메타데이터에 표기 `unsatisfiableForcedChoice: true` — 퍼징 수확(D6) 채널로 계수). 이로써 **토글로도 탈출 불가한 진짜 교착은 구조적으로 개설 불가**.
+- 세션 **개설 후** 검증기-전멸(부분 상태에서 어떤 완성도 불가)이어도 토글 해제가 항상 legal(핀 3)이라 상태 재구성은 가능 — Confirm이 영원히 안 뜨는 조합-미로는 개설-시점 검사가 이미 배제(완성 존재가 보장된 세션만 열림). 완성 존재 보장 + 토글 왕복 = **교착 0 논거 완결**.
+
+## §B5.7 기존 계약 영향
+
+| 계약 | 영향 | 판정 |
+|---|---|---|
+| `ChoiceRequest`/`ChoiceResult`/`Validate` | 무변(PartialPickGate optional 필드 1개 추가는 additive) | **호환** |
+| `IChoiceProvider`(Scripted/Policy/Deferred) | 무변 — 세션은 제공자 아래층에서 불가시 | **호환** |
+| ResolveChoice 하위호환 | 완결 집합을 실은 ResolveChoice 직접 제출(기존 테스트/스크립트 경로)은 세션 무경유로 그대로 유효 — 단 세션 개설 중(MaxCount>1) A1 표-멤버십은 "현재 PendingSelectedIds와 일치하는 Confirm"만 수용하므로, **에이전트 경로는 토글→Confirm 필수**, 엔진 내부 경로(provider 폴백·BlockTiming 등)는 A1 대상 외라 무변 | **호환(조건부)** |
+| A1 `LegalActionSetValidator` | `ToggleChoiceCandidate` 타입 등재 1건; 시퀀스 파라미터 원소별 비교(:114-125) 기존재로 Confirm의 ChoiceSelectedIds 순서-정확 대조 자동 성립 | **소폭 확장** |
+| factored 스키마 | **v2**: `ConfirmChoiceOffset` 1슬롯 말미 append(599→600, 기존 오프셋 전부 안정), `Version=2`, welcome `actionSchemaVersion: factored-v2`. 토글은 기존 ResolveChoice 후보 레인 16개 재사용(레인 의미가 "size-1 해소"→"세션 중 토글"로 문맥 의존 — 마스크/인덱스 shape는 불변). skip 레인 재사용 | **버전 증가** |
+| obs 스키마 | `choice.candidate.{i}.selected` 16피처 추가(3088→3104) + `choice.selectedIds.count`가 pending 중 부분 카운트 반영 → **obsSchemaHash 변경**. Python측은 welcome에서 obsSize/hash를 동적 수신(bridge.py:79-113)이라 코드 무변; train meta의 `obs_schema_hash` 대조(§B3.4)가 구 체크포인트 로드를 정상 차단 — **L0/L1 스냅샷 재생성 필요**(재생성 경로 §B3.4 기존재) | **해시 변경(설계된 규약대로)** |
+| seat 프로토콜 v1 | 메시지 형태 무변(state/act/result) — welcome의 두 스키마 필드 값만 변경. 계약 테스트 9종 중 스키마 상수 단언만 갱신 | **호환(값 갱신)** |
+| 시점 필터 | FilterChoiceForPerspective에 PendingSelectedIds 스트립 추가(비선택자) — AS-IS 로컬-변수 비노출 동형 | **소폭 확장** |
+| 결정론/seed | 토글 전이는 순수 상태 전이(RNG 무소비); 강등 탐색은 사전식 결정론(기존 Scripted 번역 재사용) — seed-replay 불변식 유지 | **무영향** |
+| 기존 궤적(MaxCount<=1) | 세션 경계 밖 — bit-identical 유지가 **회귀 게이트**(§B5.10) | **보존** |
+
+## §B5.8 witness 계획 (Tfx 재현 픽스처 — 조인트-검증기 실카드 패턴)
+
+| # | witness | 재현 대상(AS-IS 패턴) | 단언 |
+|---|---|---|---|
+| W1 | Tfx 조인트-검증기 배치 선택(BT20_098 패턴: "합계 레벨==목표", canNoSelect:true, maxCount:3) | §4의 싱글턴-전멸형 — 부분합이 목표 미달인 동안 Confirm 부재, skip은 빈 상태에서만 | 토글 누적→합 충족 시에만 Confirm 등장; 부분 상태에서 skip 레인 부재(핀 2); 완성 후 Confirm=기존 resolve 경로로 효과 완결 |
+| W2 | 불충족-강제(Hand형): 검증기 "합계==불가능값", canSkip:false, MinCount=MaxCount=2 | §B5.2 Hand 판정 | 세션 미개설·no-select 강등·`unsatisfiableForcedChoice` 메타 표기·효과는 빈 타겟으로 진행(교착 0) |
+| W3 | 불충족-강제(Permanent형): 동일 검증기를 SelectPermanentEffect 경유 | §B5.2 Permanent 판정 | `active()` false → choice 자체 미표면(기존 동작 회귀 확인) |
+| W4 | 토글 왕복 + 픽 순서: 선택 a→b→c, b 해제, d 선택 → Confirm | AS-IS 리스트 순서 보존 | SelectedIds==[a,c,d](순서); 순서-민감 모드(PutLibraryBottom) 결과 동형 |
+| W5 | MaxCount 경계: max 도달 후 미선택 후보 탭 | replace-last(:457-463) | last 제거+신규 append; per-pick 게이트가 last-제외 리스트로 평가됨(SelectHandEffect.cs:280-296 동형) |
+| W6 | 강제 pool==max 자동선택 숏컷(Permanent) | :366-399 | 세션 미개설, 즉시 확정(기존 미러 경로 회귀) |
+| W7 | up-to-N optional(MinCount 0, MaxCount 3, 검증기 없음) | 표현력 결손 상환 확인 | 0/1/2/3장 모든 크기 도달 가능; skip은 빈 상태에서만; 기존 size-1 궤적과의 차이 문서화 |
+| W8 | **실카드**: EX8_051 `<Fragment <3>>` 발화 픽스처(진화원 4장 스택, 삭제 트리거) | §B5.3 실황 교착 | 세션 3-토글→Confirm→진화원 3장 트래시·삭제 회피; flip 전 기준으론 stalled 수확 재현(before/after 쌍) |
+| W9 | A1 경계: 세션 중 표-밖 Confirm(부분 상태와 불일치 집합) 제출 | 합성 액션 거부 | Illegal 판정; 토글-불변 상태 유지 |
+| W10 | 결정론: W1 시나리오 seed-replay 이중 실행 | M4 계약 | 스텝열·지문 일치 |
+
+## §B5.9 구현 배치 분할 (엔진 수정 최소 단위 — 각 배치 green 게이트, R4 careful 규약 준수: 배치 통합 금지·배치별 전체 스위트)
+
+- **B5-1 (engine, 행동 무변)**: HeadlessChoiceState `PendingSelectedIds` + 컨트롤러 `ToggleCandidate` 전이 + ChoiceRequest `PartialPickGate`(optional) + 시점 필터 스트립. 디스패처 미배선이라 기존 전 궤적 bit-identical. 게이트: 전체 스위트 무회귀 + 상태 전이 단위 테스트.
+- **B5-2 (engine, 표면 flip)**: 디스패처 세션 분기(§B5.5 표) + `ToggleChoiceCandidate` 타입/핸들러/A1 등재 + 불충족-강제 개설-시점 강등(§B5.6, Scripted 조합 탐색 재사용) + 미러 Select* 배치 경로에 PartialPickGate 배선(byPreSelectedList를 게이트로 전달 — 현 배치 경로는 byPreSelectedList 없을 때만이므로 실배선은 additive). 게이트: W2/W3/W5/W6/W9 + 전체 스위트 + **MaxCount<=1 궤적 shadow 대조(bit-identical)**.
+- **B5-3 (RL층)**: FactoredActionSchema v2(+ConfirmChoice, Version=2) + obs selected 비트 + SeatMatchHost welcome 값 갱신 + 프로토콜 계약 테스트 갱신. 게이트: W1/W4/W7/W10 + M2-001/M4-001/G13-003/R4RL-01/RLB1-01 + Python 유닛.
+- **B5-4 (실카드 동승)**: EX8_051 witness(W8) + BT20_098 포팅 동승(원장 D7-B5 계획 유지 — 조인트-검증기 실카드 witness) + L0 스모크 재실행(스키마 v2 재생성, §B3.4 경로). 게이트: W8 + 스모크 무크래시 + eval 유의미 우위 재확인.
+- flip 직전 **사용자 체크포인트**(R4 careful 규약) — B5-2 착수 전 본 설계 승인 + B5-3 후 스키마 버전 증가 확인.
+
+## §B5.10 회귀 게이트 목록
+
+1. 전체 스위트 무회귀(배치별 — batch suite policy 예외 조항 준수).
+2. **MaxCount<=1 choice 궤적 bit-identical**(세션 경계 밖 보존 — shadow 하네스 재사용, R4P4-ShadowRun 사상).
+3. M4-001 결정론(관측 지문) · G13-003 seed-replay(펌프) · W10.
+4. 프로토콜 계약 테스트 9종(welcome 값 갱신 반영) + bridge.py 핸드셰이크(동적 수신 — 코드 무변 확인).
+5. B1 단일-선택 검증 필터 witness(RD-S3D-01) 유지 — 세션 미개설 요청(MaxCount==1)에서 필터 동작 불변.
+6. A4/A4a 시점 필터 witness + PendingSelectedIds 스트립 신규 단언.
+7. RD-R4P4-02 ScriptedChoiceProvider witness(ST1_15) 불변 — provider 층 무변 확인.
+8. L0 스모크(스키마 v2) — §B3.3 게이트 재판정.
+
+## §B5 리스크
+
+1. **up-to-N 세션화의 궤적 변화**: MaxCount>1 optional 요청이 기존 "size-1만" 표에서 세션으로 바뀜 — 해당 모양이 현 궤적에 등장하면 shadow 대조가 갈라짐(정당한 변화지만 게이트 2의 예외로 명시 관리 필요). 사전 계수: 현 클린 179 풀에서 MaxCount>1 배치 도달 모양은 Fragment(EX8_051, 학습 덱 밖)뿐이라 실위험 낮음.
+2. **PartialPickGate 배선 범위**: 현 미러 배치 경로는 byPreSelectedList 부재 시에만 — incremental 경로를 세션으로 통합할지(RD-W4-2 un-pick 결손 상환 기회) 여부는 B5-2에서 결정 항목(통합 시 AS-IS와의 스텝 대응이 늘어나는 대신 un-pick 표현력 확보). 본 설계는 **비통합**(incremental 유지)을 기본으로 함 — 미러 최소 변경.
+3. **스냅샷 무효화**: obs 3088→3104 + 스키마 v2로 pump-era L0/L1 산출물 재생성 필요(§B3.4 경로 기존재; B3와 동일한 폐기-재생성 규약).
+4. **강등 경로의 Validate 우회**: §B5.6의 빈-Select 강등은 Validate 표준 경로 밖 — 구현 시 우회 지점을 디스패처/컨트롤러 한 곳으로 고정하고 메타데이터 표기를 강제(퍼징 수확 채널 계수)해 은폐-실패(green 은폐 교훈)를 차단.
+5. **AS-IS 이원 cap(200/1000)**: 강등 탐색 cap을 200으로 통일하는 것은 Hand 표면(AS-IS 1000)과 미세 불일치 — 통과 조합 존재 여부 판정이 목적이라 실차이는 조합수>200인 경계 사례뿐. 기존 RD-R4P4-02 채택값과의 일관성을 우선(원장에 주석으로 등재).
+
+---
+
+# 5부. B4 실행 기록 (2026-07-18) — 퍼징 수확 계층(D6) + 대량 캠페인
+
+## §B4.1 수확 계층 구현 (전부 도구층 — 엔진 `src/HeadlessDCGO.Engine` 무접촉)
+
+| 파일 | 구현 | 라인 |
+|---|---|---|
+| `tools/RlBridgeHost/SeatMatchHost.cs` | `strictUnbound` ctor 옵션(reset의 `EngineContext.CreateDefault`에 전달 — D6 "strict+validated 프로파일 고정") | :27, :60-66, :223 |
+| 〃 | 예외 포렌식: HandleLineAsync catch에서 `{type, message, rootType, rootMessage, stack(6000자 절단), atStep}` 포착 → **aborted result에 `exception` 필드 동봉**(result JSONL로 영속). additive 필드 — 프로토콜 v1 계약 무변(M4-001 9/9 유지) | :31, :89-113, :458-462 |
+| `tools/RlBridgeHost/Program.cs` | `--strict` CLI 플래그 | :9, :17-19, :34-38 |
+| `tools/RlVectorHost/Program.cs` | **캠페인 모드**(`--campaign <decks dir>`): 전 순서쌍 조합 스케줄러+공유 seed 큐, 자식 호스트 `--strict` 고정, 게임별 결과 JSONL·수확 원장·커버리지 summary | :24-38, :62-93, :215-331 |
+| 〃 | 워커 루프: 결함 게임은 해당 판만 폐기·자식 프로세스 재활용 — **파이프라인 무중단**(D6 "학습-크래시가 아니라 수확물") | :334-391 |
+| 〃 | 게임 드라이브+궤적 다이제스트: 스텝별 관측 3,088 원문 바이트(스캔 중 폴드)+합법 인덱스 집합+선택 액션, 종결 사유/승자/스텝/턴 — matchId 제외(세션 카운터라 재실행 시 상이) | :404-465, :527-560 |
+| 〃 | 행온 워치독(신호 ③ 보강): 스텝 무응답 타임아웃(기본 300s) → TimeoutException → kind=hang 수확+자식 kill/재기동 | :468-489 |
+| 〃 | 수확 분류 `ClassifyOutcome`: aborted+NotSupportedException→**stop**(`design item RDx-NN` 태그 정규식 추출) / aborted 기타→**throw** / stalled·no_mappable_action→**deadlock** / step_cap / drift / hang·driver. 결함 레코드=kind·designItem·seed·덱쌍·스텝·exception(스택)·직전 액션열(24개 링버퍼)·재현 커맨드 | :619-870(CampaignState) |
+| 〃 | 결정론 표본 재검(신호 ④): 캠페인 후 완주판 무작위 표본을 동일 seed 재실행(신선한 매치·동일 결정론 정책), 다이제스트 대조 — 불일치=**drift** 수확 | :270-297, :699-745 |
+
+신호 4종 ↔ D6 표 매핑: ①throw=예외 포렌식 채널, ②STOP=NotSupportedException 분류+태그, ③교착=호스트 reason 3종+행온 워치독, ④드리프트=표본 seed-replay 다이제스트(전판 2회 실행은 설계대로 스킵).
+
+## §B4.2 수확 채널 실증 (사전 프로브 — 캠페인 착수 전 end-to-end 검증)
+클린 풀에는 기지 결함이 없으므로(AD1_025는 B3에서 이미 제외) 채널 자체를 검증하기 위해 **AD1_025 주입 임시 덱**(비산출물, /tmp)으로 16판 구동:
+- **STOP 2건 정상 수확** — `NotSupportedException: "STOP: Assembly pre-play material selection … design item RD-P6C1-5"` → kind=stop, designItem=**RD-P6C1-5** 자동 추출, seed(777010/777011)·덱쌍·발생 스텝(9/28)·스택·직전 액션열 완비.
+- 파이프라인 무중단(16/16 완주, 결함판은 aborted·보상 0), 표본 재검 4/4 일치. — B3의 AD1_025 실측 수확과 동일 결론을 수확 계층이 자동 재현.
+
+## §B4.3 캠페인 결과 (게이트 판정)
+조건: 9 레시피(모노 4 + coverage 5, `rl/decks/`) **전 순서쌍 81조합 × 124판 = 10,044판**(좌석 1=선공이라 (A,B)≠(B,A)), seed=100000+게임번호(전판 고유), maxSteps 1000, **strict 프로파일**, 8워커(procs 모드 — 크래시 격리), 마스크-랜덤 셀프플레이. 산출물: `runs/b4-campaign/{campaign.log, results.jsonl, summary.json}`.
+
+| 게이트 | 판정 | 실측 |
+|---|---|---|
+| ≥10⁴판 완주·파이프라인 무중단 | **PASS** | **10,044/10,044판**(중단 0·infra failure 0·워커 이탈 0), 469,100 스텝, wall 7,244s(2.01h), **64.8 steps/sec**(≈1.39판/sec) |
+| 커버리지 리포트 | **PASS** | 덱쌍별 판수 81쌍 **전부 124판 균일**, 덱별 노출 9종 전부 2,232판 균일(클린 179장 전 카드가 최소 1덱 소속 — §B3.2 커버리지 승계). summary.json에 쌍별 종결 사유 분포 전량 |
+| 수확 원장 회부 ≥1회전 | **PASS** | 본 절(§B4.5) — 캠페인 결함 0 + 채널 실증 1회전(§B4.2) |
+
+- **종결 사유 분포: 자연 종결 10,044/10,044 (100%)** — "Player 2 is marked as lose." 5,135(=선공 승 51.1%) / "Player 1 is marked as lose." 4,909(48.9%). step_cap 0·stalled 0·no_mappable_action 0·aborted 0·hang 0·driver 0.
+- 판당 분포: 스텝 med **45**(q1 38 / q3 54 / min 18 / max 127), 턴 med **20**(q1 17 / q3 25 / min 7 / max 57) — maxSteps 1000 대비 최장판 127로 절단 위험 0 실증.
+- 처리량 64.8 steps/sec는 §7.4 랜덤-롤아웃 플래토(~51)를 상회 — 판당 스텝이 짧은(45 vs 70) 레시피 믹스 + reset 비중 차이.
+
+## §B4.4 결정론 표본 재검 (신호 ④)
+- 완주 10,044판 중 무작위 **표본 100판**을 동일 seed로 재실행(신선한 매치, 동일 결정론 정책): **100/100 다이제스트 bit-identical**, 재검 중 fault 0.
+- 다이제스트 재료 = 매 스텝 관측 3,088 벡터 원문 + 합법 액션 인덱스 집합 + 선택 액션 + 종결 사유/승자/스텝/턴(RLB1-01의 Guid-free 원칙 승계 — RD-RLENV-04 비저촉; matchId 제외). seat-표면 전 궤적 기준으로 seed-결정론 재확증.
+
+## §B4.5 수확물 원장 회부 (분류: 엔진 결함 후보 / 기존 design item 격발 / 레시피 문제)
+1. **엔진 결함 후보: 0건** — uncaught throw 0, 신규 STOP 0, 교착 0, 드리프트 0. 최소 재현 witness 스케치 대상 없음.
+2. **기존 design item 격발: 캠페인 내 0건.** 채널 실증 프로브(§B4.2)에서 **RD-P6C1-5**(AD1_025, Assembly pre-play) 1종 격발 — 기지 STOP이며 클린 179 풀 제외의 정당성 재확인(신규 등재 없음).
+3. **레시피 문제: 0건** — bad_deck 거부 0, 셋업 실패 0(9종 레시피 전부 50+4/5·per-card ≤4 준수 유지).
+4. **EX8_051 `<Fragment <3>>` stalled(§B5.3 예상) 미수확** — coverage_rest_4 포함 2,232판 전부 자연 종결·stalled 0. **판정: 랜덤 정책이 발화 경로 미도달**(2/50 매수 카드로 진화원 ≥3 스택을 쌓고 삭제-회피 창까지 여는 복합 사건이 med 20턴·45스텝 게임에서 미발생; 발화했다면 min=max=3 배치 요청→디스패처 액션 0→stalled로 반드시 수확됐을 것이므로 "발화했으나 은폐"는 배제). 수확 부재≠부재 증명 — **B5 W8 픽스처가 지정 witness**(설계 유지, 시급도 변동 없음).
+
+## §B4.6 남는 리스크 (원장)
+1. **랜덤 정책의 도달 심도 한계** — med 20턴·45스텝의 얕은 상태공간만 커버(랜덤 셀프플레이는 직접공격 수렴 편향). 다단 진화 스택·대형 콤보·조인트-검증기 경로(EX8_051 포함)는 미노출. 보강 경로: 학습 정책 셀프플레이 캠페인(수확 계층은 정책 무관 — RlBridgeHost 뒤에 그대로 적용 가능) + B5 W8류 표적 픽스처.
+2. **다이제스트 커버리지** — seat-표면 재료(관측+합법표+종결)라 관측에 비치지 않는 내부 은닉 상태의 드리프트는 미검출. RLB1-01(in-process, 턴/페이즈/메모리/존카운트)이 보완층; 전-상태 다이제스트는 RD-RLENV-04(Guid id 채번) 상환이 선행 조건.
+3. **strict 프로파일 캠페인 전판 무발화** — 클린 179 풀에서 unbound 효과 0을 10⁴판 규모로 실증. 단 풀 확대 시 재발화가 예상 경로이므로 캠페인 러너의 strict 고정은 상시 유지.
+4. **step_cap=1000 절단** — 이번 실측 최장 127스텝으로 무해 확인. 풀/정책 변경 시 cap 재평가(cap 도달은 수확 채널이 계수).
