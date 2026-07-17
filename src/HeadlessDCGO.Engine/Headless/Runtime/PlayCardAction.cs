@@ -165,9 +165,10 @@ public sealed class PlayCardAction
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
-        // F-1.7: the fixed cost for this play is now locked in — expire one-shot "until cost is calculated"
-        // modifiers (AS-IS clears Player.UntilCalculateFixedCostEffect on play).
-        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+        // F-1.7 / (R2-C): the fixed cost for this play is now locked in — expire the one-shot "until cost is
+        // calculated" modifiers ATOMICALLY across the registry AND the payer's player bucket (AS-IS CardController
+        // clears Player.UntilCalculateFixedCostEffect on play).
+        EffectDurationExpiry.ExpireFixedCostCalc(context, action.PlayerId);
         // (C1d RDW-04) enrich the entry CardMoved with the AS-IS OnEnterFieldHashtable params so the DORMANT
         // SkillWindowSupply can byte-rebuild the OnEnterFieldAnyone payload at cutover. A player-initiated HAND play
         // is a non-evolution, non-jogress entry (evoRoots/oldLevels empty, isFromDigimonDigivolutionCards false,
@@ -495,9 +496,12 @@ public sealed class PlayCardAction
             return false;
         }
 
-        // D-8: fold in continuous play-cost modifiers (effect-driven ±cost), honouring a continuous
-        // "cost cannot be reduced" replacement. Static (card/instance metadata) cost is the base.
-        playCost = ContinuousModifierGate.ResolvePlayCost(context, cardId, baseCost);
+        // (R2-C) fold the play-cost pipeline through the single AS-IS orchestrator CardSource.GetPayingCostWithBaseCost
+        // (DigiXros/Assembly, the IChangeCostEffect fold, the legacy substrate union, the 0 floor). Root.Hand — a
+        // top-level play is from hand (effect-driven plays from other zones go through PlayPermanentCards, which
+        // threads the real source root). Static (card/instance metadata) cost is the base.
+        playCost = new CardSource(context, cardId, instance.OwnerId)
+            .GetPayingCostWithBaseCost(baseCost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null);
         error = null;
         return true;
     }

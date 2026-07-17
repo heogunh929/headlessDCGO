@@ -80,6 +80,66 @@ public static class CardObjectController
 
     #endregion
 
+    #region create a new permanent
+
+    /// <summary>(R4 S3b-2①) AS-IS <c>CardObjectController.CreateNewPermanent(permanent, frameID)</c>
+    /// (CardObjectController.cs:479-510). SUBSTRATE MAPPING: the mirror <see cref="Permanent"/> is a
+    /// zone-derived VIEW, so the AS-IS two-step — <c>new Permanent(cards){IsSuspended} +
+    /// CreateNewPermanent(permanent, frameID)</c> — collapses into this one op:
+    /// <list type="bullet">
+    /// <item>AS-IS :485 RemoveFromAllArea(top) — kept 1:1;</item>
+    /// <item>AS-IS :488-491 frame-slot assignment (<c>FieldPermanents[frameID] = permanent</c>) → the
+    /// authoritative zone ENTRY (BattleArea / BreedingArea append — the established no-frame/slot
+    /// adaptation, RD-P6C1-2 family);</item>
+    /// <item>the AS-IS <c>Permanent</c>-object initializer state (<c>IsSuspended</c>) + the sink's
+    /// entered-this-turn stamp → instance metadata;</item>
+    /// <item>G6-001: AS-IS effects live statically ON the card object — the mirror's equivalent is the
+    /// ported-effect auto-registration on field entry (<see cref="CardEffectRegistrar.RegisterCard"/>,
+    /// the same call the verified play/digivolve actions make);</item>
+    /// <item>AS-IS :493-508 SetFace / FieldPermanentCard instantiation / canvas position = UI (stripped).</item>
+    /// </list>
+    /// The zone entry carries NO OnEnterField supply metadata — the AS-IS executor opens the
+    /// OnEnterFieldAnyone window INLINE (PlayPermanentClass :1694), so the SkillWindowSupply conversion
+    /// GAP-drops this move (design doc S3b-2① — the supply half stays the OLD path's seat until S3c).</summary>
+    public static async Task<Permanent> CreateNewPermanent(
+        CardSource card,
+        bool isSuspended,
+        bool isBreedingArea = false,
+        CancellationToken cancellationToken = default)
+    {
+        EngineContext context = card.Context;
+
+        await RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+
+        await context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(
+                card.Owner,
+                card.InstanceId,
+                ChoiceZone.None,
+                isBreedingArea ? ChoiceZone.BreedingArea : ChoiceZone.BattleArea),
+            cancellationToken).ConfigureAwait(false);
+
+        if (context.CardInstanceRepository.TryGetInstance(card.InstanceId, out CardInstanceRecord? record) && record is not null)
+        {
+            var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+            {
+                ["isSuspended"] = isSuspended,
+                [MatchStateMutationSink.EnteredThisTurnKey] = true,
+            };
+            context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+        }
+
+        // (R4 S3b-2② → RD-R3-02) fresh AS-IS `new Permanent(...)` semantics (a re-played card must not see
+        // the just-after bookkeeping of its previous life) are enforced by the zone-mover lifetime chokepoint
+        // at the None→field move above (InMemoryZoneMover.MoveCard) — shared by EVERY field-entry path, not
+        // just this one.
+
+        CardEffectRegistrar.RegisterCard(context, card.InstanceId, card.Owner);
+        return new Permanent(context, card.InstanceId, card.Owner);
+    }
+
+    #endregion
+
     #region remove permanent from field
 
     /// <summary>(R3-A) 1:1 of AS-IS <c>CardObjectController.RemoveField</c> (CardObjectController.cs:513-555): open
@@ -116,6 +176,10 @@ public static class CardObjectController
             await context.ZoneMover.MoveAsync(
                 new ZoneMoveRequest(permanent.OwnerId, permanent.InstanceId, from, ChoiceZone.None),
                 cancellationToken).ConfigureAwait(false);
+
+            // (R4 S3b-2② → RD-R3-02) the AS-IS Permanent object dies with the field slot — its just-after
+            // bookkeeping reset is enforced by the zone-mover lifetime chokepoint at the field→None move
+            // above (InMemoryZoneMover.MoveCard), shared by EVERY field-leave path, not just this one.
         }
     }
 
@@ -149,6 +213,30 @@ public static class CardObjectController
     #endregion
 
     #region add card to security
+
+    /// <summary>(R4 S3b-2③) 1:1 of AS-IS <c>CardObjectController.AddExecutingCard</c>
+    /// (CardObjectController.cs:957-972): skip when already executing; withdraw from everywhere; a non-token
+    /// goes face-up onto the owner's EXECUTING pile (AS-IS <c>Owner.ExecutingCards.Insert(0, …)</c> → the
+    /// substrate Execution zone; SetFace = the move's face stamp; <c>Init()</c> = the transient-view no-op,
+    /// file header). The option executor (UseOptionClass) parks the resolving option here.</summary>
+    public static async Task AddExecutingCard(CardSource cardSource, CancellationToken cancellationToken = default)
+    {
+        EngineContext context = cardSource.Context;
+
+        if (CurrentZoneOf(context, cardSource.Owner, cardSource.InstanceId) == ChoiceZone.Execution)
+        {
+            return;
+        }
+
+        await RemoveFromAllArea(cardSource, cancellationToken).ConfigureAwait(false);
+
+        if (!cardSource.IsToken)
+        {
+            await context.ZoneMover.MoveAsync(
+                new ZoneMoveRequest(cardSource.Owner, cardSource.InstanceId, ChoiceZone.None, ChoiceZone.Execution, FaceUp: true),
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>(R3-A / RD-P6C2-1) 1:1 of AS-IS <c>CardObjectController.AddSecurityCard</c>
     /// (CardObjectController.cs:976-1007): if the card is not already in security, withdraw it from all areas, then a

@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
 // G9-012 (LA-3): EX8_074's "[All Turns] (Once Per Turn) when Digimon are played, activate this Digimon's
 // [When Digivolving] effects" now fires LIVE. When ANOTHER Digimon is played, the in-play EX8_074 re-runs

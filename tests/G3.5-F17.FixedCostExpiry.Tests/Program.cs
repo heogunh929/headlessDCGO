@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
 // F-1.7: a one-shot "until cost is calculated" cost modifier (EffectDuration.UntilCalculateFixedCost)
 // applies to the next play's cost, then expires once a card is played (cost locked) — mirroring the

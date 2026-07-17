@@ -100,6 +100,11 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
     {
         features.Add(new ObservationFeature("turn.number", turn.TurnNumber));
         features.Add(new ObservationFeature("turn.phaseIndex", (int)turn.Phase));
+        // (R4 S2) The step position within a phase (former Setup/Unsuspend/MemoryPass phase splits) is now the
+        // substrate sub-cursor. The observation carries it as a scalar index + one-hot so the full turn-state is
+        // reconstructible with no information loss: every former 9-value phase state maps to a unique
+        // (turn.phase.*, turn.stepCursor.*) feature pair.
+        features.Add(new ObservationFeature("turn.stepCursorIndex", (int)turn.StepCursor));
         features.Add(new ObservationFeature("turn.isFirstTurn", Bool(turn.IsFirstTurn)));
         features.Add(new ObservationFeature("turn.playerId.known", Bool(turn.TurnPlayerId.HasValue)));
         features.Add(new ObservationFeature("turn.playerId", turn.TurnPlayerId?.Value ?? -1));
@@ -111,6 +116,13 @@ public sealed class ObservationEncoder(ObservationEncodingOptions? options = nul
             features.Add(new ObservationFeature(
                 $"turn.phase.{phase}",
                 Bool(turn.Phase == phase)));
+        }
+
+        foreach (TurnStepCursor cursor in HeadlessPhaseMapping.StepCursorOrder)
+        {
+            features.Add(new ObservationFeature(
+                $"turn.stepCursor.{cursor}",
+                Bool(turn.StepCursor == cursor)));
         }
     }
 

@@ -9,9 +9,11 @@ public static class HeadlessPhaseMapping
         {
             [Normalize("none")] = HeadlessPhase.None,
 
-            [Normalize("setup")] = HeadlessPhase.Setup,
-            [Normalize("setup phase")] = HeadlessPhase.Setup,
-            [Normalize("GameStateMachine setup")] = HeadlessPhase.Setup,
+            // (R4 S2) The pre-game setup step collapses to phase None (its step position is the
+            // TurnStepCursor.Starting sub-cursor). AS-IS has no "Setup" game phase.
+            [Normalize("setup")] = HeadlessPhase.None,
+            [Normalize("setup phase")] = HeadlessPhase.None,
+            [Normalize("GameStateMachine setup")] = HeadlessPhase.None,
 
             [Normalize("active")] = HeadlessPhase.Active,
             [Normalize("active phase")] = HeadlessPhase.Active,
@@ -20,10 +22,12 @@ public static class HeadlessPhaseMapping
             [Normalize("start turn")] = HeadlessPhase.Active,
             [Normalize("on start turn")] = HeadlessPhase.Active,
 
-            [Normalize("unsuspend")] = HeadlessPhase.Unsuspend,
-            [Normalize("unsuspend phase")] = HeadlessPhase.Unsuspend,
-            [Normalize("ActivePhase.Unsuspend")] = HeadlessPhase.Unsuspend,
-            [Normalize("IUnsuspendPermanents")] = HeadlessPhase.Unsuspend,
+            // (R4 S2) The natural-unsuspend step folds into the active phase (AS-IS phase.Active); its step
+            // position is the TurnStepCursor.Unsuspending sub-cursor.
+            [Normalize("unsuspend")] = HeadlessPhase.Active,
+            [Normalize("unsuspend phase")] = HeadlessPhase.Active,
+            [Normalize("ActivePhase.Unsuspend")] = HeadlessPhase.Active,
+            [Normalize("IUnsuspendPermanents")] = HeadlessPhase.Active,
 
             [Normalize("draw")] = HeadlessPhase.Draw,
             [Normalize("draw phase")] = HeadlessPhase.Draw,
@@ -41,13 +45,15 @@ public static class HeadlessPhaseMapping
             [Normalize("GameContext.phase.Main")] = HeadlessPhase.Main,
             [Normalize("TurnStateMachine.MainPhase")] = HeadlessPhase.Main,
 
-            [Normalize("memory pass")] = HeadlessPhase.MemoryPass,
-            [Normalize("memory pass flow")] = HeadlessPhase.MemoryPass,
-            [Normalize("pass")] = HeadlessPhase.MemoryPass,
-            [Normalize("pass turn")] = HeadlessPhase.MemoryPass,
-            [Normalize("PassTurn")] = HeadlessPhase.MemoryPass,
-            [Normalize("EndTurnProcess")] = HeadlessPhase.MemoryPass,
-            [Normalize("main memory pass")] = HeadlessPhase.MemoryPass,
+            // (R4 S2) The memory-pass step folds into the main phase (AS-IS phase.Main); its step position is the
+            // TurnStepCursor.AwaitingMemoryPassEnd sub-cursor.
+            [Normalize("memory pass")] = HeadlessPhase.Main,
+            [Normalize("memory pass flow")] = HeadlessPhase.Main,
+            [Normalize("pass")] = HeadlessPhase.Main,
+            [Normalize("pass turn")] = HeadlessPhase.Main,
+            [Normalize("PassTurn")] = HeadlessPhase.Main,
+            [Normalize("EndTurnProcess")] = HeadlessPhase.Main,
+            [Normalize("main memory pass")] = HeadlessPhase.Main,
 
             [Normalize("end")] = HeadlessPhase.End,
             [Normalize("end phase")] = HeadlessPhase.End,
@@ -59,39 +65,48 @@ public static class HeadlessPhaseMapping
         new Dictionary<HeadlessPhase, string>
         {
             [HeadlessPhase.None] = "none",
-            [HeadlessPhase.Setup] = "setup",
             [HeadlessPhase.Active] = "active",
-            [HeadlessPhase.Unsuspend] = "unsuspend",
             [HeadlessPhase.Draw] = "draw",
             [HeadlessPhase.Breeding] = "breeding",
             [HeadlessPhase.Main] = "main",
-            [HeadlessPhase.MemoryPass] = "memory_pass",
             [HeadlessPhase.End] = "end"
         };
 
-    public static IReadOnlyList<HeadlessPhase> AsIsTurnSequence { get; } = new[]
-    {
-        HeadlessPhase.Setup,
-        HeadlessPhase.Active,
-        HeadlessPhase.Unsuspend,
-        HeadlessPhase.Draw,
-        HeadlessPhase.Breeding,
-        HeadlessPhase.Main,
-        HeadlessPhase.MemoryPass,
-        HeadlessPhase.End
-    };
-
+    /// <summary>(R4 S2) The AS-IS 6-value phase order (value/order 1:1 with GameContext.phase, None first for the
+    /// mirror's default-empty convention). One-hot feature order for RL observation.</summary>
     public static IReadOnlyList<HeadlessPhase> ObservationPhaseOrder { get; } = new[]
     {
         HeadlessPhase.None,
-        HeadlessPhase.Setup,
         HeadlessPhase.Active,
-        HeadlessPhase.Unsuspend,
         HeadlessPhase.Draw,
         HeadlessPhase.Breeding,
         HeadlessPhase.Main,
-        HeadlessPhase.MemoryPass,
         HeadlessPhase.End
+    };
+
+    /// <summary>(R4 S2) The substrate step-cursor order — the RL observation feature order for the sub-cursor.</summary>
+    public static IReadOnlyList<TurnStepCursor> StepCursorOrder { get; } = new[]
+    {
+        TurnStepCursor.PhaseStart,
+        TurnStepCursor.Starting,
+        TurnStepCursor.Unsuspending,
+        TurnStepCursor.AwaitingMemoryPassEnd
+    };
+
+    /// <summary>(R4 S2) The canonical turn-flow step walk — each (phase, cursor) pair the AdvancePhase driver moves
+    /// through, in order. This replaces the former invented 9-value <c>AsIsTurnSequence</c>: the same eight distinct
+    /// turn positions, now keyed by (phase, cursor) so no state-distinction is lost. The memory-pass / end steps are
+    /// reached via <c>SetPhase</c> in live flow, but stay in the walk so <see cref="NextStep"/> is total.</summary>
+    public static IReadOnlyList<(HeadlessPhase Phase, TurnStepCursor Cursor)> TurnStepSequence { get; } = new[]
+    {
+        (HeadlessPhase.None, TurnStepCursor.Starting),               // former Setup
+        (HeadlessPhase.Active, TurnStepCursor.PhaseStart),           // former Active
+        (HeadlessPhase.Active, TurnStepCursor.Unsuspending),         // former Unsuspend
+        (HeadlessPhase.Draw, TurnStepCursor.PhaseStart),             // former Draw
+        (HeadlessPhase.Breeding, TurnStepCursor.PhaseStart),         // former Breeding
+        (HeadlessPhase.Main, TurnStepCursor.PhaseStart),             // former Main
+        (HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd),  // former MemoryPass
+        (HeadlessPhase.End, TurnStepCursor.PhaseStart)               // former End
     };
 
     public static HeadlessPhase FromAsIsName(string asIsPhase)
@@ -120,22 +135,27 @@ public static class HeadlessPhaseMapping
         return AsIsNames[phase];
     }
 
-    public static HeadlessPhase Next(HeadlessPhase phase)
+    /// <summary>(R4 S2) The next (phase, cursor) step in the turn walk. Replaces the former phase-only
+    /// <c>Next(HeadlessPhase)</c>: the AdvancePhase driver keys on the full (phase, cursor) pair so the sub-cursor
+    /// positions (Setup / Unsuspend / MemoryPass) advance correctly. Pure (None, PhaseStart) begins the setup step;
+    /// the terminal (End, PhaseStart) is a fixed point.</summary>
+    public static (HeadlessPhase Phase, TurnStepCursor Cursor) NextStep(HeadlessPhase phase, TurnStepCursor cursor)
     {
         EnsureDefined(phase);
 
-        if (phase == HeadlessPhase.None)
+        // Pure None (no cursor) begins the pre-game setup step.
+        if (phase == HeadlessPhase.None && cursor == TurnStepCursor.PhaseStart)
         {
-            return HeadlessPhase.Setup;
+            return (HeadlessPhase.None, TurnStepCursor.Starting);
         }
 
-        int index = IndexOfAsIsPhase(phase);
-        if (index < 0 || index == AsIsTurnSequence.Count - 1)
+        int index = IndexOfStep(phase, cursor);
+        if (index < 0 || index == TurnStepSequence.Count - 1)
         {
-            return HeadlessPhase.End;
+            return (HeadlessPhase.End, TurnStepCursor.PhaseStart);
         }
 
-        return AsIsTurnSequence[index + 1];
+        return TurnStepSequence[index + 1];
     }
 
     public static bool CanAdvance(HeadlessPhase phase)
@@ -171,11 +191,11 @@ public static class HeadlessPhaseMapping
         return builder.ToString();
     }
 
-    private static int IndexOfAsIsPhase(HeadlessPhase phase)
+    private static int IndexOfStep(HeadlessPhase phase, TurnStepCursor cursor)
     {
-        for (int i = 0; i < AsIsTurnSequence.Count; i++)
+        for (int i = 0; i < TurnStepSequence.Count; i++)
         {
-            if (AsIsTurnSequence[i] == phase)
+            if (TurnStepSequence[i].Phase == phase && TurnStepSequence[i].Cursor == cursor)
             {
                 return i;
             }

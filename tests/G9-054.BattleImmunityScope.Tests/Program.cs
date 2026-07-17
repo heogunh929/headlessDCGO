@@ -121,7 +121,7 @@ async Task GainTimedGrant()
     // at P2's turn end.
     new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
         TurnNumber: 1, TurnPlayerId: P2, NonTurnPlayerId: P1,
-        Phase: HeadlessPhase.End, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
+        Phase: HeadlessPhase.End, StepCursor: TurnStepCursor.PhaseStart, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
     AssertTrue(!BattleDeletionGate.PreventsBattleDeletion(ctx, target), "immunity expired at the opponent's turn end");
 }
 

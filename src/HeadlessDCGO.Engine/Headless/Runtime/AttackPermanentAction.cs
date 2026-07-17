@@ -228,7 +228,10 @@ public sealed class AttackPermanentAction
         // either path today. (Latent, general to the deferred effect-attack substrate, NOT Blitz-specific:
         // multiple effect-attacks co-resident in ONE window can collide with a later in-window ChooseAsync —
         // design item RD-CATK-EATTACK-MULTI; unreachable for Blitz, whose window collects one per single-card play.)
-        if (turn.Phase != HeadlessPhase.Main)
+        // (R4 S2) A manual attack is permitted only during the interactive main-play step (former Main). The
+        // memory-pass end-of-main step (former MemoryPass = (Main, AwaitingMemoryPassEnd)) also has Phase == Main,
+        // so gate on IsMainPlayPhase, not raw Phase — preserving the former "no memory-pass declarations" behaviour.
+        if (!turn.IsMainPlayPhase)
         {
             return AttackPermanentValidation.Illegal(
                 $"Attacker '{attackerId}' can only attack during the main phase.");

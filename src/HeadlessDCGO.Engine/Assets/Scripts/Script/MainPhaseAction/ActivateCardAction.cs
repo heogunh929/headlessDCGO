@@ -1,7 +1,21 @@
-// Source: Assets/Scripts/Script/MainPhaseAction/ActivateCardAction.cs
-// Decision: PORT
-// Category: AIUseful
-// Priority: HIGH
-// Migration: Port action command source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.MainPhaseAction
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/MainPhaseAction/ActivateCardAction.cs (Photon transport stripped — see
+// MainPhaseAction.cs).
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public class ActivateCardAction : MainPhaseAction
+{
+    int CardIndex;
+    int SkillIndex;
+
+    public ActivateCardAction(int cardIndex, int skillIndex)
+    {
+        CardIndex = cardIndex;
+        SkillIndex = skillIndex;
+    }
+
+    public override Task Execute(TurnStateMachine stateMachine)
+    {
+        stateMachine.SetActCardSkill(CardIndex, SkillIndex);
+        return Task.CompletedTask;
+    }
+}

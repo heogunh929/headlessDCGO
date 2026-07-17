@@ -35,7 +35,10 @@ public sealed class DigivolveAction
         {
             foreach (HeadlessEntityId targetCardId in targetCards)
             {
-                if (!TryGetEvolutionCost(context, cardId, targetCardId, out int evolutionCost, out _))
+                // (RD-R3-01) the DECLARED cost — the printed requirement table now carries the real
+                // EvolutionCondition tokens (no Any fallback), so the ignore/added-requirement paths must
+                // supply their own costs here exactly as Validate resolves them.
+                if (!TryGetDeclaredEvolutionCost(context, playerId, cardId, targetCardId, out int evolutionCost, out _))
                 {
                     continue;
                 }
@@ -60,7 +63,8 @@ public sealed class DigivolveAction
                 continue;
             }
 
-            int fusionCost = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, cardId, condition.cost));
+            // (R2-C) App-Fusion is a play-cost (from hand) fold through the single AS-IS orchestrator.
+            int fusionCost = Math.Max(0, view.GetPayingCostWithBaseCost(condition.cost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null));
             foreach (HeadlessEntityId hostId in zoneReader.GetCards(playerId, ChoiceZone.BattleArea))
             {
                 var host = new Assets.Scripts.Script.CardEffectCommons.Permanent(context, hostId, playerId);
@@ -164,12 +168,16 @@ public sealed class DigivolveAction
         // OnEnterFieldHashtable params for the DORMANT SkillWindowSupply. Read BEFORE the target leaves the field.
         int preDigivolveTargetLevel =
             new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.TargetCardId, action.PlayerId, action.PlayerId).Level;
+        // (RD-R3-02) both halves of the top swap carry the continuity marker: the AS-IS Permanent object
+        // PERSISTS across a digivolve, so the zone-mover lifetime chokepoint must not Reset either card's
+        // bookkeeping — AttachTargetAsSource ReKeys it below.
         ZoneMoveResult targetRemoval = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
                 payload.TargetCardId,
                 targetZone,
-                ChoiceZone.None),
+                ChoiceZone.None,
+                Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
         // (C1d RDW-04) enrich the digivolve entry with the AS-IS OnEnterFieldHashtable params (isEvolution=true;
         // evoRoots == evoRootTops == the pre-digivolve top = the target; oldLevels = [pre-digivolve level]; root
@@ -184,6 +192,8 @@ public sealed class DigivolveAction
             [SkillWindowSupply.OnEnterFieldEvoRootIdsKey] = new[] { payload.TargetCardId.Value },
             [SkillWindowSupply.OnEnterFieldOldLevelsKey] = new[] { preDigivolveTargetLevel },
             [SkillWindowSupply.OnEnterFieldIsFromDigimonDigivolutionCardsKey] = false,
+            // (RD-R3-02) the entering half of the top swap — see the targetRemoval marker above.
+            [Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey] = true,
         };
         ZoneMoveResult cardMovement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
@@ -207,7 +217,7 @@ public sealed class DigivolveAction
             int beforePayResolved = await ActivatedEffectResolver
                 .ResolveAsync(context, payload.CardId, action.PlayerId, EffectTiming.BeforePayCost, cancellationToken)
                 .ConfigureAwait(false);
-            if (beforePayResolved > 0 && TryGetEvolutionCost(context, payload.CardId, payload.TargetCardId, out int reResolvedCost, out _))
+            if (beforePayResolved > 0 && TryGetDeclaredEvolutionCost(context, action.PlayerId, payload.CardId, payload.TargetCardId, out int reResolvedCost, out _))
             {
                 memoryCost = reResolvedCost;
             }
@@ -223,8 +233,9 @@ public sealed class DigivolveAction
 
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
-        // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
-        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+        // F-1.7 / (R2-C): fixed cost locked — expire one-shot "until cost is calculated" modifiers atomically
+        // (registry + payer player bucket).
+        EffectDurationExpiry.ExpireFixedCostCalc(context, action.PlayerId);
         IReadOnlyList<HeadlessEntityId> sourceIds = AttachTargetAsSource(
             context.CardInstanceRepository,
             payload.CardId,
@@ -352,7 +363,8 @@ public sealed class DigivolveAction
             return DigivolveValidation.Illegal("App-Fusion link material does not match.");
         }
 
-        int expected = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, payload.CardId, condition.cost));
+        int expected = Math.Max(0, new Assets.Scripts.Script.CardEffectCommons.CardSource(context, payload.CardId, playerId, playerId)
+            .GetPayingCostWithBaseCost(condition.cost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null));
         if (payload.MemoryCost != expected)
         {
             return DigivolveValidation.Illegal($"App-Fusion cost {payload.MemoryCost} does not match {expected}.");
@@ -445,17 +457,19 @@ public sealed class DigivolveAction
         CardRecord evolvingCard = context.CardRepository.GetCard(card.DefinitionId);
         CardRecord targetCard = context.CardRepository.GetCard(target.DefinitionId);
 
-        if (!TryGetEvolutionCost(context, payload.CardId, payload.TargetCardId, out int repositoryCost, out string? costError))
+        // (RD-R3-01) the declared cost resolves the printed requirement table (the real EvolutionCondition
+        // tokens), the AS-IS EvoCosts ignore gates and the FR2/M-3 added-path override in ONE seat, shared
+        // with GetLegalActions — the table and the validator can no longer disagree on the cost. A declared
+        // cost that is unresolvable BECAUSE no printed path matches the target IS the failed evolution
+        // condition (AS-IS: an empty CostList == CanEvolve false), so keep the established condition wording.
+        if (!TryGetDeclaredEvolutionCost(context, playerId, payload.CardId, payload.TargetCardId, out int repositoryCost, out string? costError))
         {
-            return DigivolveValidation.Illegal(costError ?? "Card evolution cost was not found.", card.DefinitionId, target.DefinitionId);
-        }
-
-        // (FR2/M-3) When the printed condition fails and the digivolve uses an ADDED requirement, that added
-        // path's OWN cost applies (AS-IS costEquation() ?? digivolutionCost) instead of the printed cost.
-        if (!MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
-            && TryGetAddedDigivolutionCost(context, payload.CardId, playerId, targetCard, payload.TargetCardId, target.OwnerId, out int addedPathCost))
-        {
-            repositoryCost = addedPathCost;
+            return MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard)
+                ? DigivolveValidation.Illegal(costError ?? "Card evolution cost was not found.", card.DefinitionId, target.DefinitionId)
+                : DigivolveValidation.Illegal(
+                    $"Target card '{target.DefinitionId}' does not satisfy evolution condition '{evolvingCard.EvolutionCondition}'.",
+                    card.DefinitionId,
+                    target.DefinitionId);
         }
 
         if (payload.MemoryCost != repositoryCost)
@@ -578,12 +592,97 @@ public sealed class DigivolveAction
             return false;
         }
 
-        // D-8: fold in continuous digivolution-cost modifiers (effect-driven ±cost), honouring a
-        // continuous "cost cannot be reduced" replacement. Static cost is the base. (BT1_109) pass the
-        // digivolving-FROM target permanent so a two-sided player-scope cost predicate can gate on it.
-        evolutionCost = ContinuousModifierGate.ResolveDigivolutionCost(context, cardId, baseCost, digivolveTargetPermanentId: targetCardId);
+        // (R2-C) fold the digivolution-cost pipeline through the single AS-IS orchestrator. A non-null target
+        // permanent (the AS-IS "digivolving FROM" permanent, targetCardId) selects the digivolution branch
+        // (digivolution-metric legacy fold + the moving card's own dispatch-first cost gate) and threads through
+        // to the IChangeCostEffect scan (BT1_109's two-sided predicate). Root = the moving card's source zone.
+        var evoTargetPermanents = new List<Assets.Scripts.Script.CardEffectCommons.Permanent>
+        {
+            new Assets.Scripts.Script.CardEffectCommons.Permanent(context, targetCardId, instance.OwnerId),
+        };
+        evolutionCost = new Assets.Scripts.Script.CardEffectCommons.CardSource(context, cardId, instance.OwnerId)
+            .GetPayingCostWithBaseCost(baseCost, MovingCardRoot(context, instance.OwnerId, cardId), evoTargetPermanents);
         error = null;
         return true;
+    }
+
+    /// <summary>(RD-R3-01) The DECLARED digivolution cost — the single seat behind both the legal-action
+    /// table (<see cref="GetLegalActions"/>) and <c>Validate</c>. Resolution order mirrors the AS-IS printed
+    /// cost engine (CardSource.EvoCosts :587-609 / PayingCost costList.Min()):
+    /// ① the printed requirement table (the real EvolutionCondition tokens since RD-R3-01 — no Any fallback),
+    ///   Min over the matching paths;
+    /// ② when no printed path matches, the AS-IS ignore gates re-open the printed costs — a full
+    ///   ignore-requirement grant waives colour+level (IgnoreRequirement.All), a colour-ignore grant waives
+    ///   the colour half only — both negated while a CannotIgnoreDigivolutionCondition effect is live;
+    /// ③ (FR2/M-3) when the printed condition fails and an ADDED requirement path matches, that path's OWN
+    ///   cost overrides (AS-IS costEquation() ?? digivolutionCost).</summary>
+    internal static bool TryGetDeclaredEvolutionCost(
+        EngineContext context,
+        HeadlessPlayerId playerId,
+        HeadlessEntityId cardId,
+        HeadlessEntityId targetCardId,
+        out int cost,
+        out string? error)
+    {
+        bool resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error);
+
+        if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) || instance is null ||
+            !context.CardInstanceRepository.TryGetInstance(targetCardId, out CardInstanceRecord? targetInstance) || targetInstance is null ||
+            !context.CardRepository.TryGetCard(instance.DefinitionId, out CardRecord? evolvingCard) || evolvingCard is null ||
+            !context.CardRepository.TryGetCard(targetInstance.DefinitionId, out CardRecord? targetCard) || targetCard is null)
+        {
+            return resolved;
+        }
+
+        bool printedMatches = MatchesEvolutionCondition(evolvingCard.EvolutionCondition, targetCard);
+        if (resolved && printedMatches)
+        {
+            return true;
+        }
+
+        // ② the ignore gates (AS-IS EvoCosts :592-607, negation-gated by Player.CanIgnoreDigivolutionRequirement).
+        if (!resolved && !IsDigivolveIgnoreBlocked(context, cardId, playerId, targetCardId, targetInstance.OwnerId))
+        {
+            if (CanIgnoreDigivolutionRequirement(context, playerId, cardId))
+            {
+                resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error, ignoreLevel: true, ignoreColor: true);
+            }
+
+            if (!resolved && CanIgnoreColorRequirement(context, playerId, cardId))
+            {
+                resolved = TryGetEvolutionCost(context, cardId, targetCardId, out cost, out error, ignoreColor: true);
+            }
+        }
+
+        // ③ (FR2/M-3) the added-path cost override when the printed condition fails.
+        if (!printedMatches
+            && TryGetAddedDigivolutionCost(context, cardId, playerId, targetCard, targetCardId, targetInstance.OwnerId, out int addedPathCost))
+        {
+            cost = addedPathCost;
+            error = null;
+            resolved = true;
+        }
+
+        return resolved;
+    }
+
+    /// <summary>(R2-C) The AS-IS play/digivolve <c>Root</c> for the moving card = its current source zone (Hand,
+    /// Trash, DigivolutionCards for a re-digivolve of a source, …). Threaded into the cost pipeline for the
+    /// root-conditioned <see cref="Assets.Scripts.Script.CardEffectInterfaces"/> cost effects.</summary>
+    private static Assets.Scripts.Script.SelectCardEffect.Root MovingCardRoot(EngineContext context, HeadlessPlayerId owner, HeadlessEntityId cardId)
+    {
+        if (context.ZoneMover is IZoneStateReader zones)
+        {
+            foreach (KeyValuePair<ChoiceZone, IReadOnlyList<HeadlessEntityId>> pair in zones.Snapshot(owner))
+            {
+                if (pair.Value.Contains(cardId))
+                {
+                    return Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.RootFromZone(pair.Key);
+                }
+            }
+        }
+
+        return Assets.Scripts.Script.SelectCardEffect.Root.Hand;
     }
 
     /// <summary>(F-5.3) Whether a continuous "ignore digivolution requirement" effect applies for the
@@ -1006,6 +1105,9 @@ public sealed class DigivolveAction
             ["enteredThisTurn"] = inheritedEnteredThisTurn
         };
         repository.Upsert(card with { Metadata = metadata });
+        // (R4 S3b-2②) the AS-IS Permanent OBJECT persists across the top swap — carry its just-after
+        // bookkeeping (PlayingEffect / LevelJustAfterPlayed / …) to the new top key.
+        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, targetCardId, cardId);
         return sourceIds;
     }
 

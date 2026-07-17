@@ -209,7 +209,7 @@ EngineContext Ctx()
 void ExpireOpponentTurnEnd(EngineContext ctx) =>
     new HeadlessEndTurnCleanupFlow().Cleanup(ctx, new HeadlessTurnState(
         TurnNumber: 2, TurnPlayerId: P2, NonTurnPlayerId: P1,
-        Phase: HeadlessPhase.End, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
+        Phase: HeadlessPhase.End, StepCursor: TurnStepCursor.PhaseStart, IsFirstTurn: false, PlayerOrder: new[] { P1, P2 }));
 
 async Task<HeadlessEntityId> Put(EngineContext ctx, HeadlessPlayerId owner, string tag, ChoiceZone zone,
     string cardType = "Digimon", int dp = 5000, int level = 4, int? playCost = null, string? name = null,

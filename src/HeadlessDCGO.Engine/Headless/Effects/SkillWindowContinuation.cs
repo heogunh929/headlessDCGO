@@ -184,7 +184,7 @@ public sealed class AgentSkillWindowChoicePort : ISkillWindowChoicePort
         _continuation = continuation ?? throw new ArgumentNullException(nameof(continuation));
     }
 
-    public Task<int?> ChooseOrderAsync(
+    public async Task<int?> ChooseOrderAsync(
         IReadOnlyList<Cec.SkillInfo> active,
         HeadlessPlayerId controller,
         bool canDecline,
@@ -196,7 +196,7 @@ public sealed class AgentSkillWindowChoicePort : ISkillWindowChoicePort
         {
             if (recorded.Declined)
             {
-                return Task.FromResult<int?>(null);
+                return null;
             }
 
             // Replay by (source card InstanceId, ordinal) — the pick's choice point may have shrunk, so a
@@ -216,11 +216,11 @@ public sealed class AgentSkillWindowChoicePort : ISkillWindowChoicePort
 
                 if (source.InstanceId.Equals(recorded.CardInstanceId) && ordinal == recorded.Ordinal)
                 {
-                    return Task.FromResult<int?>(i);
+                    return i;
                 }
             }
 
-            return Task.FromResult<int?>(null);
+            return null;
         }
 
         var counts = new Dictionary<string, int>();
@@ -249,6 +249,33 @@ public sealed class AgentSkillWindowChoicePort : ISkillWindowChoicePort
             canSkip: canDecline,
             ChoiceZone.Custom,
             candidates.ToArray());
+
+        // (R4 S3a, decision 3 = B) AWAIT-mode: on the pump stack the order pick parks the pump IN PLACE (the
+        // AS-IS in-coroutine OpenSelectCardPanel wait). The window's C# stack survives, so NO answer is
+        // recorded on the continuation and NO resume/re-entry happens — the deposited pick maps straight back
+        // to the offered index (each candidate id is "cardInstanceId#ordinal", generated above in order).
+        if (Runtime.TurnFlowPumpHost.FindExecuting() is { } pumpHost)
+        {
+            _choiceController.RequestChoice(request, new HeadlessEntityId(key.Offered));
+            pumpHost.MarkPumpChoice();
+            await pumpHost.Gate.WaitUntilAsync(() => pumpHost.HasDepositedAnswer).ConfigureAwait(false);
+            Choices.ChoiceResult deposited = pumpHost.TakeDepositedAnswer();
+            if (deposited.IsSkipped || deposited.SelectedIds.Count == 0)
+            {
+                return null;
+            }
+
+            string picked = deposited.SelectedIds[0].Value;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidates[i].Id.Value == picked)
+                {
+                    return i;
+                }
+            }
+
+            return null;
+        }
 
         _choiceController.RequestChoice(request, new HeadlessEntityId(key.Offered));
         _continuation.ExternallySuspended = true;

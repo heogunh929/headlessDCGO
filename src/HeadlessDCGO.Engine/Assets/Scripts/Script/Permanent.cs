@@ -2881,6 +2881,27 @@ public sealed class Permanent
         _context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? e) && e is not null
         && e.Metadata.TryGetValue(Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey, out object? raw) && raw is true;
 
+    /// <summary>(R4 S3b-2①) AS-IS <c>Permanent.EnterFieldTurnCount</c> (a plain mutable int the executor writes:
+    /// PlayPermanentClass :1387 <c>= TurnCount</c> on play, :1500 <c>= -1</c> on jogress) — the mirror WRITE
+    /// surface over the established <c>enteredThisTurn</c> boolean carrier: <c>value == current turn</c> ⇒ true
+    /// (summoning-sick), anything else (the jogress −1) ⇒ false. The getter re-derives the AS-IS comparison shape
+    /// (this-turn ⇒ the current turn number, else −1 — sufficient for every AS-IS <c>== TurnCount</c> read).</summary>
+    public int EnterFieldTurnCount
+    {
+        get => EnteredThisTurn ? _context.TurnController.Current.TurnNumber : -1;
+        set
+        {
+            if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record) && record is not null)
+            {
+                var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                {
+                    [Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey] = value == _context.TurnController.Current.TurnNumber,
+                };
+                _context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+            }
+        }
+    }
+
     #region Whether this permanent can unsuspend
     /// <summary>(R1-d) AS-IS <c>Permanent.CanUnsuspend</c> (Permanent.cs:1962-2006): TRUE unless a usable
     /// <c>ICanNotUnsuspendEffect</c> (over every player's field permanents and the player) forbids it.</summary>
@@ -3793,6 +3814,131 @@ public sealed class Permanent
             gameEventQueue: _context.GameEventQueue,
             cancellationToken: cancellationToken,
             context: _context).ConfigureAwait(false);
+    }
+
+    /// <summary>(R4 S3b-2) AS-IS <c>Permanent.StackCards</c> (Permanent.cs:884) — verbatim: every stacked card
+    /// EXCEPT the link cards (top + digivolution sources).</summary>
+    public List<CardSource> StackCards => cardSources.Filter(cardSource => !LinkedCards.Contains(cardSource));
+
+    // ==== (R4 S3b-2②) AS-IS "just-after" bookkeeping fields (Permanent.cs:3686-3941) — carried by the
+    // match-scoped PermanentBookkeepingStore (the mirror Permanent is a per-access view; see the store header
+    // for the CREATE/PERSIST/DIE lifetime mapping). Names, defaults and mutability verbatim.
+
+    /// <summary>AS-IS <c>Permanent.PlayingEffect</c> (:3686) — the effect that PLAYED this permanent (null for
+    /// a normal main-phase play).</summary>
+    public ICardEffect? PlayingEffect
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayingEffect = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.DigivolvingEffect</c> (:3690) — the effect that DIGIVOLVED this permanent
+    /// (null for a normal digivolve; read by <c>CardEffectCommons.IsDigivolvedByTheEffect</c>).</summary>
+    public ICardEffect? DigivolvingEffect
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.LevelJustAfterPlayed</c> (:3890, −1 = never played).</summary>
+    public int LevelJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).LevelJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.PlayCostJustAfterPlayed</c> (:3894, −1 = never played / no play cost).</summary>
+    public int PlayCostJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlayCostJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.CardNamesJustAfterPlayed</c> (:3898).</summary>
+    public List<string> CardNamesJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.CardNamesJustAfterDigivolved</c> (:3902).</summary>
+    public List<string> CardNamesJustAfterDigivolved
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).CardNamesJustAfterDigivolved = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.TraitsJustAfterPlayed</c> (:3906).</summary>
+    public List<string> TraitsJustAfterPlayed
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).TraitsJustAfterPlayed = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.IsBurstDigivolved</c> (:3938).</summary>
+    public bool IsBurstDigivolved
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsBurstDigivolved = value;
+    }
+
+    /// <summary>AS-IS <c>Permanent.IsAppFusion</c> (Permanent.cs, sibling of IsBurstDigivolved).</summary>
+    public bool IsAppFusion
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion = value;
+    }
+
+    /// <summary>(R4 S3b-2①) AS-IS <c>Permanent.AddCardSource(cardSource)</c> (Permanent.cs:1045-1053): the new
+    /// card becomes this permanent's stack TOP (AS-IS <c>cardSources.Insert(0, cardSource)</c>; face handling =
+    /// the zone move's face stamp). SUBSTRATE MAPPING: the mirror permanent's identity IS its top card's zone
+    /// residency, so the op is —
+    /// <list type="bullet">
+    /// <item>the old top leaves the field zone (a plain Move → None, the verified digivolve-op shape
+    /// (DigivolveAction targetRemoval): NOT a leave-field kind, no windows fire);</item>
+    /// <item>the new card enters the SAME zone under the same controller (no OnEnterField supply metadata —
+    /// the AS-IS executor opens the window inline, design doc S3b-2① option B);</item>
+    /// <item>the stack threads via the verified <see cref="Headless.Runtime.DigivolveAction.AttachTargetAsSource"/>
+    /// (sourceIds + the N-1 entered-this-turn inheritance);</item>
+    /// <item>G6-001: the new top auto-registers its ported effects (the old top's registration stays — its
+    /// inherited half folds into the new top, per the digivolve action's model).</item>
+    /// </list>
+    /// RETURNS the refreshed view: the mirror view keys on the top instance, so the AS-IS in-place mutation is
+    /// expressed as view replacement — callers rebind (<c>permanent = await permanent.AddCardSource(card)</c>).
+    /// ADAPTATION (view semantics), documented in the executor port.</summary>
+    public async Task<Permanent> AddCardSource(CardSource cardSource, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cardSource);
+
+        HeadlessEntityId oldTopId = InstanceId;
+        HeadlessPlayerId controller = OwnerId;
+        Headless.Choices.ChoiceZone fieldZone = CurrentZoneOf(controller, oldTopId);
+        if (fieldZone == Headless.Choices.ChoiceZone.None)
+        {
+            fieldZone = Headless.Choices.ChoiceZone.BattleArea;
+        }
+
+        // (RD-R3-02) both halves of the top swap carry the continuity marker: the AS-IS Permanent object
+        // PERSISTS across AddCardSource, so the zone-mover lifetime chokepoint must not Reset either card's
+        // bookkeeping — AttachTargetAsSource ReKeys it below.
+        await _context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(controller, oldTopId, fieldZone, Headless.Choices.ChoiceZone.None,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+            cancellationToken).ConfigureAwait(false);
+
+        Headless.Choices.ChoiceZone cardFrom = CurrentZoneOf(cardSource.Owner, cardSource.InstanceId);
+        await _context.ZoneMover.MoveAsync(
+            new ZoneMoveRequest(controller, cardSource.InstanceId, cardFrom, fieldZone,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+            cancellationToken).ConfigureAwait(false);
+
+        Headless.Runtime.DigivolveAction.AttachTargetAsSource(
+            _context.CardInstanceRepository,
+            cardSource.InstanceId,
+            oldTopId);
+
+        CardEffectRegistrar.RegisterCard(_context, cardSource.InstanceId, controller);
+        return new Permanent(_context, cardSource.InstanceId, controller);
     }
 
     /// <summary>(MIG4) AS-IS <c>Permanent.RemoveCardSource(cardSource)</c> (Permanent.cs:1297-1302): a bare

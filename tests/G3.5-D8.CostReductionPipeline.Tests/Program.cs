@@ -1,14 +1,17 @@
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// D-8: cost reduction pipeline. Continuous ±play/digivolution cost modifiers fold into the resolved
-// cost (ContinuousModifierGate), and a continuous "cost cannot be reduced" replacement
-// (ImmuneFromCostReduction, AS-IS ICannotReduceCostEffect) blocks reductions while still allowing
-// increases — mirroring ContinuousDpGate's DP-reduction immunity.
+// D-8 / R2-C ③: cost reduction pipeline. Continuous ±play/digivolution cost modifiers fold into the resolved
+// cost (CardSource.GetPayingCostWithBaseCost), and a continuous "cost cannot be reduced" restriction
+// (AS-IS ICannotReduceCostEffect / CannotReduceCostClass, consulted by the live Player.CanReduceCost scan)
+// blocks reductions while still allowing increases. R2-C ③ retired the parallel registry-key immunity; the
+// immunity is now the kind-class placed on a field permanent (as a real card grants it).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -97,6 +100,9 @@ void PlayerScopeCostReduction()
 EngineContext Board()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 8);
+    // (R2-C ③) a live match past None/Setup so the CannotReduceCost kind-class scan (CanUse -> DoneStartGame) runs.
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(Card, new HeadlessEntityId("C1"), P1));
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(new HeadlessEntityId("p2:hand:O1"), new HeadlessEntityId("O1"), P2));
     return context;
@@ -108,13 +114,20 @@ void RegisterCostModifier(EngineContext context, HeadlessEntityId cardId, string
     Register(context, $"cost:{cardId.Value}:{deltaKey}:{delta}", P1, new[] { cardId }, values);
 }
 
+// (R2-C ③) Grant the AS-IS CannotReduceCostClass (Both scope) on a P1 FIELD permanent scoped to `cardId`,
+// dispatched via the TfxCannotReduceCost fixture (the live Player.CanReduceCost scan walks field permanents).
 void RegisterCostReductionImmunity(EngineContext context, HeadlessEntityId cardId)
 {
-    var values = new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [ReplacementHelpers.ImmuneFromCostReductionKey] = true,
-    };
-    Register(context, $"immune:{cardId.Value}", P1, new[] { cardId }, values);
+    TfxCannotReduceCost.PlayerCondition = _ => true;
+    TfxCannotReduceCost.CardCondition = cs => cs is not null && cs.InstanceId == cardId;
+    TfxCannotReduceCost.CostKind = CostReductionScope.Both;
+
+    var cards = (CardDatabase)context.CardRepository;
+    var def = new HeadlessEntityId("DEF:GRANT");
+    cards.Upsert(new CardRecord(def, "TfxCannotReduceCost", "GRANT", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var srcId = new HeadlessEntityId("1:battle:GRANT");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, def, P1, Metadata: new Dictionary<string, object?>()));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, srcId, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
 }
 
 void Register(EngineContext context, string effectId, HeadlessPlayerId owner, HeadlessEntityId[] targets, Dictionary<string, object?> values)

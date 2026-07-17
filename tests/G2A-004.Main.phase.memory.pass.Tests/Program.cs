@@ -91,7 +91,7 @@ async Task AdvancePhaseEntersMainWithoutMemoryPass()
     StepResult main = await ApplyAdvanceAsync(match, player);
     ActionProcessResult result = LastActionResult(main);
 
-    AssertEqual(HeadlessPhase.Main, main.Observation.Turn.Phase, "phase");
+    AssertTrue(main.Observation.Turn.IsMainPlayPhase, "phase");
     AssertEqual(0, main.Observation.Memory.Current, "memory");
     AssertEqual(true, ReadBool(result.Metadata, HeadlessActionParameterKeys.MainPhaseEntered), "main entered");
     AssertEqual(false, ReadBool(result.Metadata, HeadlessActionParameterKeys.MemoryPassTriggered), "memory pass triggered");
@@ -108,7 +108,7 @@ async Task ExplicitPassEntersMemoryPass()
     ActionProcessResult result = LastActionResult(pass);
 
     AssertTrue(result.IsSuccess, "pass result");
-    AssertEqual(HeadlessPhase.MemoryPass, pass.Observation.Turn.Phase, "phase");
+    AssertTrue(pass.Observation.Turn.IsMemoryPassPhase, "phase");
     AssertEqual(-3, pass.Observation.Memory.Current, "memory");
     AssertEqual(true, ReadBool(result.Metadata, HeadlessActionParameterKeys.MemoryPassTriggered), "memory pass triggered");
     AssertEqual("ExplicitPass", ReadString(result.Metadata, HeadlessActionParameterKeys.MemoryPassReason), "reason");
@@ -145,7 +145,7 @@ async Task PayMemoryCrossingThresholdTriggersMemoryPass()
     ActionProcessResult result = LastActionResult(pay);
 
     AssertTrue(result.IsSuccess, "pay result");
-    AssertEqual(HeadlessPhase.MemoryPass, pay.Observation.Turn.Phase, "phase");
+    AssertTrue(pay.Observation.Turn.IsMemoryPassPhase, "phase");
     AssertEqual(-1, pay.Observation.Memory.Current, "memory");
     AssertEqual(true, ReadBool(result.Metadata, HeadlessActionParameterKeys.MemoryPassTriggered), "memory pass triggered");
     AssertEqual("MemoryThreshold", ReadString(result.Metadata, HeadlessActionParameterKeys.MemoryPassReason), "reason");
@@ -162,7 +162,7 @@ async Task SetMemoryBelowThresholdTriggersMemoryPass()
     ActionProcessResult result = LastActionResult(setMemory);
 
     AssertTrue(result.IsSuccess, "set memory result");
-    AssertEqual(HeadlessPhase.MemoryPass, setMemory.Observation.Turn.Phase, "phase");
+    AssertTrue(setMemory.Observation.Turn.IsMemoryPassPhase, "phase");
     AssertEqual(-2, setMemory.Observation.Memory.Current, "memory");
     AssertEqual(true, ReadBool(result.Metadata, HeadlessActionParameterKeys.MemoryPassTriggered), "memory pass triggered");
     AssertEqual("MemoryThreshold", ReadString(result.Metadata, HeadlessActionParameterKeys.MemoryPassReason), "reason");
@@ -178,7 +178,7 @@ async Task AddMemoryPositiveStaysInMainPhase()
     ActionProcessResult result = LastActionResult(addMemory);
 
     AssertTrue(result.IsSuccess, "add memory result");
-    AssertEqual(HeadlessPhase.Main, addMemory.Observation.Turn.Phase, "phase");
+    AssertTrue(addMemory.Observation.Turn.IsMainPlayPhase, "phase");
     AssertEqual(2, addMemory.Observation.Memory.Current, "memory");
     AssertEqual(false, ReadBool(result.Metadata, HeadlessActionParameterKeys.MemoryPassTriggered), "memory pass triggered");
     AssertEqual("AddMemory", ReadString(result.Metadata, HeadlessActionParameterKeys.MemoryPassReason), "reason");
@@ -194,7 +194,7 @@ async Task PassOutsideMainPhaseIsIllegal()
 
     AssertFalse(result.IsSuccess, "pass result");
     AssertContains(result.Message, "Main phase", "illegal message");
-    AssertEqual(HeadlessPhase.Setup, step.Observation.Turn.Phase, "phase");
+    AssertTrue(step.Observation.Turn.IsSetupPhase, "phase");
     AssertEqual(0, step.Observation.Memory.Current, "memory");
 }
 
@@ -210,7 +210,7 @@ async Task NonTurnPlayerCannotPassMainPhase()
 
     AssertFalse(result.IsSuccess, "pass result");
     AssertContains(result.Message, "Only the current turn player", "illegal message");
-    AssertEqual(HeadlessPhase.Main, step.Observation.Turn.Phase, "phase");
+    AssertTrue(step.Observation.Turn.IsMainPlayPhase, "phase");
     AssertEqual(0, step.Observation.Memory.Current, "memory");
 }
 

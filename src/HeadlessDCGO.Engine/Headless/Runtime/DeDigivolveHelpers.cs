@@ -85,11 +85,16 @@ public static class DeDigivolveHelpers
         bool isToken = ReadFlag(top.Metadata, "isToken");
         repository.Upsert(top with { Metadata = topMetadata });
 
+        // (RD-R3-02) both halves of the top swap carry the continuity marker: the AS-IS Permanent object
+        // PERSISTS across the promote, so the zone-mover lifetime chokepoint must not Reset either card's
+        // bookkeeping — the ReKey below carries it to the new top.
         await zoneMover.MoveAsync(
-            new ZoneMoveRequest(top.OwnerId, cardId, ChoiceZone.BattleArea, isToken ? ChoiceZone.None : ChoiceZone.Trash),
+            new ZoneMoveRequest(top.OwnerId, cardId, ChoiceZone.BattleArea, isToken ? ChoiceZone.None : ChoiceZone.Trash,
+                Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
         await zoneMover.MoveAsync(
-            new ZoneMoveRequest(promoted.OwnerId, sources[0], ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true),
+            new ZoneMoveRequest(promoted.OwnerId, sources[0], ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true,
+                Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
             cancellationToken).ConfigureAwait(false);
 
         var metadata = new Dictionary<string, object?>(promoted.Metadata, StringComparer.Ordinal);
@@ -109,6 +114,8 @@ public static class DeDigivolveHelpers
         metadata.Remove(DeletedByBattleKey);
         metadata.Remove(DeletedByEffectKey);
         repository.Upsert(promoted with { Metadata = metadata });
+        // (R4 S3b-2②) same persistence for the just-after bookkeeping store (the AS-IS object survives).
+        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, cardId, sources[0]);
 
         if (gameEventQueue is not null)
         {
@@ -172,11 +179,15 @@ public static class DeDigivolveHelpers
             }
 
             // Trash the current top, then promote the immediate under-source to the new top.
+            // (RD-R3-02) both halves marked as top-swap continuity — the permanent persists, the ReKey
+            // below owns the bookkeeping key migration (see ArmorPurgeTopAsync).
             await zoneMover.MoveAsync(
-                new ZoneMoveRequest(top.OwnerId, currentTopId, ChoiceZone.BattleArea, ChoiceZone.Trash),
+                new ZoneMoveRequest(top.OwnerId, currentTopId, ChoiceZone.BattleArea, ChoiceZone.Trash,
+                    Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
                 cancellationToken).ConfigureAwait(false);
             await zoneMover.MoveAsync(
-                new ZoneMoveRequest(promoted.OwnerId, promotedId, ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true),
+                new ZoneMoveRequest(promoted.OwnerId, promotedId, ChoiceZone.None, ChoiceZone.BattleArea, FaceUp: true,
+                    Metadata: Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata),
                 cancellationToken).ConfigureAwait(false);
 
             var metadata = new Dictionary<string, object?>(promoted.Metadata, StringComparer.Ordinal);
@@ -195,6 +206,8 @@ public static class DeDigivolveHelpers
             metadata.Remove(DeletedByBattleKey);
             metadata.Remove(DeletedByEffectKey);
             repository.Upsert(promoted with { Metadata = metadata });
+            // (R4 S3b-2②) same persistence for the just-after bookkeeping store (the AS-IS object survives).
+            Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(repository, currentTopId, promotedId);
 
             currentTopId = promotedId;
             removed++;

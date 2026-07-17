@@ -123,7 +123,7 @@ public static partial class CardEffectCommons
                     && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
                     ? def.PlayCost ?? 0
                     : 0;
-                int cost = Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, card.InstanceId, baseCost));
+                int cost = Math.Max(0, card.GetPayingCostWithBaseCost(baseCost, root, targetPermanents: null));
                 if (!context.MemoryController.CanPay(cost))
                 {
                     continue;
@@ -436,6 +436,10 @@ public static partial class CardEffectCommons
     /// No ICanNotPutFieldEffect producer is registered anywhere in the mirror today (CanNotPutFieldClass has
     /// zero factory/card producers), so ①/③ scanning nothing is currently exact; the helper exists so the gate
     /// is structurally in place the moment the first producer card is ported.</summary>
+    // (R4 S3c-d, 은퇴 원장 항7) The former WRAPPER-SIDE scan copy is retired — the AS-IS-position member
+    // CardSource.CanEnterField (CardSource.cs, S3b) is the single owner of the ICanNotPutFieldEffect scan
+    // (all three AS-IS regions, players included — the copy's region ② gap RD-W3-2 closes with it). No
+    // ICanNotPutFieldEffect producer exists yet, so the rewire is behaviourally a no-op today.
     private static bool CanEnterFieldByEffect(CardSource cardSource, ICardEffect? cardEffect)
     {
         if (cardSource == null)
@@ -443,44 +447,7 @@ public static partial class CardEffectCommons
             return false;
         }
 
-        EngineContext context = cardSource.Context;
-
-        // Region ①: the effects of field permanents (AS-IS CanEnterField, "the effects of permanents").
-        foreach (HeadlessPlayerId playerId in context.TurnController.Current.PlayerOrder)
-        {
-            if (playerId.IsEmpty)
-            {
-                continue;
-            }
-
-            var player = new Player(context, playerId);
-            foreach (Permanent permanent in player.GetFieldPermanents())
-            {
-                foreach (ICardEffect effect in permanent.TopCard.EffectList(EffectTiming.None))
-                {
-                    if (effect is ICanNotPutFieldEffect gate && effect.CanUse(null) && gate.CanNotPutField(cardSource, cardEffect!))
-                    {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        // Region ②: the effects of players — design item RD-W3-2 (no pre-flip surface; see summary).
-
-        // Region ③: the effects of itself, only when not already part of a permanent (AS-IS guard).
-        if (cardSource.PermanentOfThisCard().TopInstanceId.IsEmpty)
-        {
-            foreach (ICardEffect effect in cardSource.EffectList(EffectTiming.None))
-            {
-                if (effect is ICanNotPutFieldEffect gate && effect.CanUse(null) && gate.CanNotPutField(cardSource, cardEffect!))
-                {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return cardSource.CanEnterField(cardEffect);
     }
 
     #endregion

@@ -1,7 +1,22 @@
-// Source: Assets/Scripts/Script/MainPhaseAction/AttackPermanentAction.cs
-// Decision: PORT
-// Category: AIUseful
-// Priority: HIGH
-// Migration: Port action command source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.MainPhaseAction
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/MainPhaseAction/AttackPermanentAction.cs (Photon transport stripped —
+// see MainPhaseAction.cs).
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public class AttackPermanentAction : MainPhaseAction
+{
+    int PermanentIndex;
+    int AttackTargetPermanentIndex;
+
+    public AttackPermanentAction(int permanentIndex, int attackTargetPermanentIndex)
+    {
+        PermanentIndex = permanentIndex;
+        AttackTargetPermanentIndex = attackTargetPermanentIndex;
+    }
+
+    public override Task Execute(TurnStateMachine stateMachine)
+    {
+        // AS-IS method-name typo ("Permaent") preserved — mechanical mirror.
+        stateMachine.SetAttackingPermaent(PermanentIndex, AttackTargetPermanentIndex);
+        return Task.CompletedTask;
+    }
+}

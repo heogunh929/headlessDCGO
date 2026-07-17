@@ -79,8 +79,9 @@ public sealed class OptionActivateAction
 
         HeadlessMemoryState paidMemory = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: payload.CardId);
-        // F-1.7: fixed cost locked — expire one-shot "until cost is calculated" modifiers.
-        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+        // F-1.7 / (R2-C): fixed cost locked — expire one-shot "until cost is calculated" modifiers atomically
+        // (registry + payer player bucket).
+        EffectDurationExpiry.ExpireFixedCostCalc(context, action.PlayerId);
         ZoneMoveResult movement = await context.ZoneMover.MoveAsync(
             new ZoneMoveRequest(
                 action.PlayerId,
@@ -316,7 +317,10 @@ public sealed class OptionActivateAction
     private static int ResolveOptionCost(EngineContext context, HeadlessEntityId cardId, CardRecord card, CardInstanceRecord? instance)
     {
         int baseCost = PlayCostHelpers.TryResolveCost(card, instance, out int resolved, out _) ? resolved : 0;
-        return ContinuousModifierGate.ResolvePlayCost(context, cardId, baseCost);
+        // (R2-C) single AS-IS orchestrator; an option is played from hand (Root.Hand).
+        HeadlessPlayerId owner = instance?.OwnerId ?? default;
+        return new CardSource(context, cardId, owner)
+            .GetPayingCostWithBaseCost(baseCost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null);
     }
 
     private static bool IsOptionLocked(CardInstanceRecord instance, CardRecord card)

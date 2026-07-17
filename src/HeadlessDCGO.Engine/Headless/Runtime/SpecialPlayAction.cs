@@ -341,7 +341,8 @@ public sealed class SpecialPlayAction
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.BeforePayCost, actor: action.PlayerId, subject: topCardId);
         HeadlessMemoryState paid = context.MemoryController.Pay(memoryCost);
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.AfterPayCost, actor: action.PlayerId, subject: topCardId);
-        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
+        // (R2-C) atomic registry + payer player-bucket expiry.
+        EffectDurationExpiry.ExpireFixedCostCalc(context, action.PlayerId);
 
         bool performed;
         if (kind == SpecialPlayKind.Burst)

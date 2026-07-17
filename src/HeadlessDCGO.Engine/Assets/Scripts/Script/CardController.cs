@@ -3009,16 +3009,20 @@ public class PlayCardClass
                             {
                                 if (!GetIgnoreRequirement(CardEffectCommons.IgnoreRequirement.Level))
                                 {
-                                    // AS-IS :813: `if (!GetIgnoreRequirement(Level) && !card.
-                                    // CanPlayCardTargetFrame(targetPermanents[0].PermanentFrame, PayCost,
-                                    // CardEffect, root: Root, fixedCost: -1)) { endPlayCard = true; playFailed
-                                    // = true; }` — needs Permanent.PermanentFrame (frame model, RD-P6C1-1) AND
-                                    // the play-cost/requirement engine (RD-P6C1-2): STOP (the short-circuit on
-                                    // GetIgnoreRequirement(Level) is preserved).
-                                    throw new NotSupportedException(
-                                        "STOP: CanPlayCardTargetFrame needs the frame model + the play-cost/" +
-                                        "requirement engine — design items RD-P6C1-1/RD-P6C1-2, " +
-                                        "docs/audit/rebuild_p6_cluster1_notes.md.");
+                                    // AS-IS :813 `!card.CanPlayCardTargetFrame(targetPermanents[0].PermanentFrame,
+                                    // PayCost, CardEffect, root: Root, fixedCost: -1)` — (R4 S3c-c) the former STOP
+                                    // is now REAL: the OCCUPIED-frame arm of CanPlayCardTargetFrame (:1116-1195)
+                                    // reduces to the frame-owner gate (:1140) + CanEvolve(framePermanent,
+                                    // checkAvailability: true) (:1160-1165; the :1144 cost check is
+                                    // empty-frame-only), and the requirement engine landed at S3b-2
+                                    // (EvoCosts/CanEvolve). Frame identity = the target permanent itself
+                                    // (RD-P6C1-1 adaptation).
+                                    if (targetPermanents[0].OwnerId != card.Owner
+                                        || !card.CanEvolve(targetPermanents[0], true))
+                                    {
+                                        endPlayCard = true;
+                                        playFailed = true;
+                                    }
                                 }
                             }
                             else if (isJogress)
@@ -3110,10 +3114,10 @@ public class PlayCardClass
 
             #endregion
 
-            // AS-IS :851 `card.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();`
-            // — adaptation (8): the mirror carrier of that per-player bucket is the
-            // EffectDuration.UntilCalculateFixedCost binding set (same clear PlayCardAction.cs:169 performs).
-            Headless.Effects.EffectDurationExpiry.ExpireFixedCostCalc(card.Context.EffectRegistry);
+            // AS-IS :851/:961 `card.Owner.UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();`
+            // — (R2-C) cleared ATOMICALLY across BOTH mirror carriers: the player bucket AND the
+            // EffectDuration.UntilCalculateFixedCost registry binding set (same atomic clear the live pay chokes perform).
+            Headless.Effects.EffectDurationExpiry.ExpireFixedCostCalc(card.Context, card.Owner);
 
             if (endPlayCard)
             {
@@ -3156,31 +3160,43 @@ public class PlayCardClass
         List<CardSource> permanentCards = playedCards_fixed.Filter(cardSource => cardSource.IsPermanent() && !isDualCardAsOption(cardSource));
         List<CardSource> optionCards = playedCards_fixed.Filter(cardSource => !cardSource.IsPermanent() || isDualCardAsOption(cardSource));
 
-        // (the split lists + burst/appFusion/breeding flags are consumed by the AS-IS hand-off behind the STOP)
-        _ = permanentCards;
-        _ = optionCards;
-        _ = burstDigivolved;
-        _ = appFusion;
-        _ = _isTapped;
-        _ = _activateETB;
-        _ = _showEffect;
+        // (R4 S3b-2) AS-IS :868-960 `#region play permanent` + `#region use option` — the final hand-off,
+        // now REAL (STOP RD-P6C1-4 resolved; the sibling classes are ported below in AS-IS file order).
+        #region play permanent
 
-        // AS-IS :868-960 `#region play permanent` + `#region use option` — the final hand-off:
-        //     PlayPermanentClass playPermanent = new PlayPermanentClass(permanentCards, _hashtable, _targetPermanent, _isTapped, Root, _activateETB);
-        //     if (isJogress) playPermanent.SetJogress(_jogressEvoRootsFrameIDs);
-        //     if (burstDigivolved) playPermanent.SetBurstDigivolved();
-        //     if (appFusion) playPermanent.SetAppFusion(_appFusionFrameIDs);
-        //     if (_isBreedingArea) playPermanent.SetIsBreedingArea();
-        //     yield return ContinuousController.instance.StartCoroutine(playPermanent.PlayPermanent());
-        //     UseOptionClass useOption = new UseOptionClass(optionCards, _hashtable, Root) { _showEffect = _showEffect };
-        //     yield return ContinuousController.instance.StartCoroutine(useOption.UseOption());
-        // — the sibling nested CardController classes `PlayPermanentClass`/`UseOptionClass` are UNPORTED
-        // (explicitly out of this port's 4-type scope; the verified headless play executors live in
-        // PlayCardAction/PlayCardsBridge but do NOT match this seam — the cost was already paid above, so
-        // re-entering the bridge would double-pay): STOP RD-P6C1-4.
-        throw new NotSupportedException(
-            "STOP: PlayCardClass.PlayCard reached the PlayPermanentClass/UseOptionClass hand-off — the sibling " +
-            "AS-IS classes are unported (design item RD-P6C1-4, docs/audit/rebuild_p6_cluster1_notes.md).");
+        PlayPermanentClass playPermanent = new PlayPermanentClass(permanentCards, _hashtable, _targetPermanent, _isTapped, Root, _activateETB);
+
+        if (isJogress)
+        {
+            playPermanent.SetJogress(_jogressEvoRootsFrameIDs);
+        }
+
+        if (burstDigivolved)
+        {
+            playPermanent.SetBurstDigivolved();
+        }
+
+        if (appFusion)
+        {
+            playPermanent.SetAppFusion(_appFusionFrameIDs);
+        }
+
+        if (_isBreedingArea)
+        {
+            playPermanent.SetIsBreedingArea();
+        }
+
+        await playPermanent.PlayPermanent().ConfigureAwait(false);
+
+        #endregion
+
+        #region use option
+
+        UseOptionClass useOption = new UseOptionClass(optionCards, _hashtable, Root) { _showEffect = _showEffect };
+
+        await useOption.UseOption().ConfigureAwait(false);
+
+        #endregion
 
         #endregion
     }
@@ -3188,6 +3204,691 @@ public class PlayCardClass
     // AS-IS :1044-1049 `IEnumerator OffMemoryPredictionLine()` — a WaitForSeconds-delayed
     // `GManager.instance.memoryObject.OffMemoryPredictionLine()` (the memory-gauge prediction overlay) = UI,
     // stripped WITH its two fire-and-forget call sites (:801/:861) (adaptation (4)).
+}
+
+/// <summary>(R4 S3b-2 — docs/audit/r4_tsm_s1_design_2026-07-16.md "S3b-2" 절) 1:1 mirror of AS-IS
+/// <c>PlayPermanentClass</c> (CardController.cs:1150-1703) — the permanent-play EXECUTOR the PlayCardClass
+/// hand-off drives (resolves STOP RD-P6C1-4). Established adaptations: coroutine → async Task; UI
+/// (brainStorm / PlayLog / Effects.Create-/DigivolveFieldPermanentCardEffect / ShowCardEffect / the
+/// transform-position "move permanents (hybrid)" region) stripped; the FRAME model (frameId / PreferredFrame /
+/// fieldCardFrames) reduces to zone placement + placeability booleans (RD-P6C1-2 family — capacity omitted);
+/// `new Permanent + CreateNewPermanent + EnterFieldTurnCount` / `AddCardSource` = the S3b-2① substrate ops
+/// (view rebind); the :1526-1529 digivolve counter+draw = the verified DigivolveCommons.OnDigivolveCompletedAsync;
+/// jogress evo-root "frame IDs" = field-permanent LIST indexes (the TurnFlowDriver currency).</summary>
+public class PlayPermanentClass
+{
+    public PlayPermanentClass(List<CardSource> cardSources, Hashtable hashtable, Permanent targetPermanent, bool isTapped, SelectCardEffect.Root root, bool ActivateETB)
+    {
+        if (cardSources != null)
+        {
+            _cardSources = cardSources.Filter(cardSource => cardSource != null).Clone();
+        }
+
+        _hashtable = hashtable;
+        _targetPermanent = targetPermanent;
+        _isTapped = isTapped;
+        _root = root;
+        _activateETB = ActivateETB;
+    }
+
+    public void SetJogress(int[] jogressEvoRootsFrameIDs)
+    {
+        if (jogressEvoRootsFrameIDs != null)
+        {
+            _jogressEvoRootsFrameIDs = jogressEvoRootsFrameIDs.CloneArray();
+        }
+    }
+
+    public void SetBurstDigivolved()
+    {
+        _burstDigivolved = true;
+    }
+
+    public void SetAppFusion(int[] appFusionFrameIDs)
+    {
+        if (appFusionFrameIDs != null)
+        {
+            _appFusionFrameIDs = appFusionFrameIDs.CloneArray();
+        }
+        _appFusion = true;
+    }
+
+    public void SetIsBreedingArea()
+    {
+        _isBreedingArea = true;
+    }
+
+    public void SetIsHatching()
+    {
+        _isHatching = true;
+    }
+
+    public void SetISPlayOption()
+    {
+        _isPlayOption = true;
+    }
+
+    List<CardSource> _cardSources = new List<CardSource>();
+    Hashtable _hashtable = null;
+    Permanent _targetPermanent = null;
+    bool _isTapped = false;
+    SelectCardEffect.Root _root = SelectCardEffect.Root.None;
+    bool _activateETB = true;
+    int[] _jogressEvoRootsFrameIDs = null;
+    int _digiXrosCount = 0;
+    int _maxDigixrosCount = 0;
+    int _assemblyCount = 0;
+    int _maxAssemblyCount = 0;
+    bool _burstDigivolved = false;
+    int[] _appFusionFrameIDs = null;
+    bool _appFusion = false;
+    bool _isBreedingArea = false;
+    bool _isHatching = false;
+    bool _isPlayOption = false;
+
+    public bool isJogress => _jogressEvoRootsFrameIDs != null && _jogressEvoRootsFrameIDs.Length == 2;
+
+    public bool isAppFusion => _appFusionFrameIDs != null && _appFusionFrameIDs.Length == 2;
+
+    public async Task PlayPermanent(CancellationToken cancellationToken = default)
+    {
+        List<OnEnterFieldHashtableParams> hashtableParams = new List<OnEnterFieldHashtableParams>();
+
+        ICardEffect CardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+
+        bool isEvolution = false;
+
+        foreach (CardSource card in _cardSources)
+        {
+            // AS-IS :1235 / :1276 brainStormObject.CloseBrainstrorm — UI (stripped).
+
+            if (_cardSources.Count > 1) //Do Digixros in this loop if playing more than 1 card as they shouldn't be paying cost and can then correctly work for each card being played
+            {
+                #region select DigiXros
+
+                if (card.HasDigiXros() && !isEvolution)
+                {
+                    GManager.instance.GetComponent<SelectDigiXrosClass>().SetExcludedCards(_cardSources);
+                    await GManager.instance.GetComponent<SelectDigiXrosClass>().Select(card);
+                }
+
+                #endregion
+
+                #region select Assembly
+
+                if (card.HasAssembly && !isEvolution)
+                {
+                    // AS-IS :1253-1259 SelectAssemblyClass.Select — the mirror SelectAssemblyClass is the STATIC
+                    // feasibility half (materials ride the parameterized play action); the component flow has no
+                    // mirror: STOP RD-P6C1-5 (same seat as the PlayCardClass single-card arm).
+                    throw new NotSupportedException(
+                        "STOP: Assembly pre-play material selection (AS-IS SelectAssemblyClass.Select) has no " +
+                        "mirror component flow — design item RD-P6C1-5, docs/audit/rebuild_p6_cluster1_notes.md.");
+                }
+
+                #endregion
+            }
+
+            if (GManager.instance.GetComponent<SelectDigiXrosClass>().playCard == card)
+            {
+                _digiXrosCount = GManager.instance.GetComponent<SelectDigiXrosClass>().selectedDigicrossCards.Count;
+                _maxDigixrosCount = Math.Max(_digiXrosCount, _maxDigixrosCount);
+            }
+
+            // AS-IS :1272-1276 SelectAssemblyClass component state read (`playCard == card` → _assemblyCount) —
+            // the mirror has no assembly component state (STOP above precedes any producer), so the count stays 0.
+            _ = _maxAssemblyCount;
+
+            bool isFromDigimonDigivolutionCards = new Player(card.Context, card.Owner).GetFieldPermanents()
+                .Some((permanent) => permanent.DigivolutionCards.Contains(card));
+
+            bool isFromSecurity = new Player(card.Context, card.Owner).SecurityCards.Contains(card);
+
+            Permanent permanent = null;
+            isEvolution = false;
+            List<CardSource> evoRoots = new List<CardSource>();
+            List<CardSource> evoRootTops = new List<CardSource>();
+            bool played = false;
+            List<int> oldLevels = new List<int>();
+
+            // AS-IS :1290-1340 frame targeting — FRAME ADAPTATION (no frame/slot model): the frameId search
+            // reduces to a PLACEABILITY decision. Breeding arm (:1295-1312): one breeding slot ⇔ the breeding
+            // area being empty; the digiegg-frame CanPlayCardTargetFrame(PayCost:false) reduces to
+            // CanEnterField (the cost check is PayCost-gated). Battle arm (:1315-1338): PreferredFrame / the
+            // first-empty-frame fallback always resolves in the frame-less model (capacity omitted,
+            // RD-P6C1-2) — the rule gate is the :1350 CanPlayAsNewPermanent below. Target arm (:1324): the
+            // evolve target IS the placement.
+            bool framePlaceable;
+            if (_targetPermanent == null)
+            {
+                if (_isBreedingArea)
+                {
+                    framePlaceable = new Player(card.Context, card.Owner).GetBreedingAreaPermanents().Count == 0
+                        && (_isHatching || card.CanEnterField(CardEffect));
+                }
+                else
+                {
+                    framePlaceable = true;
+                }
+            }
+            else
+            {
+                framePlaceable = true;
+            }
+
+            if (!isJogress)
+            {
+                if (framePlaceable)
+                {
+                    played = true;
+
+                    if (_targetPermanent != null)
+                    {
+                        isEvolution = true;
+                    }
+                    else
+                    {
+                        // AS-IS :1350 — mirror CanPlayAsNewPermanent carries no isBreedingArea parameter (its
+                        // frame-scan half is the same frame adaptation); the breeding placeability was gated above.
+                        if (!CardEffectCommons.CanPlayAsNewPermanent(card, false, CardEffect, isPlayOption: _isPlayOption))
+                        {
+                            played = false;
+                        }
+
+                        if (_isHatching)
+                            played = _isHatching;
+                    }
+
+                    if (played)
+                    {
+                        // AS-IS :1360 card.Init() — transient-view substrate no-op (CardObjectController header).
+
+                        await CardObjectController.RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+
+                        if (isEvolution)
+                        {
+                            oldLevels.Add(_targetPermanent.Level);
+
+                            // AS-IS :1369 PlayLog — stripped.
+
+                            permanent = _targetPermanent;
+                            evoRoots.Add(_targetPermanent.TopCard);
+                            evoRootTops.Add(_targetPermanent.TopCard);
+                            permanent = await permanent.AddCardSource(card, cancellationToken).ConfigureAwait(false);   // :1375 (S3b-2① view rebind)
+                        }
+                        else
+                        {
+                            // AS-IS :1378-1382 PlayLog (token vs card) — stripped.
+
+                            // AS-IS :1384-1387 `new Permanent{IsSuspended} + CreateNewPermanent(frameId)` — the
+                            // S3b-2① single substrate op; EnterFieldTurnCount write kept 1:1.
+                            permanent = await CardObjectController.CreateNewPermanent(card, isSuspended: _isTapped, isBreedingArea: _isBreedingArea, cancellationToken).ConfigureAwait(false);
+                            permanent.EnterFieldTurnCount = GManager.instance.turnStateMachine.TurnCount;
+                        }
+
+                        // AS-IS :1389-1414 DoneStartGame UI region — the HasETB probe + CreateFieldPermanentCard-
+                        // Effect / DigivolveFieldPermanentCardEffect exist only to parameterize the card-entry
+                        // ANIMATION; the rule-side window is the OnEnterFieldAnyone stack at the tail. Stripped.
+                    }
+                }
+            }
+            else
+            {
+                if (_jogressEvoRootsFrameIDs.Length == 2)
+                {
+                    played = true;
+
+                    // AS-IS :1424 card.Init() — substrate no-op.
+
+                    await CardObjectController.RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+
+                    isEvolution = true;
+
+                    List<Permanent> evoRootPermanents = new List<Permanent>();
+
+                    // AS-IS :1432-1444 fieldCardFrames[frameID].GetFramePermanent() — FRAME ADAPTATION: the
+                    // jogress evo-root "frame IDs" are field-permanent LIST indexes (the TurnFlowDriver currency).
+                    List<Permanent> ownerField = new Player(card.Context, card.Owner).GetFieldPermanents();
+                    for (int i = 0; i < _jogressEvoRootsFrameIDs.Length; i++)
+                    {
+                        int frameID = _jogressEvoRootsFrameIDs[i];
+                        Permanent evoRoot = 0 <= frameID && frameID < ownerField.Count ? ownerField[frameID] : null;
+
+                        if (evoRoot != null)
+                        {
+                            if (evoRoot.TopCard != null)
+                            {
+                                evoRootPermanents.Add(evoRoot);
+                            }
+                        }
+                    }
+
+                    // AS-IS :1446 targetFrameID = evoRootPermanents[0]'s frame — frame-less: placement is the
+                    // zone append (the first root's slot has no mirror meaning). ADAPTATION.
+
+                    foreach (Permanent evoRootPermanent in evoRootPermanents)
+                    {
+                        evoRoots.Add(evoRootPermanent.TopCard);
+                    }
+
+                    List<CardSource> newDigivolutionCards = evoRootPermanents
+                        .Map(evoRootPermanent => evoRootPermanent.StackCards)
+                        .Flat();
+
+                    List<CardSource> linkCards = evoRootPermanents
+                        .Map(evoRootPermanent => evoRootPermanent.LinkedCards)
+                        .Flat();
+
+                    foreach (Permanent evoRootPermanent in evoRootPermanents)
+                    {
+                        oldLevels.Add(evoRootPermanent.Level);
+
+                        evoRootTops.Add(evoRootPermanent.TopCard);
+                    }
+
+                    foreach (Permanent evoRootPermanent in evoRootPermanents)
+                    {
+                        await evoRootPermanent.DiscardEvoRoots(ignoreOverflow: true, putToTrash: false, cancellationToken).ConfigureAwait(false);
+
+                        await CardObjectController.RemoveField(evoRootPermanent, ignoreOverflow: true, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    foreach (CardSource linkCard in linkCards)
+                    {
+                        await CardObjectController.AddTrashCard(linkCard, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    // AS-IS :1493 PlayLog — stripped.
+
+                    // AS-IS :1495-1500 `new Permanent{IsSuspended=false} + CreateNewPermanent(targetFrameID)` +
+                    // `EnterFieldTurnCount = -1` (a jogress permanent is never summoning-sick).
+                    permanent = await CardObjectController.CreateNewPermanent(card, isSuspended: false, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    permanent.EnterFieldTurnCount = -1;
+
+                    newDigivolutionCards.Reverse();
+
+                    // AS-IS :1504 AddDigivolutionCardsTop(newDigivolutionCards, null) — the mirror op takes the
+                    // CAUSE id (null cardEffect ⇒ null cause, the AS-IS natural-jogress no-window path).
+                    await permanent.AddDigivolutionCardsTop(newDigivolutionCards, null, cancellationToken).ConfigureAwait(false);
+
+                    // AS-IS :1506-1508 CreateFieldPermanentCardEffect / ShowCardEffect ("DNA Digivolution
+                    // Cards") — UI, stripped.
+
+                    foreach (CardSource evolutionCard in permanent.DigivolutionCards)
+                    {
+                        evolutionCard.cEntity_EffectController.InitUseCountThisTurn();
+                    }
+                }
+            }
+
+            if (played)
+            {
+                if (isFromSecurity)
+                {
+                    // AS-IS :1520-1524 `new IReduceSecurity(player, ref nullSkillInfos, GetCardEffectFromHashtable)`
+                    // — mirror ctor (context, playerId, refCollector:null = the AS-IS null-ref emit-now branch, cause).
+                    await new IReduceSecurity(
+                        card.Context,
+                        card.Owner,
+                        null,
+                        CardEffectCommons.GetCardEffectFromHashtable(_hashtable)).ReduceSecurity(cancellationToken).ConfigureAwait(false);
+                }
+
+                if (isEvolution)
+                {
+                    // AS-IS :1526-1529 `DigivolveCount_ThisTurn++` + `new DrawClass(owner,1,null).Draw()` — the
+                    // verified substrate op (counter bump + the digivolve draw, same order).
+                    await Headless.Runtime.DigivolveCommons.OnDigivolveCompletedAsync(card.Context, card.Owner, cancellationToken).ConfigureAwait(false);
+
+                    if (_burstDigivolved)
+                    {
+                        if (permanent.TopCard != null)
+                        {
+                            permanent.IsBurstDigivolved = true;
+
+                            // AS-IS :1536 selectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd — the burst
+                            // component STOPs (RD-P6C1-6); unreachable: SetBurstDigivolved is only set by the
+                            // burst play path, which STOPs upstream (PlayCardClass RD-P6C1-1/6).
+                            throw new NotSupportedException(
+                                "STOP: Burst turn-end trash registration (AS-IS selectBurstDigivolutionEffect." +
+                                "AddTrashTopCardAtTurnEnd) has no mirror — design item RD-P6C1-6.");
+                        }
+                    }
+
+                    if (_appFusion)
+                    {
+                        if (permanent.TopCard != null)
+                        {
+                            permanent.IsAppFusion = true;
+                        }
+                    }
+
+                    permanent.CardNamesJustAfterDigivolved = permanent.TopCard.CardNames.ToList();
+
+                    permanent.DigivolvingEffect = CardEffect;
+                }
+                else
+                {
+                    permanent.PlayingEffect = CardEffect;
+
+                    if (permanent.TopCard.HasLevel)
+                    {
+                        permanent.LevelJustAfterPlayed = permanent.Level;
+                    }
+
+                    if (permanent.TopCard.HasPlayCost)
+                    {
+                        permanent.PlayCostJustAfterPlayed = permanent.TopCard.GetCostItself;
+                    }
+
+                    permanent.CardNamesJustAfterPlayed = permanent.TopCard.CardNames.ToList();
+
+                    permanent.TraitsJustAfterPlayed = permanent.TopCard.CardTraits.ToList();
+                }
+
+                // AS-IS :1573-1626 "move permanents (hybrid)" — pure UI canvas repositioning
+                // (transform.localPosition comparisons); no rule mutation. Stripped.
+
+                // AS-IS :1628-1631 SelectDigiXros/Assembly AddDigivolutiuonCardsByEffect / AddDigivolutiuonCards —
+                // the apply halves (:882-1018) are unported (RD-R5-04 family); their state can only be non-empty
+                // via Select (STOP above) or an AddDigivolutionCardInfos producer (none live), so the AS-IS calls
+                // are provably empty-state no-ops here. Guarded: a future producer trips the STOP, not silence.
+                if (GManager.instance.GetComponent<SelectDigiXrosClass>().playCard != null
+                    || GManager.instance.GetComponent<SelectDigiXrosClass>().addDigivolutionCardInfos.Count > 0)
+                {
+                    throw new NotSupportedException(
+                        "STOP: SelectDigiXrosClass.AddDigivolutiuonCards* (AS-IS SelectDigiXrosClass.cs:882-1018) " +
+                        "reached with live DigiXros state — the apply halves are unported (design item RD-R5-04).");
+                }
+
+                if (GManager.instance.turnStateMachine.DoneStartGame)
+                {
+                    hashtableParams.Add(
+                        new OnEnterFieldHashtableParams(
+                            permanent: permanent,
+                            evoRoots: evoRoots,
+                            evoRootTops: evoRootTops,
+                            root: _root,
+                            oldLevels: oldLevels,
+                            isFromDigimonDigivolutionCards: isFromDigimonDigivolutionCards,
+                            digiXrosCount: _digiXrosCount,
+                            assemblyCount: _assemblyCount
+                            )
+                    );
+                }
+            }
+
+            GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
+            // AS-IS :1654 SelectAssemblyClass.ResetSelectAssemblyClass — no mirror component state to reset.
+            GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
+        }
+
+        // except [On Play] effect
+        bool CardEffectCondition(ICardEffect cardEffect)
+        {
+            if (cardEffect == null)
+            {
+                return false;
+            }
+
+            if (!_activateETB)
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.IsOnPlay)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        Hashtable effectHashtable = CardEffectCommons.OnEnterFieldHashtable(
+            hashtableParams: hashtableParams,
+            isEvolution: isEvolution,
+            isJogress: isJogress,
+            digiXrosCount: _digiXrosCount,
+            assemblyCount: _assemblyCount,
+            cardEffect: CardEffect);
+
+        #region "When permanents are played" effect
+
+        // (design doc S3b-2① option B) the INLINE OnEnterFieldAnyone window — the zone entries above carried no
+        // supply metadata, so this stack is the single opener (no double-fire with SkillWindowSupply).
+        await GManager.instance.autoProcessing.StackSkillInfos(
+            hashtable: effectHashtable,
+            timing: EffectTiming.OnEnterFieldAnyone,
+            cardEffectCondition: CardEffectCondition).ConfigureAwait(false);
+
+        // (R4 S3c-c, DISPATCH-REMAP BRIDGE) AS-IS fires [When Digivolving] members THROUGH this same
+        // OnEnterFieldAnyone stack (discriminated by the CanTriggerWhenDigivolving hashtable gate) — but the
+        // ported card corpus registers those effects under the mirror's DEDICATED WhenDigivolving key (the
+        // batch-2 BT1_025/BT1_062 remap, because the OLD driver dispatches digivolves via
+        // DigivolveAction's WhenDigivolving emit). Until the corpus re-keys to the literal AS-IS timing, the
+        // executor must speak the corpus's dialect: an EVOLUTION play ALSO opens the WhenDigivolving window
+        // (same hashtable/gates — a member's own CanTrigger discriminates). The S3c-a shadow caught this:
+        // ST2_09's opponent-source trash fired on OLD and stayed silent on the pump path.
+        if (isEvolution)
+        {
+            await GManager.instance.autoProcessing.StackSkillInfos(
+                hashtable: effectHashtable,
+                timing: EffectTiming.WhenDigivolving,
+                cardEffectCondition: CardEffectCondition).ConfigureAwait(false);
+        }
+
+        #endregion
+    }
+}
+
+/// <summary>(R4 S3b-2) 1:1 mirror of AS-IS <c>UseOptionClass</c> (CardController.cs:1704-1902) — the option
+/// EXECUTOR (the PlayCardClass hand-off's second half). Established adaptations: coroutine → async Task; UI
+/// (Effects.* / brainStorm / PlayLog) stripped; ExecutingCards = the Execution-zone views (S3b-2③); the
+/// multi-resolution pick (AS-IS selectCardPanel.OpenSelectCardPanel, MaxCount 1) = a ChoiceController request
+/// via the engine-wide choice provider (pump-aware await / RunToStable throw contract).</summary>
+public class UseOptionClass
+{
+    public UseOptionClass(List<CardSource> cardSources, Hashtable hashtable, SelectCardEffect.Root root)
+    {
+        if (cardSources != null)
+        {
+            _cardSources = cardSources.Filter(cardSource => cardSource != null).Clone();
+        }
+
+        _hashtable = hashtable;
+        _root = root;
+    }
+
+    List<CardSource> _cardSources = new List<CardSource>();
+    SelectCardEffect.Root _root = SelectCardEffect.Root.None;
+    Hashtable _hashtable = null;
+    public bool _showEffect = false;
+
+    public async Task UseOption(CancellationToken cancellationToken = default)
+    {
+        ICardEffect CardEffect = CardEffectCommons.GetCardEffectFromHashtable(_hashtable);
+        _ = CardEffect;   // AS-IS reads it only via GetCardEffectFromHashtable below (the :1725 local is unused past scope)
+
+        foreach (CardSource card in _cardSources)
+        {
+            // AS-IS :1728-1735 _showEffect Effects.* — UI (stripped).
+            // AS-IS :1737 PlayLog — stripped.
+            // AS-IS :1739 card.Init() / :1741 card.SetFace() — transient-view no-op / the move's face stamp.
+
+            int cost = card.GetCostItself;
+
+            //Remove from all areas
+            await CardObjectController.RemoveFromAllArea(card, cancellationToken).ConfigureAwait(false);
+
+            await CardObjectController.AddExecutingCard(card, cancellationToken).ConfigureAwait(false);
+
+            // AS-IS :1750 brainStormObject.BrainStormCoroutine — UI (stripped).
+
+            #region Set HashTable
+
+            Hashtable hashtable = new Hashtable()
+        {
+            {"Card", card},
+            {"Root", _root},
+            {"Cost", cost},
+        };
+
+            #endregion
+
+            #region "When option is used" effect
+
+            await GManager.instance.autoProcessing.StackSkillInfos(hashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+
+            await AutoProcessing.ActivateBackgroundEffects(hashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+
+            #endregion
+
+            #region effect process of option card
+
+            foreach (ICardEffect cardEffect in card.EffectList(EffectTiming.OptionSkill))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanUse(hashtable))
+                    {
+                        await GManager.instance.autoProcessing.ActivateEffectProcess(
+                                                    cardEffect,
+                                                    hashtable).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            #endregion
+
+            if (new Player(card.Context, card.Owner).ExecutingCards.Contains(card))
+            {
+                List<OptionResolutionClass> optionResolutionEffects = new List<OptionResolutionClass>();
+                foreach (Player player in GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer)
+                {
+                    #region Effects of permanents in play
+                    foreach (Permanent permanent in player.GetFieldPermanents())
+                    {
+                        foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                        {
+                            if (cardEffect is OptionResolutionClass)
+                            {
+                                if (cardEffect.CanUse(null))
+                                {
+                                    optionResolutionEffects.Add((OptionResolutionClass)cardEffect);
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                    #region Effects on the Player
+                    foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+                    {
+                        if (cardEffect is OptionResolutionClass)
+                        {
+                            if (cardEffect.CanUse(null))
+                            {
+                                optionResolutionEffects.Add((OptionResolutionClass)cardEffect);
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                #region effects of the card itself
+                foreach (ICardEffect cardEffect in card.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is OptionResolutionClass)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            optionResolutionEffects.Add((OptionResolutionClass)cardEffect);
+                        }
+                    }
+                }
+                #endregion
+
+                while (new Player(card.Context, card.Owner).ExecutingCards.Contains(card))
+                {
+                    List<OptionResolutionClass> possibleEffects = optionResolutionEffects.Filter(effect => effect.CanResolve(card));
+                    if (possibleEffects.Count() == 0)
+                    {
+                        break;
+                    }
+                    else if (possibleEffects.Count() == 1)
+                    {
+                        OptionResolutionClass currentEffect = possibleEffects[0];
+                        if (currentEffect != null) await currentEffect.Resolve(card).ConfigureAwait(false);
+                        optionResolutionEffects.Remove(currentEffect);
+                    }
+                    else
+                    {
+                        // AS-IS :1855-1880 selectCardPanel.OpenSelectCardPanel (MaxCount 1, no-decline) — the
+                        // mirror seat is a ChoiceController request through the engine-wide choice provider
+                        // (pump-aware await-mode / RunToStable throw, the established suspension contract).
+                        List<SkillInfo> skillInfos = possibleEffects.Map(effect => new SkillInfo(effect, null, EffectTiming.None));
+                        var candidates = new List<Headless.Choices.ChoiceCandidate>(skillInfos.Count);
+                        for (int i = 0; i < skillInfos.Count; i++)
+                        {
+                            CardSource source = skillInfos[i].CardEffect?.EffectSourceCard;
+                            candidates.Add(new Headless.Choices.ChoiceCandidate(
+                                new Headless.Services.HeadlessEntityId((source?.InstanceId.Value ?? "<null>") + "#" + i),
+                                skillInfos[i].CardEffect?.EffectName ?? "resolution",
+                                Headless.Choices.ChoiceZone.Custom,
+                                IsSelectable: true,
+                                ownerId: card.Owner));
+                        }
+
+                        var request = new Headless.Choices.ChoiceRequest(
+                            Headless.Choices.ChoiceType.Card,
+                            card.Owner,
+                            "Option has multiple resolutions instead of going to trash.\nChoose which to process.",
+                            minCount: 1,
+                            maxCount: 1,
+                            canSkip: false,
+                            Headless.Choices.ChoiceZone.Custom,
+                            candidates.ToArray());
+
+                        Headless.Choices.ChoiceResult picked = await card.Context.ChoiceProvider
+                            .ChooseAsync(request, cancellationToken).ConfigureAwait(false);
+
+                        int skillIndex = -1;
+                        if (!picked.IsSkipped && picked.SelectedIds.Count > 0)
+                        {
+                            string pickedId = picked.SelectedIds[0].Value;
+                            for (int i = 0; i < candidates.Count; i++)
+                            {
+                                if (candidates[i].Id.Value == pickedId)
+                                {
+                                    skillIndex = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (skillIndex >= 0)
+                        {
+                            OptionResolutionClass currentEffect = possibleEffects[skillIndex];
+                            if (currentEffect != null) await currentEffect.Resolve(card).ConfigureAwait(false);
+                            optionResolutionEffects.Remove(currentEffect);
+                        }
+                        else
+                        {
+                            break; // Should not happen, unless we later allow denying all by no select
+                        }
+                    }
+                }
+            }
+
+            if (new Player(card.Context, card.Owner).ExecutingCards.Contains(card))
+            {
+                await CardObjectController.AddTrashCard(card, cancellationToken).ConfigureAwait(false);
+            }
+
+            // AS-IS :1898 CloseBrainstrorm — UI (stripped).
+        }
+    }
 }
 
 /// <summary>(P6C1) AS-IS <c>CardSource</c> members the AS-IS-verbatim play pipeline reads, bridged as
@@ -3282,50 +3983,16 @@ public static class CardSourceAsIsPlayAccessors
     /// <c>CardSource.GetCostItself</c> (<c>Definition?.PlayCost ?? 0</c>).</summary>
     public static int BasePlayCostFromEntity(this CardSource card) => card.GetCostItself;
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CanEvolve(targetPermanent, checkAvailability, ignore)</c>
-    /// (CardSource.cs:1263) — the digivolution requirement+cost availability check. STOP: the mirror has no
-    /// AS-IS cost/requirement engine (design item RD-P6C1-2; the headless digivolve legality lives in
-    /// DigivolveAction/DigivolutionCostHelpers, a different seam).</summary>
-    public static bool CanEvolve(this CardSource card, Permanent targetPermanent, bool checkAvailability, CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None)
-    {
-        _ = card;
-        _ = targetPermanent;
-        _ = checkAvailability;
-        _ = ignore;
-        throw new NotSupportedException(
-            "STOP: CardSource.CanEvolve (AS-IS CardSource.cs:1263) — the AS-IS digivolution requirement/cost " +
-            "engine has no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (R4 S3b-2) The AS-IS CardSource.CanEvolve STOP extension stub is retired — the real 1:1 instance method
+    // (EvoCosts/CostList/CanEvolve, the printed+added digivolution cost engine) now lives on CardSource
+    // (CardSource.cs, R4 S3b-2); `card.CanEvolve(...)` calls resolve to that instance method.
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CostList(targetPermanent, ignoreLevel, checkAvailability)</c>
-    /// (CardSource.cs:617-628 — the <c>EvoCosts</c> projection). STOP: RD-P6C1-2.</summary>
-    public static List<int> CostList(this CardSource card, Permanent targetPermanent, bool ignoreLevel, bool checkAvailability)
-    {
-        _ = card;
-        _ = targetPermanent;
-        _ = ignoreLevel;
-        _ = checkAvailability;
-        throw new NotSupportedException(
-            "STOP: CardSource.CostList (AS-IS CardSource.cs:617) — the AS-IS EvoCosts/requirement engine has " +
-            "no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (R2-C) The AS-IS CardSource.CostList STOP extension stub was retired — it is now the real (still-STOP,
+    // printed-EvoCost-engine RD-P6C1-2) 1:1 instance method on CardSource (CardSource.cs, R2-C).
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.GetPayingCostWithBaseCost(baseCost, root, targetPermanents,
-    /// checkAvailability, FixedCost)</c> (CardSource.cs:664-751 — DigiXros/Assembly reductions +
-    /// <c>GetChangedCostItselef</c> + <c>GetChangedPayingCost</c> modifier scans + the 0 floor). STOP:
-    /// RD-P6C1-2 (the MIG5 PLAY-COST gap).</summary>
-    public static int GetPayingCostWithBaseCost(this CardSource card, int baseCost, SelectCardEffect.Root root, List<Permanent> targetPermanents, bool checkAvailability = false, int FixedCost = -1)
-    {
-        _ = card;
-        _ = baseCost;
-        _ = root;
-        _ = targetPermanents;
-        _ = checkAvailability;
-        _ = FixedCost;
-        throw new NotSupportedException(
-            "STOP: CardSource.GetPayingCostWithBaseCost (AS-IS CardSource.cs:664) — the AS-IS play-cost " +
-            "modifier engine has no mirror (design item RD-P6C1-2, docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (R2-C) The AS-IS CardSource.GetPayingCostWithBaseCost STOP extension stub was retired — it is now the real
+    // 1:1 instance method on CardSource (CardSource.cs, R2-C). `card.GetPayingCostWithBaseCost(...)` calls here
+    // resolve to that instance method.
 
     /// <summary>(P6C1) AS-IS <c>CardSource.CanJogressFromTargetPermanents(targetPermanents, PayCost)</c>
     /// (CardSource.cs:2846). STOP: RD-P6C1-2.</summary>

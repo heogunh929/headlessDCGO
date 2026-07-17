@@ -181,7 +181,11 @@ async Task LegacyApplyPathIsUnaffected()
 
 async Task RlEnvironmentEnforcesBoundary()
 {
-    var env = new HeadlessRlEnvironment();
+    // LEGACY TEST SCAFFOLD (R4 S3c-d1): this witness drives the OLD step cadence (AdvanceEnvToMainAsync
+    // issues AdvancePhase), so it pins an explicit legacy validated match — the RL environment's DEFAULT
+    // match is pump-driven now (DcgoMatch.CreatePumpDriven), where AdvancePhase/EndTurn are illegal.
+    var env = new HeadlessRlEnvironment(
+        DcgoMatch.CreateValidated(EngineContext.CreateDefault(), new EngineTrace()));
     HeadlessPlayerId player = new(1);
     await env.InitializeAsync(BuildMatchConfig());
     await AdvanceEnvToMainAsync(env, player);

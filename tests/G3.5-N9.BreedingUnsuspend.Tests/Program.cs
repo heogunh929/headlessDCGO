@@ -64,14 +64,14 @@ async Task RunUnsuspendPhase(DcgoMatch match)
 {
     // Advance from Setup until the turn reaches the Unsuspend phase; that AdvancePhase step runs
     // UnsuspendForTurnPlayer (which is what N-9 exercises).
-    for (var attempt = 0; attempt < 6 && match.GetObservation().Turn.Phase != HeadlessPhase.Unsuspend; attempt++)
+    for (var attempt = 0; attempt < 6 && !match.GetObservation().Turn.IsUnsuspendPhase; attempt++)
     {
         LegalAction advance = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
         await match.ApplyActionAsync(advance);
         await match.StepAsync();
     }
 
-    AssertEqual(HeadlessPhase.Unsuspend, match.GetObservation().Turn.Phase, "reached Unsuspend phase");
+    AssertTrue(match.GetObservation().Turn.IsUnsuspendPhase, "reached Unsuspend phase");
 }
 
 async Task<DcgoMatch> SetupAtSetupPhase()
@@ -89,7 +89,7 @@ async Task<DcgoMatch> SetupAtSetupPhase()
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1,
         shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 9, setup: setup));
-    AssertEqual(HeadlessPhase.Setup, match.GetObservation().Turn.Phase, "starts at Setup");
+    AssertTrue(match.GetObservation().Turn.IsSetupPhase, "starts at Setup");
     return match;
 }
 

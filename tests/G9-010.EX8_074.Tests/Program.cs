@@ -6,6 +6,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
 // G9-010 (EX8-074 final): the real 1:1 ported card EX8_074, verified region by region through the live /
 // activation mechanisms built across the bundle. Card number "EX8_074" resolves to the ported class by

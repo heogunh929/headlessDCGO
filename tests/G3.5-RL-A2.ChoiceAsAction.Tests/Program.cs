@@ -113,7 +113,12 @@ async Task AgentCanSkipChoice()
 
 async Task RlEnvironmentResolvesChoiceEndToEnd()
 {
-    var env = new HeadlessRlEnvironment();
+    // LEGACY TEST SCAFFOLD (R4 S3c-d1): this witness injects a synthetic RequestChoice on an idle OLD-driver
+    // match; on the pump-driven DEFAULT match the pump would already hold the real StartGame mulligan choice
+    // here. Pin an explicit legacy validated match — the pump path has its own choice witnesses (S3a/S3b).
+    var env = new HeadlessRlEnvironment(DcgoMatch.CreateValidated(
+        HeadlessDCGO.Engine.Headless.Bridge.EngineContext.CreateDefault(),
+        new HeadlessDCGO.Engine.Headless.Diagnostics.EngineTrace()));
     await env.InitializeAsync(BuildMatchConfig());
     HeadlessPlayerId player = new(1);
 

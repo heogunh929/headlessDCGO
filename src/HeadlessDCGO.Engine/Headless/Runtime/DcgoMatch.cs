@@ -29,6 +29,13 @@ public sealed class DcgoMatch
     /// tests that drive system actions directly. For the <b>agent-facing / RL</b> path, pass a
     /// <see cref="LegalActionSetValidator"/> (or use <see cref="CreateValidated"/>) so out-of-set
     /// actions are rejected at apply time (G3.5-RL-A1).
+    /// <para>
+    /// LEGACY TEST SCAFFOLD (R4 S3c-d1): the default <c>actionProcessor: null</c> resolves to
+    /// <see cref="MetadataActionProcessor"/> — the OLD step-cadence turn driver (AdvancePhase/EndTurn
+    /// model). That default survives ONLY for the pre-R4 test corpus; new/RL matches are pump-driven
+    /// (<see cref="CreatePumpDriven"/> — the AS-IS TurnFlowPump). Physical retirement gate = the suite
+    /// re-targeting goal (design doc S3c-d ledger).
+    /// </para>
     /// </summary>
     public DcgoMatch(
         EngineContext context,
@@ -83,7 +90,42 @@ public sealed class DcgoMatch
         return CreateValidated(context, traceSink, actionProcessor);
     }
 
+    /// <summary>
+    /// (R4 S3c-d1, pump promotion) Creates a <b>pump-driven</b> match — the NEW turn driver: the AS-IS
+    /// continuous <see cref="TurnFlowPump"/> owns the whole turn cadence (StartGame hand deal + mulligan +
+    /// security deal, phase auto-flow, EndTurnCheck), and <see cref="TurnFlowDriver"/> translates the
+    /// agent's main-phase actions into the mirror MainPhaseAction packets. <see cref="InitializeAsync"/>
+    /// (and <see cref="ResetAsync"/>) normalizes the setup for pump ownership (hand 0 / security 0 /
+    /// setup-mulligan off — deck seeding and shuffle kept) and installs the pump task.
+    /// The agent legality boundary defaults ON (<see cref="LegalActionSetValidator"/>);
+    /// <paramref name="enforceActionLegality"/> = false yields the unguarded pump profile.
+    /// </summary>
+    public static DcgoMatch CreatePumpDriven(
+        EngineContext context,
+        ITraceSink? traceSink = null,
+        IActionLegality? actionLegality = null,
+        MatchEventLog? eventLog = null,
+        bool enforceActionLegality = true)
+    {
+        IActionLegality? legality = actionLegality
+            ?? (enforceActionLegality ? new LegalActionSetValidator() : null);
+        return new DcgoMatch(
+            context,
+            traceSink,
+            actionProcessor: new TurnFlowDriver(),
+            actionLegality: legality,
+            eventLog: eventLog)
+        {
+            IsPumpDriven = true
+        };
+    }
+
     public EngineContext Context { get; }
+
+    /// <summary>True for a <see cref="CreatePumpDriven"/> match: the TurnFlowPump owns the turn cadence,
+    /// setup is normalized at initialize (pump owns hand/mulligan/security), and the pump task is
+    /// (re)installed on every initialize/reset.</summary>
+    public bool IsPumpDriven { get; private init; }
 
     public bool IsInitialized => _isInitialized;
 
@@ -91,6 +133,11 @@ public sealed class DcgoMatch
     {
         ArgumentNullException.ThrowIfNull(config);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (IsPumpDriven)
+        {
+            config = NormalizeForPump(config);
+        }
 
         _config = config.Validate();
         _isInitialized = true;
@@ -129,6 +176,12 @@ public sealed class DcgoMatch
                 ["randomSeed"] = config.RandomSeed
             });
 
+        if (IsPumpDriven)
+        {
+            // (R4 S3c-d1) A fresh pump per initialization: _gameLoop.Reset() above cleared the TaskRunner
+            // (any previous pump task died with it), so a stale host must not be reused.
+            TurnFlowPumpHost.Reinstall(Context);
+        }
     }
 
     public async Task ResetAsync(CancellationToken cancellationToken = default)
@@ -158,6 +211,12 @@ public sealed class DcgoMatch
                 ["firstPlayerId"] = setupResult?.FirstPlayerId.Value
             });
         _traceSink.Record("runtime", "Match reset.");
+
+        if (IsPumpDriven)
+        {
+            // (R4 S3c-d1) See InitializeAsync: reset cleared the TaskRunner, so the pump is reinstalled.
+            TurnFlowPumpHost.Reinstall(Context);
+        }
     }
 
     public async Task<StepResult> StepAsync(CancellationToken cancellationToken = default)
@@ -559,6 +618,30 @@ public sealed class DcgoMatch
         {
             seedController.ResetSeed(seed);
         }
+    }
+
+    /// <summary>
+    /// (R4 S3c-d1) A pump-driven match OWNS the AS-IS game start — TurnStateMachine.StartGameAsync draws
+    /// the opening hands, runs the mulligan and deals security. The OLD MatchSetupFlow must therefore seed
+    /// DECKS ONLY: hand/security deals and the setup-level (N-5) mulligan are forced OFF. Deck seeding,
+    /// shuffle flags and the first-player pick are kept as configured.
+    /// </summary>
+    private static MatchConfig NormalizeForPump(MatchConfig config)
+    {
+        if (config.Setup is not { } setup)
+        {
+            return config;
+        }
+
+        return config with
+        {
+            Setup = setup with
+            {
+                InitialHandSize = 0,
+                InitialSecuritySize = 0,
+                EnableMulligan = false
+            }
+        };
     }
 
     private async Task<MatchSetupResult?> ApplySetupAsync(

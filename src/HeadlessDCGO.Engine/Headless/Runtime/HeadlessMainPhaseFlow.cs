@@ -6,6 +6,11 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
+// LEGACY TEST SCAFFOLD (R4 S3c-d1): the OLD step-cadence driver's main-phase/turn-end body (EndTurn,
+// memory-pass cursor, PostActionMemorySettle). It survives ONLY for the pre-R4 test corpus; new/RL
+// matches use the TurnFlowPump (DcgoMatch.CreatePumpDriven), where the real AS-IS EndTurnCheck runs
+// in-pump and this flow is skipped (HeadlessGameLoop pump guard). Physical retirement gate = the
+// suite re-targeting goal (design doc S3c-d ledger).
 public sealed class HeadlessMainPhaseFlow
 {
     public const int DefaultMemoryPassValue = 3;
@@ -81,7 +86,9 @@ public sealed class HeadlessMainPhaseFlow
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(transition);
 
-        if (transition.Current.Phase != HeadlessPhase.Main)
+        // (R4 S2) A fresh main-phase entry is the interactive main-play step (Main, PhaseStart) — NOT the
+        // memory-pass end-of-main step, which also has Phase == Main. Gate on IsMainPlayPhase.
+        if (!transition.Current.IsMainPlayPhase)
         {
             return MainPhaseMemoryResult.NotApplicable(
                 transition.Previous,
@@ -109,7 +116,9 @@ public sealed class HeadlessMainPhaseFlow
         ArgumentNullException.ThrowIfNull(action);
 
         HeadlessTurnState previousTurn = context.TurnController.Current;
-        if (previousTurn.Phase != HeadlessPhase.Main)
+        // (R4 S2) Pass is legal only during the interactive main-play step (Main, PhaseStart), not the
+        // memory-pass end-of-main step (which also has Phase == Main).
+        if (!previousTurn.IsMainPlayPhase)
         {
             throw new InvalidOperationException("Pass can only be processed during the Main phase.");
         }
@@ -117,7 +126,8 @@ public sealed class HeadlessMainPhaseFlow
         EnsureCurrentTurnPlayer(action, previousTurn, "pass the main phase");
         HeadlessMemoryState previousMemory = context.MemoryController.Current;
         HeadlessMemoryState currentMemory = context.MemoryController.Set(-DefaultMemoryPassValue);
-        HeadlessTurnState currentTurn = context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
+        // (R4 S2) The former SetPhase(MemoryPass) is now the (Main, AwaitingMemoryPassEnd) step.
+        HeadlessTurnState currentTurn = context.TurnController.SetPhase(HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd);
 
         return new MainPhaseMemoryResult(
             previousTurn,
@@ -142,7 +152,8 @@ public sealed class HeadlessMainPhaseFlow
         ArgumentNullException.ThrowIfNull(action);
 
         HeadlessTurnState previousTurn = context.TurnController.Current;
-        if (previousTurn.Phase != HeadlessPhase.Main)
+        // (R4 S2) A memory mutation only triggers a pass evaluation during interactive main-play (Main, PhaseStart).
+        if (!previousTurn.IsMainPlayPhase)
         {
             return MainPhaseMemoryResult.NotApplicable(
                 previousTurn,
@@ -180,7 +191,8 @@ public sealed class HeadlessMainPhaseFlow
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        if (previousTurn.Phase != HeadlessPhase.MemoryPass)
+        // (R4 S2) The former MemoryPass phase is the (Main, AwaitingMemoryPassEnd) step.
+        if (!previousTurn.IsMemoryPassPhase)
         {
             return MainPhaseMemoryResult.NotApplicable(
                 previousTurn,
@@ -190,9 +202,11 @@ public sealed class HeadlessMainPhaseFlow
                 "NotMemoryPass");
         }
 
-        HeadlessMemoryState currentMemory = context.MemoryController.Current.Current < 0
-            ? context.MemoryController.Set(Math.Abs(context.MemoryController.Current.Current))
-            : context.MemoryController.Current;
+        // COORDINATE TRANSLATION: the mirror gauge is turn-player-relative (AS-IS is seat-absolute and needs
+        // no re-sign at the flip), so the exact translation is unconditional negation Set(-m) — |m| is only
+        // equivalent for m<=0 and flips the sign wrong when m>0 (TurnEndMinMemory<0 effects). (review3 P2-1)
+        HeadlessMemoryState currentMemory =
+            context.MemoryController.Set(-context.MemoryController.Current.Current);
 
         return new MainPhaseMemoryResult(
             previousTurn,
@@ -220,7 +234,8 @@ public sealed class HeadlessMainPhaseFlow
         int turnEndMinMemory = ResolveTurnEndMinMemory(context, currentTurn.TurnPlayerId);
         if (currentMemory.Current <= -turnEndMinMemory)
         {
-            HeadlessTurnState memoryPassTurn = context.TurnController.SetPhase(HeadlessPhase.MemoryPass);
+            // (R4 S2) The former SetPhase(MemoryPass) is now the (Main, AwaitingMemoryPassEnd) step.
+            HeadlessTurnState memoryPassTurn = context.TurnController.SetPhase(HeadlessPhase.Main, TurnStepCursor.AwaitingMemoryPassEnd);
             return new MainPhaseMemoryResult(
                 previousTurn,
                 memoryPassTurn,

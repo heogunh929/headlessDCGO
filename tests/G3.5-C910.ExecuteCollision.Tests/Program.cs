@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using AttackPermanentAction = HeadlessDCGO.Engine.Headless.Runtime.AttackPermanentAction;
 
 // C-9 Execute / C-10 Collision — finishing C-group3.
 //   * Execute   — an effect makes this Digimon attack (able to hit UNSUSPENDED Digimon via the existing

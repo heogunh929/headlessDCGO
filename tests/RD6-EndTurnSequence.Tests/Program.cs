@@ -78,7 +78,7 @@ async Task EoTFiresPreFlip()
     await env.StepAsync(play);
 
     AssertEqual(-cost, context.MemoryController.Current.Current, "the costed play took memory to -3");
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "memory < 0 put P1 into MemoryPass (turn ending)");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "memory < 0 put P1 into MemoryPass (turn ending)");
 
     // Hand over the turn. If the [End of Your Turn] window fires PRE-flip (the fix), BT1_021 loses 3 more memory
     // in P1's frame (-3 -> -6), so P2 inherits the mirrored +6. If it no-ops post-flip (the bug), P2 gets only +3.
@@ -125,7 +125,7 @@ async Task EoTGainContinuesTurn()
         .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
     await env.StepAsync(play);
     AssertEqual(-1, context.MemoryController.Current.Current, "the cost-1 play took memory to -1");
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "memory at threshold -> MemoryPass (turn ending)");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "memory at threshold -> MemoryPass (turn ending)");
 
     // EndTurn: the [End of Your Turn] +3 fires PRE-flip (-1 -> +2), lifting the opponent below the threshold, so the
     // re-check keeps the turn going — no hand-over, phase reverts to Main.
@@ -133,7 +133,7 @@ async Task EoTGainContinuesTurn()
     await env.StepAsync(endTurn);
 
     AssertEqual(P1.Value, match.GetObservation().Turn.TurnPlayerId?.Value ?? 0, "the turn did NOT hand over — the EoT gain kept it going");
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "the turn reverted to Main (continues)");
+    AssertTrue(match.GetObservation().Turn.IsMainPlayPhase, "the turn reverted to Main (continues)");
     AssertEqual(2, context.MemoryController.Current.Current, "the EoT +3 lifted memory from -1 to +2 (above the turn-end threshold)");
 }
 
@@ -170,7 +170,7 @@ async Task MultiActivatedEoTSuspendsThenReapplies()
     LegalAction play = match.GetLegalActions(P1)
         .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
     await env.StepAsync(play);
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "P1 crossed into MemoryPass");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "P1 crossed into MemoryPass");
 
     // EndTurn opens the [End of Your Turn] order choice instead of ending the turn (the pre-flip drain suspended).
     LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);
@@ -232,7 +232,7 @@ async Task EoTWindowResolvesBeforeAttack()
     LegalAction play = match.GetLegalActions(P1)
         .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
     await env.StepAsync(play);
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "P1 crossed into MemoryPass");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "P1 crossed into MemoryPass");
 
     // EndTurn: the OnEndTurn window drains BT1_021 (memory -3 -> -6) FIRST, THEN the Vortex attack offer opens.
     LegalAction endTurn = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.EndTurn);

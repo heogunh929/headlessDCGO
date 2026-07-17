@@ -10,6 +10,16 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
     private readonly List<GameEvent> _events = new();
     private readonly IRandomSource _randomSource;
 
+    /// <summary>(RD-R3-02) The repository that keys the <see cref="Assets.Scripts.Script.CardEffectCommons.
+    /// PermanentBookkeepingStore"/> for this match — wired by the EngineContext constructor. When set,
+    /// <see cref="MoveCard"/> is the AS-IS Permanent-object lifetime chokepoint: ANY move that changes a
+    /// card's field-zone membership (enters/leaves BattleArea/BreedingArea) is a permanent CREATE/DIE and
+    /// resets the card's bookkeeping entry, unless the move carries
+    /// <see cref="Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey"/>
+    /// (a top-swap half whose owning op ReKeys instead). Null (a bare mover outside an EngineContext) skips
+    /// the lifetime handling — the store is unreachable without a repository anyway.</summary>
+    public ICardInstanceRepository? BookkeepingRepository { get; set; }
+
     public InMemoryZoneMover()
         : this(new GameRandomSource())
     {
@@ -441,6 +451,12 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         bool hasSource = request.FromZone != ChoiceZone.None;
         bool hasDestination = request.ToZone != ChoiceZone.None;
 
+        // (RD-R3-02) field-zone membership BEFORE the move — for a From=None request the card may still be
+        // physically withdrawn from a field zone by RemoveFromAllZones below, so scan its actual zone first.
+        bool wasOnField = hasSource
+            ? IsFieldZone(request.FromZone)
+            : FindZoneOf(request.PlayerId, request.CardId) is { } currentZone && IsFieldZone(currentZone);
+
         if (hasSource)
         {
             List<HeadlessEntityId> sourceZone = GetZone(request.PlayerId, request.FromZone);
@@ -458,6 +474,20 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
         if (hasDestination)
         {
             AddToZone(request.PlayerId, request.ToZone, request.CardId, insertion);
+        }
+
+        // (RD-R3-02) the AS-IS Permanent-object lifetime chokepoint: a change of field-zone membership is a
+        // permanent CREATE (fresh `new Permanent(...)` — a re-played card reads AS-IS field defaults) or DIE
+        // (the object is dropped with the field slot) — either way the card's bookkeeping entry resets. A
+        // field→field move (breeding promote) keeps the same AS-IS object, and a top-swap half (marked
+        // PermanentContinuityKey; digivolve / de-digivolve promote) is owned by its op's ReKey.
+        bool entersField = hasDestination && IsFieldZone(request.ToZone);
+        if (wasOnField != entersField
+            && BookkeepingRepository is { } bookkeepingRepository
+            && !(request.Metadata?.ContainsKey(
+                    Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.PermanentContinuityKey) ?? false))
+        {
+            Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.Reset(bookkeepingRepository, request.CardId);
         }
 
         GameEvent cardMoved = RecordCardMoved(request);
@@ -493,6 +523,9 @@ public sealed class InMemoryZoneMover : IZoneMover, IZoneStateReader, IHeadlessM
 
         cards.Add(cardId);
     }
+
+    // (RD-R3-02) the zones whose residency defines "the card heads a field permanent".
+    private static bool IsFieldZone(ChoiceZone zone) => zone is ChoiceZone.BattleArea or ChoiceZone.BreedingArea;
 
     private void RemoveFromAllZones(HeadlessPlayerId playerId, HeadlessEntityId cardId)
     {

@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using AttackPermanentAction = HeadlessDCGO.Engine.Headless.Runtime.AttackPermanentAction;
 
 // G6-005: the attack-declaration windows are now emitted by AttackPermanentAction. ST1_06's
 // "[When Attacking] lose 2 memory" (registered under OnAllyAttack) fires when it declares an attack in a

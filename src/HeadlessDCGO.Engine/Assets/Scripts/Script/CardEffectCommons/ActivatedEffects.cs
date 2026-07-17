@@ -61,10 +61,13 @@ public sealed class ArtsDigivolveSelfEffect : IActivatedCardEffect
 
         // The AS-IS PlayCardClass(payCost:false, root:Execution, target) evolution placement, in order:
         // target off its spot -> this card onto it -> the target stack folds under -> WhenDigivolving.
+        // (RD-R3-02) top-swap continuity markers — the permanent persists; AttachTargetAsSource ReKeys.
         await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(Card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None), cancellationToken).ConfigureAwait(false);
+            new ZoneMoveRequest(Card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
         await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(Card.Owner, Card.InstanceId, fromZone, ChoiceZone.BattleArea), cancellationToken).ConfigureAwait(false);
+            new ZoneMoveRequest(Card.Owner, Card.InstanceId, fromZone, ChoiceZone.BattleArea,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
         Headless.Runtime.DigivolveAction.AttachTargetAsSource(context.CardInstanceRepository, Card.InstanceId, targetId);
         TriggerEventEmitter.Emit(context.GameEventQueue, Headless.Effects.TriggerTimings.WhenDigivolving, actor: Card.Owner, subject: Card.InstanceId);
         CardEffectRegistrar.RegisterCard(context, Card.InstanceId, Card.Owner);
@@ -183,10 +186,13 @@ public sealed class SelectAndDigivolveEffect : IActivatedCardEffect
         }
 
         // 5. Place the source onto the target as a digivolution (same order as ArtsDigivolveSelfEffect).
+        // (RD-R3-02) top-swap continuity markers — the permanent persists; AttachTargetAsSource ReKeys.
         await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(Card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None), cancellationToken).ConfigureAwait(false);
+            new ZoneMoveRequest(Card.Owner, targetId, ChoiceZone.BattleArea, ChoiceZone.None,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
         await context.ZoneMover.MoveAsync(
-            new ZoneMoveRequest(Card.Owner, sourceId, _sourceZone, ChoiceZone.BattleArea), cancellationToken).ConfigureAwait(false);
+            new ZoneMoveRequest(Card.Owner, sourceId, _sourceZone, ChoiceZone.BattleArea,
+                Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
         Headless.Runtime.DigivolveAction.AttachTargetAsSource(context.CardInstanceRepository, sourceId, targetId);
         TriggerEventEmitter.Emit(context.GameEventQueue, Headless.Effects.TriggerTimings.WhenDigivolving, actor: Card.Owner, subject: sourceId);
         CardEffectRegistrar.RegisterCard(context, sourceId, Card.Owner);
@@ -859,7 +865,8 @@ public sealed class SuspendCostReductionEffect : IActivatedCardEffect, IEffectBo
             return true; // unknown cost → don't force the suspend
         }
 
-        int fullCost = ContinuousModifierGate.ResolvePlayCost(Card.Context, Card.InstanceId, baseCost);
+        // (R2-C) single AS-IS orchestrator; this BeforePayCost effect's card is played from hand (Root.Hand).
+        int fullCost = Card.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.Hand, targetPermanents: null);
         return Card.Context.MemoryController.CanPay(fullCost);
     }
 

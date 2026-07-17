@@ -14,5 +14,5 @@ public interface IHeadlessTurnController : IHeadlessMatchStateResettable
 
     HeadlessTurnState EndTurn();
 
-    HeadlessTurnState SetPhase(HeadlessPhase phase);
+    HeadlessTurnState SetPhase(HeadlessPhase phase, TurnStepCursor cursor = TurnStepCursor.PhaseStart);
 }

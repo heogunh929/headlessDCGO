@@ -114,7 +114,7 @@ async Task InitializeAppliesSpecifiedFirstPlayerSetup()
     await match.InitializeAsync(CreateConfig(firstPlayer));
 
     ObservationSnapshot observation = match.GetObservation();
-    AssertEqual(HeadlessPhase.Setup, observation.Turn.Phase, "setup phase after initialize");
+    AssertTrue(observation.Turn.IsSetupPhase, "setup phase after initialize");
     AssertEqual(firstPlayer, observation.Turn.TurnPlayerId, "turn player after setup");
     AssertEqual(new HeadlessPlayerId(1), observation.Turn.NonTurnPlayerId, "non-turn player after setup");
     AssertTrue(observation.Turn.IsFirstTurn, "first turn marker");
@@ -151,7 +151,7 @@ async Task ResetReappliesSetupDeterministically()
     AssertEqual(6, GetZone(match, firstPlayer, ChoiceZone.Hand).Count, "mutated hand count before reset");
 
     await match.ResetAsync();
-    AssertEqual(HeadlessPhase.Setup, match.GetObservation().Turn.Phase, "phase after reset");
+    AssertTrue(match.GetObservation().Turn.IsSetupPhase, "phase after reset");
     AssertEqual(firstPlayer, match.GetObservation().Turn.TurnPlayerId, "first player after reset");
     AssertEqual(5, GetZone(match, firstPlayer, ChoiceZone.Hand).Count, "hand after reset");
     AssertEqual(5, GetZone(match, firstPlayer, ChoiceZone.Security).Count, "security after reset");
@@ -173,7 +173,7 @@ async Task RandomFirstPlayerIsDeterministicForSameSeed()
     await second.InitializeAsync(MatchConfig.Create(players, randomSeed: 77, setup: setup));
 
     AssertEqual(first.GetObservation().Turn.TurnPlayerId, second.GetObservation().Turn.TurnPlayerId, "same seed first player");
-    AssertEqual(HeadlessPhase.Setup, first.GetObservation().Turn.Phase, "random setup phase");
+    AssertTrue(first.GetObservation().Turn.IsSetupPhase, "random setup phase");
 }
 
 Task InvalidSetupInputsFailBeforeMutation()

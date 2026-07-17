@@ -1891,6 +1891,24 @@ public static partial class CardEffectCommons
     /// onto the entering CardMoved event so the played card's OWN [On Play]/OnEnterField triggers are dropped
     /// ("Any [On Play] effects on the Digimon played with this effect don't activate", BT3_109/110); other
     /// cards' reactions to it entering are unaffected.</summary>
+    /// <summary>(R2-C) Map the play-source <see cref="ChoiceZone"/> to the AS-IS <see cref="SelectCardEffect.Root"/>
+    /// threaded into the cost pipeline (root-conditioned <see cref="IChangeCostEffect"/> gates). Zones with no
+    /// Root analog (battle/breeding area, digitama library) map to <c>None</c>.</summary>
+    internal static SelectCardEffect.Root RootFromZone(ChoiceZone zone) => zone switch
+    {
+        ChoiceZone.Library => SelectCardEffect.Root.Library,
+        ChoiceZone.Trash => SelectCardEffect.Root.Trash,
+        ChoiceZone.Clock => SelectCardEffect.Root.Clock,
+        ChoiceZone.Security => SelectCardEffect.Root.Security,
+        ChoiceZone.Custom => SelectCardEffect.Root.Custom,
+        ChoiceZone.Hand => SelectCardEffect.Root.Hand,
+        ChoiceZone.Recollection => SelectCardEffect.Root.Recollection,
+        ChoiceZone.Execution => SelectCardEffect.Root.Execution,
+        ChoiceZone.DigivolutionCards => SelectCardEffect.Root.DigivolutionCards,
+        ChoiceZone.LinkedCards => SelectCardEffect.Root.LinkedCards,
+        _ => SelectCardEffect.Root.None,
+    };
+
     public static async Task PlayPermanentCards(
         IReadOnlyList<CardSource> cardSources, CardSource sourceCard, bool payCost, bool isTapped,
         ChoiceZone root, bool activateETB, bool isBreedingArea = false, int fixedCost = -1)
@@ -1917,7 +1935,7 @@ public static partial class CardEffectCommons
                     && context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
                     ? def.PlayCost ?? 0
                     : 0;
-                cost = fixedCost >= 0 ? fixedCost : Math.Max(0, ContinuousModifierGate.ResolvePlayCost(context, cs.InstanceId, baseCost));
+                cost = fixedCost >= 0 ? fixedCost : Math.Max(0, cs.GetPayingCostWithBaseCost(baseCost, RootFromZone(root), targetPermanents: null));
             }
 
             var values = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -2096,13 +2114,17 @@ public static partial class CardEffectCommons
             if (!payCost || context.MemoryController.CanPay(cost))
             {
                 // The Arts/ArtsDigivolve stacking sequence (target off -> card on -> fold under -> window).
+                // (RD-R3-02) both halves marked as top-swap continuity — the AS-IS Permanent persists across
+                // the digivolve; AttachTargetAsSource ReKeys the bookkeeping below.
                 ChoiceZone targetZone = zones.GetCards(targetPermanent.OwnerId, ChoiceZone.BreedingArea).Contains(targetId)
                     ? ChoiceZone.BreedingArea
                     : ChoiceZone.BattleArea;
                 await context.ZoneMover.MoveAsync(
-                    new ZoneMoveRequest(targetPermanent.OwnerId, targetId, targetZone, ChoiceZone.None), cancellationToken).ConfigureAwait(false);
+                    new ZoneMoveRequest(targetPermanent.OwnerId, targetId, targetZone, ChoiceZone.None,
+                        Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
                 await context.ZoneMover.MoveAsync(
-                    new ZoneMoveRequest(targetPermanent.OwnerId, selected, rootZone, targetZone), cancellationToken).ConfigureAwait(false);
+                    new ZoneMoveRequest(targetPermanent.OwnerId, selected, rootZone, targetZone,
+                        Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata), cancellationToken).ConfigureAwait(false);
                 if (payCost && cost > 0)
                 {
                     context.MemoryController.Pay(cost);
@@ -3445,14 +3467,15 @@ public static partial class CardEffectCommons
 
     /// <summary>AS-IS <c>GManager.instance.turnStateMachine.gameContext.TurnPhase == GameContext.phase.Active</c>
     /// (the unsuspend step of the turn). The AS-IS phase enum folds active+unsuspend into a single
-    /// <c>phase.Active</c>; the headless splits them, and the natural unsuspend runs in
-    /// <see cref="Headless.Runtime.HeadlessPhase.Unsuspend"/> — so the "unsuspend phase" gate reads that phase.
-    /// Distinguishes a natural unsuspend (a [Your Turn] OnUnTappedAnyone effect fires, BT8_057) from an
-    /// effect-driven mid-turn unsuspend during the Main phase (it does not).</summary>
+    /// <c>phase.Active</c>; the natural unsuspend runs at the substrate (Active, Unsuspending) step
+    /// (<see cref="Headless.Runtime.HeadlessTurnState.IsUnsuspendPhase"/>, former HeadlessPhase.Unsuspend) — so the
+    /// "unsuspend phase" gate reads that step-cursor. Distinguishes a natural unsuspend (a [Your Turn]
+    /// OnUnTappedAnyone effect fires, BT8_057) from an effect-driven mid-turn unsuspend during the Main phase
+    /// (it does not).</summary>
     public static bool IsUnsuspendPhase(CardSource card)
     {
         ArgumentNullException.ThrowIfNull(card);
-        return card.Context.TurnController.Current.Phase == Headless.Runtime.HeadlessPhase.Unsuspend;
+        return card.Context.TurnController.Current.IsUnsuspendPhase;
     }
 
     /// <summary>AS-IS <c>Player.DigivolveCount_ThisTurn</c>: how many times this card's owner has digivolved
@@ -3594,7 +3617,9 @@ public static partial class CardEffectCommons
             && cardSource.Context.CardRepository.TryGetCard(inst.DefinitionId, out CardRecord? def) && def is not null
             ? def.PlayCost ?? 0
             : 0;
-        int cost = fixedCost >= 0 ? fixedCost : ContinuousModifierGate.ResolvePlayCost(cardSource.Context, cardSource.InstanceId, baseCost);
+        // (R2-C) single AS-IS orchestrator. Root.None — a can-pay availability gate carries no source-zone
+        // context (root-dependent cost effects are threaded at the actual play choke).
+        int cost = fixedCost >= 0 ? fixedCost : cardSource.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.None, targetPermanents: null);
         return cardSource.Context.MemoryController.CanPay(Math.Max(0, cost));
     }
 

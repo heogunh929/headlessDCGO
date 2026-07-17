@@ -55,7 +55,7 @@ async Task MemoryNegativeEndsTurn()
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, hand, ChoiceZone.None, ChoiceZone.Hand));
 
     context.MemoryController.Set(0);
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "starts in main phase");
+    AssertTrue(match.GetObservation().Turn.IsMainPlayPhase, "starts in main phase");
 
     LegalAction play = match.GetLegalActions(P1)
         .Single(x => x.ActionType == HeadlessActionTypes.PlayCard && x.Id.Value.Contains(hand.Value, StringComparison.Ordinal));
@@ -63,7 +63,7 @@ async Task MemoryNegativeEndsTurn()
 
     // The play took memory 0 -> -3, so the turn must have ended (MemoryPass), not continue in Main.
     AssertEqual(-cost, context.MemoryController.Current.Current, "memory went negative by the play cost");
-    AssertEqual(HeadlessPhase.MemoryPass, match.GetObservation().Turn.Phase, "memory crossing < 0 transitions to MemoryPass (turn ending)");
+    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "memory crossing < 0 transitions to MemoryPass (turn ending)");
 
     // P1 can no longer take a costed play — only the turn handover (EndTurn) remains.
     bool anyPlay = match.GetLegalActions(P1).Any(a =>

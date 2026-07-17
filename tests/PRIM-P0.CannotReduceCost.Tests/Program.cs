@@ -1,8 +1,15 @@
-// PRIM-P0 B.O.6: CardEffectFactory.CanNotReduceCostStaticEffect — the card-facing "cost cannot be reduced"
-// grant. Registers a continuous CostReduction/Immune replacement; ContinuousModifierGate honours it so a
-// cost-reduction modifier is blocked while an increase still applies (AS-IS CannotReduceCostClass).
+// PRIM-P0 B.O.6 / R2-C ③: CardEffectFactory.CanNotReduceCostStaticEffect — the card-facing "cost cannot be
+// reduced" grant, FLIPPED to the AS-IS new-model kind-class CannotReduceCostClass (an ICannotReduceCostEffect,
+// no ToBinding) consulted SOLELY by the live scan Player.CanReduceCost, which the cost pipeline
+// CardSource.GetPayingCostWithBaseCost re-derives. A cost-reduction modifier is blocked while an increase still
+// applies. The registry-key CostReduction/Immune representation is retired; the grant is now placed on a FIELD
+// permanent (the live scan walks Players_ForTurnPlayer's field permanents' EffectList(None)), exactly as a real
+// card (BT5_021) grants it.
+using HeadlessDCGO.Engine.Assets.Scripts.CardEffect.TestFixtures;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -40,7 +47,7 @@ async Task ReductionBlocked()
 {
     EngineContext context = Context();
     RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, -2);
-    GrantCannotReduceCost(context);
+    GrantCannotReduceCost(context, CostReductionScope.Both);
     AssertEqual(5, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "reduction blocked by the grant");
     await Task.CompletedTask;
 }
@@ -49,7 +56,7 @@ async Task IncreaseStillApplies()
 {
     EngineContext context = Context();
     RegisterCostModifier(context, ModifierHelpers.PlayCostDeltaKey, 1);
-    GrantCannotReduceCost(context);
+    GrantCannotReduceCost(context, CostReductionScope.Both);
     AssertEqual(6, ContinuousModifierGate.ResolvePlayCost(context, Card, basePlayCost: 5), "increase still applies");
     await Task.CompletedTask;
 }
@@ -58,7 +65,7 @@ async Task DigivolutionReductionBlocked()
 {
     EngineContext context = Context();
     RegisterCostModifier(context, ModifierHelpers.DigivolutionCostDeltaKey, -1);
-    GrantCannotReduceCost(context);
+    GrantCannotReduceCost(context, CostReductionScope.Both);
     AssertEqual(4, ContinuousModifierGate.ResolveDigivolutionCost(context, Card, baseDigivolutionCost: 4), "digivolution reduction blocked");
     await Task.CompletedTask;
 }
@@ -69,6 +76,11 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 7);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main); // past None/Setup so CanTrigger's DoneStartGame gate passes.
+    // The played card must exist so the pipeline can resolve its owner (P1).
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(new HeadlessEntityId("C"), "C", "C",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(Card, new HeadlessEntityId("C"), P1));
     return context;
 }
 
@@ -82,15 +94,21 @@ void RegisterCostModifier(EngineContext context, string deltaKey, int delta)
         keywords: null, EffectQueryRole.Continuous, new[] { ContinuousModifierGate.Scope }));
 }
 
-// Grant via the REAL card-facing factory (its ToBinding is what a ported card registers at enter-play).
-void GrantCannotReduceCost(EngineContext context)
+// (R2-C ③) Grant the AS-IS kind-class CannotReduceCostClass on a P1 FIELD permanent (the live scan walks
+// Players_ForTurnPlayer's field permanents' EffectList(None)); dispatched via the TfxCannotReduceCost fixture,
+// scoped to the played card (cardCondition) and the given cost path (costKind), any payer (playerCondition).
+void GrantCannotReduceCost(EngineContext context, CostReductionScope costKind)
 {
-    var card = new CardSource(context, Card, P1, P1);
-    // CanNotReduceCostStaticEffect's declared return type is the ICardEffect interface (ToBinding is not
-    // part of it); with permanentCondition:null it always constructs ContinuousSelfRestrictionEffect, which
-    // does carry ToBinding — cast to it (value/behavior unchanged).
-    var effect = (ContinuousSelfRestrictionEffect)CardEffectFactory.CanNotReduceCostStaticEffect(permanentCondition: null, isInheritedEffect: false, card, condition: null);
-    context.EffectRegistry.Register(effect.ToBinding($"{Card.Value}:cannotReduceCost"));
+    TfxCannotReduceCost.PlayerCondition = _ => true;
+    TfxCannotReduceCost.CardCondition = cs => cs is not null && cs.InstanceId == Card;
+    TfxCannotReduceCost.CostKind = costKind;
+
+    var cards = (CardDatabase)context.CardRepository;
+    var def = new HeadlessEntityId("DEF:GRANT");
+    cards.Upsert(new CardRecord(def, "TfxCannotReduceCost", "GRANT", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var srcId = new HeadlessEntityId("1:battle:GRANT");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, def, P1, Metadata: new Dictionary<string, object?>()));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, srcId, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
 }
 
 static void AssertEqual<T>(T expected, T actual, string label)

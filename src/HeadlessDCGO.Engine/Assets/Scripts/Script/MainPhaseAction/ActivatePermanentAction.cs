@@ -1,7 +1,21 @@
-// Source: Assets/Scripts/Script/MainPhaseAction/ActivatePermanentAction.cs
-// Decision: PORT
-// Category: AIUseful
-// Priority: HIGH
-// Migration: Port action command source
-// Namespace hint: HeadlessDCGO.Engine.Assets.Scripts.Script.MainPhaseAction
-// TODO: Skeleton only. Port or implement deterministic .NET logic later.
+// Source: DCGO/Assets/Scripts/Script/MainPhaseAction/ActivatePermanentAction.cs (Photon transport stripped —
+// see MainPhaseAction.cs).
+namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+
+public class ActivatePermanentAction : MainPhaseAction
+{
+    int PermanentIndex;
+    int SkillIndex;
+
+    public ActivatePermanentAction(int permanentIndex, int skillIndex)
+    {
+        PermanentIndex = permanentIndex;
+        SkillIndex = skillIndex;
+    }
+
+    public override Task Execute(TurnStateMachine stateMachine)
+    {
+        stateMachine.SetActSkill(PermanentIndex, SkillIndex);
+        return Task.CompletedTask;
+    }
+}

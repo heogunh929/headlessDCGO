@@ -62,7 +62,7 @@ async Task P1OverspendHandsOvershoot()
     DcgoMatch match = await NewMatchInMainAsync(P1);
 
     await Apply(match, HeadlessActionFactory.PayMemory(P1, K));
-    AssertEqual(HeadlessPhase.MemoryPass, Phase(match), "pay overshoot -> memory pass");
+    AssertEqual(true, match.GetObservation().Turn.IsMemoryPassPhase, "pay overshoot -> memory pass");
 
     StepResult end = await Apply(match, HeadlessActionFactory.EndTurn(P1));
     AssertEqual(P2, end.Observation.Turn.TurnPlayerId, "turn handed to P2");
@@ -83,7 +83,7 @@ async Task P2OverspendHandsOvershoot()
 
     // P2 (memory 3) pays 3 + K -> overshoots by K -> P1 should start with K.
     await Apply(match, HeadlessActionFactory.PayMemory(P2, 3 + K));
-    AssertEqual(HeadlessPhase.MemoryPass, Phase(match), "P2 overshoot -> memory pass");
+    AssertEqual(true, match.GetObservation().Turn.IsMemoryPassPhase, "P2 overshoot -> memory pass");
 
     StepResult end = await Apply(match, HeadlessActionFactory.EndTurn(P2));
     AssertEqual(P1, end.Observation.Turn.TurnPlayerId, "turn handed back to P1");
@@ -123,7 +123,7 @@ async Task SpendToZeroKeepsTurn()
     await Apply(match, HeadlessActionFactory.PayMemory(P1, 3)); // exactly to 0
 
     AssertEqual(0, Memory(match), "memory is exactly 0");
-    AssertEqual(HeadlessPhase.Main, Phase(match), "spending to 0 does NOT pass the turn");
+    AssertEqual(true, match.GetObservation().Turn.IsMainPlayPhase, "spending to 0 does NOT pass the turn");
 }
 
 async Task PartialSpendStaysMain()
@@ -134,7 +134,7 @@ async Task PartialSpendStaysMain()
     await Apply(match, HeadlessActionFactory.PayMemory(P1, 2)); // -> 3
 
     AssertEqual(3, Memory(match), "partial spend leaves 3");
-    AssertEqual(HeadlessPhase.Main, Phase(match), "partial spend stays in Main");
+    AssertEqual(true, match.GetObservation().Turn.IsMainPlayPhase, "partial spend stays in Main");
 }
 
 async Task MultiTurnChain()
@@ -165,7 +165,7 @@ async Task<DcgoMatch> NewMatchInMainAsync(HeadlessPlayerId first)
 
 int Memory(DcgoMatch match) => match.GetObservation().Memory.Current;
 
-HeadlessPhase Phase(DcgoMatch match) => match.GetObservation().Turn.Phase;
+// (R4 S2) the former single-value Phase() helper is superseded by IsMemoryPassPhase / IsMainPlayPhase checks.
 
 static async Task<StepResult> Apply(DcgoMatch match, LegalAction action)
 {

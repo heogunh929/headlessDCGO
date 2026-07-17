@@ -39,3 +39,4 @@ __pycache__/
 # 카드 포팅 IR 산출물 (tools/CardIrExtractor + build_card_db.py로 재생성 — DCGO/ 로컬 원본 의존)
 /docs/porting/card_ir.jsonl
 /docs/porting/card_ir.sqlite
+.claude/worktrees/

@@ -4,6 +4,8 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
 // PRIM [On Play]: PlayCardAction resolves the just-played card's own OnEnterFieldAnyone activated effects
 // through the activation flow. Verified END-TO-END with BT1_029 ([On Play] <Draw 1>): playing it draws a

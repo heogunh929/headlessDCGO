@@ -54,6 +54,10 @@ public static class HeadlessActionParameterKeys
     public const string Reason = "reason";
     public const string TurnNumber = "turnNumber";
     public const string Phase = "phase";
+    // (R4 S2) the substrate step-position sub-cursor accompanying Phase — see TurnStepCursor. Preserves the
+    // former 9-value phase distinction (Setup/Unsuspend/MemoryPass) that folded into (phase, cursor) pairs.
+    public const string StepCursor = "stepCursor";
+    public const string PreviousStepCursor = "previousStepCursor";
     public const string PreviousPhase = "previousPhase";
     public const string TurnPlayerId = "turnPlayerId";
     public const string NonTurnPlayerId = "nonTurnPlayerId";

@@ -5,6 +5,8 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+// (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
+using AttackPermanentAction = HeadlessDCGO.Engine.Headless.Runtime.AttackPermanentAction;
 
 var root = FindRepositoryRoot();
 HeadlessPlayerId Player = new(1);

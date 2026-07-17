@@ -331,6 +331,236 @@ public sealed class CardSource
         }
     }
 
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanDeclareSkillList</c> (CardSource.cs:1047-1054) — verbatim: the
+    /// declarable main-skill effects (OnDeclaration timing, ActivateICardEffect, live CanUse gate).</summary>
+    public List<ICardEffect> CanDeclareSkillList =>
+        EffectList(EffectTiming.OnDeclaration)
+            .Filter(cardEffect => cardEffect is ActivateICardEffect && cardEffect.CanUse(null));
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanDeclareSkill</c> (CardSource.cs:1041).</summary>
+    public bool CanDeclareSkill => CanDeclareSkillList.Count > 0;
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanNotPlayThisOption</c> (CardSource.cs:184-249): an OPTION is
+    /// unplayable when an active <see cref="ICanNotPlayCardEffect"/> forbids it (players / field permanents /
+    /// itself-when-off-field — the E-3 continuous-scan family) or its colour requirement fails
+    /// (<see cref="MatchColorRequirement"/>). Non-options are never blocked here.</summary>
+    public bool CanNotPlayThisOption
+    {
+        get
+        {
+            if (!IsOption)
+            {
+                return false;
+            }
+
+            var gameContext = new GameContext(Context);
+
+            // the effects of players (AS-IS :194-208)
+            if (gameContext.Players
+                    .Map(player => player.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Some(cardEffect => cardEffect is ICanNotPlayCardEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)))
+            {
+                return true;
+            }
+
+            // the effects of permanents (:210-223)
+            if (gameContext.Players
+                    .Map(player => player.GetFieldPermanents())
+                    .Flat()
+                    .Map(permanent => permanent.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Some(cardEffect => cardEffect is ICanNotPlayCardEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)))
+            {
+                return true;
+            }
+
+            // the effects of itself, off-field only (:225-236)
+            if (ICardEffect.ResolvePermanentOfThisCard(this) == null)
+            {
+                if (EffectList(EffectTiming.None)
+                        .Some(cardEffect => cardEffect is ICanNotPlayCardEffect
+                            && cardEffect.CanUse(null)
+                            && ((ICanNotPlayCardEffect)cardEffect).CanNotPlay(this)))
+                {
+                    return true;
+                }
+            }
+
+            // colour requirement (:238-245)
+            if (!MatchColorRequirement)
+            {
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanEnterField(cardEffect)</c> (CardSource.cs:1210-1258): the
+    /// <see cref="ICanNotPutFieldEffect"/> forbid scan — field permanents / players / itself-when-off-field.
+    /// (The play-pipeline bridge <c>PlayCardsBridge.CanEnterFieldByEffect</c> reproduces the same scan
+    /// wrapper-side; this is the AS-IS-position member the main-phase predicates read.)</summary>
+    public bool CanEnterField(ICardEffect? _cardEffect)
+    {
+        var gameContext = new GameContext(Context);
+
+        // the effects of permanents (:1214-1229)
+        if (gameContext.Players
+                .Map(player => player.GetFieldPermanents())
+                .Flat()
+                .Map(permanent => permanent.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotPutFieldEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotPutFieldEffect)cardEffect).CanNotPutField(this, _cardEffect)))
+        {
+            return false;
+        }
+
+        // the effects of players (:1231-1242)
+        if (gameContext.Players
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Some(cardEffect => cardEffect is ICanNotPutFieldEffect
+                    && cardEffect.CanUse(null)
+                    && ((ICanNotPutFieldEffect)cardEffect).CanNotPutField(this, _cardEffect)))
+        {
+            return false;
+        }
+
+        // the effects of itself, off-field only (:1244-1256)
+        if (ICardEffect.ResolvePermanentOfThisCard(this) == null)
+        {
+            if (EffectList(EffectTiming.None)
+                    .Some(cardEffect => cardEffect is ICanNotPutFieldEffect
+                        && cardEffect.CanUse(null)
+                        && ((ICanNotPutFieldEffect)cardEffect).CanNotPutField(this, _cardEffect)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanPlayJogress(PayCost)</c> (CardSource.cs:2747-2792): some
+    /// jogress condition of this card is satisfiable by an ORDERED pair of the owner's battle digimons (each
+    /// slot's EvoRootCondition + the !CanNotEvolve restriction gate), with the jogress cost payable when
+    /// <paramref name="PayCost"/>. ADAPTATION: AS-IS <c>ParameterComparer.Enumerate</c> = the ordered-pair
+    /// enumeration, implemented locally (no mirror ParameterComparer — SelectPermanentEffect precedent);
+    /// <c>jogressCondition</c> = the mirror <c>JogressConditionOf()</c> accessor (P6C1).</summary>
+    public bool CanPlayJogress(bool PayCost)
+    {
+        List<JogressCondition>? conditions = this.JogressConditionOf();
+        if (conditions != null)
+        {
+            List<Permanent> battleDigimons = new Player(Context, Owner).GetBattleAreaDigimons();
+            foreach (JogressCondition condition in conditions)
+            {
+                if (battleDigimons.Count >= condition.elements.Length)
+                {
+                    foreach (Permanent[] permanents in OrderedPairs(battleDigimons))
+                    {
+                        if (permanents.Length == condition.elements.Length && permanents.Length == 2)
+                        {
+                            if (condition.elements[0].EvoRootCondition(permanents[0]) && !this.CanNotEvolve(permanents[0]))
+                            {
+                                if (condition.elements[1].EvoRootCondition(permanents[1]) && !this.CanNotEvolve(permanents[1]))
+                                {
+                                    if (PayCost)
+                                    {
+                                        int cost = condition.cost;
+                                        cost = GetChangedCostItselef(cost, SelectCardEffect.Root.Hand, permanents.ToList(), checkAvailability: true);
+                                        if (new Player(Context, Owner).MaxMemoryCost < cost)
+                                        {
+                                            return false;
+                                        }
+                                    }
+
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<Permanent[]> OrderedPairs(List<Permanent> permanents)
+    {
+        for (int i = 0; i < permanents.Count; i++)
+        {
+            for (int j = 0; j < permanents.Count; j++)
+            {
+                if (i != j)
+                {
+                    yield return new[] { permanents[i], permanents[j] };
+                }
+            }
+        }
+    }
+
+    /// <summary>(R4 S3b) AS-IS <c>CardSource.CanPlayFromHandDuringMainPhase</c> (CardSource.cs:139-178) — the
+    /// main-phase CanSelect() hand term. FRAME ADAPTATIONS (the mirror has no frame/slot model, zones are
+    /// lists — established section-header adaptation, capacity half = design item RD-P6C1-2):
+    ///  * digimon arm (:143 <c>GetBattleAreaDigimons().Some(p =&gt; CanPlayCardTargetFrame(p.PermanentFrame,
+    ///    true, null))</c>): an OCCUPIED frame reduces CanPlayCardTargetFrame to the owner check + CanEvolve
+    ///    (the :1144 cost check is empty-frame-only) ⇒ <c>Some(p =&gt; this.CanEvolve(p, true))</c>.
+    ///  * permanent arm (:148-157 <c>CanPutFieldThisPermanentCard(true, null)</c> = some frame passes
+    ///    CanPlayCardTargetFrame): the empty-battle-frame path reduces to cost-payable + CanEnterField
+    ///    (frame availability = capacity, omitted per RD-P6C1-2).</summary>
+    public bool CanPlayFromHandDuringMainPhase
+    {
+        get
+        {
+            if (IsDigimon && new Player(Context, Owner).GetBattleAreaDigimons()
+                    .Some(permanent => this.CanEvolve(permanent, true)))
+            {
+                return true;
+            }
+
+            if (IsPermanentCard() && !IsOption)
+            {
+                if (!CanPlayJogress(true))
+                {
+                    // CanPutFieldThisPermanentCard(true, null), frame-less (see header).
+                    int playCost = PayingCost(SelectCardEffect.Root.Hand, null, checkAvailability: true);
+                    bool canPutField = new Player(Context, Owner).MaxMemoryCost >= playCost && CanEnterField(null);
+                    if (!canPutField)
+                    {
+                        return false;
+                    }
+                }
+            }
+            else if (IsOption)
+            {
+                if (CanNotPlayThisOption)
+                {
+                    return false;
+                }
+
+                // whether cost can be paid (:166-173)
+                List<int> costs = new List<int>() { this.PayingCost(SelectCardEffect.Root.Hand, null, checkAvailability: true) };
+                bool canPayCost = costs.Some(cost => new Player(Context, Owner).MaxMemoryCost >= cost);
+                if (!canPayCost) return false;
+            }
+
+            return true;
+        }
+    }
+
+    // AS-IS `_cEntity_Base.IsPermanent` (:148) — the printed permanent-type flag (Digimon/Tamer/DigiEgg), the
+    // same inline the MatchColorRequirement mirror uses.
+    private bool IsPermanentCard() => IsDigimon || IsTamer || IsDigiEgg;
+
     /// <summary>(A3 / P6C3 re-fold) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604):
     /// printed traits transformed by the card's OWN <see cref="IChangeTraitsEffect"/> effects
     /// (AS-IS scans self EffectList only, ungated by permanent membership; no Distinct).</summary>
@@ -696,6 +926,258 @@ public sealed class CardSource
     /// documented reduction here (no per-card cost-change effects fold in); a caller whose AS-IS analog reads
     /// <c>BasePlayCostFromEntity</c> (e.g. BT22_035's "play cost 4 or less") is exact.</summary>
     public int GetCostItself => Definition?.PlayCost ?? 0;
+
+    // ===== (R2-C) AS-IS play / digivolution cost pipeline — 1:1 rehousing of CardSource.cs:635-933 =========
+    // The single top-level pay-cost orchestrator the play / digivolve / option chokes call: base printed cost
+    // (or, for a digivolution target, the minimum matching CostList entry) -> DigiXros / Assembly special
+    // reductions (CanReduceCost-gated) -> the ChangeCostClass 2-group fold (GetChangedCostItselef then
+    // GetChangedPayingCost) -> Math.Max(0). AS-IS has NO registry; the mirror mid-migration additionally carries
+    // still-substrate LEGACY continuous cost bindings (BeforePayCostReduction / ChangePlayCostPlayer producers)
+    // whose AS-IS analog is an IChangeCostEffect folded below — those are UNIONed in as a substrate step
+    // (ContinuousModifierGate.FoldLegacy*CostModifiers) until their producers are new-model. CannotReduceCost is
+    // honoured UNIFORMLY through Player.CanReduceCost (both the legacy fold's canReduce knob AND, live inside the
+    // fold below, ChangeCostClass.GetCost's own veto) — a single immunity representation.
+
+    /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.PayingCost(root, targetPermanents, checkAvailability,
+    /// ignoreLevel, FixedCost)</c> (CardSource.cs:635-658): the base printed play cost, or — for a single
+    /// non-null digivolution target — the minimum matching <see cref="CostList"/> entry, folded through
+    /// <see cref="GetPayingCostWithBaseCost"/>.</summary>
+    public int PayingCost(SelectCardEffect.Root root, List<Permanent>? targetPermanents, bool checkAvailability = false, bool ignoreLevel = false, int FixedCost = -1)
+    {
+        int baseCost = Definition?.PlayCost ?? 0;   // AS-IS _cEntity_Base.PlayCost
+
+        if (targetPermanents != null)
+        {
+            if (targetPermanents.Count == 1)
+            {
+                Permanent targetPermanent = targetPermanents[0];
+
+                if (targetPermanent != null)
+                {
+                    List<int> costList = CostList(targetPermanent, ignoreLevel: ignoreLevel, checkAvailability: checkAvailability);
+
+                    if (costList.Count >= 1)
+                    {
+                        baseCost = costList.Min();
+                    }
+                }
+            }
+        }
+
+        return GetPayingCostWithBaseCost(baseCost, root, targetPermanents, checkAvailability: checkAvailability, FixedCost: FixedCost);
+    }
+
+    /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.GetPayingCostWithBaseCost(baseCost, root,
+    /// targetPermanents, checkAvailability, FixedCost)</c> (CardSource.cs:664-751): the FixedCost override, the
+    /// DigiXros / Assembly special reductions (AS-IS :670-737), then <see cref="GetChangedCostItselef"/> +
+    /// <see cref="GetChangedPayingCost"/> and the 0 floor. The mirror UNION step folds the still-substrate
+    /// LEGACY continuous cost bindings via <see cref="ContinuousModifierGate.FoldLegacyPlayCostModifiers"/> /
+    /// <see cref="ContinuousModifierGate.FoldLegacyDigivolutionCostModifiers"/>.</summary>
+    public int GetPayingCostWithBaseCost(int baseCost, SelectCardEffect.Root root, List<Permanent>? targetPermanents, bool checkAvailability = false, int FixedCost = -1)
+    {
+        // SUBSTRATE: the AS-IS cost scans (CanReduceCost / GetChangedCostItselef → CanUse → CheckEffectDisabledClass)
+        // read game state through the process-global GManager.instance; the mirror resolves that from
+        // AmbientMatchContext, so scope the match for the whole fold (a caller already in the same scope re-enters
+        // harmlessly) — same idiom as NewModelContinuousScan's public entry points.
+        using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(Context);
+
+        int Cost = FixedCost >= 0 ? FixedCost : baseCost;
+
+        bool isEvolution = targetPermanents != null && targetPermanents.Some((permanent) => permanent != null);
+
+        Player ownerPlayer = new Player(Context, Owner);
+
+        // ===== DigiXros (AS-IS CardSource.cs:670-701) =====
+        // Headless adaptation: AS-IS's `!(!Owner.isYou && GManager.instance.IsAI)` availability guard has no
+        // headless analog (no AI / seat-you distinction); the single-context mirror is always the AS-IS
+        // "not the AI opponent" branch, so the availability early-return is taken unconditionally. On the live
+        // pay path (checkAvailability:false, no DigiXros material selection => playCard != this) the whole
+        // region is a no-op.
+        if (!isEvolution)
+        {
+            if (HasDigiXros)
+            {
+                if (ownerPlayer.CanReduceCost(null, this))
+                {
+                    if (checkAvailability)
+                    {
+                        return 0;
+                    }
+
+                    SelectDigiXrosClass selectDigiXrosClass = GManager.instance.GetComponent<SelectDigiXrosClass>();
+
+                    if (selectDigiXrosClass != null)
+                    {
+                        if (selectDigiXrosClass.playCard == this)
+                        {
+                            Cost -= selectDigiXrosClass.selectedDigicrossCards.Count * digiXrosCondition.reduceCostPerCard;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ===== Assembly (AS-IS CardSource.cs:705-737) — STOP (design item RD-R2C-ASSEMBLY) =====
+        // The AS-IS Assembly cost-reduction region reads `GManager.GetComponent<SelectAssemblyClass>()`'s
+        // playCard / selectedAssemblyCards interactive-selection state. The mirror SelectAssemblyClass is a
+        // STATIC feasibility helper (no component/playCard state — the interactive Assembly selection is a
+        // parameterized SpecialPlayAction that computes its own paid cost), so this sub-region has no 1:1 mirror.
+        // It never fired on this generic pay path (no live selection sets playCard == this), so its absence is
+        // behaviour-invariant.
+
+        // ===== (UNION substrate) legacy continuous cost bindings — mirror mid-migration only =====
+        // `canReduce` is the live CannotReduceCost veto (Player.CanReduceCost), the SAME signal the new-model
+        // ChangeCostClass.GetCost re-derives below — one uniform immunity.
+        bool canReduce = ownerPlayer.CanReduceCost(targetPermanents, this);
+        if (isEvolution)
+        {
+            HeadlessEntityId digivolveTargetPermanentId =
+                (targetPermanents != null && targetPermanents.Count >= 1 && targetPermanents[0] != null)
+                    ? targetPermanents[0].InstanceId
+                    : default;
+            Cost = ContinuousModifierGate.FoldLegacyDigivolutionCostModifiers(Context, InstanceId, Cost, digivolveTargetPermanentId, canReduce);
+        }
+        else
+        {
+            Cost = ContinuousModifierGate.FoldLegacyPlayCostModifiers(Context, InstanceId, Cost, canReduce);
+        }
+
+        // ===== AS-IS GetChangedCostItselef (:741) + GetChangedPayingCost (:743) — new-model IChangeCostEffect =====
+        Cost = GetChangedCostItselef(Cost, root, targetPermanents, checkAvailability);
+
+        Cost = GetChangedPayingCost(Cost, root, targetPermanents, checkAvailability);
+
+        if (Cost < 0)
+        {
+            Cost = 0;
+        }
+
+        return Cost;
+    }
+
+    /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.GetChangedCostItselef</c> (CardSource.cs:775-858): fold
+    /// the "not-paying" (<c>IsChangePayingCost()==false</c>) <see cref="IChangeCostEffect"/> group over
+    /// Players_ForTurnPlayer's field permanents' + players' (+ this card's own, while it is not a permanent)
+    /// <c>EffectList(None)</c>, NotIsUpDown effects first then IsUpDown, clamped at 0. AS-IS's <c>checkAvailability
+    /// &amp;&amp; GManager.IsAI</c> opponent-target short-circuit (:777-789) has no headless analog (no AI seat) and
+    /// is omitted (behaviour-invariant).</summary>
+    public int GetChangedCostItselef(int Cost, SelectCardEffect.Root root, List<Permanent>? targetPermanents, bool checkAvailability = false)
+    {
+        List<ICardEffect> changeCostCardEffects = new List<ICardEffect>();
+
+        bool Matches(ICardEffect cardEffect) =>
+            cardEffect is IChangeCostEffect && cardEffect.CanUse(null)
+            && ((IChangeCostEffect)cardEffect).CardCondition(this)
+            && !(((IChangeCostEffect)cardEffect).IsCheckAvailability() && !checkAvailability)
+            && !((IChangeCostEffect)cardEffect).IsChangePayingCost();
+
+        // the effects of permanents
+        changeCostCardEffects = changeCostCardEffects
+            .Concat(
+            new GameContext(Context).Players_ForTurnPlayer
+                .Map(player => player.GetFieldPermanents())
+                .Flat()
+                .Map(permanent => permanent.EffectList(EffectTiming.None))
+                .Flat()
+                .Filter(Matches))
+                .ToList();
+
+        // the effects of players
+        changeCostCardEffects = changeCostCardEffects
+            .Concat(
+            new GameContext(Context).Players_ForTurnPlayer
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Filter(Matches))
+                .ToList();
+
+        // the effects of itself
+        if (PermanentOfThisCard().IsEmpty)
+        {
+            changeCostCardEffects = changeCostCardEffects
+                .Concat(
+                EffectList(EffectTiming.None)
+                    .Filter(Matches))
+                .ToList();
+        }
+
+        List<ICardEffect> changeCostCardEffects_NotIsUpDown = changeCostCardEffects
+            .Filter(cardEffect => !((IChangeCostEffect)cardEffect).IsUpDown());
+
+        List<ICardEffect> changeCostCardEffects_IsUpDown = changeCostCardEffects
+            .Filter(cardEffect => ((IChangeCostEffect)cardEffect).IsUpDown());
+
+        changeCostCardEffects_NotIsUpDown
+            .ForEach(cardEffect => Cost = ((IChangeCostEffect)cardEffect).GetCost(Cost, this, root, targetPermanents!));
+
+        changeCostCardEffects_IsUpDown
+            .ForEach(cardEffect => Cost = ((IChangeCostEffect)cardEffect).GetCost(Cost, this, root, targetPermanents!));
+
+        return Math.Max(0, Cost);
+    }
+
+    /// <summary>(R2-C) 1:1 mirror of AS-IS <c>CardSource.GetChangedPayingCost</c> (CardSource.cs:864-933): the
+    /// "paying" (<c>IsChangePayingCost()==true</c>) <see cref="IChangeCostEffect"/> group, same scan / order /
+    /// clamp as <see cref="GetChangedCostItselef"/> — AS-IS runs both sequentially over the same running
+    /// Cost.</summary>
+    public int GetChangedPayingCost(int Cost, SelectCardEffect.Root root, List<Permanent>? targetPermanents, bool checkAvailability = false)
+    {
+        List<ICardEffect> changePayingCostCardEffects = new List<ICardEffect>();
+
+        bool Matches(ICardEffect cardEffect) =>
+            cardEffect is IChangeCostEffect && cardEffect.CanUse(null)
+            && ((IChangeCostEffect)cardEffect).CardCondition(this)
+            && !(((IChangeCostEffect)cardEffect).IsCheckAvailability() && !checkAvailability)
+            && ((IChangeCostEffect)cardEffect).IsChangePayingCost();
+
+        // the effects of permanents
+        changePayingCostCardEffects = changePayingCostCardEffects
+            .Concat(
+            new GameContext(Context).Players_ForTurnPlayer
+                .Map(player => player.GetFieldPermanents())
+                .Flat()
+                .Map(permanent => permanent.EffectList(EffectTiming.None))
+                .Flat()
+                .Filter(Matches))
+                .ToList();
+
+        // the effects of players
+        changePayingCostCardEffects = changePayingCostCardEffects
+            .Concat(
+            new GameContext(Context).Players_ForTurnPlayer
+                .Map(player => player.EffectList(EffectTiming.None))
+                .Flat()
+                .Filter(Matches))
+                .ToList();
+
+        // the effects of itself
+        if (PermanentOfThisCard().IsEmpty)
+        {
+            changePayingCostCardEffects = changePayingCostCardEffects
+                .Concat(
+                EffectList(EffectTiming.None)
+                    .Filter(Matches))
+                .ToList();
+        }
+
+        List<ICardEffect> changePayingCostCardEffects_NotIsUpDown = changePayingCostCardEffects
+            .Filter(cardEffect => !((IChangeCostEffect)cardEffect).IsUpDown());
+
+        List<ICardEffect> changePayingCostCardEffects_IsUpDown = changePayingCostCardEffects
+            .Filter(cardEffect => ((IChangeCostEffect)cardEffect).IsUpDown());
+
+        changePayingCostCardEffects_NotIsUpDown
+            .ForEach(cardEffect => Cost = ((IChangeCostEffect)cardEffect).GetCost(Cost, this, root, targetPermanents!));
+
+        changePayingCostCardEffects_IsUpDown
+            .ForEach(cardEffect => Cost = ((IChangeCostEffect)cardEffect).GetCost(Cost, this, root, targetPermanents!));
+
+        return Math.Max(0, Cost);
+    }
+
+    // (R4 S3b-2) The R2-C CostList STOP stub is retired — the real 1:1 CostList (the EvoCosts projection,
+    // printed half carried by DigivolutionCostHelpers.ReadRequirements) lives in the digivolution cost engine
+    // region below (EvoCosts / CostList / CanEvolve).
 
     /// <summary>(C9) mirror of AS-IS <c>CardSource.IsLinked</c> (CardSource.cs:2947):
     /// <c>PermanentOfThisCard().LinkedCards.Contains(this)</c> — true while this card is a LINK card of a
@@ -1285,6 +1767,193 @@ public sealed class CardSource
         }
 
         return costs;
+    }
+
+    // ===== (R4 S3b-2) AS-IS printed+added digivolution cost engine — EvoCosts / CostList / CanEvolve =====
+    // AS-IS CardSource.EvoCosts (:534-611) / CostList (:617-627) / CanEvolve (:1263-1285), resolving STOP
+    // RD-P6C1-2 for the READ side. The three IAddDigivolutionRequirementEffect scan regions are the same fold
+    // AddedDigivolutionCosts (RD-P6B-15) carries — here kept as DEFERRED per-target Funcs exactly like AS-IS.
+    // The printed BaseEvoCostsFromEntity carrier is the substrate card data the digivolve pipeline already
+    // reads: DigivolutionCostHelpers.ReadRequirements(Definition) — {TargetColor, TargetLevel, MemoryCost} =
+    // AS-IS EvoCost {CardColor, Level, MemoryCost}; a null color/level (the "Any" fallback entry) matches all,
+    // the substrate's established Any semantics. DigivolveAction's own legality path stays live in parallel
+    // until the S3c cutover (documented dual-seat, same data).
+
+    /// <summary>(R4 S3b-2) AS-IS <c>CardSource.EvoCosts(ignore, checkAvailability)</c> (:534-611): the
+    /// digivolution cost candidates as per-target Funcs — the added-requirement scans (players / field
+    /// permanents / itself-when-off-permanent-or-own-source) then the printed entity costs with the
+    /// ignore-requirement / color / level gates.</summary>
+    public List<Func<Permanent, int>> EvoCosts(CardEffectCommons.IgnoreRequirement ignore, bool checkAvailability)
+    {
+        List<Func<Permanent, int>> EvoCosts = new List<Func<Permanent, int>>();
+        var gameContext = new GameContext(Context);
+
+        // the effects of players (:541-552)
+        EvoCosts = EvoCosts
+            .Concat(
+                gameContext.Players_ForTurnPlayer
+                    .Map(player => player.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Filter(cardEffect => cardEffect is IAddDigivolutionRequirementEffect && cardEffect.CanUse(null))
+                    .Map<ICardEffect, Func<Permanent, int>>(cardEffect =>
+                        (targetPermanent) => ((IAddDigivolutionRequirementEffect)cardEffect).GetEvoCost(targetPermanent, this, ignore, checkAvailability)))
+                    .ToList();
+
+        // the effects of permanents (:556-570)
+        EvoCosts = EvoCosts
+            .Concat(
+                gameContext.Players_ForTurnPlayer
+                    .Map(player => player.GetFieldPermanents())
+                    .Flat()
+                    .Map(permanent => permanent.EffectList(EffectTiming.None))
+                    .Flat()
+                    .Filter(cardEffect => cardEffect is IAddDigivolutionRequirementEffect && cardEffect.CanUse(null))
+                    .Map<ICardEffect, Func<Permanent, int>>(cardEffect =>
+                        (targetPermanent) => ((IAddDigivolutionRequirementEffect)cardEffect).GetEvoCost(targetPermanent, this, ignore, checkAvailability)))
+                    .ToList();
+
+        // the effects of itself (:574-585) — off-permanent, or a digivolution source of its own permanent.
+        PermanentView permanentOfThisCard = PermanentOfThisCard();
+        if (permanentOfThisCard.IsEmpty || permanentOfThisCard.DigivolutionCards.Any(under => under.InstanceId == InstanceId))
+        {
+            EvoCosts = EvoCosts
+                .Concat(
+                    EffectList(EffectTiming.None)
+                        .Filter(cardEffect => cardEffect is IAddDigivolutionRequirementEffect && cardEffect.CanUse(null))
+                        .Map<ICardEffect, Func<Permanent, int>>(cardEffect =>
+                            (targetPermanent) => ((IAddDigivolutionRequirementEffect)cardEffect).GetEvoCost(targetPermanent, this, ignore, checkAvailability)))
+                        .ToList();
+        }
+
+        // printed entity costs (:587-609) — carrier: the AS-IS EvoCost {CardColor, Level, MemoryCost} rides the
+        // card data as the EvolutionCondition token string "Color@Level(:Cost)" (the G8-001 encoding — the SAME
+        // gate DigivolveAction.MatchesEvolutionCondition enforces on the OLD path; the S3c-a shadow caught the
+        // earlier ReadRequirements-only projection over-permitting because the requirement list carries only the
+        // Any-cost fallback for condition-string cards). Falls back to ReadRequirements entries when no
+        // condition string exists. Non-Color@Level tokens (definition / card-number / card-type conditions)
+        // gate on the live top card's identity, cost = the token suffix or the printed EvolutionCost.
+        EvoCosts = EvoCosts
+            .Concat(PrintedEvoCosts()
+                .Select<PrintedEvoCost, Func<Permanent, int>>(evoCost =>
+                (targetPermanent) =>
+                {
+                    Player owner = new Player(Context, Owner);
+
+                    if (ignore.Equals(CardEffectCommons.IgnoreRequirement.All) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                        return evoCost.MemoryCost;
+
+                    if (evoCost.TokenMatch is { } tokenMatch)
+                    {
+                        // definition/number/type condition — no color/level halves to ignore separately.
+                        return tokenMatch(targetPermanent) ? evoCost.MemoryCost : -1;
+                    }
+
+                    if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Color) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                        || evoCost.CardColor is null
+                        || targetPermanent.TopCard.CardColors.Contains(evoCost.CardColor))
+                    {
+                        if ((ignore.Equals(CardEffectCommons.IgnoreRequirement.Level) && owner.CanIgnoreDigivolutionRequirement(targetPermanent, this))
+                            || evoCost.Level is null
+                            || targetPermanent.Level == evoCost.Level)
+                        {
+                            return evoCost.MemoryCost;
+                        }
+                    }
+
+                    return -1;
+                }))
+                .ToList();
+
+        return EvoCosts;
+    }
+
+    /// <summary>One printed digivolution path (the AS-IS <c>EvoCost</c> value): a Color@Level cost, or a
+    /// definition/number/type-conditioned cost (<see cref="TokenMatch"/> non-null).</summary>
+    private sealed record PrintedEvoCost(string? CardColor, int? Level, int MemoryCost, Func<Permanent, bool>? TokenMatch = null);
+
+    /// <summary>The printed digivolution paths of this card — EvolutionCondition tokens first (the G8-001
+    /// "Color@Level(:Cost)" encoding, cost falling back to the printed EvolutionCost), else the
+    /// DigivolutionCostHelpers requirement entries (explicit metadata conditions / the Any-cost record).
+    /// (RD-R3-01) the token parse itself is the SHARED canonical parser
+    /// (<see cref="Headless.Effects.DigivolutionCostHelpers.ParseEvolutionCondition"/>) — the DigivolveAction
+    /// seat's requirement table reads the SAME parse, ending the dual-parser drift review 3 flagged. Token
+    /// order is preserved (AS-IS BaseEvoCostsFromEntity data order).</summary>
+    private List<PrintedEvoCost> PrintedEvoCosts()
+    {
+        var costs = new List<PrintedEvoCost>();
+        if (Definition is not { } definition)
+        {
+            return costs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(definition.EvolutionCondition))
+        {
+            foreach (Headless.Effects.DigivolutionCostRequirement requirement in
+                Headless.Effects.DigivolutionCostHelpers.ParseEvolutionCondition(definition.EvolutionCondition, definition.EvolutionCost))
+            {
+                if (requirement.TargetIdentity is { } identity)
+                {
+                    // definition / card-number / card-type condition token — identity gate on the live top card.
+                    costs.Add(new PrintedEvoCost(null, null, requirement.MemoryCost,
+                        targetPermanent => targetPermanent.TopCard is { } top
+                            && (string.Equals(identity, top.Definition?.Id.Value, StringComparison.Ordinal)
+                                || string.Equals(identity, top.Definition?.CardNumber, StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(identity, top.Definition?.CardType, StringComparison.OrdinalIgnoreCase))));
+                    continue;
+                }
+
+                costs.Add(new PrintedEvoCost(requirement.TargetColor, requirement.TargetLevel, requirement.MemoryCost));
+            }
+
+            return costs;
+        }
+
+        foreach (Headless.Effects.DigivolutionCostRequirement requirement in Headless.Effects.DigivolutionCostHelpers.ReadRequirements(definition))
+        {
+            costs.Add(new PrintedEvoCost(requirement.TargetColor, requirement.TargetLevel, requirement.MemoryCost));
+        }
+
+        return costs;
+    }
+
+    /// <summary>(R4 S3b-2) AS-IS <c>CardSource.CostList(targetPermanent, ignoreLevel, checkAvailability)</c>
+    /// (:617-627) — the payable digivolution costs onto the target.</summary>
+    public List<int> CostList(Permanent targetPermanent, bool ignoreLevel, bool checkAvailability)
+    {
+        CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None;
+
+        if (ignoreLevel)
+            ignore = CardEffectCommons.IgnoreRequirement.Level;
+
+        return EvoCosts(ignore, checkAvailability)
+                .Filter(evoCost => evoCost(targetPermanent) >= 0)
+                .Map(evoCost => evoCost(targetPermanent));
+    }
+
+    /// <summary>(R4 S3b-2) AS-IS <c>CardSource.CanEvolve(targetPermanent, checkAvailability, ignore)</c>
+    /// (:1263-1285): the CanNotEvolve restriction gate, then ANY digivolution cost path &gt;= 0.</summary>
+    public bool CanEvolve(Permanent targetPermanent, bool checkAvailability, CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None)
+    {
+        if (targetPermanent != null)
+        {
+            if (CanNotEvolve(targetPermanent))
+            {
+                return false;
+            }
+
+            if (targetPermanent.TopCard != null)
+            {
+                foreach (Func<Permanent, int> EvoCost in EvoCosts(ignore, checkAvailability))
+                {
+                    if (EvoCost(targetPermanent) >= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     // ===== (RD-P6B-17) ignore-color requirement — AS-IS CardSource.MatchColorRequirement scan ============

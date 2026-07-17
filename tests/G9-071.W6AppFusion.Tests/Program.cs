@@ -101,9 +101,12 @@ async Task Arts()
     // evolution condition by matching levels (option level 5 onto level-4 target via engine cost gate).
     var cards = (CardDatabase)ctx.CardRepository;
     ctx.CardInstanceRepository.TryGetInstance(option, out CardInstanceRecord? optRec);
+    // (RD-R3-01) no EvolutionCondition: the cost seat now parses condition tokens for real (the old
+    // "level=4" pseudo-token only passed because the requirement table degraded to the Any fallback).
+    // EvolutionCost 0 alone IS the permissive any-target path this fixture wants (cost-free Arts digivolve).
     cards.Upsert(new CardRecord(optRec!.DefinitionId, "ARTSOPT", "ArtsOption",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 6000, ["level"] = 5 },
-        CardType: "Digimon", EvolutionCost: 0, EvolutionCondition: "level=4"));
+        CardType: "Digimon", EvolutionCost: 0));
 
     var provider = (ScriptedChoiceProvider)ctx.ChoiceProvider;
     provider.Enqueue(ChoiceResult.Select(target));
