@@ -41,6 +41,15 @@ public static class FusionDigivolveHelpers
     /// <param name="enteredThisTurnOverride">Summoning-sickness flag for the fused top. Null (default) =
     /// not sick (Jogress/Xros exempt). A single-target free digivolve (D-6 Blast/Arts) passes the value
     /// inherited from its target instead.</param>
+    /// <param name="permanentContinuity">(RD-R3-02, 리뷰3 이월) True for a single-target FREE digivolve
+    /// (D-6 Blast/Arts): AS-IS runs it through the normal evolution arm (`permanent = _targetPermanent;
+    /// permanent.AddCardSource(card)`, CardController.cs:1372-1376) — the SAME AS-IS Permanent object
+    /// persists across the top swap, so both swap moves carry
+    /// <see cref="PermanentBookkeepingStore.PermanentContinuityKey"/> and this op owns the
+    /// <see cref="PermanentBookkeepingStore.ReKey"/> (the DigivolveAction/DeDigivolveHelpers seat
+    /// convention). False (default) for Jogress/DigiXros: AS-IS creates a NEW Permanent
+    /// (`permanent = new Permanent(...)`, CardController.cs:1497) — the chokepoint CREATE/DIE Resets are
+    /// the correct lifetime.</param>
     public static async Task<IReadOnlyList<HeadlessEntityId>> FuseAsync(
         ICardInstanceRepository repository,
         IZoneMover zoneMover,
@@ -52,7 +61,8 @@ public static class FusionDigivolveHelpers
         bool? enteredThisTurnOverride = null,
         FusionKind kind = FusionKind.None,
         CancellationToken cancellationToken = default,
-        Effects.OnceFlagController? onceFlags = null)
+        Effects.OnceFlagController? onceFlags = null,
+        bool permanentContinuity = false)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -89,9 +99,15 @@ public static class FusionDigivolveHelpers
         merged.AddRange(ReadSourceIds(top.Metadata).Select(id => id.Value));
         merged = merged.Distinct().Where(id => id != topCardId.Value).ToList();
 
+        // (RD-R3-02) a free single-target digivolve is a TOP SWAP of a persisting AS-IS Permanent — mark
+        // both halves so the zone-mover lifetime chokepoint does not Reset the bookkeeping (this op ReKeys
+        // below). Only meaningful for the exactly-one-material D-6 shape; a fusion keeps the CREATE path.
+        bool topSwap = permanentContinuity && validMaterials.Count == 1;
+
         // Move the new top onto the field; move each material off-field (it becomes a source).
         await zoneMover.MoveAsync(
-            new ZoneMoveRequest(top.OwnerId, topCardId, topFromZone, ChoiceZone.BattleArea, FaceUp: true),
+            new ZoneMoveRequest(top.OwnerId, topCardId, topFromZone, ChoiceZone.BattleArea, FaceUp: true,
+                Metadata: topSwap ? Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata : null),
             cancellationToken).ConfigureAwait(false);
 
         // (max-trash / max-under-Tamer DigiXros) materials may come from DIFFERENT zones (field + trash) OR from
@@ -104,7 +120,9 @@ public static class FusionDigivolveHelpers
             if (from is ChoiceZone zone)
             {
                 await zoneMover.MoveAsync(
-                    new ZoneMoveRequest(material.OwnerId, material.InstanceId, zone, ChoiceZone.None),
+                    new ZoneMoveRequest(material.OwnerId, material.InstanceId, zone, ChoiceZone.None,
+                        // (RD-R3-02) the leaving half of the D-6 top swap — see the topSwap marker above.
+                        Metadata: topSwap ? Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ContinuityMoveMetadata : null),
                     cancellationToken).ConfigureAwait(false);
             }
             else
@@ -124,6 +142,15 @@ public static class FusionDigivolveHelpers
             [EnteredThisTurnKey] = enteredThisTurnOverride ?? false,
         };
         repository.Upsert(current with { Metadata = metadata });
+
+        // (RD-R3-02) D-6 free digivolve: the persisting permanent's just-after bookkeeping follows the swap
+        // to the new top (AS-IS: the SAME Permanent object, CardController.cs:1372-1376) — the seat convention
+        // of DigivolveAction.AttachTargetAsSource / DeDigivolveHelpers' promotes.
+        if (topSwap)
+        {
+            Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore.ReKey(
+                repository, validMaterials[0].InstanceId, topCardId);
+        }
 
         // (B-3 tuck reset) AS-IS resets the per-turn use counts of the fused stack's cards: Jogress resets EVERY
         // DigivolutionCard of the new permanent (CardController.cs:1509-1512), DigiXros resets each tucked

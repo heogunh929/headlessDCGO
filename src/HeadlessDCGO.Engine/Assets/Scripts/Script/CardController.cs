@@ -3672,6 +3672,41 @@ public class PlayPermanentClass
         // ST2_09's opponent-source trash fired on OLD and stayed silent on the pump path.
         if (isEvolution)
         {
+            // (리뷰3 P2-②) DOUBLE-KEY GUARD: with BOTH windows open on an evolution, a card that registers
+            // the SAME effect under OnEnterFieldAnyone (the literal AS-IS key) AND WhenDigivolving (the remap
+            // dialect key) would fire it TWICE per digivolve. AS-IS has exactly ONE key, so a double
+            // registration is structurally impossible there — it can only be a corpus authoring defect
+            // (a card ported half-verbatim / half-remapped). The honest mirror translation is therefore to
+            // SURFACE the defect immediately, not to silently dedup (choosing which copy fires would invent
+            // behavior AS-IS cannot express). Same-effect = same source card instance + same (non-empty)
+            // AS-IS EffectDiscription, on the members that actually pass this window's CanTrigger gates.
+            List<SkillInfo> enterKeyMembers = AutoProcessing.GetSkillInfos(
+                effectHashtable, EffectTiming.OnEnterFieldAnyone, CardEffectCondition);
+            List<SkillInfo> digivolveKeyMembers = AutoProcessing.GetSkillInfos(
+                effectHashtable, EffectTiming.WhenDigivolving, CardEffectCondition);
+            foreach (SkillInfo digivolveMember in digivolveKeyMembers)
+            {
+                if (digivolveMember.CardEffect?.EffectSourceCard is not CardSource digivolveSource
+                    || string.IsNullOrEmpty(digivolveMember.CardEffect.EffectDiscription))
+                {
+                    continue;
+                }
+
+                bool doubleKeyed = enterKeyMembers.Some(enterMember =>
+                    enterMember.CardEffect?.EffectSourceCard is CardSource enterSource
+                    && enterSource.InstanceId == digivolveSource.InstanceId
+                    && enterMember.CardEffect.EffectDiscription == digivolveMember.CardEffect.EffectDiscription);
+                if (doubleKeyed)
+                {
+                    throw new NotSupportedException(
+                        $"STOP: card '{digivolveSource.InstanceId.Value}' registers the same effect " +
+                        $"('{digivolveMember.CardEffect.EffectDiscription}') under BOTH OnEnterFieldAnyone and " +
+                        "WhenDigivolving — the DISPATCH-REMAP dialect requires exactly one key per effect " +
+                        "(AS-IS has a single OnEnterFieldAnyone key; a double registration would double-fire " +
+                        "on every digivolve). Corpus defect — fix the card's timing key (리뷰3 P2-② guard).");
+                }
+            }
+
             await GManager.instance.autoProcessing.StackSkillInfos(
                 hashtable: effectHashtable,
                 timing: EffectTiming.WhenDigivolving,

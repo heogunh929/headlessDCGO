@@ -223,6 +223,17 @@ public sealed class DcgoMatch
     {
         EnsureInitialized();
         cancellationToken.ThrowIfCancellationRequested();
+
+        // (RD-R4P4-01) Self-scope the ambient match for the whole step — the documented AmbientMatchContext
+        // contract ("the engine sets it at the start of a match operation"). Action processing runs at this
+        // level, and paths like the block-choice resolve (MetadataActionProcessor.ResolveChoiceAsync ->
+        // BlockTiming.GetBlockerCandidates -> Permanent.HasCollision -> CEntity_EffectController
+        // .GetCardEffects reads GManager.instance) execute OUTSIDE any inner ambient scope, so a bare
+        // consumer (no external Enter wrap) NRE'd on block-with-collision. Enter is save/restore-nested,
+        // so externally-wrapped callers (test harnesses) are unaffected. Same discipline as
+        // TurnFlowPumpTask.StepAsync's per-segment scope.
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
+
         if (_isTerminal)
         {
             return DrainStepResult();
@@ -329,6 +340,11 @@ public sealed class DcgoMatch
         {
             throw new InvalidOperationException("Cannot apply actions after the match is terminal.");
         }
+
+        // (RD-R4P4-01) Same self-scoping discipline as StepAsync: the legality boundary below evaluates the
+        // live legal table (mirror Permanent/Player predicates that read GManager.instance), so a bare
+        // consumer needs the ambient match entered at this surface too. Nest-safe for wrapped callers.
+        using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(Context);
 
         if (_actionLegality is not null)
         {

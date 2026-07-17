@@ -237,6 +237,17 @@ public sealed class HeadlessLegalActionDispatcher
             // A single pick is a valid selection of size 1 whenever MinCount <= 1 <= MaxCount.
             foreach (ChoiceCandidate candidate in request.SelectableCandidates)
             {
+                // (RD-S3D-01) The AS-IS selection UI only activates its confirm button when the request's
+                // combination validator (CanEndSelect) accepts the selected set — "on the table = executable"
+                // is the AS-IS contract. A ResolveChoice table entry IS a complete size-1 resolution, so a
+                // candidate whose 1-element set fails the SelectionValidator must not be listed (picking it
+                // could only throw/fail at resolve time). Validator-less requests keep the previous table.
+                if (request.SelectionValidator is not null
+                    && !request.SelectionValidator(new[] { candidate.Id }))
+                {
+                    continue;
+                }
+
                 actions.Add(HeadlessActionFactory.ResolveChoice(
                     request.PlayerId,
                     ChoiceResult.Select(candidate.Id),

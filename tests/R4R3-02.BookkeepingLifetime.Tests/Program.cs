@@ -36,6 +36,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("digivolve (AddCardSource ReKey) preserves values; de-digivolve (promote ReKey) carries back", TopSwapContinuity),
     ("digivolve onto entry-less permanent: new top's stale previous-life entry cleared", StaleNewTopCleared),
     ("breeding promote (BreedingArea->BattleArea): same permanent, entry preserved", BreedingPromoteKeeps),
+    ("free digivolve (FuseAsync D-6 Blast/Arts top swap) ReKeys: bookkeeping survives on the new top", FreeDigivolveContinuity),
 };
 
 var failures = new List<string>();
@@ -195,6 +196,34 @@ async Task BreedingPromoteKeeps()
     AssertEqual(1, moved.Count, "one card promoted from breeding");
     AssertTrue(InZone(context, P1, card, ChoiceZone.BattleArea), "promoted card is on the battle area");
     AssertStamped(context, card, "field->field move keeps the SAME AS-IS Permanent object's bookkeeping");
+}
+
+// --- 7. free digivolve (FuseAsync D-6) is a top swap, not a lifetime boundary ----
+
+async Task FreeDigivolveContinuity()
+{
+    // (리뷰3 이월) AS-IS Blast/Arts free digivolve runs the NORMAL evolution arm (`permanent =
+    // _targetPermanent; permanent.AddCardSource(card)`, CardController.cs:1372-1376, payCost:false) — the
+    // SAME AS-IS Permanent object persists. Before the fix the FuseAsync moves carried no continuity marker,
+    // so the P1-2 chokepoint fail-safe RESET the entry (observably "no divergence" only because the values
+    // were silently discarded); the fix restores the CONTINUITY semantics (marked moves + ReKey).
+    EngineContext context = NewContext();
+    using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(context);
+    HeadlessEntityId baseCard = await PlaceOnField(context, "W7BASE");
+    HeadlessEntityId evoCard = await PlaceInHand(context, "W7EVO");
+
+    StampAllNine(context, baseCard);
+    AssertTrue(StoreHasEntry(context.CardInstanceRepository, baseCard), "entry exists after stamping");
+
+    bool performed = await FreeDigivolveHelpers.DigivolveFreeAsync(
+        context.CardInstanceRepository, context.ZoneMover, evoCard, baseCard,
+        fromZone: ChoiceZone.Hand, gameEventQueue: context.GameEventQueue);
+    AssertTrue(performed, "the free digivolve was performed");
+    AssertTrue(InZone(context, P1, evoCard, ChoiceZone.BattleArea), "the new top is on the battle area");
+    AssertTrue(!InZone(context, P1, baseCard, ChoiceZone.BattleArea), "the old top left the zone (a source now)");
+
+    AssertTrue(!StoreHasEntry(context.CardInstanceRepository, baseCard), "old top key re-keyed away");
+    AssertStamped(context, evoCard, "PERSIST: the permanent's bookkeeping survives the FREE digivolve on the new top");
 }
 
 // --- helpers -------------------------------------------------------------------

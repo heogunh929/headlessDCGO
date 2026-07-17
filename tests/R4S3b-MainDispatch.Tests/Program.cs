@@ -28,6 +28,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(S3c-c repro) an EVOLVED permanent's death trashes its WHOLE stack (top + digivolution sources)", EvolvedDeathTrashesStack),
     ("(S3c-d1) CreatePumpDriven promotion: pump installed at init (setup normalized), first step opens the mulligan, no step-cadence actions", PumpFactoryPromotion),
     ("(리뷰3 P2-3) pump-match blocker path: block choice opens, blocker substitutes as the battle target (suspend + DP deletion, no security check), the game continues", PumpBlockerBattle),
+    ("(리뷰3 P2-⑤) a second same-mask packet cannot cross the turn boundary: the driver refuses production outside the armed main wait", PumpPacketTurnBoundaryGate),
+    ("(리뷰3 P2-②) DISPATCH-REMAP double-key guard: a card registering the same effect under OnEnterFieldAnyone AND WhenDigivolving surfaces as a STOP on digivolve", WhenDigivolvingDoubleKeyGuard),
 };
 
 async Task PumpFactoryPromotion()
@@ -260,6 +262,108 @@ async Task PumpBlockerBattle()
     AssertEqual(3, match.Context.TurnController.Current.TurnNumber, "still the attacker's turn at the post-battle main wait");
     await SendAsync(match, attackerOwner, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
     await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 4 && AtMainWait(m));
+}
+
+async Task PumpPacketTurnBoundaryGate()
+{
+    // (리뷰3 P2-⑤) AS-IS gates packet PRODUCTION at the UI (NextPhaseButton.OnClick `!IsSelecting &&
+    // !isExecuting && ... && TurnPhase == Main`; card clicks are armed only during the selection wait, one
+    // click per arm) and never drains Player.mainPhaseActions at a turn boundary. An agent that queues TWO
+    // packets against the SAME mask (both pass apply-time legality — queueing does not change the observable
+    // state) must therefore have the SECOND refused at the driver's producer seat once the first ends the
+    // turn; before the gate the stale packet survived into the NEXT turn's main wait and auto-consumed it.
+    DcgoMatch match = await NewPumpMatchAsync(seed: 59);
+    await ReachMainWaitAsync(match);
+    HeadlessPlayerId first = match.Context.TurnController.Current.TurnPlayerId!.Value;
+
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    var pass1 = new LegalAction(new HeadlessEntityId("witness:pass:1"), first, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    var pass2 = new LegalAction(new HeadlessEntityId("witness:pass:2"), first, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    StepResult apply1 = await match.ApplyActionAsync(pass1);
+    StepResult apply2 = await match.ApplyActionAsync(pass2);
+    AssertTrue(apply1.Events.All(e => e.Type != GameEventType.InvalidAction), "the first pass is accepted at apply");
+    AssertTrue(apply2.Events.All(e => e.Type != GameEventType.InvalidAction),
+        "the second pass ALSO passes the apply-time mask (the stale-mask window under test)");
+
+    // Step 1 processes pass1 (packet queued); step 2's task-runner phase consumes it (the turn ends), then
+    // pass2 is processed — the producer gate must refuse it (the main wait is no longer armed).
+    await match.StepAsync();
+    StepResult step2 = await match.StepAsync();
+    GameEvent processed = step2.Events.Single(e => e.Type == GameEventType.ActionProcessed);
+    AssertTrue(processed.Metadata.TryGetValue("success", out object? ok) && ok is bool okFlag && !okFlag,
+        "the stale second packet was REFUSED (Failure), not queued");
+    AssertEqual(2, match.Context.TurnController.Current.TurnNumber, "the first pass ended turn 1");
+
+    // The refusal left the queue empty, so the first player's NEXT main wait waits for the agent instead of
+    // consuming a stale cross-turn pass (the pre-gate behavior auto-passed turn 3).
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 2 && AtMainWait(m));
+    HeadlessPlayerId second = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    await SendAsync(match, second, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+    await DriveUntilAsync(match, m => m.Context.TurnController.Current.TurnNumber == 3 && AtMainWait(m));
+    AssertEqual(first, match.Context.TurnController.Current.TurnPlayerId!.Value, "turn 3 belongs to the first player again");
+    AssertTrue(Legal(match, first).Any(a => HeadlessActionTypes.Normalize(a.ActionType) == HeadlessActionTypes.NormalizedPass),
+        "the turn-3 main wait is ARMED for the agent (no stale packet consumed it)");
+}
+
+async Task WhenDigivolvingDoubleKeyGuard()
+{
+    // (리뷰3 P2-②) The executor's WhenDigivolving bridge opens BOTH windows on an evolution play
+    // (OnEnterFieldAnyone = the literal AS-IS key; WhenDigivolving = the corpus DISPATCH-REMAP dialect key).
+    // A card registering the SAME effect under both keys would fire it twice per digivolve — a state AS-IS
+    // (single key) cannot express, hence a corpus authoring defect. The guard at the bridge seat must
+    // SURFACE it as a STOP (NotSupportedException), not silently dedup. Fixture: TfxDoubleKeyWhenDigivolving
+    // (the deliberate double-key registration; live corpus double-key registrations: 0).
+    DcgoMatch match = await NewPumpMatchAsync(seed: 61);
+    EngineContext context = match.Context;
+    var db = (CardDatabase)context.CardRepository;
+
+    // A RED level-3 evolution target on P1's board (the Tfx staging convention: definition + instance + move).
+    var targetDef = new HeadlessEntityId("DEF:tfx-dk-target");
+    db.Upsert(new CardRecord(targetDef, "TfxDkTarget", "TfxDkTarget",
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        { ["color"] = "Red", ["colors"] = new[] { "Red" }, ["level"] = 3, ["dp"] = 3000 },
+        CardType: "Digimon"));
+    var targetId = new HeadlessEntityId("card:tfx-dk-target");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(targetId, targetDef, P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, targetId, ChoiceZone.None, ChoiceZone.BattleArea));
+
+    // The double-keyed fixture in P1's hand (dispatch resolves the card number to the Tfx class).
+    var evoDef = new HeadlessEntityId("TfxDoubleKeyWhenDigivolving");
+    db.Upsert(new CardRecord(evoDef, "TfxDoubleKeyWhenDigivolving", "TfxDoubleKeyWhenDigivolving",
+        new Dictionary<string, object?>(StringComparer.Ordinal)
+        { ["color"] = "Red", ["colors"] = new[] { "Red" }, ["level"] = 4, ["dp"] = 5000, ["evolutionConditions"] = new[] { "Red@3:2" } },
+        CardType: "Digimon", EvolutionCost: 2, EvolutionCondition: "Red@3:2"));
+    var evoId = new HeadlessEntityId("card:tfx-dk-evo");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(evoId, evoDef, P1));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, evoId, ChoiceZone.None, ChoiceZone.Hand));
+
+    await ReachMainWaitAsync(match);
+    AssertEqual(P1, match.Context.TurnController.Current.TurnPlayerId!.Value, "P1 owns the first main wait");
+
+    // Digivolve the fixture onto the target: the evolution arm reaches the bridge, the guard must throw.
+    Exception? surfaced = null;
+    try
+    {
+        await SendAsync(match, P1, HeadlessActionTypes.PlayCard,
+            new Dictionary<string, object?>
+            {
+                [HeadlessActionParameterKeys.CardId] = evoId.Value,
+                [HeadlessActionParameterKeys.TargetCardId] = targetId.Value,
+            });
+        for (int i = 0; i < 32; i++)
+        {
+            await StepAsync(match);
+        }
+    }
+    catch (Exception ex)
+    {
+        surfaced = ex;
+    }
+
+    AssertTrue(surfaced is NotSupportedException,
+        $"the double-key registration surfaced as a STOP (got {surfaced?.GetType().Name ?? "<no exception>"}: {surfaced?.Message ?? "-"})");
+    AssertTrue(surfaced!.Message.Contains("BOTH OnEnterFieldAnyone and WhenDigivolving", StringComparison.Ordinal),
+        $"the STOP names the double-key defect (got: {surfaced.Message})");
 }
 
 async Task PassSurfaceStillLive()

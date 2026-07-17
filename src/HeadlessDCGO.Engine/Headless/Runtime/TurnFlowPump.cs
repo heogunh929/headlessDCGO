@@ -299,6 +299,14 @@ public static class TurnFlowPump
             // inside EndPhaseAsync (HeadlessEndTurnCleanupFlow, ending player's frame), then the flip, then the
             // new-turn resets.
             HeadlessTurnState newTurn = context.TurnController.EndTurn();
+            // (리뷰3 P2-⑦ 착지) AS-IS :550 TurnCount++ side effect: every `EnterFieldTurnCount == TurnCount`
+            // comparison (summoning sickness / "entered play this turn" reads) EXPIRES the instant the turn
+            // number advances — for EVERY player's permanents at once. The mirror carrier is the boolean
+            // `enteredThisTurn` instance flag (Permanent.EnterFieldTurnCount's write surface), which nothing
+            // expired on the pump path (the OLD driver's seat is HeadlessEarlyPhaseFlow's per-turn-player
+            // clear), so a PLAYED digimon stayed summoning-sick forever — the security-win shadow witness
+            // surfaced it (no pump-side attack was ever possible from the real play path).
+            ExpireEnteredThisTurnFlags(context, newTurn);
             // F-4: once-per-turn use counts (legacy metadata-key model) reset for the NEW turn.
             context.OnceFlags.ResetForTurn(newTurn.TurnNumber, newTurn.TurnPlayerId);
             // AS-IS :3181 player.DigivolveCount_ThisTurn = 0 — substrate PlayerTurnCounterController owner.
@@ -318,5 +326,40 @@ public static class TurnFlowPump
     private static bool Ended(Cec.TurnStateMachine turnStateMachine, EngineContext context)
     {
         return turnStateMachine.endGame || context.RuleQueryService.IsTerminal();
+    }
+
+    /// <summary>(리뷰3 P2-⑦ 착지) The substrate translation of the AS-IS <c>TurnCount++</c> expiry (:550):
+    /// with the turn number advanced, no card "entered the field this turn" any more — clear the boolean
+    /// <c>enteredThisTurn</c> carrier on every player's field-zone cards (battle + breeding; the flag is only
+    /// ever stamped on field entry, and a re-play re-stamps it). ALL players at once, matching the AS-IS
+    /// comparison semantics (not only the incoming turn player).</summary>
+    private static void ExpireEnteredThisTurnFlags(EngineContext context, HeadlessTurnState newTurn)
+    {
+        if (context.ZoneMover is not Services.IZoneStateReader zones)
+        {
+            return;
+        }
+
+        foreach (Services.HeadlessPlayerId playerId in newTurn.PlayerOrder)
+        {
+            foreach (ChoiceZone zone in new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea })
+            {
+                foreach (Services.HeadlessEntityId cardId in zones.GetCards(playerId, zone))
+                {
+                    if (!context.CardInstanceRepository.TryGetInstance(cardId, out Services.CardInstanceRecord? record)
+                        || record is null
+                        || !(record.Metadata.TryGetValue(MatchStateMutationSink.EnteredThisTurnKey, out object? raw) && raw is true))
+                    {
+                        continue;
+                    }
+
+                    var metadata = new Dictionary<string, object?>(record.Metadata, StringComparer.Ordinal)
+                    {
+                        [MatchStateMutationSink.EnteredThisTurnKey] = false,
+                    };
+                    context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+                }
+            }
+        }
     }
 }

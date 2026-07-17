@@ -52,7 +52,12 @@ public static class FreeDigivolveHelpers
             materialFromZone: ChoiceZone.BattleArea,
             gameEventQueue: gameEventQueue,
             enteredThisTurnOverride: inheritedSick,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken,
+            // (RD-R3-02) AS-IS Blast/Arts run the NORMAL evolution arm (`permanent = _targetPermanent;
+            // permanent.AddCardSource(card)`, CardController.cs:1372-1376, payCost:false) — the AS-IS
+            // Permanent object PERSISTS across the top swap, so the fuse must ReKey the just-after
+            // bookkeeping instead of letting the chokepoint Reset it.
+            permanentContinuity: true).ConfigureAwait(false);
 
         return merged.Count > 0;
     }

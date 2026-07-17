@@ -190,6 +190,36 @@ public sealed class TurnFlowDriver : IActionProcessor
         Cec.MainPhaseAction packet,
         string kind)
     {
+        // (리뷰3 P2-⑤) The AS-IS packet PRODUCER is gated by the UI: a main-phase packet can only be produced
+        // while the turn player's main selection surface is armed (NextPhaseButton.OnClick `!IsSelecting &&
+        // !isExecuting && !isSecurityCehck && TurnPlayer.isYou && TurnPhase == Main`; the SetMainPhase card
+        // clicks are armed only during the :971-1170 selection wait, and the click tears the surface down, so
+        // at most ONE packet exists per arm). AS-IS never drains Player.mainPhaseActions at a turn boundary —
+        // the queue simply can never hold a stale packet. This gate is that producer discipline at the mirror
+        // producer seat (this driver IS the AS-IS UI/packet transport): accept a packet only when the machine
+        // is at THIS player's main selection wait with no packet already pending; otherwise the packet is
+        // refused without touching the queue (the agent re-reads the mask and retries), so a second packet
+        // validated against a stale mask can never leak across the turn boundary.
+        Cec.GameContext gameContext = new(context);
+        string? refusal =
+            gameContext.TurnPhase != Cec.GameContext.phase.Main
+                ? "the turn is not at the main phase"
+            : gameContext.TurnPlayer is not { } turnPlayer || turnPlayer.PlayerId != action.PlayerId
+                ? "the acting player is not the turn player"
+            : context.ChoiceController.Current.IsPending
+                ? "a choice is pending"
+            : new Cec.Player(context, action.PlayerId).HasMainPhaseAction()
+                ? "a queued main-phase packet is already awaiting the selection wait"
+            : null;
+        if (refusal is not null)
+        {
+            Dictionary<string, object?> refusedMetadata = Base(action);
+            refusedMetadata["mainPhaseActionRefused"] = refusal;
+            return ActionProcessResult.Failure(
+                $"{kind} refused: {refusal} (the main-phase packet surface is not armed — AS-IS UI gate).",
+                refusedMetadata);
+        }
+
         new Cec.Player(context, action.PlayerId).QueueMainPhaseAction(packet);
         Dictionary<string, object?> metadata = Base(action);
         metadata["mainPhaseActionQueued"] = kind;

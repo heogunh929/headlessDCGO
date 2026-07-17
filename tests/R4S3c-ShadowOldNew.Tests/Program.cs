@@ -101,15 +101,61 @@ if (hardErrors.Count > 0)
 
 Console.WriteLine($"\n{reports.Count} shadow game(s) completed; {identical} identical, {reports.Count - identical} diverged (findings above).");
 
+// --- (리뷰3 P2-⑦) security-0 direct-attack ending witness --------------------------------------------------
+// The 16 catalogued shadow endings were ALL deck-outs, so the security-WIN terminal seam was uncovered: the
+// mirror routes a security-0 direct attack through MarkLose -> the NEXT AutoProcessCheck's EndGameProcess,
+// one pass later than the AS-IS synchronous EndGame set (AttackProcess.cs:425). This game pins OLD-vs-NEW
+// digest identity + winner parity ON that ending. Fixture decks (S3C_* env convention: S3C_SECWIN_SEED):
+// vanilla-only mains (no ported effect class -> no effect windows), asymmetric DP so the security race ends
+// long before a deck-out — P1 = 50x BT4_065 (Gotsumon, 6000 DP survives every security battle), P2 = 50x
+// BT1_028 (Elecmon, 3000 DP: cheaper plays, more attacks). No digitama (the breeding surface stays closed).
+{
+    int secWinSeed = int.TryParse(Environment.GetEnvironmentVariable("S3C_SECWIN_SEED"), out int sw) ? sw : seedBase;
+    GameReport sec = await RunShadowGameAsync(secWinSeed, decksOverride: FixtureSecurityRaceDecks(), turnCapOverride: 25);
+    Console.WriteLine($"[secwin] seed {sec.Seed}: {(sec.Identical ? "IDENTICAL" : "DIVERGED")} turns:{sec.TurnsCompared} " +
+        $"terminalOld:{sec.OldTerminal} terminalNew:{sec.NewTerminal} winnerOld:{sec.OldWinner?.ToString() ?? "-"} winnerNew:{sec.NewWinner?.ToString() ?? "-"} " +
+        $"sec(p1/p2):{sec.NewP1Security}/{sec.NewP2Security} lib(p1/p2):{sec.NewP1Library}/{sec.NewP2Library}" +
+        $"{(sec.Completed ? "" : " HARNESS-ERROR:" + sec.HarnessError)}");
+    if (!sec.Identical)
+    {
+        Console.WriteLine($"  divergence at {sec.DivergenceBoundary}:");
+        Console.WriteLine(sec.DivergenceDiff);
+    }
+
+    var secFailures = new List<string>();
+    if (!sec.Completed) { secFailures.Add($"harness error: {sec.HarnessError}"); }
+    if (!sec.Identical) { secFailures.Add($"OLD/NEW diverged at {sec.DivergenceBoundary}"); }
+    if (sec.Completed && (!sec.OldTerminal || !sec.NewTerminal)) { secFailures.Add($"no shared terminal (old:{sec.OldTerminal} new:{sec.NewTerminal})"); }
+    if (sec.NewWinner is null || sec.OldWinner is null) { secFailures.Add("no winner marked on both sides"); }
+    if (sec.OldWinner != sec.NewWinner) { secFailures.Add($"winner mismatch (old:{sec.OldWinner} new:{sec.NewWinner})"); }
+    if (sec.NewWinner is int winner)
+    {
+        int loserSecurity = winner == 1 ? sec.NewP2Security : sec.NewP1Security;
+        int loserLibrary = winner == 1 ? sec.NewP2Library : sec.NewP1Library;
+        if (loserSecurity != 0) { secFailures.Add($"the loser still holds {loserSecurity} security — not the security-0 ending"); }
+        if (loserLibrary <= 0) { secFailures.Add("the loser's library is empty — a deck-out, not the direct-attack ending"); }
+    }
+
+    if (secFailures.Count > 0)
+    {
+        Console.Error.WriteLine("FAIL: the security-0 direct-attack ending witness did not land:");
+        foreach (string failure in secFailures) { Console.Error.WriteLine($"  - {failure}"); }
+        Environment.Exit(1);
+    }
+
+    Console.WriteLine("[secwin] OLD and NEW ended the game on security 0 with identical digests and the same winner.");
+}
+
 // --- Shadow game ----------------------------------------------------------
 
-async Task<GameReport> RunShadowGameAsync(int seed)
+async Task<GameReport> RunShadowGameAsync(int seed, PlayerDeckSetup[]? decksOverride = null, int? turnCapOverride = null)
 {
+    int turnCap = turnCapOverride ?? TurnCap;
     var report = new GameReport { Seed = seed };
     try
     {
-        DcgoMatch oldMatch = await NewOldMatchAsync(seed);
-        DcgoMatch newMatch = await NewPumpMatchAsync(seed);
+        DcgoMatch oldMatch = await NewOldMatchAsync(seed, decksOverride);
+        DcgoMatch newMatch = await NewPumpMatchAsync(seed, decksOverride);
 
         // NEW: start the pump (deals hands, opens mulligan); OLD: setup already dealt + opened mulligan.
         await StepAsync(newMatch);
@@ -137,7 +183,7 @@ async Task<GameReport> RunShadowGameAsync(int seed)
         // same turn's main), compare the boundary digest whenever a NEW turn's main is first reached, and take
         // ONE policy decision per iteration — until a terminal or the cap.
         int lastComparedTurn = 0;
-        for (int step = 0; step < TurnCap * 20; step++)
+        for (int step = 0; step < turnCap * 20; step++)
         {
             bool oldAtMain = await DriveOldToMainWaitAsync(oldMatch);
             bool newAtMain = await DriveNewToMainWaitAsync(newMatch);
@@ -149,6 +195,18 @@ async Task<GameReport> RunShadowGameAsync(int seed)
 
                 report.OldTerminal = oldMatch.IsTerminal();
                 report.NewTerminal = newMatch.IsTerminal();
+                // (리뷰3 P2-⑦) terminal snapshot for the security-win witness: winners + NEW-side security/
+                // library counts (digest identity pins OLD to the same values).
+                report.OldWinner = oldMatch.GetResult().WinnerId?.Value;
+                report.NewWinner = newMatch.GetResult().WinnerId?.Value;
+                if (newMatch.Context.ZoneMover is IZoneStateReader newZones)
+                {
+                    report.NewP1Security = newZones.GetCards(P1, ChoiceZone.Security).Count;
+                    report.NewP2Security = newZones.GetCards(P2, ChoiceZone.Security).Count;
+                    report.NewP1Library = newZones.GetCards(P1, ChoiceZone.Library).Count;
+                    report.NewP2Library = newZones.GetCards(P2, ChoiceZone.Library).Count;
+                }
+
                 string oldFinal = Digest(oldMatch);
                 string newFinal = Digest(newMatch);
                 if (oldFinal != newFinal)
@@ -197,7 +255,7 @@ async Task<GameReport> RunShadowGameAsync(int seed)
 
                 lastComparedTurn = oldTurn;
                 report.TurnsCompared = oldTurn;
-                if (oldTurn > TurnCap)
+                if (oldTurn > turnCap)
                 {
                     break;   // long enough — the boundary trail up to the cap is the finding.
                 }
@@ -450,16 +508,11 @@ async Task<bool> DriveNewToMainWaitAsync(DcgoMatch match)
 
 // --- Match builders ---------------------------------------------------------
 
-async Task<DcgoMatch> NewOldMatchAsync(int seed)
+async Task<DcgoMatch> NewOldMatchAsync(int seed, PlayerDeckSetup[]? decksOverride = null)
 {
     EngineContext context = NewContext(seed);
-    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1"), d2 = StarterDecks.Get("ST2");
     MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[]
-        {
-            new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
-            new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
-        },
+        decksOverride ?? StarterDeckSetups(),
         firstPlayerId: P1,
         enableMulligan: true);
     MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
@@ -469,16 +522,11 @@ async Task<DcgoMatch> NewOldMatchAsync(int seed)
     return match;
 }
 
-async Task<DcgoMatch> NewPumpMatchAsync(int seed)
+async Task<DcgoMatch> NewPumpMatchAsync(int seed, PlayerDeckSetup[]? decksOverride = null)
 {
     EngineContext context = NewContext(seed);
-    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1"), d2 = StarterDecks.Get("ST2");
     MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[]
-        {
-            new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
-            new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
-        },
+        decksOverride ?? StarterDeckSetups(),
         firstPlayerId: P1,
         initialHandSize: 0,
         initialSecuritySize: 0,
@@ -489,6 +537,28 @@ async Task<DcgoMatch> NewPumpMatchAsync(int seed)
     await match.InitializeAsync(config);
     TurnFlowPumpHost.Install(context);
     return match;
+}
+
+PlayerDeckSetup[] StarterDeckSetups()
+{
+    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1"), d2 = StarterDecks.Get("ST2");
+    return new[]
+    {
+        new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
+        new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
+    };
+}
+
+// (리뷰3 P2-⑦) The security-race fixture decks — vanilla-only cards from the embedded card DB (no ported
+// effect class => no effect windows), asymmetric DP so the game ends on security 0 + direct attack well
+// before a deck-out. No digitama: the breeding surface never opens on either driver.
+PlayerDeckSetup[] FixtureSecurityRaceDecks()
+{
+    return new[]
+    {
+        new PlayerDeckSetup(P1, Enumerable.Repeat(new HeadlessEntityId("BT4_065"), 50).ToArray()),   // Gotsumon 6000 DP / cost 4
+        new PlayerDeckSetup(P2, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),   // Elecmon 3000 DP / cost 2
+    };
 }
 
 static EngineContext NewContext(int seed)
@@ -693,4 +763,12 @@ class GameReport
     public string DivergenceBoundary = string.Empty;
     public string DivergenceDiff = string.Empty;
     public string HarnessError = string.Empty;
+
+    // (리뷰3 P2-⑦) terminal snapshot for the security-win ending witness.
+    public int? OldWinner;
+    public int? NewWinner;
+    public int NewP1Security = -1;
+    public int NewP2Security = -1;
+    public int NewP1Library = -1;
+    public int NewP2Library = -1;
 }

@@ -23,7 +23,7 @@ P1 GameContext 갭필(~60줄) → P2a phase-body 휴면 조립(~400-600줄, live
 동일 MatchConfig(RandomSeed·UseDeterministicChoices)로 DcgoMatch 2인스턴스(ctor가 processor 주입 지원 — 구/신 드라이버), 시드 결정론 self-play N=200-1000판, per-step HeadlessTurnState 값-동등+상태 다이제스트 비교, 최초 발산=실패 리포트. 한계=희소 엣지(EoT 인터랙티브·브리딩-이동·덱아웃) 미커버 가능→witness 보완 필수.
 
 ## 리스크 잔여
-①결정 2 사용자 판정 ②DoneStartGame 게이트 정확 지점(StartGameAsync :503 대응) ③P2b의 창 seam 정합(현 EndTurnAsync의 drain이 컷오버 후 신 창엔진과 어떤 관계인지 P2b 착수 시 재검증) ④SetMainPhase 게임룰-누수 spot-audit 미완(V-item) ⑤shadow-run 커버리지 공백=witness 보완.
+①결정 2 사용자 판정 ②DoneStartGame 게이트 정확 지점(StartGameAsync :503 대응) ③P2b의 창 seam 정합(현 EndTurnAsync의 drain이 컷오버 후 신 창엔진과 어떤 관계인지 P2b 착수 시 재검증) ④SetMainPhase 게임룰-누수 spot-audit — **완료 폐쇄(2026-07-17, 리뷰3 P2-⑧ 정합)**: AS-IS :1354-2872 본문 grep 감사 — 룰-상태 쓰기(SetMemory/TurnPhase/Passed/EndTurn/게이지) 0건·선택-인텐트 필드 쓰기 0건, 유일 히트=CardCommand UI 버튼 배선(클릭 핸들러가 생산자 — TurnFlowDriver가 그 미러 좌석). "pure UI, non-scope" 판정 확정, EndTurnProcess else-arm(:721-724) strip 정당성 성립 ⑤shadow-run 커버리지 공백=witness 보완.
 
 ## 결정 2 확정 (2026-07-16, 사용자 판정): 옵션 A — AS-IS 6값 enum + substrate sub-커서
 **근거(사용자)**: DCGO2 원본이 계속 업데이트됨 — enum 발산 시 페이즈-관련 업스트림 변경마다 영구 번역세(로컬LLM 불가 판단). 일회성 churn > 영구세. (프로젝트 근본 명제=기계-diff 추적성과 정합.)
@@ -64,6 +64,16 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **P1-2(RD-R3-02) 상환**(a69965d6): CREATE/DIE Reset을 유일 존-변이 지점 InMemoryZoneMover.MoveCard로 중앙화(필드-존 소속 변화 시 Reset — 전 우회 경로 커버·신규 경로 자동 포함), permanent-연속 top-스왑은 ContinuityMove 마커 7좌석 전수(누락=리셋 방향 fail-safe), ReKey no-op 누수 차단. witness R4R3-02 6/6(실 sink 재플레이 기본값·바운스·지연-finalize·ReKey 보존·stale 차단·브리딩 승격). 게이트 336/107=base 동일. 이월: FuseAsync 무-ReKey 선재 갭(관측 무변; design item 후보), 필드-이탈 후 사후-독자 생기면 JustBefore* 스냅샷 계열로 흡수.
 **P2-1 상환**: 두 좌석(TurnFlowPump·HeadlessMainPhaseFlow) 무조건 `Set(-m)` 교정+근거 주석; Set=순수 clamp라 m==0 신규 호출 부작용-무. **P2-4 상환**: DeclareAttack 무효-표적→Failure 통일(침묵 시큐리티-공격 변환 제거). **P2-3 상환**: 펌프-블로커 witness(R4S3b 11번째, PumpBlockerBattle) — Blocker choice 방어측 개설·Blocking park·해소 후 suspend/치환/시큐리티-무변/공격자 트래시·펌프 idle 기상 후 재park·턴 flip 라이브니스 전부 단언, **발산 미적발(첫 실행 green — 이중-드라이버 인터리빙=AS-IS 기대 일치, P1 재분류 불요)**. shadow 경계-동일 유지(P2-1 좌석 변경 후).
 **잔여 P2(5건, 전부 현행 무해·원장 유지)**: ②브릿지 이중발화 가드(브릿지 은퇴 시 소멸) ⑤패킷 턴-경계 잔존 ⑥수동 Install 풋건 ⑦시큐리티-승 다이제스트 witness ⑧S1 리스크④ 문서 정합. **R4 마감.**
+
+## RL 블로커 배치 착지 (2026-07-17, R4 마감 후 트랙①) — 블로커 3건+동승 4건 상환, latent 1건 추가 적발·수정
+**RD-S3D-01 폐쇄**: HeadlessLegalActionDispatcher.BuildChoiceResolutionActions 단일-선택 분기가 SelectionValidator([candidate]) 통과분만 등재(AS-IS 계약="표에 뜬다=실행 가능", SelectPermanentEffect.CheckEndSelect :481-497 확정-버튼 게이트). 검증기 부재/다중-선택 조합 열거=현행 유지. witness red→green(poison 후보 등재 실증 후 소멸).
+**RD-R4P4-02·RD-S3C-02 폐쇄(동근)**: 진범=ScriptedChoiceProvider.CreateFallbackChoice의 무조건 Take(MinCount) 확정(ST1_15=canEndNotMax→MinCount 0→빈 선택 throw) — 디스패처와 별좌석. 수정=검증기 존재+기존 픽 실패 시 결정론 탐색(최대 size부터, 총 200회 평가 상한=AS-IS AI 200-try, SelectPermanentEffect :629-684). seed-303 HARNESS-ERROR 소멸·13턴 IDENTICAL.
+**RD-R4P4-01 폐쇄**: DcgoMatch.StepAsync/ApplyActionAsync에 AmbientMatchContext.Enter 자체 진입(TurnFlowPumpTask 규율) — bare 소비자 블록+collision NRE(CEntity:88 가족, 경로=ResolveChoice Blocker분기→HasCollision→EffectList) 소멸. 부수: base-red G13-003 크래시 소멸(잔여 red=stale 계측 property, 재조준 대상). 이월: GetLegalActions/GetActionMask/GetObservation 표면 동일 규율 확장 검토·다중-선택 all-size-1-거부 교착 사각(G3.5-RL-A3 이연 동반).
+**P2-⑤ 폐쇄(패킷 턴-경계)**: AS-IS 전수 grep — mainPhaseActions는 어디서도 드레인 안 됨(드레인=발명), 실제 게이트=생산자 UI(NextPhaseButton :46 활성 조건·1 arm=1 패킷). 번역=TurnFlowDriver.Queue() 단일 chokepoint에서 (Main∧턴플레이어∧pending choice 무∧대기 패킷 무) 미충족 시 Failure. witness: 이중 큐잉→둘째 거부·stale 자동-패스 소멸.
+**P2-⑦ 폐쇄(시큐리티-승 종국)**: shadow 하네스에 [secwin] 픽스처-덱 게임(바닐라 6000DP vs 3000DP ×50, S3C_SECWIN_SEED) — 시큐리티-0 직접공격 승리에서 OLD/NEW 종국 다이제스트·승자 동일 고정(미러 MarkLose→EndGameProcess 한-패스 지연=관측 등가 실증). **부산물 latent 적발·수정**: 펌프 경로에서 enteredThisTurn 부울 캐리어 영구 미만료(AS-IS는 EnterFieldTurnCount==TurnCount 비교가 :550 TurnCount++로 자동 만료 — OLD 드라이버만 만료 좌석 보유) → 펌프-플레이 디지몬 영구 소환후유증·공격 불가 = **기존 shadow 16종국 전부-덱아웃의 실원인**. 수정=TurnFlowPump 턴 경계(AS-IS :550 좌석)에서 전 플레이어 필드존 일괄 만료(AS-IS 비교 의미론; OLD의 턴플레이어-한정 클리어보다 정확). R4P4 bit-identical·shadow 경계-동일 유지.
+**FuseAsync ReKey 폐쇄**: Blast/Arts 단일-material D-6=AS-IS 동일 Permanent 지속(CardController.cs:1372-1376)→ReKey+연속 마커 배선(FusionDigivolveHelpers/FreeDigivolveHelpers); Jogress=신규 객체(:1497)→chokepoint Reset 정답, 미변경. witness: Fuse 진화 후 9필드 보존 7/7.
+**P2-② 폐쇄(브릿지 이중발화)**: 판정=조용한 dedup은 발명(AS-IS는 키 1개라 이중 등록 불가) → 이중-키 등록(동일 소스+동일 서술) 검출 시 명시 STOP 표면화. 픽스처 witness+shadow 오탐 0.
+**P2-⑧ 폐쇄**: 리스크④ spot-audit 완료 근거 기입(해당 절 참조). **리뷰3 P2 잔여=⑥(Install 풋건, ④ 스위트 재조준 때) 단 1건.**
 
 ## S3c-d 은퇴 원장 (2026-07-17, 사용자 컷오버 승인 후 — 소비자 전수 감사 완료)
 **총판정: 즉시 삭제 0항** — 물리 은퇴는 단계적(B군 registry 물리삭제 게이트 패턴).
