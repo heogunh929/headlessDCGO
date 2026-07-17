@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -14,6 +15,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Agent can skip a skippable choice", AgentCanSkipChoice),
     ("RL environment surfaces and resolves a choice end-to-end", RlEnvironmentResolvesChoiceEndToEnd),
     ("Boundary rejects ResolveChoice when no choice is pending", BoundaryRejectsResolveWithoutPendingChoice),
+    ("PUMP: the real StartGame mulligan is a choice-as-action with the same contract (owner-only, skip lane, agent answer decides)", PumpMulliganChoiceIsAnAgentAction),
 };
 
 var failures = new List<string>();
@@ -158,7 +160,87 @@ async Task BoundaryRejectsResolveWithoutPendingChoice()
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "no choice was created");
 }
 
+async Task PumpMulliganChoiceIsAnAgentAction()
+{
+    // (RL-B1) PUMP WITNESS: on the pump-driven match the FIRST decision point is the pump's own
+    // StartGame mulligan — a real engine-raised choice, not a synthetic RequestChoice. The
+    // choice-as-action contract must have the SAME shape there: the pending choice surfaces as
+    // ResolveChoice legal actions to the owner only, a skip lane mirrors CanSkip, an out-of-table
+    // crafted answer is rejected without touching the pending choice, and the agent's answer (keep
+    // AND redraw) decides the outcome. Existing cases above pin the legacy scaffold unchanged.
+    var env = new HeadlessRlEnvironment(DcgoMatch.CreatePumpDriven(
+        CreateStarterContext(seed: 29),
+        new HeadlessDCGO.Engine.Headless.Diagnostics.EngineTrace()));
+    DcgoMatch match = env.Match;
+    await env.InitializeAsync(BuildStarterMatchConfig(seed: 29));
+
+    // 1) The pump parks at the mulligan; the choice surfaces as ResolveChoice actions, owner-only.
+    AssertTrue(match.HasPendingChoice(), "pump parks at a pending choice after initialize");
+    ChoiceRequest first = match.Context.ChoiceController.PendingRequest!;
+    AssertEqual(ChoiceType.Mulligan, first.Type, "first pump decision is the StartGame mulligan");
+    HeadlessPlayerId owner = first.PlayerId;
+    HeadlessPlayerId other = owner.Value == 1 ? new HeadlessPlayerId(2) : new HeadlessPlayerId(1);
+
+    IReadOnlyList<LegalAction> offered = match.GetLegalActions(owner);
+    AssertTrue(offered.Count >= 2, "mulligan offers at least redraw + keep");
+    AssertTrue(offered.All(a => a.ActionType == HeadlessActionTypes.ResolveChoice),
+        "the whole pump choice table is ResolveChoice actions");
+    AssertEqual(1, offered.Count(IsSkip), "exactly one keep(skip) lane");
+    AssertEqual(0, match.GetLegalActions(other).Count, "non-owner sees nothing while the pump choice pends");
+
+    // 2) A crafted out-of-table answer is rejected and the pending choice is untouched.
+    RlStepResult rejected = await env.StepAsync(
+        HeadlessActionFactory.ResolveChoice(owner, ChoiceResult.Select(new HeadlessEntityId("ghost"))));
+    AssertTrue(rejected.Events.Any(e => e.Type == GameEventType.InvalidAction),
+        "ghost-candidate ResolveChoice is rejected at the boundary");
+    AssertTrue(match.HasPendingChoice(), "mulligan still pending after the reject");
+    AssertEqual(owner, match.Context.ChoiceController.PendingRequest!.PlayerId,
+        "same owner still holds the choice after the reject");
+
+    // 3) The agent's answers decide the outcome: owner KEEPS (skip), the other player REDRAWS (pick).
+    await env.StepAsync(offered.Single(IsSkip));
+    AssertTrue(match.HasPendingChoice(), "the pump hands the second mulligan over");
+    AssertEqual(ChoiceType.Mulligan, match.Context.ChoiceController.PendingRequest!.Type, "second mulligan type");
+    AssertEqual(other, match.Context.ChoiceController.PendingRequest!.PlayerId, "second mulligan owner");
+
+    LegalAction redraw = match.GetLegalActions(other).Single(a => !IsSkip(a));
+    await env.StepAsync(redraw);
+
+    // 4) Both answers landed in the engine: the pump only deals security 5/5 AFTER the mulligans resolve.
+    AssertEqual(5, CountZone(match, owner, ChoiceZone.Security), "security dealt to the keeper after both answers");
+    AssertEqual(5, CountZone(match, other, ChoiceZone.Security), "security dealt to the redrawer after both answers");
+    AssertEqual(5, CountZone(match, other, ChoiceZone.Hand), "redraw refilled the hand to 5");
+}
+
 // --- Helpers -------------------------------------------------------------
+
+// (RL-B1) Real ST1/ST2 starter decks for the pump witness — the pump's StartGameAsync owns
+// hands/mulligan/security, so it needs real card definitions (CardBaseEntity), not synthetic ids.
+static HeadlessDCGO.Engine.Headless.Bridge.EngineContext CreateStarterContext(int seed)
+{
+    HeadlessDCGO.Engine.Headless.Bridge.EngineContext context =
+        HeadlessDCGO.Engine.Headless.Bridge.EngineContext.CreateDefault(randomSeed: seed);
+    var db = (CardDatabase)context.CardRepository;
+    CardBaseEntityLoader.LoadInto(db);
+    return context;
+}
+
+static MatchConfig BuildStarterMatchConfig(int seed)
+{
+    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1"), d2 = StarterDecks.Get("ST2");
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[]
+        {
+            new PlayerDeckSetup(new HeadlessPlayerId(1), d1.MainDefinitions, d1.DigitamaDefinitions),
+            new PlayerDeckSetup(new HeadlessPlayerId(2), d2.MainDefinitions, d2.DigitamaDefinitions),
+        }, firstPlayerId: new HeadlessPlayerId(1));
+    return MatchConfig.Create(new[] { new HeadlessPlayerId(1), new HeadlessPlayerId(2) }, randomSeed: seed, setup: setup);
+}
+
+static int CountZone(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone)
+{
+    return match.Context.ZoneMover is IZoneStateReader zones ? zones.GetCards(player, zone).Count : -1;
+}
 
 static async Task RequestChoiceAsync(
     DcgoMatch match,

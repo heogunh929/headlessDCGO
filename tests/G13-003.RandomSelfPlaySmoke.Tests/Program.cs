@@ -1,7 +1,9 @@
 using System.Text;
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -11,6 +13,20 @@ using HeadlessDCGO.Engine.Headless.Services;
 // the freeze PREREQUISITE: it proves the engine loop runs real card content end-to-end without crashing,
 // generating illegal actions, deadlocking, or failing to converge (FlowExceededIterationCap), and that the
 // same seeds reproduce the same game (determinism a trainer depends on).
+//
+// (RL-B1) PUMP RETARGET: the match is DcgoMatch.CreatePumpDriven — the AS-IS TurnFlowPump owns the turn
+// cadence, so every agent step is a real decision point (mulligan/breeding choices arrive as ResolveChoice
+// actions, AdvancePhase/EndTurn no longer exist). The old "ported effects resolved live" instrumentation
+// (GameEventType.EffectResolved > 0) was bound to the OLD GameFlowProcessor drain counter
+// (DcgoMatch.cs:245-252) and stays 0 on the window path (RD-RLENV-02) — it is replaced here by
+// pump-observable BEHAVIOUR evidence of live effect resolution:
+//   * effect-caused zone moves — a CardMoved whose metadata carries the causing effect id
+//     (MatchStateMutationSink.AddHandCauseEffectIdKey / DiscardCauseEffectIdKey), stamped only when a
+//     ported card effect (draw/discard body) actually mutated a zone;
+//   * effect-raised choices — a pending choice whose ChoiceType is an EFFECT choice (not the rule-owned
+//     Mulligan/BreedingDecision), which only a live ported effect body can raise.
+// Both are behaviour ("the effect did something observable"), not counter plumbing, so the original
+// intent — ported effects resolved live during random self-play — is preserved without weakening.
 //
 // Why match-level driving: a security skill (etc.) hands the choice to the DEFENDER mid-attack, so the
 // acting player is "whoever currently has legal actions", not a fixed perspective. We pick the mover from
@@ -25,7 +41,8 @@ bool verbose = Environment.GetEnvironmentVariable("SELFPLAY_LOG") == "1";
 
 // Each row: P1 set, P2 set, env seed, policy seed, step cap. Real ST1/ST2/ST3 starter decks (50 main +
 // 4 digitama) — every cross-set matchup. Games terminate naturally via security depletion (combat), not a
-// truncated deck-out, so they are genuine starter-deck matchups end to end.
+// truncated deck-out, so they are genuine starter-deck matchups end to end. On the pump driver a step is
+// a decision point (no AdvancePhase micro-steps), so the cap is generous.
 var games = new (string P1Set, string P2Set, int EnvSeed, int PolicySeed, int Cap)[]
 {
     ("ST1", "ST2", 101, 11, 800),
@@ -48,9 +65,9 @@ catch (Exception ex)
 }
 
 // --- Report --------------------------------------------------------------
-Console.WriteLine("matchup        steps  term  winner  plays  effects  attacks  security  flowCap  invalid");
+Console.WriteLine("matchup        steps  term  winner  plays  effZone  effChoice  attacks  flowCap  invalid");
 foreach (var s in stats)
-    Console.WriteLine($"{s.Matchup,-13} {s.Steps,6} {(s.Terminal ? "  Y" : "  .")}  {s.Winner,-6} {s.Plays,6} {s.EffectResolved,8} {s.Attacks,8} {s.Security,9} {(s.FlowCap ? "Y" : "."),8} {s.Invalid,8}");
+    Console.WriteLine($"{s.Matchup,-13} {s.Steps,6} {(s.Terminal ? "  Y" : "  .")}  {s.Winner,-6} {s.Plays,6} {s.EffectZoneMoves,8} {s.EffectChoices,10} {s.Attacks,8} {(s.FlowCap ? "Y" : "."),8} {s.Invalid,8}");
 
 if (hardFailure is not null)
 {
@@ -69,7 +86,8 @@ Check(stats.All(s => s.Steps > 0), "every game took at least one step");
 Check(stats.Any(s => s.Terminal && s.Winner is "1" or "2"), "at least one game reached a real terminal with a winner (security depletion)");
 Check(stats.Sum(s => s.Plays) > 0, "real cards were actually played/digivolved/activated across the games");
 Check(stats.Sum(s => s.Attacks) > 0, "combat ran (attacks were declared)");
-Check(stats.Sum(s => s.EffectResolved) > 0, "ported effects resolved live");
+Check(stats.Sum(s => s.EffectZoneMoves + s.EffectChoices) > 0,
+    "ported effects resolved live (effect-caused zone moves / effect-raised choices observed)");
 Check(stats.All(s => s.RewardOk), "terminal reward is in {-1,0,1}");
 
 // Determinism: the first game replayed with the same seeds reproduces the same trajectory.
@@ -102,7 +120,9 @@ async Task<GameStat> RunGameAsync(string p1Set, string p2Set, int envSeed, int p
         }, firstPlayerId: P1);
     MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: envSeed, setup: setup);
 
-    var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    // (RL-B1) Pump-driven match — the default RL profile. The agent legality boundary defaults ON
+    // (LegalActionSetValidator), matching the retired legacy-ctor wiring.
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     var env = new HeadlessRlEnvironment(match);
     await env.InitializeAsync(config);
 
@@ -111,7 +131,7 @@ async Task<GameStat> RunGameAsync(string p1Set, string p2Set, int envSeed, int p
     var counts = new Dictionary<GameEventType, int>();
     var fp = new StringBuilder();
     bool flowCap = false, deadlock = false, terminal = false, rewardOk = true;
-    int steps = 0, invalid = 0, plays = 0;
+    int steps = 0, invalid = 0, plays = 0, effectChoices = 0;
     string winner = "-";
 
     if (log) Console.WriteLine($"\n===== GAME {p1Set} (P1) vs {p2Set} (P2)  [starter decks 50+4]  envSeed={envSeed} policySeed={policySeed} =====");
@@ -125,6 +145,15 @@ async Task<GameStat> RunGameAsync(string p1Set, string p2Set, int envSeed, int p
             if (match.GetLegalActions(p).Count > 0) { mover = p; found = true; break; }
         }
         if (!found) { deadlock = true; break; }
+
+        // (RL-B1) Effect-raised choice = a pending choice whose type is NOT one of the rule-owned pump
+        // choices (Mulligan / BreedingDecision). Only a live ported effect body raises these.
+        HeadlessChoiceState pendingChoice = match.Context.ChoiceController.Current;
+        if (pendingChoice.IsPending
+            && pendingChoice.Type is not (ChoiceType.Mulligan or ChoiceType.BreedingDecision))
+        {
+            effectChoices++;
+        }
 
         IReadOnlyList<LegalAction> legal = match.GetLegalActions(mover);
         LegalAction action = legal[rng.Next(legal.Count)];
@@ -166,11 +195,27 @@ async Task<GameStat> RunGameAsync(string p1Set, string p2Set, int envSeed, int p
         }
     }
 
+    // (RL-B1) Effect-caused zone moves: the zone mover's append-only event stream stamps the causing
+    // effect id onto a CardMoved only when a ported effect body (draw/discard) drove the move.
+    int effectZoneMoves = 0;
+    if (context.ZoneMover is InMemoryZoneMover zoneMover)
+    {
+        foreach (GameEvent ev in zoneMover.Events)
+        {
+            if (ev.Metadata is { } md
+                && (md.ContainsKey(MatchStateMutationSink.AddHandCauseEffectIdKey)
+                    || md.ContainsKey(MatchStateMutationSink.DiscardCauseEffectIdKey)))
+            {
+                effectZoneMoves++;
+            }
+        }
+    }
+
     int C(GameEventType t) => counts.GetValueOrDefault(t);
     return new GameStat(
         $"{p1Set}v{p2Set}", steps, terminal, winner,
-        plays, C(GameEventType.EffectResolved), C(GameEventType.AttackDeclared),
-        C(GameEventType.SecurityCheck), flowCap, deadlock, invalid, rewardOk, fp.ToString());
+        plays, effectZoneMoves, effectChoices, C(GameEventType.AttackDeclared),
+        flowCap, deadlock, invalid, rewardOk, fp.ToString());
 }
 
 static string Tail(string actionId)
@@ -183,9 +228,10 @@ static string Tail(string actionId)
 static bool IsPlay(string actionType) =>
     actionType is HeadlessActionTypes.PlayCard or HeadlessActionTypes.Digivolve
         or HeadlessActionTypes.SpecialPlay or HeadlessActionTypes.ActivateOption
-        or HeadlessActionTypes.HatchDigitama or HeadlessActionTypes.MoveBreedingToBattle;
+        or HeadlessActionTypes.ActivateMain or HeadlessActionTypes.HatchDigitama
+        or HeadlessActionTypes.MoveBreedingToBattle;
 
 internal sealed record GameStat(
     string Matchup, int Steps, bool Terminal, string Winner,
-    int Plays, int EffectResolved, int Attacks, int Security,
+    int Plays, int EffectZoneMoves, int EffectChoices, int Attacks,
     bool FlowCap, bool Deadlock, int Invalid, bool RewardOk, string Fingerprint);

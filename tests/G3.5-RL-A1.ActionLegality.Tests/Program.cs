@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -17,6 +18,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Boundary accepts a legal agent action", BoundaryAcceptsLegalAction),
     ("Without a validator the apply path keeps legacy behavior", LegacyApplyPathIsUnaffected),
     ("RL environment enforces the boundary and leaves state unchanged on reject", RlEnvironmentEnforcesBoundary),
+    ("PUMP: same boundary contract on the pump surface (table validates; crafted/step-cadence rejected, no state change)", PumpBoundaryEnforcesSameContract),
 };
 
 var failures = new List<string>();
@@ -202,7 +204,116 @@ async Task RlEnvironmentEnforcesBoundary()
     AssertSequence(legalBefore, LegalActionTypes(env.Match, player), "RL env legal set unchanged after reject");
 }
 
+async Task PumpBoundaryEnforcesSameContract()
+{
+    // (RL-B1) PUMP WITNESS: the action-legality table and the single authoritative boundary have the
+    // SAME shape on the pump surface — every dispatcher-generated action validates against the shared
+    // predicate, and a crafted action outside the table (including the OLD step-cadence AdvancePhase /
+    // EndTurn, which the pump owns) is rejected at apply with zero state mutation. Existing cases above
+    // pin the legacy scaffold unchanged; this case is the pump-cadence counterpart.
+    var env = new HeadlessRlEnvironment(
+        DcgoMatch.CreatePumpDriven(CreateStarterContext(seed: 23), new EngineTrace()));
+    DcgoMatch match = env.Match;
+    await env.InitializeAsync(BuildStarterMatchConfig(seed: 23));
+    await DrivePumpToMainAsync(env);
+
+    HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
+    var validator = new LegalActionSetValidator();
+    IReadOnlyList<LegalAction> legal = match.GetLegalActions(turnPlayer);
+    AssertTrue(legal.Count >= 1, "pump main phase exposes at least one legal action");
+    AssertTrue(legal.Any(a => a.ActionType == HeadlessActionTypes.Pass), "pump main table offers Pass");
+    foreach (LegalAction action in legal)
+    {
+        AssertTrue(
+            validator.Validate(action, match.Context).IsLegal,
+            $"pump-generated action '{action.ActionType}' must validate as legal (shared predicate)");
+    }
+
+    string[] legalBefore = LegalActionTypes(match, turnPlayer);
+    LegalAction[] crafted =
+    {
+        HeadlessActionFactory.AdvancePhase(turnPlayer),   // legal on the OLD cadence, pump-illegal
+        HeadlessActionFactory.EndTurn(turnPlayer),        // legal on the OLD cadence, pump-illegal
+        new LegalAction(
+            new HeadlessEntityId("crafted:specialplay"),
+            turnPlayer,
+            HeadlessActionTypes.SpecialPlay,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["cardId"] = "forged:card",
+                [SpecialPlayAction.MaterialsKey] = "forged:mat1,forged:mat2",
+            }),
+    };
+
+    foreach (LegalAction action in crafted)
+    {
+        RlStepResult rejected = await env.StepAsync(action);
+        AssertTrue(
+            rejected.Events.Any(e => e.Type == GameEventType.InvalidAction),
+            $"pump boundary rejects crafted '{action.ActionType}'");
+        AssertFalse(rejected.IsTerminal, $"match not terminal after rejected '{action.ActionType}'");
+    }
+
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "phase unchanged after pump rejects");
+    AssertEqual(0, match.PendingActions().Count, "no crafted action was enqueued");
+    AssertFalse(match.HasPendingChoice(), "no pending choice materialized from rejects");
+    AssertSequence(legalBefore, LegalActionTypes(match, turnPlayer), "pump legal set unchanged after rejects");
+
+    // And a table-member action passes the SAME boundary.
+    LegalAction pass = match.GetLegalActions(turnPlayer).First(a => a.ActionType == HeadlessActionTypes.Pass);
+    RlStepResult accepted = await env.StepAsync(pass);
+    AssertFalse(
+        accepted.Events.Any(e => e.Type == GameEventType.InvalidAction),
+        "legal pump Pass is not rejected at the boundary");
+}
+
 // --- Helpers -------------------------------------------------------------
+
+// (RL-B1) Real ST1/ST2 starter decks: the pump's StartGameAsync owns hands/mulligan/security, so the
+// pump witness needs real card definitions (CardBaseEntity) rather than the synthetic deck ids the
+// legacy scaffold cases use.
+static EngineContext CreateStarterContext(int seed)
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: seed);
+    var db = (CardDatabase)context.CardRepository;
+    CardBaseEntityLoader.LoadInto(db);
+    return context;
+}
+
+static MatchConfig BuildStarterMatchConfig(int seed)
+{
+    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1"), d2 = StarterDecks.Get("ST2");
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[]
+        {
+            new PlayerDeckSetup(new HeadlessPlayerId(1), d1.MainDefinitions, d1.DigitamaDefinitions),
+            new PlayerDeckSetup(new HeadlessPlayerId(2), d2.MainDefinitions, d2.DigitamaDefinitions),
+        }, firstPlayerId: new HeadlessPlayerId(1));
+    return MatchConfig.Create(new[] { new HeadlessPlayerId(1), new HeadlessPlayerId(2) }, randomSeed: seed, setup: setup);
+}
+
+// Resolve every pump setup decision (mulligan keep / breeding decline) with the skip lane until the
+// main-phase action table opens. Bounded so a wedged pump fails the witness instead of hanging it.
+static async Task DrivePumpToMainAsync(HeadlessRlEnvironment env)
+{
+    DcgoMatch match = env.Match;
+    for (int i = 0; i < 16; i++)
+    {
+        if (match.GetObservation().Turn.Phase == HeadlessPhase.Main && !match.HasPendingChoice())
+        {
+            return;
+        }
+
+        AssertTrue(match.HasPendingChoice(), "pump decision points before Main are choices");
+        HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+        LegalAction skip = match.GetLegalActions(chooser)
+            .First(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Parameters.ContainsKey(HeadlessActionParameterKeys.ChoiceSkipped));
+        await env.StepAsync(skip);
+    }
+
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "pump reached the Main action table");
+}
 
 static async Task<DcgoMatch> CreateValidatedMatchAsync()
 {
