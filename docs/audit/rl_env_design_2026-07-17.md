@@ -55,7 +55,7 @@ Base: `0b339cfc`(main, RD-R4P4-01 가족 완결). 조사+설계 전용(엔진 �
 | G13-003.RandomSelfPlaySmoke | 10속성 | 실카드(ST1/2/3) 5매치업 랜덤 셀프플레이: invalid 0·flowCap 0·교착 0·자연 종결·플레이/공격 발생·seed-replay 지문 일치 | **9/10 green, red 1 = stale 계측 확정**: `Program.cs:72`의 `EffectResolved>0` — 이벤트 발행이 `DcgoMatch.cs:245-252`에서 OLD `GameFlowProcessor` 드레인 카운터에만 결박, 창-경로 해소는 계수 안 됨(전 판 효과 0으로 표시되나 시큐리티 소진 승부 발생 = 행동 정상). `r4_tsm_s1_design_2026-07-16.md:71` 판정과 일치. 부수: `SecurityCheck` 이벤트는 발행처 자체가 0(무단언이라 무해) |
 | G3.5-RL-A1.ActionLegality | 8 | 단일 권위 합법성 경계: 위조 SpecialPlay 포함 불법 액션 apply-거부(상태 완전 무변이 증명), `LegalActionSetValidator.AgentFacingTypes` 12종 | RL-e2e 테스트가 OLD cadence(LEGACY SCAFFOLD :184) — 펌프판 witness 이연 |
 | G3.5-RL-A2.ChoiceAsAction | 6 | choice=액션: 후보별 ResolveChoice+skip, 소유자에게만 노출, 선택 반영·skip 기록, 무-choice ResolveChoice 거부 | 동일 LEGACY SCAFFOLD(:115); 펌프 choice 경로는 S3a/S3b 스위트에 위임 |
-| G3.5-RL-A3.FactoredActionSpace | 9 | 레인 연속성·슬롯 구별성·직접공격 슬롯·overflow=Unmapped 표면화·실매치 왕복 | **다중-선택 부분집합 열거 미구현·미테스트**(이연 실체는 §4) |
+| G3.5-RL-A3.FactoredActionSpace | 9 | 레인 연속성·슬롯 구별성·직접공격 슬롯·overflow=Unmapped 표면화·실매치 왕복 | ~~다중-선택 부분집합 열거 미구현·미테스트~~ **[재판정(2026-07-18, B5 마감)]**: 이연 스코프 상환 완료 — 순차 부분-선택 세션(B5-1/2)+스키마 v2 Confirm 슬롯(B5-3)+실카드 W8(B5-4)로 다중-선택이 표·스키마·실효과 3층에서 도달 가능(R4RL-02/03/04 witness). **잔여 이월 = RD-RLENV-08**(Count형 `SelectCount` 레인의 factored Unmapped — 세션 개설 조건 `Type != Count` 밖, 별도 원장) |
 | G3.5-RL-A4/A4a/A4b | 4/6/5 | strictUnbound 하드 실패+포렌식 마커; perspective 필터(타인 히든존 id 0·자기존 유지·count 보존); per-card 피처(DP=B1 계산기 경유)·고정 슬롯 | A4b가 카드당 10피처 폭을 하드코딩(스키마 성장 시 red); 합성 픽스처 위주 |
 | G3.5-RL-A5.FactoredMaskInStepResult | 5 | 매 RlStepResult에 factored 마스크 동봉 = 단독 인코딩과 동일(0/1·비트↔액션 전단사) | reset+1스텝만; choice-레인 내용 미검증 |
 | G11-002.RlDeferredChoiceE2E | 1 | 이연 choice 서스펜드→resume에서 **비용 1회 지불**(메모리 5→2 유지) e2e | 단일-선택·합성 ST2_16 재현 1장; OLD AdvancePhase 스캐폴드 |
@@ -218,12 +218,12 @@ after 잔여 핫스팟(=(b) 원장, RD-RLENV-06): LINQ ToArray 계열 24.0%(`Pla
 | B2 | **처리량** | 엔진 프로파일(판당 11s 소재 확정 — RD-RLENV-03; 엔진 수정은 프로파일 결과로 항목화해 사용자 확인 후 별도 배치); RL측 다중 프로세스 벡터화(`SubprocVecEnv`×N + host 풀) | N-프로세스 aggregate steps/sec 실측 ≥ 5×단일(선형성) + 프로파일 보고서(핫스팟 상위 5) |
 | B3 | **학습 루프 재검증(pump-era L0/L1)** | 209장 풀 레시피 2~4종 확정(witness 카드 포함, ST 스타터+BT1/BT2); MaskablePPO 스모크 재실행; L1 리그 재가동(스냅샷 신규 — 구 스냅샷은 OLD-cadence 궤적이라 폐기) | 스모크 무크래시 + eval vs 랜덤 유의미 우위 + 관측/마스크 차원 계약 무변(해시 일치) **[B3 상환(2026-07-17) — 3부 §B3.1~.5: eval 99.2% CI95=[95.4%,99.9%], 게이트 전부 PASS]** |
 | B4 | **퍼징 수확 계층** | D6 표의 보강 4종(호스트 result 확장·strict 프로파일 캠페인 러너·reason 집계·seed-replay 게이트); 대량 랜덤/약정책 롤아웃 캠페인(209장 풀 전 카드 노출 커버리지 리포트) | 캠페인 ≥10⁴판 완주(크래시=수확·파이프라인 무중단) + 카드 노출 커버리지 리포트 + 수확 원장 회부 ≥1회전 **[B4 상환(2026-07-18) — 5부: 10,044판 완주·결함 0·재검 100/100, 게이트 전부 PASS]** |
-| B5 | **다중-선택 표면 + 풀 확대 게이트** (엔진 공사 포함 — 사용자 승인 선행) | RD-RLENV-01(순차 부분-선택: 디스패처 세션 열거+Confirm 레인+A1 경계 수용) + factored 스키마 v2(+1~2슬롯, 버전 증가) + A3 잔여 witness(조인트-검증기 카드 = BT20_098 포팅과 동승) | 조인트-검증기 witness green(교착 0) + 기존 스위트 무회귀 + 스키마 버전 핸드셰이크 검증 |
+| B5 | **다중-선택 표면 + 풀 확대 게이트** (엔진 공사 포함 — 사용자 승인 선행) | RD-RLENV-01(순차 부분-선택: 디스패처 세션 열거+Confirm 레인+A1 경계 수용) + factored 스키마 v2(+1~2슬롯, 버전 증가) + A3 잔여 witness(조인트-검증기 카드 = BT20_098 포팅과 동승) | 조인트-검증기 witness green(교착 0) + 기존 스위트 무회귀 + 스키마 버전 핸드셰이크 검증 **[B5 상환(2026-07-17~18) — 4부 §B5.9 배치 4개 전부 상환·6부 §B5.11: W8 실카드 green·coverage 캠페인 stalled 0·L0/L1 스키마 v2 재가동, RD-RLENV-01 폐기(구현 완료), 잔여=RD-RLENV-08. BT20_098 실카드 포팅만 미동승(합성 W1형이 대체 고정)]** |
 
 순서 근거: B1은 신뢰 기반(red/사문 정리) 없이는 이후 게이트 판정 불가. B2가 B3 앞 — 현 5.7 steps/sec로는 L0 재검증이 87분/30k라 가능은 하나, 리그(B3)와 캠페인(B4)은 처리량 없이 무의미. B5는 풀 확대 전 필수이나 현 풀 비발화라 최후순.
 
 ## 설계 항목 원장 (엔진측 필요 변경 — 이번 트랙에서 수정 금지, 등재만)
-- **RD-RLENV-01**: 다중-선택 choice의 디스패처 표면(순차 부분-선택 세션 + Confirm; `SelectionValidator(set)` 최종 심판 재사용) — D1/B5. 근거: `HeadlessLegalActionDispatcher.cs:214-220`.
+- **RD-RLENV-01**: 다중-선택 choice의 디스패처 표면(순차 부분-선택 세션 + Confirm; `SelectionValidator(set)` 최종 심판 재사용) — D1/B5. 근거: `HeadlessLegalActionDispatcher.cs:214-220`. **[상환(2026-07-17~18, B5-1~4 — 5acec578·c5ff6ede·47729f36 + B5-4 작업트리): 설계 §B5.4~.6 그대로 구현, witness = R4RL-02/03/04 + W8 실카드]**
 - **RD-RLENV-02**: `EffectResolved` 이벤트 발행이 OLD `GameFlowProcessor` 드레인 카운터에 결박(`DcgoMatch.cs:245-252`) — 창-경로 해소 계수로 재배선 또는 이벤트 은퇴. 부수: `SecurityCheck` 이벤트 발행처 0.
 - **RD-RLENV-03**: 펌프 결정점당 ~175ms — `DrivePumpToDecision` 루프의 반복 `GetActionMask()` 전열거(연속효과 라이브 스캔 포함) 재계산 의심. 프로파일 후 항목 분해(B2). **[B2 상환(2026-07-17)]** 실측으로 심증 교정: 실비용의 ~86%는 마스크/관측이 아니라 **효과-스캔당 DigivolutionStack 읽기-모델 풀 재구축**(§7.2). substrate-전용 (a) 3건 적용(§7.3, 다이제스트 10/10 동일 실증) → 2.4×. 잔여는 RD-RLENV-06(미러층, STOP)·RD-RLENV-07(구조)로 분해.
 - **RD-RLENV-06** (b — 미러 수정 필요, **STOP·구현 금지**): (a) 상환 후 잔여 핫스팟이 전부 미러층 `EffectList` 재-스캔 아키텍처에 귀속(§7.3 after 잔여표): ① `Player.get_SecurityCards`/`GetZonePermanents`/`GameContext.OrderedFrom`의 접근당 LINQ Select/ToArray(합산 ~24%) ② `CardSource.PermanentOfThisCard()` 본문의 호출당 보드 스캔+`UnderCards.Any` 클로저(11% incl) ③ `CEntity_EffectController.GetCardEffects`의 호출당 리스트 재구축+필드/시큐리티/플레이어 3중 AddSkill 스캔(38% incl) ④ `CardSource.CanNotBeAffected` AddRange churn ⑤ `Permanent.DP/HasDP` 연속효과 폴드 재계산(39%/11% incl). 전부 AS-IS 1:1 미러 소스 — 개선하려면 AS-IS-동형 캐시/인덱스 구조 설계가 선행돼야 하며 이 트랙에서는 등재만.
@@ -231,6 +231,7 @@ after 잔여 핫스팟(=(b) 원장, RD-RLENV-06): LINQ ToArray 계열 24.0%(`Pla
 - **운영 노트(B2)**: in-process 병렬(tasks 모드·학습 벡터화)은 `DOTNET_gcServer=1` 필수(§7.4: 31.7→51.9 steps/sec); 다중 프로세스 자식에는 server GC 금지(역효과 28.2).
 - **RD-RLENV-04**: 토큰/부여효과 id의 `Guid.NewGuid()`(`CardEffectCommons.cs:2493` 외 4곳) — seed-무관 id 발산. 상태-digest 기반 검증 도입 시 결정론 id 채번으로 교체 필요.
 - **RD-RLENV-05**: `SpecialPlay` 펌프 분기 제외(`HeadlessLegalActionDispatcher.cs:47-52`) — DigiXros/Assembly STOP 클러스터 상환 시 펌프 표에 복귀(RD-P6C1-5/RD-R5-04 후속). 그때까지 해당 카드는 RL 관점에서 플레이 불가 레인.
+- **RD-RLENV-08** (B5-4 이월, RL층): **Count형 ResolveChoice의 factored 미배치 잔존** — 디스패처의 Count형 표(`SelectCount` 레인, min..max — `HeadlessLegalActionDispatcher.BuildChoiceResolutionActions`)는 액션 파라미터가 `choiceSelectedCount`뿐이고 후보 id가 없어 `FactoredActionEncoder.MapAction`의 `FirstSelectedId`가 empty → candidate −1 → **Unmapped로 표면화**(사일런트 드랍 아님 — A3 계약은 유지). B5 세션 개설 조건이 `Type != Count`라 B5-1~4 스코프에서 의도적으로 제외된 잔여. 상환 후보: Count 값 n을 ResolveChoice 후보 레인(슬롯 n−1) 또는 전용 count 레인에 사상 + 스키마 버전 증가. 현 209장 풀에서 Count형 choice 발화 카드 실측 필요(발화 0이면 시급도 저).
 - **확인 항목**: BT3 포팅분 부재(§6) — 메모리 기록("BT2/BT3 완료")과 트리 불일치. 브랜치 유실인지 기록 오류인지 착수 전 판정.
   - **사용자 확정(2026-07-17): 실측 209장이 정본, 메모리 기록(BT3 포팅)이 stale** — 재작업으로 소실된 것이 아니라 기록이 구식. 조사 불요, **종결**.
 
@@ -358,7 +359,7 @@ cd rl && .venv/bin/python build_recipes.py
 - **미러 Select* 해소 방식**: 3 표면 모두 `RunAsIsSelectionAsync` — ① byPreSelectedList 없으면 **배치 ChoiceRequest 1회**(min=(canNoSelect||canEndNotMax)?0:max, max=선택가능수로 클램프, canSkip=canNoSelect, 조인트 검증기는 `SelectionValidator`로 탑재 — SelectPermanentEffect.cs:687-727, SelectHandEffect.cs:425-462, SelectCardEffect.cs:735-770) ② byPreSelectedList 있으면 **per-pick 순차 루프**(maxCount:1 요청 반복, canEndNow면 skip 겸용 — 교착-세이프, 이미 순차화됨).
 - **pending choice 구조**: `ChoiceRequest`(MinCount/MaxCount/CanSkip/Candidates(IsSelectable)/`SelectionValidator: Func<IReadOnlyList<HeadlessEntityId>,bool>` — ChoiceRequest.cs:82) + `HeadlessChoiceState`(candidateIds는 M2에서 관측 노출용 기존재, SelectedIds는 **resolved 후에만** 채워짐 — InMemoryHeadlessChoiceController.cs:36-41). 최종 심판=`ChoiceResult.Validate`(중복/비후보/범위/조인트 — ChoiceResult.cs:62-94).
 - **디스패처 choice 액션 생성**(HeadlessLegalActionDispatcher.BuildChoiceResolutionActions :221-267): Count형=min..max 레인, `MinCount<=1<=MaxCount`형=후보당 1레인(**B1 단일-선택 검증 필터**: 싱글턴이 SelectionValidator 불통과면 레인 제외, RD-S3D-01 :245-249), skip 레인. **`MinCount>1` = 액션 0개**(skip 가능 시 skip만). **추가 실측 갭**: `MinCount<=1 && MaxCount>1`(up-to-N 배치)도 **1장 초과 선택 불가**(size-1 해소만 생성) — 다중-선택 결핍은 강제형 교착만이 아니라 optional up-to-N의 **표현력 결손**이기도 함.
-- **§4 "현 풀 비발화" 정정 — 실황 1건 발견**: `<Fragment <3>>` 키워드(`CardEffectCommons/KeyWordEffects/Fragment.cs:49-65` — SelectCardEffect maxCount:3, canNoSelect:false, canEndNotMax:false, 진화원 3장 트래시)를 **EX8_051**(STOP 마커 없음, dispatch 가능, `rl/decks/coverage_rest_4.json` 포함)이 보유. 진화 스택 ≥3에서 삭제-회피 창이 열리면 min=max=3 배치 요청 → **디스패처 액션 0 → stalled/no_mappable_action**. §4의 grep(SelectHandEffect.cs:432 모양)이 키워드 공통층을 놓친 것. B4 캠페인이 이 모양을 수확할 것으로 예상 — **B5의 실카드 witness 후보이자 시급도 상향 근거**(다만 학습 모노 4덱에는 부재라 L0/L1 비차단은 유지). **[B4 실측(2026-07-18): 미수확 — coverage_rest_4 포함 2,232판 전부 자연 종결·stalled 0. 랜덤 정책이 발화 경로(진화원 ≥3 스택 구축+삭제-회피 창) 미도달 판정(§B4.5) — 수확 부재≠부재 증명, W8 픽스처가 지정 witness로 유지.]**
+- **§4 "현 풀 비발화" 정정 — 실황 1건 발견**: `<Fragment <3>>` 키워드(`CardEffectCommons/KeyWordEffects/Fragment.cs:49-65` — SelectCardEffect maxCount:3, canNoSelect:false, canEndNotMax:false, 진화원 3장 트래시)를 **EX8_051**(STOP 마커 없음, dispatch 가능, `rl/decks/coverage_rest_4.json` 포함)이 보유. 진화 스택 ≥3에서 삭제-회피 창이 열리면 min=max=3 배치 요청 → **디스패처 액션 0 → stalled/no_mappable_action**. §4의 grep(SelectHandEffect.cs:432 모양)이 키워드 공통층을 놓친 것. B4 캠페인이 이 모양을 수확할 것으로 예상 — **B5의 실카드 witness 후보이자 시급도 상향 근거**(다만 학습 모노 4덱에는 부재라 L0/L1 비차단은 유지). **[B4 실측(2026-07-18): 미수확 — coverage_rest_4 포함 2,232판 전부 자연 종결·stalled 0. 랜덤 정책이 발화 경로(진화원 ≥3 스택 구축+삭제-회피 창) 미도달 판정(§B4.5) — 수확 부재≠부재 증명, W8 픽스처가 지정 witness로 유지.]** **[W8 상환(2026-07-18) — 6부 §B5.11.1: 세션 완주 green]**
 - **부분-선택 누적 상태의 위치 후보**: (a) pending choice 확장(HeadlessChoiceState에 세션 필드) vs (b) 별도 substrate 상태(TurnFlowPumpHost류 ambient). §B5.4에서 (a) 채택.
 - **ScriptedChoiceProvider와의 관계**: 순차화는 **디스패처/에이전트 표면에서만** 일어남 — `IChoiceProvider.ChooseAsync` 계약(배치 요청 1회 → 완결 답 1회)은 무변. ScriptedChoiceProvider(RD-R4P4-02의 결정론 200-cap 탐색 폴백 :55-108)와 PolicyChoiceProvider는 세션을 아예 보지 않음. DeferredChoiceProvider의 pump await(:189-197)·deposit(:MetadataActionProcessor.cs:466-483)도 무변 — Confirm이 만든 완결 ChoiceResult가 기존 경로로 예치됨.
 
@@ -426,10 +427,10 @@ cd rl && .venv/bin/python build_recipes.py
 
 ## §B5.9 구현 배치 분할 (엔진 수정 최소 단위 — 각 배치 green 게이트, R4 careful 규약 준수: 배치 통합 금지·배치별 전체 스위트)
 
-- **B5-1 (engine, 행동 무변)**: HeadlessChoiceState `PendingSelectedIds` + 컨트롤러 `ToggleCandidate` 전이 + ChoiceRequest `PartialPickGate`(optional) + 시점 필터 스트립. 디스패처 미배선이라 기존 전 궤적 bit-identical. 게이트: 전체 스위트 무회귀 + 상태 전이 단위 테스트.
-- **B5-2 (engine, 표면 flip)**: 디스패처 세션 분기(§B5.5 표) + `ToggleChoiceCandidate` 타입/핸들러/A1 등재 + 불충족-강제 개설-시점 강등(§B5.6, Scripted 조합 탐색 재사용) + 미러 Select* 배치 경로에 PartialPickGate 배선(byPreSelectedList를 게이트로 전달 — 현 배치 경로는 byPreSelectedList 없을 때만이므로 실배선은 additive). 게이트: W2/W3/W5/W6/W9 + 전체 스위트 + **MaxCount<=1 궤적 shadow 대조(bit-identical)**.
-- **B5-3 (RL층)**: FactoredActionSchema v2(+ConfirmChoice, Version=2) + obs selected 비트 + SeatMatchHost welcome 값 갱신 + 프로토콜 계약 테스트 갱신. 게이트: W1/W4/W7/W10 + M2-001/M4-001/G13-003/R4RL-01/RLB1-01 + Python 유닛.
-- **B5-4 (실카드 동승)**: EX8_051 witness(W8) + BT20_098 포팅 동승(원장 D7-B5 계획 유지 — 조인트-검증기 실카드 witness) + L0 스모크 재실행(스키마 v2 재생성, §B3.4 경로). 게이트: W8 + 스모크 무크래시 + eval 유의미 우위 재확인.
+- **B5-1 (engine, 행동 무변)**: HeadlessChoiceState `PendingSelectedIds` + 컨트롤러 `ToggleCandidate` 전이 + ChoiceRequest `PartialPickGate`(optional) + 시점 필터 스트립. 디스패처 미배선이라 기존 전 궤적 bit-identical. 게이트: 전체 스위트 무회귀 + 상태 전이 단위 테스트. **[상환(2026-07-17, 5acec578) — R4RL-02 신설, 게이트 전부 PASS]**
+- **B5-2 (engine, 표면 flip)**: 디스패처 세션 분기(§B5.5 표) + `ToggleChoiceCandidate` 타입/핸들러/A1 등재 + 불충족-강제 개설-시점 강등(§B5.6, Scripted 조합 탐색 재사용) + 미러 Select* 배치 경로에 PartialPickGate 배선(byPreSelectedList를 게이트로 전달 — 현 배치 경로는 byPreSelectedList 없을 때만이므로 실배선은 additive). 게이트: W2/W3/W5/W6/W9 + 전체 스위트 + **MaxCount<=1 궤적 shadow 대조(bit-identical)**. **[상환(2026-07-17, c5ff6ede) — R4RL-03 신설, 게이트 전부 PASS]**
+- **B5-3 (RL층)**: FactoredActionSchema v2(+ConfirmChoice, Version=2) + obs selected 비트 + SeatMatchHost welcome 값 갱신 + 프로토콜 계약 테스트 갱신. 게이트: W1/W4/W7/W10 + M2-001/M4-001/G13-003/R4RL-01/RLB1-01 + Python 유닛. **[상환(2026-07-17, 47729f36) — R4RL-04 신설, 599→600·3088→3104, 게이트 전부 PASS]**
+- **B5-4 (실카드 동승)**: EX8_051 witness(W8) + BT20_098 포팅 동승(원장 D7-B5 계획 유지 — 조인트-검증기 실카드 witness) + L0 스모크 재실행(스키마 v2 재생성, §B3.4 경로). 게이트: W8 + 스모크 무크래시 + eval 유의미 우위 재확인. **[상환(2026-07-18) — 6부 §B5.11 실행 기록: W8 green(R4RL-03 12/12)·coverage 캠페인 500판 stalled 0·L0 30k/L1 재가동, 게이트 전부 PASS. BT20_098 포팅은 미동승(잔여 — W1형 합성 witness가 R4RL-03에서 대신 고정, 실카드 포팅은 풀 확대 트랙 몫)]**
 - flip 직전 **사용자 체크포인트**(R4 careful 규약) — B5-2 착수 전 본 설계 승인 + B5-3 후 스키마 버전 증가 확인.
 
 ## §B5.10 회귀 게이트 목록
@@ -504,3 +505,51 @@ cd rl && .venv/bin/python build_recipes.py
 2. **다이제스트 커버리지** — seat-표면 재료(관측+합법표+종결)라 관측에 비치지 않는 내부 은닉 상태의 드리프트는 미검출. RLB1-01(in-process, 턴/페이즈/메모리/존카운트)이 보완층; 전-상태 다이제스트는 RD-RLENV-04(Guid id 채번) 상환이 선행 조건.
 3. **strict 프로파일 캠페인 전판 무발화** — 클린 179 풀에서 unbound 효과 0을 10⁴판 규모로 실증. 단 풀 확대 시 재발화가 예상 경로이므로 캠페인 러너의 strict 고정은 상시 유지.
 4. **step_cap=1000 절단** — 이번 실측 최장 127스텝으로 무해 확인. 풀/정책 변경 시 cap 재평가(cap 도달은 수확 채널이 계수).
+
+---
+
+# 6부. B5-4 실행 기록 (2026-07-18) — 실카드 W8 + 캠페인 스모크 + L0/L1 스키마 v2 재가동 (B5 마감)
+
+## §B5.11 실행 기록 (배치 4개 게이트 실측)
+
+### §B5.11.1 W8 — EX8_051 `<Fragment <3>>` 실카드 witness (tests/R4RL-03 +1 케이스, 12/12 green)
+- **실코드 확인**: AS-IS `KeyWordEffects/Fragment.cs` FragmentProcess = SelectCardEffect(maxCount:3, `canNoSelect:()=>false`, `canEndNotMax:false`, customRootCardList=permanent.DigivolutionCards) — 미러(`src/.../CardEffectCommons/KeyWordEffects/Fragment.cs:49-69`)가 파라미터 단위 1:1, 배치 요청 번역 = **min=max=3·canSkip=false 강제 Card choice**(§B5.3 stall 모양 그대로).
+- **발화 경로(도달 가능 최소 경로 — 순수 픽스처로 성립)**: 실카드 EX8_051 배치(실 dispatch `CardEffectRegistrar`) + 진화원 4장 부착 + 효과 삭제(`MatchStateMutationSink.DeleteKind`) → PRE cut-in 창이 printed `FragmentSelfEffect`를 수집·파킹(G3.5-F68 FragmentTwoStep과 동일 하네스; 그 테스트는 pre-flip 필연으로 선택 해소를 **컨트롤러 직접 호출로 우회**했고, W8은 같은 요청을 **에이전트 액션 표면**으로 완주).
+- **단언(전부 green)**: ① 창 activate 후 소스-픽 요청이 min=3·max=3·canSkip=false·후보 4(진화원) ② **red→green**: pre-B5-2였다면 빈 표(stall)였을 그 표가 토글 레인 4개, 0픽/2픽에선 ResolveChoice 부재 ③ 토글×3 후 Confirm이 픽 순서 그대로 탑재·A1 경계 통과 ④ **AS-IS FragmentProcess 결과 대조**: 픽 3장 트래시(`ITrashDigivolutionCards`≡`TrashSpecificSourcesAsync`)·미픽 1장 스택 잔존(트래시 아님+sourceIds 유지)·top 필드 생존(트래시 아님)·`willBeRemoveField=false`/`pendingDeletion=false` 해제·dangling choice 0.
+
+### §B5.11.2 coverage 덱 캠페인 스모크 (RlVectorHost strict, EX8_051 재적)
+조건: coverage_rest_4(**EX8_051 2장 포함**)+coverage_rest_1, 전 순서쌍 4조합 × 125 = **500판**, seed 540000+g, maxSteps 1000, strict, 8워커, recheck 50. 산출물 `runs/b54-campaign/`.
+
+| 지표 | 실측 | B4(10,044판) 대조 |
+|---|---|---|
+| 자연 종결 | **500/500 (100%)** — P1 lose 256 / P2 lose 244(선공 승 48.8%) | 100% (선공 승 51.1%) — 동률 |
+| stalled·no_mappable_action | **0** | 0 |
+| 수확(throw/stop/deadlock/cap/hang/driver) | **전부 0** | 전부 0 |
+| 결정론 재검 | 표본 50/50 bit-identical | 100/100 |
+| 처리량 | 23,474 스텝, wall 413s, 56.9 steps/sec | 64.8 |
+
+- 판정: **구 stall 원인(min=max=3 배치 요청 → 빈 표) 소멸 실증** — EX8_051 재적 덱쌍 500판에서 stalled 0. 단 랜덤 정책의 Fragment 자연 발화는 이번에도 미관측(§B4.5 #4 판정 유지 — 발화-경유 완주의 지정 witness는 W8 픽스처).
+
+### §B5.11.3 L0 원판 재실행 (§B3.3 규모, 스키마 v2)
+30,000 agent-steps, SubprocVecEnv×8, seed 42, 모노 4레시피, out=`runs/l0-pump`(구 B5-3 8k 스모크 폐기 후 재생성).
+
+| 게이트 | 판정 | 실측 |
+|---|---|---|
+| ① 무크래시 | **PASS** | 학습+평가 전판 자연 종결(truncated 0), 예외 0 |
+| ② vs 랜덤 우위(≥100판) | **PASS** | **99.2% (119W/1L/120판), Wilson CI95=[95.4%, 99.9%]** |
+| ③ 계약(스키마 v2) | **PASS** | obs **3104**·action **600**·vocab 4206, obsSchemaHash `bdc89fa8…` 학습 전/후 동일, meta 기록 완료 |
+
+- 처리량 21.9 steps/sec(1,371s/30k) — B3(v1) 21.3과 동급(스키마 v2 오버헤드 무시 가능). B3 §B3.3(v1, 99.2% CI [95.4, 99.9])과 동일 수준의 우위 재확인.
+
+### §B5.11.4 L1 리그 재가동 (`runs/league-l1-pump` 신규)
+8,000스텝, freeze 2,000, DummyVecEnv×4, init=l0-pump(v2), 동일 레시피 풀. 스냅샷 4개 신규(`st-league-s001..s004`), 12.5 steps/sec.
+- **게이트 3/3 PASS**: ① rating-trend-up(learner **1301** > 스냅샷 1165/1148/1161/1238) ② weakness-sampling-engaged(**68회**; near 309·bootstrap 113·random 7) ③ seeded-replay-identical(동일 seed 재대전 스텝/결과 일치).
+
+### §B5.11.5 회귀 게이트 (본 배치 실행분)
+M2-001 **11/11** · M4-001 **9/9** · G13-003 **PASS** · R4RL-01 **6/6** · R4RL-02 **15/15** · R4RL-03 **12/12(W8 포함)** · R4RL-04 **8/8** · RLB1-01 **3/3** · rl Python 유닛 **41/41** — 전부 green, 무회귀. (커밋 금지 지시로 B5-4 산출물은 작업트리 상태.)
+
+### §B5.11.6 남는 리스크 (원장)
+1. **Fragment 자연 발화 미관측 지속** — 랜덤 정책 도달 심도 한계(§B4.6 #1)로 캠페인은 stalled-0 소멸 실증까지만, 발화-경유 완주는 W8 픽스처가 유일 witness. 보강 경로 = 학습 정책 셀프플레이 캠페인.
+2. **RD-RLENV-08**: Count형 `SelectCount` 레인의 factored Unmapped 잔존(원장 등재, 세션 스코프 밖).
+3. **BT20_098 실카드 포팅 미동승** — 조인트-검증기 실카드 witness는 합성 W1형(R4RL-03)이 대체 고정; 실카드는 풀 확대 트랙에서 포팅과 동승.
+4. L0/L1 게이트는 vs-랜덤/자기-스냅샷 스모크 척도(§B3.5 #3 동일 — 절대 실력 아님).

@@ -1,7 +1,9 @@
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -46,6 +48,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(W9) 세션 중 표-밖 Confirm(부분 집합 불일치) 제출은 Illegal — 픽 상태 유지", OffTableConfirmRejected),
     ("(보존 경계) MaxCount==1 표는 세션 미개설: size-1 레인+B1 필터+skip 그대로, 토글 레인 없음", SingleSelectShapePreserved),
     ("(스모크+결정론) 랜덤 에이전트 풀게임: 다중-선택 세션 경유 자연 종결 + seed-replay 지문 일치", RandomAgentFullGameSmoke),
+    ("(W8) 실카드 EX8_051 <Fragment <3>>: 발화 경로에서 min=max=3 세션(토글×3+Confirm) 완주 + AS-IS 결과 대조", FragmentRealCardSessionWitness),
 };
 
 var failures = new List<string>();
@@ -407,6 +410,198 @@ async Task RandomAgentFullGameSmoke()
         return string.Join("|", applied);
     }
 }
+
+// --- W8: real-card EX8_051 <Fragment <3>> (설계 §B5.8 W8, B5-4) ------------------------------------
+//
+// The ONE live multi-select shape in the current 209-card pool (§B5.3): the <Fragment <3>> keyword
+// (Fragment.cs FragmentProcess — SelectCardEffect maxCount:3, canNoSelect:()=>false, canEndNotMax:false
+// over permanent.DigivolutionCards) fires on EX8_051's WhenPermanentWouldBeDeleted window and posts a
+// FORCED min=max=3 batch Card request. Pre-B5-2 the dispatcher emitted ZERO actions for it (MinCount>1,
+// no skip) = agent stall (the B4 campaign never reached this path — §B4.5 #4); post-flip it must open a
+// session the agent completes as toggle×3 + Confirm, and the resolved effect must land the AS-IS
+// FragmentProcess result: the 3 picked sources trashed (ITrashDigivolutionCards), the unpicked source
+// still attached, the top NOT deleted (willBeRemoveField=false — the sweep spares the survivor).
+// Firing path (minimal reachable, same as tests/G3.5-F68 FragmentTwoStep): real ported EX8_051 on the
+// battle area + 4 attached sources + an effect deletion opening the PRE cut-in window; step 1 activates
+// the window's optional Fragment, step 2 is the session under test. G3.5-F68 resolves step 2 by writing
+// the controller directly (pre-flip necessity); W8 is the agent-surface completion of the same request.
+
+async Task FragmentRealCardSessionWitness()
+{
+    (DcgoMatch match, EngineContext ctx) = await RealCardMatchAsync(seed: 127);
+    HeadlessEntityId top = await PlaceRealCardAsync(match, ctx, P2, "EX8_051");
+    HeadlessEntityId s1 = MakeSource(ctx, P2, "w8-fs1");
+    HeadlessEntityId s2 = MakeSource(ctx, P2, "w8-fs2");
+    HeadlessEntityId s3 = MakeSource(ctx, P2, "w8-fs3");
+    HeadlessEntityId s4 = MakeSource(ctx, P2, "w8-fs4");
+    SetCardMetadata(match, top, new Dictionary<string, object?>(StringComparer.Ordinal)
+    {
+        [DeletionReplacementGate.SourceIdsKey] = new[] { s1.Value, s2.Value, s3.Value, s4.Value }
+    });
+
+    // FIRE: an effect deletes EX8_051 -> deferred (pendingDeletion) -> the PRE cut-in window parks the
+    // printed <Fragment <3>> as the owner's optional replacement choice.
+    await DeleteByEffectAsync(match, ctx, top);
+    AssertTrue(ReadCardFlag(match, top, GameFlowProcessor.PendingDeletionKey), "deletion deferred behind the window");
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the Fragment window choice is open");
+    AssertEqual(P2, match.Context.ChoiceController.PendingRequest!.PlayerId, "the owner decides");
+
+    // Step 1 — activate Fragment through the listed action surface.
+    LegalAction activate = match.GetLegalActions(P2)
+        .Single(a => a.ActionType == HeadlessActionTypes.ResolveChoice && !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
+    await match.ApplyActionAsync(activate);
+    await match.StepAsync();
+
+    // Step 2 — the FragmentProcess source pick: the exact §B5.3 stall shape, now a session.
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the source-pick choice is open");
+    ChoiceRequest sourcePick = match.Context.ChoiceController.PendingRequest!;
+    AssertEqual(3, sourcePick.MinCount, "Fragment <3>: forced (canNoSelect false, canEndNotMax false) -> min=3");
+    AssertEqual(3, sourcePick.MaxCount, "Fragment <3>: maxCount=3");
+    AssertTrue(!sourcePick.CanSkip, "Fragment <3>: no skip (forced)");
+    AssertEqual(4, sourcePick.Candidates.Count, "candidates = the permanent's 4 digivolution cards");
+
+    IReadOnlyList<LegalAction> table = match.GetLegalActions(P2);
+    AssertTrue(table.Count > 0, "red→green: the table that stalled every pre-flip agent is NOT empty");
+    AssertEqual(4, table.Count(a => a.ActionType == HeadlessActionTypes.ToggleChoiceCandidate),
+        "session open: one toggle lane per source");
+    AssertEqual(0, table.Count(a => a.ActionType == HeadlessActionTypes.ResolveChoice),
+        "0 picks < min 3 and no skip: no ResolveChoice lane yet");
+
+    // Toggle the first three sources through the validated lanes (pick order s1, s2, s3).
+    HeadlessEntityId CandidateOf(HeadlessEntityId source) =>
+        sourcePick.Candidates.Single(c => c.Id.Value.Contains(source.Value, StringComparison.Ordinal)).Id;
+    await ApplyListedToggleAsync(match, P2, CandidateOf(s1));
+    await ApplyListedToggleAsync(match, P2, CandidateOf(s2));
+    AssertEqual(0, match.GetLegalActions(P2).Count(a => a.ActionType == HeadlessActionTypes.ResolveChoice),
+        "2 picks < min 3: still no Confirm");
+    await ApplyListedToggleAsync(match, P2, CandidateOf(s3));
+
+    LegalAction confirm = match.GetLegalActions(P2).Single(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    AssertSequence(
+        new[] { CandidateOf(s1), CandidateOf(s2), CandidateOf(s3) },
+        ReadSelectedIds(confirm),
+        "the Confirm lane carries the 3 picks in pick order");
+
+    await match.ApplyActionAsync(confirm);
+    await match.StepAsync();
+
+    // AS-IS FragmentProcess result contrast (Fragment.cs:65-80): the 3 selected sources are trashed
+    // (ITrashDigivolutionCards -> mirror TrashSpecificSourcesAsync), the unselected source stays attached,
+    // and cardsTrashed -> willBeRemoveField=false so the top is NOT deleted.
+    AssertTrue(InZoneOf(match, P2, ChoiceZone.BattleArea, top), "the top survives on the battle area (deletion cancelled)");
+    AssertTrue(!InZoneOf(match, P2, ChoiceZone.Trash, top), "the top was NOT trashed");
+    AssertTrue(
+        InZoneOf(match, P2, ChoiceZone.Trash, s1) && InZoneOf(match, P2, ChoiceZone.Trash, s2) && InZoneOf(match, P2, ChoiceZone.Trash, s3),
+        "the 3 picked sources are trashed as the Fragment cost");
+    AssertTrue(!InZoneOf(match, P2, ChoiceZone.Trash, s4), "the unpicked source is NOT trashed");
+    AssertTrue(AttachedSourceIds(match, top).Contains(s4.Value), "the unpicked source stays attached under the top");
+    AssertTrue(!AttachedSourceIds(match, top).Intersect(new[] { s1.Value, s2.Value, s3.Value }).Any(),
+        "the trashed sources are detached from the stack");
+    AssertTrue(!ReadCardFlag(match, top, "willBeRemoveField"), "willBeRemoveField cleared (AS-IS cardsTrashed branch)");
+    AssertTrue(!ReadCardFlag(match, top, GameFlowProcessor.PendingDeletionKey), "pendingDeletion cleared for the survivor");
+    AssertTrue(!match.Context.ChoiceController.Current.IsPending, "no dangling choice after the session completed");
+}
+
+// W8 fixture helpers (same harness shape as tests/G3.5-F68 — legacy driver + deferredChoice so the PRE
+// cut-in window parks as a pending choice; the dispatcher's choice branch is driver-independent).
+
+async Task<(DcgoMatch Match, EngineContext Ctx)> RealCardMatchAsync(int seed)
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed, deferredChoice: true);
+    var cards = (CardDatabase)ctx.CardRepository;
+    for (int index = 1; index <= 12; index++)
+    {
+        cards.Upsert(PlainDigimon($"P1-M{index:D2}"));
+        cards.Upsert(PlainDigimon($"P2-M{index:D2}"));
+    }
+
+    DcgoMatch match = new(ctx, new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[] { PlainDeck(P1, "P1"), PlainDeck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
+    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup));
+    for (var attempt = 0; attempt < 10 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
+    {
+        LegalAction advance = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
+        await match.ApplyActionAsync(advance);
+        await match.StepAsync();
+    }
+
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advanced to Main");
+    (ctx.ChoiceProvider as DeferredChoiceProvider)?.CompleteResolution();
+    return (match, ctx);
+}
+
+async Task<HeadlessEntityId> PlaceRealCardAsync(DcgoMatch match, EngineContext ctx, HeadlessPlayerId owner, string cardNumber)
+{
+    HeadlessEntityId card = ((IZoneStateReader)ctx.ZoneMover)
+        .GetCards(owner, ChoiceZone.Hand).OrderBy(id => id.Value, StringComparer.Ordinal).First();
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"def:{cardNumber}");
+    cards.Upsert(new CardRecord(defId, cardNumber, cardNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Black" }, ["level"] = 5, ["dp"] = 5000 }, CardType: "Digimon"));
+    if (!ctx.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) || record is null)
+    {
+        throw new InvalidOperationException($"missing {card}");
+    }
+
+    ctx.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, card, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    SetCardMetadata(match, card, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.IsSuspendedKey] = false });
+    CardEffectRegistrar.RegisterCard(ctx, card, owner);
+    return card;
+}
+
+HeadlessEntityId MakeSource(EngineContext ctx, HeadlessPlayerId owner, string tag)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var defId = new HeadlessEntityId($"def:{tag}");
+    cards.Upsert(new CardRecord(defId, tag, tag,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Black" }, ["level"] = 4, ["dp"] = 3000 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}-{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner));
+    return id;
+}
+
+async Task DeleteByEffectAsync(DcgoMatch match, EngineContext ctx, HeadlessEntityId cardId)
+{
+    var sink = new MatchStateMutationSink(ctx.CardInstanceRepository, log: null, ctx.ZoneMover, memory: null, ctx.EffectRegistry, context: ctx);
+    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("w8-deleter"),
+        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = cardId.Value }));
+    await sink.FlushAsync();
+    await match.StepAsync();
+}
+
+void SetCardMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
+{
+    if (!match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
+    {
+        throw new InvalidOperationException($"Missing {cardId}.");
+    }
+
+    Dictionary<string, object?> metadata = new(record.Metadata, StringComparer.Ordinal);
+    foreach (KeyValuePair<string, object?> pair in values) { metadata[pair.Key] = pair.Value; }
+    match.Context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+}
+
+bool InZoneOf(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId cardId) =>
+    ((IZoneStateReader)match.Context.ZoneMover).GetCards(player, zone).Contains(cardId);
+
+bool ReadCardFlag(DcgoMatch match, HeadlessEntityId cardId, string key) =>
+    match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? r) && r is not null
+        && r.Metadata.TryGetValue(key, out object? raw) && raw is bool b && b;
+
+string[] AttachedSourceIds(DcgoMatch match, HeadlessEntityId cardId) =>
+    match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? r) && r is not null
+        && r.Metadata.TryGetValue(DeletionReplacementGate.SourceIdsKey, out object? raw) && raw is IEnumerable<string> ids
+        ? ids.ToArray() : Array.Empty<string>();
+
+static CardRecord PlainDigimon(string id) =>
+    new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(), CardType: "Digimon");
+
+static PlayerDeckSetup PlainDeck(HeadlessPlayerId playerId, string prefix) =>
+    new(playerId,
+        Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
+        Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
 // --- fixtures --------------------------------------------------------------------------------------
 
