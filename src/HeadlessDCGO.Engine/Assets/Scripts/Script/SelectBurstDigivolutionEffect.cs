@@ -4,19 +4,21 @@
 // (bigbang §5): IEnumerator -> Task, StartCoroutine(x) -> await x; UI/Photon stripped. STATE fields + SetUp are
 // AS-IS verbatim; the two-option method panel is the same ModeChoice ADAPTATION as SelectAppFusionEffect.
 //
-// PARTIAL (design items RD-R5-01/02): AddTrashTopCardAtTurnEnd (RD-R5-03) is now landed 1:1 (Permanent
+// PARTIAL (design item RD-R5-02): AddTrashTopCardAtTurnEnd (RD-R5-03) is landed 1:1 (Permanent
 // .UntilEachTurnEndEffects + AceOverflowClass + CardObjectController zone statics all present; UI stripped).
-// The two remaining STOPs — SelectTamer (RD-R5-01, RE-SCOPED 2026-07-18: the RD-P6C1-2 cost engine
-// GetChangedCostItselef is NO LONGER absent — R2-C mirrored it at CardSource.cs:1156; residual = the un-ported
-// CanPlayBurst(bool) wrapper + body, a scoped port not an engine gap) and BounceTamer (RD-R5-02, blocked on the
-// standalone HandBounceClaass process + IsReturnedToHandByBurst flag)
-// — STOP loudly (never guessed). Permanent.CannotReturnToHand (RD-EXT3-04) is now available, so it is no longer
-// a blocker for either. The feasible surface (state + SetUp + SelectWheterToBurst + AddTrashTopCardAtTurnEnd) is
-// real 1:1. See the per-method notes.
+// SelectTamer (RD-R5-01) is now RESTORED 1:1 (2026-07-18): its head guard CardSource.CanPlayBurst(bool) is ported
+// (CardSource.cs), riding the R2-C burst cost engine GetChangedCostItselef, and the SelectPermanent(Mode.Custom)
+// tamer-selection body is a straight substrate port. The ONE remaining STOP is BounceTamer (RD-R5-02), blocked on
+// the standalone HandBounceClaass bounce process (no mirror type) + Permanent.IsReturnedToHandByBurstDigivolution
+// (no mirror). A FULL burst play still reaches that STOP downstream of SelectTamer (the caller's
+// _endSelectCoroutine_SelectTamer routes the picked tamer into the bounce) — SelectTamer itself opens and resolves
+// the tamer selection (with the live CanPlayBurst affordability gate); the bounce is where the burst play stops.
+// Permanent.CannotReturnToHand (RD-EXT3-04) is available. See the per-method notes.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
 using System.Collections;
+using System.Linq;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
@@ -143,26 +145,135 @@ public class SelectBurstDigivolutionEffect
         }
     }
 
-    // AS-IS :107-220 `IEnumerator SelectTamer()` — enumerate battle-area tamers matching
-    // `_card.burstDigivolutionCondition.tamerCondition` that `!CannotReturnToHand(null)`, SelectPermanent one,
-    // then route to `_endSelectCoroutine_SelectTamer`. STOP (design item RD-R5-01) — RE-ADJUDICATED 2026-07-18
-    // (small-ledger batch): the ORIGINAL premise is now STALE. The AS-IS head guard `_card.CanPlayBurst(_isPayCost)`
-    // rides the burst cost engine `CardSource.GetChangedCostItselef`, and that engine NO LONGER "remains a STOP" —
-    // R2-C landed a 1:1 mirror at CardSource.cs:1156-1209 (with GetChangedPayingCost :1215, GetPayingCostWithBaseCost
-    // :1064). Every other CanPlayBurst callee is also live (Player.MaxMemoryCost, GetBattleAreaDigimons/Permanents,
-    // CardSource.CanNotEvolve, Permanent.CannotReturnToHand, BurstDigivolutionConditionOf). The REMAINING blocker is
-    // narrow and mechanical, not infrastructural: the `CardSource.CanPlayBurst(bool)` WRAPPER itself (AS-IS
-    // CardSource.cs:3071-3134) is not yet ported, and restoring the SelectTamer body (:107-220) is a real burst-play
-    // legality change needing its own witness. Kept OPEN as a scoped porting item (no longer an engine gap); lifting
-    // it = port CanPlayBurst 1:1 (swap `burstDigivolutionCondition`→`BurstDigivolutionConditionOf()`, `Owner.*`→
-    // `new Player(Context, Owner).*`) + restore the body + a burst-affordability witness (e.g. TfxBurstDigivolve). No guess.
-    public Task SelectTamer()
+    // AS-IS :107-220 `IEnumerator SelectTamer()` (RD-R5-01 RESTORED 2026-07-18) — enumerate battle-area tamers
+    // matching `_card.BurstDigivolutionConditionOf().tamerCondition` that `!CannotReturnToHand(null)`, SelectPermanent
+    // one (Mode.Custom, the SelectPermanentCoroutine captures the pick), then route the pick to
+    // `_endSelectCoroutine_SelectTamer` (or `_noSelectCoroutine` on no pick). The head guard `_card.CanPlayBurst(_isPayCost)`
+    // is now live (CardSource.CanPlayBurst ported RD-R5-01; the burst cost engine GetChangedCostItselef is R2-C).
+    // SUBSTRATE: IEnumerator→async Task, StartCoroutine(X)→await X, lone `yield return null`→Task.CompletedTask;
+    // `_card.burstDigivolutionCondition`→`_card.BurstDigivolutionConditionOf()`; `_card.Owner.*`/`TopCard.Owner.*`
+    // (AS-IS Player) → `new Player(context, ownerId).*`; the mirror SelectPermanentEffect canTargetCondition is
+    // id-form, so the AS-IS Permanent-predicate is adapted via `new Permanent(context, id)` (BT21_030 precedent).
+    // AS-IS QUIRK KEPT 1:1: the pick branch guards on `_endSelectCoroutine_Burst != null` (:214) but invokes
+    // `_endSelectCoroutine_SelectTamer` (:216).
+    public async Task SelectTamer()
     {
-        throw new NotSupportedException(
-            "STOP: SelectBurstDigivolutionEffect.SelectTamer (AS-IS SelectBurstDigivolutionEffect.cs:107-220) — " +
-            "the burst cost engine CardSource.GetChangedCostItselef IS now mirrored (R2-C, CardSource.cs:1156); the " +
-            "residual gap is the un-ported CardSource.CanPlayBurst(bool) wrapper (AS-IS CardSource.cs:3071-3134) plus " +
-            "the SelectTamer body — a scoped port + burst witness (design item RD-R5-01, re-scoped 2026-07-18).");
+        bool active = false;
+        SelectPermanentEffect selectPermanentEffect = null;
+
+        if (_card != null)
+        {
+            if (_card.CanPlayBurst(_isPayCost))
+            {
+                if (_card.BurstDigivolutionConditionOf() != null)
+                {
+                    if (GManager.instance != null)
+                    {
+                        if (GManager.instance.turnStateMachine != null)
+                        {
+                            if (GManager.instance.turnStateMachine.gameContext != null)
+                            {
+                                if (GManager.instance.turnStateMachine.gameContext.ActiveCardList.Count >= 1)
+                                {
+                                    selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                                    if (selectPermanentEffect != null)
+                                    {
+                                        active = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (active)
+        {
+            EngineContext context = _card.Context;
+            Permanent selectedTamer = null;
+
+            BurstDigivolutionCondition burstDigivolutionCondition = _card.BurstDigivolutionConditionOf();
+
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                if (permanent != null)
+                {
+                    if (new Player(context, permanent.TopCard.Owner).GetBattleAreaPermanents().Contains(permanent))
+                    {
+                        if (burstDigivolutionCondition.tamerCondition != null)
+                        {
+                            if (burstDigivolutionCondition.tamerCondition(permanent))
+                            {
+                                if (!permanent.CannotReturnToHand(null))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            // AS-IS Permanent-predicate → mirror id-form canTargetCondition adapter.
+            bool CanSelectPermanentConditionById(HeadlessEntityId id) =>
+                CanSelectPermanentCondition(new Permanent(context, id));
+
+            int maxCount = Math.Min(1, new Player(context, _card.Owner).GetBattleAreaPermanents().Count(CanSelectPermanentCondition));
+
+            if (maxCount >= 1)
+            {
+                selectPermanentEffect.SetUp(
+                    selectPlayer: _card.Owner,
+                    canTargetCondition: CanSelectPermanentConditionById,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: maxCount,
+                    canNoSelect: _canNoSelect,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: SelectPermanentCoroutine,
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Custom,
+                    cardEffect: null);
+
+                selectPermanentEffect.SetUpCustomMessage($"Select {burstDigivolutionCondition.selectTamerMessage}.", $"The opponent is selecting {burstDigivolutionCondition.selectTamerMessage}.");
+
+                if (this._isLocal)
+                {
+                    selectPermanentEffect.SetIsLocal();
+                }
+
+                await selectPermanentEffect.Activate().ConfigureAwait(false);
+
+                Task SelectPermanentCoroutine(Permanent permanent)
+                {
+                    selectedTamer = permanent;
+
+                    return Task.CompletedTask;
+                }
+            }
+
+            // AS-IS :202-209 — no pick: run the no-select branch.
+            if (selectedTamer == null)
+            {
+                if (_noSelectCoroutine != null)
+                {
+                    await _noSelectCoroutine().ConfigureAwait(false);
+                }
+            }
+
+            // AS-IS :211-218 — picked: route the tamer to the burst follow-up (AS-IS quirk: guards on Burst, calls SelectTamer).
+            else
+            {
+                if (_endSelectCoroutine_Burst != null)
+                {
+                    await _endSelectCoroutine_SelectTamer(selectedTamer).ConfigureAwait(false);
+                }
+            }
+        }
     }
 
     // AS-IS :222-247 `IEnumerator BounceTamer(Permanent tamer)` — bounce the selected tamer to hand with the

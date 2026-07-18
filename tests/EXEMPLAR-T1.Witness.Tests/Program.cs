@@ -381,16 +381,16 @@ async Task BT17026_HandMainPumpLaneFlip()
         "(left the trash), the genuine committed first stage of BT17_026's [Hand][Main] skill");
     AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(inHand),
         "BT17_026 left the hand (the [Hand][Main] declaration resolved and consumed it)");
-    // RESIDUAL (design item RD-EXT1-04, distinct from the now-closed RD-EXT1-01 pump lane): the FINAL cross-type
-    // digivolve — Koji (a Tamer, level 0) → BT17_026 treated as a level-4 blue Digimon for a fixed cost 3, via
-    // ChangeCardColor/ChangePermanentLevel/TreatAsDigimon + DigivolveIntoHandOrTrashCard — currently lands in the
-    // AS-IS DigivolvedFailed branch (BT17_026 → trash, BT17_026.cs:452-460). That is the exotic
-    // digivolve-into-card / treat-as-Digimon path, NOT the pump lane; the lane (this item) faithfully offers and
-    // drives the effect up to that point.
-    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(inHand)
-            || ZoneCards(match, P1, ChoiceZone.Trash).Contains(inHand),
-        "BT17_026 settled either as the digivolved top permanent (full success) or in the trash via AS-IS " +
-        "DigivolvedFailed (RD-EXT1-04 treat-as-Digimon digivolve residual) — never stuck mid-flow");
+    // RD-EXT1-04 FLIP (now landed): the FINAL cross-type digivolve — Koji (a Tamer, level 0) → BT17_026 treated as
+    // a level-4 blue Digimon for a fixed cost 3, via ChangeCardColor/ChangePermanentLevel/TreatAsDigimon +
+    // DigivolveIntoHandOrTrashCard — lands in the AS-IS DigivolvedFailed branch: BT17_026 is discarded to the TRASH
+    // via `new IDiscardHand(card).Discard(...)` (AS-IS BT17_026.cs:395-401 DigivolvedFailed → IDiscardHand, mirror
+    // BT17_026.cs:456-462). The residual pin is now a definite landing, not a disjunction.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Trash).Contains(inHand),
+        "RD-EXT1-04 FLIP: the cross-type treat-as-Digimon digivolve (Koji Tamer → BT17_026) lands in the AS-IS " +
+        "DigivolvedFailed → IDiscardHand branch — BT17_026 is in the TRASH");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(inHand),
+        "BT17_026 did not settle as a battle-area permanent (the treat-as-Digimon digivolve resolved via DigivolvedFailed, not a successful digivolve)");
 }
 
 async Task BT17026_WhenDigivolvingReturnsHybridAndCanNotSuspend()

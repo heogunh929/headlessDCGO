@@ -24,17 +24,18 @@
 //     `activateClass.EffectSourceCard?.InstanceId`). OnLeaveFieldAnyone is an EventBroadcast bridge timing; the
 //     N-simultaneous-leaves batch collapses to ONE reactor fire at collect (WindowResolverWiring.
 //     CollectActivatedBridgeTriggers), mirroring the AS-IS single-StackSkillInfos any-match.
+//   * [On Play] / [When Digivolving] shared effect (AS-IS AD1_025.cs:76-150, SharedActivateCoroutine) — "Return
+//     all of your opponent's Digimon with as many or fewer digivolution cards as this Digimon to the bottom of
+//     the deck. Then, delete 1 of your opponent's Digimon." REVIVED (design item D2w-25): a MASS deck-bottom-bounce
+//     (non-interactive, pre-computed list) FOLLOWED BY a select-destroy whose candidate pool is enumerated AFTER
+//     the bounce commits. Ported as an ActivateClass + SharedActivateCoroutine — structurally identical to AS-IS
+//     and to the sibling exemplar BT21_030's shared OP/WD arm. The P6-stage-A ActivateICardEffect execution path
+//     RUNS the coroutine (mirror SelectPermanentEffect builds its ChoiceRequest at call time), so the former debt
+//     premise (a uniform body offering ONE up-front ChoiceRequest over the STALE pre-bounce board) does not apply:
+//     the bounce is staged on a fresh MatchStateMutationSink via the ported DeckBottomBounceEffect and FLUSHED
+//     (the commit boundary) BEFORE the SelectPermanentEffect(Mode.Destroy) re-scans the opponent's battle area —
+//     mirroring AS-IS's `DeckBottomBounceClass(...).DeckBounce()` then re-read of GetBattleAreaDigimons.
 //   * <Assembly> ([WarGreymon] + [MetalGarurumon], -6 cost) — timing None -> AddAssemblyConditionClass.
-//
-// FIDELITY DEBT (design item D2w-25) — the [On Play]/[When Digivolving] shared effect (AS-IS AD1_025.cs:88-150,
-// SharedActivateCoroutine) is NOT yet ported: "Return all of your opponent's Digimon with as many or fewer
-// digivolution cards as this Digimon to the bottom of the deck. Then, delete 1 of your opponent's Digimon."
-// This composes a MASS deck-bottom-bounce (non-interactive) FOLLOWED BY a select-destroy whose candidate pool
-// must be computed AFTER the bounce commits (the remaining, higher-source enemy Digimon). The uniform-body
-// activation model builds its single ChoiceRequest BEFORE ApplyAsync, so a composite body would offer the
-// select over the STALE pre-bounce board (including the about-to-be-bounced Digimon) — an infidelity. A faithful
-// port needs a multi-step activated resolver seam (commit the bounce, THEN enumerate select candidates), which
-// no ported primitive exposes today. GAP = mass-mutation-then-select-over-post-mutation-board activation.
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.AD1.Red;
 
 using System.Collections;
@@ -99,6 +100,110 @@ public sealed class AD1_025 : CEntity_Effect
 
             cardEffects.Add(CardEffectFactory.PartitionSelfEffect(
                 isInheritedEffect: false, card: card, condition: null, cardSourceConditions: partitionConditions));
+        }
+        #endregion
+
+        #region Shared OP / WD body (AS-IS AD1_025.cs:76-116, SharedActivateCoroutine)
+        // AS-IS :78/81 shared name + tag-parameterised description.
+        const string SharedEffectName = "Bottom deck all enemy Digimon with as many or fewer sources as this, then delete 1 enemy Digimon";
+
+        string SharedEffectDescription(string tag) =>
+            $"[{tag}] Return all of your opponent's Digimon with as many or fewer digivolution cards as this Digimon to the bottom of the deck. Then, delete 1 of your opponent's Digimon.";
+
+        // AS-IS :83 SharedCanActivateCondition.
+        bool SharedCanActivateCondition(Hashtable hashtable) => CardEffectCommons.IsExistOnBattleAreaDigimon(card);
+
+        // AS-IS :85-89 IsEnemyWithLessSources — enemy battle-area Digimon whose source count is <= this Digimon's.
+        bool IsEnemyWithLessSources(Permanent permanent) =>
+            CardEffectCommons.IsPermanentExistsOnOpponentBattleAreaDigimon(permanent, card)
+            && permanent.DigivolutionCards.Count <= card.PermanentOfThisCard().DigivolutionCards.Count;
+
+        // AS-IS :103 canTargetCondition IsOpponentsDigimon — mirror SelectPermanentEffect is id-form (AT arm /
+        // BT21_030 precedent); the id-form of IsPermanentExistsOnOpponentBattleAreaDigimon is IsOpponentBattleAreaDigimon.
+        bool IsOpponentsDigimonById(HeadlessEntityId id) => CardEffectCommons.IsOpponentBattleAreaDigimon(card, id);
+
+        // AS-IS :91-116 SharedActivateCoroutine.
+        async Task SharedActivateCoroutine(Hashtable _hashtable, ActivateClass activateClass)
+        {
+            var context = card.Context;
+
+            // AS-IS :93 bottomDeckTargets = card.Owner.Enemy.GetBattleAreaDigimons().Filter(IsEnemyWithLessSources).
+            var bottomDeckTargets = new List<HeadlessEntityId>();
+            foreach (Permanent permanent in new Player(context, CardEffectCommons.OpponentOf(card)).GetBattleAreaDigimons())
+            {
+                if (IsEnemyWithLessSources(permanent))
+                {
+                    bottomDeckTargets.Add(permanent.InstanceId);
+                }
+            }
+
+            // AS-IS :95 new DeckBottomBounceClass(bottomDeckTargets, ...).DeckBounce(). Mirror: stage the pre-computed
+            // list via the ported DeckBottomBounceEffect on a fresh MatchStateMutationSink and FLUSH — the flush is the
+            // commit boundary so the SelectPermanent below re-scans the POST-bounce board (AS-IS re-reads
+            // GetBattleAreaDigimons after DeckBounce). Fresh-sink-then-flush = the TrashSelfThenGainMemoryDelayEffect idiom.
+            if (bottomDeckTargets.Count >= 1)
+            {
+                var bounceSink = new MatchStateMutationSink(
+                    context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController,
+                    context.EffectRegistry, context.GameEventQueue, context: context);
+                new DeckBottomBounceEffect(card, bottomDeckTargets, SharedEffectName).Apply(bounceSink);
+                await bounceSink.FlushAsync().ConfigureAwait(false);
+            }
+
+            // AS-IS :97-115 — if the opponent still has a Digimon (post-bounce), delete 1.
+            if (CardEffectCommons.HasMatchConditionOpponentsPermanent(card, IsOpponentsDigimonById))
+            {
+                SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                selectPermanentEffect.SetUp(
+                    selectPlayer: card.Owner,
+                    canTargetCondition: IsOpponentsDigimonById,
+                    canTargetCondition_ByPreSelecetedList: null,
+                    canEndSelectCondition: null,
+                    maxCount: 1,
+                    canNoSelect: false,
+                    canEndNotMax: false,
+                    selectPermanentCoroutine: null,
+                    afterSelectPermanentCoroutine: null,
+                    mode: SelectPermanentEffect.Mode.Destroy,
+                    cardEffect: activateClass);
+
+                await selectPermanentEffect.Activate().ConfigureAwait(false);
+            }
+        }
+        #endregion
+
+        #region On Play (timing OnEnterFieldAnyone)
+        if (timing == EffectTiming.OnEnterFieldAnyone)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+            activateClass.SetUpActivateClass(SharedCanActivateCondition, hashtable => SharedActivateCoroutine(hashtable, activateClass), -1, false, SharedEffectDescription("On Play"));
+            cardEffects.Add(activateClass);
+
+            // AS-IS :128-132 — IsExistOnBattleAreaDigimon && CanTriggerOnPlay.
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+                    && CardEffectCommons.CanTriggerOnPlay(hashtable, card);
+            }
+        }
+        #endregion
+
+        #region When Digivolving (AS-IS OnEnterFieldAnyone + CanTriggerWhenDigivolving -> mirror dialect WhenDigivolving key)
+        if (timing == EffectTiming.WhenDigivolving)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(SharedEffectName, CanUseCondition, card);
+            activateClass.SetUpActivateClass(SharedCanActivateCondition, hashtable => SharedActivateCoroutine(hashtable, activateClass), -1, false, SharedEffectDescription("When Digivolving"));
+            cardEffects.Add(activateClass);
+
+            // AS-IS :144-148 — IsExistOnBattleAreaDigimon && CanTriggerWhenDigivolving.
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                return CardEffectCommons.IsExistOnBattleAreaDigimon(card)
+                    && CardEffectCommons.CanTriggerWhenDigivolving(hashtable, card);
+            }
         }
         #endregion
 

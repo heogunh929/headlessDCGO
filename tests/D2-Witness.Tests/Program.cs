@@ -8,11 +8,16 @@
 // 1 of their Options and trash their top security card." Observable = the enemy's top security is trashed exactly
 // ONCE per batch (not N times), and only when an OPPONENT'S Digimon left (any-match gate).
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
+using System.Collections;
+using System.Linq;
 
 HeadlessPlayerId P1 = new(1);   // controls AD1_025
 HeadlessPlayerId P2 = new(2);   // the opponent whose Digimon leave / whose security is trashed
@@ -25,6 +30,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("resets next turn: after the per-turn reset a new leave batch fires again", ResetsNextTurn),
     ("option sub-effect: with an enemy Option in play, AD1_025 destroys the Option AND trashes top security", OptionDestroyAndSecurity),
     ("[collapse witness] an UNCAPPED reactor fires EXACTLY ONCE for a 3-card leave batch (-1 memory, not -3)", UncappedBatchCollapse),
+    ("[On Play] D2w-25 revive: mass deck-bottom-bounce every enemy Digimon with <= sources, THEN delete 1 of the POST-bounce survivors", OnPlayBounceThenConditionalDelete),
 };
 
 var failures = new List<string>();
@@ -159,7 +165,71 @@ async Task OptionDestroyAndSecurity()
     AssertEqual(secBefore - 1, SecurityCount(ctx, P2), "the enemy's top security was also trashed");
 }
 
+// (D2w-25 revive) The [On Play]/[When Digivolving] shared body: mass deck-bottom-bounce every opponent Digimon
+// whose source count is <= this Digimon's, THEN (re-scanning the POST-bounce board) delete 1 of the opponent's
+// remaining (higher-source) Digimon. AD1_025 has 0 sources here, so the 0-source enemies bounce and the 1-source
+// enemies survive as the delete pool — proving the bounce COMMITS before the select enumerates candidates.
+async Task OnPlayBounceThenConditionalDelete()
+{
+    EngineContext ctx = await Setup();               // AD1_025 self on P1 battle area, 0 sources
+    var low1 = await Foe(ctx, "LOW1");               // 0 sources -> bounced (0 <= 0)
+    var low2 = await Foe(ctx, "LOW2");               // 0 sources -> bounced
+    var high1 = await FoeWithSources(ctx, "HIGH1", 1); // 1 source -> survives (1 > 0) -> delete candidate
+    var high2 = await FoeWithSources(ctx, "HIGH2", 1); // 1 source -> survives -> delete candidate
+
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(ctx);
+    var card = new CardSource(ctx, new HeadlessEntityId("1:battle:AD1_025"), P1);
+    ActivateClass onPlay = card.EffectList(EffectTiming.OnEnterFieldAnyone).OfType<ActivateClass>().First();
+
+    // Post-bounce the delete pool is {high1, high2} (2 candidates -> a genuine select); pick high1.
+    ((ScriptedChoiceProvider)ctx.ChoiceProvider).Enqueue(ChoiceResult.Select(high1));
+
+    await onPlay.Activate(new Hashtable());
+
+    AssertTrue(!InBattle(ctx, P2, low1) && !InBattle(ctx, P2, low2),
+        "mass bounce: both enemy Digimon with <= sources left the battle area");
+    AssertTrue(InLibrary(ctx, P2, low1) && InLibrary(ctx, P2, low2),
+        "mass bounce: the <=-source enemy Digimon are on the bottom of the opponent's deck (library)");
+    AssertTrue(InBattle(ctx, P2, high1) == false && InTrash(ctx, P2, high1),
+        "conditional delete over the POST-bounce survivors: the selected higher-source Digimon was deleted (trash)");
+    AssertTrue(InBattle(ctx, P2, high2),
+        "the non-selected higher-source survivor stayed in the battle area (bounce did not touch it, delete picked only 1)");
+}
+
 // --- Helpers -------------------------------------------------------------
+
+async Task<HeadlessEntityId> FoeWithSources(EngineContext ctx, string tag, int sourceCount)
+{
+    HeadlessEntityId id = await Foe(ctx, tag);
+    if (sourceCount > 0)
+    {
+        var cards = (CardDatabase)ctx.CardRepository;
+        var srcIds = new List<string>();
+        for (int i = 0; i < sourceCount; i++)
+        {
+            var sdef = new HeadlessEntityId($"DEF:{tag}S{i}");
+            cards.Upsert(new CardRecord(sdef, $"{tag}S{i}", $"{tag}S{i}", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+            var sid = new HeadlessEntityId($"{P2.Value}:under:{tag}:{i}");
+            ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(sid, sdef, P2, Metadata: new Dictionary<string, object?>()));
+            srcIds.Add(sid.Value);
+        }
+
+        ctx.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec);
+        var meta = new Dictionary<string, object?>(rec!.Metadata, StringComparer.Ordinal)
+        {
+            [DigivolutionStackReader.SourceIdsKey] = srcIds.ToArray(),
+        };
+        ctx.CardInstanceRepository.Upsert(rec with { Metadata = meta });
+    }
+
+    return id;
+}
+
+bool InBattle(EngineContext ctx, HeadlessPlayerId owner, HeadlessEntityId id) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, ChoiceZone.BattleArea).Contains(id);
+
+bool InLibrary(EngineContext ctx, HeadlessPlayerId owner, HeadlessEntityId id) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, ChoiceZone.Library).Contains(id);
 
 async Task<EngineContext> Setup()
 {
