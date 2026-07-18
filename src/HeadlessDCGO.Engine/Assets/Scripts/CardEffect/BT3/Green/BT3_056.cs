@@ -1,42 +1,44 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// EXEMPLAR-T3B 정본 카드 — Ceresmon (BT3_056, Digimon / Green) — 수확 STOP 카드
+// EXEMPLAR-T3B 정본 카드 — Ceresmon (BT3_056, Digimon / Green) — 수확 STOP 상환(RD-EXT3-03)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/BT3/Green/BT3_056.cs (487 lines, 3 regions)
+// ① AS-IS 앵커: DCGO/Assets/Scripts/CardEffect/BT3/Green/BT3_056.cs (486 lines, 3 regions)
 //    * <Digisorption -3>          :16-277 (BeforePayCost — 진화-흡수 시 아군 1체 서스펜드→진화 코스트 -3)
 //    * [Your Turn][OPT] 상대 대체  :279-407(WhenDigisorption — Digisorption 서스펜드 대상을 상대로 대체)
 //    * ESS 상대 대체(상시)         :409-483(None — CanSuspendByDigisorptionClass 등록)
 //
-// ② 프리미티브 매핑 (감사 축 이름 — coverage_exemplar_audit_2026-07-18.md §4 #16, 3축):
-//    * P:CanSuspendByDigisorptionClass — 감사 MISSING(§3 E:CanSuspendByDigisorptionClass ❌미커버, AS-IS 1장).
-//    * T:WhenDigisorption — 감사 🟡stop-only(BT2_045/BT2_050).
-//    * X:Digisorption — 감사 🟡stop-only.
+// ② 상환 근거 (RD-EXT3-03 — 진입 판정 Player.CanTapWhenAbsorbEvolution(_CheckAvailability) 2종을 미러 Player에
+//    1:1 포팅함으로써 STOP 좌석 해소): <Digisorption -N> BeforePayCost 팔의 후보/가용성 술어가 이 두 Player
+//    메서드를 부른다(AS-IS :31/:47). 미러 Player.cs에 두 메서드가 착지한 뒤 세 팔을 1:1 포팅 — 옵션 서스펜드
+//    →조건부 ChangeCost(-3) 파이프는 기존 SelectPermanentEffect(Mode.Tap)+ChangeCostClass 확립 표면 재사용
+//    (BT21_030 판례; 신규 choice 타입 발명 없음).
 //
-// ★수확 STOP (design item RD-EXT3-03) — 예상 적중(감사 §6 "Digisorption / G11 연계 / CanSuspendByDigisorptionClass
-//   MISSING"). 걸리는 AS-IS 시스템:
-//   ─ 근본 갭: <Digisorption -N>의 진입점은 AS-IS BeforePayCost 팔(:16-277)이며, 그 CanUse/CanActivate/후보
-//     술어가 `card.Owner.CanTapWhenAbsorbEvolution(permanent, activateClass)`(AS-IS Player.cs) +
-//     `CanTapWhenAbsorbEvolution_CheckAvailability`를 호출한다. 이 두 Player 메서드는 미러 Player에 부재
-//     (grep 0건) — "진화-흡수 시 아군을 서스펜드해도 되는가"의 가용성/실행 판정. 이것이 없으면 <Digisorption>
-//     특수-코스트(옵션 서스펜드→ChangeCostClass -N)의 인과 사슬(AS-IS :184-274, afterSelect에서 서스펜드된
-//     경우에만 -3 등록)을 미러 팩토리로 표현할 수 없다. 미러 BeforePayCostReductionEffect는 정적/조건부 델타
-//     전용(옵션-코스트 오버로드 없음) — BT2_045/BT2_050 판례와 동일 STOP.
-//   ─ 소비 흐름 부재: WhenDigisorption 팔(:279-407)은 진화-흡수 서스펜드 시점에 `autoProcessing_CutIn.
-//     PutStackedSkill(...WhenDigisorption 리액터...)`로 컷인을 쌓고, `Mode.Tap` SelectPermanentEffect로 상대
-//     디지몬을 대신 서스펜드시키며 `CanSuspendByDigisorptionClass`를 UntilCalculateFixedCostEffect에 등록한다.
-//     이 팔의 서브-표면(autoProcessing_CutIn/PutStackedSkill/TriggeredSkillProcess/Players_ForTurnPlayer/
-//     GetFieldPermanents/Mode.Tap/CanSuspendByDigisorptionClass)은 미러에 실존하나, 이들을 소비하는 흡수-진화
-//     서스펜드-선택 파이프라인(CanTapWhenAbsorbEvolution 경유)이 없어 발화 지점이 없다(잠복).
-//   ─ 미러에 없는 표면 목록: Player.CanTapWhenAbsorbEvolution(permanent, cardEffect) /
-//     Player.CanTapWhenAbsorbEvolution_CheckAvailability(permanent, cardEffect) — 진화-흡수 서스펜드 가용성
-//     판정 2종(2건 모두 부재). 이 2종이 인프라 골의 최소 입력이며, 그 위에 <Digisorption> 옵션-코스트 파이프
-//     (선택 서스펜드→조건부 ChangeCost)가 얹혀야 한다.
-//   ─ 대응 원장: 예상 적중(감사 §6 Digisorption 클러스터, G11 연계). 상환 시 이 STOP throw를 제거하고 세 팔을
-//     1:1 포팅(위 AS-IS 라인 앵커)하며 witness의 assert를 뒤집을 것.
+// ③ 치환(substrate translations only):
+//    * IEnumerator→async Task; `yield return ContinuousController.instance.StartCoroutine(X)`→`await X`;
+//      lone `yield return null`→제거.
+//    * `card.Owner`(AS-IS Player) → HeadlessPlayerId; Player 조작(CanTapWhenAbsorbEvolution(_CheckAvailability)/
+//      CanReduceCost/GetBattleAreaPermanents/UntilCalculateFixedCostEffect)은 `new Player(card.Context, card.Owner).*`.
+//    * `GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer` → `new GameContext(card.Context).
+//      Players_ForTurnPlayer`(미러 확립 idiom; List<Player>).
+//    * `SelectPermanentEffect` canTargetCondition는 id-형 — AS-IS Permanent-술어를 PermanentOf(id) 어댑터로 전달
+//      (BT21_030 판례). Has/Count 스캔은 Permanent-술어 직접 사용.
+//    * `card.PermanentOfThisCard()`(PermanentView) → `ICardEffect.ResolvePermanentOfThisCard(card)`(Permanent;
+//      ST1_09/BT2_081 판례).
+//    * `card.Owner.Enemy`(AS-IS live Player.Enemy) → `new Player(card.Context, card.Owner).Enemy?.PlayerId`
+//      (BT8_057/BT5_086 판례; Owner=HeadlessPlayerId 비교).
+//    * `ContinuousController.instance.PlaySE(...BuffSE)`(AS-IS :191/:372) = UI/SE 연출 — 스트립(ST17_13 판례).
+//    * `card.Owner.CanReduceCost(new List<Permanent>() { new Permanent(new List<CardSource>()) }, card)`(AS-IS :189)
+//      — AS-IS는 SE 게이트로만 쓰는 부수효과 없는 판정. 미러 Permanent는 CardSource-리스트 ctor가 없어 실인수를
+//      만들 수 없으므로(부수효과 없음) 이 SE-게이트 판정은 스트립(연출; ST17_13 판례) — 코스트 -3 인과에는 무영향
+//      (실제 감액 게이트는 ChangeCostClass.GetCost 내부의 CanReduceCost가 담당, ChangeCostClass.cs:45).
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT3.Green;
 
-using System;
+using System.Collections;
+using System.Linq;
+using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public sealed class BT3_056 : CEntity_Effect
 {
@@ -44,21 +46,488 @@ public sealed class BT3_056 : CEntity_Effect
     {
         List<ICardEffect> cardEffects = new List<ICardEffect>();
 
-        // ★수확 STOP (RD-EXT3-03): <Digisorption -3>의 진입점 BeforePayCost 팔은 미러 Player에 부재한
-        //   CanTapWhenAbsorbEvolution/_CheckAvailability(진화-흡수 서스펜드 가용성 판정)에 걸린다. AS-IS
-        //   BeforePayCost 창(:16-277)이 스캔될 때 정직 STOP — 헤더 명세 참조. 상환 시 이 throw를 제거하고
-        //   BeforePayCost/WhenDigisorption/None 세 팔을 1:1 포팅.
+        // 미러 SelectPermanentEffect는 id-형 canTargetCondition — AS-IS Permanent-술어의 id 어댑터(BT21_030 판례).
+        Permanent? PermanentOf(HeadlessEntityId id) =>
+            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                ? new Permanent(card.Context, id, rec.OwnerId)
+                : null;
+
+        #region Digisorption -3 (BeforePayCost)
+
         if (timing == EffectTiming.BeforePayCost)
         {
-            throw new NotSupportedException(
-                "STOP: BT3_056 <Digisorption -3> BeforePayCost — 진화-흡수 옵션 서스펜드→조건부 코스트 -3의 " +
-                "진입 판정 Player.CanTapWhenAbsorbEvolution(_CheckAvailability)이 미러 Player에 부재 — design item RD-EXT3-03.");
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Digisorption -3", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, -1, true, EffectDiscription());
+            activateClass.SetHashString("Digisorption-3_BT2_047");
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "<Digisorption -3> (When one of your Digimon digivolves into this card from your hand, you may suspend 1 of your Digimon to reduce the memory cost of the digivolution by 3.)";
+            }
+
+            bool CanSelectCondition_CheckAvailability(Permanent permanent)
+            {
+                if (new Player(card.Context, card.Owner).CanTapWhenAbsorbEvolution_CheckAvailability(permanent, activateClass))
+                {
+                    if (permanent.CanSelectBySkill(activateClass))
+                    {
+                        if (!permanent.TopCard.CanNotBeAffected(activateClass))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanSelectPermanentCondition(Permanent permanent)
+            {
+                if (new Player(card.Context, card.Owner).CanTapWhenAbsorbEvolution(permanent, activateClass))
+                {
+                    if (permanent.CanSelectBySkill(activateClass))
+                    {
+                        if (!permanent.TopCard.CanNotBeAffected(activateClass))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanSelectPermanentById(HeadlessEntityId id) =>
+                PermanentOf(id) is Permanent p && CanSelectPermanentCondition(p);
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (hashtable != null)
+                {
+                    if (hashtable.ContainsKey("Card"))
+                    {
+                        if (hashtable["Card"] is CardSource)
+                        {
+                            CardSource Card = (CardSource)hashtable["Card"];
+
+                            if (Card == card)
+                            {
+                                if (hashtable.ContainsKey("isEvolution"))
+                                {
+                                    if (hashtable["isEvolution"] is bool)
+                                    {
+                                        bool isEvolution = (bool)hashtable["isEvolution"];
+
+                                        if (isEvolution)
+                                        {
+                                            if (hashtable.ContainsKey("Permanents"))
+                                            {
+                                                if (hashtable["Permanents"] is List<Permanent>)
+                                                {
+                                                    List<Permanent> Permanents = (List<Permanent>)hashtable["Permanents"];
+
+                                                    if (Permanents != null)
+                                                    {
+                                                        if (Permanents.Count((permanent) => permanent.TopCard.Owner == card.Owner && new Player(card.Context, permanent.TopCard.Owner).GetBattleAreaPermanents().Contains(permanent)) >= 1)
+                                                        {
+                                                            if (new GameContext(card.Context).Players_ForTurnPlayer.Count((player) => player.GetBattleAreaDigimons().Count(CanSelectCondition_CheckAvailability) >= 1) >= 1)
+                                                            {
+                                                                return true;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (new GameContext(card.Context).Players_ForTurnPlayer.Count((player) => player.GetBattleAreaDigimons().Count(CanSelectCondition_CheckAvailability) >= 1) >= 1)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                #region 진화-흡수 컷인(WhenDigisorption) 개방
+                Hashtable hashtable = new Hashtable();
+                hashtable.Add("CardEffect", activateClass);
+
+                foreach (Player player in new GameContext(card.Context).Players_ForTurnPlayer)
+                {
+                    #region 장 파마넌트의 WhenDigisorption
+                    foreach (Permanent permanent1 in player.GetFieldPermanents())
+                    {
+                        foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenDigisorption))
+                        {
+                            if (cardEffect is ActivateICardEffect)
+                            {
+                                if (cardEffect.CanTrigger(hashtable))
+                                {
+                                    GManager.instance.autoProcessing_CutIn.PutStackedSkill(new SkillInfo(cardEffect, hashtable, EffectTiming.WhenDigisorption));
+                                }
+                            }
+                        }
+                    }
+                    #endregion
+
+                    #region 플레이어의 WhenDigisorption
+                    foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenDigisorption))
+                    {
+                        if (cardEffect is ActivateICardEffect)
+                        {
+                            if (cardEffect.CanTrigger(hashtable))
+                            {
+                                GManager.instance.autoProcessing_CutIn.PutStackedSkill(new SkillInfo(cardEffect, hashtable, EffectTiming.WhenDigisorption));
+                            }
+                        }
+                    }
+                    #endregion
+                }
+
+                await GManager.instance.autoProcessing_CutIn.TriggeredSkillProcess(false, AutoProcessing.HasExecutedSameEffect);
+                #endregion
+
+                if (new GameContext(card.Context).Players_ForTurnPlayer.Count((player) => player.GetBattleAreaDigimons().Count(CanSelectPermanentCondition) >= 1) >= 1)
+                {
+                    int maxCount = 1;
+
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectPermanentById,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: true,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: null,
+                        afterSelectPermanentCoroutine: AfterSelectPermanentCoroutine,
+                        mode: SelectPermanentEffect.Mode.Tap,
+                        cardEffect: activateClass);
+
+                    await selectPermanentEffect.Activate();
+
+                    async Task AfterSelectPermanentCoroutine(List<Permanent> permanents)
+                    {
+                        if (permanents.Count >= 1)
+                        {
+                            // AS-IS :189-192 CanReduceCost 판정 + PlaySE(BuffSE) = SE 연출 게이트 — 스트립(헤더 ③).
+
+                            ChangeCostClass changeCostClass = new ChangeCostClass();
+                            changeCostClass.SetUpICardEffect("Digivolution Cost -3", CanUseCondition1, card);
+                            changeCostClass.SetUpChangeCostClass(changeCostFunc: ChangeCost, cardSourceCondition: CardSourceCondition, rootCondition: RootCondition, isUpDown: isUpDown, isCheckAvailability: () => false, isChangePayingCost: () => true);
+                            new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Add((_timing) => changeCostClass);
+
+                            await CardEffectCommons.ShowReducedCost(_hashtable);
+
+                            bool CanUseCondition1(Hashtable hashtable)
+                            {
+                                return true;
+                            }
+
+                            int ChangeCost(CardSource cardSource, int Cost, SelectCardEffect.Root root, List<Permanent> targetPermanents)
+                            {
+                                if (CardSourceCondition(cardSource))
+                                {
+                                    if (RootCondition(root))
+                                    {
+                                        if (PermanentsCondition(targetPermanents))
+                                        {
+                                            Cost -= 3;
+                                        }
+                                    }
+                                }
+
+                                return Cost;
+                            }
+
+                            bool PermanentsCondition(List<Permanent> targetPermanents)
+                            {
+                                if (targetPermanents != null)
+                                {
+                                    if (targetPermanents.Count(PermanentCondition) >= 1)
+                                    {
+                                        return true;
+                                    }
+                                }
+
+                                return false;
+                            }
+
+                            bool PermanentCondition(Permanent targetPermanent)
+                            {
+                                if (targetPermanent.TopCard != null)
+                                {
+                                    if (targetPermanent.TopCard.Owner == card.Owner)
+                                    {
+                                        if (new Player(card.Context, targetPermanent.TopCard.Owner).GetBattleAreaPermanents().Contains(targetPermanent))
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                }
+
+                                return false;
+                            }
+
+                            bool CardSourceCondition(CardSource cardSource)
+                            {
+                                if (cardSource != null)
+                                {
+                                    if (cardSource == card)
+                                    {
+                                        return true;
+                                    }
+                                }
+
+                                return false;
+                            }
+
+                            bool RootCondition(SelectCardEffect.Root root)
+                            {
+                                return true;
+                            }
+
+                            bool isUpDown()
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        // WhenDigisorption(:279-407) / None ESS(:409-483) 팔은 위 BeforePayCost 진입 흐름
-        // (CanTapWhenAbsorbEvolution 경유)이 없어 발화 지점이 없다 — 소비 흐름 부재로 등록 생략(잠복 STOP,
-        // 동일 RD-EXT3-03). 상환 시 세 팔 동반 포팅.
-        _ = card;
+        #endregion
+
+        #region [Your Turn][Once Per Turn] 상대 디지몬 대체 서스펜드 (WhenDigisorption)
+
+        if (timing == EffectTiming.WhenDigisorption)
+        {
+            ActivateClass activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect("Suspend opponent's Digimon for Digisorption instead", CanUseCondition, card);
+            activateClass.SetUpActivateClass(CanActivateCondition, ActivateCoroutine, 1, true, EffectDiscription());
+            activateClass.SetHashString("SuspendEnemyDigimonWhenDigisorption_BT3_056");
+            cardEffects.Add(activateClass);
+
+            string EffectDiscription()
+            {
+                return "[Your Turn][Once Per Turn] When suspending Digimon for a <Digisorption> skill, you may suspend your opponent's Digimon instead.";
+            }
+
+            bool PermanentCondition(Permanent targetPermanent)
+            {
+                if (targetPermanent != null)
+                {
+                    if (targetPermanent.TopCard != null)
+                    {
+                        if (targetPermanent.TopCard.Owner == new Player(card.Context, card.Owner).Enemy?.PlayerId)
+                        {
+                            if (!targetPermanent.IsSuspended)
+                            {
+                                if (new Player(card.Context, targetPermanent.TopCard.Owner).GetBattleAreaDigimons().Contains(targetPermanent))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (isExistOnField(card))
+                {
+                    if (new Player(card.Context, card.Owner).GetBattleAreaDigimons().Contains(ICardEffect.ResolvePermanentOfThisCard(card)))
+                    {
+                        if (CardEffectCommons.IsOwnerTurn(card))
+                        {
+                            if (hashtable != null)
+                            {
+                                if (hashtable.ContainsKey("CardEffect"))
+                                {
+                                    if (hashtable["CardEffect"] is ICardEffect)
+                                    {
+                                        ICardEffect CardEffect = (ICardEffect)hashtable["CardEffect"];
+
+                                        if (CardEffect != null)
+                                        {
+                                            if (CardEffect.EffectName.Contains("Digisorption"))
+                                            {
+                                                if (CardEffect.EffectSourceCard != null)
+                                                {
+                                                    if (CardEffect.EffectSourceCard.Owner == card.Owner)
+                                                    {
+                                                        return true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CanActivateCondition(Hashtable hashtable)
+            {
+                if (CardEffectCommons.IsExistOnBattleArea(card))
+                {
+                    if (new Player(card.Context, card.Owner).Enemy?.GetBattleAreaDigimons().Count(PermanentCondition) >= 1)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            async Task ActivateCoroutine(Hashtable _hashtable)
+            {
+                if (isExistOnField(card))
+                {
+                    if (new Player(card.Context, card.Owner).GetBattleAreaDigimons().Contains(ICardEffect.ResolvePermanentOfThisCard(card)))
+                    {
+                        // AS-IS :372 PlaySE(BuffSE) = SE 연출 — 스트립(ST17_13 판례).
+
+                        CanSuspendByDigisorptionClass canTapDigisorptionClass = new CanSuspendByDigisorptionClass();
+                        canTapDigisorptionClass.SetUpICardEffect("Suspend your opponent's Digimon instead", CanUseCondition1, card);
+                        canTapDigisorptionClass.SetUpCanSuspendByDigisorptionClass(PermanentCondition: PermanentCondition, CardEffectCondition: CardEffectCondition, () => false);
+                        new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Add((_timing) => canTapDigisorptionClass);
+
+                        bool CanUseCondition1(Hashtable hashtable)
+                        {
+                            return true;
+                        }
+
+                        bool CardEffectCondition(ICardEffect cardEffect)
+                        {
+                            if (cardEffect != null)
+                            {
+                                if (cardEffect.EffectName.Contains("Digisorption"))
+                                {
+                                    if (cardEffect.EffectSourceCard != null)
+                                    {
+                                        if (cardEffect.EffectSourceCard.Owner == card.Owner)
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            return false;
+                        }
+
+                        await Task.CompletedTask;
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region ESS 상대 대체(상시) (None)
+
+        if (timing == EffectTiming.None)
+        {
+            CanSuspendByDigisorptionClass canTapDigisorptionClass = new CanSuspendByDigisorptionClass();
+            canTapDigisorptionClass.SetUpICardEffect("Suspend your opponent's Digimon instead", CanUseCondition, card);
+            canTapDigisorptionClass.SetUpCanSuspendByDigisorptionClass(PermanentCondition: PermanentCondition, CardEffectCondition: CardEffectCondition, () => true);
+            canTapDigisorptionClass.SetNotShowUI(true);
+            cardEffects.Add(canTapDigisorptionClass);
+
+            bool CanUseCondition(Hashtable hashtable)
+            {
+                if (isExistOnField(card))
+                {
+                    if (new Player(card.Context, card.Owner).GetBattleAreaDigimons().Contains(ICardEffect.ResolvePermanentOfThisCard(card)))
+                    {
+                        if (CardEffectCommons.IsOwnerTurn(card))
+                        {
+                            if (card.EffectList(EffectTiming.WhenDigisorption).Count >= 1)
+                            {
+                                ICardEffect cardEffect = card.EffectList(EffectTiming.WhenDigisorption)[0];
+
+                                if (!card.cEntity_EffectController.isOverMaxCountPerTurn(cardEffect, cardEffect.MaxCountPerTurn))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool PermanentCondition(Permanent targetPermanent)
+            {
+                if (targetPermanent != null)
+                {
+                    if (targetPermanent.TopCard != null)
+                    {
+                        if (targetPermanent.TopCard.Owner == new Player(card.Context, card.Owner).Enemy?.PlayerId)
+                        {
+                            if (!targetPermanent.IsSuspended)
+                            {
+                                if (new Player(card.Context, targetPermanent.TopCard.Owner).GetBattleAreaDigimons().Contains(targetPermanent))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+
+            bool CardEffectCondition(ICardEffect cardEffect)
+            {
+                if (cardEffect != null)
+                {
+                    if (cardEffect.EffectName.Contains("Digisorption"))
+                    {
+                        if (cardEffect.EffectSourceCard != null)
+                        {
+                            if (cardEffect.EffectSourceCard.Owner == card.Owner)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        #endregion
+
         return cardEffects;
     }
 }

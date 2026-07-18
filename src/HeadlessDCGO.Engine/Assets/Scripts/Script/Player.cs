@@ -581,6 +581,162 @@ public sealed class Player
         return true;
     }
 
+    /// <summary>(RD-EXT3-03) AS-IS <c>Player.CanTapWhenAbsorbEvolution_CheckAvailability(permanent, cardEffect)</c>
+    /// (Player.cs:1180-1246): the availability half of the &lt;Digisorption&gt; suspend-target judgement — a permanent
+    /// is tappable when it has a top card, is un-suspended AND <see cref="Permanent.CanSuspend"/>, and sits in ITS
+    /// owner's battle-area Digimon list; then the AS-IS-literal <c>ICanSuspendByDigisorptionEffect</c> LIVE scan over
+    /// <c>Players_ForTurnPlayer</c>'s field permanents' + own player-scope <c>EffectList(None)</c>, <c>CanUse(null)</c>-
+    /// gated, taking only the <c>isCheckAvailability()==true</c> effects — any one whose
+    /// <c>canSuspendDigisorption(permanent, cardEffect)</c> holds returns true (opponent-substitute availability);
+    /// finally the own-Digimon fallthrough (<c>permanent.TopCard.Owner == this</c>). Substrate: AS-IS
+    /// <c>gameContext.Players_ForTurnPlayer</c> → <see cref="GameContext.Players_ForTurnPlayer"/>;
+    /// <c>permanent.TopCard.Owner.GetBattleAreaDigimons()</c> → <c>new Player(Context, owner).GetBattleAreaDigimons()</c>;
+    /// <c>permanent.TopCard.Owner == this</c> → <c>== PlayerId</c>.</summary>
+    public bool CanTapWhenAbsorbEvolution_CheckAvailability(Permanent permanent, ICardEffect cardEffect)
+    {
+        if (permanent != null)
+        {
+            if (permanent.TopCard != null)
+            {
+                if (!permanent.IsSuspended && permanent.CanSuspend)
+                {
+                    if (new Player(Context, permanent.TopCard.Owner).GetBattleAreaDigimons().Contains(permanent))
+                    {
+                        // 吸収進化でタップできるデジモンの条件を変更させる効果
+                        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+                        {
+                            foreach (Permanent permanent1 in player.GetFieldPermanents())
+                            {
+                                // 場のパーマネントの効果
+                                foreach (ICardEffect cardEffect1 in permanent1.EffectList(EffectTiming.None))
+                                {
+                                    if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+                                    {
+                                        if (cardEffect1.CanUse(null))
+                                        {
+                                            if (((ICanSuspendByDigisorptionEffect)cardEffect1).isCheckAvailability())
+                                            {
+                                                if (((ICanSuspendByDigisorptionEffect)cardEffect1).canSuspendDigisorption(permanent, cardEffect))
+                                                {
+                                                    return true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // プレイヤーの効果
+                            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                            {
+                                if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+                                {
+                                    if (cardEffect1.CanUse(null))
+                                    {
+                                        if (((ICanSuspendByDigisorptionEffect)cardEffect1).isCheckAvailability())
+                                        {
+                                            if (((ICanSuspendByDigisorptionEffect)cardEffect1).canSuspendDigisorption(permanent, cardEffect))
+                                            {
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (permanent.TopCard.Owner == PlayerId)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>(RD-EXT3-03) AS-IS <c>Player.CanTapWhenAbsorbEvolution(permanent, cardEffect)</c> (Player.cs:1250-1326):
+    /// the EXECUTION half of the &lt;Digisorption&gt; suspend-target judgement — same base gate (top card / un-suspended
+    /// &amp; <see cref="Permanent.CanSuspend"/> / owner's battle-area Digimon) and same <c>Players_ForTurnPlayer</c> scan,
+    /// but taking the <c>isCheckAvailability()==false</c> effects: the FIRST such effect short-circuits the whole
+    /// judgement — <c>canSuspendDigisorption</c> true ⇒ return true, false ⇒ return false (AS-IS opponent-substitute
+    /// override), before the own-Digimon fallthrough (<c>permanent.TopCard.Owner == this</c>). Substrate translations
+    /// identical to <see cref="CanTapWhenAbsorbEvolution_CheckAvailability"/>.</summary>
+    public bool CanTapWhenAbsorbEvolution(Permanent permanent, ICardEffect cardEffect)
+    {
+        if (permanent != null)
+        {
+            if (permanent.TopCard != null)
+            {
+                if (!permanent.IsSuspended && permanent.CanSuspend)
+                {
+                    if (new Player(Context, permanent.TopCard.Owner).GetBattleAreaDigimons().Contains(permanent))
+                    {
+                        // 吸収進化でタップできるデジモンの条件を変更させる効果
+                        foreach (Player player in new GameContext(Context).Players_ForTurnPlayer)
+                        {
+                            foreach (Permanent permanent1 in player.GetFieldPermanents())
+                            {
+                                // 場のパーマネントの効果
+                                foreach (ICardEffect cardEffect1 in permanent1.EffectList(EffectTiming.None))
+                                {
+                                    if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+                                    {
+                                        if (cardEffect1.CanUse(null))
+                                        {
+                                            if (!((ICanSuspendByDigisorptionEffect)cardEffect1).isCheckAvailability())
+                                            {
+                                                if (((ICanSuspendByDigisorptionEffect)cardEffect1).canSuspendDigisorption(permanent, cardEffect))
+                                                {
+                                                    return true;
+                                                }
+                                                else
+                                                {
+                                                    return false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // プレイヤーの効果
+                            foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                            {
+                                if (cardEffect1 is ICanSuspendByDigisorptionEffect)
+                                {
+                                    if (cardEffect1.CanUse(null))
+                                    {
+                                        if (!((ICanSuspendByDigisorptionEffect)cardEffect1).isCheckAvailability())
+                                        {
+                                            if (((ICanSuspendByDigisorptionEffect)cardEffect1).canSuspendDigisorption(permanent, cardEffect))
+                                            {
+                                                return true;
+                                            }
+                                            else
+                                            {
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (permanent.TopCard.Owner == PlayerId)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     // ===== match-status =====
 
     /// <summary>(MIG5) AS-IS <c>Player.SetLose()</c> (Player.cs:119-122): mark this player as having lost —
