@@ -1,38 +1,40 @@
-// C-EoT-2 witness — <Vortex>/<Overclock> end-of-turn firing RE-HOUSED to the AS-IS OnEndTurn window.
+// C-EoT-2 witness — <Vortex>/<Overclock> end-of-turn firing RE-HOUSED to the AS-IS OnEndTurn window,
+// RE-TARGETED (4b B1-α) onto the DcgoMatch.CreatePumpDriven pump. The retired invented EndOfTurnEffectAttack
+// gate is gone; these witnesses drive the SAME OnEndTurn drain the live turn cadence now runs.
 //
-// CONTEXT (keyword_rehoming_design_2026-07-15.md §2 C-EoT / §5 W-EoTFIX): the live <Vortex>/<Overclock> attack
-// used to fire through the INVENTED EndOfTurnEffectAttack gate (ContinuousKeywordGate marker). W-EoTFIX proved
-// the OnEndTurn drain (AutoProcessing.StackSkillInfos(OnEndTurn) + AutoProcessCheck == AS-IS EndTurnProcess:699)
-// resolves EVERY collected OnEndTurn scope through the mirror MultipleSkills window. This batch wires the
-// keyword to that window:
-//   * PRINTED   — the card's CardEffects(OnEndTurn) returns CardEffectFactory.VortexSelfEffect /
-//                 OverclockSelfEffect (already the AS-IS shape for EX8_074; fixtures TfxVortex/TfxOverclock).
-//   * GRANTED   — CardEffectCommons.GainVortex / GainOverclock store a VortexEffect/OverclockEffect ActivateClass
-//                 in the target's OnEndTurn duration bucket (AS-IS 1:1, W3 live), collected by GetSkillInfos.
-// and RETIRES the gate's <Vortex>/<Overclock> firing-half (EndOfTurnEffectAttack.TryOpen is <Execute>-only now).
+// CONTEXT (keyword_rehoming_design_2026-07-15.md §2 C-EoT / §5 W-EoTFIX; suite_retarget_4b_design §3.1b B1):
+// the live <Vortex>/<Overclock> attack fires through the mirror MultipleSkills window off the OnEndTurn drain
+// (AutoProcessing.StackSkillInfos(OnEndTurn) + AutoProcessCheck == AS-IS EndTurnProcess:699/1511). Since the R4
+// cutover (decision 3=B) that drain is owned by the pump's EndPhaseAsync -> EndTurnProcess: an explicit P1 Pass
+// runs the turn-end, the drain opens the AS-IS optional "Will you use Vortex/Overclock?" at the AGENT SEAT (the
+// PolicyChoiceProvider — the R4S3b/EXEMPLAR precedent; OnEndTurn optionals/selects are provider-seat choices
+// under the pump, NOT ChoiceController-pending, so they are OBSERVED by capturing the ChoiceRequest at the seat).
+// The throw-record-replay contract (the OnEndTurn window's pending-exception unwind + suspended-window resume)
+// is RETIRED — the pump await-mode replaces it. GetSkillInfos(OnEndTurn) collection assertions are the retained
+// substrate (query surface), unchanged.
 //
-// These witnesses assert SINGLE-FIRE (window XOR gate): the window opens the AS-IS optional "Will you use
-// Vortex/Overclock?" (StackedSkillInfos -> MultipleSkills -> Vortex/OverclockProcess), AND the retired gate
-// (EndOfTurnEffectAttack.TryOpen) returns FALSE for a Vortex/Overclock Digimon. Control groups (no keyword)
-// open nothing (false-green guard). The granted path also asserts the AS-IS EoT bucket-reset ORDER (fire, THEN
-// reset — a reset before the drain would drop the effect).
-//
-// Harness: EngineContext.CreateDefault + TurnController.Initialize(P1,P2) + SetPhase(Main) so DoneStartGame is
-// true (F4), under AmbientMatchContext.Enter (PRIM-P0 / W1b pattern). Deferred provider so the window's agent
-// choices PARK and are observable; well-formed permanents only (avoids the baseline CEntity_EffectController:88
-// null-TopCard NRE).
+//   * PRINTED  — the card's CardEffects(OnEndTurn) returns VortexSelfEffect / OverclockSelfEffect (fixtures
+//                TfxVortex / TfxOverclock, dispatch-registered by card number).
+//   * GRANTED  — CardEffectCommons.GainVortex / GainOverclock store a Vortex/Overclock ActivateClass in the
+//                target's OnEndTurn duration bucket (AS-IS 1:1), collected by GetSkillInfos.
+// SINGLE-FIRE is proven structurally: the EndOfTurnEffectAttack gate is physically deleted (the class no longer
+// exists), so the OnEndTurn window is the sole firing path. The presence markers (ContinuousKeywordGate) stay
+// live. Control groups (no keyword) open nothing (false-green guard). The granted path asserts the AS-IS EoT
+// bucket-reset happens (the REAL HeadlessEndTurnCleanupFlow ran at the turn-end that fired the effect — a
+// fidelity upgrade over the old manual bucket clear).
 
 using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
-using ASSkillInfo = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.SkillInfo;
+using HeadlessDCGO.Engine.Headless.State;
+using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using ActivateClass = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass;
 
 var P1 = new HeadlessPlayerId(1);
 var P2 = new HeadlessPlayerId(2);
@@ -65,40 +67,34 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task VortexPrintedFiresThroughWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-
-    var vortex = await Place(context, P1, "TfxVortex", suspended: false, trait: null);
-    var foe = await Place(context, P2, "FOE", suspended: true, trait: null);
-    CardEffectRegistrar.RegisterCard(context, vortex, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var vortex = PlaceTfx(match, P1, "TfxVortex", suspended: false);
+    var foe = PlaceTfx(match, P2, "FOE", suspended: true);
 
     // Collection proof: the OnEndTurn window collects the printed Vortex ActivateClass (GetSkillInfos scan).
-    AssertEqual(1, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
-        "the OnEndTurn window collects the printed Vortex ActivateClass");
+    AssertEqual(1, CollectOnEndTurn(match), "the OnEndTurn window collects the printed Vortex ActivateClass");
 
-    // Drive the drain: the window opens the AS-IS optional "Will you use Vortex?" (MultipleSkills, NOT the gate).
-    await DriveWindow(context);
-    AssertTrue(context.ChoiceController.Current.IsPending, "the window suspended on an agent choice");
-    ChoiceRequest opt = context.ChoiceController.PendingRequest!;
-    AssertEqual(ChoiceType.OptionalEffect, opt.Type, "the window opened the AS-IS Vortex optional (MultipleSkills)");
+    // Drive the pump turn-end drain: the window opens the AS-IS optional "Will you use Vortex?" (MultipleSkills).
+    (ChoiceRequest? opt, ChoiceRequest? target) = await FireOnEndTurnAsync(match, policy);
+    AssertTrue(opt is not null, "the pump turn-end drain opened the Vortex optional (the window fired)");
+    AssertEqual(ChoiceType.OptionalEffect, opt!.Type, "the window opened the AS-IS Vortex optional (MultipleSkills)");
     AssertTrue(opt.Message.Contains("Vortex", StringComparison.Ordinal), "the optional names Vortex");
 
-    // Answer "yes" and resume -> VortexProcess -> SelectAttackEffect target select, with the opponent Digimon
+    // Answering "yes" resumed -> VortexProcess -> SelectAttackEffect target select, with the opponent Digimon
     // offered (AS-IS defenderCondition _ => true + SetIsVortex).
-    ChoiceRequest attack = await AnswerYesAndResume(context, opt);
-    AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
+    AssertTrue(target is not null, "answering the optional 'yes' opened VortexProcess's own attack target select");
+    AssertTrue(target!.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
         "VortexProcess offered the opponent Digimon as an attack target");
 }
 
 async Task VortexGateRetired()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var vortex = await Place(context, P1, "TfxVortex", suspended: false, trait: null);
-    await Place(context, P2, "FOE", suspended: false, trait: null);
-    CardEffectRegistrar.RegisterCard(context, vortex, P1);
+    (DcgoMatch match, _) = await NewPumpMatchAsync(seed: 11);
+    var vortex = PlaceTfx(match, P1, "TfxVortex", suspended: false);
+    PlaceTfx(match, P2, "FOE", suspended: false);
 
-    AssertTrue(ContinuousKeywordGate.HasKeyword(context, vortex, ContinuousKeywordGate.Vortex),
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    AssertTrue(ContinuousKeywordGate.HasKeyword(match.Context, vortex, ContinuousKeywordGate.Vortex),
         "the Vortex presence marker is still live (only the gate FIRING is retired)");
     // (G-clean) The invented EndOfTurnEffectAttack gate is physically deleted — single-fire is proven
     // structurally (the gate class no longer exists); <Vortex> fires only through the OnEndTurn window.
@@ -106,58 +102,51 @@ async Task VortexGateRetired()
 
 async Task VortexGrantedFiresThroughWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var host = await Place(context, P1, "PLAIN", suspended: false, trait: null);
-    var foe = await Place(context, P2, "FOE", suspended: true, trait: null);
-    CardEffectRegistrar.RegisterCard(context, host, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var host = PlaceTfx(match, P1, "PLAIN", suspended: false);
+    var foe = PlaceTfx(match, P2, "FOE", suspended: true);
+    GrantVortex(match, host, EffectDuration.UntilOwnerTurnEnd);
 
-    GrantVortex(context, host, EffectDuration.UntilOwnerTurnEnd);
-
-    AssertEqual(1, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
+    AssertEqual(1, CollectOnEndTurn(match),
         "GainVortex stored a Vortex ActivateClass in the host's OnEndTurn bucket (collected by the window)");
 
-    await DriveWindow(context);
-    ChoiceRequest opt = context.ChoiceController.PendingRequest!;
-    AssertEqual(ChoiceType.OptionalEffect, opt.Type, "the granted Vortex opens the optional through the window");
-    ChoiceRequest attack = await AnswerYesAndResume(context, opt);
-    AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
+    (ChoiceRequest? opt, ChoiceRequest? target) = await FireOnEndTurnAsync(match, policy);
+    AssertEqual(ChoiceType.OptionalEffect, opt?.Type, "the granted Vortex opens the optional through the window");
+    AssertTrue(target is not null, "answering 'yes' opened the granted VortexProcess attack target select");
+    AssertTrue(target!.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
         "the granted VortexProcess offered the opponent Digimon");
 }
 
 async Task VortexGrantedBucketResetOrder()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var host = await Place(context, P1, "PLAIN", suspended: false, trait: null);
-    await Place(context, P2, "FOE", suspended: true, trait: null);
-    CardEffectRegistrar.RegisterCard(context, host, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var host = PlaceTfx(match, P1, "PLAIN", suspended: false);
+    PlaceTfx(match, P2, "FOE", suspended: true);
+    GrantVortex(match, host, EffectDuration.UntilOwnerTurnEnd);
 
-    GrantVortex(context, host, EffectDuration.UntilOwnerTurnEnd);
+    // FIRE first: the pump turn-end drain resolves the bucket effect (window opens the optional) BEFORE the
+    // AS-IS per-duration bucket reset (HeadlessEndTurnCleanupFlow, run inside the SAME EndPhaseAsync). A reset
+    // before the drain would have dropped the effect and no optional would have surfaced.
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertEqual(ChoiceType.OptionalEffect, opt?.Type,
+        "the granted effect fired through the window (before the bucket reset)");
 
-    // FIRE first: the drain resolves the bucket effect (window opens the optional) BEFORE any reset.
-    await DriveWindow(context);
-    AssertEqual(ChoiceType.OptionalEffect, context.ChoiceController.PendingRequest!.Type,
-        "the granted effect fired through the window (before any bucket reset)");
-
-    // AS-IS per-duration bucket reset (HeadlessEndTurnCleanupFlow) — a reset BEFORE firing would have dropped it.
-    new Permanent(context, host).UntilOwnerTurnEndEffects.Clear();
-    AssertEqual(0, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
+    // The REAL per-duration bucket reset ran at that turn-end (AS-IS :3191 permanent.UntilOwnerTurnEndEffects):
+    // the host's UntilOwnerTurnEnd bucket is now empty -> no re-fire next turn.
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    AssertEqual(0, new Cec.Permanent(match.Context, host).UntilOwnerTurnEndEffects.Count,
         "after the per-duration bucket reset the granted Vortex is gone (no re-fire next turn)");
 }
 
 async Task VortexControlNoWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var plain = await Place(context, P1, "PLAIN", suspended: false, trait: null);
-    await Place(context, P2, "FOE", suspended: false, trait: null);
-    CardEffectRegistrar.RegisterCard(context, plain, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    PlaceTfx(match, P1, "PLAIN", suspended: false);
+    PlaceTfx(match, P2, "FOE", suspended: false);
 
-    AssertEqual(0, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
-        "a plain Digimon surfaces no OnEndTurn effect");
-    await DriveWindow(context);
-    AssertTrue(!context.ChoiceController.Current.IsPending, "no window opens for a plain Digimon (false-green guard)");
+    AssertEqual(0, CollectOnEndTurn(match), "a plain Digimon surfaces no OnEndTurn effect");
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertTrue(opt is null, "no window opens for a plain Digimon (false-green guard)");
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -166,36 +155,31 @@ async Task VortexControlNoWindow()
 
 async Task OverclockPrintedFiresThroughWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var oc = await Place(context, P1, "TfxOverclock", suspended: false, trait: null);
-    var ally = await Place(context, P1, "PUPPETALLY", suspended: false, trait: "Puppet");
-    await Place(context, P2, "FOE", suspended: false, trait: null);
-    CardEffectRegistrar.RegisterCard(context, oc, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var oc = PlaceTfx(match, P1, "TfxOverclock", suspended: false);
+    var ally = PlaceTfxTrait(match, P1, "PUPPETALLY", "Puppet");
+    PlaceTfx(match, P2, "FOE", suspended: false);
 
-    AssertEqual(1, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
-        "the OnEndTurn window collects the printed Overclock ActivateClass");
+    AssertEqual(1, CollectOnEndTurn(match), "the OnEndTurn window collects the printed Overclock ActivateClass");
 
-    await DriveWindow(context);
-    ChoiceRequest opt = context.ChoiceController.PendingRequest!;
-    AssertEqual(ChoiceType.OptionalEffect, opt.Type, "the window opened the AS-IS Overclock optional (MultipleSkills)");
-    AssertTrue(opt.Message.Contains("Overclock", StringComparison.Ordinal), "the optional names Overclock");
+    (ChoiceRequest? opt, ChoiceRequest? target) = await FireOnEndTurnAsync(match, policy);
+    AssertEqual(ChoiceType.OptionalEffect, opt?.Type, "the window opened the AS-IS Overclock optional (MultipleSkills)");
+    AssertTrue(opt!.Message.Contains("Overclock", StringComparison.Ordinal), "the optional names Overclock");
 
-    // Answer "yes" -> OverclockProcess -> SelectPermanent "delete a trait/token ally", offering the Puppet ally.
-    ChoiceRequest select = await AnswerYesAndResume(context, opt);
-    AssertTrue(select.Candidates.Any(c => c.Id == ally || c.Label.Contains(ally.Value, StringComparison.Ordinal)),
+    // Answering "yes" -> OverclockProcess -> SelectPermanent "delete a trait/token ally", offering the Puppet ally.
+    AssertTrue(target is not null, "answering the optional 'yes' opened OverclockProcess's own ally select");
+    AssertTrue(target!.Candidates.Any(c => c.Id == ally || c.Label.Contains(ally.Value, StringComparison.Ordinal)),
         "OverclockProcess offered the trait ally to delete");
 }
 
 async Task OverclockGateRetired()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var oc = await Place(context, P1, "TfxOverclock", suspended: false, trait: null);
-    await Place(context, P1, "PUPPETALLY", suspended: false, trait: "Puppet");
-    CardEffectRegistrar.RegisterCard(context, oc, P1);
+    (DcgoMatch match, _) = await NewPumpMatchAsync(seed: 11);
+    var oc = PlaceTfx(match, P1, "TfxOverclock", suspended: false);
+    PlaceTfxTrait(match, P1, "PUPPETALLY", "Puppet");
 
-    AssertTrue(ContinuousKeywordGate.HasKeyword(context, oc, ContinuousKeywordGate.Overclock),
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    AssertTrue(ContinuousKeywordGate.HasKeyword(match.Context, oc, ContinuousKeywordGate.Overclock),
         "the Overclock presence marker is still live (only the gate FIRING is retired)");
     // (G-clean) The invented EndOfTurnEffectAttack gate is physically deleted — single-fire is proven
     // structurally (the gate class no longer exists); <Overclock> fires only through the OnEndTurn window.
@@ -203,112 +187,246 @@ async Task OverclockGateRetired()
 
 async Task OverclockGrantedFiresThroughWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var host = await Place(context, P1, "PLAIN", suspended: false, trait: null);
-    await Place(context, P1, "PUPPETALLY", suspended: false, trait: "Puppet");
-    await Place(context, P2, "FOE", suspended: false, trait: null);
-    CardEffectRegistrar.RegisterCard(context, host, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var host = PlaceTfx(match, P1, "PLAIN", suspended: false);
+    PlaceTfxTrait(match, P1, "PUPPETALLY", "Puppet");
+    PlaceTfx(match, P2, "FOE", suspended: false);
+    GrantOverclock(match, host, "Puppet", EffectDuration.UntilOwnerTurnEnd);
 
-    GrantOverclock(context, host, "Puppet", EffectDuration.UntilOwnerTurnEnd);
-
-    AssertEqual(1, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
+    AssertEqual(1, CollectOnEndTurn(match),
         "GainOverclock stored an Overclock ActivateClass in the host's OnEndTurn bucket (collected by the window)");
 
-    await DriveWindow(context);
-    AssertEqual(ChoiceType.OptionalEffect, context.ChoiceController.PendingRequest!.Type,
-        "the granted Overclock opens the optional through the window");
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertEqual(ChoiceType.OptionalEffect, opt?.Type, "the granted Overclock opens the optional through the window");
 }
 
 async Task OverclockControlNoWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var plain = await Place(context, P1, "PLAIN", suspended: false, trait: null);
-    await Place(context, P1, "PUPPETALLY", suspended: false, trait: "Puppet");
-    CardEffectRegistrar.RegisterCard(context, plain, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    PlaceTfx(match, P1, "PLAIN", suspended: false);
+    PlaceTfxTrait(match, P1, "PUPPETALLY", "Puppet");
 
-    AssertEqual(0, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
-        "a plain Digimon surfaces no OnEndTurn effect");
-    await DriveWindow(context);
-    AssertTrue(!context.ChoiceController.Current.IsPending, "no window opens for a plain Digimon (false-green guard)");
+    AssertEqual(0, CollectOnEndTurn(match), "a plain Digimon surfaces no OnEndTurn effect");
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertTrue(opt is null, "no window opens for a plain Digimon (false-green guard)");
 }
 
-// --- Harness -----------------------------------------------------------------------------------------------
+// --- Harness (pump α-cluster retarget scaffold) -----------------------------------------------------------
 
-EngineContext NewContext()
+async Task<(DcgoMatch Match, PolicyChoiceProvider Policy)> NewPumpMatchAsync(int seed)
 {
-    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 11, deferredChoice: true);
-    ctx.TurnController.Initialize(new[] { P1, P2 }, P1); // turn player = owner = P1
-    ctx.TurnController.SetPhase(HeadlessPhase.Main);      // past Setup -> DoneStartGame true
-    return ctx;
-}
-
-// Drive the AS-IS EndTurnProcess:699-702 OnEndTurn window step; a parked agent choice unwinds via the deferred
-// provider (WindowChoice/DeferredChoice pending), leaving the pending choice on the controller.
-async Task DriveWindow(EngineContext context)
-{
-    AutoProcessing ap = AutoProcessing.For(context);
-    try
+    var policy = new PolicyChoiceProvider();
+    EngineContext context = ContextFactory.CreateWithProvider(policy, seed);
+    CardBaseEntityLoader.LoadInto((CardDatabase)context.CardRepository);
+    PlayerDeckSetup[] decks =
     {
-        await ap.StackSkillInfos(null, EffectTiming.OnEndTurn);
-        await ap.AutoProcessCheck();
-    }
-    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* parked */ }
+        new PlayerDeckSetup(P1, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),
+        new PlayerDeckSetup(P2, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),
+    };
+    MatchSetupConfig setup = MatchSetupConfig.Create(decks, firstPlayerId: P1, initialHandSize: 0, initialSecuritySize: 0, enableMulligan: false);
+    MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
+    await match.InitializeAsync(config);
+    await StepOnceAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P1));
+    return (match, policy);
 }
 
-// Answer the pending optional "yes" (select its candidate), resume the suspended MultipleSkills chain, and return
-// the NEXT pending choice (VortexProcess's attack target select / OverclockProcess's ally select).
-async Task<ChoiceRequest> AnswerYesAndResume(EngineContext context, ChoiceRequest optional)
+// Register the agent-seat handlers, then run the pump turn-end (P1 Pass -> EndPhaseAsync -> EndTurnProcess ->
+// StackSkillInfos(OnEndTurn) + AutoProcessCheck) and drive to the opponent's main wait. Returns the captured
+// OnEndTurn optional ("Will you use <keyword>?") and the effect's own follow-up select (attack/ally target).
+async Task<(ChoiceRequest? Optional, ChoiceRequest? Target)> FireOnEndTurnAsync(DcgoMatch match, PolicyChoiceProvider policy)
 {
-    context.ChoiceController.ResolveChoice(ChoiceResult.Select(optional.Candidates[0].Id));
-    AutoProcessing ap = AutoProcessing.For(context);
-    try { await ap.ResumeSuspendedWindowsAsync(); }
-    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* re-parked on the next choice */ }
-    AssertTrue(context.ChoiceController.Current.IsPending, "answering the optional 'yes' opened the effect's own choice");
-    return context.ChoiceController.PendingRequest!;
+    ChoiceRequest? optional = null;
+    ChoiceRequest? target = null;
+    policy.On(req => req.Type == ChoiceType.OptionalEffect,
+        req => { optional = req; return ChoiceResult.Select(req.Candidates[0].Id); }, oneShot: false);
+    policy.On(req => req.Type is ChoiceType.Card or ChoiceType.Permanent,
+        req => { target ??= req; return req.CanSkip ? ChoiceResult.Skip() : ChoiceResult.Select(req.Candidates[0].Id); }, oneShot: false);
+    await PassTurnAsync(match, P1);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P2) || m.IsTerminal());
+    return (optional, target);
 }
 
-void GrantVortex(EngineContext context, HeadlessEntityId hostId, EffectDuration duration)
+int CollectOnEndTurn(DcgoMatch match)
 {
-    ICardEffect source = GrantSource(context, hostId, "GrantVortex");
-    CardEffectCommons.GainVortex(new Permanent(context, hostId), duration, source).GetAwaiter().GetResult();
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    return AutoProcessing.GetSkillInfos(new Hashtable(), Cec.EffectTiming.OnEndTurn).Count;
 }
 
-void GrantOverclock(EngineContext context, HeadlessEntityId hostId, string trait, EffectDuration duration)
+HeadlessEntityId PlaceTfx(DcgoMatch match, HeadlessPlayerId owner, string number, bool suspended)
+    => PlaceCore(match, owner, number, suspended, trait: null);
+
+HeadlessEntityId PlaceTfxTrait(DcgoMatch match, HeadlessPlayerId owner, string number, string trait)
+    => PlaceCore(match, owner, number, suspended: false, trait: trait);
+
+HeadlessEntityId PlaceCore(DcgoMatch match, HeadlessPlayerId owner, string number, bool suspended, string? trait)
 {
-    ICardEffect source = GrantSource(context, hostId, "GrantOverclock");
-    CardEffectCommons.GainOverclock(trait, new Permanent(context, hostId), duration, source).GetAwaiter().GetResult();
+    EngineContext ctx = match.Context;
+    var cards = (CardDatabase)ctx.CardRepository;
+    var def = new HeadlessEntityId(number);
+    var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 };
+    if (trait != null) defMeta["traits"] = trait;
+    cards.Upsert(new CardRecord(def, number, number, defMeta, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{number}");
+    var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = suspended };
+    if (trait != null) meta["traits"] = trait;
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, owner, Metadata: meta));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
+    Cec.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+    return id;
+}
+
+void GrantVortex(DcgoMatch match, HeadlessEntityId hostId, EffectDuration duration)
+{
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    Cec.CardEffectCommons.GainVortex(new Cec.Permanent(match.Context, hostId), duration, GrantSource(match, hostId, "GrantVortex")).GetAwaiter().GetResult();
+}
+
+void GrantOverclock(DcgoMatch match, HeadlessEntityId hostId, string trait, EffectDuration duration)
+{
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    Cec.CardEffectCommons.GainOverclock(trait, new Cec.Permanent(match.Context, hostId), duration, GrantSource(match, hostId, "GrantOverclock")).GetAwaiter().GetResult();
 }
 
 // A grant-source ICardEffect whose EffectSourceCard is the host's own top card (AS-IS: the granted keyword's
 // source is the target permanent — GainVortex passes targetPermanent.TopCard to VortexEffect).
-ICardEffect GrantSource(EngineContext context, HeadlessEntityId hostId, string name)
+Cec.ICardEffect GrantSource(DcgoMatch match, HeadlessEntityId hostId, string name)
 {
-    var host = new CardSource(context, hostId, P1, P1);
+    var host = new Cec.CardSource(match.Context, hostId, P1, P1);
     var ac = new ActivateClass();
     ac.SetUpICardEffect(name, _ => true, host);
     return ac;
 }
 
-async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string num, bool suspended, string? trait)
+async Task PassTurnAsync(DcgoMatch match, HeadlessPlayerId player)
 {
-    var cards = (CardDatabase)ctx.CardRepository;
-    var defId = new HeadlessEntityId(num);
-    var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 };
-    if (trait != null) defMeta["traits"] = trait;
-    cards.Upsert(new CardRecord(defId, num, num, defMeta, CardType: "Digimon"));
-    var id = new HeadlessEntityId($"{owner.Value}:battle:{num}");
-    var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = suspended };
-    if (trait != null) meta["traits"] = trait;
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner, Metadata: meta));
-    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
-    return id;
+    LegalAction pass = Legal(match, player).First(a => a.ActionType == HeadlessActionTypes.Pass);
+    await ApplyAsync(match, pass);
 }
+
+async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingAsync(match, skip: decline);
+        }
+        else await StepOnceAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state — phase:{t.Phase}/{t.StepCursor} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+async Task ResolvePendingAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    await ApplyAsync(match, action);
+}
+
+async Task ApplyAsync(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+async Task StepOnceAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+IReadOnlyList<LegalAction> Legal(DcgoMatch match, HeadlessPlayerId player)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    return match.GetLegalActions(player);
+}
+
+bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// ═══════════════════════════ providers/context (EXEMPLAR-T1 precedent) ═══════════════════════════
+
+sealed class PolicyChoiceProvider : IChoiceProvider
+{
+    private readonly List<(Func<ChoiceRequest, bool> Applies, Func<ChoiceRequest, ChoiceResult> Answer, bool OneShot)> _handlers = new();
+    private readonly ScriptedChoiceProvider _fallback = new();
+    public void On(Func<ChoiceRequest, bool> applies, Func<ChoiceRequest, ChoiceResult> answer, bool oneShot = true)
+        => _handlers.Add((applies, answer, oneShot));
+    public List<string> Seen { get; } = new();
+    public Task<ChoiceResult> ChooseAsync(ChoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        Seen.Add($"{request.Type}:'{request.Message}'x{request.Candidates.Count}");
+        for (int i = 0; i < _handlers.Count; i++)
+        {
+            var (applies, answer, oneShot) = _handlers[i];
+            if (applies(request))
+            {
+                ChoiceResult result = answer(request);
+                result.ThrowIfInvalid(request);
+                if (oneShot) _handlers.RemoveAt(i);
+                return Task.FromResult(result);
+            }
+        }
+        return _fallback.ChooseAsync(request, cancellationToken);
+    }
+}
+
+static class ContextFactory
+{
+    public static EngineContext CreateWithProvider(IChoiceProvider provider, int randomSeed)
+    {
+        var randomSource = new GameRandomSource(randomSeed);
+        var cardInstanceRepository = new InMemoryCardInstanceRepository();
+        var logSink = new NullLogSink();
+        var zoneMover = new InMemoryZoneMover(randomSource);
+        var memoryController = new InMemoryHeadlessMemoryController();
+        var effectRegistry = new InMemoryEffectRegistry();
+        var gameEventQueue = new GameEventQueue();
+        EngineContext? selfRef = null;
+        var effectScheduler = new EffectScheduler(
+            new EffectResolutionQueue(),
+            CardEffectSchedulerResolver.Create(
+                effectRegistry,
+                sinkFactory: _ => new MatchStateMutationSink(
+                    cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue,
+                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
+                    context: selfRef),
+                strictUnbound: false));
+        var choiceController = new InMemoryHeadlessChoiceController();
+        var context = new EngineContext(
+            provider, randomSource, new CardDatabase(), cardInstanceRepository, zoneMover,
+            new InMemoryRuleQueryService(), new InMemoryHeadlessTurnController(), choiceController,
+            new InMemoryHeadlessAttackController(), memoryController, logSink,
+            new HeadlessDCGO.Engine.Headless.Coroutines.EngineTaskRunner(), effectScheduler,
+            effectRegistry: effectRegistry, gameEventQueue: gameEventQueue);
+        selfRef = context;
+        return context;
+    }
 }

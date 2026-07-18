@@ -1,42 +1,41 @@
 // A군 4단계 witness — <Execute> end-of-turn firing RE-HOUSED to the AS-IS OnEndTurn window (the last of the 18
-// window-firing keywords). <Execute> = the [End of Your Turn] "this Digimon may attack (the PLAYER or any
-// Digimon incl. UNSUSPENDED); at the end of that attack, delete it."
+// window-firing keywords), RE-TARGETED (4b B1-α) onto the DcgoMatch.CreatePumpDriven pump. <Execute> = the
+// [End of Your Turn] "this Digimon may attack (the PLAYER or any Digimon incl. UNSUSPENDED); at the end of that
+// attack, delete it."
 //
-// CONTEXT (keyword_rehoming_design_2026-07-15.md §5 C-EoT / Execute): the live <Execute> attack used to fire
-// through the INVENTED EndOfTurnEffectAttack gate (ContinuousKeywordGate marker + EffectDrivenAttack
-// SelfDeleteAtEndOfAttack). This batch (a) completes ExecuteProcess 1:1 with AS-IS — the old blocker RD-R2-01
-// (Permanent.UntilEndAttackEffects) is resolved by the W3 bucket and PermanentEffectFactory.DeleteSelfEffect /
-// AddDetailClass are now the AS-IS ActivateClass overloads — so the printed/granted <Execute> fires through the
-// SAME OnEndTurn window that resolves Vortex/Overclock (GetSkillInfos → MultipleSkills → ExecuteProcess), and
-// (b) RETIRES the gate's firing-half (EndOfTurnEffectAttack.TryOpen now opens nothing — the whole gate is dead).
+// CONTEXT (keyword_rehoming_design_2026-07-15.md §5 C-EoT / Execute; suite_retarget_4b_design §3.1b B1): the
+// live <Execute> attack used to fire through the INVENTED EndOfTurnEffectAttack gate (now physically deleted).
+// The printed/granted <Execute> fires through the SAME OnEndTurn window that resolves Vortex/Overclock
+// (GetSkillInfos → MultipleSkills → ExecuteProcess). DRIVE (4b): the window is driven by the pump's real
+// turn-end — an explicit P1 Pass runs EndPhaseAsync → EndTurnProcess → StackSkillInfos(OnEndTurn) +
+// AutoProcessCheck; the AS-IS optional "Will you use Execute?" and its ExecuteProcess SelectAttackEffect surface
+// at the AGENT SEAT (PolicyChoiceProvider), OBSERVED by capturing the ChoiceRequest (EXEMPLAR-T1/R4S3b
+// precedent; the throw-record-replay unwind is retired). GetSkillInfos(OnEndTurn) collection assertions are the
+// retained substrate. The self-delete REGISTRATION and the summoning-sickness gate are sub-mechanic assertions
+// (direct ExecuteProcess / CanActivateExecute calls) run on the pump-staged board — they never used the window
+// drive or the throw contract.
 //
 // These witnesses assert:
-//   * SINGLE-FIRE (window fires exactly once; the retired gate opens nothing).
-//   * PLAYER + UNSUSPENDED-Digimon targets offered (isExecute semantics: canAttackPlayer:()=>true unconditional
-//     — the Vortex differentiator, whose player-target needs a separate VortexCanAttackPlayers effect — and a
-//     per-attack CanAttackTargetDefendingPermanentClass appended to UntilEndAttackEffects that lifts the
-//     unsuspended-defender restriction; NOT SetIsVortex).
-//   * NO summoning-sickness bypass (isExecute does not lift EnteredThisTurn — only Rush/isVortex do,
-//     Permanent.cs:3115).
-//   * SELF-DELETE registered at end of attack (a DeleteSelfEffect at OnEndAttack + a detail at None appended to
-//     the attacker's UntilEndAttackEffects) — a PER-ATTACK effect NOT present on a normal Digimon (control).
-//   * EoT bucket-reset ORDER (fire THEN reset) and a plain-Digimon control (false-green guard).
-//
-// Harness: EngineContext.CreateDefault + TurnController.Initialize(P1,P2) + SetPhase(Main) under
-// AmbientMatchContext.Enter (== C-EoT2). Deferred provider for window observation; a fresh non-deferred context
-// (empty ScriptedChoiceProvider == "Not Attack" skip) drives ExecuteProcess to completion for the self-delete
-// registration witness.
+//   * SINGLE-FIRE (window fires exactly once; the retired gate opens nothing — proven structurally).
+//   * PLAYER + UNSUSPENDED-Digimon targets offered (isExecute: canAttackPlayer:()=>true unconditional, and a
+//     per-attack CanAttackTargetDefendingPermanentClass lifting the unsuspended-defender restriction).
+//   * NO summoning-sickness bypass (isExecute does not lift EnteredThisTurn).
+//   * SELF-DELETE registered at end of attack (DeleteSelfEffect@OnEndAttack + detail@None) — a PER-ATTACK effect
+//     NOT present on a normal Digimon (control).
+//   * EoT bucket-reset (fire THEN the REAL cleanup reset) and a plain-Digimon control (false-green guard).
 
 using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script;
-using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+using HeadlessDCGO.Engine.Headless.State;
+using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 var P1 = new HeadlessPlayerId(1);
 var P2 = new HeadlessPlayerId(2);
@@ -64,28 +63,24 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task ExecutePrintedFiresThroughWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-
-    var execute = await Place(context, P1, "TfxExecute", suspended: false, entered: false);
-    var foe = await Place(context, P2, "FOE", suspended: false, entered: false); // UNSUSPENDED foe
-    CardEffectRegistrar.RegisterCard(context, execute, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var execute = Place(match, P1, "TfxExecute", suspended: false, entered: false);
+    var foe = Place(match, P2, "FOE", suspended: false, entered: false); // UNSUSPENDED foe
+    Cec.CardEffectRegistrar.RegisterCard(match.Context, execute, P1);
 
     // Collection proof: the OnEndTurn window collects the printed Execute ActivateClass (GetSkillInfos scan).
-    AssertEqual(1, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
-        "the OnEndTurn window collects the printed Execute ActivateClass");
+    AssertEqual(1, CollectOnEndTurn(match), "the OnEndTurn window collects the printed Execute ActivateClass");
 
-    // Drive the drain: the window opens the AS-IS optional "Will you use Execute?" (MultipleSkills, NOT the gate).
-    await DriveWindow(context);
-    AssertTrue(context.ChoiceController.Current.IsPending, "the window suspended on an agent choice");
-    ChoiceRequest opt = context.ChoiceController.PendingRequest!;
-    AssertEqual(ChoiceType.OptionalEffect, opt.Type, "the window opened the AS-IS Execute optional (MultipleSkills)");
+    // Drive the pump turn-end drain: the window opens the AS-IS optional "Will you use Execute?" (MultipleSkills).
+    (ChoiceRequest? opt, ChoiceRequest? attack) = await FireOnEndTurnAsync(match, policy);
+    AssertTrue(opt is not null, "the pump turn-end drain opened the Execute optional (the window fired)");
+    AssertEqual(ChoiceType.OptionalEffect, opt!.Type, "the window opened the AS-IS Execute optional (MultipleSkills)");
     AssertTrue(opt.Message.Contains("Execute", StringComparison.Ordinal), "the optional names Execute");
 
-    // Answer "yes" and resume -> ExecuteProcess -> SelectAttackEffect target select.
-    ChoiceRequest attack = await AnswerYesAndResume(context, opt);
+    // Answering "yes" resumed -> ExecuteProcess -> SelectAttackEffect target select.
+    AssertTrue(attack is not null, "answering 'yes' opened ExecuteProcess's own attack target select");
     // isExecute: the PLAYER is always attackable (canAttackPlayerCondition:()=>true — the Vortex differentiator).
-    AssertTrue(attack.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
+    AssertTrue(attack!.Candidates.Any(c => c.Label.Contains("player", StringComparison.OrdinalIgnoreCase)),
         "ExecuteProcess offered the PLAYER as an attack target (isExecute: unconditional, unlike Vortex)");
     // isExecute: the per-attack CanAttackTargetDefendingPermanentClass lifts the unsuspended-defender restriction.
     AssertTrue(attack.Candidates.Any(c => c.Id == foe || c.Label.Contains(foe.Value, StringComparison.Ordinal)),
@@ -97,180 +92,308 @@ async Task ExecutePrintedFiresThroughWindow()
 
 async Task ExecuteGrantedFiresThroughWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var host = await Place(context, P1, "PLAIN", suspended: false, entered: false);
-    await Place(context, P2, "FOE", suspended: false, entered: false);
-    CardEffectRegistrar.RegisterCard(context, host, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var host = Place(match, P1, "PLAIN", suspended: false, entered: false);
+    Place(match, P2, "FOE", suspended: false, entered: false);
+    Cec.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
+    GrantExecute(match, host, EffectDuration.UntilOwnerTurnEnd);
 
-    GrantExecute(context, host, EffectDuration.UntilOwnerTurnEnd);
-
-    AssertEqual(1, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
+    AssertEqual(1, CollectOnEndTurn(match),
         "GainExecute stored an Execute ActivateClass in the host's OnEndTurn bucket (collected by the window)");
 
-    await DriveWindow(context);
-    ChoiceRequest opt = context.ChoiceController.PendingRequest!;
-    AssertEqual(ChoiceType.OptionalEffect, opt.Type, "the granted Execute opens the optional through the window");
-    AssertTrue(opt.Message.Contains("Execute", StringComparison.Ordinal), "the granted optional names Execute");
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertEqual(ChoiceType.OptionalEffect, opt?.Type, "the granted Execute opens the optional through the window");
+    AssertTrue(opt!.Message.Contains("Execute", StringComparison.Ordinal), "the granted optional names Execute");
 }
 
 async Task ExecuteSelfDeleteRegistered()
 {
-    // A non-deferred context: the empty ScriptedChoiceProvider answers SelectAttackEffect's skippable "Not Attack"
-    // choice, so ExecuteProcess runs to completion and its AFTER-select appends land. We witness the REGISTRATION
-    // of the end-of-attack self-delete (a full drain of OnEndAttack to observe the actual deletion is heavier
-    // integration; the append is the AS-IS 1:1 structure — Execute.cs:74-93).
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 11, deferredChoice: false);
-    context.TurnController.Initialize(new[] { P1, P2 }, P1);
-    context.TurnController.SetPhase(HeadlessPhase.Main);
-    using var scope = AmbientMatchContext.Enter(context);
+    // Sub-mechanic (no window drive, no throw contract): run ExecuteProcess DIRECTLY on the pump-staged board and
+    // witness the REGISTRATION of the end-of-attack self-delete. The empty ScriptedChoiceProvider fallback answers
+    // SelectAttackEffect's skippable "Not Attack" choice, so ExecuteProcess runs to completion and its AFTER-select
+    // appends land (a full drain of OnEndAttack to observe the actual deletion is heavier integration; the append
+    // is the AS-IS 1:1 structure — Execute.cs:74-93).
+    (DcgoMatch match, _) = await NewPumpMatchAsync(seed: 11);
+    var host = Place(match, P1, "EXEC", suspended: false, entered: false);
+    var plain = Place(match, P1, "PLAIN", suspended: false, entered: false);
+    Place(match, P2, "FOE", suspended: false, entered: false);
 
-    var host = await Place(context, P1, "EXEC", suspended: false, entered: false);
-    var plain = await Place(context, P1, "PLAIN", suspended: false, entered: false);
-    await Place(context, P2, "FOE", suspended: false, entered: false);
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    var source = GrantSource(match, host, "Execute");
+    await Cec.CardEffectCommons.ExecuteProcess(new Cec.Permanent(match.Context, host).TopCard, source);
 
-    var source = GrantSource(context, host, "Execute");
-    await CardEffectCommons.ExecuteProcess(new Permanent(context, host).TopCard, source);
-
-    var effects = new Permanent(context, host).UntilEndAttackEffects;
+    var effects = new Cec.Permanent(match.Context, host).UntilEndAttackEffects;
     AssertEqual(3, effects.Count,
         "ExecuteProcess appended: the restrict-defender gate (before) + the self-delete + the detail (after)");
 
     // OnEndAttack: exactly the DeleteSelfEffect ("Delete this Digimon") surfaces (plus the always-on gate).
-    var atEndAttack = effects.Select(f => f(EffectTiming.OnEndAttack)).Where(e => e != null).ToList();
+    var atEndAttack = effects.Select(f => f(Cec.EffectTiming.OnEndAttack)).Where(e => e != null).ToList();
     AssertTrue(atEndAttack.Any(e => e is ActivateClass && e!.EffectName == "Delete this Digimon"),
         "at OnEndAttack the attacker self-deletes (PermanentEffectFactory.DeleteSelfEffect appended)");
 
     // None: the display detail surfaces.
-    var atNone = effects.Select(f => f(EffectTiming.None)).Where(e => e != null).ToList();
+    var atNone = effects.Select(f => f(Cec.EffectTiming.None)).Where(e => e != null).ToList();
     AssertTrue(atNone.Any(e => e is AddDetailClass),
         "at None the \"At end of attack, delete this Digimon.\" detail surfaces (AddDetailClass appended)");
 
     // The restrict-defender gate (isExecute unsuspended semantics) is the third append.
-    AssertTrue(effects.Any(f => f(EffectTiming.OnEndAttack) is CanAttackTargetDefendingPermanentClass),
+    AssertTrue(effects.Any(f => f(Cec.EffectTiming.OnEndAttack) is CanAttackTargetDefendingPermanentClass),
         "the per-attack CanAttackTargetDefendingPermanentClass (attack unsuspended Digimon) is appended");
 
     // CONTROL: a normal Digimon that never ran ExecuteProcess has NO per-attack self-delete.
-    AssertEqual(0, new Permanent(context, plain).UntilEndAttackEffects.Count,
+    AssertEqual(0, new Cec.Permanent(match.Context, plain).UntilEndAttackEffects.Count,
         "a normal Digimon has no per-attack self-delete (the flag is Execute-only, not on normal attacks)");
 }
 
 async Task ExecuteNoSummoningSicknessBypass()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    await Place(context, P2, "FOE", suspended: false, entered: false);
+    // Sub-mechanic (no window drive): the CanActivateExecute gate on the pump-staged board.
+    (DcgoMatch match, _) = await NewPumpMatchAsync(seed: 11);
+    Place(match, P2, "FOE", suspended: false, entered: false);
+    var settled = Place(match, P1, "SETTLED", suspended: false, entered: false);
+    var sick = Place(match, P1, "SICK", suspended: false, entered: true); // entered this turn, no Rush
 
-    var settled = await Place(context, P1, "SETTLED", suspended: false, entered: false);
-    var source = GrantSource(context, settled, "Execute");
-    AssertTrue(CardEffectCommons.CanActivateExecute(new Permanent(context, settled).TopCard, source),
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    var source = GrantSource(match, settled, "Execute");
+    AssertTrue(Cec.CardEffectCommons.CanActivateExecute(new Cec.Permanent(match.Context, settled).TopCard, source),
         "a settled Execute Digimon CAN activate Execute");
 
-    var sick = await Place(context, P1, "SICK", suspended: false, entered: true); // entered this turn, no Rush
-    var sickSource = GrantSource(context, sick, "Execute");
-    AssertTrue(!CardEffectCommons.CanActivateExecute(new Permanent(context, sick).TopCard, sickSource),
+    var sickSource = GrantSource(match, sick, "Execute");
+    AssertTrue(!Cec.CardEffectCommons.CanActivateExecute(new Cec.Permanent(match.Context, sick).TopCard, sickSource),
         "a summoning-sick Execute Digimon CANNOT activate Execute (isExecute does not bypass, unlike Rush/isVortex)");
 }
 
 async Task ExecuteControlNoWindow()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var plain = await Place(context, P1, "PLAIN", suspended: false, entered: false);
-    await Place(context, P2, "FOE", suspended: false, entered: false);
-    CardEffectRegistrar.RegisterCard(context, plain, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    Place(match, P1, "PLAIN", suspended: false, entered: false);
+    Place(match, P2, "FOE", suspended: false, entered: false);
 
-    AssertEqual(0, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
-        "a plain Digimon surfaces no OnEndTurn effect");
-    await DriveWindow(context);
-    AssertTrue(!context.ChoiceController.Current.IsPending, "no window opens for a plain Digimon (false-green guard)");
+    AssertEqual(0, CollectOnEndTurn(match), "a plain Digimon surfaces no OnEndTurn effect");
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertTrue(opt is null, "no window opens for a plain Digimon (false-green guard)");
 }
 
 async Task ExecuteGrantedBucketResetOrder()
 {
-    EngineContext context = NewContext();
-    using var scope = AmbientMatchContext.Enter(context);
-    var host = await Place(context, P1, "PLAIN", suspended: false, entered: false);
-    await Place(context, P2, "FOE", suspended: false, entered: false);
-    CardEffectRegistrar.RegisterCard(context, host, P1);
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewPumpMatchAsync(seed: 11);
+    var host = Place(match, P1, "PLAIN", suspended: false, entered: false);
+    Place(match, P2, "FOE", suspended: false, entered: false);
+    Cec.CardEffectRegistrar.RegisterCard(match.Context, host, P1);
+    GrantExecute(match, host, EffectDuration.UntilOwnerTurnEnd);
 
-    GrantExecute(context, host, EffectDuration.UntilOwnerTurnEnd);
+    // FIRE first: the pump turn-end drain resolves the bucket effect (window opens the optional) BEFORE the AS-IS
+    // per-duration bucket reset (HeadlessEndTurnCleanupFlow, run inside the SAME EndPhaseAsync).
+    (ChoiceRequest? opt, _) = await FireOnEndTurnAsync(match, policy);
+    AssertEqual(ChoiceType.OptionalEffect, opt?.Type,
+        "the granted Execute fired through the window (before the bucket reset)");
 
-    // FIRE first: the drain resolves the bucket effect (window opens the optional) BEFORE any reset.
-    await DriveWindow(context);
-    AssertEqual(ChoiceType.OptionalEffect, context.ChoiceController.PendingRequest!.Type,
-        "the granted Execute fired through the window (before any bucket reset)");
-
-    // AS-IS per-duration bucket reset — a reset BEFORE firing would have dropped it.
-    new Permanent(context, host).UntilOwnerTurnEndEffects.Clear();
-    AssertEqual(0, AutoProcessing.GetSkillInfos(new Hashtable(), EffectTiming.OnEndTurn).Count,
+    // The REAL per-duration bucket reset ran at that turn-end (AS-IS :3191 permanent.UntilOwnerTurnEndEffects):
+    // the host's UntilOwnerTurnEnd bucket is now empty -> no re-fire next turn.
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    AssertEqual(0, new Cec.Permanent(match.Context, host).UntilOwnerTurnEndEffects.Count,
         "after the per-duration bucket reset the granted Execute is gone (no re-fire next turn)");
 }
 
-// --- Harness -----------------------------------------------------------------------------------------------
+// --- Harness (pump α-cluster retarget scaffold) -----------------------------------------------------------
 
-EngineContext NewContext()
+async Task<(DcgoMatch Match, PolicyChoiceProvider Policy)> NewPumpMatchAsync(int seed)
 {
-    EngineContext ctx = EngineContext.CreateDefault(randomSeed: 11, deferredChoice: true);
-    ctx.TurnController.Initialize(new[] { P1, P2 }, P1); // turn player = owner = P1
-    ctx.TurnController.SetPhase(HeadlessPhase.Main);      // past Setup -> DoneStartGame true
-    return ctx;
-}
-
-async Task DriveWindow(EngineContext context)
-{
-    AutoProcessing ap = AutoProcessing.For(context);
-    try
+    var policy = new PolicyChoiceProvider();
+    EngineContext context = ContextFactory.CreateWithProvider(policy, seed);
+    CardBaseEntityLoader.LoadInto((CardDatabase)context.CardRepository);
+    PlayerDeckSetup[] decks =
     {
-        await ap.StackSkillInfos(null, EffectTiming.OnEndTurn);
-        await ap.AutoProcessCheck();
-    }
-    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* parked */ }
+        new PlayerDeckSetup(P1, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),
+        new PlayerDeckSetup(P2, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),
+    };
+    MatchSetupConfig setup = MatchSetupConfig.Create(decks, firstPlayerId: P1, initialHandSize: 0, initialSecuritySize: 0, enableMulligan: false);
+    MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
+    await match.InitializeAsync(config);
+    await StepOnceAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P1));
+    return (match, policy);
 }
 
-async Task<ChoiceRequest> AnswerYesAndResume(EngineContext context, ChoiceRequest optional)
+async Task<(ChoiceRequest? Optional, ChoiceRequest? Attack)> FireOnEndTurnAsync(DcgoMatch match, PolicyChoiceProvider policy)
 {
-    context.ChoiceController.ResolveChoice(ChoiceResult.Select(optional.Candidates[0].Id));
-    AutoProcessing ap = AutoProcessing.For(context);
-    try { await ap.ResumeSuspendedWindowsAsync(); }
-    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* re-parked on the next choice */ }
-    AssertTrue(context.ChoiceController.Current.IsPending, "answering the optional 'yes' opened the effect's own choice");
-    return context.ChoiceController.PendingRequest!;
+    ChoiceRequest? optional = null;
+    ChoiceRequest? attack = null;
+    policy.On(req => req.Type == ChoiceType.OptionalEffect,
+        req => { optional = req; return ChoiceResult.Select(req.Candidates[0].Id); }, oneShot: false);
+    policy.On(req => req.Type is ChoiceType.Card or ChoiceType.Permanent,
+        req => { attack ??= req; return req.CanSkip ? ChoiceResult.Skip() : ChoiceResult.Select(req.Candidates[0].Id); }, oneShot: false);
+    await PassTurnAsync(match, P1);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P2) || m.IsTerminal());
+    return (optional, attack);
 }
 
-void GrantExecute(EngineContext context, HeadlessEntityId hostId, EffectDuration duration)
+int CollectOnEndTurn(DcgoMatch match)
 {
-    ICardEffect source = GrantSource(context, hostId, "GrantExecute");
-    CardEffectCommons.GainExecute(new Permanent(context, hostId), duration, source).GetAwaiter().GetResult();
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    return AutoProcessing.GetSkillInfos(new Hashtable(), Cec.EffectTiming.OnEndTurn).Count;
+}
+
+void GrantExecute(DcgoMatch match, HeadlessEntityId hostId, EffectDuration duration)
+{
+    using var scope = AmbientMatchContext.Enter(match.Context);
+    Cec.CardEffectCommons.GainExecute(new Cec.Permanent(match.Context, hostId), duration, GrantSource(match, hostId, "GrantExecute")).GetAwaiter().GetResult();
 }
 
 // A grant-source ICardEffect whose EffectSourceCard is the host's own top card (AS-IS: the granted keyword's
 // source is the target permanent — GainExecute passes targetPermanent.TopCard to ExecuteEffect).
-ICardEffect GrantSource(EngineContext context, HeadlessEntityId hostId, string name)
+Cec.ICardEffect GrantSource(DcgoMatch match, HeadlessEntityId hostId, string name)
 {
-    var host = new CardSource(context, hostId, P1, P1);
+    var host = new Cec.CardSource(match.Context, hostId, P1, P1);
     var ac = new ActivateClass();
     ac.SetUpICardEffect(name, _ => true, host);
     return ac;
 }
 
-async Task<HeadlessEntityId> Place(EngineContext ctx, HeadlessPlayerId owner, string num, bool suspended, bool entered)
+HeadlessEntityId Place(DcgoMatch match, HeadlessPlayerId owner, string number, bool suspended, bool entered)
 {
+    EngineContext ctx = match.Context;
     var cards = (CardDatabase)ctx.CardRepository;
-    var defId = new HeadlessEntityId(num);
-    var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 };
-    cards.Upsert(new CardRecord(defId, num, num, defMeta, CardType: "Digimon"));
-    var id = new HeadlessEntityId($"{owner.Value}:battle:{num}");
+    var def = new HeadlessEntityId(number);
+    cards.Upsert(new CardRecord(def, number, number,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{number}");
     var meta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = suspended };
-    if (entered) meta[HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.EnteredThisTurnKey] = true;
-    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner, Metadata: meta));
-    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea));
+    if (entered) meta[MatchStateMutationSink.EnteredThisTurnKey] = true;
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, owner, Metadata: meta));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     return id;
 }
+
+async Task PassTurnAsync(DcgoMatch match, HeadlessPlayerId player)
+{
+    LegalAction pass = Legal(match, player).First(a => a.ActionType == HeadlessActionTypes.Pass);
+    await ApplyAsync(match, pass);
+}
+
+async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingAsync(match, skip: decline);
+        }
+        else await StepOnceAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state — phase:{t.Phase}/{t.StepCursor} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+async Task ResolvePendingAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    await ApplyAsync(match, action);
+}
+
+async Task ApplyAsync(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+async Task StepOnceAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+IReadOnlyList<LegalAction> Legal(DcgoMatch match, HeadlessPlayerId player)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    return match.GetLegalActions(player);
+}
+
+bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
+}
+
+// ═══════════════════════════ providers/context (EXEMPLAR-T1 precedent) ═══════════════════════════
+
+sealed class PolicyChoiceProvider : IChoiceProvider
+{
+    private readonly List<(Func<ChoiceRequest, bool> Applies, Func<ChoiceRequest, ChoiceResult> Answer, bool OneShot)> _handlers = new();
+    private readonly ScriptedChoiceProvider _fallback = new();
+    public void On(Func<ChoiceRequest, bool> applies, Func<ChoiceRequest, ChoiceResult> answer, bool oneShot = true)
+        => _handlers.Add((applies, answer, oneShot));
+    public List<string> Seen { get; } = new();
+    public Task<ChoiceResult> ChooseAsync(ChoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        Seen.Add($"{request.Type}:'{request.Message}'x{request.Candidates.Count}");
+        for (int i = 0; i < _handlers.Count; i++)
+        {
+            var (applies, answer, oneShot) = _handlers[i];
+            if (applies(request))
+            {
+                ChoiceResult result = answer(request);
+                result.ThrowIfInvalid(request);
+                if (oneShot) _handlers.RemoveAt(i);
+                return Task.FromResult(result);
+            }
+        }
+        return _fallback.ChooseAsync(request, cancellationToken);
+    }
+}
+
+static class ContextFactory
+{
+    public static EngineContext CreateWithProvider(IChoiceProvider provider, int randomSeed)
+    {
+        var randomSource = new GameRandomSource(randomSeed);
+        var cardInstanceRepository = new InMemoryCardInstanceRepository();
+        var logSink = new NullLogSink();
+        var zoneMover = new InMemoryZoneMover(randomSource);
+        var memoryController = new InMemoryHeadlessMemoryController();
+        var effectRegistry = new InMemoryEffectRegistry();
+        var gameEventQueue = new GameEventQueue();
+        EngineContext? selfRef = null;
+        var effectScheduler = new EffectScheduler(
+            new EffectResolutionQueue(),
+            CardEffectSchedulerResolver.Create(
+                effectRegistry,
+                sinkFactory: _ => new MatchStateMutationSink(
+                    cardInstanceRepository, logSink, zoneMover, memoryController, effectRegistry, gameEventQueue,
+                    currentTurnPlayer: () => selfRef?.TurnController.Current.TurnPlayerId,
+                    context: selfRef),
+                strictUnbound: false));
+        var choiceController = new InMemoryHeadlessChoiceController();
+        var context = new EngineContext(
+            provider, randomSource, new CardDatabase(), cardInstanceRepository, zoneMover,
+            new InMemoryRuleQueryService(), new InMemoryHeadlessTurnController(), choiceController,
+            new InMemoryHeadlessAttackController(), memoryController, logSink,
+            new HeadlessDCGO.Engine.Headless.Coroutines.EngineTaskRunner(), effectScheduler,
+            effectRegistry: effectRegistry, gameEventQueue: gameEventQueue);
+        selfRef = context;
+        return context;
+    }
 }
