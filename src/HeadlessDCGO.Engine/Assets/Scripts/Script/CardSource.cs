@@ -586,6 +586,84 @@ public sealed class CardSource
         return false;
     }
 
+    /// <summary>(RD-R5-01) 1:1 mirror of AS-IS <c>CardSource.CanPlayBurst(PayCost)</c> (CardSource.cs:3071-3134):
+    /// this card declares a burst-digivolution condition satisfiable by an owner battle-area/breeding-area Digimon
+    /// (matching <c>digimonCondition</c>, <c>!CanNotEvolve</c>) with a DISTINCT owner battle-area Tamer (matching
+    /// <c>tamerCondition</c>, <c>!CannotReturnToHand</c>), with the burst cost payable when <paramref name="PayCost"/>.
+    /// SUBSTRATE: <c>Owner.*</c> → <c>new Player(Context, Owner).*</c> (the CardSource.cs:514/571 idiom);
+    /// <c>burstDigivolutionCondition</c> → <see cref="BurstDigivolutionConditionOf"/>. ADAPTATION: the AS-IS
+    /// pre-check dummy <c>new Permanent(new List&lt;CardSource&gt;())</c> (an entity-less empty permanent the mirror's
+    /// entity-backed <see cref="Permanent"/> cannot construct) → an empty target list — behaviour-identical (no
+    /// <c>IChangeCostEffect</c> can derive a reduction from a source-less/target-less permanent; the per-digimon
+    /// check below is the definitive gate, mirroring the mirror's own <c>PayingCost(root, null, ...)</c> at :627).
+    /// <c>burstDigivolutionCondition</c> reuses the existing 1:1 accessor <c>CardSourceAsIsPlayAccessors
+    /// .BurstDigivolutionConditionOf(this)</c> (RD-P6C1-9; relocation into this file is deferred to its own cluster).</summary>
+    public bool CanPlayBurst(bool PayCost)
+    {
+        BurstDigivolutionCondition burstDigivolutionCondition = this.BurstDigivolutionConditionOf();
+        if (burstDigivolutionCondition != null)
+        {
+            if (PayCost)
+            {
+                int cost = burstDigivolutionCondition.cost;
+
+                cost = GetChangedCostItselef(cost, SelectCardEffect.Root.Hand, new List<Permanent>(), checkAvailability: true);
+
+                if (new Player(Context, Owner).MaxMemoryCost < cost)
+                {
+                    return false;
+                }
+            }
+
+            List<Permanent> availableDigimon = new List<Permanent>();
+            availableDigimon.AddRange(new Player(Context, Owner).GetBattleAreaDigimons());
+            availableDigimon.AddRange(new Player(Context, Owner).GetBreedingAreaPermanents());
+
+            if (availableDigimon.Count >= 1)
+            {
+                foreach (Permanent digimon in availableDigimon)
+                {
+                    if (digimon != null)
+                    {
+                        if (!this.CanNotEvolve(digimon))
+                        {
+                            if (burstDigivolutionCondition.digimonCondition(digimon))
+                            {
+                                foreach (Permanent tamer in new Player(Context, Owner).GetBattleAreaPermanents())
+                                {
+                                    if (tamer != digimon)
+                                    {
+                                        if (burstDigivolutionCondition.tamerCondition(tamer))
+                                        {
+                                            if (!tamer.CannotReturnToHand(null))
+                                            {
+                                                if (PayCost)
+                                                {
+                                                    int cost = burstDigivolutionCondition.cost;
+
+                                                    cost = GetChangedCostItselef(cost, SelectCardEffect.Root.Hand, new List<Permanent>() { digimon }, checkAvailability: true);
+
+                                                    if (new Player(Context, Owner).MaxMemoryCost < cost)
+                                                    {
+                                                        return false;
+                                                    }
+                                                }
+
+                                                return true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static IEnumerable<Permanent[]> OrderedPairs(List<Permanent> permanents)
     {
         for (int i = 0; i < permanents.Count; i++)

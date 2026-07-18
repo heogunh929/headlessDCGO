@@ -34,6 +34,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_104 W2 [Raid](OnAllyAttack)·Option [Main](OptionSkill) 등재 + Arts RESOLUTION 실행 flip(RD-P6C2-10): frame 모델(PermanentFrame/FrameID)·CanPlayCardTargetFrame·CanResolve·진화 실행", BT25104_RaidMainArtsResolve),
     ("BT25_104 W3 Burst tamerCondition FLIP(RD-EXT3-04): [Marcus Damon] burst-tamer 술어가 STOP 없이 실평가 — Permanent.CannotReturnToHand aggregate 스캔(제약 부재=false→후보 적격) 양·음, digimonCondition [ShineGreymon] 양·음", BT25104_BurstConditionFlip),
     ("BT25_104 W4 Burst turn-end trash 등록 FLIP(RD-R5-03): SelectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd가 permanent.UntilEachTurnEndEffects에 OnEndTurn ActivateClass 등록 — GetCardEffect(OnEndTurn) 반환·CanUse/CanActivate 게이트", BT25104_BurstTurnEndTrashRegistration),
+    ("BT25_104 W5 Burst SelectTamer FLIP(RD-R5-01): CardSource.CanPlayBurst affordability 게이트 실평가(config 양·음 + memory cost 게이트) → SelectBurstDigivolutionEffect.SelectTamer가 [Marcus Damon] tamer 선택 창 개방·pick 라우팅(STOP 해제); 풀 burst 플레이는 하류 BounceTamer(RD-R5-02) STOP", BT25104_BurstSelectTamerOpens),
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
     ("BT25_089 W2 FLIP(RD-EXT3-01/G-Link 배치2): [Main] link 실행 — suspend cost → 영역 선택 → 손패 Appmon 선택 → 호스트 선택 → -2 감면 코스트 0 지불 → attach", BT25089_LinkFlip),
@@ -256,6 +257,76 @@ async Task BT25104_BurstTurnEndTrashRegistration()
     AssertTrue(onEnd!.EffectName == "Trash this Digimon's top card\n(Burst Digivolution)", "the OnEndTurn effect carries the AS-IS effect name");
     AssertTrue(onEnd.CanUse(null!), "CanUse TRUE: the permanent is on the field (GetFieldPermanents contains it)");
     AssertTrue(onEnd.CanActivate(null!), "CanActivate TRUE: the permanent has >=1 digivolution card (a burst top-card is trashable)");
+}
+
+async Task BT25104_BurstSelectTamerOpens()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 3415, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId shine = Stage(match, P1, "BT25_104", ChoiceZone.BattleArea, "1:battle:Shine", register: true);
+    // burst config: TWO [Marcus Damon] tamers (a 2-candidate pool forces a genuine ChoiceProvider selection —
+    // SelectPermanentEffect auto-resolves a 1-candidate forced pick without a request) + a [ShineGreymon] base.
+    HeadlessEntityId marcus = StageSynthetic(match, P1, "MARCUS", dp: 0, level: 0, "1:battle:marcus", name: "Marcus Damon", cardType: "Tamer");
+    HeadlessEntityId marcus2 = StageSynthetic(match, P1, "MARCUS2", dp: 0, level: 0, "1:battle:marcus2", name: "Marcus Damon", cardType: "Tamer");
+    HeadlessEntityId sg = StageSynthetic(match, P1, "SHINEG", dp: 9000, level: 6, "1:battle:sg", name: "ShineGreymon");
+    // a control card with NO burst condition (negative for the affordability gate).
+    HeadlessEntityId other = StageSynthetic(match, P1, "OTHER", dp: 3000, level: 4, "1:battle:other", name: "SomeOther");
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var shineCard = new Cec.CardSource(match.Context, shine, P1);
+    var otherCard = new Cec.CardSource(match.Context, other, P1);
+
+    // RD-R5-01 FLIP: CardSource.CanPlayBurst evaluates (no NotSupportedException) — the burst-config gate is live.
+    AssertTrue(shineCard.CanPlayBurst(false),
+        "RD-R5-01: CanPlayBurst(false)=TRUE — a valid [ShineGreymon] base + distinct [Marcus Damon] tamer satisfy the burst condition");
+    AssertTrue(!otherCard.CanPlayBurst(false),
+        "negative: a card with no burst condition can never burst-digivolve (CanPlayBurst=FALSE)");
+
+    // Cost gate (the PayCost branch runs GetChangedCostItselef vs MaxMemoryCost). Drive both extremes off the
+    // ACTUAL MaxMemoryCost read back, so the assertion holds regardless of the seat/sign mapping.
+    int burstCost = Cec.CardSourceAsIsPlayAccessors.BurstDigivolutionConditionOf(shineCard)!.cost;
+    match.Context.MemoryController.Set(10);
+    int memFlush = new Cec.Player(match.Context, P1).MaxMemoryCost;
+    AssertTrue(shineCard.CanPlayBurst(true),
+        $"cost gate: with ample memory (MaxMemoryCost={memFlush} >= burst cost {burstCost}) the burst is affordable (CanPlayBurst(true)=TRUE)");
+    match.Context.MemoryController.Set(-10);
+    int memStarve = new Cec.Player(match.Context, P1).MaxMemoryCost;
+    if (memStarve < burstCost)
+    {
+        AssertTrue(!shineCard.CanPlayBurst(true),
+            $"cost gate: with starved memory (MaxMemoryCost={memStarve} < burst cost {burstCost}) the PayCost branch BLOCKS the burst (CanPlayBurst(true)=FALSE)");
+    }
+    AssertTrue(shineCard.CanPlayBurst(false),
+        "config gate is memory-independent: CanPlayBurst(false) stays TRUE while memory is starved (PayCost:false skips the cost check)");
+
+    // Drive SelectTamer directly (isPayCost:false → head guard rides the memory-independent config gate). It must
+    // OPEN a tamer selection over [Marcus Damon] and route the pick — the RD-R5-01 body restoration.
+    var sbde = new HeadlessDCGO.Engine.Assets.Scripts.Script.SelectBurstDigivolutionEffect();
+    sbde.AttachContext(match.Context);
+    Cec.Permanent? pickedTamer = null;
+    // The pick branch (AS-IS quirk) fires _endSelectCoroutine_SelectTamer only when _endSelectCoroutine_Burst is
+    // non-null — the real flow sets it via SelectWheterToBurst before entering the burst arm, so mirror that here.
+    sbde.SetUp_SelectWheterToBurst(shineCard, shineCard, canNoSelect: false,
+        endSelectCoroutine_Digivolve: () => Task.CompletedTask,
+        endSelectCoroutine_Burst: () => Task.CompletedTask,
+        noSelectCoroutine: () => Task.CompletedTask);
+    sbde.SetUp_SelectTamer(shineCard, isLocal: false, isPayCost: false, canNoSelect: false,
+        endSelectCoroutine_SelectTamer: p => { pickedTamer = p; return Task.CompletedTask; },
+        noSelectCoroutine: () => Task.CompletedTask);
+
+    bool sawTamerRequest = false;
+    policy.On(
+        req => req.Type == ChoiceType.Permanent && req.Candidates.Any(c => c.IsSelectable && c.Id == marcus),
+        req => { sawTamerRequest = true; return ChoiceResult.Select(marcus); });
+
+    await sbde.SelectTamer();
+
+    AssertTrue(sawTamerRequest,
+        "RD-R5-01 FLIP: SelectTamer OPENED a permanent selection over the [Marcus Damon] tamer (no STOP)");
+    AssertTrue(pickedTamer is not null && pickedTamer.InstanceId == marcus,
+        "SelectTamer resolved the tamer pick and routed the selected [Marcus Damon] to the burst follow-up");
+    // NOTE: a FULL burst play continues past this pick into BounceTamer (AS-IS bounce of the picked tamer with the
+    // IsBurst flag) — that remains STOP (RD-R5-02: standalone HandBounceClaass + IsReturnedToHandByBurstDigivolution).
 }
 
 // ═══════════════════════════════════ BT25_089 ═══════════════════════════════════
