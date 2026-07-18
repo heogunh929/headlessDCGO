@@ -9,6 +9,7 @@ using HeadlessDCGO.Engine.Headless.State;
 using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using SelectDigiXrosClass = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectDigiXrosClass;
 using AddAssemblyConditionClass = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.AddAssemblyConditionClass;
+using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 // EXEMPLAR-T3B 정본 witness 스위트 — 수확 트랜치 3B(STOP-예상 5장), 카드당 실행동/등록/정직 수확 혼합.
@@ -36,8 +37,10 @@ var tests = new (string Name, Func<Task> Body)[]
     // BT21_030 — Shoutmon X7: Superior Mode (다중 팔 포팅; DigiXros/BeforePayCost 잠복)
     ("BT21_030 W1 등록: None=AltDigi+DigiXros홀더, BeforePayCost=DigiXros특수(잠복), OnEnterFieldAnyone/WhenDigivolving/OnAllyAttack 실착지", BT21030_ArmsRegisteredAcrossTimings),
     ("BT21_030 W2 수확: DigiXros 인터랙티브 소비 SelectDigiXrosClass.Select STOP(RD-R5-04) — BeforePayCost 특수 팔은 등록되나 DigiXros 플레이 경로에서만 발화(잠복 RD-EXT3-01)", BT21030_DigiXrosInteractiveStop),
-    // BT3_056 — Ceresmon (수확 STOP 카드)
-    ("BT3_056 W1 수확 STOP: <Digisorption -3> BeforePayCost 팔은 미러 Player 부재 CanTapWhenAbsorbEvolution에 걸려 EffectList(BeforePayCost)가 NotSupportedException(RD-EXT3-03) throw — assert-반전 내장", BT3056_DigisorptionBeforePayCostStop),
+    // BT3_056 — Ceresmon (수확 STOP 상환 RD-EXT3-03 — 실단언 flip)
+    ("BT3_056 W1 발화: <Digisorption -3> BeforePayCost 진입→서스펜드 수락 시 진화 코스트 -3 실적용(base 5→2), 세 팔(BeforePayCost/WhenDigisorption/None) 실착지", BT3056_DigisorptionAcceptReducesBy3),
+    ("BT3_056 W2 발화: 서스펜드 거절(no-select) 시 ChangeCost 미등록 → 정가 유지(base 5→5)", BT3056_DigisorptionDeclineFullPrice),
+    ("BT3_056 W3 경계: 서스펜드 가용성 없음(유일 아군 디지몬 서스펜드 상태) → 옵션 CanActivate false·정가 유지 — CanTapWhenAbsorbEvolution_CheckAvailability 가용성 판정", BT3056_DigisorptionNoAvailabilityNoOption),
 };
 
 int failed = 0;
@@ -226,20 +229,96 @@ async Task BT21030_DigiXrosInteractiveStop()
 
 // ═══════════════════════════════════ BT3_056 ═══════════════════════════════════
 
-async Task BT3056_DigisorptionBeforePayCostStop()
+// (RD-EXT3-03 상환) BT3_056 셋업: BT3_056을 손패에(진화 대상 카드), 아군 배틀에어리어에 진화-원/서스펜드 후보
+// 디지몬 1체. suspendedFrom=true면 그 디지몬을 서스펜드 상태로(가용성 없음 경계).
+async Task<(DcgoMatch Match, PolicyChoiceProvider Policy, HeadlessEntityId Bt, HeadlessEntityId DigiFrom)>
+    SetupDigisorptionAsync(int seed, bool suspendedFrom)
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3501, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
     HeadlessEntityId bt = Stage(match, P1, "BT3_056", ChoiceZone.Hand, "1:hand:bt3");
+    HeadlessEntityId digiFrom = StageSynthetic(match, P1, "EXT3-DIGIFROM", dp: 3000, level: 4, "1:battle:digifrom");
 
-    // 수확 STOP(RD-EXT3-03): <Digisorption -3>의 진입 판정 Player.CanTapWhenAbsorbEvolution 부재 →
-    // EffectList(BeforePayCost)가 정직 STOP throw. assert-반전: 상환 시 throw가 사라지면 이 assert가 실패 →
-    // witness를 세 팔 착지 검증으로 뒤집을 것.
-    AssertTrue(ThrowsNotSupported(() => EffectTypes(match, bt, P1, Cec.EffectTiming.BeforePayCost), "RD-EXT3-03"),
-        "HARVEST RD-EXT3-03: BT3_056 <Digisorption -3> BeforePayCost STOPs (missing Player.CanTapWhenAbsorbEvolution) — the Digisorption pre-play entry judgement is unhoused");
-    // None 타이밍은 STOP 대상이 아니며(등록 생략) throw 없이 빈 리스트.
-    AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.None).Count == 0,
-        "None: no effects registered (the CanSuspendByDigisorptionClass ESS is inert without the BeforePayCost entry — documented STOP)");
+    if (suspendedFrom)
+    {
+        using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+        new Cec.Permanent(match.Context, digiFrom, P1).IsSuspended = true;
+    }
+
+    return (match, policy, bt, digiFrom);
+}
+
+// <Digisorption -3> BeforePayCost 진입 팔을 직접 발화(펌프-외 직접 호출 — EX10_045/BT24_062 판례와 동일한
+// witness 소비 패턴): EffectList(BeforePayCost)에서 ActivateClass를 뽑아 Activate() → 서스펜드 SelectPermanent
+// (Mode.Tap)를 policy가 수락/거절 → 그 뒤 실제 진화-코스트 파이프(GetPayingCostWithBaseCost)로 감액 결과를 대조.
+async Task<int> FireDigisorptionAndCostAsync(
+    DcgoMatch match, PolicyChoiceProvider policy, HeadlessEntityId bt, HeadlessEntityId digiFrom, int baseCost, bool accept)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    var cs = new Cec.CardSource(match.Context, bt, P1);
+
+    Cec.ICardEffect activate = cs.EffectList(Cec.EffectTiming.BeforePayCost).First();
+    policy.On(
+        req => req.Type == ChoiceType.Permanent,
+        req => accept ? ChoiceResult.Select(digiFrom) : ChoiceResult.Skip(),
+        oneShot: false);
+
+    await ((Cec.ActivateICardEffect)activate).Activate(new System.Collections.Hashtable());
+
+    // 진화-원 permanent를 targetPermanents로 넘겨 실제 코스트 파이프를 돌린다(ChangeCostClass는 진화-원이
+    // 아군 배틀에어리어 permanent일 때만 -3; ChangeCostClass.GetCost의 CanReduceCost 게이트 포함).
+    var targets = new List<Cec.Permanent> { new(match.Context, digiFrom, P1) };
+    return cs.GetPayingCostWithBaseCost(baseCost, SelectCardEffect.Root.None, targets);
+}
+
+async Task BT3056_DigisorptionAcceptReducesBy3()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy, HeadlessEntityId bt, HeadlessEntityId digiFrom) =
+        await SetupDigisorptionAsync(seed: 3501, suspendedFrom: false);
+
+    // 세 팔이 STOP 없이 실착지(등록 표면) — BeforePayCost=ActivateClass, WhenDigisorption=ActivateClass,
+    // None=CanSuspendByDigisorptionClass.
+    AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.BeforePayCost).Contains("ActivateClass"),
+        $"BeforePayCost: <Digisorption -3> ActivateClass registered (STOP resolved) [got {string.Join(",", EffectTypes(match, bt, P1, Cec.EffectTiming.BeforePayCost))}]");
+    AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.WhenDigisorption).Contains("ActivateClass"),
+        "WhenDigisorption: opponent-substitute ActivateClass registered");
+    AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.None).Contains("CanSuspendByDigisorptionClass"),
+        "None: ESS CanSuspendByDigisorptionClass registered");
+
+    int cost = await FireDigisorptionAndCostAsync(match, policy, bt, digiFrom, baseCost: 5, accept: true);
+    AssertEqual(2, cost,
+        "accepting the suspend registers the ChangeCostClass and the digivolution cost is reduced by 3 (5→2) — the option-suspend→conditional ChangeCost pipe fires 1:1");
+}
+
+async Task BT3056_DigisorptionDeclineFullPrice()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy, HeadlessEntityId bt, HeadlessEntityId digiFrom) =
+        await SetupDigisorptionAsync(seed: 3502, suspendedFrom: false);
+
+    int cost = await FireDigisorptionAndCostAsync(match, policy, bt, digiFrom, baseCost: 5, accept: false);
+    AssertEqual(5, cost,
+        "declining the suspend (no-select) registers NO ChangeCostClass — the digivolution cost stays at full price (5)");
+}
+
+async Task BT3056_DigisorptionNoAvailabilityNoOption()
+{
+    (DcgoMatch match, PolicyChoiceProvider policy, HeadlessEntityId bt, HeadlessEntityId digiFrom) =
+        await SetupDigisorptionAsync(seed: 3503, suspendedFrom: true);
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        var cs = new Cec.CardSource(match.Context, bt, P1);
+        Cec.ICardEffect activate = cs.EffectList(Cec.EffectTiming.BeforePayCost).First();
+        // 유일 아군 디지몬이 서스펜드 상태 → CanTapWhenAbsorbEvolution_CheckAvailability false →
+        // CanActivate false: 옵션 미제시.
+        AssertTrue(!activate.CanActivate(new System.Collections.Hashtable()),
+            "with the only own Digimon already suspended, CanTapWhenAbsorbEvolution_CheckAvailability is false so the <Digisorption -3> option is NOT presented (CanActivate false)");
+    }
+
+    // 옵션이 발화하지 않으면 감액도 없다 — 정가 유지(펌프-외 직접 발화 시 후보 0 → ChangeCost 미등록).
+    int cost = await FireDigisorptionAndCostAsync(match, policy, bt, digiFrom, baseCost: 5, accept: true);
+    AssertEqual(5, cost,
+        "no suspendable Digimon ⇒ SelectPermanent has no candidate ⇒ no ChangeCostClass ⇒ full price (5)");
 }
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════
