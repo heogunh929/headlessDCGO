@@ -38,6 +38,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(b) permanent-scoped INTERACTIVE OnEndTurn suspends on an agent choice -> answering it completes the body once", PermanentInteractiveSuspendResume),
     ("(c) player-scoped OnEndTurn fires through the drain, and the REAL per-duration bucket reset stops a re-fire (RD6 guard)", PlayerScopeFiresAndOneShot),
     ("(d) the AS-IS supply front-end round-trips OnEndTurn (emit -> ConvertEvent -> StackSkillInfos + AutoProcessCheck) and resolves the permanent-scoped effect", SupplyRoundTripDrivesDrain),
+    ("(e) a once-per-turn [End of Your Turn] body RE-FIRES across the owner's TWO consecutive turns (per-turn cap resets at the boundary), and stays silent on the opponent's turn (owner-scope)", OncePerTurnRefiresAcrossTwoTurns),
 };
 
 var failures = new List<string>();
@@ -62,14 +63,19 @@ async Task PermanentSyncFiresOnce()
     PlacePermanentWithOnEndTurn(match, P1, optional: false, interactive: false, maxCount: 1);
 
     // Collection proof: the mirror window collects the permanent's OnEndTurn effect (GetSkillInfos 5-region scan).
+    // PREMISE (review1 P2-②): this count == 1 relies on the deck filler BT1_028 being INERT for OnEndTurn — the
+    // decks are 50x BT1_028 but they live only in library/security (never a battle-area permanent), and
+    // GetSkillInfos(OnEndTurn) scans field permanents, so the sole collected effect is the staged fixture.
     List<ASSkillInfo> collected = CollectSkillInfos(match);
     AssertTrue(collected.Count == 1, $"the OnEndTurn window collects the permanent-scoped effect (got {collected.Count})");
     AssertTrue(collected[0].CardEffect is ActivateICardEffect, "the collected effect is an ActivateICardEffect");
 
-    // Drive the AS-IS pump turn-end (P1 Pass -> EndPhaseAsync -> EndTurnProcess:1511) and assert the body fired
-    // exactly once. The pump runs the OnEndTurn drain exactly once per turn-end, and the once-per-turn cap
-    // (register-before-body) makes CanActivate false on any re-collection within that drain, so Counter == 1 is
-    // the AS-IS "fires exactly once per turn-end" guarantee (the old manual second-drain was a hand-drive artifact).
+    // Drive ONE AS-IS pump turn-end (P1 Pass -> EndPhaseAsync -> EndTurnProcess:1511) and assert the body fired
+    // exactly once. A single pump turn-end collects and fires the body ONCE and does NOT re-collect within that
+    // turn-end, so Counter == 1 is "the drain fires the collected body once per turn-end" — it does NOT by itself
+    // exercise the once-per-turn cap's reset/re-fire branch (that requires a SECOND turn-end; covered by test (e)).
+    // (The old hand-driven harness ran a manual second drain here; that second drain was a driver artifact, not an
+    // AS-IS re-collection.)
     await FirePumpTurnEndAsync(match);
     AssertEqual(1, Counter.Perm, "the permanent-scoped [End of Your Turn] body fired exactly once through the pump turn-end drain");
 }
@@ -166,6 +172,43 @@ async Task SupplyRoundTripDrivesDrain()
         "the full pump turn-end front-end (emit -> ConvertEvent -> StackSkillInfos + AutoProcessCheck) resolved the permanent-scoped OnEndTurn effect");
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// (e) once-per-turn cap E2E across TWO turns (review1 P1-1 remediation). A single pump turn-end (tests a-d)
+//     collects+fires the body exactly once but NEVER re-collects, so it does not exercise the once-per-turn
+//     cap's RESET-and-re-fire branch. This drives P1's turn-end TWICE (with P2's turn between) and asserts:
+//       * P1 turn-1 end   -> Counter 1 (fires, cap consumed for P1's turn 1),
+//       * P2 turn end     -> Counter 1 (owner-scoped: P1's [End of YOUR Turn] does NOT fire on P2's turn),
+//       * P1 turn-2 end   -> Counter 2 (the per-turn cap RESET at the turn boundary, so it re-fires).
+//     AS-IS ground truth (confirmed before asserting): the cap is a per-TURN use count (OnceFlagController /
+//     the AS-IS InitUseCountThisTurn), reset for every player at each turn boundary (TurnFlowPump.ResetForTurn,
+//     TurnStateMachine :684) — so a once-per-turn [End of Your Turn] body is once-per-TURN, NOT once-per-game;
+//     Counter == 2 across the owner's two turns is the correct AS-IS value.
+// ---------------------------------------------------------------------------------------------------------
+async Task OncePerTurnRefiresAcrossTwoTurns()
+{
+    (DcgoMatch match, _) = await NewPumpMatchAsync(seed: 11);
+    Counter.Reset();
+
+    // An owner-scoped once-per-turn (maxCount = 1) [End of Your Turn] body on P1's board.
+    PlacePermanentWithOnEndTurn(match, P1, optional: false, interactive: false, maxCount: 1, ownerGated: true);
+
+    // P1's first turn-end: fires once (the once-per-turn cap is consumed for P1's turn 1).
+    await PassTurnAsync(match, P1);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P2) || m.IsTerminal());
+    AssertEqual(1, Counter.Perm, "P1's first turn-end fires the once-per-turn body exactly once");
+
+    // P2's turn-end: owner-scoped — P1's [End of YOUR Turn] body must NOT fire on the opponent's turn.
+    await PassTurnAsync(match, P2);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P1) || m.IsTerminal());
+    AssertEqual(1, Counter.Perm, "P2's turn-end does NOT fire P1's owner-scoped [End of Your Turn] body (still 1)");
+
+    // P1's SECOND turn-end: the per-turn cap reset at the turn boundary, so the body re-fires -> Counter 2.
+    await PassTurnAsync(match, P1);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P2) || m.IsTerminal());
+    AssertEqual(2, Counter.Perm,
+        "P1's SECOND turn-end re-fires the body (the once-per-TURN cap reset at the boundary) — once-per-turn, not once-per-game");
+}
+
 // --- Harness (pump α-cluster retarget scaffold) -----------------------------------------------------------
 
 async Task<(DcgoMatch Match, PolicyChoiceProvider Policy)> NewPumpMatchAsync(int seed)
@@ -207,7 +250,7 @@ int PlayerOnEndTurnBucketCount(DcgoMatch match)
     return new Player(match.Context, P1).EffectList(EffectTiming.OnEndTurn).Count;
 }
 
-void PlacePermanentWithOnEndTurn(DcgoMatch match, HeadlessPlayerId owner, bool optional, bool interactive, int maxCount = -1)
+void PlacePermanentWithOnEndTurn(DcgoMatch match, HeadlessPlayerId owner, bool optional, bool interactive, int maxCount = -1, bool ownerGated = false)
 {
     EngineContext context = match.Context;
     var cards = (CardDatabase)context.CardRepository;
@@ -219,7 +262,7 @@ void PlacePermanentWithOnEndTurn(DcgoMatch match, HeadlessPlayerId owner, bool o
     context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, permId, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     using var scope = AmbientMatchContext.Enter(context);
     var src = new CardSource(context, permId, owner, owner);
-    CardEffectRegistrar.RegisterOnEnterPlay(context, new OnEndTurnFixture(optional, interactive, maxCount), "DEF:PERM", src);
+    CardEffectRegistrar.RegisterOnEnterPlay(context, new OnEndTurnFixture(optional, interactive, maxCount, ownerGated), "DEF:PERM", src);
 }
 
 void StorePlayerCounter(CardSource card)
@@ -320,7 +363,9 @@ internal sealed class OnEndTurnFixture : CEntity_Effect
     private readonly bool _optional;
     private readonly bool _interactive;
     private readonly int _maxCount;
-    public OnEndTurnFixture(bool optional, bool interactive, int maxCount) { _optional = optional; _interactive = interactive; _maxCount = maxCount; }
+    private readonly bool _ownerGated;
+    public OnEndTurnFixture(bool optional, bool interactive, int maxCount, bool ownerGated = false)
+    { _optional = optional; _interactive = interactive; _maxCount = maxCount; _ownerGated = ownerGated; }
 
     public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
@@ -328,7 +373,8 @@ internal sealed class OnEndTurnFixture : CEntity_Effect
         if (timing == EffectTiming.OnEndTurn)
         {
             var ac = new ActivateClass();
-            ac.SetUpICardEffect("PermOnEndTurn", _ => true, card);
+            // ownerGated => the AS-IS "[End of YOUR Turn]" scope: CanUse is true only on the card owner's turn.
+            ac.SetUpICardEffect("PermOnEndTurn", _ => !_ownerGated || CardEffectCommons.IsOwnerTurn(card), card);
             ac.SetUpActivateClass(_ => true, async _ =>
             {
                 if (_interactive)

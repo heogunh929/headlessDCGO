@@ -229,6 +229,10 @@ async Task<(ChoiceRequest? Optional, ChoiceRequest? Attack)> FireOnEndTurnAsync(
     return (optional, attack);
 }
 
+// PREMISE (review1 P2-②): the CollectOnEndTurn counts below (== 1 for the Execute host, == 0 for the plain
+// control) rely on the deck filler BT1_028 being INERT for OnEndTurn. The decks are 50x BT1_028 but they sit only
+// in library/security (never a battle-area permanent), and GetSkillInfos(OnEndTurn) scans field permanents, so the
+// only OnEndTurn effect collected is the one staged by the test — the count is solely the fixture's.
 int CollectOnEndTurn(DcgoMatch match)
 {
     using var scope = AmbientMatchContext.Enter(match.Context);
