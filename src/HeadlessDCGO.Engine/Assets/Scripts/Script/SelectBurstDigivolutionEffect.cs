@@ -6,8 +6,10 @@
 //
 // PARTIAL (design items RD-R5-01/02): AddTrashTopCardAtTurnEnd (RD-R5-03) is now landed 1:1 (Permanent
 // .UntilEachTurnEndEffects + AceOverflowClass + CardObjectController zone statics all present; UI stripped).
-// The two remaining STOPs — SelectTamer (RD-R5-01, blocked on CardSource.CanPlayBurst → RD-P6C1-2 cost engine)
-// and BounceTamer (RD-R5-02, blocked on the standalone HandBounceClaass process + IsReturnedToHandByBurst flag)
+// The two remaining STOPs — SelectTamer (RD-R5-01, RE-SCOPED 2026-07-18: the RD-P6C1-2 cost engine
+// GetChangedCostItselef is NO LONGER absent — R2-C mirrored it at CardSource.cs:1156; residual = the un-ported
+// CanPlayBurst(bool) wrapper + body, a scoped port not an engine gap) and BounceTamer (RD-R5-02, blocked on the
+// standalone HandBounceClaass process + IsReturnedToHandByBurst flag)
 // — STOP loudly (never guessed). Permanent.CannotReturnToHand (RD-EXT3-04) is now available, so it is no longer
 // a blocker for either. The feasible surface (state + SetUp + SelectWheterToBurst + AddTrashTopCardAtTurnEnd) is
 // real 1:1. See the per-method notes.
@@ -143,17 +145,24 @@ public class SelectBurstDigivolutionEffect
 
     // AS-IS :107-220 `IEnumerator SelectTamer()` — enumerate battle-area tamers matching
     // `_card.burstDigivolutionCondition.tamerCondition` that `!CannotReturnToHand(null)`, SelectPermanent one,
-    // then route to `_endSelectCoroutine_SelectTamer`. STOP (design item RD-R5-01): the AS-IS head guard
-    // `_card.CanPlayBurst(_isPayCost)` still has no mirror — it rides the RD-P6C1-2 burst cost/requirement
-    // engine (`CardSource.GetChangedCostItselef`), which remains a STOP. (The per-candidate
-    // `permanent.CannotReturnToHand(null)` aggregate the inner CanSelectPermanentCondition needs is now landed
-    // on the mirror Permanent — no longer a blocker; only CanPlayBurst is.) No guess.
+    // then route to `_endSelectCoroutine_SelectTamer`. STOP (design item RD-R5-01) — RE-ADJUDICATED 2026-07-18
+    // (small-ledger batch): the ORIGINAL premise is now STALE. The AS-IS head guard `_card.CanPlayBurst(_isPayCost)`
+    // rides the burst cost engine `CardSource.GetChangedCostItselef`, and that engine NO LONGER "remains a STOP" —
+    // R2-C landed a 1:1 mirror at CardSource.cs:1156-1209 (with GetChangedPayingCost :1215, GetPayingCostWithBaseCost
+    // :1064). Every other CanPlayBurst callee is also live (Player.MaxMemoryCost, GetBattleAreaDigimons/Permanents,
+    // CardSource.CanNotEvolve, Permanent.CannotReturnToHand, BurstDigivolutionConditionOf). The REMAINING blocker is
+    // narrow and mechanical, not infrastructural: the `CardSource.CanPlayBurst(bool)` WRAPPER itself (AS-IS
+    // CardSource.cs:3071-3134) is not yet ported, and restoring the SelectTamer body (:107-220) is a real burst-play
+    // legality change needing its own witness. Kept OPEN as a scoped porting item (no longer an engine gap); lifting
+    // it = port CanPlayBurst 1:1 (swap `burstDigivolutionCondition`→`BurstDigivolutionConditionOf()`, `Owner.*`→
+    // `new Player(Context, Owner).*`) + restore the body + a burst-affordability witness (e.g. TfxBurstDigivolve). No guess.
     public Task SelectTamer()
     {
         throw new NotSupportedException(
             "STOP: SelectBurstDigivolutionEffect.SelectTamer (AS-IS SelectBurstDigivolutionEffect.cs:107-220) — " +
-            "requires CardSource.CanPlayBurst (RD-P6C1-2 burst cost/requirement engine, GetChangedCostItselef), " +
-            "still absent from the mirror (design item RD-R5-01). Permanent.CannotReturnToHand is now available.");
+            "the burst cost engine CardSource.GetChangedCostItselef IS now mirrored (R2-C, CardSource.cs:1156); the " +
+            "residual gap is the un-ported CardSource.CanPlayBurst(bool) wrapper (AS-IS CardSource.cs:3071-3134) plus " +
+            "the SelectTamer body — a scoped port + burst witness (design item RD-R5-01, re-scoped 2026-07-18).");
     }
 
     // AS-IS :222-247 `IEnumerator BounceTamer(Permanent tamer)` — bounce the selected tamer to hand with the

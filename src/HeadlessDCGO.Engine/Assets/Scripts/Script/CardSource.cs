@@ -655,12 +655,25 @@ public sealed class CardSource
 
     /// <summary>(A3 / P6C3 re-fold) The card's traits (mirror of <c>CardTraits</c>, CardSource.cs:2581-2604):
     /// printed traits transformed by the card's OWN <see cref="IChangeTraitsEffect"/> effects
-    /// (AS-IS scans self EffectList only, ungated by permanent membership; no Distinct).</summary>
+    /// (AS-IS scans self EffectList only, ungated by permanent membership; no Distinct).
+    /// <para>(RD-TRAITS-KEY) AS-IS <c>CardTraits</c> is the concatenation <c>Form_ENG ⧺ Attribute_ENG ⧺
+    /// Type_ENG</c> (CardSource.cs:2581-2604), and the JSONLoader_CardEntity populates those three entity fields
+    /// from the cards.json <c>forms</c>/<c>attributes</c>/<c>types</c> keys — which is exactly what the port's
+    /// <see cref="Headless.DataLoading.CardBaseEntityLoader"/> writes into metadata. So the printed traits are the
+    /// union of those three keys (null/empty filtered, no Distinct — AS-IS order Form,Attribute,Type). The trailing
+    /// <c>"traits"</c> key is the port's own substrate representation for TOKEN Types (CardEffectCommons token
+    /// generation) and hand-built fixtures; it carries no real cards.json card, so reading it as a supplementary
+    /// source is additive-safe and keeps token/fixture trait queries working.</para></summary>
     public IReadOnlyList<string> CardTraits
     {
         get
         {
-            List<string> traits = ReadStrings(Definition?.Metadata, "traits").ToList();
+            List<string> traits = ReadStrings(Definition?.Metadata, "forms")
+                .Concat(ReadStrings(Definition?.Metadata, "attributes"))
+                .Concat(ReadStrings(Definition?.Metadata, "types"))
+                .Concat(ReadStrings(Definition?.Metadata, "traits"))
+                .Where(trait => !string.IsNullOrEmpty(trait))
+                .ToList();
             foreach (ICardEffect cardEffect in EffectList(EffectTiming.None))
             {
                 if (cardEffect is IChangeTraitsEffect transform && cardEffect.CanUse(null))
@@ -1654,10 +1667,13 @@ public sealed class CardSource
     /// <see cref="Headless.Runtime.LinkHelpers.ResolveLinkCost"/> (interface-disjoint — RD-P6B-16); the AS-IS
     /// <paramref name="root"/> and <paramref name="targetPermanent"/> are threaded through to
     /// <c>IChangeLinkCostEffect.GetCost</c> / <c>PermanentCondition</c>.
-    /// LATENT (G-Link design risk 3 / P6A-PLAYER-EFFECTLIST): the AS-IS players' region (:3294-3302) contributes
-    /// 0 until the mirror player EffectList flip lands (GiveEffectToPlayer, CardSource.cs P6A) — the permanent
-    /// and self regions are already live, so present cost reductions from field permanents / the card itself
-    /// fold faithfully, but a player-granted link-cost reduction is not yet observable here.</summary>
+    /// PARTIALLY LATENT (G-Link design risk 3 / P6A-PLAYER-EFFECTLIST): the AS-IS players' region (:3294-3302)
+    /// scans the player's <c>EffectList(None)</c>, whose <c>UntilCalculateFixedCostEffect</c> bucket is ALREADY
+    /// LIVE — a player-scope <see cref="IChangeLinkCostEffect"/> grant folds faithfully here (proven by
+    /// EXEMPLAR-GLINK W3: a <c>GrantedReduceLinkCostClass</c> added to <c>owner.UntilCalculateFixedCostEffect</c>
+    /// drops the fold 2→0). Only the <c>GiveEffectToPlayer</c> sub-path (feeding the OTHER player-grant buckets)
+    /// stays latent until the mirror player-EffectList flip lands (P6A); the permanent and self regions are fully
+    /// live.</summary>
     public int GetChangedLinkCost(Permanent targetPermanent, SelectCardEffect.Root root)
     {
         LinkCondition? link = LinkConditionOf();

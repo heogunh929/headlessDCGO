@@ -9,6 +9,7 @@ using BareCauseEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectComm
 using CardEffectCommons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
 using CardSource = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
 using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
+using ICardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.ICardEffect;
 using OnEnterFieldHashtableParams = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.OnEnterFieldHashtableParams;
 using Permanent = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent;
 using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
@@ -401,9 +402,14 @@ public static class SkillWindowSupply
     /// <summary>(C1d RDW-02) AS-IS inline <c>{Permanent, CardEffect, CardSources, isFromSameDigimon,
     /// isFromDigimon}</c> (Permanent.cs:1109-1116 / 1213-1220). Host = event Subject; the added cards come from
     /// the emit's <c>addedCardIds</c>; the from-flags are pre-computed at the emit site (F1-ADDDIGI-FROMFLAGS).
-    /// CardEffect is null — the port threads the causing effect's SOURCE id, not the live ICardEffect
-    /// (design item RD-C1-CARDEFFECT-IDTHREAD); the KEY is present (byte-identical key set), the VALUE is the
-    /// residual gap for an effect-driven add.</summary>
+    /// CardEffect is rebuilt from the threaded cause SOURCE id (design item RD-C1-CARDEFFECT-IDTHREAD closed at
+    /// the KEY level, closed at the VALUE level for an effect-driven add): an effect-driven place-under carries a
+    /// non-empty <c>causeSourceId</c> ⇒ a <see cref="BareCauseEffect"/> resolving that source (non-null
+    /// <c>EffectSourceCard</c>, so both the <c>CardEffect != null</c> guard AND source-reading gates such as
+    /// EX6_001's <c>EffectSourceCard != null</c> pass). A cause-LESS place-under (empty <c>causeSourceId</c>) keeps
+    /// CardEffect null — AS-IS AddDigivolutionCardsTop/Bottom is itself called with a null cardEffect on several
+    /// non-effect paths (CardController.cs:1503 evolve-root re-stack, SelectDigiXrosClass, SelectAssemblyClass), and
+    /// there the <c>CardEffect != null</c> gate (OnAddDigivolutionCards.cs:24) rejects — no fire.</summary>
     private static bool TryBuildOnAddDigivolutionCards(EngineContext context, GameEvent gameEvent, out Hashtable? hashtable)
     {
         hashtable = null;
@@ -423,7 +429,10 @@ public static class SkillWindowSupply
         hashtable = new Hashtable
         {
             { "Permanent", new Permanent(context, hostId, hostOwner) },
-            { "CardEffect", null }, // RD-C1-CARDEFFECT-IDTHREAD: live effect not threaded (causeSourceId only).
+            // (RD-C1-CARDEFFECT-IDTHREAD, closed for OnAddDigivolutionCards) Rebuild the causing effect from the
+            // threaded cause SOURCE id when the emit carries one (effect-driven add); an empty cause keeps it null so
+            // the AS-IS CardEffect != null gate rejects (AS-IS null-cardEffect callers — see method doc).
+            { "CardEffect", ReadCauseEffectOrNull(context, gameEvent) },
             { "CardSources", cardSources },
             { "isFromSameDigimon", ReadBool(gameEvent, AddDigivolutionIsFromSameDigimonKey) },
             { "isFromDigimon", ReadBool(gameEvent, AddDigivolutionIsFromDigimonKey) },
@@ -461,6 +470,17 @@ public static class SkillWindowSupply
             { "isFromDigimon", ReadBool(gameEvent, WhenLinkedIsFromDigimonKey) },
         };
         return true;
+    }
+
+    /// <summary>The causing effect rebuilt from the threaded cause SOURCE id, or <c>null</c> when the emit carries
+    /// no cause (empty <c>causeSourceId</c>). Unlike WhenLinked — where a link is ALWAYS effect-driven, so an empty
+    /// cause still collapses to a source-less non-null <see cref="BareCauseEffect"/> — OnAddDigivolutionCards is
+    /// reachable from AS-IS null-cardEffect callers (a cause-less add fires nothing), so an empty cause must yield a
+    /// null CardEffect to keep the <c>CardEffect != null</c> gate rejecting.</summary>
+    private static ICardEffect? ReadCauseEffectOrNull(EngineContext context, GameEvent gameEvent)
+    {
+        HeadlessEntityId causeId = ReadCauseSourceId(gameEvent);
+        return causeId.IsEmpty ? null : BareCauseEffect.For(context, causeId);
     }
 
     /// <summary>The threaded causing-effect source id (<c>"causeSourceId"</c>), or default (empty) when the emit

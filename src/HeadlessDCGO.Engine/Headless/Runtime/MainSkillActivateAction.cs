@@ -34,6 +34,16 @@ using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons
 /// </summary>
 public sealed class MainSkillActivateAction
 {
+    // (RD-EXT1-01) AS-IS TurnStateMachine.CanSelect (TurnStateMachine.cs:917/925/929) offers a declarable [Main]
+    // skill from THREE origins, not just the battle area: field permanents (Permanent.CanDeclareSkill, :917), HAND
+    // cards (CardSource.CanDeclareSkill, :925 — the [Hand][Main] lane, e.g. BT17_026 "digivolve your Koji Minamoto
+    // into this card"), and TRASH cards (:929). The declaration path (SetActSkill for a card, :3078 →
+    // CanDeclareSkillList) resolves an off-field card's OnDeclaration effects the same way ResolveAsync does. The
+    // CanDeclareAt gate (CanUse(null)) self-filters each origin, so a card only surfaces when its own precondition
+    // holds (BT17_026 needs Lobomon+KendoGarurumon in trash + a Koji Minamoto on the field). SECURITY is NOT scanned
+    // (AS-IS CanSelect has no security CanDeclareSkill branch).
+    private static readonly ChoiceZone[] DeclarableZones = { ChoiceZone.BattleArea, ChoiceZone.Hand, ChoiceZone.Trash };
+
     public IReadOnlyList<LegalAction> GetLegalActions(EngineContext context, HeadlessPlayerId playerId)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -42,10 +52,10 @@ public sealed class MainSkillActivateAction
             return Array.Empty<LegalAction>();
         }
 
-        return zoneReader
-            .GetCards(playerId, ChoiceZone.BattleArea)
-            .Where(permanentId => ActivatedEffectResolver.CanDeclareAt(context, permanentId, playerId, EffectTiming.OnDeclaration))
-            .Select(permanentId => HeadlessActionFactory.ActivateMain(playerId, permanentId, ResolveEffectId(context, permanentId)))
+        return DeclarableZones
+            .SelectMany(zone => zoneReader.GetCards(playerId, zone))
+            .Where(cardId => ActivatedEffectResolver.CanDeclareAt(context, cardId, playerId, EffectTiming.OnDeclaration))
+            .Select(cardId => HeadlessActionFactory.ActivateMain(playerId, cardId, ResolveEffectId(context, cardId)))
             .OrderBy(action => action.Id.Value, StringComparer.Ordinal)
             .ToArray();
     }
@@ -129,10 +139,12 @@ public sealed class MainSkillActivateAction
             return MainSkillActivateValidation.Illegal("Zone mover does not expose readable zone state.", instance.DefinitionId);
         }
 
-        if (!zoneReader.GetCards(playerId, ChoiceZone.BattleArea).Contains(payload.PermanentId))
+        // (RD-EXT1-01) the declared card must live in one of the AS-IS declarable origins (battle area / hand /
+        // trash — TurnStateMachine.CanSelect), not the battle area alone.
+        if (!DeclarableZones.Any(zone => zoneReader.GetCards(playerId, zone).Contains(payload.PermanentId)))
         {
             return MainSkillActivateValidation.Illegal(
-                $"Permanent '{payload.PermanentId}' is not in player '{playerId}' battle area.",
+                $"Card '{payload.PermanentId}' is not in a declarable zone (battle area / hand / trash) of player '{playerId}'.",
                 instance.DefinitionId);
         }
 

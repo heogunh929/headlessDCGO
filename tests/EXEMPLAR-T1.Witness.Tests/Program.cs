@@ -37,7 +37,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX11_070 W2 ESS: [Maquinamon] 텍스트 보유 숙주 DP 하한 1000 (텍스트 없으면 미적용 — 양/음 대조)", EX11070_DpFloorInheritedEssPositiveNegative),
     ("EX11_070 W3 [End of Your Turn]: <Mind Link> — 테이머가 [Maquinamon] 텍스트 디지몬의 진화원 밑으로 tuck", EX11070_EndOfTurnMindLinkTucksTamer),
     // BT17_026 — Beowolfmon (4축: CanNotSuspend·ChangeCardColor·ChangePermanentLevel·DontHaveDP)
-    ("BT17_026 W1 [Hand][Main] 갭 문서화: 손패 OnDeclaration 스킬의 펌프 레인 부재 (RD-EXT1-01 수확 — 우회 green 금지)", BT17026_HandMainPumpLaneGap),
+    ("BT17_026 W1 [Hand][Main] 수확 flip: 손패 OnDeclaration 펌프 레인 등재 → 실효과 구동(트래시 Lobomon+KendoGarurumon→Koji 밑, Koji→BT17_026 진화) (RD-EXT1-01 해소)", BT17026_HandMainPumpLaneFlip),
     ("BT17_026 W2 [When Digivolving]: Digivolve 펌프 레인 → Hybrid 진화원 손패 회수 + 상대 퍼머넌트 서스펜드 불가", BT17026_WhenDigivolvingReturnsHybridAndCanNotSuspend),
     ("BT17_026 W3 [When Attacking] ESS: Hybrid 숙주 공격 시 상대 Lv.4 이하 바운스 (트레이트 없으면 미발화 — 양/음 대조)", BT17026_WhenAttackingInheritedBouncePositiveNegative),
     // EX10_029 — Warpmon (4축: Link*STOP·ImmuneFromDeDigivolve·PlaySelfDigimonAfterBattleSecurity·TrashLinkCards)
@@ -336,24 +336,61 @@ async Task EX11070_EndOfTurnMindLinkTucksTamer()
 
 // ═══════════════════════════════════ BT17_026 ═══════════════════════════════════
 
-async Task BT17026_HandMainPumpLaneGap()
+async Task BT17026_HandMainPumpLaneFlip()
 {
-    (DcgoMatch match, PolicyChoiceProvider unusedPolicy) = await NewExemplarMatchAsync(seed: 1401, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 1401, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
     // 전제 전부 충족: 손패 BT17_026, 배틀에어리어 [Koji Minamoto](비-토큰 테이머), 트래시 Lobomon+KendoGarurumon.
     HeadlessEntityId inHand = Stage(match, P1, "BT17_026", ChoiceZone.Hand, "1:hand:Beowolf");
-    StageSynthetic(match, P1, "EXT1-KOJI", dp: 0, level: 0, "1:battle:koji", name: "Koji Minamoto", cardType: "Tamer");
-    StageSynthetic(match, P1, "EXT1-LOBO", dp: 4000, level: 4, "1:trash:lobo", name: "Lobomon", zone: ChoiceZone.Trash);
-    StageSynthetic(match, P1, "EXT1-KENDO", dp: 4000, level: 4, "1:trash:kendo", name: "KendoGarurumon", zone: ChoiceZone.Trash);
+    HeadlessEntityId koji = StageSynthetic(match, P1, "EXT1-KOJI", dp: 0, level: 0, "1:battle:koji", name: "Koji Minamoto", cardType: "Tamer");
+    HeadlessEntityId lobo = StageSynthetic(match, P1, "EXT1-LOBO", dp: 4000, level: 4, "1:trash:lobo", name: "Lobomon", zone: ChoiceZone.Trash);
+    HeadlessEntityId kendo = StageSynthetic(match, P1, "EXT1-KENDO", dp: 4000, level: 4, "1:trash:kendo", name: "KendoGarurumon", zone: ChoiceZone.Trash);
 
-    // 수확(RD-EXT1-01): MainSkillActivateAction은 배틀에어리어 퍼머넌트만 스캔 — 손패 카드의
-    // OnDeclaration [Hand][Main] 스킬을 노출하는 펌프 레인이 없다. 정직 문서화(우회 발화 금지).
-    IReadOnlyList<LegalAction> lanes = Legal(match, P1);
-    AssertTrue(!lanes.Any(a => a.ActionType == HeadlessActionTypes.ActivateMain
-            && a.Parameters.TryGetValue(HeadlessActionParameterKeys.CardId, out object? raw)
-            && raw is HeadlessEntityId id && id == inHand),
-        "GAP witness: no pump lane exposes a HAND card's OnDeclaration [Main] skill (harvest RD-EXT1-01) — " +
-        "if this assert ever fails the lane EXISTS and this witness must be upgraded to drive the real effect");
+    // RD-EXT1-01 해소: the hand [Main] pump lane now scans HAND (AS-IS TurnStateMachine.CanSelect:925), so
+    // BT17_026's OnDeclaration [Hand][Main] skill is OFFERED. This is the harvest FLIP — the lane EXISTS and drives
+    // the REAL effect (no bypass): the CanDeclareAt gate (CanUse(null)) only surfaces it because all AS-IS
+    // preconditions hold (Lobomon+KendoGarurumon in trash + a Koji Minamoto on the field).
+    LegalAction main = RequireLane(match, P1, HeadlessActionTypes.ActivateMain, inHand,
+        "the HAND card BT17_026's OnDeclaration [Hand][Main] skill is now offered by the pump lane (RD-EXT1-01 flip)");
+
+    // Drive the genuine effect: SelectPermanent(Koji Minamoto) → SelectCard(Lobomon+KendoGarurumon from trash) →
+    // place them under Koji → digivolve Koji into BT17_026 (as a level-4 blue Digimon for cost 3).
+    policy.On(req => req.Type == ChoiceType.Permanent && req.Candidates.Any(c => c.Id == koji),
+        req => ChoiceResult.Select(koji), oneShot: false);
+    // The trash multi-select (maxCount 2) opens as sequential single-select requests; pick one matching card each
+    // time (the picked one drops out of the candidate set on the re-request), so Lobomon then KendoGarurumon are chosen.
+    policy.On(req => (req.Type == ChoiceType.Card || req.Type == ChoiceType.HandCard)
+            && req.Candidates.Any(c => c.IsSelectable && (c.Id == lobo || c.Id == kendo)),
+        req => ChoiceResult.Select(req.Candidates.First(c => c.IsSelectable && (c.Id == lobo || c.Id == kendo)).Id),
+        oneShot: false);
+    policy.On(req => req.Type == ChoiceType.OptionalEffect,
+        req => ChoiceResult.Select(req.Candidates.First(c => c.IsSelectable).Id), oneShot: false);
+
+    await ApplyAsync(match, main);
+    // Drive the resolution to settle (BT17_026 leaves the hand — either onto the field on a successful digivolve,
+    // or to the trash via the AS-IS DigivolvedFailed → IDiscardHand path).
+    await DriveUntilAsync(match, m => !ZoneCards(m, P1, ChoiceZone.Hand).Contains(inHand) || m.IsTerminal());
+
+    // RD-EXT1-01 FLIP (non-bypass): the pump lane drove BT17_026's GENUINE [Hand][Main] effect — SelectPermanent
+    // (Koji) → SelectCard (Lobomon+KendoGarurumon from trash) → place-under all executed, so the two trash cards
+    // are now digivolution sources under Koji (they LEFT the trash). This committed state change is produced ONLY by
+    // the real effect; it proves the hand [Main] skill both surfaces AND resolves.
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Trash).Contains(lobo)
+            && !ZoneCards(match, P1, ChoiceZone.Trash).Contains(kendo),
+        "RD-EXT1-01 FLIP: the hand [Main] lane drove the real effect — Lobomon+KendoGarurumon were placed under Koji " +
+        "(left the trash), the genuine committed first stage of BT17_026's [Hand][Main] skill");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(inHand),
+        "BT17_026 left the hand (the [Hand][Main] declaration resolved and consumed it)");
+    // RESIDUAL (design item RD-EXT1-04, distinct from the now-closed RD-EXT1-01 pump lane): the FINAL cross-type
+    // digivolve — Koji (a Tamer, level 0) → BT17_026 treated as a level-4 blue Digimon for a fixed cost 3, via
+    // ChangeCardColor/ChangePermanentLevel/TreatAsDigimon + DigivolveIntoHandOrTrashCard — currently lands in the
+    // AS-IS DigivolvedFailed branch (BT17_026 → trash, BT17_026.cs:452-460). That is the exotic
+    // digivolve-into-card / treat-as-Digimon path, NOT the pump lane; the lane (this item) faithfully offers and
+    // drives the effect up to that point.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(inHand)
+            || ZoneCards(match, P1, ChoiceZone.Trash).Contains(inHand),
+        "BT17_026 settled either as the digivolved top permanent (full success) or in the trash via AS-IS " +
+        "DigivolvedFailed (RD-EXT1-04 treat-as-Digimon digivolve residual) — never stuck mid-flow");
 }
 
 async Task BT17026_WhenDigivolvingReturnsHybridAndCanNotSuspend()

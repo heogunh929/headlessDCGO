@@ -117,7 +117,8 @@ public static class LinkHelpers
         ChoiceZone fromZone,
         GameEventQueue? gameEventQueue = null,
         CancellationToken cancellationToken = default,
-        Bridge.EngineContext? context = null)
+        Bridge.EngineContext? context = null,
+        HeadlessEntityId causeSourceId = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(zoneMover);
@@ -187,6 +188,11 @@ public static class LinkHelpers
                     // (C1d RDW-02) pre-computed AS-IS isFromDigimon so the DORMANT SkillWindowSupply can build the
                     // full {Permanent, CardEffect, Card, isFromDigimon} key set.
                     [SkillWindowSupply.WhenLinkedIsFromDigimonKey] = linkIsFromDigimon,
+                    // (G-Link P2 risk-1) AS-IS Permanent.AddLinkCard stacks {"CardEffect", cardEffect} into the
+                    // WhenLinked hashtable (Permanent.cs:1281-1290); thread the causing effect's SOURCE id so
+                    // SkillWindowSupply.TryBuildWhenLinked rebuilds a SOURCE-ful BareCauseEffect (not the empty one)
+                    // — every link is effect-driven, and the real cause reaches the WhenLinked gate.
+                    ["causeSourceId"] = causeSourceId.Value,
                 });
         }
 

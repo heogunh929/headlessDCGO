@@ -3979,7 +3979,6 @@ public sealed class Permanent
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(addedLinkCard);
-        _ = causeEffectSourceId; // AS-IS AddLinkCard's cardEffect is unused past the (stripped) UI — kept for surface parity.
 
         await DetachEmbeddedSourceOrLinkAsync(addedLinkCard, cancellationToken).ConfigureAwait(false);
 
@@ -3998,7 +3997,10 @@ public sealed class Permanent
             fromZone,
             gameEventQueue: _context.GameEventQueue,
             cancellationToken: cancellationToken,
-            context: _context).ConfigureAwait(false);
+            context: _context,
+            // (G-Link P2 risk-1) thread the causing effect's source to the WhenLinked window (AS-IS
+            // Permanent.AddLinkCard {"CardEffect", cardEffect}); empty when the caller passes no cause.
+            causeSourceId: causeEffectSourceId ?? default).ConfigureAwait(false);
     }
 
     /// <summary>(R4 S3b-2) AS-IS <c>Permanent.StackCards</c> (Permanent.cs:884) — verbatim: every stacked card

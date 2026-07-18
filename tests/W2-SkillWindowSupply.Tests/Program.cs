@@ -287,7 +287,8 @@ GameEvent DeletionMove(long batchId)
 }
 
 // --- 11. (C1d RDW-02) OnAddDigivolutionCards inline {Permanent, CardEffect, CardSources, isFromSameDigimon,
-//         isFromDigimon} (Permanent.cs:1109-1116). CardEffect key present but null (RD-C1-CARDEFFECT-IDTHREAD). ---
+//         isFromDigimon} (Permanent.cs:1109-1116). CardEffect rebuilt from the threaded causeSourceId
+//         (RD-C1-CARDEFFECT-IDTHREAD closed for OnAddDigivolutionCards — the F1-Tier2 twin of the WhenLinked fix). ---
 {
     EngineContext context = EngineContext.CreateDefault();
     var host = new HeadlessEntityId("host");
@@ -310,7 +311,11 @@ GameEvent DeletionMove(long batchId)
         && ht.ContainsKey("CardSources") && ht.ContainsKey("isFromSameDigimon") && ht.ContainsKey("isFromDigimon"),
         "OnAddDigivolutionCards has exactly the 5 AS-IS keys");
     Check(ht?["Permanent"] is PermanentT p && p.InstanceId == host, "Permanent = the host subject");
-    Check(ht?["CardEffect"] is null, "CardEffect is null (port threads causeSourceId, not the live effect — RD-C1-CARDEFFECT-IDTHREAD)");
+    // (F1-Tier2 OnAddDigivolutionCards 상환) an effect-driven add carries a non-empty causeSourceId, so the supply
+    // rebuilds a non-null BareCauseEffect that passes the AS-IS CardEffect != null gate
+    // (CanUseEffects/OnAddDigivolutionCards.cs:24) — the twin of the WhenLinked re-pin below. A cause-LESS add
+    // (empty causeSourceId) keeps it null; that null-path is covered by F1-Tier2-OnAddDigivolutionCards's no-cause test.
+    Check(ht?["CardEffect"] is not null, "CardEffect = non-null bare cause rebuilt from the threaded causeSourceId (AS-IS 게이트 통과)");
     Check(ht?["CardSources"] is List<CardSource> cs && cs.Count == 1 && cs[0].InstanceId == added, "CardSources = [added card]");
     Check(ht?["isFromSameDigimon"] is true && ht?["isFromDigimon"] is false, "from-flags carried from the emit (pre-computed)");
 }

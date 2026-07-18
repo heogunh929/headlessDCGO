@@ -264,7 +264,9 @@ public sealed class LinkSelfEffect : IActivatedCardEffect
 
         ChoiceZone from = zones.GetCards(Card.Owner, ChoiceZone.Hand).Contains(Card.InstanceId) ? ChoiceZone.Hand : ChoiceZone.BattleArea;
         await LinkHelpers.AddLinkCardAsync(
-            context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0], Card.InstanceId, from, context.GameEventQueue, cancellationToken, context)
+            context.CardInstanceRepository, context.ZoneMover, result.SelectedIds[0], Card.InstanceId, from, context.GameEventQueue, cancellationToken, context,
+            // (G-Link P2 risk-1) this effect IS the cause — its source card is the host; thread it to WhenLinked.
+            causeSourceId: Card.InstanceId)
             .ConfigureAwait(false);
     }
 
@@ -374,7 +376,9 @@ public sealed class LinkFromHandOrSourcesToSelfBody : IEffectBody
         // AS-IS card.PermanentOfThisCard().AddLinkCard(cardForLinking): THIS card is the host.
         await LinkHelpers.AddLinkCardAsync(
             context.CardInstanceRepository, context.ZoneMover, _card.InstanceId, linkId, from,
-            context.GameEventQueue, cancellationToken, context).ConfigureAwait(false);
+            context.GameEventQueue, cancellationToken, context,
+            // (G-Link P2 risk-1) this effect IS the cause — its source card is the host; thread it to WhenLinked.
+            causeSourceId: _card.InstanceId).ConfigureAwait(false);
     }
 }
 
