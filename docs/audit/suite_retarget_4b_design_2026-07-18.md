@@ -232,3 +232,41 @@ B6 후:  ≈57 하한 (③55 + ④2 = R4-직교 포팅부채, 4b 무접촉)
 - 잔여 배치 재조준 규모 하향: B2(페이즈-진행)·B4(EndTurn-seam)가 이 73을 소진(≈AdvancePhase/EndTurn 통화 69가 주력); B1-γδ는 삭제-블로커 0 소진(전부 retained 존치, G7-005만 직교 픽스처 수리).
 
 **리스크(본 배치 발견)**: C5-SecurityPreWindow 4테스트가 현재 HEAD에서 RED(직교; 마지막 테스트-커밋 e11acaba에선 408/408 green이었으므로 이후 키워드 창-재하우징/sink 변경으로 회귀 — 보안-witness 도메인=병행 Sonnet 트랙 인접). 본 배치(G7-005 retained 픽스처 1줄) 무관: 스태시 대조로 前/後 동일 red 실증. "+secwin" 게이트가 현재 red임을 코디네이터 인지 필요.
+
+## §3.1e B2-c 총괄 — 액션통화 소비자 73 전원 처분표 (2026-07-19, main HEAD=4c928050 파생, 메인 워킹트리·미커밋)
+
+c1(red 20 실측)·c2(green 전반 21)·**c3(green 후반 풀)** 를 합산해 삭제-블로커 73(§3.1d) 전원의 **terminal 처분**을 확정한다. 이 표가 B6-Da 소비자-0 게이트의 잔여 경로를 정의한다: 재조준 완료분만 통화 제거(currency=0 실증), 나머지는 각 배치가 소진할 때까지 통화 존치(=B6 블로킹 유지).
+
+### (1) c3 실행 요약 (green 후반 풀)
+- **처분 규칙**: c2 판례 사전판별(파일 읽기) — clean="drive-to-main+observe"만 F62 레시피(`CreatePumpDriven`+`DriveUntil(AtMainWaitOf)`) 재조준; 3배제 패턴(단일-step apply / Pass-통화 / 이중-전투해소 / 합성-hand 픽스처)은 시도 없이 or red화 즉시 B5.
+- **재조준 완료 12** (통화 1→0·단언 수 전후 동일·green→green 실증): `C-Del-3C2BP-Witness · C1-DecodePartitionPre · C1-Witness · G12-004 · G2G-001 · G3.5-DA56 · G3.5-F68R · G3.5-S1 · G3.5-W6 · P1r · P1w · PRIM-P0.WouldBeDeletedWindow`. (전형=`AdvanceToMainAsync` preamble → observe; W6만 단언 11→10 = OLD `AssertEqual(1, advance.Length,"advance phase count")` 통화-불변식 은퇴 = §2.1 P-A 정당, "advance to main" 도달단언은 DriveUntil throw+잔존 AssertEqual로 보존).
+- **재조준 시도→red 원복 14 → B5** (전부 합성-hand/단일-step/이중해소 개막-상이 실증, c2 판례 재확인): `G2E-001`(memory -3 vs 0=단일-step apply)·`G2E-002/G3.5-B1b/G3E-002`("card not in Hand"=합성-hand 픽스처가 펌프 auto-draw로 소실=RD-R3-02 조용한-스킵)·`G2E-003`(memory 단일-step)·`G2E-004`(pending-attack 통화)·`G2E-005`(Pass phase 통화)·`G3.5-005/008/C12/R2-1/W5/G9-062`(전투해소 삭제-outcome 상이=이중해소)·`G12-002`(deferred-choice pending 상이). 원복=`git checkout HEAD --`(HEAD green 복원)·B5 per-fixture 정합 몫.
+- **사전판별 no-attempt 마킹 15**:
+  - Pass-통화/멀티-fixture → B5: `G3.5-D6`(AdvancePhase를 breeding "decline" 통화로 **단언** — cutover 후 ResolveChoice(skip), 통화가 곧 검증대상 → B5 재작성 몫)·`G3.5-F68`(oldctor=3 멀티-fixture, DeletionReplacement 이중해소; §3.1c가 OLD-ctor 드라이버부만 이미 이관).
+  - 페이즈플로우-직접 4: `FAILd-07`(HeadlessMainPhaseFlow.ResolveTurnEndMinMemory=EndTurn-min-memory seam → **B4**; §1.3 항5 AutoProcessing.TurnEndMinMemory 승격 후 re-point)·`FAILd-03`(new HeadlessLegalActionDispatcher 직접 = OLD arm 단위, §1.3 항11 → **B5** 펌프-dispatch re-point)·`G3.5-004`(대부분 RunToStable=retained 존치 + `new HeadlessGameLoop(context)` 단일 subtest만 삭제-bound → **B5** subtest은퇴/re-point)·`E3-Witness`(new HeadlessEarlyPhaseFlow.AdvanceAsync=DORMANT 항6, baseline-RED → **B5**).
+  - 선재-red(HEAD RED, 직교 포팅/키워드 회귀 — 재조준 불가, B6까지 통화 존치) → B5: `G2G-002 · G2G-003 · G2G-004 · G3.5-C910 · R2-DeletionPipeline` (전투/보안 witness, C5 회귀와 동일 도메인=병행 Sonnet 인접)·`PRIM-P0.NewTimingsFire`(task 지정 red).
+
+### (2) 73 전원 terminal 처분표 (69 액션통화 + 4 페이즈플로우)
+| 처분 | 수 | 프로젝트 | 통화 상태 |
+|------|---:|---------|-----------|
+| **재조준 완료** | **21** | c3(12, 위 목록) + c2 clean 8(G3.5-C13/C14/C16/C46/C4D/C57/C821·G9-069) + c1 F62 | **currency=0** (B6 비블로킹) |
+| **B6-은퇴** | 2 | G2A-006(OLD 디스패처 시퀀스=검증대상 소멸)·R4S3c-ShadowOldNew(shadow=존재이유 소멸, §2.2#7; 現 green) | 통화 존치→B6 삭제 |
+| **B4 (EndTurn seam)** | 4 | G3.5-N1·GR-001·RD6-EndTurnSequence·FAILd-07 | 통화 존치→B4 |
+| **B3 (RL 스키마)** | 9 | G11-002·G3.5-RL-A1/A3/A4b/B1/B2B3/C1/C2·R4RL-03 | 통화 존치→B3 |
+| **B5 (per-fixture)** | 37 | c3-원복 14 + c3-마킹(D6·F68·FAILd-03·G3.5-004·E3-Witness·G2G-002/003/004·C910·R2-Del·NewTimingsFire) + c2-B5(G3.5-C2·N9·GR-004[B3/B5]) + c1/설계 red-기지 9(C5-SecurityPreWindow·C5-Witness·G3.5-007·A3·D1·D2·D3·N2·W4) | 통화 존치→B5 |
+| **합계** | **73** | 69 액션통화 + 4 페이즈플로우(FAILd-03·FAILd-07·G3.5-004·E3-Witness) | — |
+
+**B6-Da 귀결**: 재조준 완료 21만 통화 소멸. **잔여 52(B6-은퇴 2 + B4 4 + B3 9 + B5 37)가 소비자-0 게이트를 계속 블로킹** — 각 배치(B3/B4/B5) 소진 or B6 은퇴로 통화 제거될 때까지 물리 삭제 불가. c3는 소비자-0 경로를 **완전 열거**했다(불명 잔여 0).
+
+**표 밖 각주 — `PRIM-P0.TriggerGrantSetSplice`**: task c3 목록에 있었으나 grep 실측 AdvancePhase/EndTurn 통화 0·OLD-ctor 0 → **삭제-블로커 아님**(73 미포함). baseline RED은 직교 포팅/키워드 부채(TriggerGrant 도메인)로 B5-인접 별도 추적, B6 비블로킹.
+
+### (3) 게이트 실측
+- **build**: 엔진 0오류. 워킹트리 수정=**재조준 12 테스트파일 한정**(엔진/src·CardEffect/·PILOT-* 무접촉 — 병행 Sonnet 트랙 격리 확인).
+- **재조준 12 green** (전후 표): 전원 baseline green → 재조준 후 green, currency=0, 단언 수 동일(W6만 -1=OLD 통화-불변식 은퇴).
+- **회귀 27/27 green**: c2 clean 8 · α4(A4-Execute·C-EoT2·GR-006·W-EoTFIX) · F62 · G7-005 · EXEMPLAR-T1/T2A/T2B/T3A/T3B/GLINK · PILOT-S1~S4 · R4S3a/b · R4R3-01/02.
+- **shadow**: R4P4-ShadowRun **bit-identical**(2 OLD-vs-OLD)·R4S3c-ShadowOldNew OLD-vs-NEW **2/2 IDENTICAL** + **secwin IDENTICAL**(seed 404 winner 1/1·sec 0/0·동일 digest). (R4S3c 자체=green; §3.1d "+secwin red" 경고는 별개 프로젝트 C5-SecurityPreWindow에 국한, R4S3c 내부 secwin subtest는 통과.)
+
+### (4) 남는 리스크
+1. **B5 수율 부담 상향**: c3 green-후반 풀 clean 수율 = 12/26 ≈ 46%(c2 38%와 정합). 원복 14 + 마킹 23 = **B5 규모 37**로 확정 상향 — per-fixture 개막-정합(합성-hand→펌프 실-draw 정합·전투 이중해소→단일 자동흐름·Pass/EndTurn 통화 재작성)이 4b 최대 잔여 노동. B6은 B5 완주에 강하게 종속.
+2. **선재-red 6(G2G-002/003/004·C910·R2-Del·E3-Witness) 도메인 = 병행 Sonnet 보안/전투 witness 인접**: 이들의 red 원인이 c3 통화와 무관(직교 회귀)이나 B5에서 통화 제거하려면 먼저 red 원인(키워드 창/sink 회귀) 해소 필요 → B5가 포팅부채 상환과 얽힘. C5 회귀와 공통 근원 가능성(코디네이터 교차 확인 권고).
+3. **FAILd-07 B4 재분류**: EndTurn-min-memory를 B4 seam으로 넘겼으나, HeadlessMainPhaseFlow.ResolveTurnEndMinMemory → AutoProcessing.TurnEndMinMemory 승격(항5)이 B4 전에 완료돼야 re-point 가능 — B4·항5 삭제 순서 의존.

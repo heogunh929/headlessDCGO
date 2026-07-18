@@ -40,7 +40,7 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task SecurityDeferredE2E()
 {
-    var match = new DcgoMatch(EngineContext.CreateDefault(deferredChoice: true), new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    var match = DcgoMatch.CreatePumpDriven(EngineContext.CreateDefault(deferredChoice: true), new EngineTrace());
     var env = new HeadlessRlEnvironment(match);
     await env.InitializeAsync(BuildMatchConfig());
     await AdvanceToMainAsync(match, P1);
@@ -116,12 +116,8 @@ static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix, int m
 
 static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = match.GetLegalActions(playerId).First(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, playerId));
 }
 
 static bool InZone(EngineContext context, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId id) =>
@@ -133,3 +129,56 @@ static void AssertEqual<T>(T expected, T actual, string label)
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
         throw new InvalidOperationException($"{label}: expected '{expected}', got '{actual}'.");
 }
+
+
+// --- Phase driving (pump auto-flow, F62/c2/EXEMPLAR-T1 precedent, 4b B2-c3) ---
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait; the OLD
+// AdvancePhase step currency is retired. Breeding/Mulligan decisions are declined; assertion strength unchanged.
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
