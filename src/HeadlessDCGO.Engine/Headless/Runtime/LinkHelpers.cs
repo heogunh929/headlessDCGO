@@ -82,7 +82,12 @@ public static class LinkHelpers
     /// <summary>(M-4) The EFFECTIVE link cost: <paramref name="baseCost"/> folded with continuous
     /// <c>linkCostDelta</c> modifiers (AS-IS GrantedReduceLinkCost) — previously registered but consumed by
     /// nothing. Clamped to &gt;= 0.</summary>
-    public static int ResolveLinkCost(Bridge.EngineContext context, HeadlessEntityId cardId, int baseCost)
+    public static int ResolveLinkCost(
+        Bridge.EngineContext context,
+        HeadlessEntityId cardId,
+        int baseCost,
+        HeadlessEntityId targetPermanentId = default,
+        Assets.Scripts.Script.SelectCardEffect.Root root = Assets.Scripts.Script.SelectCardEffect.Root.None)
     {
         ArgumentNullException.ThrowIfNull(context);
         Assets.Scripts.Script.CardEffectCommons.ContinuousEvaluationResult result = ContinuousScopeEvaluation.EvaluateForCard(context, ContinuousRestrictionGate.Scope, cardId);
@@ -93,7 +98,9 @@ public static class LinkHelpers
         // (RD-P6B-16) UNION the new-model IChangeLinkCostEffect scan (AS-IS CardSource.GetChangedLinkCost): a
         // ChangeLinkCostClass (GrantedReduceLinkCostClass) registers no binding. Interface-disjoint from the
         // legacy fold — apply the new-model scan onto the legacy result; FoldLinkCost clamps >= 0.
-        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkCost(context, cardId, resolved);
+        // (G-Link batch 1) targetPermanent + root are threaded so CardSource.GetChangedLinkCost's AS-IS
+        // PermanentCondition / GetCost(root) evaluate faithfully (defaults preserve the metadata-only callers).
+        return Assets.Scripts.Script.CardEffectCommons.NewModelContinuousScan.FoldLinkCost(context, cardId, resolved, targetPermanentId, root);
     }
 
     /// <summary>

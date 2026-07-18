@@ -1493,9 +1493,10 @@ public sealed class CardSource
     /// least one owner permanent — the SAME <c>canLinkSomewhere</c> scan <see cref="CanLinkToTargetPermanent"/>
     /// performs inline, exposed here as the AS-IS-named surface. <paramref name="allowBreeding"/> widens the
     /// scan from owner BATTLE-area Digimon to owner BATTLE+BREEDING permanents (no Digimon filter) — the AS-IS
-    /// branch asymmetry. <paramref name="payCost"/> would add the MaxMemoryCost vs GetChangedLinkCost check
-    /// (CardSource.cs:3149/3175); no headless folded-link-cost primitive exists (design item C2-02 /
-    /// MIG5-CANLINK-PAYCOST), so <c>payCost: true</c> throws.</summary>
+    /// branch asymmetry. <paramref name="payCost"/> adds the AS-IS per-candidate
+    /// <c>Owner.MaxMemoryCost &gt;= GetChangedLinkCost(digimon, root)</c> affordability check (CardSource.cs:3158/3186;
+    /// root = Hand when the link card is in hand, else None) — landed with the G-Link cost primitive
+    /// (design item C2-02 / MIG5-CANLINK-PAYCOST resolved).</summary>
     public bool CanLink(bool payCost = false, bool allowBreeding = false)
     {
         LinkCondition? link = LinkConditionOf();
@@ -1504,19 +1505,37 @@ public sealed class CardSource
             return false;
         }
 
-        if (payCost)
-        {
-            throw new NotSupportedException(
-                "CardSource.CanLink(payCost: true) has no headless GetChangedLinkCost primitive — design item C2-02 / MIG5-CANLINK-PAYCOST.");
-        }
+        // AS-IS root (CardSource.cs:3144): Hand when the link card lives in hand, else None.
+        SelectCardEffect.Root root = CardEffectCommons.IsExistOnHand(this) ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.None;
 
         var zones = (IZoneStateReader)Context.ZoneMover;
-        return allowBreeding
+        IEnumerable<Permanent> candidates = allowBreeding
             ? zones.GetCards(Owner, ChoiceZone.BattleArea).Concat(zones.GetCards(Owner, ChoiceZone.BreedingArea))
-                .Any(id => link.digimonCondition(new Permanent(Context, id, Owner)))
+                .Select(id => new Permanent(Context, id, Owner))
             : zones.GetCards(Owner, ChoiceZone.BattleArea)
-                .Any(id => CardEffectCommons.IsOwnerBattleAreaDigimon(this, id)
-                    && link.digimonCondition(new Permanent(Context, id, Owner)));
+                .Where(id => CardEffectCommons.IsOwnerBattleAreaDigimon(this, id))
+                .Select(id => new Permanent(Context, id, Owner));
+
+        foreach (Permanent digimon in candidates)
+        {
+            if (link.digimonCondition(digimon))
+            {
+                if (payCost)
+                {
+                    // AS-IS :3158/3186 — affordable when the folded link cost fits the player's memory span.
+                    if (new Player(Context, Owner).MaxMemoryCost >= GetChangedLinkCost(digimon, root))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>(MIG5 goal-5 surface) AS-IS <c>CardSource.HasDigimonColor(color)</c> (CardSource.cs:1580-1585):
@@ -1614,6 +1633,32 @@ public sealed class CardSource
         return null;
     }
 
+    /// <summary>(G-Link batch 1) 1:1 mirror of AS-IS <c>CardSource.GetChangedLinkCost(targetPermanent, root)</c>
+    /// (CardSource.cs:3267-3331): the declared <see cref="LinkConditionOf"/> base cost folded through every
+    /// usable <see cref="IChangeLinkCostEffect"/> across the AS-IS three regions (turn-player-first field
+    /// permanents EXCLUDING this card's own permanent → players → THIS card), the NotUpDown() group applied
+    /// first then the IsUpDown() group, clamped <c>Math.Max(0, Cost)</c>. Returns 0 when the card declares no
+    /// link condition (AS-IS :3269). SUBSTRATE: the three-region IChangeLinkCostEffect scan + fold is
+    /// <see cref="NewModelContinuousScan.FoldLinkCost"/>, unioned onto the legacy linkCostDelta modifier fold by
+    /// <see cref="Headless.Runtime.LinkHelpers.ResolveLinkCost"/> (interface-disjoint — RD-P6B-16); the AS-IS
+    /// <paramref name="root"/> and <paramref name="targetPermanent"/> are threaded through to
+    /// <c>IChangeLinkCostEffect.GetCost</c> / <c>PermanentCondition</c>.
+    /// LATENT (G-Link design risk 3 / P6A-PLAYER-EFFECTLIST): the AS-IS players' region (:3294-3302) contributes
+    /// 0 until the mirror player EffectList flip lands (GiveEffectToPlayer, CardSource.cs P6A) — the permanent
+    /// and self regions are already live, so present cost reductions from field permanents / the card itself
+    /// fold faithfully, but a player-granted link-cost reduction is not yet observable here.</summary>
+    public int GetChangedLinkCost(Permanent targetPermanent, SelectCardEffect.Root root)
+    {
+        LinkCondition? link = LinkConditionOf();
+        if (link is null)
+        {
+            return 0;
+        }
+
+        return Headless.Runtime.LinkHelpers.ResolveLinkCost(
+            Context, InstanceId, link.cost, targetPermanent?.InstanceId ?? default, root);
+    }
+
     // ===== (C-Del 3b / RD-P6C2-4) DigiXros requirement =====================================================
 
     /// <summary>(RD-P6C2-4) 1:1 mirror of AS-IS <c>CardSource.digiXrosCondition</c> (CardSource.cs:2959-2986):
@@ -1688,8 +1733,8 @@ public sealed class CardSource
     /// <paramref name="targetPermanent"/>. The host must be a real (non-token) battle-area — not breeding-area
     /// — permanent, and THIS card must carry a declared <see cref="LinkCondition"/> whose <c>digimonCondition</c>
     /// matches BOTH the host AND (CanLink) at least one owner battle-area Digimon (a battle-area host trivially
-    /// satisfies that second clause). PayCost=false skips the memory check; the PayCost / allowBreeding variants
-    /// land with their first witness (design item C2-02).</summary>
+    /// satisfies that second clause). PayCost=true adds the AS-IS folded-cost affordability check (G-Link batch 1,
+    /// design item C2-02 resolved).</summary>
     public bool CanLinkToTargetPermanent(Permanent? targetPermanent, bool PayCost = false, bool allowBreeding = false)
     {
         if (targetPermanent is null)
@@ -1732,10 +1777,24 @@ public sealed class CardSource
             return false;
         }
 
-        // AS-IS PayCost branch (GetChangedLinkCost vs Owner.MaxMemoryCost) = design item C2-02 (lands with its
-        // first witness; every in-scope caller passes false, matching the AS-IS rule-process call sites).
-        // AS-IS linkCondition.digimonCondition(target).
-        return link.digimonCondition(targetPermanent);
+        // AS-IS linkCondition.digimonCondition(target) (CardSource.cs:3349).
+        if (!link.digimonCondition(targetPermanent))
+        {
+            return false;
+        }
+
+        // AS-IS PayCost branch (CardSource.cs:3351-3361): the folded link cost (root = Hand when the link card is
+        // in hand, else None) must fit the player's memory span — landed with the G-Link cost primitive (C2-02).
+        if (PayCost)
+        {
+            SelectCardEffect.Root root = CardEffectCommons.IsExistOnHand(this) ? SelectCardEffect.Root.Hand : SelectCardEffect.Root.None;
+            if (new Player(Context, Owner).MaxMemoryCost < GetChangedLinkCost(targetPermanent, root))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>(W6-F / P6C3 re-fold) Mirror of AS-IS <c>CardSource.appFusionCondition</c>

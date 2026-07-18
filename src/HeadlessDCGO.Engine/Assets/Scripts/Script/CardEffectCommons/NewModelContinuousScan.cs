@@ -249,8 +249,11 @@ public static class NewModelContinuousScan
     // fold (interface-disjoint, no double-count; RD-P6B-16). SUBSTRATE: the mirror's real cost call sites supply
     // no target permanent / SelectCardEffect.Root (the link-play orchestration RD-P6C2-7 is unported), so
     // targetPermanentId defaults empty (an unconditional PermanentCondition — the common shape — still applies).
+    // (G-Link batch 1) The AS-IS GetChangedLinkCost passes the declaration root (Hand when the link card is in
+    // hand, else None) through to IChangeLinkCostEffect.GetCost; the ILinkCard flip now supplies it, so `root`
+    // is threaded here (default None preserves the pre-flip ResolveLinkCost callers).
     // ==================================================================================================
-    public static int FoldLinkCost(EngineContext context, HeadlessEntityId cardId, int baseValue, HeadlessEntityId targetPermanentId = default)
+    public static int FoldLinkCost(EngineContext context, HeadlessEntityId cardId, int baseValue, HeadlessEntityId targetPermanentId = default, SelectCardEffect.Root root = SelectCardEffect.Root.None)
     {
         ArgumentNullException.ThrowIfNull(context);
         using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(context);
@@ -309,12 +312,12 @@ public static class NewModelContinuousScan
         int cost = baseValue;
         foreach (IChangeLinkCostEffect effect in collected.Where(e => !e.IsUpDown()))
         {
-            cost = effect.GetCost(cost, cardSource, targetPermanent, SelectCardEffect.Root.None);
+            cost = effect.GetCost(cost, cardSource, targetPermanent, root);
         }
 
         foreach (IChangeLinkCostEffect effect in collected.Where(e => e.IsUpDown()))
         {
-            cost = effect.GetCost(cost, cardSource, targetPermanent, SelectCardEffect.Root.None);
+            cost = effect.GetCost(cost, cardSource, targetPermanent, root);
         }
 
         return Math.Max(0, cost);
