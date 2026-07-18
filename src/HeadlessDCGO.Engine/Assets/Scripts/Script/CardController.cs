@@ -2366,6 +2366,288 @@ public class IPlacePermanentToDigivolutionCards
 
 #endregion
 
+#region Place permanent to another permanent's Link cards
+
+/// <summary>(G-Link batch 2) 1:1 mirror of AS-IS <c>IPlacePermanentToLinkCards</c> (CardController.cs:3141-3435):
+/// re-parents each source field permanent's TOP card as a LINK card of a target permanent, removing the source
+/// from the field (its under-stack is trashed first by DiscardEvoRoots — AS-IS only the source TOP card
+/// re-parents). Opens the "when permanents would remove field" cut-in window first (verbatim scan), then per
+/// pair: OnLeaveFieldAnyone window (AS-IS :3358-3369 — this class HAS it, unlike the digivolution variant),
+/// DiscardEvoRoots, record PlaceOtherPermanentEffect, RemoveField(ignoreOverflow:true), AddLinkCard,
+/// InitUseCountThisTurn. Substrate identical to <see cref="IPlacePermanentToDigivolutionCards"/> (the RD-EXT3-05
+/// precedent): IEnumerator → Task, StartCoroutine(X) → await X; <c>autoProcessing_CutIn</c> →
+/// <c>AutoProcessing.ForCutIn(context)</c>; <c>autoProcessing</c> → <c>AutoProcessing.For(context)</c>;
+/// <c>AddLinkCard</c>'s <c>ICardEffect</c> arg → <c>_cardEffect?.EffectSourceCard?.InstanceId</c> (established
+/// idiom). UI stripped: WillRemoveFieldObject / security-display shrink / PlayLog / ShowCardEffect. G-Link
+/// design risk 2 (double-delete): the field exit routes through the SAME <c>CardObjectController.RemoveField</c>
+/// chokepoint as every other removal (DeletionReplacementGate/bookkeeping intact), and the attach through the
+/// SAME <c>Permanent.AddLinkCard</c> → LinkHelpers path (single WhenLinked emit — risk 1). AS-IS quirk KEPT:
+/// <c>_skipEffectAndActivateSkill</c> is stored but never read (AS-IS :3161 verified dead).</summary>
+public class IPlacePermanentToLinkCards
+{
+    public IPlacePermanentToLinkCards(
+        List<Permanent[]> permanentArrays,
+        ICardEffect cardEffect,
+        bool skipEffectAndActivateSkill = false)
+    {
+        permanentArrays.Clone().ForEach(permanentArray => _permanentArrays.Add(permanentArray.CloneArray()));
+        _cardEffect = cardEffect;
+        _skipEffectAndActivateSkill = skipEffectAndActivateSkill;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    List<Permanent[]> _permanentArrays = new List<Permanent[]>();
+    ICardEffect _cardEffect = null;
+    bool _notShowCards = false;
+    bool _skipEffectAndActivateSkill = false;
+    public bool Placed { get; private set; } = false;
+
+    public async Task PlacePermanentToLinkCards()
+    {
+        if (_permanentArrays.Count == 0)
+        {
+            return;
+        }
+
+        List<CardSource> addedLinkCards = new List<CardSource>();
+
+        List<Permanent> removeFieldPermanents = new List<Permanent>();
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent LinkedPermanent = permanentArray[0];
+                Permanent getLinkPermanent = permanentArray[1];
+
+                if (LinkedPermanent != null && getLinkPermanent != null)
+                {
+                    if (LinkedPermanent.TopCard != null && getLinkPermanent.TopCard != null && !getLinkPermanent.IsToken)
+                    {
+                        if (_cardEffect != null)
+                        {
+                            if (LinkedPermanent.TopCard.CanNotBeAffected(_cardEffect) || getLinkPermanent.TopCard.CanNotBeAffected(_cardEffect))
+                            {
+                                continue;
+                            }
+                        }
+
+                        removeFieldPermanents.Add(LinkedPermanent);
+                    }
+                }
+            }
+        }
+
+        foreach (Permanent permanent in removeFieldPermanents)
+        {
+            permanent.willBeRemoveField = true;
+        }
+
+        if (removeFieldPermanents.Count == 0)
+        {
+            return;
+        }
+
+        EngineContext context = removeFieldPermanents[0].TopCard.Context;
+
+        #region "When permanents would remove field" effect (AS-IS :3210-3343; UI stripped)
+
+        List<CardEffectCommons.SkillInfo> skillInfos = new List<CardEffectCommons.SkillInfo>();
+
+        System.Collections.Hashtable hashtable1 =
+            CardEffectCommons.CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                removeFieldPermanents,
+                _cardEffect,
+                null!);
+
+        foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent1 in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenRemoveField))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.CanTrigger(hashtable1))
+                        {
+                            skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                        }
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenRemoveField))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(hashtable1))
+                    {
+                        skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                    }
+                }
+            }
+        }
+
+        if (skillInfos.Count >= 1)
+        {
+            foreach (CardEffectCommons.SkillInfo skillInfo in skillInfos)
+            {
+                AutoProcessing.ForCutIn(context).PutStackedSkill(skillInfo);
+            }
+
+            // AS-IS :3267-3322 showEffect() = WillRemoveFieldObject / attack-security display (UI stripped).
+            await AutoProcessing.ForCutIn(context).TriggeredSkillProcess(false, null!).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent LinkedPermanent = permanentArray[0];
+                Permanent getLinkPermanent = permanentArray[1];
+
+                if (LinkedPermanent != null && getLinkPermanent != null)
+                {
+                    if (LinkedPermanent.TopCard != null && getLinkPermanent.TopCard != null && !getLinkPermanent.IsToken && LinkedPermanent.willBeRemoveField)
+                    {
+                        #region "When permanents leave the battle area" effect (AS-IS :3358-3369)
+
+                        await AutoProcessing.For(context).StackSkillInfos(
+                            CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                                new List<Permanent> { LinkedPermanent },
+                                _cardEffect,
+                                null!,
+                                false
+                            ),
+                            EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+
+                        #endregion
+
+                        await LinkedPermanent.DiscardEvoRoots().ConfigureAwait(false);
+
+                        CardSource cardSource = LinkedPermanent.TopCard;
+
+                        #region record used effect
+
+                        if (_cardEffect != null)
+                        {
+                            if (LinkedPermanent.TopCard != null)
+                            {
+                                LinkedPermanent.PlaceOtherPermanentEffect = _cardEffect;
+                            }
+                        }
+
+                        #endregion
+
+                        await CardObjectController.RemoveField(
+                            LinkedPermanent,
+                            ignoreOverflow: true).ConfigureAwait(false);
+
+                        await getLinkPermanent.AddLinkCard(cardSource, _cardEffect?.EffectSourceCard?.InstanceId).ConfigureAwait(false);
+
+                        cardSource.cEntity_EffectController.InitUseCountThisTurn();
+
+                        addedLinkCards.Add(cardSource);
+
+                        Placed = true;
+                    }
+                }
+            }
+        }
+
+        // AS-IS :3403-3433 add-log (PlayLog) + ShowCardEffect "Link Cards" = UI (stripped; _notShowCards is
+        // the AS-IS UI-only flag, kept for surface parity).
+        _ = _notShowCards;
+    }
+}
+
+#endregion
+
+#region Link a Card to a Permanent
+
+/// <summary>(G-Link batch 2 / RD-P6C2-7) 1:1 mirror of AS-IS <c>ILinkCard</c> (CardController.cs:3440-3498):
+/// the link-play resolution verb — (1) null guards, (2) root zone determination
+/// (Hand/Trash/DigivolutionCards/LinkedCards/None), (3) WhenWouldLink CUT-IN window
+/// (<c>autoProcessing_CutIn.StackSkillInfos(WouldLinkHashtable, WhenWouldLink)</c> + TriggeredSkillProcess —
+/// BEFORE payment), (4) if payCost: <c>Owner.AddMemory(-GetChangedLinkCost(permanent, root))</c>, (5) placement:
+/// root==None → <see cref="IPlacePermanentToLinkCards"/> (field permanent becomes a link card), else
+/// <c>Permanent.AddLinkCard</c> (hand/trash/digivolution-source card attaches — the ONE LinkHelpers path whose
+/// single WhenLinked emit G-Link risk 1 protects), then <c>WasLinked</c> + the owner's
+/// <c>UntilCalculateFixedCostEffect</c> reset (AS-IS :3496). Substrate: IEnumerator → Task,
+/// StartCoroutine(X) → await X; <c>autoProcessing_CutIn</c> → <c>AutoProcessing.ForCutIn(context)</c>;
+/// <c>_linkCard.PermanentOfThisCard()</c> → <c>ICardEffect.ResolvePermanentOfThisCard</c> (established bridge);
+/// <c>AddLinkCard</c>'s <c>ICardEffect</c> arg → <c>EffectSourceCard?.InstanceId</c>;
+/// <c>Owner.UntilCalculateFixedCostEffect</c> → the mirror <see cref="Player"/> store-backed property.</summary>
+public class ILinkCard
+{
+    public ILinkCard(bool payCost, CardSource card, Permanent permanent, ICardEffect cardEffect)
+    {
+        _payCost = payCost;
+        _linkCard = card;
+        _permanent = permanent;
+        _cardEffect = cardEffect;
+    }
+
+    bool _payCost = false;
+    CardSource _linkCard = null;
+    Permanent _permanent = null;
+    ICardEffect _cardEffect = null;
+    public bool WasLinked = false;
+
+    public async Task LinkCard()
+    {
+        if (_linkCard == null) return;
+        if (_permanent == null || _permanent.TopCard == null) return;
+        if (_cardEffect == null) return;
+
+        EngineContext context = _linkCard.Context;
+
+        #region Trigger When Would Link effects
+        SelectCardEffect.Root root;
+        if (CardEffectCommons.CardEffectCommons.IsExistOnHand(_linkCard))
+            root = SelectCardEffect.Root.Hand;
+        else if (CardEffectCommons.CardEffectCommons.IsExistInAnyTrash(_linkCard))
+            root = SelectCardEffect.Root.Trash;
+        else if (CardEffectCommons.CardEffectCommons.IsExistDigivolutionCards(_linkCard))
+            root = SelectCardEffect.Root.DigivolutionCards;
+        else if (CardEffectCommons.CardEffectCommons.IsExistLinked(_linkCard))
+            root = SelectCardEffect.Root.LinkedCards;
+        else
+            root = SelectCardEffect.Root.None;
+
+        await AutoProcessing.ForCutIn(context).StackSkillInfos(
+            CardEffectCommons.CardEffectCommons.WouldLinkHashtable(_linkCard, _permanent, root, null),
+            EffectTiming.WhenWouldLink).ConfigureAwait(false);
+
+        await AutoProcessing.ForCutIn(context).TriggeredSkillProcess(false, null!).ConfigureAwait(false);
+        #endregion
+
+        if (_payCost)
+        {
+            int Cost = _linkCard.GetChangedLinkCost(_permanent, root);
+
+            await _linkCard.Owner.AddMemory(-1 * Cost, _cardEffect).ConfigureAwait(false);
+        }
+
+        if (root == SelectCardEffect.Root.None)
+            await new IPlacePermanentToLinkCards(new List<Permanent[]>() { new Permanent[] { ICardEffect.ResolvePermanentOfThisCard(_linkCard), _permanent } }, _cardEffect).PlacePermanentToLinkCards().ConfigureAwait(false);
+        else
+            await _permanent.AddLinkCard(_linkCard, _cardEffect?.EffectSourceCard?.InstanceId).ConfigureAwait(false);
+
+        WasLinked = _permanent.LinkedCards.Contains(_linkCard);
+
+        new Player(context, _linkCard.Owner).UntilCalculateFixedCostEffect = new List<Func<EffectTiming, ICardEffect>>();
+    }
+}
+
+#endregion
+
 #region TrashStack
 
 /// <summary>

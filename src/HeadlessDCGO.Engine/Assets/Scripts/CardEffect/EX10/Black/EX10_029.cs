@@ -11,10 +11,10 @@
 //
 // ② 프리미티브 매핑 (감사 축 이름 — coverage_exemplar_audit_2026-07-18.md §4 #7):
 //    * K:Link                                  — Link 선언 팩토리 + AddSelfLinkConditionStaticEffect +
-//                                                WhenLinked 창. ⚠ 기존-STOP 명기: CardEffectFactory.LinkEffect의
-//                                                ActivateCoroutine은 RD-P6C2-7 STOP(AS-IS ILinkCard.LinkCard
-//                                                미러 부재 — Factory/KeyWordEffects/Link.cs:79-86). 카드 등록은
-//                                                클린; Link "발화" witness는 해당 STOP 상환 후 가능(수확물).
+//                                                WhenLinked 창. (G-Link 배치 2, RD-P6C2-7 **해소**:
+//                                                LinkEffect.ActivateCoroutine flip — ILinkCard/
+//                                                IPlacePermanentToLinkCards 미러 착지. 발화 witness =
+//                                                EXEMPLAR-GLINK.Witness.Tests W1/W5.)
 //    * P:ImmuneFromDeDigivolveClass            — [When Linking] 몸통 UntilOpponentTurnEndEffects 부여 (AS-IS :194-197)
 //    * P:PlaySelfDigimonAfterBattleSecurityEffect — [Security] (AS-IS :19; CardEffectFactory.cs:988 미러)
 //    * P:TrashLinkCardsAndProcessAccordingToResult — [When Linking] 몸통 (AS-IS :140-145)
@@ -93,8 +93,8 @@ public sealed class EX10_029 : CEntity_Effect
 
         if (timing == EffectTiming.OnDeclaration)
         {
-            // ⚠ 기존-STOP: 이 ActivateClass의 발화 몸통은 RD-P6C2-7 STOP(Link.cs:79-86 — ILinkCard 미러
-            // 부재). 등록/선언-표면은 클린이며, 1:1 원칙상 팩토리 호출을 그대로 미러한다(우회·발명 금지).
+            // (G-Link 배치 2) RD-P6C2-7 해소 — LinkEffect.ActivateCoroutine은 AS-IS 몸통(SelectPermanent →
+            // new ILinkCard(true, ...).LinkCard())으로 flip됨.
             cardEffects.Add(CardEffectFactory.LinkEffect(card));
         }
 

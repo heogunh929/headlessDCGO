@@ -11,18 +11,16 @@
 //    * P:Gain1MemoryTamerOpponentDigimonEffect — [Start of Main] (AS-IS :18; 클린 factory)
 //    * P:SuspendPeremanentAndProcessAccordingToResult — [Main] 몸통 suspend-cost (AS-IS :66; 클린)
 //    * X:AppFusion                    — [End of Turn] 몸통 (AS-IS :354; STOP)
-//    * (+K:Link [Main] link 실행: STOP; PlaySelfTamerSecurityEffect: 클린)
+//    * (+K:Link [Main] link 실행: G-Link 배치 2로 복원(RD-EXT3-01 해소); PlaySelfTamerSecurityEffect: 클린)
 //
 // ③ 배선 관례 근거: [Main] → OnDeclaration + ActivateClass; [Security] → SecuritySkill factory;
 //    [Start of Main] / [End of Turn] → 해당 timing 직접.
 //
-// 수확 명세 (STOP 팔 2 — 예측 적중, coverage_exemplar_audit §6 "Burst/AppFusion select"·"DigiXros/Link"):
-//   ▸ [Main] / Link (RD-EXT3-01): suspend-cost(SuspendPeremanentAndProcessAccordingToResult) 절반은 클린 포팅.
-//     link 실행 절반은 STOP — 두 독립 갭: (1) AS-IS `new ILinkCard(true, cardSource, permanent, activateClass)
-//     .LinkCard()` — 미러에 `ILinkCard` 타입 부재(컴파일 블로커); 매핑 팩토리 경로(Link.cs:79-86 LinkEffect)는
-//     RD-P6C2-7 STOP(WhenWouldLink 창 + link-cost 지불 + IPlacePermanentToLinkCards 전부 미이관). (2) 후보
-//     술어 `CanLink(payCost:true)`(CardSource.cs:1424)는 C2-02/MIG5-CANLINK-PAYCOST throw(GetChangedLinkCost
-//     프리미티브 부재). SuccessProcess 몸통을 STOP 마커로 봉인, AS-IS 본문은 주석 보존.
+// 수확 명세 (원 STOP 팔 2 — coverage_exemplar_audit §6 "Burst/AppFusion select"·"DigiXros/Link"):
+//   ▸ [Main] / Link (RD-EXT3-01 **해소** — G-Link 배치 2): suspend-cost 절반은 클린 포팅(기존);
+//     link 실행 절반은 AS-IS SuccessProcess(BT25_089.cs:72-229) 원문 복원 — `ILinkCard`/`GetChangedLinkCost`
+//     미러 착지(RD-P6C2-7/C2-02 해소)로 STOP 봉인 제거. 치환: UntilCalculateFixedCostEffect →
+//     미러 Player store-backed 리스트; SelectPermanentEffect canTargetCondition → id-adapter(PermanentOf).
 //   ▸ [End of Turn] / AppFusion (RD-EXT3-02): 세 갭 — (1) `CardSource.CanAppFusionFromTargetPermanent`
 //     (CardController.cs:4059) 및 PlayCard() AppFusion 분기(CardController.cs:2605)는 RD-P6C1-2 throw
 //     (app-fusion 요구/코스트 체크 미이관); (2) `Permanent.PermanentFrame.FrameID` 미이관(no frame/slot model,
@@ -87,12 +85,27 @@ public sealed class BT25_089 : CEntity_Effect
 
             bool CanLinkCardActivateCondition(CardSource cardSource) => CanLinkCardCondition(cardSource, false);
 
+            bool CanLinkCardEffectCondition(CardSource cardSource) => CanLinkCardCondition(cardSource, true);
+
             bool CanLinkCardCondition(CardSource cardSource, bool payCost)
             {
                 return cardSource.IsDigimon
                     && cardSource.EqualsTraits("Appmon")
                     && cardSource.CanLink(payCost);
             }
+
+            bool CanTakeFromDigivolutionCardsEffectCondition(Permanent permanent)
+            {
+                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
+                    && permanent.DigivolutionCards.Any(CanLinkCardEffectCondition);
+            }
+
+            // (G-Link batch 2) SelectPermanentEffect's mirror canTargetCondition is the established id-based
+            // Func<HeadlessEntityId, bool> — PermanentOf(id) adapter (ArtsDigivolve/BT25_104 idiom).
+            Permanent? PermanentOf(HeadlessEntityId id) =>
+                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                    ? new Permanent(card.Context, id, rec.OwnerId)
+                    : null;
 
             async Task ActivateCoroutine(Hashtable hashtable)
             {
@@ -102,26 +115,169 @@ public sealed class BT25_089 : CEntity_Effect
                     SuccessProcess,
                     null);
 
-                Task SuccessProcess(List<Permanent> suspendedPermaments)
+                // (G-Link batch 2, RD-EXT3-01 RESOLVED) AS-IS SuccessProcess (BT25_089.cs:72-229) verbatim:
+                // grant GrantedReduceLinkCostClass(-2) via UntilCalculateFixedCostEffect, Int-area selection
+                // ("From hand" / "From digivolution cards" / "Do not Link"), SelectHand or SelectPermanent+
+                // SelectCard(Root.DigivolutionCards), then SelectPermanent(CanLinkToTargetPermanent(payCost:true))
+                // -> new ILinkCard(true, cardSource, permanent, activateClass).LinkCard(), finally remove the grant.
+                // Substrate: card.Owner.UntilCalculateFixedCostEffect -> the mirror Player store-backed list.
+                async Task SuccessProcess(List<Permanent> suspendedPermaments)
                 {
-                    // STOP (design item RD-EXT3-01): the suspend-cost above is clean; the link RESOLUTION is not.
-                    // The AS-IS SuccessProcess (preserved verbatim below as comment) grants GrantedReduceLinkCostClass
-                    // (clean), opens an Int-area selection + SelectHand/SelectPermanent/SelectCard (clean), then
-                    // executes `new ILinkCard(true, cardSource, permanent, activateClass).LinkCard()`. The mirror has
-                    // NO `ILinkCard` type (compile blocker) and the mapped factory path throws RD-P6C2-7 (WhenWouldLink
-                    // window + link-cost payment + IPlacePermanentToLinkCards all unported); the effect-side candidate
-                    // predicate `CanLink(payCost: true)` throws C2-02/MIG5-CANLINK-PAYCOST (no GetChangedLinkCost
-                    // primitive). Kept as an AS-IS-named comment for the eventual link-subsystem port:
-                    //
-                    //   card.Owner.UntilCalculateFixedCostEffect.Add(GetCardEffect);  // GrantedReduceLinkCostClass(reducedCost:2)
-                    //   ... SetIntSelection("From hand"/"From digivolution cards"/"Do not Link") ...
-                    //   if (doLink) { SelectHandEffect / SelectPermanentEffect+SelectCardEffect(Root.DigivolutionCards) }
-                    //   -> SelectCardCoroutine -> SelectPermanentEffect(CanLinkToTargetPermanent)
-                    //   -> new ILinkCard(true, cardSource, permanent, activateClass).LinkCard();
-                    //   card.Owner.UntilCalculateFixedCostEffect.Remove(GetCardEffect);
-                    throw new NotSupportedException(
-                        "STOP: BT25_089 [Main] link resolution needs ILinkCard (no mirror type) + CanLink(payCost:true) " +
-                        "(no GetChangedLinkCost primitive) — RD-P6C2-7 / C2-02, design item RD-EXT3-01.");
+                    #region Link Cost Reduction
+                    ICardEffect GetCardEffect(EffectTiming _timing)
+                    {
+                        if (_timing == EffectTiming.None)
+                        {
+                            return CardEffectFactory.GrantedReduceLinkCostClass(
+                                card: card,
+                                reducedCost: 2,
+                                cardSourceCondition: _ => true,
+                                permanentCondition: _ => true,
+                                rootCondition: _ => true
+                            );
+                        }
+
+                        return null;
+                    }
+
+                    new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Add(GetCardEffect);
+                    #endregion
+
+                    bool canSelectHand = CardEffectCommons.HasMatchConditionOwnersHand(card, CanLinkCardEffectCondition);
+                    bool canSelectSources = CardEffectCommons.HasMatchConditionPermanent(card, CanTakeFromDigivolutionCardsActivateCondition);
+
+                    List<SelectionElement<int>> selectionElements = new List<SelectionElement<int>>();
+                    if (canSelectHand)
+                    {
+                        selectionElements.Add(new SelectionElement<int>(message: $"From hand", value: 1, spriteIndex: 0));
+                    }
+                    if (canSelectSources)
+                    {
+                        selectionElements.Add(new SelectionElement<int>(message: $"From digivolution cards", value: 2, spriteIndex: 0));
+                    }
+                    selectionElements.Add(new SelectionElement<int>(message: $"Do not Link", value: 3, spriteIndex: 1));
+
+                    string selectPlayerMessage = "From which area will you link a card?";
+                    string notSelectPlayerMessage = "The opponent is choosing from which area to select a card.";
+
+                    GManager.instance.userSelectionManager.SetIntSelection(selectionElements: selectionElements, selectPlayer: card.Owner, selectPlayerMessage: selectPlayerMessage, notSelectPlayerMessage: notSelectPlayerMessage);
+
+                    await GManager.instance.userSelectionManager.WaitForEndSelect();
+
+                    bool doLink = GManager.instance.userSelectionManager.SelectedIntValue != 3;
+                    bool fromHand = GManager.instance.userSelectionManager.SelectedIntValue == 1;
+                    if (doLink)
+                    {
+                        if (fromHand)
+                        {
+                            SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+
+                            selectHandEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: CanLinkCardEffectCondition,
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                maxCount: 1,
+                                canNoSelect: true,
+                                canEndNotMax: false,
+                                isShowOpponent: true,
+                                selectCardCoroutine: SelectCardCoroutine,
+                                afterSelectCardCoroutine: null,
+                                mode: SelectHandEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectHandEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
+                            selectHandEffect.SetUpCustomMessage_ShowCard("Selected Card");
+
+                            await selectHandEffect.Activate();
+                        }
+                        else
+                        {
+                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                            selectPermanentEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: id => PermanentOf(id) is { } p && CanTakeFromDigivolutionCardsEffectCondition(p),
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                maxCount: 1,
+                                canNoSelect: true,
+                                canEndNotMax: false,
+                                selectPermanentCoroutine: SelectPermanentCoroutine,
+                                afterSelectPermanentCoroutine: null,
+                                mode: SelectPermanentEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to select a digivolution card from", "The opponent is selecting 1 card to link.");
+
+                            await selectPermanentEffect.Activate();
+
+                            async Task SelectPermanentCoroutine(Permanent permanent)
+                            {
+                                SelectCardEffect selectCardEffect = GManager.instance.GetComponent<SelectCardEffect>();
+
+                                selectCardEffect.SetUp(
+                                    canTargetCondition: CanLinkCardEffectCondition,
+                                    canTargetCondition_ByPreSelecetedList: null,
+                                    canEndSelectCondition: null,
+                                    canNoSelect: () => true,
+                                    selectCardCoroutine: SelectCardCoroutine,
+                                    afterSelectCardCoroutine: null,
+                                    message: "Select 1 card to add as source.",
+                                    maxCount: 1,
+                                    canEndNotMax: false,
+                                    isShowOpponent: true,
+                                    mode: SelectCardEffect.Mode.Custom,
+                                    root: SelectCardEffect.Root.DigivolutionCards,
+                                    customRootCardList: permanent.DigivolutionCards.ToList(),
+                                    canLookReverseCard: true,
+                                    selectPlayer: card.Owner,
+                                    cardEffect: activateClass);
+
+                                selectCardEffect.SetUpCustomMessage("Select 1 card to link.", "The opponent is selecting 1 card to link.");
+                                selectCardEffect.SetUpCustomMessage_ShowCard("Selected Card");
+
+                                await selectCardEffect.Activate();
+                            }
+                        }
+
+                        async Task SelectCardCoroutine(CardSource cardSource)
+                        {
+                            bool CanLinkPermanentCondition(Permanent permanent)
+                            {
+                                return CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card)
+                                    && cardSource.CanLinkToTargetPermanent(permanent, true);
+                            }
+
+                            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                            selectPermanentEffect.SetUp(
+                                selectPlayer: card.Owner,
+                                canTargetCondition: id => PermanentOf(id) is { } p && CanLinkPermanentCondition(p),
+                                canTargetCondition_ByPreSelecetedList: null,
+                                canEndSelectCondition: null,
+                                maxCount: 1,
+                                canNoSelect: true,
+                                canEndNotMax: false,
+                                selectPermanentCoroutine: SelectPermanentCoroutine,
+                                afterSelectPermanentCoroutine: null,
+                                mode: SelectPermanentEffect.Mode.Custom,
+                                cardEffect: activateClass);
+
+                            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to link to.", "The opponent is selecting 1 digimon to link.");
+
+                            await selectPermanentEffect.Activate();
+
+                            async Task SelectPermanentCoroutine(Permanent permanent)
+                            {
+                                await new ILinkCard(true, cardSource, permanent, activateClass).LinkCard();
+                            }
+                        }
+                    }
+
+                    #region Remove Link Cost Reduction
+                    new Player(card.Context, card.Owner).UntilCalculateFixedCostEffect.Remove(GetCardEffect);
+                    #endregion
                 }
             }
         }

@@ -6,6 +6,11 @@
 //     SelectPermanentCoroutine` -> `async Task`; `yield return StartCoroutine(X)` -> `await X`; lone
 //     `yield return null` -> `await Task.CompletedTask;`.
 //   * stripped `using UnityEngine;`. Replaces the monolith's invented LinkEffect + GrantedReduceLinkCostClass.
+//   * (G-Link batch 2, RD-P6C2-7 RESOLVED) ActivateCoroutine is the AS-IS body (Link.cs:65-101):
+//     SelectPermanentEffect(maxCount=min(1,count), canNoSelect:false) -> new ILinkCard(true, card,
+//     selectedPermanent, activateClass).LinkCard(). SelectPermanentEffect's id-based canTargetCondition uses
+//     the PermanentOf(id) adapter (the ArtsDigivolve/BT19_091/BT25_104 idiom); card-context
+//     MatchConditionPermanentCount(card, cond) is the mirror overload of the AS-IS card-less form.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
@@ -15,6 +20,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
+using HeadlessDCGO.Engine.Headless.Services;
 
 public partial class CardEffectFactory
 {
@@ -74,16 +80,53 @@ public partial class CardEffectFactory
             return false;
         }
 
-        Task ActivateCoroutine(Hashtable _hashtable)
+        Permanent PermanentOf(HeadlessEntityId id) =>
+            card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord rec) && rec is not null
+                ? new Permanent(card.Context, id, rec.OwnerId)
+                : null;
+
+        bool CanSelectPermanentById(HeadlessEntityId id)
         {
-            // STOP: AS-IS ILinkCard.LinkCard() (CardController.cs:3440) — WhenWouldLink trigger window
-            // (autoProcessing_CutIn, old-model, PlayCardClass-only) + link-cost payment (GetChangedLinkCost,
-            // already a known gap — design item C2-02/MIG5-CANLINK-PAYCOST) + IPlacePermanentToLinkCards
-            // (no mirror). Heavy/unported subsystem, out of this cluster's scope — design item RD-P6C2-7.
-            throw new NotSupportedException(
-                "LinkEffect.ActivateCoroutine: AS-IS ILinkCard has no mirror (WhenWouldLink window + link-cost " +
-                "payment + IPlacePermanentToLinkCards all unported) — design item RD-P6C2-7, " +
-                "docs/audit/rebuild_p6_cluster2_notes.md.");
+            Permanent permanent = PermanentOf(id);
+            return permanent is not null && CanSelectPermanentCondition(permanent);
+        }
+
+        async Task ActivateCoroutine(Hashtable _hashtable)
+        {
+            Permanent selectedPermanent = null;
+
+            int maxCount = Math.Min(1, CardEffectCommons.MatchConditionPermanentCount(card, CanSelectPermanentById));
+
+            SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+            selectPermanentEffect.SetUp(
+                selectPlayer: card.Owner,
+                canTargetCondition: CanSelectPermanentById,
+                canTargetCondition_ByPreSelecetedList: null,
+                canEndSelectCondition: null,
+                maxCount: maxCount,
+                canNoSelect: false,
+                canEndNotMax: false,
+                selectPermanentCoroutine: SelectPermanentCoroutine,
+                afterSelectPermanentCoroutine: null,
+                mode: SelectPermanentEffect.Mode.Custom,
+                cardEffect: activateClass);
+
+            selectPermanentEffect.SetUpCustomMessage("Select 1 Digimon to link.", "The opponent is selecting 1 Digimon to link.");
+
+            await selectPermanentEffect.Activate();
+
+            async Task SelectPermanentCoroutine(Permanent permanent)
+            {
+                selectedPermanent = permanent;
+
+                await Task.CompletedTask;
+            }
+
+            if (selectedPermanent != null)
+            {
+                await new ILinkCard(true, card, selectedPermanent, activateClass).LinkCard();
+            }
         }
 
         return activateClass;

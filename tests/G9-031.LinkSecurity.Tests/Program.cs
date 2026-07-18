@@ -29,7 +29,7 @@ foreach (var test in tests)
     {
         failures.Add(test.Name);
         Console.Error.WriteLine($"FAIL {test.Name}");
-        Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message}");
+        Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
     }
 }
 
@@ -42,17 +42,21 @@ async Task LinkAttaches()
 {
     EngineContext context = Context();
     context.MemoryController.Set(5);
-    var host = await Place(context, P1, "HOST", ChoiceZone.BattleArea, linkCost: 0);
-    var linkCard = await Place(context, P1, "LINK", ChoiceZone.Hand, linkCost: 2);
+    // (G-Link 배치 2 flip, RD-P6C2-7 해소) The invented LinkSelfEffect era staged synthetic defs with a
+    // "linkCost" metadata key; the AS-IS 1:1 flip sources the cost from the card's DECLARED LinkCondition
+    // (AddSelfLinkConditionStaticEffect -> linkCondition.cost), so the fixture now stages the REAL ported
+    // K:Link card EX10_029 (link cost 2, Appmon host condition) and an Appmon-trait host. The assertions
+    // below are UNCHANGED (attach + 5 -> 3 memory).
+    // The AS-IS registration + body read GManager.instance.* (effect enumeration walks the disabled-tree scan,
+    // SelectPermanentEffect component, cut-in AutoProcessing) — enter the ambient match scope BEFORE staging,
+    // exactly like the engine registers cards inside a match scope (the PlaceDelayOption case below).
+    using var _ = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
+    HeadlessDCGO.Engine.Headless.DataLoading.CardBaseEntityLoader.LoadInto((CardDatabase)context.CardRepository);
+    var host = await Place(context, P1, "HOST", ChoiceZone.BattleArea, traits: new[] { "Appmon" });
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, host, P1);
+    var linkCard = await PlaceReal(context, P1, "EX10_029", ChoiceZone.Hand);
 
     ((ScriptedChoiceProvider)context.ChoiceProvider).Enqueue(ChoiceResult.Select(host));
-    // (P7 test-fix) CardEffectFactory.LinkEffect was re-ported to the AS-IS Link.cs kind-class shape and now
-    // returns ActivateClass (there is no LinkSelfEffect type any more). Drive it the way the AS-IS
-    // ActivateICardEffect contract is driven: ActivateClass.Activate(Hashtable). NOTE: its ActivateCoroutine
-    // body currently throws NotSupportedException by design (RD-P6C2-7, docs/audit/rebuild_p6_cluster2_notes.md
-    // — the AS-IS ILinkCard link-attach + link-cost-payment subsystem is unported) — this call is kept
-    // faithfully (still exercises the real factory + Activate path); the assertions below are UNCHANGED and
-    // EXPECTED TO FAIL/throw until that subsystem is ported — tracked, not silently weakened.
     var effect = (HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)CardEffectFactory.LinkEffect(new CardSource(context, linkCard, P1));
     await effect.Activate(new System.Collections.Hashtable());
 
@@ -111,19 +115,44 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 931);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (G-Link 배치 2) AS-IS effects gate on a STARTED game (DoneStartGame / a live phase) — the a03072ee
+    // G3.5-D1L fixture convention: stamp the Main phase so CanUse/CanTrigger scans evaluate as in-match.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 
-async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner, string tag, ChoiceZone zone, int linkCost)
+async Task<HeadlessEntityId> Place(EngineContext context, HeadlessPlayerId owner, string tag, ChoiceZone zone, int linkCost = 0, string[]? traits = null)
 {
     var cards = (CardDatabase)context.CardRepository;
     var defId = new HeadlessEntityId(tag);
-    cards.Upsert(new CardRecord(defId, tag, tag,
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4, ["linkCost"] = linkCost }, CardType: "Digimon"));
+    var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4, ["linkCost"] = linkCost };
+    if (traits is { Length: > 0 })
+    {
+        defMeta["traits"] = traits;
+    }
+
+    cards.Upsert(new CardRecord(defId, tag, tag, defMeta, CardType: "Digimon"));
     var id = new HeadlessEntityId($"{owner.Value}:{zone}:{tag}");
     context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone));
+    return id;
+}
+
+// (G-Link 배치 2) 실카드 인스턴스 스테이징 — cards.json def(id = 카드번호)를 그대로 사용(EXEMPLAR Stage 관례).
+async Task<HeadlessEntityId> PlaceReal(EngineContext context, HeadlessPlayerId owner, string cardNumber, ChoiceZone zone)
+{
+    var defId = new HeadlessEntityId(cardNumber);
+    if (!context.CardRepository.TryGetCard(defId, out CardRecord? def) || def is null)
+    {
+        throw new InvalidOperationException($"definition {cardNumber} not found in the loaded card database");
+    }
+
+    var id = new HeadlessEntityId($"{owner.Value}:{zone}:{cardNumber}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone));
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, id, owner);
     return id;
 }
 

@@ -36,7 +36,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_104 W4 Burst turn-end trash 등록 FLIP(RD-R5-03): SelectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd가 permanent.UntilEachTurnEndEffects에 OnEndTurn ActivateClass 등록 — GetCardEffect(OnEndTurn) 반환·CanUse/CanActivate 게이트", BT25104_BurstTurnEndTrashRegistration),
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
-    ("BT25_089 W2 수확 STOP: [Main] link 등재 + CanUse ON, RESOLUTION throws NotSupported(ILinkCard 부재/CanLink payCost — RD-EXT3-01)", BT25089_LinkStopHarvest),
+    ("BT25_089 W2 FLIP(RD-EXT3-01/G-Link 배치2): [Main] link 실행 — suspend cost → 영역 선택 → 손패 Appmon 선택 → 호스트 선택 → -2 감면 코스트 0 지불 → attach", BT25089_LinkFlip),
     ("BT25_089 W3 수확 STOP: [End of Turn] AppFusion 등재, RESOLUTION throws NotSupported(CanAppFusion RD-P6C1-2 + PermanentFrame RD-P6C3-D1 — RD-EXT3-02)", BT25089_AppFusionStopHarvest),
     // EX7_072 — Seventh Fascination (AddSkill nested-grant) — 전부 포팅(예측 BUSTED)
     ("EX7_072 W1 [Security] delete: 효과 등재 + CanActivate ON(상대 미서스펜드 Digimon) / OFF(부재) 양·음", EX7072_SecurityDeleteGate),
@@ -272,17 +272,46 @@ async Task BT25089_PortableArms()
         "[Security] PlaySelfTamerSecurityEffect registered");
 }
 
-async Task BT25089_LinkStopHarvest()
+async Task BT25089_LinkFlip()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3422, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 3422, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
     HeadlessEntityId kazuki = Stage(match, P1, "BT25_089", ChoiceZone.BattleArea, "1:battle:Kazuki", register: true, cardType: "Tamer");
 
+    // 링크 후보: 실카드 EX10_029(트랜치 포팅분 — AddSelfLinkConditionStaticEffect cost 2 / Appmon 호스트).
+    // CanLinkCardCondition의 EqualsTraits("Appmon")은 def "traits" 키를 읽으므로(cards.json은 types/forms 분리)
+    // 픽스처가 스탬프한다 — BT22_035/C2-Witness 관례.
+    AddDefTraits(match, "EX10_029", "Appmon", "Sup.");
+    HeadlessEntityId warpmon = Stage(match, P1, "EX10_029", ChoiceZone.Hand, "1:hand:Warpmon", register: true);
+    HeadlessEntityId host = StageSynthetic(match, P1, "GLINK-HOST", dp: 5000, level: 4, "1:battle:host", traits: new[] { "Appmon" });
+
     Cec.ICardEffect? main = EffectNamed(match, kazuki, Cec.EffectTiming.OnDeclaration, "Link for -2");
     AssertTrue(main is not null, "[Main] link ActivateClass registered under OnDeclaration");
-    AssertTrue(await ActivateThrowsAsync(match, main!),
-        "HARVEST RD-EXT3-01: the [Main] link RESOLUTION throws NotSupportedException (ILinkCard has no mirror + CanLink(payCost:true)) " +
-        "— when this no longer throws the link subsystem was ported and this witness must flip to assert the link");
+
+    int memBefore = MemoryFor(match, P1);
+
+    // 좌석: 영역 선택(ModeChoice) → "From hand"; 손패 선택 → Warpmon; 링크 대상 → 호스트.
+    policy.On(
+        req => req.Type == ChoiceType.ModeChoice && req.Message.Contains("From which area"),
+        req => ChoiceResult.Select(req.Candidates.First(c => c.Label.Contains("From hand")).Id));
+    policy.On(
+        req => req.Message.Contains("Select 1 card to link"),
+        _ => ChoiceResult.Select(warpmon));
+    policy.On(
+        req => req.Type == ChoiceType.Permanent && req.Message.Contains("Select 1 Digimon to link to"),
+        _ => ChoiceResult.Select(host));
+
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        await ((Cec.ActivateICardEffect)main!).Activate(new Hashtable());
+    }
+
+    // FLIP RD-EXT3-01: 직접 `new ILinkCard(true, ...)` 경로 실착지.
+    AssertTrue(IsSuspendedMeta(match, kazuki), "the suspend cost was paid (Kazuki suspended)");
+    AssertTrue(LinkedCardsOf(match, host).Contains(warpmon), "the hand Appmon was attached as the host's link card (ILinkCard direct path)");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(warpmon), "the linked card left the hand");
+    AssertEqual(memBefore, MemoryFor(match, P1),
+        "GrantedReduceLinkCostClass(-2) folded the cost 2 to 0 — no memory was paid (UntilCalculateFixedCostEffect players-region fold)");
 }
 
 async Task BT25089_AppFusionStopHarvest()
@@ -484,6 +513,25 @@ static int PermanentDp(DcgoMatch match, HeadlessEntityId id, HeadlessPlayerId ow
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
     return new Cec.Permanent(match.Context, id, owner).DP;
 }
+
+// (G-Link 배치 2) 정의 레코드에 "traits" 키를 스탬프 — cards.json 로더는 types/forms를 분리 보관하므로
+// EqualsTraits 소비 픽스처는 def "traits"를 직접 얹는다(BT22_035/C2-Witness 관례).
+static void AddDefTraits(DcgoMatch match, string cardNumber, params string[] traits)
+{
+    var defId = new HeadlessEntityId(cardNumber);
+    if (!match.Context.CardRepository.TryGetCard(defId, out CardRecord? def) || def is null)
+    {
+        throw new InvalidOperationException($"definition {cardNumber} not found");
+    }
+
+    var meta = new Dictionary<string, object?>(def.Metadata, StringComparer.Ordinal) { ["traits"] = traits };
+    ((CardDatabase)match.Context.CardRepository).Upsert(def with { Metadata = meta });
+}
+
+static IReadOnlyList<HeadlessEntityId> LinkedCardsOf(DcgoMatch match, HeadlessEntityId hostId) =>
+    match.Context.CardInstanceRepository.TryGetInstance(hostId, out CardInstanceRecord? rec) && rec is not null
+        ? HeadlessDCGO.Engine.Headless.Runtime.LinkHelpers.ReadLinkedCardIds(rec.Metadata)
+        : Array.Empty<HeadlessEntityId>();
 
 // ═══════════════════════════════════ harness ═══════════════════════════════════
 
