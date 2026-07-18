@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
@@ -16,7 +17,10 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Boundary rejects illegal agent action at apply with no state change", BoundaryRejectsIllegalActionWithoutStateChange),
     ("Crafted SpecialPlay not in the legal set is rejected with no state change", CraftedSpecialPlayRejectedWithoutStateChange),
     ("Boundary accepts a legal agent action", BoundaryAcceptsLegalAction),
-    ("Without a validator the apply path keeps legacy behavior", LegacyApplyPathIsUnaffected),
+    // 4b B3: "Without a validator the apply path keeps legacy behavior" RETIRED — its verification target
+    // is the OLD unguarded (no-validator) basic-ctor apply-queuing path, which B6-Db deletes when the basic
+    // DcgoMatch ctor flips to pump (validator defaults ON). The opt-in nature of the boundary is now carried
+    // by CreatePumpDriven(enforceActionLegality:) instead. (design principle 2 — retire on target vanish.)
     ("RL environment enforces the boundary and leaves state unchanged on reject", RlEnvironmentEnforcesBoundary),
     ("PUMP: same boundary contract on the pump surface (table validates; crafted/step-cadence rejected, no state change)", PumpBoundaryEnforcesSameContract),
 };
@@ -166,34 +170,20 @@ async Task BoundaryAcceptsLegalAction()
     AssertFalse(HasInvalidActionEvent(result), "legal Pass is not rejected at the boundary");
 }
 
-async Task LegacyApplyPathIsUnaffected()
-{
-    // No validator supplied -> legacy behavior: the action is queued, not boundary-rejected.
-    DcgoMatch match = new();
-    await InitializeAsync(match);
-    HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
-
-    StepResult result = await match.ApplyActionAsync(HeadlessActionFactory.EndTurn(player));
-    AssertFalse(HasInvalidActionEvent(result), "legacy apply path emits no boundary rejection");
-    AssertTrue(
-        result.Events.Any(e => e.Type == GameEventType.ActionQueued),
-        "legacy apply path queues the action");
-}
-
 async Task RlEnvironmentEnforcesBoundary()
 {
-    // LEGACY TEST SCAFFOLD (R4 S3c-d1): this witness drives the OLD step cadence (AdvanceEnvToMainAsync
-    // issues AdvancePhase), so it pins an explicit legacy validated match — the RL environment's DEFAULT
-    // match is pump-driven now (DcgoMatch.CreatePumpDriven), where AdvancePhase/EndTurn are illegal.
+    // 4b B3 RL re-aim: the RL env now wraps the pump-driven match (its production default); the boundary
+    // still surfaces an InvalidAction for the OLD step-cadence EndTurn (pump owns cadence, EndTurn illegal)
+    // with no state change. AdvanceEnvToMainAsync drives the pump's auto-flow (AdvancePhase step retired).
     var env = new HeadlessRlEnvironment(
-        DcgoMatch.CreateValidated(EngineContext.CreateDefault(), new EngineTrace()));
+        DcgoMatch.CreatePumpDriven(EngineContext.CreateDefault(), new EngineTrace()));
     HeadlessPlayerId player = new(1);
     await env.InitializeAsync(BuildMatchConfig());
     await AdvanceEnvToMainAsync(env, player);
 
-    string[] legalBefore = LegalActionTypes(env.Match, player);
-    RlStepResult result = await env.StepAsync(HeadlessActionFactory.EndTurn(player));
+    HeadlessPlayerId turnPlayer = env.Match.Context.TurnController.Current.TurnPlayerId!.Value;
+    string[] legalBefore = LegalActionTypes(env.Match, turnPlayer);
+    RlStepResult result = await env.StepAsync(HeadlessActionFactory.EndTurn(turnPlayer));
 
     AssertTrue(
         result.Events.Any(e => e.Type == GameEventType.InvalidAction),
@@ -317,11 +307,9 @@ static async Task DrivePumpToMainAsync(HeadlessRlEnvironment env)
 
 static async Task<DcgoMatch> CreateValidatedMatchAsync()
 {
-    DcgoMatch match = new(
-        EngineContext.CreateDefault(),
-        new EngineTrace(),
-        actionProcessor: null,
-        actionLegality: new LegalActionSetValidator());
+    // 4b B3 RL re-aim: the boundary contract is now pinned on the pump surface (the OLD validated-step
+    // cadence is retired). CreatePumpDriven installs the SAME LegalActionSetValidator boundary by default.
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(EngineContext.CreateDefault(), new EngineTrace());
     await InitializeAsync(match);
     return match;
 }
@@ -348,27 +336,93 @@ static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix, int m
         Enumerable.Range(1, digitamaCount).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 }
 
+// --- Phase driving (pump auto-flow, F62/C1-Witness precedent, 4b B3 RL re-aim) ---
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait; the OLD
+// AdvancePhase step currency is retired (4b B6 gate). Breeding/Mulligan decisions are declined.
 static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = SingleLegalAction(match, playerId, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, playerId));
 
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
 }
 
+// Env counterpart: resolve every pre-Main pump decision (mulligan keep / breeding decline) via the skip
+// lane through the RL env's own StepAsync until the Main action table opens.
 static async Task AdvanceEnvToMainAsync(HeadlessRlEnvironment env, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && env.Match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
+    DcgoMatch match = env.Match;
+    for (int i = 0; i < 32 && !AtMainWaitOf(match, playerId); i++)
     {
-        LegalAction advance = SingleLegalAction(env.Match, playerId, HeadlessActionTypes.AdvancePhase);
-        await env.StepAsync(advance);
+        if (match.HasPendingChoice())
+        {
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? skip;
+            using (AmbientMatchContext.Enter(match.Context))
+            {
+                skip = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                    ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+            if (skip is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+            await env.StepAsync(skip);
+        }
+        else
+        {
+            using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+            await match.StepAsync();
+        }
     }
 
-    AssertEqual(HeadlessPhase.Main, env.Match.GetObservation().Turn.Phase, "advance env to main");
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance env to main");
+}
+
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 static LegalAction SingleLegalAction(DcgoMatch match, HeadlessPlayerId playerId, string actionType)

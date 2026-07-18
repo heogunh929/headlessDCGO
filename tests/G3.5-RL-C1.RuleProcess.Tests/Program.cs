@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -96,27 +97,12 @@ async Task<DcgoMatch> DriveToDeckOutAsync()
 {
     DcgoMatch match = await CreateMatchAsync(mainDeckCount: 10);
 
-    // End P1's first turn (draw is skipped on the very first turn), then advance P2 into its draw.
-    match.Context.TurnController.SetPhase(HeadlessPhase.End);
-    await Apply(match, HeadlessActionFactory.EndTurn(P1));
-
-    for (int i = 0; i < 10 && !match.IsTerminal(); i++)
-    {
-        HeadlessPlayerId? turnPlayer = match.GetObservation().Turn.TurnPlayerId;
-        if (turnPlayer is not { } tp)
-        {
-            break;
-        }
-
-        LegalAction? advance = match.GetLegalActions(tp)
-            .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        if (advance is null)
-        {
-            break;
-        }
-
-        await Apply(match, advance);
-    }
+    // mainDeckCount 10 -> pump StartGame deals 5 hand + 5 security, leaving 0 library. P1's first turn
+    // skips its draw; P1 passes, the pump flips to P2, and P2's first real draw exhausts the empty
+    // library -> deck-out. (OLD SetPhase(End)/EndTurn + AdvancePhase step-loop retired; P-D Pass seam.)
+    await AdvanceToMainAsync(match);
+    await PassAsync(match, P1);
+    await DriveUntilAsync(match, m => m.IsTerminal());
 
     AssertTrue(match.IsTerminal(), "reached deck-out terminal");
     return match;
@@ -140,7 +126,7 @@ async Task<DcgoMatch> CreateMatchAsync(int mainDeckCount)
         cards.Upsert(CreateDigimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(P1, "P1", mainDeckCount), BuildDeck(P2, "P2", mainDeckCount) },
         firstPlayerId: P1);
@@ -156,19 +142,83 @@ static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix, int m
         Enumerable.Range(1, mainCount).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
+// --- Phase driving (pump auto-flow, F62/C1-Witness precedent, 4b B3 RL re-aim) ---
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to P1's main wait; the OLD AdvancePhase
+// step currency is retired (4b B6 gate). Breeding/Mulligan decisions are declined.
 async Task AdvanceToMainAsync(DcgoMatch match)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await Apply(match, advance);
-    }
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P1));
 
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
 }
 
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+// Pass the turn player's Main action; the pump owns EndTurnCheck + the turn flip (P-D EndTurn seam:
+// the OLD SetPhase(End)/EndTurn action + AdvancePhase step-loop cadence is retired).
+static async Task PassAsync(DcgoMatch match, HeadlessPlayerId player)
+{
+    LegalAction? pass;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        pass = match.GetLegalActions(player).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.Pass);
+    }
+    if (pass is null) throw new InvalidOperationException("no Pass lane at the main wait");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(pass);
+    await match.StepAsync();
+}
+
 static async Task Apply(DcgoMatch match, LegalAction action)
 {
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
     await match.ApplyActionAsync(action);
     await match.StepAsync();
 }

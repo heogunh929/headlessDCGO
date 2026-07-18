@@ -553,3 +553,69 @@ M2-001 **11/11** · M4-001 **9/9** · G13-003 **PASS** · R4RL-01 **6/6** · R4R
 2. **RD-RLENV-08**: Count형 `SelectCount` 레인의 factored Unmapped 잔존(원장 등재, 세션 스코프 밖).
 3. **BT20_098 실카드 포팅 미동승** — 조인트-검증기 실카드 witness는 합성 W1형(R4RL-03)이 대체 고정; 실카드는 풀 확대 트랙에서 포팅과 동승.
 4. L0/L1 게이트는 vs-랜덤/자기-스냅샷 스모크 척도(§B3.5 #3 동일 — 절대 실력 아님).
+
+---
+
+# 7부. 4b B3 판정 기록 — RL 스키마 소비자 9 처분 (2026-07-19, main HEAD=5e28126a 파생, 메인 워킹트리·미커밋)
+
+4b 설계서(`suite_retarget_4b_design_2026-07-18.md`) §3.1e B3 배치. OLD 액션 통화(AdvancePhase/EndTurn)·OLD ctor를 소비하는 RL 스위트 9(G11-002·G3.5-RL-A1/A3/A4b/B1/B2B3/C1/C2·R4RL-03)를 펌프/스키마-정합으로 재조준. **코드 변경 = 이 9 테스트파일 한정**(엔진/src·RL/src·CardEffect/·PILOT-* 무접촉).
+
+## §7.1 핵심 판정 — 사문 레인(슬롯 2 AdvancePhase / 슬롯 3 EndTurn) 처분: **옵션 (a) dead-slot 유지**
+
+B6에서 OLD 액션(AdvancePhase/EndTurn) 핸들러 본체·디스패처 arm이 물리 삭제되면 factored 스키마 v2(600슬롯)의 슬롯 2·3이 영구 사문화된다. 판정 = **(a) 스키마 v2 그대로 유지**(슬롯 2/3 = 항상 마스크 0), v3 재컴팩트(598) **기각**.
+
+**근거**:
+1. **기존 판례와 정합** — D1(§ line 177) "스키마 v1 동결: 사문 레인 2개(AdvancePhase/EndTurn)는 제거하지 않고 유지(오프셋 안정성 — 스냅샷/리그 자산 호환; 항상 마스크 0이라 무해)"·§1.3 항목(line 41) "오프셋 안정성 위해 유지(D1)"가 이미 이 레인을 **의도적 보존**으로 확정. (b)는 이 확립된 설계 근거를 뒤집는다.
+2. **B5-3 append-판례의 반대 방향** — B5-3(line 406)의 지배 판례 = "ConfirmChoiceOffset 1슬롯 **말미 append**(599→600, 기존 오프셋 전부 안정)". (b) 재번호는 배열 중간(슬롯 2/3) 제거 → 하위 전 레인 오프셋 전이 = 말미-append 판례와 정반대.
+3. **자산 무효화 비용** — (b)는 정책망 액션-헤드 차원 600→598 변경 → **L0/L1 스냅샷(액션-헤드 600폭) 전량 무효화·재생성**(§B3.4/§B5.11.3 경로) + actionSchemaVersion/hash 증가. 이미 마스크-0(MaskablePPO가 표집 불가·gradient 마스킹)이라 **런타임·학습 비용 0**인 레인 2개를 회수하려고 리그 자산을 폐기하는 것은 불수지.
+4. **디코딩된 실체** — factored 인코더는 `NormalizedAdvancePhase`/`NormalizedEndTurn`(FactoredActionEncoder.cs:278-281)를 참조하며 OLD 핸들러 본체와 **디커플**. B6의 본체·디스패처-arm 삭제는 이 레인 오프셋에 무영향 → (a)는 **스키마 코드 변경 0**. (실증: R4RL-04 8/8·obs 3104·action 600·obsSchemaHash 무변.)
+5. **업스트림 diff-추적성** — 슬롯 2/3을 AS-IS 액션 택소노미 순서에 정렬 유지하면 상류 대조 시 레인 사상이 안정.
+
+**귀결**: B3는 스키마를 건드리지 않는다(코드 변경 0). 9 소비자의 통화만 펌프-구동으로 재조준.
+
+## §7.2 9-프로젝트 재조준 처분표 (전후 단언 수·red flip)
+
+재조준 관용구 = C1-Witness/F62 정본(`DcgoMatch.CreatePumpDriven` + `AdvanceToMainAsync`=`StepOnceDrive`+`DriveUntil(AtMainWaitOf)`, Breeding/Mulligan 스킵). 전투 harness는 액션 후 펌프 세그먼트를 quiescence까지 구동(단일 StepAsync는 전투해소를 under-drive).
+
+| 프로젝트 | baseline | 재조준 후 | 단언(전→후) | 통화 | 판정 |
+|---------|---------|----------|-----------|------|------|
+| G3.5-RL-A3 | 9 green | 9 green | 32→32 | 0 | 재조준 완료 |
+| G3.5-RL-A4b | 5 green | 5 green | 16→16 | 0 | 재조준 완료 |
+| G3.5-RL-B2B3 | 8 green | 8 green | 24→24 | 0 | 재조준 완료 |
+| G3.5-RL-C1 | 4 green | 4 green | 13→13 | 0 | 재조준 완료(deck-out을 EndTurn→**Pass seam**으로, P-D) |
+| R4RL-03 | 12 green | 12 green | 73→73 | 0 | 재조준 완료(throw-probe=존치, §7.3) |
+| G3.5-RL-A1 | 9 green | **8 green** | 43→41 | 5* | 재조준+**1 은퇴**(§7.4) |
+| G11-002 | RED | RED(무변) | 8→8 | 0 | 통화 제거·red 존치=**직교**(§7.5) |
+| G3.5-RL-B1 | RED | RED(동일 단언) | 18→18 | 0 | 통화 제거·red 존치=**직교**(§7.5) |
+| G3.5-RL-C2 | RED | RED(동일 단언) | 13→13 | 0 | 통화 제거·red 존치=**직교**(§7.5) |
+
+**red flip = 0**(직교 red 3건 green 복원 불가·red 성격 무변; green→red 없음; A1 −1은 은퇴 규율, red화 아님). 8/9 통화=0; A1 잔여 5 = crafted-거부 probe(§7.4).
+
+## §7.3 R4RL-03 throw-probe 처리 (§3.1b 이관분)
+
+`SatisfiableForcedOpensSession`의 `catch (DeferredChoicePendingException)`(Program.cs:280) = `DeferredChoiceProvider.ChooseAsync`의 throw-suspend 계약 검증. §3.1c/§3.1d 재판정 = **retained substrate**(펌프 액션-후 드레인=GameFlowProcessor.RunToStableAsync가 소비하는 out-of-pump throw 경로; W7 판례와 동형). 삭제-표면 6파일 미포함 → **존치**(은퇴/재조준 불요). R4RL-03의 통화 재조준은 `RealCardMatchAsync` fixture의 AdvancePhase 루프 → 펌프 구동 전환만(throw-probe 무변).
+
+## §7.4 G3.5-RL-A1 — 은퇴 1 + crafted-probe 경계 소견
+
+- **은퇴 1**: `LegacyApplyPathIsUnaffected`(검증 대상=무-validator 기본-ctor 미가드 apply-큐잉 경로) — B6-Db 기본 ctor→펌프 플립(validator 기본 ON)이 이 경로를 삭제 = **검증 대상 소멸**(설계 원칙 2). 단언 −2(43→41)는 이 은퇴분 정확 대응. 경계의 opt-in성은 `CreatePumpDriven(enforceActionLegality:)`가 계승.
+- **crafted-거부 probe 5 잔존**: 테스트 2/4/8/9가 `HeadlessActionFactory.EndTurn`/`AdvancePhase`를 **직접 구성해 펌프/validator가 거부함을 단언**(구동이 아님). 이는 S3c 컷오버 때 신설된 `PumpBoundaryEnforcesSameContract`(테스트 9, "legal on the OLD cadence, pump-illegal")의 설계-자체 pump-witness 패턴 = 상수/팩토리 B6 존치 전제. **경계 판정 필요**(코디네이터): crafted-거부-probe ≠ 구동-블로커 통화(§3.1d 블로커는 디스패처 **생성** 의존 구동)라면 A1은 "구동 통화=0"으로 재조준 완료; 엄격 grep=0을 요구하면 EndTurn/AdvancePhase 거부 probe는 무효-대상(삭제 예정)으로 은퇴·SpecialPlay probe로 계약 보존해야 하나 이는 테스트 9의 pump-witness 의도와 상충. 결정 (a)가 factored 레인(개념적 "인식-불법")을 유지하는 것과 정합적으로 **crafted-probe 존치 권고**.
+
+## §7.5 직교 red 3 분류 (RL-스키마 문제 vs 직교 부채)
+
+3건 모두 **통화 재조준은 완결**(currency=0, 펌프가 동일 단언 지점까지 구동)했고 잔여 red는 **RL 액션/관측 스키마와 무관한 직교 부채**:
+- **G11-002**: ActivateOption apply는 정상(메모리 5→2 비용 지불 실증) — 그러나 ST2_16 [Main] "상대 Digimon 1 hand 바운스"의 **타겟-select suspend 미발화**(pending=false). 원인 = `CardEffect/ST2/Blue/ST2_16.cs` + DeferredChoice 효과-해소 기제(병행 Sonnet 트랙·무접촉 도메인). RL 스키마/통화 아님.
+- **G3.5-RL-B1** `BattleUsesComputedDp`: 순수 DP 모델 8/8 green; 통합-전투만 red — control 전투는 펌프 구동으로 정상 해소(재조준 완결), **boosted DP-modifier(`BattleResolver.DpModifiersKey`)가 결과 미반전**(baseline과 동일 단언). harness=G2G-003 파생 = 설계 §3.1e 직교 HEAD-red 전투 도메인.
+- **G3.5-RL-C2** `PiercingStrikeChecksTwo`: strike-2 piercing이 보안 1장만 체크(baseline과 동일 '3 vs 4'). `PierceSelfEffect`/`OnDetermineDoSecurityCheck` 창 = 전투-키워드 도메인(병행 Sonnet CardEffect/). RL 스키마 아님.
+
+## §7.6 게이트 실측
+
+- **build**: 엔진 0오류·RL 0오류·0경고. 워킹트리 수정=재조준 9 테스트파일 한정(엔진/CardEffect/PILOT 무접촉).
+- **9 프로젝트**: 위 표(전후 단언·red flip 0).
+- **RL 계약(스키마 무변 확인)**: M2-001 **11/11** · M4-001 **9/9** · G13-003 **PASS** · R4RL-01 **6/6** · R4RL-02 **15/15** · R4RL-04 **8/8**(obs 3104·action 600·obsSchemaHash 무변 → 결정 (a) 실증) · RLB1-01 **3/3**.
+- **회귀**: EXEMPLAR-T1 **18/18** · GLINK **5/5** · F62 **3/3** · α4(A4-Execute 6·C-EoT2 9·GR-006 7·W-EoTFIX 4) · c3 대표(C1-Witness 4·W6 4·G12-004 1·G2G-001 10) — 전부 green.
+- **shadow**: R4S3c-ShadowOldNew **2/2 IDENTICAL + secwin IDENTICAL**(seed 404 winner 1/1·sec 0/0·동일 digest) · R4P4-ShadowRun **2 bit-identical**. (엔진 무변 → drift 0 실증.)
+
+## §7.7 남는 리스크
+
+1. **A1 crafted-probe 경계**(§7.4) = 리뷰2(RL 스키마 재조준 정보-보존 감사) 지점의 판정 항목 — crafted AdvancePhase/EndTurn 거부 probe의 B6 존치 여부.
+2. **직교 red 3**(§7.5) = B5/병행 Sonnet 전투·보안·CardEffect 트랙 상환에 종속(B3 통화는 이미 0이라 B6 비블로킹).
