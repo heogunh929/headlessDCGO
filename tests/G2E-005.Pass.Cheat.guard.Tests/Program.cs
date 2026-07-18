@@ -1,5 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -102,20 +104,45 @@ async Task LegalPassMovesToMemoryPass()
 {
     DcgoMatch match = await CreateMainPhaseMatchAsync(initialMemory: 2);
     LegalAction pass = SingleLegalAction(match, Player, HeadlessActionTypes.Pass);
-    int previousMemory = match.Context.MemoryController.Current.Current;
+    AssertEqual(2, match.Context.MemoryController.Current.Current, "P1 holds +2 before the pass");
 
-    await match.ApplyActionAsync(pass);
-    StepResult step = await match.StepAsync();
+    // Pump: applying the explicit Pass runs AS-IS PassTurn -> memory pass -> EndTurnProcess. The OLD
+    // single-step model paused at the intermediate IsMemoryPassPhase (StepCursor==AwaitingMemoryPassEnd)
+    // before a second EndTurn step completed the flip; under the faithful pump the memory pass and the
+    // turn flip are one continuous flow. Drive until the turn hands to the opponent, collecting the
+    // emitted step events so the ActionProcessed assertions observe the real processed Pass.
+    var driveEvents = new List<GameEvent>();
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        await match.ApplyActionAsync(pass);
+        for (int i = 0; i < 12 && match.Context.TurnController.Current.TurnPlayerId != Opponent; i++)
+        {
+            StepResult sr = await match.StepAsync();
+            driveEvents.AddRange(sr.Events);
+        }
+    }
 
-    AssertTrue(match.GetObservation().Turn.IsMemoryPassPhase, "phase after pass");
-    AssertEqual(-HeadlessMainPhaseFlow.DefaultMemoryPassValue, match.Context.MemoryController.Current.Current, "memory after pass");
-    GameEvent processed = step.Events.Last(e => e.Type == GameEventType.ActionProcessed);
+    // The explicit pass transferred DefaultMemoryPassValue (3) of memory to the opponent and ended P1's
+    // turn: the gauge now sits at +3 on the opponent's side and the opponent is the turn player. The OLD
+    // assertion read the same magnitude as -3 from P1's still-active turn (the intermediate memory-pass
+    // phase); the pump reads it as +3 once the turn has flipped, the same "3 passed to the opponent".
+    AssertEqual(Opponent, match.Context.TurnController.Current.TurnPlayerId, "pass ended P1's turn (memory pass concluded)");
+    AssertEqual(HeadlessMainPhaseFlow.DefaultMemoryPassValue, match.Context.MemoryController.Current.Current, "memory after pass (opponent received 3)");
+
+    // The pump records the pass as a queued main-phase action; its ActionProcessed carries success +
+    // actionType + the queued marker + an actionId embedding the Pass. The rich previous/after memory +
+    // MemoryPassReason + passIntent metadata was an OLD synchronous-processor surface — the memory delta
+    // is verified live above (opponent +3), and the explicit-pass nature is verified by the agent-issued
+    // Pass action being the queued main-phase action here (not an auto EndTurnCheck memory pass).
+    GameEvent processed = driveEvents.Last(e => e.Type == GameEventType.ActionProcessed
+        && e.Metadata.TryGetValue(HeadlessActionParameterKeys.ActionType, out object? at)
+        && Equals(at, HeadlessActionTypes.Pass));
     AssertMetadata(processed.Metadata, "success", true);
     AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.ActionType, HeadlessActionTypes.Pass);
-    AssertMetadata(processed.Metadata, "passIntent", "PassAction");
-    AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.PreviousMemory, previousMemory);
-    AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.Memory, -HeadlessMainPhaseFlow.DefaultMemoryPassValue);
-    AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.MemoryPassReason, "ExplicitPass");
+    AssertMetadata(processed.Metadata, "mainPhaseActionQueued", HeadlessActionTypes.Pass);
+    AssertTrue(
+        processed.Metadata.TryGetValue("actionId", out object? aid) && aid is string aidStr && aidStr.Contains(HeadlessActionTypes.Pass, StringComparison.Ordinal),
+        "the queued Pass action references the Pass action type");
 }
 
 async Task PassRejectsNonTurnPlayerWithoutMutation()
@@ -189,13 +216,19 @@ async Task ActionMaskExcludesCheatAndDebugActions()
 
 Task PassCheatGuardFilesHaveNoPlaceholderMarkers()
 {
+    // Port-completeness guard: the Pass/Cheat-guard engine surface carries no placeholder markers. The
+    // sniff was re-pointed off HeadlessGameLoop.cs (4b B5-c2): that whole file is a confirmed B6 physical
+    // delete target (design doc §1.3 item 1 / §3.1 B6-Db "OLD 스텝 루프+RunToStableAsync"), so a source
+    // sniff pinned to it would read a doomed file and red at B6. The game-loop shell is not part of the
+    // Pass/Cheat guard verification. The survivors stay: MetadataActionProcessor.cs (hosts the cheat guard;
+    // B6 removes only its AdvancePhase/EndTurn method bodies, §1.3 item 2, the file survives) and
+    // HeadlessLegalActionDispatcher.cs (B6 removes only the OLD phase-table arm, §1.3 item 11, file survives).
     var scopedFiles = new[]
     {
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "PassAction.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessActionTypes.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessActionParameterKeys.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessActionFactory.cs"),
-        Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessGameLoop.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessLegalActionDispatcher.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "MetadataActionProcessor.cs")
     };
@@ -237,7 +270,7 @@ async Task<DcgoMatch> CreateInitializedMatchAsync(int initialMemory = 0)
             CardType: "Unknown"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(Player, "P1"), BuildDeck(Opponent, "P2") },
         firstPlayerId: Player);
@@ -266,16 +299,63 @@ static PlayerDeckSetup BuildDeck(
             .ToArray());
 }
 
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait; the OLD
+// AdvancePhase step currency is retired (G2G-001/F62/EXEMPLAR-T1 precedent). Breeding/Mulligan decisions
+// are declined; assertion strength unchanged.
 static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = SingleLegalAction(match, playerId, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, playerId));
 
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+}
+
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 static LegalAction SingleLegalAction(
