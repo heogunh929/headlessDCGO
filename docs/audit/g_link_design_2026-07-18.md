@@ -205,3 +205,7 @@ LinkedMax(IChangeLinkMaxEffect fold)                    상태기반: DigimonLac
 - **배치 계획**: 3배치 — (1) GetChangedLinkCost+합법성 해제, (2) ILinkCard/IPlacePermanent/WhenWouldLink/LinkEffect flip, (3) 78장 소비자 행동검증. witness=EX10_029·BT25_089·WhenWouldLink 1장.
 - **RL 스키마 영향**: 없음 — Link은 choice 펌프로 노출되는 활성화 효과, factored 스키마 v2 슬롯/버전 불변, 신규 HeadlessActionType 불요(도달 가능 ResolveChoice 세션만 증가).
 - **리스크 상위 3**: (1) WhenLinked 기존 창과 이중발화·순서 정합, (2) IPlacePermanentToLinkCards의 leave-field/DeDigivolve 이중삭제 위험, (3) shadow 무변은 비-링크 코퍼스로 한정(+ player-EffectList latent fold 원장화).
+
+## 적대 리뷰 결과 (2026-07-18, 독립 — 커밋 19742e51·a03072ee·f9217ec6): GO
+P0/P1 0. 6렌즈 전부 확인(반증 실패): AS-IS 라인 대조 verbatim(showEffect 게이트=UI만·TriggeredSkillProcess 무조건 호출 정합)·WhenWouldLink=창 후 코스트 재산정 정합·재검사-부재 quirk 보존(bug-for-bug)·DP ambient=중첩 복원 안전+관측 인코더는 별도 DpCalculator 경로라 무염·BareCauseEffect 전제 성립(AS-IS 비-효과 링크 경로 없음, 포팅 WhenLinked 4개 전수 sourceCondition=null)·BT25_089 store-backed grant 정합.
+**P2 원장 4건(소형 원장 배치 이월)**: ①WhenLinked cause가 AddLinkCard 경계(Permanent.cs:3982 `_ = causeEffectSourceId` 폐기)에서 절단 — source-gated WhenLinked 카드 포팅 전 마지막 hop 배선 필요(RD-C1 갱신) ②GetChangedLinkCost LATENT 주석 과대 — UntilCalculateFixedCostEffect는 live(witness가 실증), 진짜 latent=GiveEffectToPlayer 서브경로만: 주석 정정 ③ResolveLinkCost의 legacy linkCostDelta 선-fold=AS-IS 미존재 union 비계(RD-P6B-16) — 엔드포인트 철거 대상, 그전까지 GrantedReduceLinkCost가 legacy 델타 미등록 회귀 고정 ④WhenWouldLink 코스트-변조·인터리빙 witness 커버리지 갭 — BT25_004/045(실제 prevent-link) 착지 시 추가.
