@@ -126,7 +126,7 @@ LegalAction a = RequireLane(match, P1, HeadlessActionTypes.ActivateOption, subje
 
 | 배치 | 스코프 | 규모 | 병렬 | 게이트 |
 |------|--------|-----:|------|--------|
-| **B0** | 즉시-삭제 무료 2건(항1부속 ResolveBreedingAsync·항7 CanEnterFieldByEffect) + ⑤ 발명물 8 삭제(검증 대상 소멸 확인) | 표면 2 + 스위트 8 | — | 삭제 후 전체 스위트 fail-set = base−(삭제된 ⑤ red 1) |
+| **B0** | 즉시-삭제 무료 2건(항1부속 ResolveBreedingAsync·항7 CanEnterFieldByEffect) + ⑤ 발명물 은퇴(검증 대상 소멸 확인) — **실행결과: 7 은퇴 + 1 보류(PRIM.TriggeredActivatedBridge→②b 재분류)**, §3.1a | 표면 2 + 스위트 7(은퇴)/1(보류) | — | 삭제 후 전체 스위트 fail-set = base−(삭제된 ⑤ live red) |
 | **B1** | ②b throw-계약 20 중 P-C/P-E(C-Del-*·C-Atk-*·W1b·C-EoT2·GR-006·F1-M*) 재조준 | ~20 | 카드계열별 2~3 병렬 | 재조준분 red→green **불변 증명**(재조준 전후 동일 판정) |
 | **B2** | ②a/②b P-A/P-B 페이즈-진행·스텝-경계(G2A-006·G2E-*·G3.5-N9·비-RL) 재조준 | ~35 | phase-계열별 병렬 | 동상 |
 | **B3** | RL 스위트(G3.5-RL-A1/A3/A4b·B1·B2B3·C1/C2·R4RL-03) 관측/액션 스키마 재조준 | ~12 | 직렬(스키마 공유) | 정보-보존 단언 게이트 |
@@ -134,6 +134,23 @@ LegalAction a = RequireLane(match, P1, HeadlessActionTypes.ActivateOption, subje
 | **B5** | ③ 재분류분(간접 OLD 참조) 최소 스캐폴드 감쌈 | 소수(감사 후 확정) | — | 매치 스캐폴드 후 리걸-등재 단언 |
 | **B6-Da** | **소비자 0 판정** — OLD 표면(항1/2/3/4/5/6/8/11) grep 소비자 재확인 | — | — | 소비자 0 도달 = 삭제 게이트 |
 | **B6-Db** | OLD 표면 물리 삭제(HeadlessGameLoop·MetadataActionProcessor AdvancePhase/EndTurn body·*PhaseFlow·throw 계약·마커·디스패처 OLD arm) + 기본 ctor→펌프 플립 | 표면 ~2,900줄 | — | 전체 스위트 = base fail-set(직교 57)만 잔존 |
+
+### 3.1a B0 실행 기록 (2026-07-18, main HEAD=91e1c337, 메인 워킹트리·미커밋)
+
+**즉시-삭제 무료 2건 (소비자 0 재확증 후 처분):**
+- **항7 CanEnterFieldByEffect** (`PlayCardsBridge.cs`) — 재grep으로 소비자 확인: 내부 2호출부만(PlayPermanentCards의 `Where` 절 :53·PlaceDelayOptionCards 가드 :212), 외부·테스트 소비자 0, ICanNotPutFieldEffect 생산자 0. **처분=완료**: 2호출부를 AS-IS 위치 멤버 `cardSource.CanEnterField(...)`/`card.CanEnterField(...)` 직호출로 재배선(양측 이미 non-null 가드 보유 → 행동 항등), 래퍼 메서드+doc 삭제, 잔여 doc 참조(PlayCardsBridge 헤더·PlaceDelayOptionCards doc·CardSource.cs:417·PlayPermanentCards doc의 `<see cref>`) 갱신. 엔진 재빌드 0오류·경고 1566 무증가·CS1574 0·dangling 참조 0.
+- **항1부속 ResolveBreedingAsync** (`HeadlessEarlyPhaseFlow.cs`) — **선-완료 확인**: S3c-d 커밋에서 이미 물리 삭제(BreedingPhaseResult record 동반), 現상태=툼스톤 주석만 잔존. 4b B0 재grep: .cs 소비자 0(주석 1건만). 추가 조치 불요.
+
+**⑤ 발명물-표면 스위트 (8 분류 중 7 은퇴 + 1 보류):**
+- **은퇴 7** — 각 은퇴 근거(무엇을 검증했는가·왜 대상 소멸인가):
+  1. `G1F-005.EffectRegistry.contract.Tests` (live, 삭제) — 검증 대상=발명 `InMemoryEffectRegistry`/`EffectBinding`/`IEffectQueryService` 계약(Register/GetEffects/GetKeywordEffects/입력검증) + CSV goal-row 메타데이터 + 소스 sniff(no-TODO/no-Unity). **전량 발명물 표면**(레지스트리=B군 청산 대상); 게임-행동 단언 0 → 건질 것 없음.
+  2. `G2D-001.Card.identity.binding.Tests` (live, 삭제) — 검증 대상=발명 `CardIdentityAdapter`/`CardIdentitySnapshot`/`InMemoryCardInstanceRepository` 메커닉(create/move/reveal/suspend/attach-source) + CSV 메타 + AS-IS 파일 sniff. 실제 이동/리빌/서스펜드 게임-행동은 AS-IS-미러 witness(G2D-002/003/004)가 별도 커버 → 발명 어댑터 메커닉은 중복; 건질 것 없음.
+  3. `G3B-001.Hashtable.replacement.adapter.Tests` (live, 삭제) — 검증 대상=발명 `EffectContextHashtableAdapter`/`EffectContextAdapterKeys` 번역 메커닉 + CSV 메타 + AS-IS sniff. 매치-경로 게임-행동 0 → 건질 것 없음.
+  4-7. `G3J-001.CardEffectFactory.binding.Tests`·`G3J-002.PermanentEffectFactory.binding.Tests`·`F1-DeadTimingInfra.Tests`·`Stage5-ActivatedBridge.Tests` — **선-은퇴 확인**: 소스가 이미 선행 커밋에서 삭제됨(git-tracked 0; G3J-001=3068b19d·G3J-002=0feee8df·F1-DeadTimingInfra/Stage5-ActivatedBridge=91cbb178). 잔존=디스크상 stale bin/obj 뿐 → 물리 디렉터리 정리만 수행(runner는 `*.Tests.csproj`로 발견 → 이미 비가시).
+- **보류 1 (판단 분기 → 삭제 안 함, 보고):**
+  - `PRIM.TriggeredActivatedBridge.Tests` (live, **보류**) — 파일명 기계분류가 "ActivatedBridge" 시그니처로 ⑤에 넣었으나, **검증 대상이 발명물뿐이 아님**: 트리거→activated 자동해소 **실게임 행동 10건**(OnAllyAttack [When Attacking] draw·subject-스코프·[End of Your Turn] once/owner-only·OnDeclaration·unsuspend once-per-turn 캡·OnDigivolutionCardDiscarded 방송+게이트-스코프·OnEndBattle winner+비-winner 스코프·OnTappedAnyone opp-suspend 메모리)을 단언. 구동=`GameFlowProcessor.RunToStableAsync`(②b synth 머신러리 드라이버 표면) + 엔진-상주 `Tfx*` 픽스처(`src/.../CardEffect/TestFixtures/`, `TfxEndTurnDraw`는 RD6-EndTurnSequence도 소비). src에 `TriggeredActivatedBridge` 명명 삭제-예정 표면 0(grep). ⇒ 이는 ⑤ 소멸분이 아니라 **②b P-E 재조준 대상**(RunToStable 드라이버를 펌프 매치 스캐폴드로 감싸 실구동, B1/B5). 부수-행동 단언 10건의 기존 펌프-witness 이식처 부재 + "신설 금지" ⇒ 보수 원칙(판단 분기=삭제 보류)에 따라 **B0 미삭제, ②b로 재분류 권고**.
+
+**B0 처분 요약**: 표면 2(항7 재배선-삭제·항1부속 선-완료) + 스위트 은퇴 7(live 3 삭제 + 선-은퇴 stale 4 정리) + 보류 1(PRIM→②b 재분류). **건진 단언·이식처=없음**(은퇴 7 전량 발명-표면; 이식 대상 게임-행동 단언 0). fail-set 영향: 삭제된 ⑤ live 3 중 base-red 해당분만 제거(트라젝토리 96 목표는 PRIM 보류로 -1 대신 삭제분 실제 red만큼; green-count 미보고 규약).
 
 ## 3.2 배치 게이트 방식
 
@@ -145,7 +162,7 @@ LegalAction a = RequireLane(match, P1, HeadlessActionTypes.ActivateOption, subje
 
 ```
 base 97 = ②a24 + ②b15 + ③55 + ④2 + ⑤1
-B0 후:  96  (⑤ red 1 삭제-제거)
+B0 후:  ≤97 (은퇴 7 중 base-red 해당분만 제거; PRIM 보류로 ⑤ red가 PRIM이었다면 유지→②b 재조준 시 처분. green-count 미보고)
 B1 후:  ≤96 (②b throw-계약 재조준 red 중 OLD-절단분 green 복원 가능 — 순감, 직교분 유지)
 B2 후:  ≤    (②a/②b P-A/P-B 재조준분 동상)
 B3~B4 후: RL/EndTurn 재조준분 green 복원 가능분 순감

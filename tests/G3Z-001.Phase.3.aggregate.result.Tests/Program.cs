@@ -8,7 +8,10 @@ var phase3Goals = new Phase3Goal[]
 {
     new("G3A-001", "EffectContract", "G3A-001_icard_effect_contract_unit_test_results.md", "G3A-001.ICardEffect.contract.Tests"),
     new("G3A-002", "EffectContract", "G3A-002_skill_info_unit_test_results.md", "G3A-002.SkillInfo.Tests"),
-    new("G3B-001", "EffectContext", "G3B-001_hashtable_replacement_adapter_unit_test_results.md", "G3B-001.Hashtable.replacement.adapter.Tests"),
+    // (4b B0) G3B-001.Hashtable.replacement.adapter.Tests는 발명물-표면(어댑터 계약) 검증 전용으로
+    // 2026-07-18 은퇴됨(suite_retarget_4b_design §3.1a) — 결과 문서는 역사 기록으로 잔존하므로
+    // TestProjectDirectory=null로 존재-단언에서 제외(계약 갱신 관례: binding 23→22 판례).
+    new("G3B-001", "EffectContext", "G3B-001_hashtable_replacement_adapter_unit_test_results.md", null),
     new("G3C-001", "Conditions", "G3C-001_trigger_condition_helpers_unit_test_results.md", "G3C-001.Trigger.condition.helper.Tests"),
     new("G3C-002", "Conditions", "G3C-002_can_use_effect_helpers_unit_test_results.md", "G3C-002.CanUseEffects.helper.Tests"),
     new("G3D-001", "Requirements", "G3D-001_minmax_dp_cost_level_unit_test_results.md", "G3D-001.MinMax.DP.Cost.Level.helper.Tests"),
@@ -110,6 +113,7 @@ void Phase3TestProjectsExist()
 {
     foreach (var goal in phase3Goals)
     {
+        if (goal.TestProjectDirectory is null) continue; // (4b B0) 은퇴 스위트 — 존재-단언 제외
         string projectDirectory = Path.Combine(root, "tests", goal.TestProjectDirectory);
         string projectFile = Path.Combine(projectDirectory, $"{goal.TestProjectDirectory}.csproj");
         AssertTrue(Directory.Exists(projectDirectory), $"{goal.Id} test project directory exists");
@@ -130,7 +134,8 @@ void AggregateDocumentLinksEveryPhase3Result()
     {
         AssertTrue(text.Contains(goal.Id, StringComparison.Ordinal), $"{goal.Id} linked");
         AssertTrue(text.Contains(goal.ResultDocumentName, StringComparison.Ordinal), $"{goal.Id} result document linked");
-        AssertTrue(text.Contains(goal.TestProjectDirectory, StringComparison.Ordinal), $"{goal.Id} test project linked");
+        if (goal.TestProjectDirectory is not null)
+            AssertTrue(text.Contains(goal.TestProjectDirectory, StringComparison.Ordinal), $"{goal.Id} test project linked");
     }
 }
 
@@ -299,7 +304,7 @@ static void AssertEqual<T>(T expected, T actual, string message)
     }
 }
 
-sealed record Phase3Goal(string Id, string Area, string ResultDocumentName, string TestProjectDirectory);
+sealed record Phase3Goal(string Id, string Area, string ResultDocumentName, string? TestProjectDirectory);
 
 sealed record Phase3AggregateEvidence(bool IsComplete, bool HasZeroFailedTests)
 {

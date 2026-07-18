@@ -414,8 +414,8 @@ public sealed class CardSource
 
     /// <summary>(R4 S3b) AS-IS <c>CardSource.CanEnterField(cardEffect)</c> (CardSource.cs:1210-1258): the
     /// <see cref="ICanNotPutFieldEffect"/> forbid scan — field permanents / players / itself-when-off-field.
-    /// (The play-pipeline bridge <c>PlayCardsBridge.CanEnterFieldByEffect</c> reproduces the same scan
-    /// wrapper-side; this is the AS-IS-position member the main-phase predicates read.)</summary>
+    /// (This is the AS-IS-position member the main-phase predicates and the play-pipeline bridge read
+    /// directly; the former wrapper-side copy PlayCardsBridge.CanEnterFieldByEffect is retired, 4b B0.)</summary>
     public bool CanEnterField(ICardEffect? _cardEffect)
     {
         var gameContext = new GameContext(Context);

@@ -8,7 +8,7 @@
 //   - PlayToken named family    (AS-IS :140-420, 14 helpers)
 // plus the wrapper-side reproduction of the AS-IS `cardEffect`-gated play filtering the substrate drops
 // (`CanPlayAsNewPermanent(cardEffect: …)` → `CanPlayCardTargetFrame` → `CanEnterField(cardEffect)`, the
-// ICanNotPutFieldEffect scan — see CanEnterFieldByEffect below).
+// ICanNotPutFieldEffect scan — call sites invoke the AS-IS-position CardSource.CanEnterField directly).
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 using System;
@@ -31,7 +31,7 @@ public static partial class CardEffectCommons
     /// isBreedingArea, fixedCost)</c> BEFORE building the PlayCardClass; the substrate overload re-runs that
     /// filter but with <c>cardEffect: null</c> (its <c>CanPlayAsNewPermanent</c> documents the discard), which
     /// silently skips the AS-IS <c>CanEnterField(cardEffect)</c> "can't be played (by effects)" scan. Per
-    /// §11.11 rule 4 this wrapper reproduces that filtering WRAPPER-SIDE (<see cref="CanEnterFieldByEffect"/>)
+    /// §11.11 rule 4 this wrapper reproduces that filtering WRAPPER-SIDE (via <c>CardSource.CanEnterField</c>)
     /// and only then delegates to the verified substrate play path (whose own null-effect re-filter passes a
     /// superset, so the wrapper-side filter is the effective one).</summary>
     public static async Task PlayPermanentCards(
@@ -46,11 +46,11 @@ public static partial class CardEffectCommons
 
         // AS-IS filter chain (:27-34): null filter + CanPlayAsNewPermanent(cardEffect: activateClass, ...).
         // The substrate CanPlayAsNewPermanent models the cost/option/frame halves (isBreedingArea has no
-        // frame model — documented there); the cardEffect half is reproduced by CanEnterFieldByEffect.
+        // frame model — documented there); the cardEffect half is CardSource.CanEnterField (AS-IS position).
         List<CardSource> playable = cardSources
             .Where(cardSource => cardSource != null)
             .Where(cardSource => CanPlayAsNewPermanent(cardSource, payCost, activateClass, isPlayOption: false, fixedCost: fixedCost)
-                              && CanEnterFieldByEffect(cardSource, activateClass))
+                              && cardSource.CanEnterField(activateClass))
             .ToList();
 
         if (playable.Count == 0)
@@ -204,12 +204,12 @@ public static partial class CardEffectCommons
     /// already accepts the two-argument AS-IS call shape, so adding a defaulted third parameter would make
     /// every 2-arg call ambiguous (CS0121). Two-arg AS-IS calls therefore bind to the substrate overload
     /// directly — whose body still discards <c>cardEffect</c> before <c>CanPlayAsNewPermanent</c> (pre-existing
-    /// substrate gap, design item RD-W3-2); THIS overload applies the wrapper-side
-    /// <see cref="CanEnterFieldByEffect"/> gate the AS-IS <c>CanPlayAsNewPermanent(cardEffect:, isPlayOption:
+    /// substrate gap, design item RD-W3-2); THIS overload applies the AS-IS-position
+    /// <c>CardSource.CanEnterField</c> gate the AS-IS <c>CanPlayAsNewPermanent(cardEffect:, isPlayOption:
     /// true)</c> chain implies.</summary>
     public static async Task PlaceDelayOptionCards(CardSource card, ICardEffect cardEffect, SelectCardEffect.Root root)
     {
-        if (card == null || !CanEnterFieldByEffect(card, cardEffect))
+        if (card == null || !card.CanEnterField(cardEffect))
         {
             return;
         }
@@ -444,32 +444,11 @@ public static partial class CardEffectCommons
         _ => ChoiceZone.None,
     };
 
-    /// <summary>(BRIDGE W3) Wrapper-side reproduction of AS-IS <c>CardSource.CanEnterField(ICardEffect)</c>
-    /// (CardSource.cs, the gate <c>CanPlayCardTargetFrame</c> applies on an EMPTY frame): scan for an active
-    /// <see cref="ICanNotPutFieldEffect"/> that forbids putting <paramref name="cardSource"/> into play by
-    /// <paramref name="cardEffect"/>. AS-IS scans three regions; the surfaces available pre-flip cover two:
-    ///   ① field permanents' EffectList(None) — mirrored via each field permanent's TOP CARD effect list (the
-    ///     AS-IS Permanent.EffectList aggregate's dominant source; inherited/granted-scope producers have no
-    ///     pre-flip scan surface — folded into design item RD-W3-2);
-    ///   ② players' EffectList(None) — NO pre-flip mirror surface (player-bucket grants live as registry
-    ///     bindings, not scannable ICardEffect lists) — design item RD-W3-2, explicitly not silent;
-    ///   ③ the card's OWN EffectList(None) when it is not on a permanent — exact.
-    /// No ICanNotPutFieldEffect producer is registered anywhere in the mirror today (CanNotPutFieldClass has
-    /// zero factory/card producers), so ①/③ scanning nothing is currently exact; the helper exists so the gate
-    /// is structurally in place the moment the first producer card is ported.</summary>
-    // (R4 S3c-d, 은퇴 원장 항7) The former WRAPPER-SIDE scan copy is retired — the AS-IS-position member
-    // CardSource.CanEnterField (CardSource.cs, S3b) is the single owner of the ICanNotPutFieldEffect scan
-    // (all three AS-IS regions, players included — the copy's region ② gap RD-W3-2 closes with it). No
-    // ICanNotPutFieldEffect producer exists yet, so the rewire is behaviourally a no-op today.
-    private static bool CanEnterFieldByEffect(CardSource cardSource, ICardEffect? cardEffect)
-    {
-        if (cardSource == null)
-        {
-            return false;
-        }
-
-        return cardSource.CanEnterField(cardEffect);
-    }
+    // (R4 S3c-d/4b B0, 은퇴 원장 항7) The WRAPPER-SIDE scan copy CanEnterFieldByEffect is fully retired: its
+    // two call sites now invoke the AS-IS-position member CardSource.CanEnterField (CardSource.cs, S3b)
+    // directly — the single owner of the ICanNotPutFieldEffect scan across all three AS-IS regions (players
+    // included; the copy's region ② gap RD-W3-2 closes with it). No ICanNotPutFieldEffect producer exists
+    // yet, so the rewire is behaviourally a no-op today.
 
     #endregion
 }
