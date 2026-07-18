@@ -31,7 +31,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_040 W2 [All Turns] OnLoseSecurity -4000: 효과 등재 + CanActivate ON(배틀에어리어 Digimon)", BT25040_LoseSecurityGate),
     // BT25_104 — ShineGreymon: Burst Mode (14축) — Arts만 latent STOP, 나머지 포팅
     ("BT25_104 W1 정적 키워드 등재: AddDigivolutionRequirement·AddBurstDigivolutionCondition·ChangeSAttack·Blocker·ChangeBaseDP·Rush·UseRequirements·Arts(None)", BT25104_StaticsPresent),
-    ("BT25_104 W2 [Raid](OnAllyAttack)·Option [Main](OptionSkill) 등재 + Arts latent STOP(RD-P6C2-10)·Burst execution 별개 STOP(RD-P6C1-6) 수확", BT25104_RaidMainArtsHarvest),
+    ("BT25_104 W2 [Raid](OnAllyAttack)·Option [Main](OptionSkill) 등재 + Arts RESOLUTION 실행 flip(RD-P6C2-10): frame 모델(PermanentFrame/FrameID)·CanPlayCardTargetFrame·CanResolve·진화 실행", BT25104_RaidMainArtsResolve),
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
     ("BT25_089 W2 수확 STOP: [Main] link 등재 + CanUse ON, RESOLUTION throws NotSupported(ILinkCard 부재/CanLink payCost — RD-EXT3-01)", BT25089_LinkStopHarvest),
@@ -118,9 +118,9 @@ async Task BT25104_StaticsPresent()
     }
 }
 
-async Task BT25104_RaidMainArtsHarvest()
+async Task BT25104_RaidMainArtsResolve()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3412, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 3412, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
     HeadlessEntityId shine = Stage(match, P1, "BT25_104", ChoiceZone.BattleArea, "1:battle:Shine", register: true);
 
@@ -128,11 +128,69 @@ async Task BT25104_RaidMainArtsHarvest()
         "[Raid] RaidSelfEffect registered under OnAllyAttack");
     AssertTrue(EffectNamed(match, shine, Cec.EffectTiming.OptionSkill, "As an option effect, 1 Enemy Digimon gets -15k DP, play 1 tamer.") is not null,
         "Option [Main] ActivateClass registered under OptionSkill");
-    // HARVEST: Arts Digivolution registers (OptionResolutionClass) but its RESOLUTION is the deferred STOP
-    // RD-P6C2-10 (CanResolveCondition/ResolutionCoroutine closures throw). Burst EXECUTION is the separate engine
-    // STOP RD-P6C1-6 (SelectBurstDigivolutionEffect / CardController burst-play) — not driven here.
-    AssertTrue(HasEffectType(EffectsOf(match, shine, P1, Cec.EffectTiming.None), "OptionResolutionClass"),
-        "HARVEST: ArtsDigivolveEffect registers (latent STOP RD-P6C2-10 on resolution; factory call/registration clean)");
+
+    // The Arts option card resolves from the Execution area (AS-IS IsExistOnExecutingArea gate); it must be
+    // off-field so PermanentOfThisCard()==null — otherwise CanPlayCardTargetFrame's self-permanent block
+    // (a lone battle permanent with no digivolution cards) short-circuits. Move it there for the resolution.
+    await match.Context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, shine, ChoiceZone.BattleArea, ChoiceZone.Execution));
+
+    var arts = (Cec.OptionResolutionClass)EffectsOf(match, shine, P1, Cec.EffectTiming.None)
+        .First(e => e.GetType().Name == "OptionResolutionClass");
+    var shineCard = new Cec.CardSource(match.Context, shine, P1);
+
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+
+    // FLIP RD-P6C2-10: CanResolve no longer throws. With no arts-evolvable owner Digimon on the board it
+    // evaluates the full frame path (PermanentFrame -> CanPlayCardTargetFrame -> CanEvolve) and returns FALSE.
+    bool resolveEmpty = arts.CanResolve(shineCard);
+    AssertTrue(!resolveEmpty, "RD-P6C2-10 FLIP: CanResolve evaluates cleanly (no NotSupportedException) and is FALSE with no arts target");
+
+    // A DATA SQUAD Lv.6 owner Digimon — a legal Arts-digivolution base via BT25_104's granted
+    // AddSelfDigivolutionRequirementStaticEffect(DATA SQUAD, level 6).
+    HeadlessEntityId ds = StageSynthetic(match, P1, "ARTS-DS", dp: 8000, level: 6, "1:battle:ds", traits: new[] { "DATA SQUAD" });
+    var dsPerm = new Cec.Permanent(match.Context, ds, P1);
+    Cec.FieldCardFrame? frame = dsPerm.PermanentFrame;
+
+    // === frame model surface (RD-P6C2-10 / RD-P6C3-D1) ===
+    AssertTrue(frame is not null, "Permanent.PermanentFrame materialises for a battle-area permanent");
+    AssertTrue(frame!.GetFramePermanent() == dsPerm, "FieldCardFrame.GetFramePermanent() == the occupying permanent");
+    AssertTrue(!frame.IsEmptyFrame(), "FieldCardFrame.IsEmptyFrame() == false (occupied)");
+    AssertTrue(frame.IsBattleAreaFrame() && !frame.isBreedingAreaFrame(), "FieldCardFrame battle/breeding classification (zone membership) — battle");
+    AssertTrue(frame.player == P1, "FieldCardFrame.player == owner");
+    AssertTrue(frame.FrameID >= 0, "FieldCardFrame.FrameID is the field-list index (>= 0)");
+
+    // === CanPlayCardTargetFrame occupied-frame reduction == CanEvolve (consistent with the G-Field seat) ===
+    bool cpf = shineCard.CanPlayCardTargetFrame(frame, false, null, ScriptSelectCardEffect.Root.Execution);
+    AssertTrue(cpf == shineCard.CanEvolve(dsPerm, true),
+        "CanPlayCardTargetFrame(occupied, PayCost:false) reduces to the owner check + CanEvolve");
+    AssertTrue(cpf, "BT25_104 can Arts-digivolve onto the DATA SQUAD Lv.6 base (granted requirement)");
+
+    // === positive resolution gate ===
+    AssertTrue(arts.CanResolve(shineCard),
+        "CanResolve TRUE with an arts-evolvable DATA SQUAD Lv.6 owner Digimon present (full chain: HasMatchConditionPermanent -> CanPlayCardTargetFrame)");
+
+    // === execution: drive the Arts digivolve; assert the resulting permanent state ===
+    policy.On(
+        req => req.Type == ChoiceType.Permanent && req.Message.Contains("Arts Digivolve"),
+        req => req.Candidates.Count(c => c.IsSelectable) > 0
+            ? ChoiceResult.Select(req.Candidates.First(c => c.IsSelectable).Id)
+            : ChoiceResult.Skip());
+
+    await arts.Resolve(shineCard);
+
+    // The Arts digivolve stacks BT25_104 on top of the selected DATA SQUAD base: shine leaves the Execution
+    // area and becomes the top card of the (now single) battle permanent, with the DATA SQUAD card as its
+    // digivolution (under) card — the evolution result state.
+    var zr = (IZoneStateReader)match.Context.ZoneMover;
+    var shinePerm = new Cec.Permanent(match.Context, shine, P1);
+    AssertTrue(!zr.GetCards(P1, ChoiceZone.Execution).Contains(shine),
+        "Arts digivolve EXECUTED: BT25_104 left the Execution area");
+    AssertTrue(zr.GetCards(P1, ChoiceZone.BattleArea).Contains(shine),
+        "Arts digivolve EXECUTED: BT25_104 is a battle-area permanent (its own top card)");
+    AssertTrue(shinePerm.DigivolutionCards.Any(c => c.InstanceId == ds),
+        "Arts digivolve EXECUTED: the DATA SQUAD base is now a digivolution (under) card of BT25_104 — evolution result state");
+    AssertTrue(!zr.GetCards(P1, ChoiceZone.BattleArea).Contains(ds),
+        "Arts digivolve EXECUTED: the DATA SQUAD base is no longer a separate battle permanent (it was digivolved over)");
 }
 
 // ═══════════════════════════════════ BT25_089 ═══════════════════════════════════

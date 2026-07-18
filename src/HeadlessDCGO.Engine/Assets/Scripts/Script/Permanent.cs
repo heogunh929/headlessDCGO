@@ -106,6 +106,34 @@ public sealed class Permanent
     /// <summary>The top (battling) card of this permanent as a <see cref="CardSource"/>.</summary>
     public CardSource TopCard => new(_context, InstanceId, OwnerId);
 
+    /// <summary>(RD-P6C2-10 / RD-P6C3-D1) AS-IS <c>Permanent.PermanentFrame</c> (Permanent.cs:27-43): the field
+    /// frame this permanent occupies. AS-IS finds this permanent's slot via
+    /// <c>Array.IndexOf(TopCard.Owner.FieldPermanents, this)</c> and returns <c>fieldCardFrames[index]</c>.
+    /// The mirror has no fixed parallel slot arrays (no slot/capacity model — RD-P6C1-1/RD-P6C1-2), so the frame
+    /// is materialised on demand: <c>FrameID</c> = this permanent's index in the owner's occupied field-permanent
+    /// list (<c>GetFieldPermanents()</c> = battle ++ breeding) — the established field-list-index ADAPTATION —
+    /// carrying the owner and this permanent as the occupant. Minimal surface consumed by [Arts Digivolve]
+    /// (<see cref="CardSource.CanPlayCardTargetFrame"/>) and [App Fusion]
+    /// (<c>CardSource.CanAppFusionFromTargetPermanent</c>).</summary>
+    public FieldCardFrame? PermanentFrame
+    {
+        get
+        {
+            if (TopCard != null)
+            {
+                List<Permanent> fieldPermanents = new Player(_context, OwnerId).GetFieldPermanents();
+                int index = fieldPermanents.FindIndex(permanent => permanent == this);
+
+                if (0 <= index && index <= fieldPermanents.Count - 1)
+                {
+                    return new FieldCardFrame(_context, OwnerId, index, this);
+                }
+            }
+
+            return null;
+        }
+    }
+
     /// <summary>(R1-a) AS-IS <c>Permanent.HasDP</c> (Permanent.cs:146-189): only a (treated-as) Digimon has DP,
     /// and a Digi-Egg without printed DP has none, and no active <c>IDontHaveDPEffect</c> strips it. The scan is
     /// the AS-IS live enumeration over EVERY player's field permanents' EffectList (NOT ForTurnPlayer, and NO

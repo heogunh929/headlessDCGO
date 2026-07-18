@@ -958,3 +958,49 @@ internal static class PlayerEffectListStore
         return ByContext.GetOrCreateValue(context).GetOrAdd(playerId, static _ => new PlayerEffectLists());
     }
 }
+
+/// <summary>(RD-P6C2-10 / RD-P6C3-D1) MINIMAL mirror of AS-IS <c>FieldCardFrame</c> (Player.cs:1542-1675) —
+/// only the surface [Arts Digivolve] (<c>CardEffectFactory.ArtsDigivolveEffect</c>) and [App Fusion]
+/// (<c>CardSource.CanAppFusionFromTargetPermanent</c>) consume through <see cref="Permanent.PermanentFrame"/>:
+/// the frame's <see cref="FrameID"/> (the field-list index — the established no-slot-model ADAPTATION,
+/// RD-P6C1-1/RD-P6C1-2), the frame's owner, the occupying permanent, and the battle-vs-breeding classification.
+/// The Unity slot GameObject / Frame_Select / BoxCollider / click / canvas members and the fixed per-player
+/// <c>fieldCardFrames</c> slot array are NOT ported (no slot/capacity model — the documented frame-model
+/// convention, Permanent.cs:2839-2842). Battle/breeding is answered by ZONE MEMBERSHIP of the occupying
+/// permanent — the sanctioned substrate translation of AS-IS <c>FieldCardFrame.isBattleAreaFrameID(FrameID)</c>
+/// (which thresholds FrameID against the fixed slot count) — since the mirror has no slot array to threshold.</summary>
+public sealed class FieldCardFrame
+{
+    private readonly EngineContext _context;
+    private readonly Permanent? _framePermanent;
+
+    public FieldCardFrame(EngineContext context, HeadlessPlayerId player, int frameID, Permanent? framePermanent)
+    {
+        _context = context;
+        this.player = player;
+        FrameID = frameID;
+        _framePermanent = framePermanent;
+    }
+
+    /// <summary>AS-IS <c>FieldCardFrame.FrameID</c> (Player.cs:1551) — the field-list index (ADAPTATION).</summary>
+    public int FrameID { get; }
+
+    /// <summary>AS-IS <c>FieldCardFrame.player</c> (Player.cs:1554, a <c>Player</c>) — the frame's owner id.</summary>
+    public HeadlessPlayerId player { get; }
+
+    /// <summary>AS-IS <c>FieldCardFrame.GetFramePermanent()</c> (Player.cs:1578).</summary>
+    public Permanent? GetFramePermanent() => _framePermanent;
+
+    /// <summary>AS-IS <c>FieldCardFrame.IsEmptyFrame()</c> (Player.cs:1598).</summary>
+    public bool IsEmptyFrame() => GetFramePermanent() == null;
+
+    /// <summary>AS-IS <c>FieldCardFrame.IsBattleAreaFrame()</c> (Player.cs:1561) / the static
+    /// <c>isBattleAreaFrameID(FrameID)</c> (:1557). Substrate translation (Permanent.cs:2839-2842 convention):
+    /// battle-vs-breeding by ZONE MEMBERSHIP of the occupying permanent — no fixed slot array to threshold
+    /// FrameID against. An empty frame (no occupant) is not a battle frame under this reading.</summary>
+    public bool IsBattleAreaFrame() =>
+        _framePermanent != null && new Player(_context, player).GetBattleAreaPermanents().Contains(_framePermanent);
+
+    /// <summary>AS-IS <c>FieldCardFrame.isBreedingAreaFrame()</c> (Player.cs:1566).</summary>
+    public bool isBreedingAreaFrame() => !IsBattleAreaFrame();
+}

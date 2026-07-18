@@ -448,6 +448,87 @@ public sealed class CardSource
         return true;
     }
 
+    /// <summary>(RD-P6C2-10) AS-IS <c>CardSource.CanPlayCardTargetFrame</c> (CardSource.cs:1116-1194): whether
+    /// this card can be played onto <paramref name="frame"/> — the shared placement gate [Arts Digivolve] /
+    /// [App Fusion] / main-phase play read against a single field frame. Consistent with the G-Field seat that
+    /// inlines the same reduction (<see cref="CanPlayFromHandDuringMainPhase"/> and the PlayCardClass evolve
+    /// path, CardController.cs): an OCCUPIED frame reduces to the owner check + <see cref="CanEvolve"/>; an empty
+    /// battle frame to cost-payable + <see cref="CanEnterField"/>. Substrate translations:
+    /// AS-IS <c>FieldCardFrame.isBattleAreaFrameID(frame.FrameID)</c> (a slot-count threshold) →
+    /// <see cref="FieldCardFrame.IsBattleAreaFrame"/> (zone membership — no slot model, Permanent.cs:2839-2842);
+    /// AS-IS <c>frame.player</c> / <c>Owner</c> (both <c>Player</c>) → HeadlessPlayerId equality;
+    /// AS-IS <c>PermanentOfThisCard()</c> → <see cref="ICardEffect.ResolvePermanentOfThisCard"/> (the established
+    /// idiom). The empty-slot capacity-availability half of the AS-IS frame model is omitted (RD-P6C1-2,
+    /// established no-capacity convention); the empty-frame/pay-cost branches are kept verbatim for fidelity but
+    /// are unreached by today's only caller (Arts Digivolve, <c>PayCost == false</c> onto an occupied frame).</summary>
+    public bool CanPlayCardTargetFrame(FieldCardFrame frame, bool PayCost, ICardEffect? cardEffect, SelectCardEffect.Root root = SelectCardEffect.Root.Hand, int fixedCost = -1, bool isBreedingArea = false, CardEffectCommons.IgnoreRequirement ignore = CardEffectCommons.IgnoreRequirement.None)
+    {
+        bool isBattleAreaFrame = frame.IsBattleAreaFrame();
+
+        if (isBreedingArea)
+        {
+            if (isBattleAreaFrame)
+            {
+                return false;
+            }
+        }
+
+        Permanent thisPermanent = ICardEffect.ResolvePermanentOfThisCard(this);
+        if (thisPermanent != null)
+        {
+            if (this == thisPermanent.TopCard)
+            {
+                if (thisPermanent.HasNoDigivolutionCards)
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (frame.player != Owner)
+        {
+            return false;
+        }
+
+        Permanent? framePermanent = frame.GetFramePermanent();
+
+        if (PayCost && framePermanent == null)
+        {
+            if (IsOption)
+            {
+                return false;
+            }
+            int cost = PayingCost(root, new List<Permanent>() { framePermanent! }, checkAvailability: true, FixedCost: fixedCost);
+
+            if (new Player(Context, Owner).MaxMemoryCost < cost)
+            {
+                return false;
+            }
+        }
+
+        if (framePermanent != null)
+        {
+            if (!CanEvolve(framePermanent, true, ignore))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!CanEnterField(cardEffect))
+            {
+                return false;
+            }
+        }
+
+        if (!isBattleAreaFrame && framePermanent == null && !isBreedingArea)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     /// <summary>(R4 S3b) AS-IS <c>CardSource.CanPlayJogress(PayCost)</c> (CardSource.cs:2747-2792): some
     /// jogress condition of this card is satisfiable by an ORDERED pair of the owner's battle digimons (each
     /// slot's EvoRootCondition + the !CanNotEvolve restriction gate), with the jogress cost payable when
