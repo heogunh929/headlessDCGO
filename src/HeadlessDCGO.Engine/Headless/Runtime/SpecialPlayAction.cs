@@ -97,7 +97,16 @@ public sealed class SpecialPlayAction
                 cappedPools.Add((UnderTamerSources(context, zones, playerId), maxUnderTamer));
             }
 
-            if ((recipe.Condition is null || recipe.Condition())
+            // (G-Field RD-EXT3-03) a DigiXros play puts a NEW top permanent on an empty battle-area frame — in
+            // AS-IS it flows through the ordinary empty-frame CanPlayCardTargetFrame arm (CardSource.cs:1163-1170),
+            // so its CanEnterField(cardEffect=null) field-placement restriction gate applies here too (uniform
+            // with the normal PlayCardAction path). The DIGIVOLVE-shaped special plays (DnaDigivolve / Blast /
+            // Burst / AppFusion) target an EXISTING permanent (CanJogress/CanBurst/CanAppFusion → the CanEvolve
+            // arm, not CanEnterField), so they are NOT gated here. Reuses CardSource.CanEnterField — no new scan;
+            // no producer targets DigiXros tops in current trajectories, so the normal path is unchanged.
+            bool canEnterField = recipe.Kind != SpecialPlayKind.DigiXros || xrosCard.CanEnterField(null);
+            if (canEnterField
+                && (recipe.Condition is null || recipe.Condition())
                 && TryMatchMaterials(context, battle, cappedPools, recipe.Materials, playerId, out List<HeadlessEntityId> materials)
                 && context.MemoryController.CanPay(recipe.MemoryCost))
             {

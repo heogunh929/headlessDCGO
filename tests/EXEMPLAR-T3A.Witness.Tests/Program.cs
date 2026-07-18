@@ -41,7 +41,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX7_072 W2 등재: [Main](OptionSkill AddSkill nested-grant)·[Trash](WhenDigivolving OptionMain) — AddSkillClass STOP 예측 BUSTED", EX7072_MainAndTrashPresent),
     // EX7_014 — Volcanicdramon (CanNotMove enforced / CanNotPutField inert 수확)
     ("EX7_014 W1 [On Play] delete: 효과 등재 + CanActivate ON(상대 Digimon) / OFF(부재) 양·음", EX7014_OnPlayDeleteGate),
-    ("EX7_014 W2 [When Digivolving] 수확: CanNotMove+CanNotPutField 생산자 빌드; CanNotMove 술어 집행 ON(≤6000 적)·>6000 OFF; CanNotPutField는 플레이 경로 inert(RD-EXT3-03)", EX7014_WhenDigivolvingHarvest),
+    ("EX7_014 W2 [When Digivolving] flip: CanNotMove+CanNotPutField 생산자 빌드; 두 술어 집행 ON(≤6000 적)·>6000 OFF; CanNotPutField 플레이 경로 ENFORCED — ≤6000 적 PlayCard 표 이탈(RD-EXT3-03 배선)", EX7014_WhenDigivolvingHarvest),
     ("EX7_014 W3 [All Turns] WhenRemoveField play: 효과 등재", EX7014_AllTurnsPresent),
 };
 
@@ -230,9 +230,26 @@ async Task EX7014_WhenDigivolvingHarvest()
     HeadlessEntityId volc = Stage(match, P1, "EX7_014", ChoiceZone.BattleArea, "1:battle:Volc", register: true);
     HeadlessEntityId low = StageSynthetic(match, P2, "EXT3-LOW", dp: 5000, level: 4, "2:battle:low");
     HeadlessEntityId high = StageSynthetic(match, P2, "EXT3-HIGH", dp: 9000, level: 6, "2:battle:high");
+    // (G-Field flip) the opponent's HAND candidates the CanNotPutField restriction gates on the PLAY path:
+    // a ≤6000 DP Digimon (blocked when the restriction is active) and a >6000 DP control (never blocked).
+    // playCost 0 so cost payability is never the reason the play is absent — only CanEnterField is.
+    HeadlessEntityId lowHand = StageSynthetic(match, P2, "EXT3-HANDLOW", dp: 5000, level: 4, "2:hand:low", zone: ChoiceZone.Hand, playCost: 0);
+    HeadlessEntityId highHand = StageSynthetic(match, P2, "EXT3-HANDHIGH", dp: 9000, level: 6, "2:hand:high", zone: ChoiceZone.Hand, playCost: 0);
+
+    // Local: does the opponent's PlayCard legal-action table (the dispatcher's PlayCard candidate seat, which
+    // is exactly new PlayCardAction().GetLegalActions → Validate) currently offer this hand card?
+    bool P2Offers(HeadlessEntityId c)
+    {
+        using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+        return new PlayCardAction().GetLegalActions(match.Context, P2).Any(a => ActionCardIds(a).Contains(c));
+    }
 
     Cec.ICardEffect? wd = EffectNamed(match, volc, Cec.EffectTiming.WhenDigivolving, "Opponent can't play or move Digimon with 6000 DP or less");
     AssertTrue(wd is not null, "[When Digivolving] restriction ActivateClass registered under WhenDigivolving");
+
+    // BASELINE (restriction not yet active): both opponent hand Digimon are offered on the PlayCard table.
+    AssertTrue(P2Offers(lowHand), "baseline: opponent's 5000 DP hand Digimon is a legal PlayCard before the restriction");
+    AssertTrue(P2Offers(highHand), "baseline: opponent's 9000 DP hand Digimon is a legal PlayCard before the restriction");
 
     // 효과 발화 — 두 제약(CanNotMove + CanNotPutField)을 상대 UntilOwnerTurnEndEffects에 배치.
     using (AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context))
@@ -246,17 +263,23 @@ async Task EX7014_WhenDigivolvingHarvest()
 
     // CanNotMove 술어 집행: ≤6000 적 Digimon은 이동 불가(ON), >6000은 가능(OFF) — 양/음.
     Cec.ICanNotMoveEffect cannotMove = (Cec.ICanNotMoveEffect)enemyNone.First(e => e is Cec.ICanNotMoveEffect);
+    // CanNotPutField 술어 집행(포팅 충실도): ≤6000 적 Digimon은 배치 불가(ON), >6000은 가능(OFF) — 양/음.
+    Cec.ICanNotPutFieldEffect cannotPut = (Cec.ICanNotPutFieldEffect)enemyNone.First(e => e is Cec.ICanNotPutFieldEffect);
     using (AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context))
     {
         var lowCs = new Cec.CardSource(match.Context, low, P2);
         var highCs = new Cec.CardSource(match.Context, high, P2);
         AssertTrue(cannotMove.CanNotMove(lowCs, null!), "CanNotMove ENFORCED: opponent's 5000 DP (≤6000) Digimon can't move");
         AssertTrue(!cannotMove.CanNotMove(highCs, null!), "negative: opponent's 9000 DP (>6000) Digimon can move");
+        AssertTrue(cannotPut.CanNotPutField(lowCs, null!), "CanNotPutField predicate ON: opponent's 5000 DP (≤6000) Digimon");
+        AssertTrue(!cannotPut.CanNotPutField(highCs, null!), "negative: CanNotPutField OFF for opponent's 9000 DP (>6000) Digimon");
     }
 
-    // HARVEST RD-EXT3-03: the CanNotPutFieldClass producer is built and visible to CardSource.CanEnterField's scan,
-    // but CanEnterField is never consulted on the pump PlayCard legal-action path (PlayCardAction.Validate) — so the
-    // "can't play ≤6000 Digimon" half is INERT (enforcement-wiring gap). CanNotMove is enforced; CanNotPutField is not.
+    // FLIP RD-EXT3-03 (was INERT): with the CanNotPutFieldClass producer active, PlayCardAction.Validate now
+    // consults CardSource.CanEnterField, so the ≤6000 opponent Digimon DROPS OUT of the legal-action table
+    // (table == executable contract), while the >6000 control is unaffected — the enforcement-wiring gap closed.
+    AssertTrue(!P2Offers(lowHand), "ENFORCED: opponent's 5000 DP (≤6000) hand Digimon is no longer a legal PlayCard (CanEnterField blocks it)");
+    AssertTrue(P2Offers(highHand), "control: opponent's 9000 DP (>6000) hand Digimon is still a legal PlayCard");
 }
 
 async Task EX7014_AllTurnsPresent()

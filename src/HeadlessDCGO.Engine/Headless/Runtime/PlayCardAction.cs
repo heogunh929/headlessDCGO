@@ -410,6 +410,22 @@ public sealed class PlayCardAction
                 instance.DefinitionId);
         }
 
+        // (G-Field RD-EXT3-03) the field-placement restriction gate. A HAND play puts a NEW permanent on an
+        // empty battle-area frame, so the AS-IS empty-frame arm of CanPlayCardTargetFrame applies its
+        // CanEnterField(cardEffect) scan AFTER the cost check (CardSource.cs:1163-1170) — an active
+        // ICanNotPutFieldEffect (e.g. EX7_014 "opponent can't play Digimon with 6000 DP or less") forbids the
+        // play. A player-initiated hand play carries no source cardEffect (AS-IS passes cardEffect=null through
+        // CanPlayFromHandDuringMainPhase -> CanPutFieldThisPermanentCard(true, null)). Reuses the S3b-ported
+        // CardSource.CanEnterField scan (CardSource.cs:404-449) — no new scan. Returns true for the vast
+        // majority of plays (no producer registered), so the normal path is unchanged.
+        var placementView = new CardSource(context, payload.CardId, playerId, instance.OwnerId);
+        if (!placementView.CanEnterField(null))
+        {
+            return PlayCardValidation.Illegal(
+                $"Card '{payload.CardId}' cannot be put onto the field (a field-placement restriction is active).",
+                instance.DefinitionId);
+        }
+
         return PlayCardValidation.Legal(instance.DefinitionId);
     }
 
