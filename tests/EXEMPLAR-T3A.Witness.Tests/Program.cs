@@ -32,6 +32,8 @@ var tests = new (string Name, Func<Task> Body)[]
     // BT25_104 — ShineGreymon: Burst Mode (14축) — Arts만 latent STOP, 나머지 포팅
     ("BT25_104 W1 정적 키워드 등재: AddDigivolutionRequirement·AddBurstDigivolutionCondition·ChangeSAttack·Blocker·ChangeBaseDP·Rush·UseRequirements·Arts(None)", BT25104_StaticsPresent),
     ("BT25_104 W2 [Raid](OnAllyAttack)·Option [Main](OptionSkill) 등재 + Arts RESOLUTION 실행 flip(RD-P6C2-10): frame 모델(PermanentFrame/FrameID)·CanPlayCardTargetFrame·CanResolve·진화 실행", BT25104_RaidMainArtsResolve),
+    ("BT25_104 W3 Burst tamerCondition FLIP(RD-EXT3-04): [Marcus Damon] burst-tamer 술어가 STOP 없이 실평가 — Permanent.CannotReturnToHand aggregate 스캔(제약 부재=false→후보 적격) 양·음, digimonCondition [ShineGreymon] 양·음", BT25104_BurstConditionFlip),
+    ("BT25_104 W4 Burst turn-end trash 등록 FLIP(RD-R5-03): SelectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd가 permanent.UntilEachTurnEndEffects에 OnEndTurn ActivateClass 등록 — GetCardEffect(OnEndTurn) 반환·CanUse/CanActivate 게이트", BT25104_BurstTurnEndTrashRegistration),
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
     ("BT25_089 W2 수확 STOP: [Main] link 등재 + CanUse ON, RESOLUTION throws NotSupported(ILinkCard 부재/CanLink payCost — RD-EXT3-01)", BT25089_LinkStopHarvest),
@@ -191,6 +193,69 @@ async Task BT25104_RaidMainArtsResolve()
         "Arts digivolve EXECUTED: the DATA SQUAD base is now a digivolution (under) card of BT25_104 — evolution result state");
     AssertTrue(!zr.GetCards(P1, ChoiceZone.BattleArea).Contains(ds),
         "Arts digivolve EXECUTED: the DATA SQUAD base is no longer a separate battle permanent (it was digivolved over)");
+}
+
+async Task BT25104_BurstConditionFlip()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3413, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    HeadlessEntityId shine = Stage(match, P1, "BT25_104", ChoiceZone.BattleArea, "1:battle:Shine", register: true);
+    // a [Marcus Damon] tamer permanent (owner P1) — the burst-tamer candidate.
+    HeadlessEntityId marcus = StageSynthetic(match, P1, "MARCUS", dp: 0, level: 0, "1:battle:marcus", name: "Marcus Damon", cardType: "Tamer");
+    // a [ShineGreymon] Digimon permanent (owner P1) — the burst-digivolution base.
+    HeadlessEntityId sg = StageSynthetic(match, P1, "SHINEG", dp: 9000, level: 6, "1:battle:sg", name: "ShineGreymon");
+    // a non-matching control permanent.
+    HeadlessEntityId other = StageSynthetic(match, P1, "OTHER", dp: 3000, level: 4, "1:battle:other", name: "SomeOther");
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var shineCard = new Cec.CardSource(match.Context, shine, P1);
+
+    Cec.BurstDigivolutionCondition? bdc =
+        Cec.CardSourceAsIsPlayAccessors.BurstDigivolutionConditionOf(shineCard);
+    AssertTrue(bdc is not null, "BT25_104 exposes a BurstDigivolutionCondition (AddBurstDigivolutionConditionClass consumed)");
+
+    var marcusPerm = new Cec.Permanent(match.Context, marcus, P1);
+    var otherPerm = new Cec.Permanent(match.Context, other, P1);
+    var sgPerm = new Cec.Permanent(match.Context, sg, P1);
+
+    // FLIP RD-EXT3-04: the tamerCondition no longer throws — it evaluates Permanent.CannotReturnToHand cleanly.
+    // No CannotReturnToHand restriction is on the board, so the aggregate returns FALSE → the Marcus tamer qualifies.
+    AssertTrue(!marcusPerm.CannotReturnToHand(null!), "aggregate CannotReturnToHand scan runs (no NotSupportedException) and is FALSE with no restriction present");
+    AssertTrue(bdc!.tamerCondition(marcusPerm), "RD-EXT3-04 FLIP: [Marcus Damon] burst-tamer condition is TRUE (name + owner + battle-area + !CannotReturnToHand)");
+    AssertTrue(!bdc.tamerCondition(otherPerm), "negative: a non-[Marcus Damon] permanent is not a valid burst tamer");
+
+    // digimonCondition: the [ShineGreymon] base qualifies; a non-ShineGreymon does not.
+    AssertTrue(bdc.digimonCondition(sgPerm), "digimonCondition: [ShineGreymon] Digimon is a valid burst base (!CanNotEvolve + name)");
+    AssertTrue(!bdc.digimonCondition(otherPerm), "negative: a non-[ShineGreymon] Digimon is not a valid burst base");
+}
+
+async Task BT25104_BurstTurnEndTrashRegistration()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3414, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    // a burst-digivolved Digimon permanent with 1 digivolution (under) card — CanActivate needs >=1.
+    HeadlessEntityId top = StageSynthetic(match, P1, "BURSTTOP", dp: 9000, level: 6, "1:battle:bursttop", name: "BurstTop");
+    HeadlessEntityId under = StageSynthetic(match, P1, "BURSTUNDER", dp: 3000, level: 4, "1:battle:burstunder", name: "BurstUnder", zone: ChoiceZone.None);
+    SetSources(match, top, under);
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var perm = new Cec.Permanent(match.Context, top, P1);
+    AssertTrue(perm.DigivolutionCards.Count >= 1, "fixture: the permanent has >=1 digivolution card");
+
+    var sbde = new HeadlessDCGO.Engine.Assets.Scripts.Script.SelectBurstDigivolutionEffect();
+    sbde.AttachContext(match.Context);
+    int before = perm.UntilEachTurnEndEffects.Count;
+    sbde.AddTrashTopCardAtTurnEnd(perm);
+    AssertTrue(perm.UntilEachTurnEndEffects.Count == before + 1,
+        "RD-R5-03 FLIP: AddTrashTopCardAtTurnEnd registers ONE UntilEachTurnEnd effect on the permanent (no NotSupportedException)");
+
+    Func<Cec.EffectTiming, Cec.ICardEffect> getEffect = perm.UntilEachTurnEndEffects[perm.UntilEachTurnEndEffects.Count - 1];
+    Cec.ICardEffect? onEnd = getEffect(Cec.EffectTiming.OnEndTurn);
+    AssertTrue(onEnd is not null, "GetCardEffect(OnEndTurn) returns the registered ActivateClass");
+    AssertTrue(getEffect(Cec.EffectTiming.None) is null, "GetCardEffect(non-OnEndTurn) returns null (AS-IS timing gate)");
+    AssertTrue(onEnd!.EffectName == "Trash this Digimon's top card\n(Burst Digivolution)", "the OnEndTurn effect carries the AS-IS effect name");
+    AssertTrue(onEnd.CanUse(null!), "CanUse TRUE: the permanent is on the field (GetFieldPermanents contains it)");
+    AssertTrue(onEnd.CanActivate(null!), "CanActivate TRUE: the permanent has >=1 digivolution card (a burst top-card is trashable)");
 }
 
 // ═══════════════════════════════════ BT25_089 ═══════════════════════════════════

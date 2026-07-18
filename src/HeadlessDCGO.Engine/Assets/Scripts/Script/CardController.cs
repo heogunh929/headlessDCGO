@@ -2163,6 +2163,209 @@ public class AceOverflowClass
 
 #endregion
 
+#region Place permanent to digivolution cards
+
+/// <summary>(RD-EXT3-05) 1:1 mirror of AS-IS <c>IPlacePermanentToDigivolutionCards</c>
+/// (CardController.cs:2838-3135): re-parents each source field permanent's TOP card as a digivolution (under)
+/// card of a target permanent, removing the source from the field (its under-stack is trashed first by
+/// DiscardEvoRoots — AS-IS only the source TOP card re-parents, not the whole stack). Opens the "when permanents
+/// would remove field" cut-in window first (verbatim scan), then per pair: DiscardEvoRoots, record
+/// PlaceOtherPermanentEffect, RemoveField(ignoreOverflow:true), AddDigivolutionCards Top/Bottom.
+/// Substrate: IEnumerator → Task, StartCoroutine(X) → await X;
+/// <c>GManager.instance.turnStateMachine.gameContext.Players_ForTurnPlayer</c> →
+/// <c>new GameContext(context).Players_ForTurnPlayer</c>; <c>GManager.instance.autoProcessing_CutIn</c> →
+/// <c>AutoProcessing.ForCutIn(context)</c>; <c>AddDigivolutionCards*</c>'s <c>ICardEffect</c> arg →
+/// <c>cardEffect?.EffectSourceCard?.InstanceId</c> (the established DigiXros idiom). UI stripped:
+/// WillRemoveFieldObject / ShrinkSecurityDigimonDisplay / MoveToExecute / BrainStorm / PlayLog / ShowCardEffect.
+/// The DIE of each re-parented source is enforced at the InMemoryZoneMover chokepoint (RD-R3-02) via RemoveField
+/// — no PermanentContinuityKey stamp (a genuine death, not a top swap), so its bookkeeping is Reset.</summary>
+public class IPlacePermanentToDigivolutionCards
+{
+    public IPlacePermanentToDigivolutionCards(
+        List<Permanent[]> permanentArrays,
+        bool toTop,
+        ICardEffect cardEffect,
+        bool skipEffectAndActivateSkill = false,
+        bool isDigixros = false)
+    {
+        permanentArrays.Clone().ForEach(permanentArray => _permanentArrays.Add(permanentArray.CloneArray()));
+        _toTop = toTop;
+        _cardEffect = cardEffect;
+        _skipEffectAndActivateSkill = skipEffectAndActivateSkill;
+        _isDigixros = isDigixros;
+    }
+
+    public void SetNotShowCards()
+    {
+        _notShowCards = true;
+    }
+
+    List<Permanent[]> _permanentArrays = new List<Permanent[]>();
+    ICardEffect _cardEffect = null;
+    bool _toTop = false;
+    bool _notShowCards = false;
+    bool _skipEffectAndActivateSkill = false;
+    bool _isDigixros = false;
+    public bool Placed { get; private set; } = false;
+
+    public async Task PlacePermanentToDigivolutionCards()
+    {
+        if (_permanentArrays.Count == 0)
+        {
+            return;
+        }
+
+        List<CardSource> addedDigivolutionCards = new List<CardSource>();
+
+        List<Permanent> removeFieldPermanents = new List<Permanent>();
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent DigivolutionPermanent = permanentArray[0];
+                Permanent getDigivolutionPermanent = permanentArray[1];
+
+                if (DigivolutionPermanent != null && getDigivolutionPermanent != null)
+                {
+                    if (DigivolutionPermanent.TopCard != null && getDigivolutionPermanent.TopCard != null && !getDigivolutionPermanent.IsToken)
+                    {
+                        if (_cardEffect != null)
+                        {
+                            if (DigivolutionPermanent.TopCard.CanNotBeAffected(_cardEffect) || getDigivolutionPermanent.TopCard.CanNotBeAffected(_cardEffect))
+                            {
+                                continue;
+                            }
+                        }
+
+                        removeFieldPermanents.Add(DigivolutionPermanent);
+                    }
+                }
+            }
+        }
+
+        foreach (Permanent permanent in removeFieldPermanents)
+        {
+            permanent.willBeRemoveField = true;
+        }
+
+        if (removeFieldPermanents.Count == 0)
+        {
+            return;
+        }
+
+        EngineContext context = removeFieldPermanents[0].TopCard.Context;
+
+        #region "When permanents would remove field" effect (AS-IS :2913-3049; UI stripped)
+
+        List<CardEffectCommons.SkillInfo> skillInfos = new List<CardEffectCommons.SkillInfo>();
+
+        System.Collections.Hashtable hashtable1 =
+            CardEffectCommons.CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(
+                removeFieldPermanents,
+                _cardEffect,
+                null!,
+                _isDigixros);
+
+        foreach (Player player in new GameContext(context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent1 in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect in permanent1.EffectList(EffectTiming.WhenRemoveField))
+                {
+                    if (cardEffect is ActivateICardEffect)
+                    {
+                        if (cardEffect.CanTrigger(hashtable1))
+                        {
+                            skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                        }
+                    }
+                }
+            }
+
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.WhenRemoveField))
+            {
+                if (cardEffect is ActivateICardEffect)
+                {
+                    if (cardEffect.CanTrigger(hashtable1))
+                    {
+                        skillInfos.Add(new CardEffectCommons.SkillInfo(cardEffect, hashtable1, EffectTiming.WhenRemoveField));
+                    }
+                }
+            }
+        }
+
+        if (skillInfos.Count >= 1)
+        {
+            foreach (CardEffectCommons.SkillInfo skillInfo in skillInfos)
+            {
+                AutoProcessing.ForCutIn(context).PutStackedSkill(skillInfo);
+            }
+
+            // AS-IS :2971-3026 showEffect() = WillRemoveFieldObject / attack-security display (UI stripped).
+            await AutoProcessing.ForCutIn(context).TriggeredSkillProcess(false, null!).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        foreach (Permanent[] permanentArray in _permanentArrays)
+        {
+            if (permanentArray.Length == 2)
+            {
+                Permanent DigivolutionPermanent = permanentArray[0];
+                Permanent getDigivolutionPermanent = permanentArray[1];
+
+                if (DigivolutionPermanent != null && getDigivolutionPermanent != null)
+                {
+                    if (DigivolutionPermanent.TopCard != null && getDigivolutionPermanent.TopCard != null && !getDigivolutionPermanent.IsToken && DigivolutionPermanent.willBeRemoveField)
+                    {
+                        await DigivolutionPermanent.DiscardEvoRoots().ConfigureAwait(false);
+
+                        CardSource cardSource = DigivolutionPermanent.TopCard;
+
+                        #region record used effect
+
+                        if (_cardEffect != null)
+                        {
+                            if (DigivolutionPermanent.TopCard != null)
+                            {
+                                DigivolutionPermanent.PlaceOtherPermanentEffect = _cardEffect;
+                            }
+                        }
+
+                        #endregion
+
+                        await CardObjectController.RemoveField(
+                            DigivolutionPermanent,
+                            ignoreOverflow: true).ConfigureAwait(false);
+
+                        List<CardSource> digivolutionCards = new List<CardSource>() { cardSource };
+
+                        if (_toTop)
+                        {
+                            await getDigivolutionPermanent.AddDigivolutionCardsTop(digivolutionCards, _cardEffect?.EffectSourceCard?.InstanceId).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await getDigivolutionPermanent.AddDigivolutionCardsBottom(digivolutionCards, _cardEffect?.EffectSourceCard?.InstanceId, _skipEffectAndActivateSkill).ConfigureAwait(false);
+                        }
+
+                        cardSource.cEntity_EffectController.InitUseCountThisTurn();
+
+                        addedDigivolutionCards.Add(cardSource);
+
+                        Placed = true;
+                    }
+                }
+            }
+        }
+
+        // AS-IS :3103-3133 add-log (PlayLog) + ShowCardEffect "Digivolution Cards" = UI (stripped).
+    }
+}
+
+#endregion
+
 #region TrashStack
 
 /// <summary>
@@ -3586,10 +3789,10 @@ public class PlayPermanentClass
                 // AS-IS :1573-1626 "move permanents (hybrid)" — pure UI canvas repositioning
                 // (transform.localPosition comparisons); no rule mutation. Stripped.
 
-                // AS-IS :1630-1634 (RD-EXT3-01/02): the SelectDigiXros/Assembly apply halves (:882-1018) are now
-                // ported — the DigiXros/Assembly materials selected pre-play stack UNDER this permanent. (The
-                // field-permanent material sub-branch alone STOPs at RD-EXT3-05, IPlacePermanentToDigivolutionCards
-                // absent; the hand/trash/tamer/security branches run.)
+                // AS-IS :1630-1634 (RD-EXT3-01/02/05): the SelectDigiXros/Assembly apply halves (:882-1018) are
+                // ported — the DigiXros/Assembly materials selected pre-play stack UNDER this permanent, including
+                // the field-permanent material sub-branch (RD-EXT3-05: IPlacePermanentToDigivolutionCards now
+                // mirrored). The hand/trash/tamer/security branches run as before.
                 await GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCardsByEffect(card);
                 await GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCards(card);
 

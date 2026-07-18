@@ -11,6 +11,7 @@ using SelectDigiXrosClass = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectDigi
 using SelectAssemblyClass = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectAssemblyClass;
 using AddAssemblyConditionClass = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.AddAssemblyConditionClass;
 using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
+using IPlacePermanentToDigivolutionCards = HeadlessDCGO.Engine.Assets.Scripts.Script.IPlacePermanentToDigivolutionCards;
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 // EXEMPLAR-T3B 정본 witness 스위트 — 수확 트랜치 3B(STOP-예상 5장), 카드당 실행동/등록/정직 수확 혼합.
@@ -42,6 +43,8 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT3_056 W1 발화: <Digisorption -3> BeforePayCost 진입→서스펜드 수락 시 진화 코스트 -3 실적용(base 5→2), 세 팔(BeforePayCost/WhenDigisorption/None) 실착지", BT3056_DigisorptionAcceptReducesBy3),
     ("BT3_056 W2 발화: 서스펜드 거절(no-select) 시 ChangeCost 미등록 → 정가 유지(base 5→5)", BT3056_DigisorptionDeclineFullPrice),
     ("BT3_056 W3 경계: 서스펜드 가용성 없음(유일 아군 디지몬 서스펜드 상태) → 옵션 CanActivate false·정가 유지 — CanTapWhenAbsorbEvolution_CheckAvailability 가용성 판정", BT3056_DigisorptionNoAvailabilityNoOption),
+    // RD-EXT3-05 — 필드-소재 재부모화 (IPlacePermanentToDigivolutionCards)
+    ("RD-EXT3-05 착지: 필드 디지몬을 DigiXros 소재로 → 톱 카드가 호스트 아래로 재부모화·원 permanent 소멸·언더스택 트래시(DiscardEvoRoots)·북키핑 Reset(RD-R3-02 DIE)", EXT305_FieldMaterialReparents),
 };
 
 int failed = 0;
@@ -66,6 +69,50 @@ foreach ((string name, Func<Task> body) in tests)
 
 Console.WriteLine($"SUMMARY: PASS={tests.Length - failed} FAIL={failed} TOTAL={tests.Length}");
 if (failed > 0) { Environment.Exit(1); }
+
+// ═══════════════════════════════════ RD-EXT3-05 ═══════════════════════════════════
+
+async Task EXT305_FieldMaterialReparents()
+{
+    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3601, MonoDecks("BT1_028", "BT1_028"));
+    await ReachMainWaitAsync(match);
+    // the DigiXros host permanent (the play card, already on field).
+    HeadlessEntityId host = StageSynthetic(match, P1, "XROS-HOST", dp: 5000, level: 5, "1:battle:host", name: "XrosHost");
+    // a field-material Digimon permanent WITH a digivolution (under) card — proves DiscardEvoRoots trashes the
+    // under-stack while only the material's TOP card re-parents (AS-IS semantics).
+    HeadlessEntityId matTop = StageSynthetic(match, P1, "XROS-MATTOP", dp: 3000, level: 4, "1:battle:mattop", name: "XrosMatTop");
+    HeadlessEntityId matUnder = StageSynthetic(match, P1, "XROS-MATUNDER", dp: 1000, level: 3, "1:battle:matunder", name: "XrosMatUnder", zone: ChoiceZone.None);
+    // attach matUnder under matTop (the field material's stack).
+    if (match.Context.CardInstanceRepository.TryGetInstance(matTop, out CardInstanceRecord? rec) && rec is not null)
+    {
+        var meta = new Dictionary<string, object?>(rec.Metadata, StringComparer.Ordinal) { [DigivolutionStackReader.SourceIdsKey] = new[] { matUnder.Value } };
+        match.Context.CardInstanceRepository.Upsert(rec with { Metadata = meta });
+    }
+
+    using AmbientMatchContext.Scope _s = AmbientMatchContext.Enter(match.Context);
+    var hostPerm = new Cec.Permanent(match.Context, host, P1);
+    var matPerm = new Cec.Permanent(match.Context, matTop, P1);
+    AssertTrue(matPerm.DigivolutionCards.Any(c => c.InstanceId == matUnder), "fixture: the field material has an under-card (matUnder)");
+    // stamp bookkeeping on the material permanent to prove it is Reset when the source dies.
+    matPerm.IsBurstDigivolved = true;
+
+    // RD-EXT3-05: re-parent the field material's top card under the host via IPlacePermanentToDigivolutionCards.
+    var place = new IPlacePermanentToDigivolutionCards(
+        new List<Cec.Permanent[]> { new[] { matPerm, hostPerm } }, false, null, isDigixros: true);
+    place.SetNotShowCards();
+    await place.PlacePermanentToDigivolutionCards();
+
+    AssertTrue(place.Placed, "RD-EXT3-05: the re-parent executed (Placed == true)");
+    var hostAfter = new Cec.Permanent(match.Context, host, P1);
+    AssertTrue(hostAfter.DigivolutionCards.Any(c => c.InstanceId == matTop),
+        "the field material's TOP card is now a digivolution (under) card of the host permanent");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(matTop),
+        "the field material's original permanent is GONE from the battle area (소재 소멸)");
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Trash).Contains(matUnder),
+        "the material's under-stack was trashed (DiscardEvoRoots) — only its top card re-parented");
+    AssertTrue(!new Cec.Permanent(match.Context, matTop, P1).IsBurstDigivolved,
+        "북키핑 정리: the dead source permanent's bookkeeping (IsBurstDigivolved) was Reset at the field-leave chokepoint (RD-R3-02 DIE)");
+}
 
 // ═══════════════════════════════════ LM_047 ═══════════════════════════════════
 

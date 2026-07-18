@@ -43,6 +43,11 @@ public sealed class PermanentBookkeepingEntry
     /// <summary>AS-IS <c>Permanent.DigivolvingEffect</c> (:3690).</summary>
     public ICardEffect? DigivolvingEffect;
 
+    /// <summary>AS-IS <c>Permanent.PlaceOtherPermanentEffect</c> (:3674) — the effect that re-parented this
+    /// permanent under another (DigiXros/Assembly/MindLink material). Written by
+    /// <c>IPlacePermanentToDigivolutionCards</c>/<c>IPlacePermanentToLinkCards</c>.</summary>
+    public ICardEffect? PlaceOtherPermanentEffect;
+
     /// <summary>AS-IS <c>Permanent.LevelJustAfterPlayed</c> (:3890).</summary>
     public int LevelJustAfterPlayed = -1;
 

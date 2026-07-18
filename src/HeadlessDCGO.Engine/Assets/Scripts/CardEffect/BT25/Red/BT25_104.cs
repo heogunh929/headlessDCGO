@@ -37,9 +37,10 @@
 //      CanPlayCardTargetFrame/PermanentFrame 미이관) — 팩토리 호출/등재는 클린(throw는 CanResolve/Resolution
 //      클로저 내부로 지연), Arts 해소 시도만 STOP. (b) [Burst Digivolution] EXECUTION은 별개 엔진 STOP
 //      (RD-P6C1-6; SelectBurstDigivolutionEffect/CardController burst-play) — 본 트랜치 witness 미구동.
-//    * 좁은 미이관 표면(RD-EXT3-04): tamerCondition의 `permanent.CannotReturnToHand(null)` (Permanent-레벨 aggregate
-//      미이관) 및 [Your Turn] DP arm의 `SetActivatedTime(Owner.TurnStartTime, card.ChangedLocationTime)`
-//      (두 타임스탬프 소스 멤버 미이관). 아래 본문 주석 참조.
+//    * 좁은 미이관 표면(RD-EXT3-04): tamerCondition의 `permanent.CannotReturnToHand(null)`는 이제 Permanent-레벨
+//      aggregate 스캔(Permanent.cs) 착지로 1:1 FLIP됨. 잔여 표면 = [Your Turn] DP arm의
+//      `SetActivatedTime(Owner.TurnStartTime, card.ChangedLocationTime)` (두 타임스탬프 소스 멤버 미이관 — DP-set
+//      fold 순서 tie-break용, DateTime.Now 기반이라 결정론 위반; 충돌 소비자 없어 order-0 default 유지). 아래 본문 주석 참조.
 //
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, StartCoroutine(X)→await X, lone `yield return null`→Task.CompletedTask.
@@ -105,25 +106,16 @@ public sealed class BT25_104 : CEntity_Effect
                 {
                     bool tamerCondition(Permanent permanent)
                     {
-                        // AS-IS :48-53: all terms preserved. `!permanent.CannotReturnToHand(null)` — the mirror
-                        // Permanent exposes no aggregate ICannotReturnToHand scan (only the per-effect
-                        // CannotReturnToHandClass + RestrictionHelpers gain-key), so that single term is an
-                        // unported surface (RD-EXT3-04). Ordered LAST so the STOP is reached only when a genuine
-                        // [Marcus Damon] burst-tamer candidate is being resolved (CardController.cs:2427,
-                        // burst special-play), itself an unported engine STOP (RD-P6C1-6) — never on idle
-                        // legal-action enumeration.
-                        if (permanent != null
+                        // AS-IS :48-53: all terms preserved 1:1 (RD-EXT3-04 FLIP). The former STOP on
+                        // `!permanent.CannotReturnToHand(null)` is retired now that Permanent exposes the aggregate
+                        // ICannotReturnToHand scan (Permanent.cs). Substrate: `permanent.TopCard.Owner`(Player) →
+                        // HeadlessPlayerId; `.GetBattleAreaPermanents()` = the HeadlessPlayerId extension (Player.cs).
+                        return permanent != null
                             && permanent.TopCard != null
                             && permanent.TopCard.Owner == card.Owner
                             && permanent.TopCard.Owner.GetBattleAreaPermanents().Contains(permanent)
-                            && permanent.TopCard.EqualsCardName("Marcus Damon"))
-                        {
-                            throw new NotSupportedException(
-                                "BT25_104 Burst tamerCondition needs Permanent-level CannotReturnToHand aggregate " +
-                                "(no mirror) resolved inside burst special-play (RD-P6C1-6) — design item RD-EXT3-04.");
-                        }
-
-                        return false;
+                            && !permanent.CannotReturnToHand(null)
+                            && permanent.TopCard.EqualsCardName("Marcus Damon");
                     }
 
                     bool digimonCondition(Permanent permanent)

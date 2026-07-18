@@ -29,12 +29,12 @@
 //   * `cardSource.cEntity_EffectController.InitUseCountThisTurn()` -> the real mirror per-instance controller
 //     method (CEntity_EffectController.cs:225). UI-only strips (ShowCardEffect/ShowCardEffect2/OffShowCard2 /
 //     CreateDigiXrosSelectCardEffect / RemoveDigivolveRootEffect) are cited at their AS-IS anchors.
-// STOP (design item RD-EXT3-05): the field-permanent material branch (`isBattleAreaCard`) of the two apply halves
-//   (AS-IS :901-908 / :985-991) re-parents a WHOLE battle-area permanent stack UNDER the play card via
-//   `IPlacePermanentToDigivolutionCards`, which has NO mirror (the re-parent rides the field-frame model —
-//   PermanentFrame, owned by a parallel batch, off-limits). The hand/trash/tamer/security material branches port
-//   1:1 via `Permanent.AddDigivolutionCardsBottom`. The branch throws only when a battle-area material is actually
-//   selected, so the hand/trash DigiXros paths (the witness/exemplar corpus) run to completion.
+// RD-EXT3-05 (landed): the field-permanent material branch (`isBattleAreaCard`) of the two apply halves
+//   (AS-IS :901-908 / :985-991) re-parents a battle-area material's TOP card UNDER the play card via
+//   `IPlacePermanentToDigivolutionCards` — now mirrored 1:1 in CardController.cs (the re-parent rides
+//   CardObjectController.RemoveField + Permanent.AddDigivolutionCardsBottom, NOT the PermanentFrame model as the
+//   former STOP rationale over-cautiously assumed). The hand/trash/tamer/security material branches port 1:1 via
+//   `Permanent.AddDigivolutionCardsBottom`.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
@@ -936,14 +936,13 @@ public class SelectDigiXrosClass
 
                             else if (isBattleAreaCard(cardSource))
                             {
-                                // AS-IS :901-908: CreateDigiXrosSelectCardEffect (UI) + IPlacePermanentToDigivolutionCards
-                                // re-parents the WHOLE battle-area permanent stack under this permanent — no mirror
-                                // (rides the PermanentFrame field-frame model, off-limits). STOP RD-EXT3-05.
-                                throw new NotSupportedException(
-                                    "STOP: SelectDigiXrosClass.AddDigivolutiuonCards battle-area material branch " +
-                                    "(AS-IS SelectDigiXrosClass.cs:901-908, IPlacePermanentToDigivolutionCards) has no " +
-                                    "mirror — the field-permanent re-parent rides the PermanentFrame model (parallel " +
-                                    "batch); design item RD-EXT3-05.");
+                                // AS-IS :901-908 (RD-EXT3-05 landed): CreateDigiXrosSelectCardEffect (UI, stripped)
+                                // + IPlacePermanentToDigivolutionCards re-parents this battle-area permanent's top
+                                // card under the play permanent. Substrate: PermanentOfThisCard() →
+                                // ICardEffect.ResolvePermanentOfThisCard(...) (card's = the resolved `permanent`).
+                                IPlacePermanentToDigivolutionCards placePermanentToDigivolutionCards = new IPlacePermanentToDigivolutionCards(new List<Permanent[]>() { new Permanent[] { ICardEffect.ResolvePermanentOfThisCard(cardSource), permanent } }, false, null, isDigixros: true);
+                                placePermanentToDigivolutionCards.SetNotShowCards();
+                                await placePermanentToDigivolutionCards.PlacePermanentToDigivolutionCards().ConfigureAwait(false);
                             }
 
                             else if (isTrashCard(cardSource))
@@ -1024,13 +1023,12 @@ public class SelectDigiXrosClass
 
                         if (digimonPermanents.Count >= 1)
                         {
-                            // AS-IS :985-991: IPlacePermanentToDigivolutionCards per battle-area permanent — no
-                            // mirror (PermanentFrame re-parent, off-limits). STOP RD-EXT3-05.
-                            throw new NotSupportedException(
-                                "STOP: SelectDigiXrosClass.AddDigivolutiuonCardsByEffect battle-area material branch " +
-                                "(AS-IS SelectDigiXrosClass.cs:985-991, IPlacePermanentToDigivolutionCards) has no " +
-                                "mirror — the field-permanent re-parent rides the PermanentFrame model (parallel " +
-                                "batch); design item RD-EXT3-05.");
+                            // AS-IS :985-991 (RD-EXT3-05 landed): one IPlacePermanentToDigivolutionCards per
+                            // battle-area material permanent, re-parenting its top card under the play permanent.
+                            foreach (Permanent digimonPermanent in digimonPermanents)
+                            {
+                                await new IPlacePermanentToDigivolutionCards(new List<Permanent[]>() { new Permanent[] { digimonPermanent, permanent } }, false, info.cardEffect, isDigixros: true).PlacePermanentToDigivolutionCards().ConfigureAwait(false);
+                            }
                         }
 
                         if (trashCards.Count >= 1)

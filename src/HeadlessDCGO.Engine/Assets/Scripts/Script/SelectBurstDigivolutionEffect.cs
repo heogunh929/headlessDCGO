@@ -4,13 +4,19 @@
 // (bigbang §5): IEnumerator -> Task, StartCoroutine(x) -> await x; UI/Photon stripped. STATE fields + SetUp are
 // AS-IS verbatim; the two-option method panel is the same ModeChoice ADAPTATION as SelectAppFusionEffect.
 //
-// PARTIAL (design items RD-R5-01/02/03): three methods depend on R1/R2 mirror members that do not yet exist and
-// live in files this batch may not edit — SelectTamer/BounceTamer/AddTrashTopCardAtTurnEnd STOP loudly (never
-// guessed). The feasible surface (state + SetUp + SelectWheterToBurst) is real 1:1. See the per-method notes.
+// PARTIAL (design items RD-R5-01/02): AddTrashTopCardAtTurnEnd (RD-R5-03) is now landed 1:1 (Permanent
+// .UntilEachTurnEndEffects + AceOverflowClass + CardObjectController zone statics all present; UI stripped).
+// The two remaining STOPs — SelectTamer (RD-R5-01, blocked on CardSource.CanPlayBurst → RD-P6C1-2 cost engine)
+// and BounceTamer (RD-R5-02, blocked on the standalone HandBounceClaass process + IsReturnedToHandByBurst flag)
+// — STOP loudly (never guessed). Permanent.CannotReturnToHand (RD-EXT3-04) is now available, so it is no longer
+// a blocker for either. The feasible surface (state + SetUp + SelectWheterToBurst + AddTrashTopCardAtTurnEnd) is
+// real 1:1. See the per-method notes.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
+using System.Collections;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -137,45 +143,140 @@ public class SelectBurstDigivolutionEffect
 
     // AS-IS :107-220 `IEnumerator SelectTamer()` — enumerate battle-area tamers matching
     // `_card.burstDigivolutionCondition.tamerCondition` that `!CannotReturnToHand(null)`, SelectPermanent one,
-    // then route to `_endSelectCoroutine_SelectTamer`. STOP (design item RD-R5-01): the AS-IS guard
-    // `_card.CanPlayBurst(_isPayCost)` has no mirror (the AS-IS burst play-cost/requirement check is the
-    // unported RD-P6C1-2 cost engine), and the per-candidate `permanent.CannotReturnToHand(null)` aggregate is
-    // not on the mirror Permanent yet (only the ICannotReturnToHandEffect interface exists). Both live in
-    // CardSource.cs / Permanent.cs — files outside this batch's edit scope. No guess.
+    // then route to `_endSelectCoroutine_SelectTamer`. STOP (design item RD-R5-01): the AS-IS head guard
+    // `_card.CanPlayBurst(_isPayCost)` still has no mirror — it rides the RD-P6C1-2 burst cost/requirement
+    // engine (`CardSource.GetChangedCostItselef`), which remains a STOP. (The per-candidate
+    // `permanent.CannotReturnToHand(null)` aggregate the inner CanSelectPermanentCondition needs is now landed
+    // on the mirror Permanent — no longer a blocker; only CanPlayBurst is.) No guess.
     public Task SelectTamer()
     {
         throw new NotSupportedException(
             "STOP: SelectBurstDigivolutionEffect.SelectTamer (AS-IS SelectBurstDigivolutionEffect.cs:107-220) — " +
-            "requires CardSource.CanPlayBurst (RD-P6C1-2 burst cost/requirement engine) and the " +
-            "Permanent.CannotReturnToHand aggregate, neither present in the mirror (design item RD-R5-01).");
+            "requires CardSource.CanPlayBurst (RD-P6C1-2 burst cost/requirement engine, GetChangedCostItselef), " +
+            "still absent from the mirror (design item RD-R5-01). Permanent.CannotReturnToHand is now available.");
     }
 
     // AS-IS :222-247 `IEnumerator BounceTamer(Permanent tamer)` — bounce the selected tamer to hand with the
     // IsBurst hashtable, then set TamerBounced from `tamer.IsReturnedToHandByBurstDigivolution`. STOP (design
-    // item RD-R5-02): the AS-IS `HandBounceClaass` bounce process, the `Permanent.CannotReturnToHand(null)`
-    // aggregate, and the `Permanent.IsReturnedToHandByBurstDigivolution` flag all have no mirror surface.
+    // item RD-R5-02): the AS-IS `HandBounceClaass` (CardController.cs:2603) is a ~200-line standalone bounce
+    // PROCESS with its own leave-field cut-in windows — the mirror has no standalone HandBounceClaass type (the
+    // bounce is centralised in the MatchStateMutationSink for SelectPermanentEffect's Mode.Bounce, not a
+    // reusable raw-permanent-list-with-IsBurst-hashtable entry), and `Permanent.IsReturnedToHandByBurstDigivolution`
+    // has no mirror. (`Permanent.CannotReturnToHand` is now landed — no longer a blocker.) Unreachable today
+    // (SelectTamer STOPs upstream on CanPlayBurst). No guess.
     public Task BounceTamer(Permanent tamer)
     {
         _ = tamer;
         throw new NotSupportedException(
             "STOP: SelectBurstDigivolutionEffect.BounceTamer (AS-IS SelectBurstDigivolutionEffect.cs:222-247) — " +
-            "requires the HandBounceClaass bounce process, Permanent.CannotReturnToHand, and " +
-            "Permanent.IsReturnedToHandByBurstDigivolution, none present in the mirror (design item RD-R5-02).");
+            "requires the standalone HandBounceClaass bounce process (no mirror type) and " +
+            "Permanent.IsReturnedToHandByBurstDigivolution (design item RD-R5-02). Permanent.CannotReturnToHand is now available.");
     }
 
-    // AS-IS :249-344 `void AddTrashTopCardAtTurnEnd(Permanent permanent)` — register an OnEndTurn ActivateClass
-    // on `permanent.UntilEachTurnEndEffects` that at end of the burst turn overflows + trashes the burst top
-    // card and removes its evo-root effect. STOP (design item RD-R5-03): `Permanent.UntilEachTurnEndEffects`
-    // (the AS-IS is on PERMANENT; the mirror only has Player.UntilEachTurnEndEffects), the `Effects`
-    // (CreateDebuffEffect / RemoveDigivolveRootEffect) UI+effect helpers, and `Permanent.ShowingPermanentCard`
-    // have no mirror surface. (ActivateClass / ChangeDPClass / AceOverflowClass ARE mirrored.)
+    // AS-IS :249-344 `void AddTrashTopCardAtTurnEnd(Permanent permanent)` (RD-R5-03 landed) — registers an
+    // OnEndTurn ActivateClass on `permanent.UntilEachTurnEndEffects` (now on the mirror Permanent) that at the
+    // end of the burst-digivolution turn ace-overflows + trashes the burst top card. Substrate: coroutine → Task,
+    // StartCoroutine(X) → await X; `selectedPermanent.TopCard.Owner.GetFieldPermanents()` (Player) →
+    // `new Player(context, owner).GetFieldPermanents()`. UI strips (adaptation): Effects.CreateDebuffEffect
+    // (:313) / Permanent.ShowingPermanentCard.ShowPermanentData (:326) / Effects.RemoveDigivolveRootEffect (:327)
+    // are DOTween/display helpers with no rule mutation. The rule spine — AceOverflowClass.Overflow +
+    // CardObjectController.RemoveFromAllArea + AddTrashCard(if !IsToken) — is mirrored 1:1.
     public void AddTrashTopCardAtTurnEnd(Permanent permanent)
     {
-        _ = permanent;
-        throw new NotSupportedException(
-            "STOP: SelectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd (AS-IS " +
-            "SelectBurstDigivolutionEffect.cs:249-344) — requires Permanent.UntilEachTurnEndEffects (per-permanent), " +
-            "the Effects CreateDebuffEffect/RemoveDigivolveRootEffect helpers, and Permanent.ShowingPermanentCard, " +
-            "none present in the mirror (design item RD-R5-03).");
+        EngineContext context = RequireContext();
+
+        Permanent selectedPermanent = permanent;
+
+        if (selectedPermanent != null)
+        {
+            if (selectedPermanent.TopCard != null)
+            {
+                ActivateClass activateClass1 = new ActivateClass();
+
+                activateClass1.SetUpICardEffect("Trash this Digimon's top card\n(Burst Digivolution)", CanUseCondition2, selectedPermanent.TopCard);
+                activateClass1.SetUpActivateClass(CanActivateCondition1, ActivateCoroutine1, 1, false, EffectDiscription1());
+                activateClass1.SetEffectSourcePermanent(selectedPermanent);
+                activateClass1.SetHashString("TrashBurstDigivolution");
+                selectedPermanent.UntilEachTurnEndEffects.Add(GetCardEffect);
+
+                string EffectDiscription1()
+                {
+                    return "At the end of the burst digivolution turn, trash this Digimon's top card";
+                }
+
+                ChangeDPClass rootEffect = new ChangeDPClass();
+                rootEffect.SetUpICardEffect("", null, selectedPermanent.TopCard);
+                activateClass1.SetRootCardEffect(rootEffect);
+
+                bool CanUseCondition2(Hashtable hashtable1)
+                {
+                    if (selectedPermanent.TopCard != null)
+                    {
+                        if (new Player(context, selectedPermanent.TopCard.Owner).GetFieldPermanents().Contains(selectedPermanent))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                bool CanActivateCondition1(Hashtable hashtable1)
+                {
+                    if (selectedPermanent.TopCard != null)
+                    {
+                        if (new Player(context, selectedPermanent.TopCard.Owner).GetFieldPermanents().Contains(selectedPermanent))
+                        {
+                            if (selectedPermanent.DigivolutionCards.Count >= 1)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+
+                    return false;
+                }
+
+                async Task ActivateCoroutine1(Hashtable _hashtable1)
+                {
+                    if (selectedPermanent.TopCard != null)
+                    {
+                        if (new Player(context, selectedPermanent.TopCard.Owner).GetFieldPermanents().Contains(selectedPermanent))
+                        {
+                            if (selectedPermanent.DigivolutionCards.Count >= 1)
+                            {
+                                Permanent permanent = selectedPermanent;
+
+                                // AS-IS :313 Effects.CreateDebuffEffect(permanent) = DOTween UI (stripped).
+
+                                CardSource cardSource = permanent.TopCard;
+
+                                await new AceOverflowClass(new List<CardSource>() { cardSource }).Overflow().ConfigureAwait(false);
+
+                                await CardObjectController.RemoveFromAllArea(cardSource).ConfigureAwait(false);
+
+                                if (!cardSource.IsToken)
+                                {
+                                    await CardObjectController.AddTrashCard(cardSource).ConfigureAwait(false);
+                                }
+
+                                // AS-IS :326-327 ShowingPermanentCard.ShowPermanentData(true) +
+                                // Effects.RemoveDigivolveRootEffect(cardSource, permanent) = display (stripped).
+                            }
+                        }
+                    }
+                }
+
+                ICardEffect GetCardEffect(EffectTiming _timing)
+                {
+                    if (_timing == EffectTiming.OnEndTurn)
+                    {
+                        return activateClass1;
+                    }
+
+                    return null;
+                }
+            }
+        }
     }
 }

@@ -727,6 +727,53 @@ public sealed class Permanent
     }
     #endregion
 
+    #region Whether this permanent cannot return to hand
+    /// <summary>(RD-EXT3-04) AS-IS <c>Permanent.CannotReturnToHand(ICardEffect cardEffect)</c>
+    /// (Permanent.cs:744-781): the aggregate ICannotReturnToHand scan — TRUE if ANY live
+    /// <see cref="ICannotReturnToHandEffect"/> (on any player's field permanents' [None] effects OR any player's
+    /// own [None] effects) forbids THIS permanent from returning to hand for <paramref name="cardEffect"/>.
+    /// Verbatim scan scope/order; substrate: <c>GManager.instance.turnStateMachine.gameContext.Players</c> →
+    /// <c>new GameContext(_context).Players</c>.</summary>
+    public bool CannotReturnToHand(ICardEffect cardEffect)
+    {
+        foreach (Player player in new GameContext(_context).Players)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                foreach (ICardEffect cardEffect1 in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICannotReturnToHandEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((ICannotReturnToHandEffect)cardEffect1).CannotReturnToHand(this, cardEffect))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                foreach (ICardEffect cardEffect1 in player.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect1 is ICannotReturnToHandEffect)
+                    {
+                        if (cardEffect1.CanUse(null))
+                        {
+                            if (((ICannotReturnToHandEffect)cardEffect1).CannotReturnToHand(this, cardEffect))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    #endregion
+
     // ===== (R1-c) keyword-predicate getters (AS-IS Permanent.cs) ==============================================
     // Each getter is the AS-IS body verbatim (scan scope / interface / gate order / quirks preserved per getter —
     // NOT uniformised). Two established substrate adaptations apply throughout:
@@ -3970,6 +4017,17 @@ public sealed class Permanent
     {
         get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect;
         set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).DigivolvingEffect = value;
+    }
+
+    /// <summary>(RD-EXT3-05) AS-IS <c>Permanent.PlaceOtherPermanentEffect</c> (:3674) — the effect that
+    /// re-parented this permanent under another (recorded by <c>IPlacePermanentToDigivolutionCards</c> before the
+    /// source leaves the field). NOTE the view-model DIE semantics: the source permanent is Reset at the zone
+    /// chokepoint the instant it leaves the field, so a read after re-parent returns the AS-IS field default —
+    /// consistent with there being no ported consumer that reads a dead permanent's PlaceOtherPermanentEffect.</summary>
+    public ICardEffect? PlaceOtherPermanentEffect
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlaceOtherPermanentEffect;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).PlaceOtherPermanentEffect = value;
     }
 
     /// <summary>AS-IS <c>Permanent.LevelJustAfterPlayed</c> (:3890, −1 = never played).</summary>
