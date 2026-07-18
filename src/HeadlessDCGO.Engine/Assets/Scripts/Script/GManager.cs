@@ -150,10 +150,20 @@ public sealed class GManager
         }
         else if (typeof(T) == typeof(Assets.Scripts.Script.SelectDigiXrosClass))
         {
-            // (P6C1) the AS-IS DigiXros pre-play selection component — mirrored as its STATE surface
-            // (playCard/selectedDigicrossCards/excludedCards/Reset/SetExcludedCards); the interactive Select
-            // flow is a STOP (design item RD-P6C1-5, Script/SelectDigiXrosClass.cs).
-            created = new Assets.Scripts.Script.SelectDigiXrosClass();
+            // (P6C1 → RD-EXT3-01) the AS-IS DigiXros pre-play selection component — now a full 1:1 mirror
+            // (state surface + CanSelectDigiXros + Select area-loop + AddDigivolutiuonCards apply halves,
+            // Script/SelectDigiXrosClass.cs). Context-injected like the other Select* components.
+            var selectDigiXrosClass = new Assets.Scripts.Script.SelectDigiXrosClass();
+            selectDigiXrosClass.AttachContext(_context);
+            created = selectDigiXrosClass;
+        }
+        else if (typeof(T) == typeof(Assets.Scripts.Script.SelectAssemblyClass))
+        {
+            // (RD-EXT3-02) the AS-IS Assembly pre-play selection component — the instance surface of the
+            // now-non-static SelectAssemblyClass (its STATIC feasibility half still serves PlayCardAction).
+            var selectAssemblyClass = new Assets.Scripts.Script.SelectAssemblyClass();
+            selectAssemblyClass.AttachContext(_context);
+            created = selectAssemblyClass;
         }
         else if (typeof(T) == typeof(Assets.Scripts.Script.SelectDNACondition))
         {

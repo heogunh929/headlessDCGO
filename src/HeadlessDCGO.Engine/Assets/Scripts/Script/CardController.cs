@@ -2513,9 +2513,8 @@ public class PlayCardClass
         foreach (CardSource card in CardSources)
         {
             GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
-            // AS-IS :307 `GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();` —
-            // the mirror SelectAssemblyClass is the STATIC feasibility half (material matching lives in the
-            // parameterized play action), so there is no component state to reset (adaptation (7), RD-P6C1-5).
+            // AS-IS :307 (RD-EXT3-02): the SelectAssemblyClass instance now carries component state.
+            GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();
             GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
 
             if (card == null)
@@ -2901,14 +2900,11 @@ public class PlayCardClass
 
                 if (card.HasAssembly && !isEvolution)
                 {
-                    // AS-IS :755-756: `GManager.instance.GetComponent<SelectAssemblyClass>().SetExcludedCards(
-                    // CardSources);` + `yield return ... .Select(card);` — the AS-IS interactive Assembly
-                    // material pre-selection component; the mirror SelectAssemblyClass is the STATIC
-                    // feasibility half (materials ride the parameterized play action), so the component flow
-                    // has no mirror: STOP RD-P6C1-5.
-                    throw new NotSupportedException(
-                        "STOP: Assembly pre-play material selection (AS-IS SelectAssemblyClass.Select) has no " +
-                        "mirror component flow — design item RD-P6C1-5, docs/audit/rebuild_p6_cluster1_notes.md.");
+                    // AS-IS :757-758 (RD-EXT3-02): the SelectAssemblyClass instance component now mirrors the
+                    // interactive Assembly material pre-selection 1:1 (its STATIC feasibility half still serves
+                    // the parameterized play action).
+                    GManager.instance.GetComponent<SelectAssemblyClass>().SetExcludedCards(CardSources);
+                    await GManager.instance.GetComponent<SelectAssemblyClass>().Select(card);
                 }
 
                 #endregion
@@ -3061,8 +3057,8 @@ public class PlayCardClass
                 GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
                 GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
 
-                // AS-IS :790 SelectAssemblyClass component reset — no mirror component state (see the loop-top
-                // note; adaptation (7), RD-P6C1-5).
+                // AS-IS :790 (RD-EXT3-02): the SelectAssemblyClass instance now carries component state.
+                GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();
 
                 // AS-IS :791: Effects.FailedPlayCardEffect(card) — a DOTween shake on the brainstorm hand-card
                 // display (Effects.cs:2267-2306) = UI, stripped (adaptation (4)).
@@ -3318,12 +3314,10 @@ public class PlayPermanentClass
 
                 if (card.HasAssembly && !isEvolution)
                 {
-                    // AS-IS :1253-1259 SelectAssemblyClass.Select — the mirror SelectAssemblyClass is the STATIC
-                    // feasibility half (materials ride the parameterized play action); the component flow has no
-                    // mirror: STOP RD-P6C1-5 (same seat as the PlayCardClass single-card arm).
-                    throw new NotSupportedException(
-                        "STOP: Assembly pre-play material selection (AS-IS SelectAssemblyClass.Select) has no " +
-                        "mirror component flow — design item RD-P6C1-5, docs/audit/rebuild_p6_cluster1_notes.md.");
+                    // AS-IS :1254-1255 (RD-EXT3-02): the SelectAssemblyClass instance component mirrors the
+                    // interactive Assembly material pre-selection 1:1 (same seat as the single-card arm).
+                    GManager.instance.GetComponent<SelectAssemblyClass>().SetExcludedCards(_cardSources);
+                    await GManager.instance.GetComponent<SelectAssemblyClass>().Select(card);
                 }
 
                 #endregion
@@ -3335,9 +3329,12 @@ public class PlayPermanentClass
                 _maxDigixrosCount = Math.Max(_digiXrosCount, _maxDigixrosCount);
             }
 
-            // AS-IS :1272-1276 SelectAssemblyClass component state read (`playCard == card` → _assemblyCount) —
-            // the mirror has no assembly component state (STOP above precedes any producer), so the count stays 0.
-            _ = _maxAssemblyCount;
+            // AS-IS :1268-1270 (RD-EXT3-02): the SelectAssemblyClass instance now carries live component state.
+            if (GManager.instance.GetComponent<SelectAssemblyClass>().playCard == card)
+            {
+                _assemblyCount = GManager.instance.GetComponent<SelectAssemblyClass>().selectedAssemblyCards.Count;
+                _maxAssemblyCount = Math.Max(_assemblyCount, _maxAssemblyCount);
+            }
 
             bool isFromDigimonDigivolutionCards = new Player(card.Context, card.Owner).GetFieldPermanents()
                 .Some((permanent) => permanent.DigivolutionCards.Contains(card));
@@ -3589,17 +3586,15 @@ public class PlayPermanentClass
                 // AS-IS :1573-1626 "move permanents (hybrid)" — pure UI canvas repositioning
                 // (transform.localPosition comparisons); no rule mutation. Stripped.
 
-                // AS-IS :1628-1631 SelectDigiXros/Assembly AddDigivolutiuonCardsByEffect / AddDigivolutiuonCards —
-                // the apply halves (:882-1018) are unported (RD-R5-04 family); their state can only be non-empty
-                // via Select (STOP above) or an AddDigivolutionCardInfos producer (none live), so the AS-IS calls
-                // are provably empty-state no-ops here. Guarded: a future producer trips the STOP, not silence.
-                if (GManager.instance.GetComponent<SelectDigiXrosClass>().playCard != null
-                    || GManager.instance.GetComponent<SelectDigiXrosClass>().addDigivolutionCardInfos.Count > 0)
-                {
-                    throw new NotSupportedException(
-                        "STOP: SelectDigiXrosClass.AddDigivolutiuonCards* (AS-IS SelectDigiXrosClass.cs:882-1018) " +
-                        "reached with live DigiXros state — the apply halves are unported (design item RD-R5-04).");
-                }
+                // AS-IS :1630-1634 (RD-EXT3-01/02): the SelectDigiXros/Assembly apply halves (:882-1018) are now
+                // ported — the DigiXros/Assembly materials selected pre-play stack UNDER this permanent. (The
+                // field-permanent material sub-branch alone STOPs at RD-EXT3-05, IPlacePermanentToDigivolutionCards
+                // absent; the hand/trash/tamer/security branches run.)
+                await GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCardsByEffect(card);
+                await GManager.instance.GetComponent<SelectDigiXrosClass>().AddDigivolutiuonCards(card);
+
+                await GManager.instance.GetComponent<SelectAssemblyClass>().AddDigivolutiuonCardsByEffect(card);
+                await GManager.instance.GetComponent<SelectAssemblyClass>().AddDigivolutiuonCards(card);
 
                 if (GManager.instance.turnStateMachine.DoneStartGame)
                 {
@@ -3619,7 +3614,8 @@ public class PlayPermanentClass
             }
 
             GManager.instance.GetComponent<SelectDigiXrosClass>().ResetSelectDigiXrosClass();
-            // AS-IS :1654 SelectAssemblyClass.ResetSelectAssemblyClass — no mirror component state to reset.
+            // AS-IS :1654 (RD-EXT3-02): the SelectAssemblyClass instance now carries component state.
+            GManager.instance.GetComponent<SelectAssemblyClass>().ResetSelectAssemblyClass();
             GManager.instance.GetComponent<SelectDNACondition>().ResetSelectDNAConditionClass();
         }
 
