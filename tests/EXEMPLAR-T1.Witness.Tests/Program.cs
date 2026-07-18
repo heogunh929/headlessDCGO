@@ -27,7 +27,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // LM_054 — Treadmill Training (7축: K:Training*표기·Delete/Digivolve/IgnoreColor/PlaceDelay/DelayOption/IgnoreReq)
     ("LM_054 W1 [Main]: 덱탑 2장 공개→황색 1장 손패→나머지 덱밑→자신을 delay로 배틀에어리어 배치 (ActivateOption 펌프 레인)", LM054_MainRevealAddHandAndDelayPlaced),
     ("LM_054 W2 경계: 배틀에어리어에 동명 [Treadmill Training] 존재 시 ignore-color 게이트 OFF → 색 요구 미충족 → ActivateOption 레인 부재", LM054_IgnoreColorGateNegative),
-    ("LM_054 W3 <Delay>: ActivateMain 발화 — 자기 삭제는 착지, 삭제-계속(successProcess 진화)은 펌프 미정착(수확 RD-EXT1-02 문서화)", LM054_DelayDeletesSelfAndDigivolvesReduced),
+    ("LM_054 W3 <Delay>: ActivateMain 발화 — 자기 삭제 착지 + 삭제-계속(successProcess) 진화 완주(evo 배틀에어리어 진입, 코스트-2 클램프) — RD-EXT1-02 상환", LM054_DelayDeletesSelfAndDigivolvesReduced),
     // BT19_091 — Trinity Burst! (5축: Alliance·토큰3종·SelectAttack)
     ("BT19_091 W1 [Main]: 토큰 플레이(동명 Taomon 스킵)→Lv.5에 <Alliance> 2회→강제 공격(SelectAttackEffect) 수행", BT19091_MainTokensAllianceForcedAttack),
     ("BT19_091 W2 경계: 동명 디지몬 2종(WarGrowlmon·Taomon) 존재 시 Rapidmon 토큰만 플레이", BT19091_DuplicateTokenNamesSkipped),
@@ -45,7 +45,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("EX10_029 W2 대체 진화 조건: [Stnd.] Appmon 위 코스트 2 Digivolve 레인 (비-Stnd. 대상 레인 부재 — 양/음 대조)", EX10029_AltDigivolveConditionOntoStndAppmon),
     ("EX10_029 W3 [Security] 수확: 자기-플레이 발화는 기존 STOP RD-P6C3-B2 — 체크·전투는 완료, 플레이는 불발(정직 문서화)", EX10029_SecurityPlaysSelfAfterBattle),
     // P_223 — Kuzuhamon (4축: ChangeCardNames·PlayOptionCards·PlayPipeFox·OnUseOption)
-    ("P_223 W1: 보안≤3 코스트 -4(7 지불) → [On Play] 트래시의 [Plug-In] 옵션 무료 사용·[Main] 해소 (+토큰 꼬리=수확 RD-EXT1-03 문서화)", P223_ReducedPlayThenOptionFromTrashAndPipeFox),
+    ("P_223 W1: 보안≤3 코스트 -4(7 지불) → [On Play] 트래시의 [Plug-In] 옵션 무료 사용·[Main] 해소 (+토큰 꼬리=RD-EXT1-03 상환·OnUseOption 반응자 [Pipe Fox] 발화)", P223_ReducedPlayThenOptionFromTrashAndPipeFox),
     ("P_223 W2 경계: 보안 4장이면 감소 없음 → 코스트 11 > 지불가능 10 → PlayCard 레인 부재", P223_NoReductionAtFourSecurity),
     ("P_223 W3 이름 룰: [Sakuyamon]으로도 취급 (타 카드는 불취급 — 양/음 대조)", P223_NameRuleSakuyamon),
 };
@@ -121,6 +121,15 @@ async Task LM054_DelayDeletesSelfAndDigivolvesReduced()
     await ReachMainWaitAsync(match);
     // delay 상태의 LM_054(배틀에어리어) + 황색 Lv.3 숙주 + 손패의 황색 Lv.4(진화코스트 1 → -2 ⇒ 0).
     HeadlessEntityId delay = Stage(match, P1, "LM_054", ChoiceZone.BattleArea, "1:battle:LM054delay", register: true);
+    // (RD-EXT1-02) A <Delay> option reaches the battle area ONLY via PlaceDelayOptionCards, which marks the
+    // resulting permanent IsPlayedOptionPermanent=true (AS-IS CardEffectCommons.cs:131 / Permanent.cs:3946). A
+    // direct-staged option lacking that flag is trashed by the no-DP rule sweep (AutoProcessing.TrashNoDP-
+    // PermanentProcess, AS-IS :182 — options are swept UNLESS IsPlayedOptionPermanent) before its declaration
+    // resolves. Stamp the flag so the fixture is a faithful delay-option permanent (the earlier harvest pin
+    // mis-attributed the missing digivolve to a pump flow-drain asymmetry; the real gap was this fixture flag —
+    // once set, SetActSkill finds the <Delay> OnDeclaration effect and the whole body runs: self-delete →
+    // successProcess → SelectPermanent → DigivolveIntoHandOrTrashCard, all on the AS-IS pump ActivateMain path).
+    MarkPlayedOptionPermanent(match, delay);
     HeadlessEntityId host = Stage(match, P1, "BT10_030", ChoiceZone.BattleArea, "1:battle:Tinkermon", register: true);
     HeadlessEntityId evo = Stage(match, P1, "BT10_033", ChoiceZone.Hand, "1:hand:Shortmon");
 
@@ -143,15 +152,13 @@ async Task LM054_DelayDeletesSelfAndDigivolvesReduced()
 
     AssertTrue(ZoneCards(match, P1, ChoiceZone.Trash).Contains(delay),
         "DeletePeremanentAndProcessAccordingToResult: the delay LM_054 deleted itself into the trash");
-    // 수확(RD-EXT1-02): DeletePeremanentAndProcessAccordingToResult의 successProcess 계속은
-    // DeletionOutcomeWatcher에 파킹되고 GameFlowProcessor 루프에서 settle되는데(W6-S), ActivateMain
-    // (MainSkillActivateAction) 경로는 해소 후 flow-드레인을 돌지 않아 펌프 표면에서 계속이 발화하지
-    // 않는다(PlayCardAction은 CompletePlayAsync가 창을 드레인함 — 비대칭). 삭제 절반은 실착지(위 assert),
-    // 진화 절반은 불발 — 정직 문서화(상환 시 이 assert를 뒤집어 진화 착지를 검증할 것).
-    AssertTrue(!ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(evo) && policy.Seen.Count == 0,
-        "HARVEST RD-EXT1-02: the parked delete-continuation (digivolve half) does not settle on the pump " +
-        "ActivateMain path — when this assert fails the gap was repaid and this witness must flip to assert " +
-        $"the digivolve [debug canEvolve:{DebugCanEvolve(match, evo, host)} prompts:{string.Join(" | ", policy.Seen)}]");
+    // (RD-EXT1-02 상환) 자기 삭제는 DeletePeremanentAndProcessAccordingToResult의 successProcess 계속을 즉시
+    // settle(자기-삭제는 대체창 없이 인라인 착지 → destroyed=1)하고, successProcess가 SelectPermanent(host)→
+    // DigivolveIntoHandOrTrashCard(evo, 코스트-2)를 AS-IS 펌프 ActivateMain(SetActSkill→ActivateEffectProcess)
+    // 경로에서 완주한다. 진화 절반이 실착지 — evo가 배틀에어리어에 진입한다.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(evo),
+        "RD-EXT1-02: the delete-continuation digivolve landed — the Yellow Lv.4 [Shortmon] digivolved onto the " +
+        $"host on the pump ActivateMain path [debug canEvolve:{DebugCanEvolve(match, evo, host)} prompts:{string.Join(" | ", policy.Seen)}]");
     AssertEqual(memBefore, MemoryFor(match, P1),
         "digivolution cost 1 reduced by 2 clamps to 0 — no memory paid");
 }
@@ -572,13 +579,15 @@ async Task P223_ReducedPlayThenOptionFromTrashAndPipeFox()
         "PlayOptionCards: the [Plug-In] option from the trash resolved its [Main] (the low-DP Digimon was deleted)");
     await DriveUntilAsync(match, m => ZoneCards(m, P1, ChoiceZone.BattleArea).Any(id => CardNumberOf(m, id) == "BT19-040-token")
         || AtMainWaitOf(m, P2) || m.IsTerminal());
-    // 수확(RD-EXT1-03): 효과-구동 PlayOptionCards가 emit한 OnUseOption 이벤트(브릿지 :151)가 펌프 창
-    // 수집기에서 배틀에어리어 리액터(P_223의 OnUseOption ActivateClass)를 수집하지 못한다 — 토큰 optional
-    // 프롬프트가 열리지 않음(위 prompts 로그로 실측). ActivateOption 액션 경로의 emit(OptionActivateAction
-    // .cs:95)과 별개의 드레인 경로. 정직 문서화 — 상환 시 이 assert를 뒤집어 토큰 착지를 검증할 것.
-    AssertTrue(!ZoneCards(match, P1, ChoiceZone.BattleArea).Any(id => CardNumberOf(match, id) == "BT19-040-token"),
-        "HARVEST RD-EXT1-03: the effect-driven OnUseOption emit does not collect the battle-area reactor on the pump path " +
-        "— when this assert fails the gap was repaid and this witness must flip to assert the [Pipe Fox] token play");
+    // (RD-EXT1-03 상환) 효과-구동 PlayOptionCards는 이제 AS-IS UseOption 좌석(StackSkillInfos(OnUseOption)
+    // + ActivateBackgroundEffects, PlayCardsBridge.cs)에서 옵션-사용 창을 연다 — 수동 펌프 플레이 경로
+    // (PlayCardClass → UseOptionClass, CardController.cs:4277-4279)와 동일 좌석. 배틀에어리어 리액터
+    // (P_223의 OnUseOption ActivateClass)가 수집·드레인되어 [Pipe Fox] 토큰 optional 프롬프트가 열리고
+    // 플레이된다(정책 OptionalEffect 좌석이 수락). 이전 bare TriggerEventEmitter.Emit은 펌프 드레인에
+    // 스택되지 않아 미발화였음.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Any(id => CardNumberOf(match, id) == "BT19-040-token"),
+        "RD-EXT1-03: the effect-driven option play opened the OnUseOption window at the AS-IS StackSkillInfos seat — " +
+        "P_223's battle-area [All Turns] OnUseOption reactor fired and played the [Pipe Fox] Token to the battle area");
 }
 
 async Task P223_NoReductionAtFourSecurity()
@@ -804,6 +813,21 @@ HeadlessEntityId Stage(DcgoMatch match, HeadlessPlayerId owner, string cardNumbe
     }
 
     return id;
+}
+
+// (RD-EXT1-02) Stamp a battle-area option instance as a played-option permanent (AS-IS
+// Permanent.IsPlayedOptionPermanent, set by PlaceDelayOptionCards). Exempts the option from the no-DP rule
+// sweep and makes it a declarable field permanent — the state a directly-staged delay option must replicate.
+void MarkPlayedOptionPermanent(DcgoMatch match, HeadlessEntityId id)
+{
+    if (match.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null)
+    {
+        var meta = new Dictionary<string, object?>(rec.Metadata, StringComparer.Ordinal)
+        {
+            [GameFlowProcessor.IsPlayedOptionPermanentKey] = true,
+        };
+        match.Context.CardInstanceRepository.Upsert(rec with { Metadata = meta });
+    }
 }
 
 // 합성 픽스처 카드(R4S3b StageBattleDigimon 관례 확장): def 업서트 + 인스턴스 + 존 이동.

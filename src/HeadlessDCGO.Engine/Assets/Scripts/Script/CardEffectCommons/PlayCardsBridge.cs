@@ -144,18 +144,33 @@ public static partial class CardEffectCommons
                 }
             }
 
-            // Use flow (verified PlayOptionCardEffect resolution order): trash → OnUseOption → resolve [Main].
-            // (EXEMPLAR-T1, first Root.Trash consumer — P_223 [On Play]) an option used FROM the trash is
-            // already resident there; AS-IS hops it through the execution area and back (presentation), so the
-            // zone outcome is identity — the mirror move is skipped (ZoneMover rejects From==To).
+            // Use flow — AS-IS PlayOptionCards routes each option through `new PlayCardClass(...).PlayCard()`
+            // (CardEffectCommons.cs:72-92), whose option half is `UseOptionClass.UseOption()` (CardController.cs
+            // :1722-1786): trash → OnUseOption WINDOW → resolve [Main]. (EXEMPLAR-T1, first Root.Trash consumer —
+            // P_223 [On Play]) an option used FROM the trash is already resident there; AS-IS hops it through the
+            // execution area and back (presentation), so the zone outcome is identity — the mirror move is skipped
+            // (ZoneMover rejects From==To).
             if (sourceZone != ChoiceZone.Trash)
             {
                 await context.ZoneMover.MoveAsync(
                     new ZoneMoveRequest(card.Owner, card.InstanceId, sourceZone, ChoiceZone.Trash)).ConfigureAwait(false);
             }
-            TriggerEventEmitter.Emit(
-                context.GameEventQueue, TriggerTimings.OnUseOption,
-                actor: card.Controller, subject: card.InstanceId);
+
+            // (RD-EXT1-03) AS-IS opens the "when option is used" window INLINE via StackSkillInfos(OnUseOption)
+            // + ActivateBackgroundEffects (UseOption, CardController.cs:1765-1767) — the SAME seat the manual pump
+            // play uses (TurnFlowDriver → PlayCardClass → UseOptionClass, mirror CardController.cs:4277-4279). The
+            // former bare TriggerEventEmitter.Emit(OnUseOption) did NOT stack the battle-area OnUseOption reactor
+            // onto the pump's TriggeredSkillProcess drain, so an effect-driven option play never fired the owner's
+            // [All Turns] OnUseOption skill (P_223's [Pipe Fox] token). AS-IS hashtable (CardController.cs:1754):
+            // {Card, Root, Cost}.
+            System.Collections.Hashtable useHashtable = new System.Collections.Hashtable
+            {
+                { "Card", card },
+                { "Root", root },
+                { "Cost", card.GetCostItself },
+            };
+            await GManager.instance.autoProcessing.StackSkillInfos(useHashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
+            await AutoProcessing.ActivateBackgroundEffects(useHashtable, EffectTiming.OnUseOption).ConfigureAwait(false);
 
             // The substrate ActivateMainOfOptionSide route: ONLY the [Main]-tagged OptionSkill effect.
             await ActivatedEffectResolver.ResolveAsync(
