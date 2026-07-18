@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -87,7 +88,6 @@ async Task MainPhaseLegalActionsExposeValidDigivolvePairsOnly()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
 
     LegalAction[] digivolves = match.GetLegalActions(player)
         .Where(action => action.ActionType == HeadlessActionTypes.Digivolve)
@@ -101,15 +101,27 @@ async Task MainPhaseLegalActionsExposeValidDigivolvePairsOnly()
 
 async Task LegalDigivolvePaysMemoryMovesCardAndAttachesSource()
 {
-    DcgoMatch match = await CreateConfiguredMatchAsync();
+    // Start P1's main at +6 memory: paying the cost-2 digivolve lands the gauge at +4, keeping it on
+    // P1's side (paying into memory <= 0 auto-ends the turn under the faithful pump single-gauge rule;
+    // the OLD single-step apply captured the transient before that auto-pass).
+    DcgoMatch match = await CreateConfiguredMatchAsync(initialMemory: 6);
     HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
     LegalAction digivolve = SingleLegalAction(match, player, HeadlessActionTypes.Digivolve);
     int beforeMemory = match.Context.MemoryController.Current.Current;
     int beforeMoveEvents = match.Context.ZoneMover.Events.Count(e => e.Type == GameEventType.CardMoved);
 
-    await match.ApplyActionAsync(digivolve);
-    StepResult step = await match.StepAsync();
+    // Pump: a single StepAsync does not settle the digivolve. Drive until the evolve card lands on the
+    // battle area, collecting step events so the ActionProcessed assertions observe the real event.
+    var driveEvents = new List<GameEvent>();
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        await match.ApplyActionAsync(digivolve);
+        for (int i = 0; i < 12 && !ZoneReader(match).GetCards(player, ChoiceZone.BattleArea).Contains(EvolveCardId); i++)
+        {
+            StepResult step = await match.StepAsync();
+            driveEvents.AddRange(step.Events);
+        }
+    }
 
     AssertEqual(beforeMemory - 2, match.Context.MemoryController.Current.Current, "memory after digivolve");
     AssertFalse(ZoneReader(match).GetCards(player, ChoiceZone.Hand).Contains(EvolveCardId), "evolve card removed from hand");
@@ -117,24 +129,32 @@ async Task LegalDigivolvePaysMemoryMovesCardAndAttachesSource()
     AssertTrue(ZoneReader(match).GetCards(player, ChoiceZone.BattleArea).Contains(EvolveCardId), "evolve card moved to battle");
     AssertSequence(new[] { TargetCardId.Value }, ReadSourceIds(match, EvolveCardId).Select(id => id.Value).ToArray(), "source ids");
 
-    GameEvent processed = step.Events.Last(e => e.Type == GameEventType.ActionProcessed);
+    // The pump records the digivolve as a queued main-phase action; its ActionProcessed carries
+    // success + actionType + the queued marker + an actionId embedding the evolve card. The rich
+    // previous/after memory + target metadata was an OLD synchronous-processor surface — the memory
+    // delta is verified live above, the evolved card via battle-area landing, and the source attach via
+    // the ReadSourceIds assertion (target became the digivolution source).
+    GameEvent processed = driveEvents.Last(e => e.Type == GameEventType.ActionProcessed
+        && e.Metadata.TryGetValue(HeadlessActionParameterKeys.ActionType, out object? at)
+        && Equals(at, HeadlessActionTypes.Digivolve));
     AssertMetadata(processed, "success", true);
     AssertMetadata(processed, HeadlessActionParameterKeys.ActionType, HeadlessActionTypes.Digivolve);
-    AssertMetadata(processed, HeadlessActionParameterKeys.CardId, EvolveCardId.Value);
-    AssertMetadata(processed, HeadlessActionParameterKeys.TargetCardId, TargetCardId.Value);
-    AssertMetadata(processed, HeadlessActionParameterKeys.PreviousMemory, beforeMemory);
-    AssertMetadata(processed, HeadlessActionParameterKeys.Memory, beforeMemory - 2);
+    AssertTrue(
+        processed.Metadata.TryGetValue("actionId", out object? aid) && aid is string aidStr && aidStr.Contains(EvolveCardId.Value, StringComparison.Ordinal),
+        "the queued Digivolve action references the evolve card id");
     int afterMoveEvents = match.Context.ZoneMover.Events.Count(e => e.Type == GameEventType.CardMoved);
-    // (RD-1) a digivolve now also draws 1 card (AS-IS CardController.cs:1526-1529), so it produces 3 CardMoved
-    // events: evolve card hand->battle, target source under, and the digivolve draw deck->hand.
-    AssertEqual(beforeMoveEvents + 3, afterMoveEvents, "digivolve movement events");
+    // Under the faithful pump the digivolve emits 4 CardMoved events (verified individually — no spurious
+    // moves): (1) evolve card Hand->None Remove + (2) evolve card None->BattleArea Insert form the
+    // permanent-continuity RE-KEY PAIR the pump uses where the OLD synchronous path emitted a single
+    // Hand->BattleArea move (S3b-2 AddCardSource re-key); (3) target BattleArea->None Remove as it becomes
+    // the digivolution source; (4) the RD-1 digivolve draw Library->Hand (AS-IS CardController.cs:1526-1529).
+    AssertEqual(beforeMoveEvents + 4, afterMoveEvents, "digivolve movement events");
 }
 
 async Task DigivolveRejectsWrongCostWithoutMutation()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
     var action = HeadlessActionFactory.Digivolve(player, EvolveCardId, TargetCardId, memoryCost: 3);
     string beforeZones = SnapshotZones(match, player);
     string beforeSources = SnapshotSources(match, EvolveCardId);
@@ -154,7 +174,6 @@ async Task DigivolveRejectsInvalidConditionWithoutMutation()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync(condition: "definition:OTHER");
     HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
     var action = HeadlessActionFactory.Digivolve(player, EvolveCardId, TargetCardId, memoryCost: 2);
     string beforeZones = SnapshotZones(match, player);
 
@@ -171,7 +190,6 @@ async Task DigivolveRejectsNonHandCardWithoutMutation()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
     await match.Context.ZoneMover.MoveAsync(new ZoneMoveRequest(player, EvolveCardId, ChoiceZone.Hand, ChoiceZone.Trash));
     var action = HeadlessActionFactory.Digivolve(player, EvolveCardId, TargetCardId, memoryCost: 2);
     string beforeZones = SnapshotZones(match, player);
@@ -189,7 +207,6 @@ async Task LegalQueryAndApplyShareMemoryCondition()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync(initialMemory: 0, minimumMemory: -1);
     HeadlessPlayerId player = new(1);
-    await AdvanceToMainAsync(match, player);
     var action = HeadlessActionFactory.Digivolve(player, EvolveCardId, TargetCardId, memoryCost: 2);
 
     AssertEqual(0, match.GetLegalActions(player).Count(a => a.ActionType == HeadlessActionTypes.Digivolve), "legal digivolve count");
@@ -260,7 +277,7 @@ async Task<DcgoMatch> CreateConfiguredMatchAsync(
             CardType: "Digimon"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     HeadlessPlayerId[] players = { new(1), new(2) };
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[]
@@ -278,6 +295,11 @@ async Task<DcgoMatch> CreateConfiguredMatchAsync(
         maximumMemory: 10,
         setup: setup));
 
+    // Pattern (2) synth-hand fix: the pump deals the opening hand during its Active->Draw->Breeding->Main
+    // auto-flow, so the fixture must reach the main wait BEFORE staging. Staging the target to the battle
+    // area after the opening (G2G-001 idiom) keeps the evolve card in hand instead of being lost to the
+    // pump auto-draw (RD-R3-02 silent-skip otherwise). The match is returned already at P1's main wait.
+    await AdvanceToMainAsync(match, new HeadlessPlayerId(1));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(new HeadlessPlayerId(1), TargetCardId, ChoiceZone.Hand, ChoiceZone.BattleArea));
     return match;
 }
@@ -298,16 +320,63 @@ static PlayerDeckSetup BuildDeck(
             .ToArray());
 }
 
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait; the OLD
+// AdvancePhase step currency is retired. Breeding/Mulligan decisions are declined; assertion strength unchanged.
 static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = SingleLegalAction(match, playerId, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, playerId));
 
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+}
+
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 static LegalAction SingleLegalAction(

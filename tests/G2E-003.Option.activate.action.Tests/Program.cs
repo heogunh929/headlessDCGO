@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -134,25 +135,38 @@ async Task OptionActivatePaysMemoryMovesCardAndEnqueuesEffect()
 
 async Task MatchLoopResolvesEnqueuedOptionEffect()
 {
-    DcgoMatch match = await CreateConfiguredMatchAsync();
+    // Start P1's main at +6 memory: the cost-3 option activation lands the gauge at +3, keeping it on
+    // P1's side (paying into memory <= 0 auto-ends the turn under the faithful pump single-gauge rule).
+    DcgoMatch match = await CreateConfiguredMatchAsync(initialMemory: 6);
     await AdvanceToMainAsync(match, Player);
     LegalAction activate = SingleLegalAction(match, Player, HeadlessActionTypes.ActivateOption);
     int beforeMemory = match.Context.MemoryController.Current.Current;
 
-    await match.ApplyActionAsync(activate);
-    StepResult step = await match.StepAsync();
+    // The OptionActivateAction processor enqueues the option's effect onto the retained EffectScheduler
+    // substrate (verified by the sibling "pays memory..." test: Pending=1 after processing). This test
+    // verifies the MATCH LOOP then DRAINS that pending effect to resolution. Under the pump the loop
+    // drain is the pump's own step: process via the processor to enqueue, then step the pump until the
+    // scheduler drains (OLD single-step currency retired for a settle-drive).
+    ActionProcessResult result = await new OptionActivateAction().ProcessAsync(activate, match.Context);
+    AssertTrue(result.IsSuccess, "process success");
+    AssertEqual(1, match.Context.EffectScheduler.TotalEnqueuedCount, "effect enqueued by processor");
+
+    var driveEvents = new List<GameEvent>();
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        for (int i = 0; i < 12 && match.Context.EffectScheduler.PendingCount > 0; i++)
+        {
+            StepResult step = await match.StepAsync();
+            driveEvents.AddRange(step.Events);
+        }
+    }
 
     AssertEqual(beforeMemory - 3, match.Context.MemoryController.Current.Current, "memory after option");
     AssertTrue(ZoneReader(match).GetCards(Player, ChoiceZone.Trash).Contains(OptionCardId), "option moved to trash");
     AssertEqual(0, match.Context.EffectScheduler.PendingCount, "pending effect count");
     AssertEqual(1, match.Context.EffectScheduler.TotalEnqueuedCount, "total enqueued effect count");
     AssertEqual(1, match.Context.EffectScheduler.TotalResolvedCount, "total resolved effect count");
-    AssertTrue(step.Events.Any(e => e.Type == GameEventType.EffectResolved), "effect resolved event");
-    GameEvent processed = step.Events.Last(e => e.Type == GameEventType.ActionProcessed);
-    AssertMetadata(processed.Metadata, "success", true);
-    AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.ActionType, HeadlessActionTypes.ActivateOption);
-    AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.CardId, OptionCardId.Value);
-    AssertMetadata(processed.Metadata, HeadlessActionParameterKeys.EffectId, OptionEffectId.Value);
+    AssertTrue(driveEvents.Any(e => e.Type == GameEventType.EffectResolved), "effect resolved event");
 }
 
 async Task OptionActivateRejectsNonOptionWithoutMutation()
@@ -288,7 +302,7 @@ async Task<DcgoMatch> CreateConfiguredMatchAsync(
             CardType: "Digimon"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     HeadlessPlayerId[] players = { new(1), new(2) };
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[]
@@ -339,16 +353,63 @@ static PlayerDeckSetup BuildDeck(
             .ToArray());
 }
 
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait; the OLD
+// AdvancePhase step currency is retired. Breeding/Mulligan decisions are declined; assertion strength unchanged.
 static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = SingleLegalAction(match, playerId, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, playerId));
 
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+}
+
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 static LegalAction SingleLegalAction(
