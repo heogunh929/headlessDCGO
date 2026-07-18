@@ -1,0 +1,174 @@
+# 4b 설계서 — OLD 스캐폴드 물리 삭제 = 스위트 재조준 골 (2026-07-18, 사용자 확인 대기)
+
+Base: main `61c81af7`. Read-only 분석. 선행=`r4_tsm_s1_design_2026-07-16.md`(S3c-d 은퇴 원장 §78-84)·`r4_tsm_investigation_2026-07-16.md`.
+분류 데이터=본 문서 작성 시점 grep 기계 스캔(테스트 프로젝트 470개, 코디네이터 base fail-set 스냅샷 97 = `jobs/dae5cd41/tmp/base_failset_97.txt` 교차). **코드 0.**
+
+## 배경·종점
+R4 컷오버(결정 3=B)로 `DcgoMatch.CreatePumpDriven` 펌프가 게임 로직의 정본 드라이버가 됐고, OLD 스텝-케이던스 드라이버(HeadlessEarlyPhaseFlow·HeadlessMainPhaseFlow invented eval·MetadataActionProcessor AdvancePhase/EndTurn body·throw-기록-재생 choice 계약·`EndOfTurnDrainedTurn` 마커·HeadlessGameLoop RunToStable 스텝 경로)는 **LEGACY TEST SCAFFOLD**로 강등됨(S3c-d 은퇴 원장 즉시-삭제 0항 = 단계적 물리 은퇴). 유일 소비자 = 기존 테스트 코퍼스.
+
+**이 골(4b)의 종점 = 소비자 0 확인 후 물리 삭제.** 원칙(불변):
+1. **재조준 우선** — 단언 보존, 구동만 OLD→펌프로 교체.
+2. **은퇴는 검증 대상 소멸분만** — 부수 행동을 단언하는 테스트는 그 단언을 건져 재조준. 검증 대상 자체가 발명물(삭제 예정)인 것만 삭제.
+3. **삭제는 마지막** — 소비자 0 판정(green 게이트) 도달 후에만 표면 물리 삭제. B군 registry 물리삭제 게이트 패턴 재사용.
+
+---
+
+# 1부: 전수 분류
+
+## 1.1 구동 방식 기계 분류 (상호배타 우선순위 캐스케이드)
+
+우선순위: ④정적(파일명) → ⑤발명물(파일명) → ①펌프(`CreatePumpDriven`) → ②a OLD-매치(`DcgoMatch` 잔여 참조) → ②b synth-머신러리(`AutoProcessing.`/`RunToStableAsync`/`ResumeSuspendedWindowsAsync`/`EarlyPhaseFlow.`/`HeadlessMainPhaseFlow.`) → ③bare.
+
+| # | 카테고리 | 구동 시그니처 | 프로젝트 | base-red(97 중) | 4b 처분 |
+|---|---------|--------------|---------:|----------------:|---------|
+| ① | 펌프-네이티브 | `CreatePumpDriven` + `GetLegalActions`/`ApplyActionAsync` | **13** | 0 | 무변(정본 패턴) |
+| ②a | OLD 풀-매치 구동 | 잔여 `DcgoMatch` 참조(펌프 아님, 기본 ctor=`new()`/`new DcgoMatch(`) | **102** | 24 | 재조준 |
+| ②b | synth OLD-머신러리 | 매치 없이 AutoProcessing/RunToStable/Resume/*PhaseFlow 직구동 | **64** | 15 | 재조준(단언 건짐)+일부 은퇴 |
+| ③ | bare 직접-드라이브 | 매치·OLD-머신 무 — 컨트롤러/이펙트/Sink 직접 호출 | **274** | 55 | **무관**(비-블로커; red는 직교 포팅부채) |
+| ④ | 빌드-전용/정적 검사 | G0-*·Forbidden.dependency·Assembly·exclusion·Seeded.random | **9** | 2 | 무변(재조준 불요) |
+| ⑤ | 발명물-표면 검증 | EffectRegistry.contract·*.binding·Hashtable.replacement·DeadTimingInfra·ActivatedBridge | **8** | 1 | **삭제 대상**(검증 대상 소멸)·일부 B군 트랙 이관 |
+| | **합계** | | **470** | **97** | |
+
+**핵심 판정: 삭제-블로커 모집단 = ②a+②b = 166개** (OLD 풀-매치 루프 또는 synth OLD-머신러리를 소비). ③(274)·④(9)는 페이즈-드라이버를 소비하지 않으므로 삭제를 **막지 않는다**(그 red 55+2는 포팅부채·STOP 스텁 등 R4-직교 = 4b가 건드리지 않음). ⑤(8)은 검증 대상이 발명물이라 재조준이 아니라 **소멸**한다.
+
+### 교차-절단 시그니처 (②a+②b 내부 정밀)
+- **AdvancePhase/EndTurn 스텝-액션 소비자 = 69** (`HeadlessActionTypes.AdvancePhase|.EndTurn`) — OLD 발명 페이즈 분절 액션. 결정 3=B에서 이 분절이 은퇴 → 이 69개가 재조준 최우선(액션 통화 자체가 바뀜: AdvancePhase/EndTurn → 펌프 자동흐름+Pass).
+- **throw-계약 소비자 = 20** (`WindowChoicePendingException|DeferredChoicePendingException|ResumeSuspendedWindowsAsync`) — S3c-d 항8. throw-기록-재생 계약을 직접 구동. 컷오버 후 펌프는 await-모드라 이 계약 은퇴 → 20개가 계약 은퇴 게이트.
+
+## 1.2 base fail-set 97 교차 (트라젝토리 입력)
+
+| 카테고리 | red 수 | 성격 |
+|---------|-------:|------|
+| ②a OLD 풀-매치 | 24 | OLD 드라이버 S2/S3 반절단으로 red화된 것 + 직교부채 혼재 → 재조준 시 일부 **green 복원**(fail-set 수축) 후보 |
+| ②b synth-머신러리 | 15 | 동상 |
+| ③ bare | 55 | **직교**(포팅부채·STOP·프리미티브 미개발) — 4b 무접촉, red 유지 |
+| ④ 정적 | 2 | 직교(정책 게이트) |
+| ⑤ 발명물 | 1 | 삭제 시 fail-set에서 **제거** |
+
+→ 4b가 접촉하는 red = ②a24+②b15+⑤1 = **40**. 나머지 57(③55+④2)은 4b 스코프 밖(별도 골). **fail-set 97은 4b 종료 시 이 40의 처분(green 복원 or 삭제-제거)만큼 순감**, 하한은 직교 57.
+
+## 1.3 OLD 엔진 표면 전수 (삭제 대상 파일/멤버 + 소비자 수) — S3c-d 은퇴 원장 §9 갱신
+
+경로 접두 `src/HeadlessDCGO.Engine/Headless/Runtime/`(별도 표기 외).
+
+| 항 | 표면 (파일:멤버) | 줄 | 테스트 소비자(프로젝트) | 판정 |
+|----|------------------|----:|------------------------|------|
+| 1 | `HeadlessGameLoop.cs` 전체(OLD 스텝 루프+`RunToStableAsync`) | 414 | 직접 참조 5 · `RunToStableAsync` 43 · 기본-ctor 매치 103 | G1 근본 게이트(플립 후 삭제) |
+| 1부속 | `HeadlessEarlyPhaseFlow.cs`의 `ResolveBreedingAsync` | (동파일 내) | **0** (死코드, 엔진 내 호출부 0) | **경량 즉시 삭제 가능** |
+| 2 | `MetadataActionProcessor.cs` `AdvancePhaseAsync`(:969)·`EndTurnAsync`(:1012) | 1531(파일) | AdvancePhase/EndTurn 액션 69 · 직접 26 | G1 연동(디스패처 발행 중단 후) |
+| 3 | `EndTurnAsync` drain(=항2 부분) + 항4 마커 동시 삭제 | — | (항2 포함) | 항4와 원자 |
+| 4 | `WindowResolutionController.cs:25` `EndOfTurnDrainedTurn` 마커 | 1 | **0** (엔진 내부 전용) | 항3 은퇴와 동시(NEW=per-effect 캡) |
+| 5 | `HeadlessMainPhaseFlow.cs` invented eval + `ResolveTurnEndMinMemory` 사본 | 318 | 직접 3 | 항2 은퇴 시 원본(AutoProcessing.TurnEndMinMemory) 정본 승격 |
+| 6 | `HeadlessEarlyPhaseFlow.cs` Unsuspend/Draw/Breeding 블록 + supply OnEnterField/WhenDigivolving 변환 | 277 | 직접 5 · W2-SkillWindowSupply 재조준 | DORMANT(다운스트림 소비 카드 0); PlayCardAction/DigivolveAction enriched emit 제거 동반 |
+| 7 | `CardEffectCommons/PlayCardsBridge.cs:464` `CanEnterFieldByEffect` 브리지 사본 | — | 내부 2호출부·생산자 0 | **경량 즉시 가능**(실물 `CardSource.CanEnterField` 재배선; ICanNotPutFieldEffect 생산자 0=동작 no-op) |
+| 8 | throw-계약(`WindowChoicePendingException` 재생 + `ResumeSuspendedWindowsAsync`) | (AutoProcessing 계열) | throw-계약 20 | 컷오버 후 펌프 await-모드가 대체; 20개 재조준/은퇴 후 삭제 |
+| 9 | 진화 legality 이중석 | — | (상환 완료, RD-R3-01) | 상환됨. 공유 데이터층(`ReadRequirements`)=존치. 이중 좌석 병합만 잔여 |
+| 11 | `HeadlessLegalActionDispatcher.cs` AdvancePhase/EndTurn 페이즈 표 | 379 | 직접 5 | S3c-b에서 펌프 분기 완료; OLD arm만 삭제 |
+
+**즉시-삭제 무료 2건**(소비자 0, 지금 삭제 가능): 항1부속 `ResolveBreedingAsync`·항7 `CanEnterFieldByEffect` 브리지.
+
+---
+
+# 2부: 재조준 표준 패턴
+
+## 2.0 정본 목표 패턴 (EXEMPLAR-T1~T3B/GLINK)
+
+`tests/EXEMPLAR-T1.Witness.Tests/Program.cs` = 후속 트랜치 복사 정본. 골격:
+
+```
+var policy = new PolicyChoiceProvider();
+EngineContext ctx = ContextFactory.CreateWithProvider(policy, seed);
+CardBaseEntityLoader.LoadInto((CardDatabase)ctx.CardRepository);
+MatchSetupConfig setup = MatchSetupConfig.Create(decks, firstPlayerId: P1, ..., enableMulligan: false);
+MatchConfig config = MatchConfig.Create(new[]{P1,P2}, randomSeed: seed, setup: setup);
+DcgoMatch match = DcgoMatch.CreatePumpDriven(ctx, new EngineTrace());   // ← OLD 기본 ctor 대체
+await match.InitializeAsync(config);
+// 구동: 리걸 테이블에서 액션 선택 → ApplyActionAsync (StepOnce/DriveUntil)
+LegalAction a = RequireLane(match, P1, HeadlessActionTypes.ActivateOption, subject, "...");
+// 효과-내부 Select*/Optional = policy 좌석(에이전트 좌석 = 스크립트 답)
+```
+
+- **구동 프리미티브**: `match.GetLegalActions(pid)`(AmbientMatchContext.Enter 스코프 내)·`match.ApplyActionAsync`·`DriveUntil(m => AtMainWaitOf(m,P1))`·`HasPendingChoice()`/`ResolvePending`·`IsTerminal()`.
+- **choice 응답**: `PolicyChoiceProvider`의 술어-매칭 답(스크립트 답 = 에이전트 좌석의 답) — R4RL-01 `ScriptedChoiceProvider` 관례를 일반화. throw-재생 없음.
+- **금지**: OLD-cadence 직접 컨트롤러 호출·스텝 액션(`AdvancePhase`/`EndTurn`).
+
+## 2.1 OLD-스텝 전형 → 펌프 치환표
+
+| # | OLD 전형 패턴 | 대표 스위트 | 펌프 재조준 치환 | 단언 보존 방식 |
+|---|--------------|-------------|-----------------|---------------|
+| P-A | **페이즈 진행 단언** — `StepAsync(AdvancePhase)` 반복으로 Active→Draw→Breeding→Main 도달을 스텝별로 확인 | G2A-006·G2E-*·G3.5-N9(BreedingUnsuspend) | `DriveUntil(AtMainWaitOf)` 자동흐름 도달. 스텝 카운트 단언 → **도달-상태 단언**(phase/cursor/player)으로 치환 | 스텝 수 자체는 OLD 발명물(비-단언). 도달 상태·부수효과(언탭·드로·메모리)는 그대로 단언 |
+| P-B | **스텝 경계 단언** — 특정 스텝 후 리걸 테이블=`{AdvancePhase}`, 다음 스텝 후 변화 | G2A-006 dispatch hook·G3.5-RL-A1/A3 | 리걸 테이블 단언을 펌프 정지-seam 리걸(Main 대기의 Pass/PlayCard/Digivolve/Attack)로 치환 | 액션 통화가 바뀜(A3 FactoredActionSpace=관측 shape 재정의 동반, S2 결정 A 판례). RL 스위트는 스키마 재조준 필수 |
+| P-C | **choice 재실행(throw-재생) 단언** — `try{await ...}catch(WindowChoicePendingException)` + `ResumeSuspendedWindowsAsync` 루프로 창 재개 | W1b-SkillWindowResume·C-EoT2·C-Del-3C2B·GR-006 | 펌프 await-모드: choice가 `HasPendingChoice()`로 표면화 → `ResolvePending`(policy 답) → 제자리 재개 | 창 멤버십·park/resume 순서·drain 순서 단언은 보존; throw 포착 자체(재생 계약)는 **검증 대상 소멸**(항8) → 단언에서 제거, 결과(창 발화 횟수·순서)는 펌프에서 재단언 |
+| P-D | **EndTurn 액션 seam** — `StepAsync(EndTurn)`이 창 드레인→flip을 트리거, 재-EndTurn으로 flip 완료 | RD6-EndTurnSequence·GR-001(MemoryTurnEnd)·GR-006 | EndTurn 액션 → **Pass 라우팅**(AS-IS PassTurn) 또는 임계-자동 턴종료(펌프 내 EndTurnCheck). "재-EndTurn으로 flip"=OLD 이중스텝 → 펌프 단일 자동흐름 | [End of Your Turn] 효과의 **pre-flip drain** 단언(RD6의 핵심)은 보존 — 펌프에서 EoT 창이 flip 전 발화하는지 재단언. `EndOfTurnDrainedTurn` once-마커 의존 단언은 제거(AS-IS=효과별 캡) |
+| P-E | **synth 머신러리 직구동** — 매치 없이 `AutoProcessing.GetSkillInfos`/`RunToStableAsync`/`GameFlowProcessor` 직접 호출로 창/삭제 파이프 검증 | C-Del-*·C-Atk-*·F1-M*·D1-BatchId | 두 갈래: (a) query 표면(GetSkillInfos 등)=**존치**(retained substrate) → 무변 (b) 드라이버 표면(RunToStable/Resume)=펌프 매치 스캐폴드로 감싸 실구동 | 결정론 픽스처(단일 카드+합성 상태)를 펌프 매치 최소 스캐폴드에 이식; 부수-행동 단언(삭제 순서·batch id·스캔) 보존 |
+
+## 2.2 false-green 함정 체크리스트 (단언 약화 없이 옮기기)
+
+1. **스텝-카운트를 도달-상태로 강등하며 도달 자체를 안 세면 no-op green** — `DriveUntil`은 조건 미달 시 throw해야(EXEMPLAR `DriveUntilAsync` 96-iter 후 상세 throw 판례). 조건 함수가 항상-true면 false-green.
+2. **throw 포착 제거 시 "창이 열렸다"만 확인하고 "무엇을 골랐고 결과가 무엇인지"를 안 세면 계약만 사라지고 검증도 사라짐** — P-C 재조준은 반드시 policy 답의 **효과 결과**(카드 이동·메모리·삭제)를 재단언.
+3. **synth 픽스처를 펌프로 감쌀 때 리걸-게이트가 픽스처를 막으면 액션이 Illegal로 조용히 스킵** — RD-R3-02 판례(RemoveField 직호출 픽스처의 green=픽스처 통과이지 계약 통과 아님). 펌프 감쌈 후 액션이 실제 리걸 테이블에 뜨는지 먼저 단언.
+4. **PolicyChoiceProvider Fallback이 의도와 다른 답을 내면 우발 green** — 술어-매칭 답을 명시(`req.Candidates.Any(c=>c.Id==x) ? Select(x) : Fallback`), fallback 경로 진입은 실패로 간주하거나 명시 단언.
+5. **관측/리걸-테이블 shape 변경(RL 스위트)을 "통과"로만 보고 정보-보존을 안 세면 cardinality 손실 은폐** — S2 판례(6 one-hot+커서 정보-보존 단언). A3/A4/B1 재조준은 factored 마스크 정보량 단언 필수.
+6. **EndTurn→Pass 라우팅에서 임계-자동종료와 명시-Pass를 혼동** — 메모리 임계 미달 시 Pass가 턴을 안 넘김(AS-IS EndTurnCheck). 픽스처 메모리 상태를 명시해 어느 경로인지 확정.
+7. **shadow/witness 테스트를 재조준 대상으로 오인** — R4S3c-ShadowOldNew·R4P4-ShadowRun은 OLD-vs-NEW/OLD-vs-OLD 비교가 존재이유 → **재조준 아님, 컷오버 완료 시 은퇴**. (2a에 분류되나 처분=삭제.)
+
+## 2.3 bare 직접-드라이브(③)의 처리
+
+③은 페이즈-드라이버를 소비하지 않으므로 **원칙상 4b 무접촉**. 단 일부 ③ 픽스처가 매치-컨텍스트 부재로 삭제 후 배선이 끊길 수 있음(예: G2G 계열이 AttackPipeline을 매치 없이 구동). 그 경우 기반 상환 배치 판례 적용:
+- **G3.5-D1L 판례**(LinkSubsystem 최소 스캐폴드)·**C2-Witness 수리 판례**: 매치-컨텍스트 최소 스캐폴드(`CreatePumpDriven` + InitializeAsync + 단일-카드 덱)로 감싸 AmbientMatchContext 확보 후 직접-드라이브 유지. 단언 무변.
+- 판정 기준: ③ 테스트가 삭제될 OLD 표면을 **간접 참조**(예: 기본 ctor 경유 RunToStable)하면 ②로 재분류해 재조준; 순수 컨트롤러/Sink 단위면 무변.
+
+---
+
+# 3부: 배치 계획
+
+## 3.1 배치 분할 (카테고리 × 규모, 병렬 가능 단위)
+
+| 배치 | 스코프 | 규모 | 병렬 | 게이트 |
+|------|--------|-----:|------|--------|
+| **B0** | 즉시-삭제 무료 2건(항1부속 ResolveBreedingAsync·항7 CanEnterFieldByEffect) + ⑤ 발명물 8 삭제(검증 대상 소멸 확인) | 표면 2 + 스위트 8 | — | 삭제 후 전체 스위트 fail-set = base−(삭제된 ⑤ red 1) |
+| **B1** | ②b throw-계약 20 중 P-C/P-E(C-Del-*·C-Atk-*·W1b·C-EoT2·GR-006·F1-M*) 재조준 | ~20 | 카드계열별 2~3 병렬 | 재조준분 red→green **불변 증명**(재조준 전후 동일 판정) |
+| **B2** | ②a/②b P-A/P-B 페이즈-진행·스텝-경계(G2A-006·G2E-*·G3.5-N9·비-RL) 재조준 | ~35 | phase-계열별 병렬 | 동상 |
+| **B3** | RL 스위트(G3.5-RL-A1/A3/A4b·B1·B2B3·C1/C2·R4RL-03) 관측/액션 스키마 재조준 | ~12 | 직렬(스키마 공유) | 정보-보존 단언 게이트 |
+| **B4** | P-D EndTurn seam(RD6·GR-001·GR-006 잔여) 재조준 | ~6 | 직렬 | pre-flip drain 단언 보존 증명 |
+| **B5** | ③ 재분류분(간접 OLD 참조) 최소 스캐폴드 감쌈 | 소수(감사 후 확정) | — | 매치 스캐폴드 후 리걸-등재 단언 |
+| **B6-Da** | **소비자 0 판정** — OLD 표면(항1/2/3/4/5/6/8/11) grep 소비자 재확인 | — | — | 소비자 0 도달 = 삭제 게이트 |
+| **B6-Db** | OLD 표면 물리 삭제(HeadlessGameLoop·MetadataActionProcessor AdvancePhase/EndTurn body·*PhaseFlow·throw 계약·마커·디스패처 OLD arm) + 기본 ctor→펌프 플립 | 표면 ~2,900줄 | — | 전체 스위트 = base fail-set(직교 57)만 잔존 |
+
+## 3.2 배치 게이트 방식
+
+- **재조준분 red→green 불변 증명**: 각 재조준 테스트는 재조준 **직전** 판정(red/green)을 스냅샷 → 재조준 **직후** 동일 판정이어야 통과(단언 강도 무변 = green→green, 직교 red는 red 유지 or **의도된 green 복원 시 사유 기록**). 코디네이터 base fail-set 재사용(전체 스위트는 예외 시 동기 1회, 배치=관련 스위트만 — batch-suite-policy 준수).
+- **삭제 게이트(소비자 0 판정)**: `grep -rl --binary-files=text <표면 시그니처> tests` = 0 (재조준·삭제 완료분 제외) → 물리 삭제 승인. B군 registry 물리삭제 게이트 패턴.
+- **DCGO/ 심링크**: 워크트리 테스트 시 필수(memory: worktree-needs-dcgo-symlink); 현재 Haiku 파일럿 워크트리 병행 중 → 4b 실행은 메인 폴더 선호(work-in-main-folder).
+
+## 3.3 fail-set 97 트라젝토리 예상
+
+```
+base 97 = ②a24 + ②b15 + ③55 + ④2 + ⑤1
+B0 후:  96  (⑤ red 1 삭제-제거)
+B1 후:  ≤96 (②b throw-계약 재조준 red 중 OLD-절단분 green 복원 가능 — 순감, 직교분 유지)
+B2 후:  ≤    (②a/②b P-A/P-B 재조준분 동상)
+B3~B4 후: RL/EndTurn 재조준분 green 복원 가능분 순감
+B6 후:  ≈57 하한 (③55 + ④2 = R4-직교 포팅부채, 4b 무접촉)
+```
+**단언**: 4b는 fail-set을 **최대 40 감소**(40=②a24+②b15+⑤1), 하한 57. 실제 감소폭은 재조준 red 중 "OLD 반절단 원인" 대 "직교 포팅부채" 비율에 의존(배치별 red 사인 분석으로 확정 — green count 보고 금지, 구조 지표=삭제 표면 줄수·소비자 잔수로 진척 계측).
+
+## 3.4 리뷰 지점 (adversarial-review-before-cutover)
+
+- **리뷰1**(B1 후): throw-계약 은퇴 재조준의 false-green 감사(§2.2 체크리스트 2·3 집중) — 창 발화 결과 재단언 실재 확인.
+- **리뷰2**(B3 후): RL 스키마 재조준의 정보-보존 감사(cardinality 손실 은폐 여부).
+- **리뷰3**(B6-Da 전, 컷오버): 소비자 0 판정 독립 검증 + 기본 ctor→펌프 플립의 프로덕션 표면 영향(DcgoMatch 시그니처 불변 확인) — R4 flip 직전 사용자 체크포인트(r4-careful-mode).
+
+---
+
+# 산출물 요약
+
+- **문서**: `docs/audit/suite_retarget_4b_design_2026-07-18.md` (본 파일)
+- **분류 카운트**(전수 470): ①펌프 **13** · ②a OLD-매치 **102** · ②b synth-머신 **64** · ③bare **274** · ④정적 **9** · ⑤발명물 **8**. **삭제-블로커 = ②a+②b = 166**; AdvancePhase/EndTurn 액션 소비자 **69**, throw-계약 소비자 **20**.
+- **삭제 대상 표면 수**: 파일 6 + 멤버 표면 ~5(항2 AdvancePhase/EndTurn body·항4 마커·항7 브리지·항1부속·디스패처 OLD arm), 총 ~2,900줄. 즉시-삭제 무료 2건(소비자 0).
+- **배치 수**: 7 (B0 즉시삭제/발명물 · B1 throw-계약 · B2 페이즈-진행 · B3 RL스키마 · B4 EndTurn-seam · B5 bare-재분류 · B6 판정+물리삭제).
+- **예상 소요**: 재조준 ~166 스위트 = 카드계열/페이즈계열 병렬로 5~6 배치, 각 관련-스위트 게이트 1회 + 컷오버 전체 스위트 게이트. 신중 모드(리뷰 3지점) 기준 중대형.
+- **리스크 상위 3**:
+  1. **RL 인터페이스 굴곡**(B3): 액션 통화·관측 shape 재정의(S2 결정 A 판례)가 rl-env-parallel-track과 결합 — 정보-보존 단언 없이 재조준하면 cardinality 손실 은폐(false-green 함정 5). rl-env 트랙 본격화 전 저비용 창구.
+  2. **synth 픽스처의 리걸-게이트 조용한 스킵**(B1/B5): RemoveField-직호출류 픽스처를 펌프로 감쌀 때 액션이 Illegal 스킵 → green이 계약 통과 아님(RD-R3-02 판례). 감쌈 후 리걸-등재 선단언 필수.
+  3. **삭제-순서 원자성**(B6): 항2(AdvancePhase/EndTurn body)·항3(drain)·항4(마커)는 상호의존 원자 삭제 + 기본 ctor→펌프 플립(G1 근본 게이트)이 동시 — 부분 삭제 시 프로덕션 기본 매치 파손. shadow 테스트(R4S3c/R4P4)는 이 시점 은퇴(재조준 아님).
