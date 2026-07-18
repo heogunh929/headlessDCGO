@@ -38,6 +38,12 @@ async Task SuspendResumeCycle()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 705, deferredChoice: true);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (4b B1-γ) Advance past Setup so DoneStartGame is true — the AS-IS ICardEffect.CanTrigger gate
+    // (ICardEffect.cs:391-393) skips every activated effect before the game has started. Without this the
+    // ST1_16 [Main] option never activates (resolver returns 0, no suspend). This is the W1b-established
+    // DoneStartGame-gate idiom (design §5.5 F4), NOT a card-data issue: ST1_16's real stats live in cards.json
+    // (playCost 8 / Red), and this test drives the retained ActivatedEffectResolver suspend/resume substrate.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     CardDatabase cards = (CardDatabase)context.CardRepository;
 
     cards.Upsert(new CardRecord(new HeadlessEntityId("ST1_16"), "ST1_16", "ST1_16", new Dictionary<string, object?>(), CardType: "Option"));

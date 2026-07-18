@@ -199,3 +199,36 @@ B6 후:  ≈57 하한 (③55 + ④2 = R4-직교 포팅부채, 4b 무접촉)
 ## §3.1c B1-β 코디네이터 판정 (2026-07-19) — 스코프 축소 재분류
 **적재 질문**: out-of-pump promote/park(throw-unwind 삭제-교체 파킹)가 컷오버 후 live인가? **판정=retained substrate(존치)**. 근거: ①리뷰3 P2-③ 실측 — 펌프 매치의 액션-후 드레인=GameFlowProcessor.RunToStableAsync가 수행, 그 중 개설 창=out-of-pump throw 경로(펌프-블로커 witness가 AS-IS-정합 고정) ②본 설계 삭제 표면 6파일에 GameFlowProcessor·DeferredChoiceProvider throw 경로·sink promote/park 미포함.
 **귀결**: β 9 중 — C-Del-3C1/3C1B/3C1C/3C2B/POST·F68 효과부·C-Atk 3종의 synth 구동=retained-substrate 유닛 테스트로 **존치(무접촉·B1 제외)**, promote/park 마커 단언 보존. B1 throw-심볼 grep이 과포함(심볼 소비≠삭제-표면 소비). 잔여 진짜 블로커: G3.5-F68의 `new DcgoMatch(ctx)` OLD-ctor 드라이버 부분만(②a — B2로 이관). B1 잔여=γ(3: B1-OncePerTurn·G7-005·E1-Parity(a))+δ(은퇴-마킹: G3.5-W7 1테스트·W1b 검토). 삭제-블로커 카운트 166→재산정 필요(B2에서: "OLD 6파일 표면 직접 소비" 기준으로 재grep).
+
+## §3.1d B1-γδ 실행 + 삭제-블로커 재산정 (2026-07-19, main HEAD=c71eab63, 메인 워킹트리·미커밋)
+
+### (1) γ군 재판정 — §3.1c 기준(삭제-표면 6파일 직접 소비) 적용
+6파일 실-소비 grep(주석·Path.Combine 소스-sniff 문자열 제외): **γ 3종 전부 삭제-표면 소비 0** → β C-Del/C-Atk와 동일한 retained-substrate 유닛(ActivatedEffectResolver + DeferredChoiceProvider + AutoProcessing). 처분:
+- **B1-OncePerTurnInteractiveResume (4/4 green)** — retained-substrate·삭제-블로커 아님. 픽스처=Tfx 합성 카드(직접-배치, cost/def 데이터 없음)라 OnEnterFieldAnyone 펌프-플레이 불가. **존치**(펌프 재조준 불요·불가). 무변.
+- **E1-Parity (3/3 green)** — (a) peek=`RevealSelectThenPlaySelectedEffect` 직구성 + DeferredChoiceProvider 순수 효과-유닛. 삭제-표면 0. **존치**. 무변.
+- **G7-005.ActivatedDeferredChoice (RED→GREEN 복원)** — §3.1b "ST1_16 데이터 스켈레톤 블로커" **판정 오류 2건 정정**: ①ST1_16 실데이터는 로더 코퍼스 `cards.json`에 실존(`cardType:Option, color:Red, playCost:8, effect:"[Main] Delete 1 …", effectClass:ST1_16`) — §3.1b는 per-card 스텁 `ST1_16.json`(`todo:Skeleton only`)을 봤으나 로더(`CardBaseEntityLoader`)는 cards.json을 읽음. ②실제 red 원인은 데이터가 아니라 **DoneStartGame 게이트**(`ICardEffect.CanTrigger` :391-393가 게임 시작 전 활성효과 전량 스킵) — 픽스처가 Initialize만 하고 Setup을 넘지 않아 옵션 [Main]이 활성화 안 됨(resolver 0 반환, suspend 없음). **수정=`SetPhase(HeadlessPhase.Main)`** 1줄(W1b 확립 관용구, 설계 §5.5 F4 DoneStartGame-gate 소견). 단언 6개 무변(red→green, 강도 동일). 재조준 아님(삭제-표면 미소비)·retained ActivatedEffectResolver suspend/resume 구동 유지.
+
+### (2) δ 은퇴-마킹 재판정 — §3.1c retained-substrate 기준
+- **G3.5-W7.DeferredChoice `ProviderReplaysAnswer` (5/5 green)** — 검증 대상=`DeferredChoiceProvider.ChooseAsync` throw(무답)→pending 등록 + `BeginResolution`+재-ChooseAsync 답 재생. **이 out-of-pump throw+재생이 바로 §3.1c가 retained로 판정한 기제**(펌프 액션-후 드레인=GameFlowProcessor.RunToStableAsync가 소비). 순수 발명-계약 부분 없음. → **존치(은퇴 아님)**. 스위트 5테스트 전부 DeferredChoiceProvider+EffectScheduler suspend/resume=retained.
+- **W1b-SkillWindowResume (all green)** — 검증 대상=`SkillWindowContinuation` 커서 + `MultipleSkills.ResumeAsync` + `AutoProcessing.ResumeSuspendedWindowsAsync` 창-루프 resume. 삭제-표면 6파일 미포함(AutoProcessing=AS-IS 미러 창 머신러리, 존치). §1.3 항8이 "throw-계약"으로 은퇴 예정 표기했으나 §3.1c가 throw 경로를 retained로 재프레임 → **존치(은퇴 아님)**. 무변.
+
+### (3) 삭제-블로커 재산정 (166 → **73**)
+기준=삭제-표면 6파일 직접 소비(주석/소스-sniff 문자열 제외), 테스트 프로젝트 단위 union:
+| 삭제-표면 | 정밀 소비 시그니처 | 프로젝트 수 |
+|-----------|-------------------|-----------:|
+| MetadataActionProcessor AdvancePhase/EndTurn body | `HeadlessActionTypes.(AdvancePhase\|EndTurn)` 액션 통화 | **69** |
+| HeadlessGameLoop OLD ctor/step | `new HeadlessGameLoop(` | 1 (G3.5-004) |
+| HeadlessMainPhaseFlow invented eval | `new HeadlessMainPhaseFlow(`·`.ResolveTurnEndMinMemory`/`.DefaultMemoryPassValue` | (69에 포함 or) FAILd-07 1건 초과 |
+| HeadlessEarlyPhaseFlow Unsuspend/Draw/Breeding | `new HeadlessEarlyPhaseFlow(` | E3-Witness 1건 초과 |
+| 디스패처 OLD arm | `new HeadlessLegalActionDispatcher(` | FAILd-03 1건 초과 |
+| EndOfTurnDrainedTurn 마커 | `EndOfTurnDrainedTurn` | **0** (엔진 내부 전용, 설계 §1.3 항4 일치) |
+| **union(중복 제거)** | | **73** (69 액션통화 + 페이즈플로우-직접 4: E3-Witness·FAILd-03·FAILd-07·G3.5-004) |
+
+**166→73 감소 근거**: 원 166(②a102+②b64)이 `RunToStableAsync`(43)·`AutoProcessing`·`ResumeSuspendedWindowsAsync` synth 머신러리를 블로커로 계상했으나, `RunToStableAsync`는 **`GameFlowProcessor`에만 정의**(HeadlessGameLoop 아님) = §3.1c retained substrate → 삭제-표면 아님. `HeadlessGameLoop` 타입 참조는 5프로젝트뿐이고 그중 2(G2A-006·G2E-005)는 Path.Combine 소스-sniff 문자열, 2(GR-001·R4P4)는 주석뿐, 실-ctor 소비는 1(G3.5-004). ⇒ **삭제-블로커 실체 = AdvancePhase/EndTurn 액션 통화 69 + 페이즈플로우-직접 4 = 73**. α 재조준 4종(GR-006·C-EoT2·A4-Execute·W-EoTFIX)은 union 부재(Pass로 재조준 완료 확인).
+
+### (4) §3.3 트라젝토리 갱신 초안
+- 삭제-블로커 모집단: ~~166(②a+②b)~~ → **73**(AdvancePhase/EndTurn 액션통화 69 + *PhaseFlow/GameLoop-ctor 직접 4). RunToStable/AutoProcessing/Resume 소비(≈93)=retained substrate 재분류(무접촉).
+- fail-set 영향(본 배치): G7-005 base-red 1건 green 복원(DoneStartGame 픽스처 정합) → 순감 1; γ 잔여(B1·E1)·δ(W7·W1b)=green 존치 무변. 하한 트라젝토리(§3.3) 불변.
+- 잔여 배치 재조준 규모 하향: B2(페이즈-진행)·B4(EndTurn-seam)가 이 73을 소진(≈AdvancePhase/EndTurn 통화 69가 주력); B1-γδ는 삭제-블로커 0 소진(전부 retained 존치, G7-005만 직교 픽스처 수리).
+
+**리스크(본 배치 발견)**: C5-SecurityPreWindow 4테스트가 현재 HEAD에서 RED(직교; 마지막 테스트-커밋 e11acaba에선 408/408 green이었으므로 이후 키워드 창-재하우징/sink 변경으로 회귀 — 보안-witness 도메인=병행 Sonnet 트랙 인접). 본 배치(G7-005 retained 픽스처 1줄) 무관: 스태시 대조로 前/後 동일 red 실증. "+secwin" 게이트가 현재 red임을 코디네이터 인지 필요.
