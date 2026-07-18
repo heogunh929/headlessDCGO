@@ -73,9 +73,13 @@ public sealed class CardSource
     public CEntity_EffectController cEntity_EffectController =>
         CEntity_EffectControllerStore.GetOrCreate(Context, InstanceId);
 
-    /// <summary>Mirror of <c>CardSource.PermanentOfThisCard()</c>: the permanent (stack) this card is part
-    /// of, whether it is the top card or a buried digivolution source. Empty if the card is not in a
-    /// battle-area permanent.</summary>
+    /// <summary>Mirror of AS-IS <c>CardSource.PermanentOfThisCard()</c> (CardSource.cs:335-339):
+    /// <c>Owner.GetFieldPermanents().Find(p =&gt; p.cardSources.Contains(this))</c>. The AS-IS
+    /// <c>cardSources</c> is stack cards ∪ LINK cards, so this card is "part of" a permanent whether it is the
+    /// top card, a buried digivolution source, OR a LINK card of that permanent (link cards are tracked in the
+    /// host metadata — <c>LinkHelpers.LinkedCardIdsKey</c>; the same membership <see cref="IsLinked"/> reads).
+    /// (G-AppF) the link arm is what <c>SelectAppFusionEffect.AddToSources</c> consumes to fold the chosen link
+    /// material back under the host. Empty if the card is not in a battle-area permanent.</summary>
     public PermanentView PermanentOfThisCard()
     {
         var zones = (IZoneStateReader)Context.ZoneMover;
@@ -83,6 +87,13 @@ public sealed class CardSource
         {
             DigivolutionStack stack = DigivolutionStackReader.Read(Context.CardInstanceRepository, Context.CardRepository, top);
             if (top == InstanceId || stack.UnderCards.Any(under => under.InstanceId == InstanceId))
+            {
+                return new PermanentView(stack);
+            }
+
+            // AS-IS cardSources includes the host's LINK cards (a link card's PermanentOfThisCard IS its host).
+            if (Context.CardInstanceRepository.TryGetInstance(top, out CardInstanceRecord? host) && host is not null
+                && LinkHelpers.ReadLinkedCardIds(host.Metadata).Contains(InstanceId))
             {
                 return new PermanentView(stack);
             }
@@ -1813,6 +1824,56 @@ public sealed class CardSource
         }
 
         return null;
+    }
+
+    /// <summary>(G-AppF / RD-EXT3-02 = RD-P6C1-2) 1:1 mirror of AS-IS
+    /// <c>CardSource.CanAppFusionFromTargetPermanent(targetPermanent, PayCost, root)</c> (CardSource.cs:3378-3416):
+    /// this hand card may App-Fuse onto <paramref name="targetPermanent"/> — its App-Fusion
+    /// <c>digimonCondition</c> matches the target's TOP, one of the target's LINK cards matches the
+    /// <c>linkedCondition</c>, the <c>!CanNotEvolve</c> restriction gate passes, and (when
+    /// <paramref name="PayCost"/>) the folded App-Fusion cost is affordable. ADAPTATIONS (established mirror
+    /// idioms): AS-IS <c>appFusionCondition</c> property → the <see cref="AppFusionConditionOf"/> accessor
+    /// (re-read per access, exactly like the AS-IS getter re-scan); AS-IS <c>Owner.MaxMemoryCost</c> →
+    /// <c>new Player(Context, Owner).MaxMemoryCost</c> (the CardSource.cs:503/560 pattern). Retires the
+    /// CardController extension STOP (design item RD-P6C1-2).</summary>
+    public bool CanAppFusionFromTargetPermanent(Permanent targetPermanent, bool PayCost, SelectCardEffect.Root root = SelectCardEffect.Root.Hand)
+    {
+        if (targetPermanent != null)
+        {
+            if (targetPermanent.TopCard != null)
+            {
+                if (AppFusionConditionOf() != null)
+                {
+                    if (!this.CanNotEvolve(targetPermanent))
+                    {
+                        if (AppFusionConditionOf()!.digimonCondition(targetPermanent))
+                        {
+                            foreach (CardSource linkedCard in targetPermanent.LinkedCards)
+                            {
+                                if (AppFusionConditionOf()!.linkedCondition(targetPermanent, linkedCard))
+                                {
+                                    if (PayCost)
+                                    {
+                                        int cost = AppFusionConditionOf()!.cost;
+
+                                        cost = GetChangedCostItselef(cost, root, new List<Permanent>() { targetPermanent }, checkAvailability: true);
+
+                                        if (new Player(Context, Owner).MaxMemoryCost < cost)
+                                        {
+                                            return false;
+                                        }
+                                    }
+
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>(AD1-A) Mirror of AS-IS <c>CardSource.HasAssembly</c> (CardSource.cs:2575).</summary>

@@ -2941,8 +2941,10 @@ public class PlayCardClass
     }
 
     // AS-IS :251-275. `card.appFusionCondition` -> the EXISTING mirror `card.AppFusionConditionOf()`
-    // (adaptation (6)); the frame lookup for the host digimon is STOP RD-P6C1-1. `linkCard == null`
-    // (never SetAppFusion / LinkedCard fallthrough) = the AS-IS false path, kept.
+    // (adaptation (6)). (G-AppF / RD-EXT3-02 = RD-P6C3-D1) ADAPTATION: AS-IS host-digimon frame lookup
+    // `card.Owner.fieldCardFrames[_appFusionFrameIDs[0]].GetFramePermanent()` → the field-list index (same
+    // FrameID convention as LinkedCard; the index is validated by LinkedCard returning non-null above).
+    // `linkCard == null` (never SetAppFusion / LinkedCard fallthrough) = the AS-IS false path, kept.
     bool IsAppFusion(CardSource card)
     {
         CardSource linkCard = LinkedCard(card);
@@ -2951,14 +2953,17 @@ public class PlayCardClass
         {
             if (card.AppFusionConditionOf() != null)
             {
-                if (card.AppFusionConditionOf().digimonCondition != null)
+                if (card.AppFusionConditionOf()!.digimonCondition != null)
                 {
-                    // AS-IS :259-267: Permanent digimon = card.Owner.fieldCardFrames[_appFusionFrameIDs[0]].GetFramePermanent();
-                    //                 if (card.appFusionCondition.linkedCondition != null)
-                    //                     if (card.appFusionCondition.linkedCondition(digimon, linkCard)) return true;
-                    throw new NotSupportedException(
-                        "STOP: IsAppFusion needs the field-frame model (AS-IS Player.fieldCardFrames) — " +
-                        "design item RD-P6C1-1, docs/audit/rebuild_p6_cluster1_notes.md.");
+                    Permanent digimon = new Player(card.Context, card.Owner).GetFieldPermanents()[_appFusionFrameIDs[0]];
+
+                    if (card.AppFusionConditionOf()!.linkedCondition != null)
+                    {
+                        if (card.AppFusionConditionOf()!.linkedCondition(digimon, linkCard))
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
         }
@@ -2966,21 +2971,27 @@ public class PlayCardClass
         return false;
     }
 
-    // AS-IS :277-294. The frame lookup needs the frame model — STOP RD-P6C1-1; `_appFusionFrameIDs` unset =
-    // the AS-IS null fallthrough, kept (the only reachable path until RD-P6C1-1 lands).
+    // AS-IS :277-294. (G-AppF / RD-EXT3-02 = RD-P6C3-D1) ADAPTATION: AS-IS
+    // `card.Owner.fieldCardFrames[i].GetFramePermanent()` → the mirror field-list index — FrameID is the index
+    // into `new Player(...).GetFieldPermanents()` (the documented no-slot-model frame convention that
+    // Permanent.PermanentFrame produces, Permanent.cs:118-135). `_appFusionFrameIDs` unset = the AS-IS null
+    // fallthrough, kept.
     public CardSource LinkedCard(CardSource card)
     {
-        _ = card;
-
         if (_appFusionFrameIDs != null && _appFusionFrameIDs.Length == 2)
         {
-            // AS-IS :281-291: if (0 <= _appFusionFrameIDs[0] && _appFusionFrameIDs[0] <= card.Owner.fieldCardFrames.Count - 1)
-            //                 { Permanent targetPermanent = card.Owner.fieldCardFrames[_appFusionFrameIDs[0]].GetFramePermanent();
-            //                   if (targetPermanent.LinkedCards.Count > _appFusionFrameIDs[1])
-            //                   { CardSource link = targetPermanent.LinkedCards[_appFusionFrameIDs[1]]; return link; } }
-            throw new NotSupportedException(
-                "STOP: LinkedCard needs the field-frame model (AS-IS Player.fieldCardFrames) — design item " +
-                "RD-P6C1-1, docs/audit/rebuild_p6_cluster1_notes.md.");
+            List<Permanent> fieldPermanents = new Player(card.Context, card.Owner).GetFieldPermanents();
+
+            if (0 <= _appFusionFrameIDs[0] && _appFusionFrameIDs[0] <= fieldPermanents.Count - 1)
+            {
+                Permanent targetPermanent = fieldPermanents[_appFusionFrameIDs[0]];
+
+                if (targetPermanent.LinkedCards.Count > _appFusionFrameIDs[1])
+                {
+                    CardSource link = targetPermanent.LinkedCards[_appFusionFrameIDs[1]];
+                    return link;
+                }
+            }
         }
 
         return null;
@@ -3416,14 +3427,23 @@ public class PlayCardClass
 
             if (IsAppFusion(card))
             {
-                // AS-IS :792-808: `yield return ... GManager.instance.selectAppFusionEffect.AddToSources(
-                // LinkedCard(card));` then the `!LinkAdded` retry (`_appFusionFrameIDs = new int[0];
-                // SelectCost();`) else `appFusion = true;` — SelectAppFusionEffect (241-line component: the
-                // link-card re-source is GAME STATE) has no mirror: STOP RD-P6C1-6. Unreachable today —
-                // IsAppFusion() STOPs on the frame model first (RD-P6C1-1).
-                throw new NotSupportedException(
-                    "STOP: App-Fusion link-card sourcing (AS-IS GManager.selectAppFusionEffect) has no mirror " +
-                    "— design item RD-P6C1-6, docs/audit/rebuild_p6_cluster1_notes.md.");
+                // AS-IS :787-802. `GManager.instance.selectAppFusionEffect` → the match-scoped mirror component
+                // via `GManager.instance.GetComponent<SelectAppFusionEffect>()` (context-cached: the same
+                // instance across the two accesses, so LinkAdded state is preserved). The link-card → source
+                // conversion is the fully-ported R5-C SelectAppFusionEffect.AddToSources (RD-P6C1-6 resolved for
+                // App-Fusion). On failure the AS-IS clears the frame ids and re-selects cost; on success App-Fuse.
+                await GManager.instance.GetComponent<SelectAppFusionEffect>().AddToSources(LinkedCard(card)).ConfigureAwait(false);
+
+                if (!GManager.instance.GetComponent<SelectAppFusionEffect>().LinkAdded)
+                {
+                    _appFusionFrameIDs = new int[0];
+
+                    await SelectCost().ConfigureAwait(false);
+                }
+                else
+                {
+                    appFusion = true;
+                }
             }
 
             #endregion
@@ -4535,19 +4555,10 @@ public static class CardSourceAsIsPlayAccessors
             "docs/audit/rebuild_p6_cluster1_notes.md).");
     }
 
-    /// <summary>(P6C1) AS-IS <c>CardSource.CanAppFusionFromTargetPermanent(targetPermanent, PayCost, root)</c>
-    /// (CardSource.cs:3378). STOP: RD-P6C1-2.</summary>
-    public static bool CanAppFusionFromTargetPermanent(this CardSource card, Permanent targetPermanent, bool PayCost, SelectCardEffect.Root root = SelectCardEffect.Root.Hand)
-    {
-        _ = card;
-        _ = targetPermanent;
-        _ = PayCost;
-        _ = root;
-        throw new NotSupportedException(
-            "STOP: CardSource.CanAppFusionFromTargetPermanent (AS-IS CardSource.cs:3378) — the AS-IS " +
-            "app-fusion requirement/cost check has no mirror (design item RD-P6C1-2, " +
-            "docs/audit/rebuild_p6_cluster1_notes.md).");
-    }
+    // (G-AppF / RD-EXT3-02) The AS-IS CardSource.CanAppFusionFromTargetPermanent STOP extension stub is retired
+    // — it is now the real 1:1 instance method on the mirror CardSource (CardSource.cs, right after
+    // AppFusionConditionOf). `card.CanAppFusionFromTargetPermanent(...)` call sites resolve to that instance
+    // method (RD-P6C1-2 resolved for App-Fusion; the Jogress/Burst siblings above remain STOP).
 }
 
 

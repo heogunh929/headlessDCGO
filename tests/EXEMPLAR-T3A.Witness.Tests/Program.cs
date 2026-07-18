@@ -37,7 +37,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
     ("BT25_089 W2 FLIP(RD-EXT3-01/G-Link 배치2): [Main] link 실행 — suspend cost → 영역 선택 → 손패 Appmon 선택 → 호스트 선택 → -2 감면 코스트 0 지불 → attach", BT25089_LinkFlip),
-    ("BT25_089 W3 수확 STOP: [End of Turn] AppFusion 등재, RESOLUTION throws NotSupported(CanAppFusion RD-P6C1-2 + PermanentFrame RD-P6C3-D1 — RD-EXT3-02)", BT25089_AppFusionStopHarvest),
+    ("BT25_089 W3 FLIP(RD-EXT3-02/G-AppF): [End of Turn] AppFusion 요구/코스트/프레임 실단언 — CanAppFusionFromTargetPermanent(Mediamon top+Dreammon link) 양·음 + FrameID 해소; RESOLUTION이 RD-EXT3-02 STOP 대신 하류 MIG4-DETACH-LIVE-TOP(라이브-톱 강등 프리미티브, 범위 밖)까지 구동", BT25089_AppFusionResolveFlip),
     // EX7_072 — Seventh Fascination (AddSkill nested-grant) — 전부 포팅(예측 BUSTED)
     ("EX7_072 W1 [Security] delete: 효과 등재 + CanActivate ON(상대 미서스펜드 Digimon) / OFF(부재) 양·음", EX7072_SecurityDeleteGate),
     ("EX7_072 W2 등재: [Main](OptionSkill AddSkill nested-grant)·[Trash](WhenDigivolving OptionMain) — AddSkillClass STOP 예측 BUSTED", EX7072_MainAndTrashPresent),
@@ -314,17 +314,72 @@ async Task BT25089_LinkFlip()
         "GrantedReduceLinkCostClass(-2) folded the cost 2 to 0 — no memory was paid (UntilCalculateFixedCostEffect players-region fold)");
 }
 
-async Task BT25089_AppFusionStopHarvest()
+async Task BT25089_AppFusionResolveFlip()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3423, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 3423, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
     HeadlessEntityId kazuki = Stage(match, P1, "BT25_089", ChoiceZone.BattleArea, "1:battle:Kazuki", register: true, cardType: "Tamer");
 
+    // App-fusion FIXTURE on the REAL ported card (mirrors the G9-071 recipe): BT22_035 (Entermon) declares
+    // AddAppfuseMethodByName({"Mediamon","Dreammon"}) as a [None] static — so a HAND Entermon exposes a real
+    // AppFusionConditionOf() (digimonCondition: owner battle Digimon whose TOP is one material and a LINK card
+    // of the OTHER; linkedCondition: that different-named link). Host = a "Mediamon" Digimon carrying a
+    // "Dreammon" link card; a plain control permanent for the negative; cost 0.
+    HeadlessEntityId entermon = Stage(match, P1, "BT22_035", ChoiceZone.Hand, "1:hand:Entermon", register: true);
+    HeadlessEntityId host = StageSynthetic(match, P1, "MEDIAMON", dp: 5000, level: 5, "1:battle:host", name: "Mediamon");
+    HeadlessEntityId control = StageSynthetic(match, P1, "OTHER", dp: 4000, level: 4, "1:battle:other", name: "SomeOther");
+    HeadlessEntityId link = StageSynthetic(match, P1, "DREAMMON", dp: 4000, level: 4, "1:hand:link", name: "Dreammon", zone: ChoiceZone.Hand);
+    await HeadlessDCGO.Engine.Headless.Runtime.LinkHelpers.AddLinkCardAsync(
+        match.Context.CardInstanceRepository, match.Context.ZoneMover, host, link, ChoiceZone.Hand);
+
     Cec.ICardEffect? fuse = EffectNamed(match, kazuki, Cec.EffectTiming.OnEndTurn, "App fuse 1 digimon into digimon in hand");
     AssertTrue(fuse is not null, "[End of Your Turn] app-fusion ActivateClass registered under OnEndTurn");
-    AssertTrue(await ActivateThrowsAsync(match, fuse!),
-        "HARVEST RD-EXT3-02: the AppFusion RESOLUTION throws NotSupportedException (CanAppFusionFromTargetPermanent RD-P6C1-2 + " +
-        "Permanent.PermanentFrame.FrameID RD-P6C3-D1) — when this no longer throws the AppFusion subsystem was ported");
+    AssertTrue(LinkedCardsOf(match, host).Contains(link), "fixture: the host carries the Dreammon link card");
+
+    // === FLIP RD-EXT3-02: the requirement/cost/frame subsystem is ported — the real 1:1
+    //     CardSource.CanAppFusionFromTargetPermanent evaluates cleanly (no NotSupportedException). ===
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        var entermonCard = new Cec.CardSource(match.Context, entermon, P1);
+        var hostPerm = new Cec.Permanent(match.Context, host, P1);
+        var controlPerm = new Cec.Permanent(match.Context, control, P1);
+
+        AssertTrue(entermonCard.AppFusionConditionOf() is not null,
+            "RD-EXT3-02: BT22_035 exposes a real AppFusionConditionOf() (AddAppfuseMethodByName consumed via dispatch)");
+        AssertTrue(entermonCard.CanAppFusionFromTargetPermanent(hostPerm, true),
+            "RD-EXT3-02 FLIP: CanAppFusionFromTargetPermanent TRUE — Mediamon top + Dreammon link (linkedCondition) " +
+            "+ !CanNotEvolve + cost 0 affordable — evaluated cleanly, no NotSupportedException (RD-P6C1-2 resolved)");
+        AssertTrue(!entermonCard.CanAppFusionFromTargetPermanent(controlPerm, true),
+            "negative: a non-Mediamon host with no matching link is not an app-fusion target (real predicate, not a stub)");
+
+        // frame model (RD-P6C3-D1) — the FrameID + link index the witness's SetAppFusion consumes both resolve.
+        Cec.FieldCardFrame? frame = hostPerm.PermanentFrame;
+        AssertTrue(frame is not null && frame.FrameID >= 0,
+            "RD-P6C3-D1: host PermanentFrame.FrameID resolves (field-list index) — no NotSupportedException");
+        AssertTrue(hostPerm.LinkedCards.Any(x => x.InstanceId == link),
+            "the Dreammon link is on the host (the LinkedCards.IndexOf(linkCard) path SetAppFusion uses)");
+    }
+
+    // === RESOLUTION drives real play logic THROUGH RD-EXT3-02 into the link-sourcing step
+    //     (SelectAppFusionEffect.AddToSources) and STOPs only at the DISTINCT downstream substrate primitive
+    //     MIG4-DETACH-LIVE-TOP: AS-IS AddToSources folds the host's own LIVE TOP under the fusion card, which the
+    //     mirror's permanent-identity model (id == top) cannot re-parent. This is OUT OF SCOPE for RD-EXT3-02
+    //     (a Permanent re-parenting primitive), and crucially it is NOT the old RD-EXT3-02 STOP — proving the
+    //     app-fusion requirement/cost/frame subsystem is ported. ===
+    policy.On(req => req.Type == ChoiceType.Permanent && req.Message.Contains("app fuse"), _ => ChoiceResult.Select(host));
+    policy.On(req => req.Message.Contains("app fuse into"), _ => ChoiceResult.Select(entermon));
+
+    string? stopMsg = null;
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        try { await ((Cec.ActivateICardEffect)fuse!).Activate(new Hashtable()); }
+        catch (NotSupportedException ex) { stopMsg = ex.Message; }
+    }
+    AssertTrue(stopMsg is not null && stopMsg.Contains("MIG4-DETACH-LIVE-TOP"),
+        "RD-EXT3-02 PORTED: the AppFusion RESOLUTION drove CanAppFusion + frame lookups + SelectAppFusionEffect.AddToSources " +
+        "and STOPped at the DISTINCT downstream primitive MIG4-DETACH-LIVE-TOP (live-top demotion), out of RD-EXT3-02 scope");
+    AssertTrue(!(stopMsg?.Contains("RD-EXT3-02") ?? false) && !(stopMsg?.Contains("RD-P6C1-2") ?? false),
+        "the resolution no longer hits the RD-EXT3-02 (CanAppFusionFromTargetPermanent / PermanentFrame.FrameID) STOP");
 }
 
 // ═══════════════════════════════════ EX7_072 ═══════════════════════════════════

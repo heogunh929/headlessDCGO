@@ -10,7 +10,7 @@
 // ② 프리미티브 매핑 (감사 축 이름 — coverage_exemplar_audit_2026-07-18.md §4 #14, 3축):
 //    * P:Gain1MemoryTamerOpponentDigimonEffect — [Start of Main] (AS-IS :18; 클린 factory)
 //    * P:SuspendPeremanentAndProcessAccordingToResult — [Main] 몸통 suspend-cost (AS-IS :66; 클린)
-//    * X:AppFusion                    — [End of Turn] 몸통 (AS-IS :354; STOP)
+//    * X:AppFusion                    — [End of Turn] 몸통 (AS-IS :354; RD-EXT3-02 해소 — G-AppF)
 //    * (+K:Link [Main] link 실행: G-Link 배치 2로 복원(RD-EXT3-01 해소); PlaySelfTamerSecurityEffect: 클린)
 //
 // ③ 배선 관례 근거: [Main] → OnDeclaration + ActivateClass; [Security] → SecuritySkill factory;
@@ -21,12 +21,13 @@
 //     link 실행 절반은 AS-IS SuccessProcess(BT25_089.cs:72-229) 원문 복원 — `ILinkCard`/`GetChangedLinkCost`
 //     미러 착지(RD-P6C2-7/C2-02 해소)로 STOP 봉인 제거. 치환: UntilCalculateFixedCostEffect →
 //     미러 Player store-backed 리스트; SelectPermanentEffect canTargetCondition → id-adapter(PermanentOf).
-//   ▸ [End of Turn] / AppFusion (RD-EXT3-02): 세 갭 — (1) `CardSource.CanAppFusionFromTargetPermanent`
-//     (CardController.cs:4059) 및 PlayCard() AppFusion 분기(CardController.cs:2605)는 RD-P6C1-2 throw
-//     (app-fusion 요구/코스트 체크 미이관); (2) `Permanent.PermanentFrame.FrameID` 미이관(no frame/slot model,
-//     RD-P6C3-D1); (3) `hand.appFusionCondition` 필드는 미러에서 `AppFusionConditionOf()` 메서드. ActivateCoroutine
-//     몸통을 STOP 마커로 봉인, AS-IS 본문 주석 보존. (LinkedCards/AppFusionCondition.linkedCondition/
-//     PlayCardClass ctor+SetAppFusion 자체는 클린.)
+//   ▸ [End of Turn] / AppFusion (RD-EXT3-02 **해소** — G-AppF): ActivateCoroutine 본문을 AS-IS(:289-364)
+//     1:1 복원. 세 갭 해소: (1) `CardSource.CanAppFusionFromTargetPermanent` = 실 1:1 인스턴스 메서드
+//     (CardSource.cs, RD-P6C1-2 상환) + PlayCard() AppFusion 분기(IsAppFusion/LinkedCard 프레임-룩업·
+//     link-sourcing) 실배선; (2) `Permanent.PermanentFrame.FrameID` = FieldCardFrame(GetFieldPermanents
+//     인덱스, RD-P6C3-D1); (3) `hand.appFusionCondition` → `AppFusionConditionOf()`. 잔여: AS-IS AddToSources가
+//     호스트 LIVE-TOP을 진화원으로 강등하는 부분은 미러 permanent-identity(id==top) 한계 = 별개 프리미티브
+//     MIG4-DETACH-LIVE-TOP(RD-EXT3-02 범위 밖) — full 실행은 그 지점에서 정직 STOP.
 //
 // 치환(substrate translations only):
 //    * IEnumerator→async Task, StartCoroutine(X)→await X, lone `yield return null`→Task.CompletedTask.
@@ -309,34 +310,123 @@ public sealed class BT25_089 : CEntity_Effect
                     && CardEffectCommons.IsOwnerTurn(card);
             }
 
-            Task ActivateCoroutine(Hashtable hashtable)
+            // (G-AppF / RD-EXT3-02 RESOLVED) AS-IS :260-274. `card.Owner.HandCards` → the mirror
+            // `new Player(card.Context, card.Owner).HandCards` (BT2_023 .Enemy route); `hand.appFusionCondition`
+            // → `hand.AppFusionConditionOf()` (adaptation (6)).
+            bool CanSelectPermanent(Permanent permanent)
             {
-                // STOP (design item RD-EXT3-02): the AppFusion RESOLUTION is unported. The AS-IS ActivateCoroutine
-                // (preserved verbatim below as comment) selects 1 of your Digimon then 1 app-fusable hand Digimon and
-                // plays it as an app-fusion. Three gaps: (1) `CardSource.CanAppFusionFromTargetPermanent`
-                // (CardController.cs:4059) — and PlayCard()'s AppFusion branch (CardController.cs:2605) — throw
-                // RD-P6C1-2 (app-fusion requirement/cost check has no mirror); (2) `Permanent.PermanentFrame.FrameID`
-                // has no mirror (no frame/slot model, RD-P6C3-D1); (3) `hand.appFusionCondition` is a method
-                // `AppFusionConditionOf()` on the mirror CardSource, not a field. LinkedCards / AppFusionCondition
-                // .linkedCondition / PlayCardClass ctor+SetAppFusion themselves are clean. Kept as AS-IS-named comment:
-                //
-                //   bool executed = false;
-                //   if (HasMatchConditionOwnersPermanent(card, CanSelectPermanent)) {
-                //     SelectPermanentEffect(mode:Custom, "Select 1 digimon to app fuse") -> selectedPermanent;
-                //     if (selectedPermanent != null) {
-                //       SelectHandEffect(CanSelectCard(handCard, selectedPermanent)) -> selectedCard;
-                //       if (selectedCard != null && selectedCard.CanAppFusionFromTargetPermanent(selectedPermanent, true)) {
-                //         linkCard = selectedPermanent.LinkedCards.Where(x => selectedCard.AppFusionConditionOf().linkedCondition(selectedPermanent, x)).First();
-                //         var pcc = new PlayCardClass([selectedCard], hashtable, true, selectedPermanent, false, Root.Hand, true);
-                //         pcc.SetAppFusion(new int[] { selectedPermanent.PermanentFrame.FrameID, selectedPermanent.LinkedCards.IndexOf(linkCard) });
-                //         executed = true; await pcc.PlayCard();
-                //       }
-                //     }
-                //   }
-                //   if (!executed) activateClass.RemoveUse();
-                throw new NotSupportedException(
-                    "STOP: BT25_089 [End of Your Turn] app-fusion needs CanAppFusionFromTargetPermanent (RD-P6C1-2) + " +
-                    "Permanent.PermanentFrame.FrameID (no frame/slot model, RD-P6C3-D1) — design item RD-EXT3-02.");
+                if (CardEffectCommons.IsPermanentExistsOnOwnerBattleAreaDigimon(permanent, card))
+                {
+                    foreach (CardSource hand in new Player(card.Context, card.Owner).HandCards)
+                    {
+                        if (hand.AppFusionConditionOf() != null)
+                        {
+                            if (hand.CanAppFusionFromTargetPermanent(permanent, true))
+                                return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            // AS-IS :276-287. `card.appFusionCondition` → `card.AppFusionConditionOf()` (adaptation (6)).
+            bool CanSelectCard(CardSource card, Permanent permanent)
+            {
+                if (CardEffectCommons.IsExistOnHand(card))
+                {
+                    if (card.AppFusionConditionOf() != null)
+                    {
+                        if (card.CanAppFusionFromTargetPermanent(permanent, true))
+                            return true;
+                    }
+                }
+                return false;
+            }
+
+            // (G-AppF) SelectPermanentEffect's mirror canTargetCondition is the id-based Func<HeadlessEntityId,
+            // bool> — the PermanentOf(id) adapter (same idiom as the [Main] region above).
+            Permanent? PermanentOf(HeadlessEntityId id) =>
+                card.Context.CardInstanceRepository.TryGetInstance(id, out CardInstanceRecord? rec) && rec is not null
+                    ? new Permanent(card.Context, id, rec.OwnerId)
+                    : null;
+
+            // AS-IS :289-364. IEnumerator → async Task; StartCoroutine(X) → await X;
+            // `yield return null` coroutines → Task.CompletedTask.
+            async Task ActivateCoroutine(Hashtable hashtable)
+            {
+                bool executed = false;
+                if (CardEffectCommons.HasMatchConditionOwnersPermanent(card, CanSelectPermanent))
+                {
+                    Permanent selectedPermanent = null;
+                    int maxCount = Math.Min(1, CardEffectCommons.MatchConditionOwnersPermanentCount(card, CanSelectPermanent));
+                    SelectPermanentEffect selectPermanentEffect = GManager.instance.GetComponent<SelectPermanentEffect>();
+
+                    selectPermanentEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: id => PermanentOf(id) is { } p && CanSelectPermanent(p),
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: true,
+                        canEndNotMax: false,
+                        selectPermanentCoroutine: SelectPermanentCoroutine,
+                        afterSelectPermanentCoroutine: null,
+                        mode: SelectPermanentEffect.Mode.Custom,
+                        cardEffect: activateClass);
+
+                    selectPermanentEffect.SetUpCustomMessage("Select 1 digimon to app fuse", "The opponent is selecting 1 digimon to app fuse");
+
+                    await selectPermanentEffect.Activate();
+
+                    Task SelectPermanentCoroutine(Permanent permanent)
+                    {
+                        selectedPermanent = permanent;
+                        return Task.CompletedTask;
+                    }
+
+                    if (selectedPermanent != null)
+                    {
+                        CardSource selectedCard = null;
+                        int maxCount1 = Math.Min(1, CardEffectCommons.MatchConditionOwnersCardCountInHand(card, handCard => CanSelectCard(handCard, selectedPermanent)));
+                        SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+                        selectHandEffect.SetUp(
+                            selectPlayer: card.Owner,
+                            canTargetCondition: handCard => CanSelectCard(handCard, selectedPermanent),
+                            canTargetCondition_ByPreSelecetedList: null,
+                            canEndSelectCondition: null,
+                            maxCount: maxCount1,
+                            canNoSelect: true,
+                            canEndNotMax: false,
+                            isShowOpponent: true,
+                            selectCardCoroutine: SelectCardCoroutine,
+                            afterSelectCardCoroutine: null,
+                            mode: SelectHandEffect.Mode.Custom,
+                            cardEffect: activateClass);
+
+                        selectHandEffect.SetUpCustomMessage("Select digimon to app fuse into.", "The opponent is selecting digimon to app fuse into.");
+                        selectHandEffect.SetUpCustomMessage_ShowCard("Selected digimon");
+                        await selectHandEffect.Activate();
+
+                        Task SelectCardCoroutine(CardSource cardSource)
+                        {
+                            selectedCard = cardSource;
+                            return Task.CompletedTask;
+                        }
+
+                        if (selectedCard != null && selectedCard.CanAppFusionFromTargetPermanent(selectedPermanent, true))
+                        {
+                            CardSource linkCard = selectedPermanent.LinkedCards.Where(x => selectedCard.AppFusionConditionOf()!.linkedCondition(selectedPermanent, x)).First();
+
+                            PlayCardClass playCardClass = new PlayCardClass(new List<CardSource> { selectedCard }, hashtable, true, selectedPermanent, false, SelectCardEffect.Root.Hand, true);
+                            playCardClass.SetAppFusion(new int[] { selectedPermanent.PermanentFrame!.FrameID, selectedPermanent.LinkedCards.IndexOf(linkCard) });
+
+                            executed = true;
+
+                            await playCardClass.PlayCard();
+                        }
+                    }
+                }
+                if (!executed) activateClass.RemoveUse();
             }
         }
         #endregion
