@@ -4,6 +4,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -17,15 +18,22 @@ using HeadlessDCGO.Engine.Headless.Services;
 // CardSource-bound ActivateClass probe: SkillWindowSupply RDW-07 CLOSED this timing (AS-IS null-payload,
 // the port's TriggerEventEmitter already stamps the explicit timing key so the live mirror stacks + drains
 // it) — the BEHAVIOR is re-expressible, the original registry-only RecordingFakeEffect just can no longer be
-// collected (AutoProcessingTriggerCollector has zero live callers post-cutover). OnEndMainPhase /
-// OnEndAttackPhase stay on the OLD registry harness UNCHANGED and remain red — RETIREMENT CANDIDATES, not
-// engine gaps: both are AS-IS DEAD timings (declared in the AS-IS EffectTiming enum but NEVER stacked/gated
-// there and reacted to by ZERO cards — see the F1-DEAD block in Script/CardEffectCommons/EffectTiming.cs and
-// TriggerTimings.cs:79-84 "not actively fired there; headless opens them"). The port's PassAction.cs:28-29
-// emit was bridge-era invention; the live mirror window rightly never opens these (SkillWindowSupply has no
-// case — consistent with AS-IS never stacking them). The subtests' expectation ("fires on leaving main") is
-// not derivable from AS-IS, so it cannot be retargeted without inventing behavior; left red for coordinator
-// disposition.
+// collected (AutoProcessingTriggerCollector has zero live callers post-cutover).
+//
+// RE-TARGETED (4b B2-c1): main-phase arrival is now driven by DcgoMatch.CreatePumpDriven's natural auto-flow
+// (EXEMPLAR-T1/α precedent) — the OLD AdvancePhase step currency is RETIRED. The live OnStartMainPhase probe
+// fires through the pump's real main-entry window; the OnEndMainPhase-dormant-on-entry negative guard is
+// preserved on the retained EffectRegistry substrate (never enters the leaving-main transition).
+//
+// RETIRED (4b B2-c1, invented verification target = deletion-bound): the two subtests "OnEndMainPhase fires on
+// leaving main" / "OnEndAttackPhase fires on leaving main" are DELETED. Their verification target — the port's
+// PassAction.cs:28-29 dead-timing emit — is bridge-era INVENTION: OnEndMainPhase / OnEndAttackPhase are AS-IS
+// DEAD timings (declared in the AS-IS EffectTiming enum but NEVER stacked/gated there and reacted to by ZERO
+// cards — F1-DEAD block in Script/CardEffectCommons/EffectTiming.cs, TriggerTimings.cs:79-84). The live mirror
+// window (SkillWindowSupply) rightly never opens them. "Fires on leaving main" is not derivable from AS-IS, so
+// it cannot be retargeted without inventing behavior — per §2.1-P-B "step concept is an invention → retire,
+// record reason", these assertions are retired rather than forced green (F62's own prior header flagged them
+// as retirement candidates for coordinator disposition; this batch disposes: RETIRE).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -34,8 +42,6 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("Phase timing constants are defined", () => Pure(ConstantsDefined)),
     ("OnStartMainPhase effect fires when the main phase is entered", StartMainPhaseFires),
-    ("OnEndMainPhase effect fires on leaving the main phase, not on entry", EndMainPhaseFires),
-    ("OnEndAttackPhase effect fires on leaving the main phase", EndAttackPhaseFires),
     ("An OnEndMainPhase effect does NOT fire merely on entering main", EndMainPhaseDormantOnEntry),
 };
 
@@ -73,23 +79,6 @@ async Task StartMainPhaseFires()
     AssertEqual(1, effect.ResolveCalls, "OnStartMainPhase effect fired once on main-phase entry");
 }
 
-async Task EndMainPhaseFires()
-{
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnEndMainPhase);
-    await AdvanceToMainAsync(match, P1);
-    AssertEqual(0, effect.ResolveCalls, "OnEndMainPhase effect does not fire on entry");
-    await LeaveMainAsync(match, P1);
-    AssertEqual(1, effect.ResolveCalls, "OnEndMainPhase effect fired on leaving the main phase");
-}
-
-async Task EndAttackPhaseFires()
-{
-    (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnEndAttackPhase);
-    await AdvanceToMainAsync(match, P1);
-    await LeaveMainAsync(match, P1);
-    AssertEqual(1, effect.ResolveCalls, "OnEndAttackPhase effect fired on leaving the main phase");
-}
-
 async Task EndMainPhaseDormantOnEntry()
 {
     (DcgoMatch match, RecordingFakeEffect effect) = await CreateMatchAsync(TriggerTimings.OnEndMainPhase);
@@ -97,36 +86,64 @@ async Task EndMainPhaseDormantOnEntry()
     AssertEqual(0, effect.ResolveCalls, "OnEndMainPhase stays dormant when only entering main");
 }
 
-// --- Phase driving -------------------------------------------------------
+// --- Phase driving (pump auto-flow, α/EXEMPLAR-T1 precedent) --------------
 
-async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId player)
+// Drive the pump's natural Active→Draw→Breeding→Main auto-flow to P1's main wait — no OLD AdvancePhase
+// step currency. Breeding/Mulligan decisions are declined so main is reached with the OnStartMainPhase
+// window already drained (any live probe bound to that timing has fired exactly once).
+static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId player)
 {
-    for (int attempt = 0; attempt < 10 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = SingleLegalAction(match, player, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
-
+    await StepOnceAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, player));
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advanced to main");
 }
 
-async Task LeaveMainAsync(DcgoMatch match, HeadlessPlayerId player)
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
 {
-    // From the main phase the phase-advancing legal action is Pass (Main→End). Apply it so the
-    // Main→(next) transition runs through AdvancePhaseAsync and opens the end-of-main windows.
-    LegalAction leave = match.GetLegalActions(player)
-        .First(a => a.ActionType is HeadlessActionTypes.Pass or HeadlessActionTypes.AdvancePhase);
-    await match.ApplyActionAsync(leave);
-    await match.StepAsync();
-    AssertTrue(match.GetObservation().Turn.Phase != HeadlessPhase.Main, "left the main phase");
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingAsync(match, skip: decline);
+        }
+        else await StepOnceAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state — phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
 }
 
-LegalAction SingleLegalAction(DcgoMatch match, HeadlessPlayerId player, string actionType)
+static async Task ResolvePendingAsync(DcgoMatch match, bool skip)
 {
-    LegalAction[] actions = match.GetLegalActions(player).Where(a => a.ActionType == actionType).ToArray();
-    AssertTrue(actions.Length >= 1, $"{actionType} available");
-    return actions[0];
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 // --- Harness (mirrors G3.5-W1b) ------------------------------------------
@@ -141,7 +158,7 @@ async Task<(DcgoMatch Match, RecordingFakeEffect Effect)> CreateMatchAsync(strin
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
 
@@ -162,7 +179,7 @@ async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateLiveMatchAsync(Eff
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
 
