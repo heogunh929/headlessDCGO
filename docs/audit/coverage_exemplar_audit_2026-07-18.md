@@ -663,3 +663,20 @@ greedy 87장 중 **STOP-리스크 보유 21장**. 리스크 컬럼은 카드의 
    - **수확 레인(STOP-리스크 유)**: BT25_104·BT21_030·BT24_062·BT25_040·BT25_089·EX7_072·BT3_056·LM_047·EX7_014·BT20_079 — 포팅 시도=정직 STOP 수확(인프라 갭 원장 등재), Opus 프리미티브 선행 개발 트리거([[primitive-predevelopment-role]]).
 2. **포팅 규약**: goal-witness 운용 모드(엔진 골+witness 2~3장), 카드별 AS-IS 1:1(단순화 불허), STOP은 runtime throw 아닌 정직 STOP 마커.
 3. **커버리지 재측정**: 각 배치 후 `.tmp/coverage_audit/analyze.py` 재실행 — 커버율 변동은 구조 지표(green 수 아님)로 보고.
+
+## 8. 실측 정정 (트랜치1~3 수확, 2026-07-18) — §6 STOP-예상 지도의 교체
+
+정본 30장(클린 20+수확 10) 실포팅 결과, §6의 12 클러스터 예상 중 **적중 ~2.5개**. "미커버(❌)"의 다수는 "미구축"이 아니라 "클린 카드 부재로 미검증"이었음이 실증됨. 격파된 예상: Ascension(RD-P6C2-1 기상환)·공유 once-per-turn(순수 디스패처)·AddSkillClass nested-grant(플레이어-레벨 LIVE 스캔 실존)·고급 SelectCardCondition 술어(RevealLibrary에서 실평가)·Save·ArmorPurge·DeckBottomBounce·TrashDigivolutionCards-연쇄 등.
+
+**실측 후 잔여 인프라 골 5개 (요구사항 명세=트랜치3A/3B 보고, 원장 RD-EXT3-*):**
+| # | 골 | 실체 | 게이팅 물량 |
+|---|---|---|---|
+| G-Link | Link 서브시스템 | ILinkCard 타입·LinkCard() 흐름(WhenWouldLink 창·링크코스트 지불)·GetChangedLinkCost (RD-P6C2-7+C2-02) | K:Link **73장** |
+| G-AppF | AppFusion | CanAppFusionFromTargetPermanent 요구/코스트+PermanentFrame.FrameID 절반 (RD-P6C1-2+P6C3-D1) | 10장 |
+| G-Field | 필드-배치 제약 배선 | PlayCardAction.Validate에 CanEnterField/ICanNotPutField 스캔 호출 추가만(생산자·스캔 실존) (RD-EXT3-03/3A) | 7장 |
+| G-Burst | Burst execution | SelectBurstDigivolutionEffect+burst-play 몸통(+CannotReturnToHand aggregate·활성화-시각 클럭 미소 표면) (RD-P6C1-6/RD-EXT3-04) | 5장 |
+| G-Xros | DigiXros/Assembly 소비 파이프 | 등록·비용-머신 완료 — SelectDigiXros 소비(CanSubstituteForDigiXrosCondition+SelectHand 스텁)·SelectAssembly 형상 반전 (RD-EXT3-01/02=RD-P6C1-5·RD-R5-04) | Xros/Assembly 계열 |
+| (별도) | Digisorption 진입 | Player.CanTapWhenAbsorbEvolution+_CheckAvailability 2종만 (RD-EXT3-03/3B) | 소형 |
+| (별도) | Arts resolution | CanPlayCardTargetFrame/Hashtable-ctor PlayCardClass (RD-P6C2-10, 등재 클린·해소만 지연-STOP) | 6장 |
+
+커버리지 계기판(정본 패스 후): 포팅 209→**239장**, 미커버 164요소 중 정본 30장이 ~90요소 커버(정확 수치는 재감사 시), 잔여=롱테일 57장+위 골 게이팅분.
