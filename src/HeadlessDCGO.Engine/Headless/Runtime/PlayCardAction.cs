@@ -53,7 +53,7 @@ public sealed class PlayCardAction
         HeadlessPlayerId playerId,
         HeadlessEntityId cardId)
     {
-        if (!TryGetPlayCost(context, cardId, out int playCost, out _))
+        if (!TryGetPlayCost(context, cardId, out int playCost, out _, checkAvailability: true))
         {
             return null;
         }
@@ -294,7 +294,7 @@ public sealed class PlayCardAction
         HeadlessPlayerId playerId,
         HeadlessEntityId cardId)
     {
-        if (!TryGetPlayCost(context, cardId, out int playCost, out _))
+        if (!TryGetPlayCost(context, cardId, out int playCost, out _, checkAvailability: true))
         {
             return null;
         }
@@ -356,7 +356,7 @@ public sealed class PlayCardAction
                 instance.DefinitionId);
         }
 
-        if (!TryGetPlayCost(context, payload.CardId, out int repositoryCost, out string? costError))
+        if (!TryGetPlayCost(context, payload.CardId, out int repositoryCost, out string? costError, checkAvailability: true))
         {
             return PlayCardValidation.Illegal(costError ?? "Card play cost was not found.", instance.DefinitionId);
         }
@@ -475,7 +475,8 @@ public sealed class PlayCardAction
         EngineContext context,
         HeadlessEntityId cardId,
         out int playCost,
-        out string? error)
+        out string? error,
+        bool checkAvailability = false)
     {
         playCost = default;
         if (!context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? instance) ||
@@ -501,7 +502,13 @@ public sealed class PlayCardAction
         // top-level play is from hand (effect-driven plays from other zones go through PlayPermanentCards, which
         // threads the real source root). Static (card/instance metadata) cost is the base.
         playCost = new CardSource(context, cardId, instance.OwnerId)
-            .GetPayingCostWithBaseCost(baseCost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null);
+            // (EXEMPLAR-T1) checkAvailability threads the AS-IS split: the LANE/legality check mirrors
+            // CanSelect/CanPutFieldThisPermanentCard's `PayingCost(..., checkAvailability: true)`
+            // (CardSource.cs:143/1151) — an availability-only IChangeCostEffect (IsCheckAvailability()==true,
+            // e.g. P_223's hidden "Play Cost -4") participates there; the PAY-time re-resolve keeps false
+            // (AS-IS pays through the until-calc registration the BeforePayCost activation added, not the
+            // availability-only class).
+            .GetPayingCostWithBaseCost(baseCost, Assets.Scripts.Script.SelectCardEffect.Root.Hand, targetPermanents: null, checkAvailability: checkAvailability);
         error = null;
         return true;
     }

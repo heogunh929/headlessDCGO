@@ -145,8 +145,14 @@ public static partial class CardEffectCommons
             }
 
             // Use flow (verified PlayOptionCardEffect resolution order): trash → OnUseOption → resolve [Main].
-            await context.ZoneMover.MoveAsync(
-                new ZoneMoveRequest(card.Owner, card.InstanceId, sourceZone, ChoiceZone.Trash)).ConfigureAwait(false);
+            // (EXEMPLAR-T1, first Root.Trash consumer — P_223 [On Play]) an option used FROM the trash is
+            // already resident there; AS-IS hops it through the execution area and back (presentation), so the
+            // zone outcome is identity — the mirror move is skipped (ZoneMover rejects From==To).
+            if (sourceZone != ChoiceZone.Trash)
+            {
+                await context.ZoneMover.MoveAsync(
+                    new ZoneMoveRequest(card.Owner, card.InstanceId, sourceZone, ChoiceZone.Trash)).ConfigureAwait(false);
+            }
             TriggerEventEmitter.Emit(
                 context.GameEventQueue, TriggerTimings.OnUseOption,
                 actor: card.Controller, subject: card.InstanceId);

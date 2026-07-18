@@ -36,6 +36,12 @@ public static class ActivatedEffectResolver
         }
 
         string? description = effect.GetType().GetProperty("Description")?.GetValue(effect) as string;
+        // (EXEMPLAR-T1, first new-model consumer — P_223 [On Play] option-from-trash) a NEW-model
+        // ActivateClass carries its text on the AS-IS-named EffectDiscription surface (ICardEffect.cs:216,
+        // set by SetUpActivateClass), not a "Description" property — the reflection probe above only served
+        // the legacy uniform shape, silently filtering every new-model [Main] option out of the
+        // PlayOptionCards / ReuseMainOptionEffect route.
+        description ??= effect.EffectDiscription;
         return description is not null && description.Contains("[Main]", StringComparison.OrdinalIgnoreCase);
     }
 

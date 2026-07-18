@@ -50,6 +50,16 @@ public static class OptionColorRequirement
             }
         }
 
+        //   (1c) (EXEMPLAR-T1) NEW-model IIgnoreColorConditionEffect kind-classes — routes (1a)/(1b) only see
+        //   LEGACY key-lowered bindings; a P6-rebuild card's IgnoreColorConditionClass (e.g. LM_054/BT19_091)
+        //   registers nothing there. The mirror CardSource.IgnoreColorConditionActive IS the AS-IS three-region
+        //   ignore scan verbatim (field permanents → players → the card itself, CardSource.cs:263-303), so this
+        //   gate consults it directly — same surface CanNotPlayThisOption/MatchColorRequirement read.
+        if (new CardSource(context, optionCardId, owner, owner).IgnoreColorConditionActive())
+        {
+            return true;
+        }
+
         // (2) every option color must appear on some owner field/breeding permanent's effective colors.
         // (AS-IS colorsToCheck = IsDigimon ? DualCardColors : CardColors, CardSource.cs:307) — a DUAL card
         // (Digimon+Option) played as an option uses its separate OptionCardColorRequirements list, not its

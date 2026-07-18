@@ -112,6 +112,34 @@ public static class ActivatedHashtableBridge
             case EffectTiming.OnUseOption:
                 return CardEffectCommons.OptionMainCheckHashtable(SubjectCard(context, drivingEvent, card));
 
+            // (EXEMPLAR-T1) the AS-IS pay-flow BeforePayCost window hashtable — WouldEnterFieldHashtable
+            // (CardController.cs:591-599 → HashtableSetting.cs:178-194: {PayCost, Card, Root, isEvolution,
+            // PlayCardClass, CardEffect, isJogress, Permanents}). The pump play path (PlayCardAction) resolves
+            // a top-level HAND play: payCost=true, Root.Hand, isEvolution=false, no jogress/targets; the
+            // PlayCardClass/cause seats have no pump analog on this path (null — AS-IS gates null-check them).
+            case EffectTiming.BeforePayCost:
+                return CardEffectCommons.WouldEnterFieldHashtable(
+                    payCost: true,
+                    card: SubjectCard(context, drivingEvent, card),
+                    root: HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect.Root.Hand,
+                    isEvolution: false,
+                    playCardClass: null!,
+                    cardEffect: CauseStub(context, drivingEvent)!,
+                    isJogress: false,
+                    targetPermanents: null!);
+
+            // (EXEMPLAR-T1) {Card, isFaceDown} — security skill (AS-IS CardController.cs:3991-3999:
+            // `hashtable1 = { Card: brokenSecurityCard, isFaceDown }` gated by CanUse before stacking the
+            // SkillInfo). The mirror security-check loop reveals FACE-DOWN security cards only (the face-up
+            // security surface is the separate no-register continuous scan), so isFaceDown = true; a face-up
+            // reveal path narrows this when it lands — design item P6A-HT-SECURITY.
+            case EffectTiming.SecuritySkill:
+                return new Hashtable()
+                {
+                    { "Card", SubjectCard(context, drivingEvent, card) },
+                    { "isFaceDown", true },
+                };
+
             // {Permanent} — a Digimon MOVED from breeding to battle area (CardObjectController.cs:1105-1111).
             case EffectTiming.OnMove:
                 return new Hashtable() { { "Permanent", SubjectPermanent(context, drivingEvent, card) } };
@@ -227,8 +255,9 @@ public static class ActivatedHashtableBridge
                     { "CardEffect", CauseStub(context, drivingEvent) },
                 };
 
-            // Not yet mapped (design items, file header): OnEndBattle (P6A-HT-ENDBATTLE), SecuritySkill
-            // (P6A-HT-SECURITY), WhenTopCardTrashed, OnSecurityCheck, the would-be windows, and any timing
+            // Not yet mapped (design items, file header): OnEndBattle (P6A-HT-ENDBATTLE) —
+            // (EXEMPLAR-T1) SecuritySkill now mapped above ({Card, isFaceDown}; P6A-HT-SECURITY narrows to the
+            // face-up reveal flag only) — WhenTopCardTrashed, OnSecurityCheck, the would-be windows, and any timing
             // without a live new-model reactor. Null keeps the AS-IS null-tolerant gates working; a gate that
             // READS a key from null hashtable surfaces loudly (NRE) rather than silently mis-gating.
             default:

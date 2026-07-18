@@ -242,7 +242,13 @@ public sealed class AttackPermanentAction
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' is suspended.");
         }
 
-        if (!ReadBool(attacker.Metadata, CanSuspendKey, defaultValue: true))
+        if (!ReadBool(attacker.Metadata, CanSuspendKey, defaultValue: true)
+            // (EXEMPLAR-T1) + the LIVE mirror scan — AS-IS attack declaration suspends the attacker, and the
+            // mirror Permanent.CanAttack gates it on Permanent.CanSuspend (Permanent.cs:3096 → :1736, the
+            // ICanNotSuspendEffect field/player scan, 1:1 of AS-IS Permanent.cs:3698-3742). The metadata flag
+            // alone missed a kind-class "can't suspend" grant (e.g. BT17_026 [When Digivolving]); the metadata
+            // key stays as the fixture/test seam.
+            || !new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).CanSuspend)
         {
             return AttackPermanentValidation.Illegal($"Attacker '{attackerId}' cannot suspend.");
         }

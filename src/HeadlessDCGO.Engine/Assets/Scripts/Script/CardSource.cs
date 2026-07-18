@@ -1213,6 +1213,64 @@ public sealed class CardSource
     /// (BT9_109 "[When Attacking] … digivolve into a Digimon card with [X Antibody] in its traits").</summary>
     public bool HasXAntibodyTraits => CardTraits.Some(DataBase.IsXAntibodyString);
 
+    /// <summary>(EXEMPLAR-T1) 1:1 mirror of AS-IS <c>CardSource.HasText(string)</c> (CardSource.cs:2120-2170):
+    /// printed-text scan — normalise the probe via <see cref="DataBase.ReplaceToASCII"/>, then test the probe,
+    /// its space-stripped form, and its lower-cased form as substrings of each printed text field. Field map
+    /// (AS-IS <c>_cEntity_Base</c> → mirror definition metadata): CardName_ENG→<c>Definition.Name</c>,
+    /// EffectDiscription_ENG→<c>"effect"</c>, InheritedEffectDiscription_ENG→<c>"inheritedEffect"</c>,
+    /// SecurityEffectDiscription_ENG→<c>"securityEffect"</c>, Attribute_ENG→<c>"attributes"</c>,
+    /// Type_ENG→<c>"types"</c>. AS-IS <c>dualEffect</c>/<c>OptionEffect</c> fields and jogress-condition
+    /// SelectMessages have no mirror data source (cards.json carries neither) — they contribute nothing here,
+    /// exactly as the AS-IS empty-string guard skips them when absent.</summary>
+    public bool HasText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+
+        text = DataBase.ReplaceToASCII(text);
+        string replaced = text.Replace(" ", "");
+        string lower = text.ToLower();
+
+        List<string> checkStrings = new List<string>()
+        {
+            DataBase.ReplaceToASCII(Definition?.Name ?? string.Empty),
+            DataBase.ReplaceToASCII(ReadString(Definition?.Metadata, "effect")),
+            DataBase.ReplaceToASCII(ReadString(Definition?.Metadata, "inheritedEffect")),
+            DataBase.ReplaceToASCII(ReadString(Definition?.Metadata, "securityEffect")),
+        };
+
+        foreach (string attribute in ReadStrings(Definition?.Metadata, "attributes"))
+            checkStrings.Add(DataBase.ReplaceToASCII(attribute));
+
+        foreach (string attribute in ReadStrings(Definition?.Metadata, "types"))
+            checkStrings.Add(DataBase.ReplaceToASCII(attribute));
+
+        foreach (string checkString in checkStrings)
+        {
+            if (!string.IsNullOrEmpty(checkString))
+            {
+                if (checkString.Contains(text))
+                {
+                    return true;
+                }
+
+                if (checkString.Contains(replaced))
+                {
+                    return true;
+                }
+
+                if (checkString.Contains(lower))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static string ReadString(IReadOnlyDictionary<string, object?>? meta, string key) =>
+        meta is not null && meta.TryGetValue(key, out object? value) && value is string s ? s : string.Empty;
+
     /// <summary>(R1-e) AS-IS <c>CardSource.CanNotBeAffected(ICardEffect _cardEffect)</c> (CardSource.cs:1060-1110):
     /// whether an active <see cref="ICanNotAffectedEffect"/> shields THIS card from the given causing effect. A null
     /// cause is never blocked (AS-IS :1062). The AS-IS three-region scan (all field permanents' effects → all
