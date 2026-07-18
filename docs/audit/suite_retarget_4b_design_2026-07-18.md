@@ -195,3 +195,7 @@ B6 후:  ≈57 하한 (③55 + ④2 = R4-직교 포팅부채, 4b 무접촉)
 **군 분류**: α=P-E synth OnEndTurn 4(GR-006·C-EoT2·W-EoTFIX·A4-Execute — 펌프 EndPhase drain으로 이식, GetSkillInfos 질의 단언은 retained substrate 무변) / β=삭제 파이프 9(C-Del 5·G3.5-F68·C-Atk 3 — 리걸-게이트 조용한 스킵 함정 주의, RD-R3-02 판례) / γ=activated-effect 3(B1-OncePerTurn·G7-005·E1-Parity(a)만 — suspended 단언→HasPendingChoice 번역+효과 결과 재이식 필수; P1r=하이브리드 승격) / δ=순수 계약-메커닉(G3.5-W7 ProviderReplaysAnswer 1테스트=부분 은퇴·W1b=이식 우선 검토·R4RL-03=B3 이관 정정).
 **블로커 실측**: ST1_16 CardBaseEntity JSON 스켈레톤(cost/color 무) — 펌프-플레이 재조준은 카드 데이터 포팅부채에 게이트, 파일별 "OLD 반절단 vs 직교 부채" 판별 필요. G7-005 green 복원은 이 해소에 종속(미해소 시 직교 부채 재분류, 강제 green 금지).
 **실행 순서**: α 클러스터 → 리뷰 게이트(창 발화 결과 재단언 실재) → β → γ → δ 은퇴-마킹.
+
+## §3.1c B1-β 코디네이터 판정 (2026-07-19) — 스코프 축소 재분류
+**적재 질문**: out-of-pump promote/park(throw-unwind 삭제-교체 파킹)가 컷오버 후 live인가? **판정=retained substrate(존치)**. 근거: ①리뷰3 P2-③ 실측 — 펌프 매치의 액션-후 드레인=GameFlowProcessor.RunToStableAsync가 수행, 그 중 개설 창=out-of-pump throw 경로(펌프-블로커 witness가 AS-IS-정합 고정) ②본 설계 삭제 표면 6파일에 GameFlowProcessor·DeferredChoiceProvider throw 경로·sink promote/park 미포함.
+**귀결**: β 9 중 — C-Del-3C1/3C1B/3C1C/3C2B/POST·F68 효과부·C-Atk 3종의 synth 구동=retained-substrate 유닛 테스트로 **존치(무접촉·B1 제외)**, promote/park 마커 단언 보존. B1 throw-심볼 grep이 과포함(심볼 소비≠삭제-표면 소비). 잔여 진짜 블로커: G3.5-F68의 `new DcgoMatch(ctx)` OLD-ctor 드라이버 부분만(②a — B2로 이관). B1 잔여=γ(3: B1-OncePerTurn·G7-005·E1-Parity(a))+δ(은퇴-마킹: G3.5-W7 1테스트·W1b 검토). 삭제-블로커 카운트 166→재산정 필요(B2에서: "OLD 6파일 표면 직접 소비" 기준으로 재grep).
