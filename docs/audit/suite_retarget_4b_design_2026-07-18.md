@@ -270,3 +270,8 @@ c1(red 20 실측)·c2(green 전반 21)·**c3(green 후반 풀)** 를 합산해 �
 1. **B5 수율 부담 상향**: c3 green-후반 풀 clean 수율 = 12/26 ≈ 46%(c2 38%와 정합). 원복 14 + 마킹 23 = **B5 규모 37**로 확정 상향 — per-fixture 개막-정합(합성-hand→펌프 실-draw 정합·전투 이중해소→단일 자동흐름·Pass/EndTurn 통화 재작성)이 4b 최대 잔여 노동. B6은 B5 완주에 강하게 종속.
 2. **선재-red 6(G2G-002/003/004·C910·R2-Del·E3-Witness) 도메인 = 병행 Sonnet 보안/전투 witness 인접**: 이들의 red 원인이 c3 통화와 무관(직교 회귀)이나 B5에서 통화 제거하려면 먼저 red 원인(키워드 창/sink 회귀) 해소 필요 → B5가 포팅부채 상환과 얽힘. C5 회귀와 공통 근원 가능성(코디네이터 교차 확인 권고).
 3. **FAILd-07 B4 재분류**: EndTurn-min-memory를 B4 seam으로 넘겼으나, HeadlessMainPhaseFlow.ResolveTurnEndMinMemory → AutoProcessing.TurnEndMinMemory 승격(항5)이 B4 전에 완료돼야 re-point 가능 — B4·항5 삭제 순서 의존.
+
+## §3.4a 리뷰 지점 1 결과 (2026-07-19, B2 재조준 21건 적대 감사): GO-with-P1
+**P0 0**(단언 감소 4건 전부 커밋 명시 — 은폐 없음). 렌즈 5종: 은닉 실룰 소실 없음·번역 충실(음성 단언 비-vacuous 확인)·항진 probe 미발견·픽스처 전제 이상 2건만·처분 오분류 미발견(양방향).
+**P1-1(B4 편입)**: W-EoTFIX(a)/A4의 once-per-turn 재발화 가드가 행동검증→구조검증 강등 — 단일 펌프 turn-end는 재수집이 없어 캡 분기 미실행(커밋의 등가 근거 일부 부정확). 상환=B4에서 **2-턴 재발화 witness** 신설(P1 연속 두 turn-end로 캡 E2E 복원)+해당 주석 정정.
+**P2**: ①F62 잔존 dormant-guard=준-항진(기록) ②α4 수집-카운트의 BT1_028-inert 숨은 전제(주석 권고) ③P1r legality 검증기 소실 미기재(무해·기록).
