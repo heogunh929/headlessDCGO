@@ -8,6 +8,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
 using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using SelectDigiXrosClass = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectDigiXrosClass;
+using SelectAssemblyClass = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectAssemblyClass;
 using AddAssemblyConditionClass = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.AddAssemblyConditionClass;
 using SelectCardEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect;
 
@@ -30,13 +31,13 @@ var tests = new (string Name, Func<Task> Body)[]
     ("LM_047 W3 등록: <Delay>(OnDeclaration)=Gain2MemoryOptionDelayEffect·[Security](SecuritySkill)=PlaceSelfDelayOptionSecurityEffect 실착지", LM047_DelayAndSecurityRegistered),
     // EX10_045 — Tuwarmon (다중 팔 포팅; DigiXros 소비만 잠복 STOP)
     ("EX10_045 W1 등록: None=AltDigi+DigiXros홀더+Rush, OnCounterTiming=Collision, OnDestroyedAnyone=<Save>, OnDigivolutionCardDiscarded=ESS, OP/WD/WA 공유 3키 — 전 팔 실착지", EX10045_ArmsRegisteredAcrossTimings),
-    ("EX10_045 W2 수확: DigiXros 등록 홀더는 실착지하나 인터랙티브 소비 SelectDigiXrosClass.Select는 STOP(RD-R5-04) — assert-반전(RD-EXT3-01)", EX10045_DigiXrosInteractiveStop),
+    ("EX10_045 W2 착지(RD-EXT3-01 상환): DigiXros 소비 파이프 하우징 — SelectDigiXrosClass.Select가 STOP 없이 완주(빈 보드=소재 0)", EX10045_DigiXrosConsumptionHoused),
     // BT24_062 — MasterBlimpmon (다중 팔 포팅; Assembly 소비만 잠복 STOP)
     ("BT24_062 W1 등록: None=AltDigi+Blocker+Assembly홀더+CanNotSwitch, WhenPermanentWouldBeDeleted=ArmorPurge, OnEndAttack/OnEndTurn 공유 — 전 팔 실착지", BT24062_ArmsRegisteredAcrossTimings),
-    ("BT24_062 W2 수확: Assembly 등록 홀더는 buildable AssemblyCondition(reduceCost 2)를 실산출하나 이를 소비하는 인터랙티브 Assembly 플레이는 미하우징(잠복 STOP RD-EXT3-02, AD1_025 D2w-25 클러스터)", BT24062_AssemblyHolderBuildsButPlayLatent),
+    ("BT24_062 W2 착지(RD-EXT3-02 상환): Assembly 등록 홀더가 buildable AssemblyCondition(reduceCost 2)를 산출 + 인터랙티브 Assembly 소비 실행(트래시 [TS] Tamer 선정→BT24_062 진화원으로 스택)", BT24062_AssemblyConsumes),
     // BT21_030 — Shoutmon X7: Superior Mode (다중 팔 포팅; DigiXros/BeforePayCost 잠복)
     ("BT21_030 W1 등록: None=AltDigi+DigiXros홀더, BeforePayCost=DigiXros특수(잠복), OnEnterFieldAnyone/WhenDigivolving/OnAllyAttack 실착지", BT21030_ArmsRegisteredAcrossTimings),
-    ("BT21_030 W2 수확: DigiXros 인터랙티브 소비 SelectDigiXrosClass.Select STOP(RD-R5-04) — BeforePayCost 특수 팔은 등록되나 DigiXros 플레이 경로에서만 발화(잠복 RD-EXT3-01)", BT21030_DigiXrosInteractiveStop),
+    ("BT21_030 W2 착지(RD-EXT3-01 상환): DigiXros 인터랙티브 소비 실행 — 손패 [Xros Heart] 소재 선정(area choice→Hand)→BT21_030 진화원으로 스택 형성", BT21030_DigiXrosConsumes),
     // BT3_056 — Ceresmon (수확 STOP 상환 RD-EXT3-03 — 실단언 flip)
     ("BT3_056 W1 발화: <Digisorption -3> BeforePayCost 진입→서스펜드 수락 시 진화 코스트 -3 실적용(base 5→2), 세 팔(BeforePayCost/WhenDigisorption/None) 실착지", BT3056_DigisorptionAcceptReducesBy3),
     ("BT3_056 W2 발화: 서스펜드 거절(no-select) 시 ChangeCost 미등록 → 정가 유지(base 5→5)", BT3056_DigisorptionDeclineFullPrice),
@@ -145,7 +146,7 @@ async Task EX10045_ArmsRegisteredAcrossTimings()
     AssertTrue(EffectTypes(match, ex, P1, Cec.EffectTiming.OnAllyAttack).Contains("ActivateClass"), "OnAllyAttack: [When Attacking] shared registered");
 }
 
-async Task EX10045_DigiXrosInteractiveStop()
+async Task EX10045_DigiXrosConsumptionHoused()
 {
     (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3202, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
@@ -154,10 +155,15 @@ async Task EX10045_DigiXrosInteractiveStop()
 
     AssertTrue(EffectTypes(match, ex, P1, Cec.EffectTiming.None).Contains("AddDigiXrosConditionClass"),
         "port half: the DigiXros condition holder is registered on None");
-    // 수확(RD-EXT3-01): 이 홀더를 소비하는 인터랙티브 DigiXros 재료-선택은 STOP(RD-R5-04). assert-반전:
-    // 상환되면 Select가 throw하지 않으므로 이 assert가 실패 → witness를 착지 검증으로 뒤집을 것.
-    AssertTrue(ThrowsNotSupported(() => new SelectDigiXrosClass().Select(cs), "RD-R5-04"),
-        "HARVEST RD-EXT3-01: SelectDigiXrosClass.Select STOPs (missing Permanent.CanSubstituteForDigiXrosCondition + SelectHandEffect stub) — DigiXros consumption is unhoused");
+
+    // 상환(RD-EXT3-01): 이 홀더를 소비하는 인터랙티브 DigiXros 재료-선택 SelectDigiXrosClass.Select가 하우징됨
+    // (Permanent.CanSubstituteForDigiXrosCondition 포팅 + SelectHandEffect 미러 실착지). 빈 보드(소재 부재)에서
+    // Select는 STOP 없이 완주하고 소재를 0장 고른다 — 소비 파이프의 착지(음영 케이스) 증인.
+    using AmbientMatchContext.Scope _scope = AmbientMatchContext.Enter(match.Context);
+    var selectDigiXros = new SelectDigiXrosClass();
+    await selectDigiXros.Select(cs);
+    AssertTrue(selectDigiXros.selectedDigicrossCards.Count == 0,
+        "LANDED RD-EXT3-01: SelectDigiXrosClass.Select runs to completion (no STOP) — with no eligible material on a bare board it selects nothing");
 }
 
 // ═══════════════════════════════════ BT24_062 ═══════════════════════════════════
@@ -178,24 +184,42 @@ async Task BT24062_ArmsRegisteredAcrossTimings()
     AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.OnEndTurn).Contains("ActivateClass"), "OnEndTurn: shared play-from-source registered");
 }
 
-async Task BT24062_AssemblyHolderBuildsButPlayLatent()
+async Task BT24062_AssemblyConsumes()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3302, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 3302, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
-    HeadlessEntityId bt = Stage(match, P1, "BT24_062", ChoiceZone.Hand, "1:hand:bt24");
-    Cec.CardSource cs = MakeSource(match, bt, P1);
+    // BT24_062 already ON the battle area (a permanent) so the Assembly material can stack under it.
+    HeadlessEntityId bt = Stage(match, P1, "BT24_062", ChoiceZone.BattleArea, "1:battle:bt24");
+    // an Assembly material in the OWNER'S TRASH: a Tamer with the [TS] trait (the element matches
+    // [Blimpmon] OR a Tamer Card w/ [TS] trait).
+    HeadlessEntityId mat = StageSynthetic(match, P1, "TSMAT", dp: 0, level: 1, "1:trash:tsmat",
+        cardType: "Tamer", zone: ChoiceZone.Trash, traits: new[] { "TS" });
 
     using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
-    // 포팅 half: 등록 홀더가 self에 대해 buildable AssemblyCondition(reduceCost 2, 1 element)을 실산출.
-    var holder = new Cec.CardSource(match.Context, bt, P1).EffectList(Cec.EffectTiming.None)
-        .OfType<AddAssemblyConditionClass>().FirstOrDefault();
+    Cec.CardSource cs = new(match.Context, bt, P1);
+
+    // port half: the registration holder still builds the full AssemblyCondition (reduceCost 2, 1 element).
+    var holder = cs.EffectList(Cec.EffectTiming.None).OfType<AddAssemblyConditionClass>().FirstOrDefault();
     AssertTrue(holder is not null, "port half: AddAssemblyConditionClass holder present on None");
     Cec.AssemblyCondition? cond = holder!.GetAssemblyCondition(cs);
     AssertTrue(cond is not null && cond.reduceCost == 2 && cond.elements.Count == 1,
-        $"the Assembly condition is fully built (reduceCost 2, 1 element) — the predicate/params are carried 1:1 [cond:{(cond is null ? "null" : $"reduce{cond.reduceCost}/elems{cond.elements.Count}")}]");
-    // 수확(RD-EXT3-02): 이 조건을 소비하는 인터랙티브 Assembly 플레이는 미하우징(SelectAssemblyClass는 정적
-    // feasibility 헬퍼로 반대 형상 — PlayCardClass가 Assembly 컴포넌트 호출부에서 STOP). AD1_025 D2w-25 동일
-    // 클러스터. 이 카드에는 격리된 throw seam이 없어(등록은 착지) 소비-STOP은 헤더+보고서 명세로 수확.
+        $"the Assembly condition is fully built (reduceCost 2, 1 element) [cond:{(cond is null ? "null" : $"reduce{cond.reduceCost}/elems{cond.elements.Count}")}]");
+
+    // 상환(RD-EXT3-02): 이 조건을 소비하는 인터랙티브 Assembly 플레이가 하우징됨 — SelectAssemblyClass 인스턴스
+    // 표면(Select→SelectTrashCard→AddDigivolutiuonCards). 트래시 SelectCardEffect가 [TS] Tamer를 고른다.
+    policy.On(req => req.Type == ChoiceType.Card && req.Candidates.Any(c => c.Id == mat),
+        req => ChoiceResult.Select(mat), oneShot: false);
+
+    var selectAssembly = new SelectAssemblyClass();
+    await selectAssembly.Select(cs);
+    AssertTrue(selectAssembly.selectedAssemblyCards.Any(c => c.InstanceId == mat),
+        "Assembly material selection lands: the [TS] Tamer in trash is chosen as the Assembly material (predicate evaluated 1:1)");
+
+    await selectAssembly.AddDigivolutiuonCards(cs);
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Trash).Contains(mat),
+        "the material left the trash (consumed as an Assembly material)");
+    AssertTrue(new Cec.Permanent(match.Context, bt, P1).DigivolutionCards.Any(c => c.InstanceId == mat),
+        "LANDED RD-EXT3-02: the material is now a digivolution card UNDER BT24_062 (Assembly stack formed)");
 }
 
 // ═══════════════════════════════════ BT21_030 ═══════════════════════════════════
@@ -215,16 +239,37 @@ async Task BT21030_ArmsRegisteredAcrossTimings()
     AssertTrue(EffectTypes(match, bt, P1, Cec.EffectTiming.OnAllyAttack).Contains("ActivateClass"), "OnAllyAttack: [When Attacking] deck-bottom-bounce registered");
 }
 
-async Task BT21030_DigiXrosInteractiveStop()
+async Task BT21030_DigiXrosConsumes()
 {
-    (DcgoMatch match, PolicyChoiceProvider _) = await NewExemplarMatchAsync(seed: 3402, MonoDecks("BT1_028", "BT1_028"));
+    (DcgoMatch match, PolicyChoiceProvider policy) = await NewExemplarMatchAsync(seed: 3402, MonoDecks("BT1_028", "BT1_028"));
     await ReachMainWaitAsync(match);
-    HeadlessEntityId bt = Stage(match, P1, "BT21_030", ChoiceZone.Hand, "1:hand:bt21");
-    Cec.CardSource cs = MakeSource(match, bt, P1);
+    // BT21_030 already ON the battle area (a permanent) so the selected DigiXros material can stack under it.
+    HeadlessEntityId bt = Stage(match, P1, "BT21_030", ChoiceZone.BattleArea, "1:battle:bt21");
+    // a hand material matching the DigiXros element (a Digimon with the [Xros Heart] trait).
+    HeadlessEntityId mat = StageSynthetic(match, P1, "XROSMAT", dp: 3000, level: 4, "1:hand:xrosmat",
+        cardType: "Digimon", zone: ChoiceZone.Hand, traits: new[] { "Xros Heart" });
 
-    // 수확(RD-EXT3-01): BeforePayCost 특수 팔은 등록되나(위 W1), DigiXros 소비 파이프는 STOP(RD-R5-04).
-    AssertTrue(ThrowsNotSupported(() => new SelectDigiXrosClass().Select(cs), "RD-R5-04"),
-        "HARVEST RD-EXT3-01: the DigiXros consumption (SelectDigiXrosClass.Select) STOPs — the BeforePayCost -1/trash machinery is latent until the DigiXros play is housed");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    Cec.CardSource cs = new(match.Context, bt, P1);
+
+    // 상환(RD-EXT3-01): DigiXros 인터랙티브 소비가 하우징됨. area choice(ModeChoice)→Hand, 그다음
+    // SelectHandEffect가 손패 [Xros Heart] 소재를 고른다.
+    policy.On(req => req.Type == ChoiceType.ModeChoice,
+        req => ChoiceResult.Select(req.Candidates.First(c => c.Id.Value == "digiXros#0").Id), oneShot: false);
+    policy.On(req => req.Type == ChoiceType.Card && req.Candidates.Any(c => c.Id == mat),
+        req => ChoiceResult.Select(mat), oneShot: false);
+
+    var selectDigiXros = new SelectDigiXrosClass();
+    await selectDigiXros.Select(cs);
+    AssertTrue(selectDigiXros.selectedDigicrossCards.Any(c => c.InstanceId == mat),
+        $"DigiXros material selection lands: the [Xros Heart] hand card is chosen (area-choice + hand-select ran) " +
+        $"[selected:{string.Join(",", selectDigiXros.selectedDigicrossCards.Select(c => c.InstanceId.Value))} prompts:{string.Join(" | ", policy.Seen)}]");
+
+    await selectDigiXros.AddDigivolutiuonCards(cs);
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.Hand).Contains(mat),
+        "the material left the hand (stacked under the DigiXros permanent)");
+    AssertTrue(new Cec.Permanent(match.Context, bt, P1).DigivolutionCards.Any(c => c.InstanceId == mat),
+        "LANDED RD-EXT3-01: the material is now a digivolution card UNDER BT21_030 (DigiXros stack formed)");
 }
 
 // ═══════════════════════════════════ BT3_056 ═══════════════════════════════════

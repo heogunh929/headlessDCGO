@@ -3520,6 +3520,110 @@ public sealed class Permanent
     }
     #endregion
 
+    #region このデジモンを場からデジクロス条件の代わりにできるか
+    /// <summary>(RD-EXT3-01 / RD-R5-04) AS-IS <c>Permanent.CanSubstituteForDigiXrosCondition</c>
+    /// (Permanent.cs:3796-3839): TRUE when some usable <c>ICanSelectDigiXrosEffect</c> — over every turn-ordered
+    /// player's field permanents and the player themselves — declares this field permanent a legal substitute
+    /// material for <paramref name="cardSource"/>'s DigiXros. Substrate: <c>GManager.instance.turnStateMachine
+    /// .gameContext.Players_ForTurnPlayer</c> → <c>new GameContext(_context).Players_ForTurnPlayer</c> (the
+    /// established Permanent idiom).</summary>
+    public bool CanSubstituteForDigiXrosCondition(CardSource cardSource)
+    {
+        #region デジクロス条件の代わりにできる効果
+        foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                #region 場のパーマネントの効果
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanSelectDigiXrosEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanSelectDigiXrosEffect)cardEffect).CanSelect(cardSource, this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            #region プレイヤーの効果
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanSelectDigiXrosEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((ICanSelectDigiXrosEffect)cardEffect).CanSelect(cardSource, this))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+        #endregion
+
+        return false;
+    }
+    #endregion
+
+    #region Can Substitue for Assembly
+    /// <summary>(RD-EXT3-02) AS-IS <c>Permanent.CanSubstituteForAssemblyCondition</c> (Permanent.cs:3843-3886):
+    /// the Assembly sibling of <see cref="CanSubstituteForDigiXrosCondition"/> — TRUE when some usable
+    /// <c>ICanSelectAssemblyEffect</c> declares this field permanent a legal substitute Assembly material for
+    /// <paramref name="cardSource"/>. Same turn-ordered field-permanent + player scan.</summary>
+    public bool CanSubstituteForAssemblyCondition(CardSource cardSource)
+    {
+        #region Effects that can be used in place of Assembly conditions
+        foreach (Player player in new GameContext(_context).Players_ForTurnPlayer)
+        {
+            foreach (Permanent permanent in player.GetFieldPermanents())
+            {
+                #region Effects of permanents in play
+                foreach (ICardEffect cardEffect in permanent.EffectList(EffectTiming.None))
+                {
+                    if (cardEffect is ICanSelectAssemblyEffect)
+                    {
+                        if (cardEffect.CanUse(null))
+                        {
+                            if (((ICanSelectAssemblyEffect)cardEffect).CanSelect(cardSource, this))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                #endregion
+            }
+
+            #region player effect
+            foreach (ICardEffect cardEffect in player.EffectList(EffectTiming.None))
+            {
+                if (cardEffect is ICanSelectAssemblyEffect)
+                {
+                    if (cardEffect.CanUse(null))
+                    {
+                        if (((ICanSelectAssemblyEffect)cardEffect).CanSelect(cardSource, this))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            #endregion
+        }
+        #endregion
+
+        return false;
+    }
+    #endregion
+
     #region 攻撃の対象を変更できるか
     /// <summary>(R1-d) AS-IS <c>Permanent.CanSwitchAttackTarget</c> (Permanent.cs:3746-3792): TRUE unless a usable
     /// <c>ICanNotSwitchAttackTargetEffect</c> (over every turn-ordered player's field permanents and the player)
