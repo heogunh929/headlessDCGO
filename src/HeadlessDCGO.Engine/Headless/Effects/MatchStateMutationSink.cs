@@ -1486,9 +1486,16 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // (D-1 / VR-8) the CardMoved event carries THIS effect resolution's batch id (shared by every card this
         // sink deletes: N-card single delete-process == one batch == one reactor fire) for the window collapse.
         long deletionBatchId = ResolveDeletionBatchId();
+        // (RD-S2-LM018-01) BUGFIX: the bare FirstOrDefault(predicate) overload falls back to default(ChoiceZone)
+        // when no zone matches — and ChoiceZone.Library is the enum's first (value-0) member, NOT
+        // ChoiceZone.None (declared last) — so an already-relocated target (e.g. AS-IS's own double-delete
+        // idiom: a SelectPermanentEffect Mode.Destroy batch whose per-target selectPermanentCoroutine ALSO
+        // independently deletes the same permanent, as LM_018 does verbatim) silently produced a bogus
+        // MoveAsync(from: Library) instead of falling through to the intended AddToTrashAsync no-op path,
+        // throwing "Card id '...' is not in player zone 'Library'." Supply the explicit fallback value.
         ChoiceZone from = zoneMover is IZoneStateReader deadZones
             ? new[] { ChoiceZone.BattleArea, ChoiceZone.BreedingArea }
-                .FirstOrDefault(zone => deadZones.GetCards(owner, zone).Contains(targetId))
+                .FirstOrDefault(zone => deadZones.GetCards(owner, zone).Contains(targetId), ChoiceZone.None)
             : ChoiceZone.None;
         if (from == ChoiceZone.None)
         {
