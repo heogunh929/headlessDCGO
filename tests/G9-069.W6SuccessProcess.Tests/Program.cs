@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -189,7 +190,7 @@ async Task<(DcgoMatch Match, HeadlessEntityId Src, HeadlessEntityId Target, Head
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 969, setup: setup));
@@ -264,12 +265,8 @@ HeadlessEntityId HandCard(DcgoMatch match, HeadlessPlayerId player, int index)
 
 async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId player)
 {
-    for (var attempt = 0; attempt < 10 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = match.GetLegalActions(player).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, player));
 }
 
 void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
@@ -292,3 +289,56 @@ static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
 static void AssertTrue(bool v, string label) { if (!v) throw new InvalidOperationException($"{label}: expected true."); }
+
+
+// --- Phase driving (pump auto-flow, F62/alpha/EXEMPLAR-T1 precedent) ------
+// Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait; the OLD
+// AdvancePhase step currency is retired. Breeding/Mulligan decisions are declined; observed Main arrival
+// is asserted (assertion strength unchanged).
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingAsync(match, skip: decline);
+        }
+        else await StepOnceAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
