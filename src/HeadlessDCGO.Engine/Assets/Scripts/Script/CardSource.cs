@@ -1208,6 +1208,11 @@ public sealed class CardSource
     public bool EqualsTraits(string trait) => CardTraits.Any(t => string.Equals(t, trait, StringComparison.OrdinalIgnoreCase));
     public bool ContainsTraits(string fragment) => CardTraits.Any(t => t.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>(EXEMPLAR-T3B) 1:1 mirror of AS-IS <c>CardSource.HasTSTraits</c> (CardSource.cs:3739-3744):
+    /// <c>EqualsTraits("TS")</c> — whether this card carries the "[TS]" (Tamer-support) trait. Used by BT24_062's
+    /// alternate-digivolution/Assembly/play-from-source predicates.</summary>
+    public bool HasTSTraits => EqualsTraits("TS");
+
     /// <summary>(bridge W5) 1:1 mirror of AS-IS <c>CardSource.HasXAntibodyTraits</c> (CardSource.cs:1975):
     /// <c>CardTraits.Some(DataBase.IsXAntibodyString)</c> — any trait normalising to "xantibody"
     /// (BT9_109 "[When Attacking] … digivolve into a Digimon card with [X Antibody] in its traits").</summary>
