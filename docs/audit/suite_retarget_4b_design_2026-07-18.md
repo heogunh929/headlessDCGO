@@ -189,3 +189,9 @@ B6 후:  ≈57 하한 (③55 + ④2 = R4-직교 포팅부채, 4b 무접촉)
   1. **RL 인터페이스 굴곡**(B3): 액션 통화·관측 shape 재정의(S2 결정 A 판례)가 rl-env-parallel-track과 결합 — 정보-보존 단언 없이 재조준하면 cardinality 손실 은폐(false-green 함정 5). rl-env 트랙 본격화 전 저비용 창구.
   2. **synth 픽스처의 리걸-게이트 조용한 스킵**(B1/B5): RemoveField-직호출류 픽스처를 펌프로 감쌀 때 액션이 Illegal 스킵 → green이 계약 통과 아님(RD-R3-02 판례). 감쌈 후 리걸-등재 선단언 필수.
   3. **삭제-순서 원자성**(B6): 항2(AdvancePhase/EndTurn body)·항3(drain)·항4(마커)는 상호의존 원자 삭제 + 기본 ctor→펌프 플립(G1 근본 게이트)이 동시 — 부분 삭제 시 프로덕션 기본 매치 파손. shadow 테스트(R4S3c/R4P4)는 이 시점 은퇴(재조준 아님).
+
+## §3.1b B1 실행 기록 1부 — 분석·분류 (2026-07-18, 코드 미착수)
+**baseline**: throw-계약 소비자 20 확정(설계 일치) — 19 GREEN/1 RED(G7-005: DeferredChoicePendingException을 리졸버가 더는 안 던짐 = 계약 반쯤 은퇴의 실측 증거; 나머지 19 green은 OLD 스캐폴드가 B6 삭제 전이라 작동 중이기 때문).
+**군 분류**: α=P-E synth OnEndTurn 4(GR-006·C-EoT2·W-EoTFIX·A4-Execute — 펌프 EndPhase drain으로 이식, GetSkillInfos 질의 단언은 retained substrate 무변) / β=삭제 파이프 9(C-Del 5·G3.5-F68·C-Atk 3 — 리걸-게이트 조용한 스킵 함정 주의, RD-R3-02 판례) / γ=activated-effect 3(B1-OncePerTurn·G7-005·E1-Parity(a)만 — suspended 단언→HasPendingChoice 번역+효과 결과 재이식 필수; P1r=하이브리드 승격) / δ=순수 계약-메커닉(G3.5-W7 ProviderReplaysAnswer 1테스트=부분 은퇴·W1b=이식 우선 검토·R4RL-03=B3 이관 정정).
+**블로커 실측**: ST1_16 CardBaseEntity JSON 스켈레톤(cost/color 무) — 펌프-플레이 재조준은 카드 데이터 포팅부채에 게이트, 파일별 "OLD 반절단 vs 직교 부채" 판별 필요. G7-005 green 복원은 이 해소에 종속(미해소 시 직교 부채 재분류, 강제 green 금지).
+**실행 순서**: α 클러스터 → 리뷰 게이트(창 발화 결과 재단언 실재) → β → γ → δ 은퇴-마킹.
