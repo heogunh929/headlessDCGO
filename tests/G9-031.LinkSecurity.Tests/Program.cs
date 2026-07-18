@@ -65,21 +65,40 @@ async Task LinkAttaches()
 async Task PlaceDelayOption()
 {
     EngineContext context = Context();
-    var card = await Place(context, P1, "OPT", ChoiceZone.Security, linkCost: 0);
-    await ApplyPlaySelf(context, (PlayThisCardToBattleEffect)CardEffectFactory.PlaceSelfDelayOptionSecurityEffect(new CardSource(context, card, P1)));
+    // A [Security] effect resolves while its card is in the executing area (AS-IS IsExistOnExecutingArea /
+    // PlaceDelayOptionCards default root = Execution), the transient position a revealed security card occupies
+    // during a security check — not the Security stack itself.
+    var card = await Place(context, P1, "OPT", ChoiceZone.Execution, linkCost: 0);
+    // (item-4 cast-seat alignment) CardEffectFactory.PlaceSelfDelayOptionSecurityEffect was re-ported to the
+    // AS-IS Script/CardEffectFactory shape and now returns an ActivateClass (there is no PlayThisCardToBattleEffect
+    // type any more). Drive it the AS-IS ActivateICardEffect way — ActivateClass.Activate(Hashtable) — under an
+    // ambient match scope (the body reads GManager.instance.* like AS-IS). Its ported ActivateCoroutine plays the
+    // card cost-free onto the owner's battle area (PlaceDelayOptionCards).
+    using var _ = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
+    var effect = (HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)
+        CardEffectFactory.PlaceSelfDelayOptionSecurityEffect(new CardSource(context, card, P1));
+    await effect.Activate(new System.Collections.Hashtable());
     AssertTrue(InBattle(context, card), "the card was placed into the battle area from security");
 }
 
 async Task PlayAfterBattle()
 {
     EngineContext context = Context();
-    var card = await Place(context, P1, "DIG", ChoiceZone.Security, linkCost: 0);
-    // (#10) [Security] "at end of battle, play this Digimon" now DEFERS: it registers an OnEndBattle trigger
-    // instead of playing immediately (AS-IS). Full deferred-play behavior is covered by FAILa-10.
-    var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue, context: context);
-    ((PlaySelfAtEndOfBattleSecurityEffect)CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect(new CardSource(context, card, P1))).Apply(sink);
-    await sink.FlushAsync();
+    var card = await Place(context, P1, "DIG", ChoiceZone.Execution, linkCost: 0);
+    // (item-4 cast-seat alignment + honest STOP downgrade) CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect
+    // was re-ported to the AS-IS Script/CardEffectFactory shape and now returns an ActivateClass (the mirror-invented
+    // PlaySelfAtEndOfBattleSecurityEffect type — with its .Apply(sink) OnEndBattle registration — was DELETED). The
+    // old test cast to that defunct type, an InvalidCastException CRASH. Driving the factory the AS-IS way
+    // (ActivateClass.Activate) reaches the factory's HONEST STOP: the AS-IS end-of-battle deferred play nests the
+    // Player.UntilEndBattleEffects / Permanent.UntilOpponentTurnEndEffects mutable grant buckets (unlanded
+    // player/permanent-grant store, P6A-PLAYER-EFFECTLIST) + a DestroyPermanentsClass batch-delete with no mirror —
+    // the full RD-P6C3-B2 fold, out of this batch's scope. So the crash is DOWNGRADED to the explicit
+    // NotSupportedException STOP (design item RD-P6C3-B2). Assertions below are KEPT (unreached until RD-P6C3-B2
+    // lands) — tracked, not silently weakened, exactly like the LinkEffect (RD-P6C2-7) case above.
+    using var _ = HeadlessDCGO.Engine.Headless.Bridge.AmbientMatchContext.Enter(context);
+    var effect = (HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ActivateClass)
+        CardEffectFactory.PlaySelfDigimonAfterBattleSecurityEffect(new CardSource(context, card, P1));
+    await effect.Activate(new System.Collections.Hashtable());
     AssertTrue(!InBattle(context, card), "the Digimon is NOT played immediately (deferred to end of battle)");
     AssertTrue(((HeadlessDCGO.Engine.Headless.Effects.EffectRegistry)context.EffectRegistry)
         .GetEffects(card, HeadlessDCGO.Engine.Headless.Effects.TriggerTimings.OnEndBattle).Count > 0,
@@ -87,14 +106,6 @@ async Task PlayAfterBattle()
 }
 
 // --- Helpers -------------------------------------------------------------
-
-async Task ApplyPlaySelf(EngineContext context, PlayThisCardToBattleEffect effect)
-{
-    var sink = new MatchStateMutationSink(
-        context.CardInstanceRepository, context.LogSink, context.ZoneMover, context.MemoryController, context.EffectRegistry, context.GameEventQueue);
-    effect.Apply(sink);
-    await sink.FlushAsync();
-}
 
 EngineContext Context()
 {

@@ -1,5 +1,6 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -9,6 +10,7 @@ using HeadlessDCGO.Engine.Headless.Services;
 // max (default 1) force-trashes excess; WhenLinked / OnLinkCardDiscarded windows open (F-6.9).
 
 HeadlessPlayerId P1 = new(1);
+HeadlessPlayerId P2 = new(2);
 HeadlessEntityId Host = new("p1:main:HOST");
 HeadlessEntityId Link1 = new("p1:hand:L1");
 HeadlessEntityId Link2 = new("p1:hand:L2");
@@ -95,6 +97,18 @@ async Task MaxEnforced()
 async Task<EngineContext> Board()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 11);
+    // Initialize the turn so Permanent.DP's IChangeDPEffect scan (AS-IS gameContext.Players_ForTurnPlayer) has a
+    // live turn-player field to scan — the set-DP grant lands on P1's host, so P1 must be a seated turn player.
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    // The host is a printed-DP 3000 Digimon: Permanent.DP (post R1-a DP rehousing) reads the card's OWN
+    // printed DP as the base — the same 3000 the pre-rehousing ContinuousDpGate.ResolveDp took as its baseDp
+    // argument — so the LinkedDP fold (base 3000 + linked 2000) resolves to 5000. HasDP gates on IsDigimon
+    // (Definition CardType), so the host needs a Digimon Definition, not an instance-only fixture.
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(
+        new HeadlessEntityId(Host.Value), "HOST", "Host",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 4 },
+        CardType: "Digimon"));
     await Place(context, Host, ChoiceZone.BattleArea, linkDp: null);
     await Place(context, Link1, ChoiceZone.Hand, linkDp: 2000);
     await Place(context, Link2, ChoiceZone.Hand, linkDp: 2000);
@@ -119,14 +133,24 @@ CardInstanceRecord Instance(EngineContext context, HeadlessEntityId id) =>
 
 void RegisterFixedDp(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner, int fixedDp)
 {
-    var effectContext = new EffectContext(
-        owner, owner, new HeadlessEntityId($"src:fixeddp:{cardId.Value}"),
-        triggerEntityId: null, targetEntityIds: new[] { cardId },
-        // "fixedDp" (ModifierHelpers.FixedDpKey) => a Set(Dp) modifier ("DP becomes X").
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["fixedDp"] = fixedDp });
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId($"fixeddp:{cardId.Value}:{fixedDp}"), owner, "Continuous", effectContext),
-        keywords: null, EffectQueryRole.Continuous, new[] { ContinuousRestrictionGate.Scope }));
+    // AS-IS "DP becomes X": a Set-mode IChangeDPEffect. isUpDown => false lands it in the NotIsUpDown/Set group
+    // (Permanent.DP applies it AFTER the LinkedDP fold — the AS-IS position this assertion pins), and the SET
+    // body ignores the running DP and returns the fixed value. Stored into the target permanent's None duration
+    // bucket via the live AddEffectToPermanent mechanism (R3-W3c-3, which replaced the now-dead
+    // ContinuousEffectEvaluator.ResolveDp registry path); Permanent.DP scans that bucket LIVE via EffectList.
+    using var _matchScope = AmbientMatchContext.Enter(context);
+    var host = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.Permanent(context, cardId, owner);
+    var source = host.TopCard;
+    var setDp = new HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects.ChangeDPClass();
+    setDp.SetUpICardEffect($"DP becomes {fixedDp}", _ => true, source);
+    setDp.SetUpChangeDPClass(
+        ChangeDP: (permanent, dp) => fixedDp,
+        permanentCondition: p => p.InstanceId == cardId,
+        isUpDown: () => false,
+        isMinusDP: () => false);
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.AddEffectToPermanent(
+        targetPermanent: host, effectDuration: EffectDuration.UntilEachTurnEnd, card: source,
+        cardEffect: setDp, timing: HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming.None);
 }
 
 bool InZone(EngineContext context, ChoiceZone zone, HeadlessEntityId cardId) =>

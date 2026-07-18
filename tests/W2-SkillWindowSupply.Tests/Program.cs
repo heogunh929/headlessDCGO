@@ -336,7 +336,10 @@ GameEvent DeletionMove(long batchId)
         "WhenLinked has exactly the 4 AS-IS keys");
     Check(ht?["Permanent"] is PermanentT p && p.InstanceId == host, "Permanent = the host subject");
     Check(ht?["Card"] is CardSource card && card.InstanceId == linkCard, "Card = the linked card");
-    Check(ht?["CardEffect"] is null && ht?["isFromDigimon"] is true, "CardEffect null (RD-C1-CARDEFFECT-IDTHREAD); isFromDigimon carried");
+    // (링크 기반 상환) RD-C1-CARDEFFECT-IDTHREAD 잔차 해소 재핀: AS-IS는 링크가 항상 효과-구동이라
+    // 비-null cause를 적재(Permanent.cs:1284) — 공급이 BareCauseEffect를 실어 CanTriggerWhenLinked의
+    // CardEffect != null 게이트(CanUseEffects/WhenLinked.cs:61)를 통과해야 reactor가 발화한다.
+    Check(ht?["CardEffect"] is not null && ht?["isFromDigimon"] is true, "CardEffect non-null bare cause (AS-IS 게이트 통과); isFromDigimon carried");
 }
 
 // --- 13. (C1d RDW-07) turn/phase boundaries are HANDLED with a NULL payload (AS-IS StackSkillInfos(null, timing)).

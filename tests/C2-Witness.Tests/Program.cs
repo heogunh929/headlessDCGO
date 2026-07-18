@@ -49,7 +49,10 @@ async Task OnPlayLinksFromHand()
     HeadlessEntityId lv4 = HandAppmon(context, P1, "onp-lv4", level: 4, ace: false);
     HeadlessEntityId lv5 = HandAppmon(context, P1, "onp-lv5", level: 5, ace: false);
 
-    // Enqueue the level-4 pick; the level-5 is filtered out of the candidate pool (SharedIsAppMon Level<=4).
+    // BT22_035's [On Play] link is OPTIONAL (isOptional=true), so AS-IS opens the "Will you use ...?" prompt
+    // (OptionalSkill.SelectOptional) first — its sole candidate is the effect's own source card (the host).
+    // Then enqueue the level-4 pick; the level-5 is filtered from the candidate pool (SharedIsAppMon Level<=4).
+    Enqueue(context, ChoiceResult.Select(host));
     Enqueue(context, ChoiceResult.Select(lv4));
     await ActivatedEffectResolver.ResolveAsync(context, host, P1, EffectTiming.OnEnterFieldAnyone);
 
@@ -73,7 +76,8 @@ async Task DeleteHostTrashesLinkOverflow()
     HeadlessEntityId host = await PlaceHost(context, P1, "host2");
     HeadlessEntityId aceLink = HandAppmon(context, P1, "del-ace", level: 4, ace: true);
 
-    // Real link attach through the card's [On Play].
+    // Real link attach through the card's [On Play] — answer the optional-activation prompt (the host), then pick.
+    Enqueue(context, ChoiceResult.Select(host));
     Enqueue(context, ChoiceResult.Select(aceLink));
     await ActivatedEffectResolver.ResolveAsync(context, host, P1, EffectTiming.OnEnterFieldAnyone);
     AssertTrue(LinkedCards(context, host).Contains(aceLink), "the ACE Appmon is linked onto the host before deletion");
@@ -95,6 +99,8 @@ async Task WhenDigivolvingLinksFromSource()
     SetSources(context, host, src);
 
     // Drive the WhenDigivolving branch (isEvolution event so CanTriggerWhenDigivolving passes, not On Play).
+    // The [When Digivolving] link is likewise optional — answer the optional-activation prompt (the host) first.
+    Enqueue(context, ChoiceResult.Select(host));
     Enqueue(context, ChoiceResult.Select(src));
     var evolve = new GameEvent(1, GameEventType.StateChanged, "wd",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["isEvolution"] = true }) { Subject = host };
@@ -110,6 +116,9 @@ EngineContext Context()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 202);
     context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // Past phase None so TurnStateMachine.DoneStartGame is true — ICardEffect.CanTrigger gates the activated
+    // [On Play]/[When Digivolving] effects on it (the setup sequence having completed in a live match).
+    context.TurnController.SetPhase(HeadlessPhase.Main);
     return context;
 }
 

@@ -169,6 +169,11 @@ async Task Bt22035WhenLinkedPlaysAppmon()
     var appmon = await HandAppmon(ctx, P1, "APP");                        // a <=4-cost [Appmon] in hand
     var link = await PlaceLink(ctx, P1, "L1");
 
+    // BT22_035's [When Linked] is an OPTIONAL battle-area trigger (isOptional=true), so AS-IS opens the
+    // "Will you use ...?" prompt (OptionalSkill.SelectOptional) FIRST — its sole candidate is the effect's own
+    // source card (the host). It is NOT the [Hand] fast-path that skips the prompt (MultipleSkills
+    // IsOnlyHandEffectStacked needs an in-hand "[Hand]" effect). Answer it (activate), then pick the Appmon.
+    Enqueue(ctx, ChoiceResult.Select(host));     // optional-activation prompt: use the [When Linked] effect
     Enqueue(ctx, ChoiceResult.Select(appmon));   // BT22_035's [When Linked] optional play — pick the Appmon
 
     await Link(ctx, host, link);

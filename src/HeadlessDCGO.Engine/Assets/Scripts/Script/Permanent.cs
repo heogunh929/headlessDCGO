@@ -377,6 +377,12 @@ public sealed class Permanent
     {
         get
         {
+            // SUBSTRATE: the AS-IS DP fold evaluates each IChangeDPEffect's CanUse → CheckEffectDisabledClass,
+            // which reads game state through the process-global GManager.instance; the mirror resolves that from
+            // AmbientMatchContext, so scope the match for the whole fold (a caller already in the same scope
+            // re-enters harmlessly) — same idiom as CardSource.GetPayingCostWithBaseCost / NewModelContinuousScan.
+            using AmbientMatchContext.Scope _matchScope = AmbientMatchContext.Enter(_context);
+
             int DP = -1;
 
             if (HasDP)

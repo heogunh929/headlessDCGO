@@ -5,6 +5,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
+using BareCauseEffect = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.BareCauseEffect;
 using CardEffectCommons = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectCommons;
 using CardSource = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardSource;
 using EffectTiming = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.EffectTiming;
@@ -447,12 +448,27 @@ public static class SkillWindowSupply
         hashtable = new Hashtable
         {
             { "Permanent", new Permanent(context, hostId, hostOwner) },
-            { "CardEffect", null }, // RD-C1-CARDEFFECT-IDTHREAD.
+            // (RD-C1-CARDEFFECT-IDTHREAD, closed for WhenLinked) AS-IS Permanent.AddLinkCard always stacks a
+            // NON-NULL causing effect (Permanent.cs:1284 {"CardEffect", cardEffect}) — a link is ALWAYS
+            // effect-driven (the two AS-IS callers CardController.cs:3391/3492 pass _cardEffect; there is no
+            // rules-based "natural link"), so the CardEffect != null guard in CanTriggerWhenLinked
+            // (CanUseEffects/WhenLinked.cs:61) is invariably satisfied when the window opens. Rebuild it from a
+            // threaded cause id when the emit carries one (an effect-driven link), else a source-less bare cause
+            // preserves the non-null guard (no ported WhenLinked gate reads the cause's SOURCE — every reactor
+            // self-gates on the host Permanent / the link Card only).
+            { "CardEffect", BareCauseEffect.For(context, ReadCauseSourceId(gameEvent)) },
             { "Card", new CardSource(context, new HeadlessEntityId(linkId), hostOwner, hostOwner) },
             { "isFromDigimon", ReadBool(gameEvent, WhenLinkedIsFromDigimonKey) },
         };
         return true;
     }
+
+    /// <summary>The threaded causing-effect source id (<c>"causeSourceId"</c>), or default (empty) when the emit
+    /// carries no cause — the caller collapses it to a source-less <see cref="BareCauseEffect"/>.</summary>
+    private static HeadlessEntityId ReadCauseSourceId(GameEvent gameEvent) =>
+        gameEvent.Metadata.TryGetValue("causeSourceId", out object? raw) && raw is string value && value.Length > 0
+            ? new HeadlessEntityId(value)
+            : default;
 
     private static bool ReadBool(GameEvent gameEvent, string key) =>
         gameEvent.Metadata.TryGetValue(key, out object? raw) && raw is true;
