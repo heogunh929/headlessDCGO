@@ -4706,10 +4706,22 @@ public static partial class CardEffectCommons
     // DigiBurst select pool) evaluate the FULL predicate, so the scan half must be consulted here too, not only
     // in the execution filter (DigivolutionStackHelpers). The causing effect is the surface's own activate class,
     // whose EffectSourceCard is <paramref name="card"/> — exactly the AS-IS `_cardEffect` argument collapsed.
-    internal static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId)
+    internal static bool IsTrashProtectedSource(CardSource card, HeadlessEntityId sourceId) =>
+        IsTrashProtectedSource(card.Context, BareCauseEffect.For(card), sourceId);
+
+    // (수리-2, ②군) Id-based overload of the causing effect. The DigivolutionStackHelpers effect-trash filter reaches
+    // here with only the causing effect's SOURCE ID (a raw mutation cause), which — for an abstract/synthetic trash
+    // (a test-harness cause with no live instance, or any rule-sourced trash) — has no resolvable owner. Routing the
+    // cause through the id-based BareCauseEffect factory (RD-BCE-01) collapses such a cause to a source-LESS bare
+    // cause instead of throwing on the CardSource ctor's non-empty-controller guard. A resolvable cause id rebuilds
+    // the exact same CardSource-backed bare cause as the CardSource overload above, so real causes are unchanged.
+    internal static bool IsTrashProtectedSource(EngineContext context, HeadlessEntityId causeSourceId, HeadlessEntityId sourceId) =>
+        IsTrashProtectedSource(context, BareCauseEffect.For(context, causeSourceId), sourceId);
+
+    private static bool IsTrashProtectedSource(EngineContext context, BareCauseEffect cause, HeadlessEntityId sourceId)
     {
         if (sourceId.IsEmpty
-            || !card.Context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
+            || !context.CardInstanceRepository.TryGetInstance(sourceId, out CardInstanceRecord? instance)
             || instance is null)
         {
             return false;
@@ -4724,12 +4736,12 @@ public static partial class CardEffectCommons
         }
 
         // (R3-W3c-4) AS-IS-literal live scan: the source being trashed evaluated against the causing effect
-        // (collapsed to its source card `card`, the same reduction the retired registry TrashProtectionScan used)
+        // (collapsed to its source card `cause`, the same reduction the retired registry TrashProtectionScan used)
         // via the R1-e getter CardSource.CanNotTrashFromDigivolutionCards — it scans every field/player/self
         // EffectList(None) for a usable ICanNotTrashFromDigivolutionCardsEffect (BT9_109). The old registry scan
         // never saw the kind-class (no ToBinding), so this rehousing is the load-bearing fidelity fix.
-        var sourceBeingTrashed = new CardSource(card.Context, sourceId, instance.OwnerId, instance.OwnerId);
-        return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(BareCauseEffect.For(card));
+        var sourceBeingTrashed = new CardSource(context, sourceId, instance.OwnerId, instance.OwnerId);
+        return sourceBeingTrashed.CanNotTrashFromDigivolutionCards(cause);
     }
 
     /// <summary>Mirror of the original <c>permanent.TopCard.HasLevel</c>: the host's top card carries a

@@ -552,11 +552,10 @@ public static class DigivolutionStackHelpers
         // (delegated through CardEffectCommons.IsTrashProtectedSource) — the causing effect collapsed to its
         // source card, exactly as the retired registry TrashProtectionScan did, but now over the LIVE
         // EffectList(None) so BT9_109's kind-class (no ToBinding) is actually seen.
-        HeadlessPlayerId causeOwner = repository.TryGetInstance(causingEffectSourceId, out CardInstanceRecord? cause) && cause is not null
-            ? cause.OwnerId
-            : default;
-        var causeCard = new CardSource(context, causingEffectSourceId, causeOwner, causeOwner);
-        return CardEffectCommons.IsTrashProtectedSource(causeCard, sourceId);
+        // (수리-2, ②군) Pass the causing-effect SOURCE ID (not a pre-built CardSource): the id-based overload routes
+        // an unresolvable cause (a synthetic/rule-sourced trash with no live instance) through the RD-BCE-01
+        // source-less BareCauseEffect collapse instead of throwing on the CardSource ctor's controller guard.
+        return CardEffectCommons.IsTrashProtectedSource(context, causingEffectSourceId, sourceId);
     }
 
     // (F1-Tier2 OnAddDigivolutionCards) AS-IS AddDigivolutionCardsTop/Bottom (Permanent.cs:1109-1116 / 1213-1220)

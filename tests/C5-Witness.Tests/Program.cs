@@ -15,6 +15,30 @@ using HeadlessDCGO.Engine.Headless.Services;
 //   EX8_051  — <Fragment <3>> (+Collision/Piercing statics) + trash-source ESS "<De-Digivolve 1>" from TRASH
 //   EX8_061  — <Scapegoat> (by-own-effect excluded) + alternate digivolution requirement (DS Lv4, cost 3)
 //              + [When Attacking][Once Per Turn] / [On Deletion] trash-plays
+//
+// ── 수리-2 배치 잔여 red 정밀 마킹 (2026-07-19) ────────────────────────────────────────────────────────
+// 재현·전구간 트레이스 결과, "실카드 인터랙티브 창 회귀"라는 기지 진단은 대부분 오진으로 판명됨. 효과 본체는
+// 전부 발화하며 올바른 게임상태를 만든다(프로브·R4RL-03 W8 green으로 실증). 잔여 7 red의 근원별 판정:
+//   [②군 수리됨] TrashSourceEss_TraitGate — CardSource 빈-controller 크래시(DigivolutionStackHelpers.IsTrashProtected
+//     → CardSource.ctor) = 진짜 엔진 버그. RD-BCE-01 id-기반 BareCauseEffect 경로로 상환(CardEffectCommons
+//     .IsTrashProtectedSource id-오버로드 신설). → GREEN.
+//   [Root A · AS-IS 충실, 위트니스 노후] SelectPermanentEffect 강제선택(!canNoSelect && !canEndNotMax &&
+//     pool==maxCount → EndSelect_RPC 직행, 창 미표면; AS-IS DCGO/…/SelectPermanentEffect.cs:366-399 축자):
+//     WhenAttacking_TrashBottom / Scapegoat_NestedAllyOnDeletion / TrashSourceEss_DeDigivolve — 단일후보 강제선택이
+//     AS-IS에서도 인터랙티브 창을 열지 않음. 게임상태는 정확(프로브 실증). 위트니스는 컷오버 前 per-pick 모델을 인코딩.
+//   [Root B · AS-IS 충실, 위트니스 노후] Fragment_FieldBattle — Fragment<3> 소스픽은 min=max=3 다중선택 SESSION
+//     (ToggleChoiceCandidate×3 + Confirm; HeadlessLegalActionDispatcher.cs:100/165). 동일 flip을 R4RL-03 W8이 green으로
+//     구동. 회귀앵커 c5ff6ede(B5-2 다중선택 디스패처 flip). 위트니스는 per-pick ResolveChoice(retired ApplyFragmentSource)를 인코딩.
+//   [Root C · AS-IS 충실, 위트니스 노후] WhenAttacking_TrashPlay_GateAndCap — [When Attacking] isOptional=true라
+//     "Will you use…?" 프롬프트가 본체 SelectCard 앞에 선다(EX8_061.cs:72). 위트니스는 프롬프트를 수락하지 않고 곧장 dsPlay를 찾음.
+//   [Root D · 문서화된 구조 블록, 강제 금지] Scapegoat_OwnEffect_NoOffer — PRE 컷인이 cardEffect=null로 열려
+//     IsByEffect(IsOwnerEffect) by-cause 억제가 발화 불가(MatchStateMutationSink.cs:1270-1281, design item RD-3C2B-02 /
+//     RD-C1-CARDEFFECT-IDTHREAD). 노트가 marker/합성 stand-in을 명시적으로 금지하고 live-cardEffect 스레딩에 블록. 회귀앵커 f7356fe7.
+//   [Root E · 진짜 갭, 별도 스코프] OnDeletion_TrashPlay — raw MatchStateMutationSink DeleteKind 경로(ApplyDelete가
+//     스텝 밖에서 동기 Flush)의 collect-before-removal OnDestroyedAnyone 리액터가 후속 bare StepAsync에 드레인되지 않음
+//     (MatchStateMutationSink.cs:1355-1370). 동일 [On Deletion] 기제는 ScapegoatProcess→DestroyPermanentsClass 경로에선
+//     정상(Scapegoat nested가 실증). 회귀앵커 8f155d02. 드레인-연결 정밀 규명은 이 배치 규모 초과 → 별도 골 마킹.
+// 위트니스 재조준(Root A/B/C)과 Root D/E 상환은 각각 별도 배치 권고(강제 green 회피).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
