@@ -66,12 +66,18 @@ async Task Barrier_SecurityBattle()
     await match.StepAsync();   // security battle loss -> PRE window (Barrier via the REGISTERED grant)
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE would-be-deleted window is open");
-    LegalAction activate = ResolveActions(match, P1).Single(a => a.Id.Value.Contains("#barrier", StringComparison.Ordinal));
+    // (수리-2 re-aim) The torn-down invented "#barrier" gate id is gone; the current PRE would-be-deleted window
+    // surfaces the replacement as an OptionalEffect candidate keyed by the holder's own instance id (the
+    // Candidates[0].Id convention witnessed green by C-Del-3C1C). The rule assertions below (PRE window open →
+    // printed <Barrier> fires → attacker survives, own top security paid, loop resumes) are all preserved.
+    LegalAction activate = AcceptWindow(match, P1, attacker);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
     AssertInZone(match, P1, ChoiceZone.BattleArea, attacker, "Barrier attacker survives the security battle");
-    AssertTrue(ReadFlag(match, attacker, DeletionReplacementGate.BarrieredKey), "barriered marker");
+    // (수리-2 re-aim) The invented DeletionReplacementGate.BarrieredKey marker is dead — it is never stamped by the
+    // current SecurityResolver PRE cut-in window (the retired gate auto-path was the sole writer). Survival + own
+    // top security paid + the loop resuming ARE the rule witness that the printed <Barrier> replacement fired.
     AssertInZone(match, P1, ChoiceZone.Trash, ownSecurity, "the attacker's own top security was paid");
     AssertInZone(match, P2, ChoiceZone.Trash, sec2, "the SECOND security card was checked (loop resumed)");
     AssertAttackEnded(match, "attack completed after the resumed check");
@@ -96,13 +102,16 @@ async Task Evade_SecurityBattle_Resume()
     await match.StepAsync();
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE would-be-deleted window is open");
-    LegalAction activate = ResolveActions(match, P1).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+    // (수리-2 re-aim) accept the OptionalEffect PRE window keyed by the holder's instance id (was the torn-down
+    // "#evade" gate id); the rule assertions (survives, suspended as the Evade cost, loop resumes) are preserved.
+    LegalAction activate = AcceptWindow(match, P1, attacker);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
     AssertInZone(match, P1, ChoiceZone.BattleArea, attacker, "Evade attacker survives the security battle");
+    // (수리-2 re-aim) IsSuspendedKey ("isSuspended") is a REAL state key (the Evade cost) and is preserved; the
+    // invented DeletionReplacementGate.EvadedKey marker is dead (never stamped by the current window) and dropped.
     AssertTrue(ReadFlag(match, attacker, DeletionReplacementGate.IsSuspendedKey), "suspended as the Evade cost");
-    AssertTrue(ReadFlag(match, attacker, DeletionReplacementGate.EvadedKey), "evaded marker");
     AssertInZone(match, P2, ChoiceZone.Trash, sec2, "the SECOND security card was checked (loop resumed)");
     AssertAttackEnded(match, "attack completed after the resumed check");
     _ = sec1;
@@ -165,8 +174,9 @@ async Task Fragment_FieldBattle()
     await match.StepAsync();   // field battle loss -> PRE window (Fragment via the REGISTERED grant)
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window is open");
-    LegalAction activate = ResolveActions(match, P1).Single(a =>
-        a.Id.Value.Contains("#fragment", StringComparison.Ordinal) && !sources.Any(s => a.Id.Value.Contains(s.Value, StringComparison.Ordinal)));
+    // (수리-2 re-aim) accept the OptionalEffect PRE window keyed by the holder's instance id (was the torn-down
+    // "#fragment" gate id); the per-pick source payment and survival rule assertions below are preserved.
+    LegalAction activate = AcceptWindow(match, P1, attacker);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
@@ -289,8 +299,9 @@ async Task Scapegoat_NestedAllyOnDeletion()
     await match.StepAsync();   // PRE window (scapegoat, via the REGISTERED grant)
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window is open (opponent-effect deletion)");
-    LegalAction activate = ResolveActions(match, P2).Single(a =>
-        a.Id.Value.Contains("#scapegoat", StringComparison.Ordinal) && !a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
+    // (수리-2 re-aim) accept the OptionalEffect PRE window keyed by the holder's instance id (was the torn-down
+    // "#scapegoat" gate id); the ally-sacrifice pick and nested [On Deletion] rule assertions below are preserved.
+    LegalAction activate = AcceptWindow(match, P2, holder);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();   // step 2: pick the ally
 
@@ -547,6 +558,14 @@ static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
     match.GetLegalActions(player).Where(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+
+// (수리-2 re-aim) Accept the current OptionalEffect PRE would-be-deleted window: pick the non-skip candidate
+// keyed by the replacement holder's own instance id (the OptionalEffect Candidates[0].Id convention that the
+// green sibling C-Del-3C1C resolves against). This replaces the torn-down invented "#<keyword>" gate ids.
+LegalAction AcceptWindow(DcgoMatch match, HeadlessPlayerId player, HeadlessEntityId holder) =>
+    ResolveActions(match, player).Single(a =>
+        a.Id.Value.Contains(holder.Value, StringComparison.Ordinal)
+        && !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
 
 void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
 {

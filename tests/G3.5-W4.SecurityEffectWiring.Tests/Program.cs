@@ -91,37 +91,50 @@ async Task UnscopedFiresAll()
 
 async Task ResolverEmitsScopedWindow()
 {
-    // (P8) the OnSecurityCheck window now resolves SYNCHRONOUSLY inside the check loop (AS-IS resolves
-    // the revealed card's skills BEFORE the security-Digimon battle) — assert the scoped effect fired by
-    // the time ResolveAsync returns, with no drain, and the scoping held.
+    // (수리-2 re-aim) The invented EffectRegistry binding of a RecordingFakeEffect is replaced by the current-model
+    // canon: a card-registered live OnSecurityCheck ActivateClass (TfxOnSecurityCheckDraw) — the surface the
+    // SecurityResolver's window actually reads via AutoProcessing.GetSkillInfos (SecurityResolver.cs:436). The
+    // reactor is a battle-area Digimon whose gate scopes to ITS OWNER's checked security (the EX5_053 checked-card
+    // predicate). Firing is witnessed by an observable draw (library shrinks), scoping by a same-effect reactor on
+    // the OTHER player whose owner's security is never checked staying dormant.
+    // (P8) the window resolves SYNCHRONOUSLY inside the check loop — assert the effect fired by the time
+    // ResolveAsync returns, with no drain, and the scoping held.
     DcgoMatch match = await CreateConfiguredMatchAsync(strike: 1, securityCount: 3);
-    RecordingFakeEffect revealed = Register(match.Context, "sec-fx-scope", SecurityOneId.Value, OnSecurityCheck);
-    RecordingFakeEffect other = Register(match.Context, "sec-fx-other", SecurityTwoId.Value, OnSecurityCheck);
+    EngineContext context = match.Context;
+    RegisterReactor(context, TargetId, Opponent);   // P2 reactor: fires when P2's security is checked
+    RegisterReactor(context, AttackerId, Player);    // P1 reactor: dormant (P1's security is not checked)
+    int p2LibraryBefore = LibraryCount(context, Opponent);
+    int p1LibraryBefore = LibraryCount(context, Player);
     DeclareDirectAttack(match);
 
-    SecurityResolutionResult result = await new SecurityResolver().ResolveAsync(match.Context);
+    SecurityResolutionResult result = await new SecurityResolver().ResolveAsync(context);
     AssertTrue(result.IsSuccess, "security resolved");
 
-    AssertEqual(1, revealed.ResolveCalls, "the revealed card's window resolved inline (before the security battle)");
-    AssertEqual(0, other.ResolveCalls, "the un-revealed card stayed dormant (SourceEntityId scoping)");
+    AssertEqual(p2LibraryBefore - 1, LibraryCount(context, Opponent),
+        "the security-owner's reactor fired inline (drew 1 through the OnSecurityCheck window)");
+    AssertEqual(p1LibraryBefore, LibraryCount(context, Player),
+        "the other player's reactor stayed dormant (checked-card owner scoping)");
 }
 
 async Task EndToEndSecurityEffectFires()
 {
+    // (수리-2 re-aim) live OnSecurityCheck reactor (TfxOnSecurityCheckDraw) via CardEffectRegistrar, witnessed by a
+    // draw. strike 1 reveals ONE security card, so the reactor fires exactly once; the other player's reactor
+    // (whose owner's security is never checked) does not fire.
     DcgoMatch match = await CreateConfiguredMatchAsync(strike: 1, securityCount: 2);
     EngineContext context = match.Context;
 
-    // The top security card carries a [Security] effect; the next one carries one too but must not fire
-    // because only one card is revealed (strike 1).
-    RecordingFakeEffect revealed = Register(context, "sec-fx-1", SecurityOneId.Value, OnSecurityCheck);
-    RecordingFakeEffect unrevealed = Register(context, "sec-fx-2", SecurityTwoId.Value, OnSecurityCheck);
+    RegisterReactor(context, TargetId, Opponent);   // fires once (one revealed card)
+    RegisterReactor(context, AttackerId, Player);    // dormant
+    int p2LibraryBefore = LibraryCount(context, Opponent);
+    int p1LibraryBefore = LibraryCount(context, Player);
 
     DeclareDirectAttack(match);
     await new SecurityResolver().ResolveAsync(context);
     await DrainCollectResolveAsync(context);
 
-    AssertEqual(1, revealed.ResolveCalls, "revealed security card's effect fired once");
-    AssertEqual(0, unrevealed.ResolveCalls, "the un-revealed security card's effect did not fire");
+    AssertEqual(p2LibraryBefore - 1, LibraryCount(context, Opponent), "the reactor fired once (one revealed card)");
+    AssertEqual(p1LibraryBefore, LibraryCount(context, Player), "the other player's reactor did not fire");
 }
 
 // --- Common-loop emulation (mirrors GameFlowProcessor.AutoProcessAsync) --
@@ -142,6 +155,26 @@ async Task DrainCollectResolveAsync(EngineContext context)
 
     await context.EffectScheduler.ResolveAllAsync();
 }
+
+// (수리-2 re-aim) Register a live OnSecurityCheck reactor on a battle-area Digimon: retype it to the
+// TfxOnSecurityCheckDraw fixture def and register through CardEffectRegistrar, so its ActivateClass surfaces in
+// AutoProcessing.GetSkillInfos — the surface the SecurityResolver window reads (NOT the EffectRegistry binding).
+void RegisterReactor(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:TfxOnSecurityCheckDraw");
+    cards.Upsert(new CardRecord(defId, "TfxOnSecurityCheckDraw", "TfxOnSecurityCheckDraw",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, cardId, owner);
+}
+
+int LibraryCount(EngineContext context, HeadlessPlayerId player) =>
+    ((IZoneStateReader)context.ZoneMover).GetCards(player, ChoiceZone.Library).Count;
 
 RecordingFakeEffect Register(EngineContext context, string effectId, string sourceId, string timing)
 {

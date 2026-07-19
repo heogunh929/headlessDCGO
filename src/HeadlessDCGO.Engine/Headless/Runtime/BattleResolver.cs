@@ -265,6 +265,9 @@ public sealed class BattleResolver
         // Both windows drain at the main loop's AutoProcessCheck after the battle step (shared per-context stack).
         // Runs under RunToStableAsync's AmbientMatchContext scope (Enter is nest-safe).
         bool piercing = false;
+        // (수리-2 / PRIM-P0 OnEndBattle) hoisted so the post-move OnEndBattle window (AS-IS CardController.cs:4718,
+        // AFTER DestroyPermanentsClass.Destroy) can reuse the same battle hashtable.
+        Assets.Scripts.Script.CardEffectCommons.IBattle battle;
         using (AmbientMatchContext.Enter(context))
         {
             var winnerPermanents = new[] { attacker, defender }
@@ -274,7 +277,7 @@ public sealed class BattleResolver
             var loserPermanents = deleted
                 .Select(p => new Assets.Scripts.Script.CardEffectCommons.Permanent(context, p.InstanceId, p.OwnerId))
                 .ToList();
-            var battle = Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.BuildBattleResultPayload(
+            battle = Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.BuildBattleResultPayload(
                 winnerPermanents: winnerPermanents,
                 winnerPermanentsReal: winnerPermanents,
                 loserPermanents: loserPermanents,
@@ -371,6 +374,18 @@ public sealed class BattleResolver
         };
         TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndBattle, actor: attacker.OwnerId,
             extraMetadata: battleValues);
+
+        // (수리-2 / PRIM-P0 OnEndBattle) AS-IS opens the "at the end of battle" window AFTER the loser deletion
+        // completes — CardController.cs:4718 StackSkillInfos(hashtable, EffectTiming.OnEndBattle) with the SAME
+        // battle hashtable (post Fix-Loser-Permanents). The old-model emit above reaches only registry bindings;
+        // new-model ActivateClass reactors (EffectList(OnEndBattle)) fire only through this window. Stack-only —
+        // the drain is the main loop's AutoProcessCheck, like the OnDestroyedAnyone pair above.
+        using (AmbientMatchContext.Enter(context))
+        {
+            await Assets.Scripts.Script.AutoProcessing.For(context).StackSkillInfos(
+                battle.hashtable, Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnEndBattle)
+                .ConfigureAwait(false);
+        }
 
         return BattleResolutionResult.Success(
             resolvedAttack,

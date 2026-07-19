@@ -128,40 +128,41 @@ async Task ImmunityKeepsBuff()
 
 // --- Continuous DP modifier registration ---------------------------------
 
+// (수리-2 repair) The old raw `values["dpDelta"]` continuous binding routed through
+// ContinuousEffectEvaluator.ResolveDp, which is DEAD — 0 live callers (CardEffectCommons.cs:1732-1735) — so the
+// delta never materialised into an IChangeDPEffect and Permanent.DP (the battle-read seat, BattleResolver.cs:759)
+// never folded it. The attack-time DP seat is AS-IS-correct; the test's registration was obsolete. Reconstructed
+// with the LIVE canon proven green by FAILa-02: a PlayerScopeModifierEffect(DpDeltaKey) binding, which
+// ModifierHelpers folds into Permanent.DP.
 void RegisterDpModifier(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner, int dpDelta)
 {
-    var effectId = new HeadlessEntityId($"dp-mod:{cardId.Value}:{dpDelta}");
-    var effectContext = new EffectContext(
-        owner,
-        owner,
-        new HeadlessEntityId($"src:{cardId.Value}"),
-        triggerEntityId: null,
-        targetEntityIds: new[] { cardId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dpDelta"] = dpDelta });
+    var cards = (CardDatabase)context.CardRepository;
+    var srcDef = new HeadlessEntityId("SRC-DPMOD");
+    cards.Upsert(new CardRecord(srcDef, "SRC-DPMOD", "dp source",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var srcId = new HeadlessEntityId($"src:{cardId.Value}:{dpDelta}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, srcDef, owner));
 
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(effectId, owner, "Continuous", effectContext),
-        keywords: null,
-        EffectQueryRole.Continuous,
-        new[] { ContinuousRestrictionGate.Scope }));
+    var source = new CardSource(context, srcId, owner);
+    var target = new Permanent(context, cardId, owner);
+    // AS-IS ChangeDigimonDP: store a live ±DP ChangeDPClass (IChangeDPEffect) into the target's None duration
+    // bucket, which Permanent.DP folds LIVE (Permanent.cs:348) — the same mechanism the field battle reads at
+    // BattleResolver.cs:759. Duration spans the whole turn so it survives the battle resolution.
+    CardEffectCommons.ChangeDigimonDP(target, dpDelta, EffectDuration.UntilEachTurnEnd, source);
 }
 
+// (수리-2 repair) DP-reduction immunity via the live ImmuneFromDPMinusClass attached on the protected card's
+// cEntity_EffectController (the AS-IS-faithful seam; the class has no EffectRegistry bridge) — the exact pattern
+// FAILa-02 proves green. NewModelContinuousScan.HasImmuneFromDpMinus evaluates it per reducing modifier.
 void RegisterDpReductionImmunity(EngineContext context, HeadlessEntityId cardId, HeadlessPlayerId owner)
 {
-    var effectId = new HeadlessEntityId($"dp-immune:{cardId.Value}");
-    var effectContext = new EffectContext(
-        owner,
-        owner,
-        new HeadlessEntityId($"src-immune:{cardId.Value}"),
-        triggerEntityId: null,
-        targetEntityIds: new[] { cardId },
-        values: new Dictionary<string, object?>(StringComparer.Ordinal) { [ReplacementHelpers.ImmuneFromDpMinusKey] = true });
-
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(effectId, owner, "Continuous", effectContext),
-        keywords: null,
-        EffectQueryRole.Continuous,
-        new[] { ContinuousRestrictionGate.Scope }));
+    var protectedCard = new CardSource(context, cardId, owner);
+    ICardEffect built = CardEffectFactory.ImmuneFromDPMinusStaticEffect(
+        permanentCondition: null,
+        cardEffectCondition: null,
+        isInheritedEffect: false,
+        card: protectedCard, condition: null, effectName: "ImmuneFromDPMinus");
+    protectedCard.cEntity_EffectController.cEntity_Effect = new N2TestCardEntityEffect(built);
 }
 
 // --- Harness (field battle, from C2 / R2-1) ------------------------------
@@ -272,4 +273,13 @@ bool InZone(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone, HeadlessE
 void AssertInZone(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId cardId, string label)
 {
     if (!InZone(match, player, zone, cardId)) throw new InvalidOperationException($"{label}: {cardId.Value} not in {player.Value}'s {zone}.");
+}
+
+// (수리-2 repair) Wraps a single ICardEffect as a dispatch-less CEntity_Effect so it can be pinned onto a card's
+// cEntity_EffectController (the ImmuneFromDPMinus attachment seam; mirrors FAILa-02's TestCardEntityEffect).
+sealed class N2TestCardEntityEffect : CEntity_Effect
+{
+    private readonly ICardEffect _effect;
+    public N2TestCardEntityEffect(ICardEffect effect) { _effect = effect; }
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource cardSource) => new() { _effect };
 }

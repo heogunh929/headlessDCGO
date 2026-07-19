@@ -12,6 +12,7 @@
 //   WhenTopCardTrashed) no longer misfires the deletion reactors.
 // R2-P1-3: the AS-IS "record parameters just before deletion" block (CardController.cs:3762-3783) is
 //   snapshotted at the same seam as the keyword snapshot (DP/Level/Cost/Names/Traits/permanent identity).
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -191,6 +192,9 @@ async Task RecordParametersSnapshot()
 {
     EngineContext ctx = EngineContext.CreateDefault(randomSeed: 41);
     ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    // (수리-2 repair) the continuous DP fold (Permanent.DP) only fires past game-start (ICardEffect.CanTrigger
+    // gates on DoneStartGame — same fix documented by FAILa-02); set the phase so the +1000 modifier folds.
+    ctx.TurnController.SetPhase(HeadlessPhase.Main);
 
     var cards = (CardDatabase)ctx.CardRepository;
     var def = new HeadlessEntityId("DEF:AGU");
@@ -211,11 +215,14 @@ async Task RecordParametersSnapshot()
         Metadata: new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["dp"] = 5000,
-            // A typed +1000 modifier: the recorded DP must be the EFFECTIVE value (AS-IS permanent.DP), 6000.
-            [BattleResolver.DpModifiersKey] = new[] { DpModifier.Relative(1000, activatedOrder: 1, source: "buff") },
             ["sourceIds"] = new[] { source.Value },
         }));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, top, ChoiceZone.None, ChoiceZone.BattleArea));
+    // (수리-2 repair) The old BattleResolver.DpModifiersKey metadata array is not folded by Permanent.DP (the
+    // snapshot seat, CardLeavePlayCleanup.cs:198-200, reads Permanent.DP). Express the +1000 as a live
+    // ChangeDPClass (IChangeDPEffect) via the AS-IS ChangeDigimonDP, which Permanent.DP folds → effective 6000.
+    CardEffectCommons.ChangeDigimonDP(
+        new Permanent(ctx, top, P2), 1000, EffectDuration.UntilEachTurnEnd, new CardSource(ctx, source, P2));
 
     var sink = new MatchStateMutationSink(
         ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,

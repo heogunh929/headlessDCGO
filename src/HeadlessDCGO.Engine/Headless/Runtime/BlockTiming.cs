@@ -55,8 +55,13 @@ public sealed class BlockTiming
         // (S4) recognise the live Collision KEYWORD (CollisionSelfEffect → SelfKeywordByNameEffect) in addition
         // to the hasCollision metadata flag (only set by the GrantCollision mutation) — else keyword-granted
         // Collision is inert.
+        // (수리-2 / G3.5-C910) the keyword grant registers a ContinuousKeywordGate binding (SelfKeywordByNameEffect,
+        // ContinuousAndRestrictionEffects.cs:660) that this seat never read — the same HasKeyword read Execute
+        // (AttackPermanentAction.cs:330) and Overclock (OverclockEffect.cs:156) already consume. Ordered BEFORE the
+        // Permanent.HasCollision live scan so the keyword short-circuits (the scan needs an ambient GManager).
         bool attackerHasCollision = ReadBool(attacker.Metadata, HasCollisionKey) ||
             ReadBool(attackerCard.Metadata, HasCollisionKey) ||
+            ContinuousKeywordGate.HasKeyword(context, attack.AttackerId.Value, ContinuousKeywordGate.Collision) ||
             new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attack.AttackerId.Value).HasCollision;
 
         return zoneReader
@@ -324,7 +329,10 @@ public sealed class BlockTiming
             return true;
         }
 
+        // (수리-2 / G3.5-C910) same keyword bridge as GetBlockerCandidates — the keyword-granted Collision must
+        // also force the block-decision window open (skip = optional only without Collision).
         return !(ReadBool(attacker.Metadata, HasCollisionKey) || ReadBool(attackerCard.Metadata, HasCollisionKey)
+            || ContinuousKeywordGate.HasKeyword(context, attackerId, ContinuousKeywordGate.Collision)
             || new Assets.Scripts.Script.CardEffectCommons.Permanent(context, attackerId).HasCollision);
     }
 

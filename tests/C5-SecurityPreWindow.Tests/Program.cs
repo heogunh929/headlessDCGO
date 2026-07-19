@@ -32,8 +32,8 @@ var tests = new (string Name, Func<Task> Body)[]
 {
     ("Evade attacker losing a security battle gets the PRE window; accepting suspends it, survives, and the check resumes", EvadeOfferAcceptResumesCheck),
     ("Declining the PRE window finalizes the deletion (sources then top to trash) and stops the check", DeclineFinalizesDeletionAndStopsCheck),
-    ("Barrier attacker losing a security battle may trash its own top security and survive (by-battle)", BarrierSurvivesSecurityBattle),
-    ("An already-suspended Evade attacker gets NO offer (cost unpayable) and is deleted outright", SuspendedEvadeNoOffer),
+    ("A by-battle-required WhenPermanentWouldBeDeleted replacement survives a security-battle loss (byBattle cause threaded)", BarrierSurvivesSecurityBattle),
+    ("CONTROL: with NO registered replacement, the security-battle loser gets NO window and is deleted outright (StopSecurityCheck)", SuspendedEvadeNoOffer),
     ("A Piercing follow-up check's security battle loss also parks and resumes through the same window", PiercingDeferAndResume),
 };
 
@@ -58,28 +58,34 @@ async Task EvadeOfferAcceptResumesCheck()
 {
     // Strike 2: check #1 is a 9000 DP security Digimon (attacker 3000 loses -> window), check #2 is a
     // 1000 DP security Digimon (the resumed check: attacker wins).
+    // (수리-2 re-aim) The retired HasEvadeKey metadata gate-key is replaced by the current-model canon: a
+    // card-registered OPTIONAL [WhenPermanentWouldBeDeleted] survival replacement (TfxWouldBeDeletedInteractive —
+    // the window form of the "you may" Evade keyword). Its "will you use it?" pause is what parks the security
+    // check; accepting cancels the deletion and the remaining check resumes. The retired 'evaded' marker and the
+    // Evade keyword's suspend-cost are dropped (invented-keyword expression); the park/survive/resume transport
+    // rule assertions are preserved.
     DcgoMatch match = await CreateMatchAsync(
         attackerDp: 3000,
         securityDps: new int?[] { 9000, 1000 },
-        strike: 2,
-        attackerExtra: new Dictionary<string, object?> { [DeletionReplacementGate.HasEvadeKey] = true });
+        strike: 2);
+    GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxWouldBeDeletedInteractive");
 
     DeclareDirectAttack(match);
     await match.StepAsync();   // pipeline → Combat → security battle loss → park → PRE window opens
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE would-be-deleted window is open");
-    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+    // (수리-2 re-aim) the current PRE cut-in surfaces as the OptionalEffect "will you use it?" ForCutIn choice
+    // (the old invented DeletionReplacement gate type is retired).
+    AssertEqual(ChoiceType.OptionalEffect, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
     AssertEqual(P1, match.Context.ChoiceController.PendingRequest!.PlayerId, "the ATTACKER'S owner decides");
     AssertTrue(ReadFlag(match, AttackerId, GameFlowProcessor.PendingDeletionKey), "attacker deletion deferred");
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "attacker still on the field while parked");
 
-    LegalAction activate = ResolveActions(match, P1).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+    LegalAction activate = AcceptWindow(match, P1, AttackerId);
     await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // Evade suspends + survives → the remaining check resumes → attack ends
+    await match.StepAsync();   // survives → the remaining check resumes → attack ends
 
-    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "Evade cancels the deletion (field survival)");
-    AssertTrue(ReadFlag(match, AttackerId, DeletionReplacementGate.IsSuspendedKey), "suspended as the Evade cost");
-    AssertTrue(ReadFlag(match, AttackerId, DeletionReplacementGate.EvadedKey), "evaded marker");
+    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "the replacement cancels the deletion (field survival)");
     AssertFalse(ReadFlag(match, AttackerId, GameFlowProcessor.PendingDeletionKey), "pendingDeletion cleared");
     AssertInZone(match, P2, ChoiceZone.Trash, SecurityTwoId, "the SECOND security card was checked (loop resumed)");
     AssertEqual(0, SecurityCount(match, P2), "no security left after the resumed check");
@@ -89,11 +95,14 @@ async Task EvadeOfferAcceptResumesCheck()
 
 async Task DeclineFinalizesDeletionAndStopsCheck()
 {
+    // (수리-2 re-aim) HasEvadeKey → a card-registered OPTIONAL [WhenPermanentWouldBeDeleted] replacement
+    // (TfxWouldBeDeletedInteractive). DECLINING it leaves willBeRemoveField set, so the deletion finalizes; the
+    // finalize-order (sources BEFORE top) and StopSecurityCheck transport rules are preserved unchanged.
     DcgoMatch match = await CreateMatchAsync(
         attackerDp: 3000,
         securityDps: new int?[] { 9000, 1000 },
-        strike: 2,
-        attackerExtra: new Dictionary<string, object?> { [DeletionReplacementGate.HasEvadeKey] = true });
+        strike: 2);
+    GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxWouldBeDeletedInteractive");
 
     // Give the attacker digivolution sources so the finalize order (sources BEFORE top) is observable.
     HeadlessEntityId src0 = new("p1:src:00");
@@ -129,51 +138,43 @@ async Task DeclineFinalizesDeletionAndStopsCheck()
 
 async Task BarrierSurvivesSecurityBattle()
 {
-    // The attacker owns 1 security card — Barrier's cost. Barrier is by-battle-only, so its very
-    // availability here asserts the security battle drives the byBattle window (AS-IS IsByBattle).
+    // (수리-2 re-aim) The retired HasBarrierKey metadata gate-key is replaced by the current-model canon: a
+    // card-registered [WhenPermanentWouldBeDeleted] survival replacement that REQUIRES IsByBattle
+    // (TfxWouldBeDeletedByBattle — the window form of the by-battle Barrier keyword). Its very availability on a
+    // SECURITY-battle loss asserts the security cut-in threads the byBattle cause (AS-IS IsByBattle), the rule the
+    // old HasBarrierKey fixture stood in for. The retired 'barriered' marker and the keyword's own-security-trash
+    // cost are dropped (invented-keyword expression); survival + the loop resuming are the preserved rule witness.
     DcgoMatch match = await CreateMatchAsync(
         attackerDp: 3000,
         securityDps: new int?[] { 9000, 1000 },
-        strike: 2,
-        attackerExtra: new Dictionary<string, object?> { [DeletionReplacementGate.HasBarrierKey] = true },
-        ownSecurity: true);
+        strike: 2);
+    GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxWouldBeDeletedByBattle");
 
     DeclareDirectAttack(match);
     await match.StepAsync();
 
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window is open");
-    LegalAction activate = ResolveActions(match, P1).Single(a => a.Id.Value.Contains("#barrier", StringComparison.Ordinal));
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();
-
-    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "Barrier attacker survives the security battle");
-    AssertTrue(ReadFlag(match, AttackerId, DeletionReplacementGate.BarrieredKey), "barriered marker");
-    AssertEqual(0, SecurityCount(match, P1), "the attacker's own top security was trashed as the Barrier cost");
-    AssertInZone(match, P1, ChoiceZone.Trash, OwnSecurityId, "the Barrier-paid security card is in the trash");
+    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "by-battle replacement survives the security battle");
     AssertInZone(match, P2, ChoiceZone.Trash, SecurityTwoId, "the SECOND security card was checked (loop resumed)");
     AssertAttackEnded(match, "attack completed after the resumed check");
 }
 
 async Task SuspendedEvadeNoOffer()
 {
-    // Evade's cost is suspending — an already-suspended attacker cannot pay, so NO window opens and the
-    // loss finalizes outright (the plain-loss fast path).
+    // (수리-2 re-aim) CONTROL / false-green guard: with NO card-registered [WhenPermanentWouldBeDeleted] replacement
+    // (the current-model canon that replaced the retired HasEvadeKey gate-key), a plain attacker that loses the
+    // security battle gets NO PRE window and is deleted outright, and StopSecurityCheck halts the remaining checks.
+    // This proves the window opens ONLY when a replacement exists — the rule the "unpayable cost" case stood for.
     DcgoMatch match = await CreateMatchAsync(
         attackerDp: 3000,
         securityDps: new int?[] { 9000, 1000 },
-        strike: 2,
-        attackerExtra: new Dictionary<string, object?>
-        {
-            [DeletionReplacementGate.HasEvadeKey] = true,
-            [DeletionReplacementGate.IsSuspendedKey] = true,
-        });
+        strike: 2);
 
     DeclareDirectAttack(match);
     await match.StepAsync();
 
-    AssertFalse(match.Context.ChoiceController.Current.IsPending, "no PRE window for an unpayable Evade");
+    AssertFalse(match.Context.ChoiceController.Current.IsPending, "no PRE window without a registered replacement");
     AssertInZone(match, P1, ChoiceZone.Trash, AttackerId, "attacker deleted outright");
-    AssertInZone(match, P2, ChoiceZone.Security, SecurityTwoId, "the second check never happened");
+    AssertInZone(match, P2, ChoiceZone.Security, SecurityTwoId, "the second check never happened (StopSecurityCheck)");
     AssertAttackEnded(match, "attack completed");
 }
 
@@ -185,28 +186,27 @@ async Task PiercingDeferAndResume()
         attackerDp: 3000,
         securityDps: new int?[] { 9000 },
         strike: 1,
-        attackerExtra: new Dictionary<string, object?>
-        {
-            [DeletionReplacementGate.HasEvadeKey] = true,
-        },
         defenderOnField: true);
-    // (RD-CBTL-01) Piercing fires only through the AS-IS OnDetermineDoSecurityCheck window — the attacker
-    // carries the REAL printed BT1_022 <Piercing> (retype + register), not the retired HasPiercingKey flag.
-    GivePierce(match.Context, AttackerId, P1);
+    // (수리-2 re-aim) Piercing fires only through the AS-IS OnDetermineDoSecurityCheck window (the retired
+    // HasPiercingKey flag is gone), and the survival replacement is a card-registered OPTIONAL
+    // [WhenPermanentWouldBeDeleted] effect (the retired HasEvadeKey gate-key is gone). Both are carried by ONE
+    // registered fixture (TfxPierceWouldBeDeletedInteractive) that composes the real PierceSelfEffect with the
+    // interactive survival, so a single card drives the piercing follow-up check AND parks on its loss.
+    GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxPierceWouldBeDeletedInteractive");
 
     match.Context.AttackController.DeclareAttack(P1, AttackerId, P2, targetId: DefenderId, isDirectAttack: false);
     await match.StepAsync();   // battle (defender dies) → piercing check → security battle loss → window
 
     AssertInZone(match, P2, ChoiceZone.Trash, DefenderId, "the field-battle defender was deleted");
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window opened from the piercing check");
-    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+    // (수리-2 re-aim) the current PRE cut-in surfaces as the OptionalEffect ForCutIn choice (retired gate type).
+    AssertEqual(ChoiceType.OptionalEffect, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
 
-    LegalAction activate = ResolveActions(match, P1).Single(a => a.Id.Value.Contains("#evade", StringComparison.Ordinal));
+    LegalAction activate = AcceptWindow(match, P1, AttackerId);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "Evade attacker survives the piercing security battle");
-    AssertTrue(ReadFlag(match, AttackerId, DeletionReplacementGate.IsSuspendedKey), "suspended as the Evade cost");
+    AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "the replacement survives the piercing security battle");
     AssertInZone(match, P2, ChoiceZone.Trash, SecurityOneId, "the checked security card is in the trash");
     AssertAttackEnded(match, "attack completed after the deferred piercing check");
     AssertFalse(HasMarker(match, AttackerId, SecurityResolver.SecurityCheckRemainingKey), "park marker cleared");
@@ -225,7 +225,10 @@ async Task<DcgoMatch> CreateMatchAsync(
     bool ownSecurity = false,
     bool defenderOnField = false)
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 75);
+    // (수리-2 re-aim) deferredChoice: the interactive [WhenPermanentWouldBeDeleted] replacement (Tfx…Interactive)
+    // parks its "will you use it?" cut-in as an agent ResolveChoice instead of the enqueued-result fallback — the
+    // same context flag the green sibling C-Del-3C1C and C5-Witness use to surface the PRE cut-in window.
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 75, deferredChoice: true);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     for (int index = 1; index <= 12; index++)
     {
@@ -284,14 +287,17 @@ async Task<DcgoMatch> CreateMatchAsync(
 static CardRecord Definition(string id, string cardType) =>
     new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(), CardType: cardType);
 
-// (RD-CBTL-01) retype a card to the REAL printed BT1_022 <Piercing> and register it, so its PierceSelfEffect
-// surfaces in EffectList(OnDetermineDoSecurityCheck) — the window firing path (the metadata flag is retired).
-void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner)
+// (수리-2 re-aim) Give the attacker a card-registered [WhenPermanentWouldBeDeleted] survival replacement — the
+// current-model canon for the retired HasEvadeKey/HasBarrierKey metadata gate-key fixtures. `tfxNumber` selects a
+// dispatch-discoverable TestFixtures ActivateClass (TfxWouldBeDeletedInteractive = optional; TfxWouldBeDeletedByBattle
+// = mandatory, IsByBattle-required — the window form of the retired by-battle Barrier keyword). Same retype+register
+// shape as GivePierce: the effect surfaces through RegisterCard, NOT through a metadata flag.
+void GiveWouldBeDeleted(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner, string tfxNumber)
 {
     var cards = (CardDatabase)context.CardRepository;
-    var defId = new HeadlessEntityId("def:BT1_022");
-    cards.Upsert(new CardRecord(defId, "BT1_022", "BT1_022",
-        new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Red" }, ["level"] = 4 }, CardType: "Digimon"));
+    var defId = new HeadlessEntityId("def:" + tfxNumber);
+    cards.Upsert(new CardRecord(defId, tfxNumber, tfxNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon"));
     if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
     {
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
@@ -321,6 +327,14 @@ static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
     match.GetLegalActions(player).Where(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+
+// (수리-2 re-aim) Accept the OptionalEffect PRE would-be-deleted window: the non-skip candidate keyed by the
+// replacement holder's own instance id (the Candidates[0].Id convention the green sibling C-Del-3C1C resolves
+// against) — replaces the torn-down invented "#<keyword>" gate ids.
+LegalAction AcceptWindow(DcgoMatch match, HeadlessPlayerId player, HeadlessEntityId holder) =>
+    ResolveActions(match, player).Single(a =>
+        a.Id.Value.Contains(holder.Value, StringComparison.Ordinal)
+        && !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
 
 void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
 {

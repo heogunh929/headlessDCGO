@@ -1,3 +1,7 @@
+using System.Collections;
+using HeadlessDCGO.Engine.Assets.Scripts.Script;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
@@ -5,10 +9,18 @@ using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// G3.5-D3: the common loop orders simultaneously-collected triggers before resolving them — turn-player
-// triggers first, then non-turn (AS-IS MultipleSkills). (Stage 5) among ONE player's simultaneous triggers the
-// controlling player CHOOSES the order (RD-14/15) rather than a fixed mandatory-before-optional drain, and an
-// optional is confirmed yes/no when it is picked (RD-13); both still fire when accepted.
+// G3.5-D3: simultaneously-collected triggers are ORDERED before resolving — turn-player triggers first, then
+// non-turn (AS-IS MultipleSkills' TurnPlayerSkillInfos/NonTurnPlayerSkillInfos split, MultipleSkills.cs:125-145).
+// (Stage 5) among ONE player's simultaneous triggers the controlling player CHOOSES the order (RD-14/15), and an
+// optional is confirmed yes/no when picked (RD-13); both still fire when accepted.
+//
+// (수리-2 re-aim) The old harness registered raw EffectRegistry bindings under fake timing strings ("T"/"M"/"O")
+// and published a synthetic GameEvent — the RETIRED old-model collector seam (AutoProcessingTriggerCollector has
+// no live caller since the window cutover; SkillWindowSupply drops non-EffectTiming strings). Reconstructed on the
+// LIVE seam: new-model ActivateClass probes surfaced via each card's CEntity_EffectController (the FAILa-02
+// pinning idiom), collected+resolved through the real window drive — AutoProcessing.StackSkillInfos(OnEndTurn) +
+// AutoProcessCheck (the AS-IS EndTurnProcess pair, same drive as the green C-EoT2 suite). Both ordering rule
+// assertions are preserved unchanged.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -29,7 +41,7 @@ foreach (var test in tests)
     {
         failures.Add(test.Name);
         Console.Error.WriteLine($"FAIL {test.Name}");
-        Console.Error.WriteLine($"{ex.GetType().Name}: {ex.Message}");
+        Console.Error.WriteLine($"{ex}");
     }
 }
 
@@ -40,44 +52,114 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 
 async Task TurnPlayerPriority()
 {
-    DcgoMatch match = await MainPhaseMatchAsync();
-    EngineContext context = match.Context;
+    EngineContext context = NewContext();
+    using var scope = AmbientMatchContext.Enter(context);
 
-    // Register the NON-turn player's effect FIRST so collection order is [P2, P1]; ordering must
-    // still resolve the turn player's (P1) trigger first.
-    Register(context, "fx-P2", P2, "T");
-    Register(context, "fx-P1", P1, "T");
-    Emit(context, timing: "T", optional: false);
+    // Register the NON-turn player's probe FIRST; the MultipleSkills split must still resolve the turn
+    // player's (P1) trigger before the non-turn player's (P2).
+    PlaceProbe(context, P2, "fx-P2", optional: false);
+    PlaceProbe(context, P1, "fx-P1", optional: false);
 
-    await new GameFlowProcessor().RunToStableAsync(context);
+    await FireEndTurnWindowAsync(context);
 
     AssertOrder("fx-P1", "fx-P2");
 }
 
 async Task MandatoryBeforeOptional()
 {
-    DcgoMatch match = await MainPhaseMatchAsync();
-    EngineContext context = match.Context;
-    var processor = new MetadataActionProcessor();
+    EngineContext context = NewContext();
+    using var scope = AmbientMatchContext.Enter(context);
 
-    Register(context, "fx-opt", P1, "O");
-    Register(context, "fx-mand", P1, "M");
-    Emit(context, timing: "M", optional: false);
-    Emit(context, timing: "O", optional: true);
+    PlaceProbe(context, P1, "fx-opt", optional: true);
+    PlaceProbe(context, P1, "fx-mand", optional: false);
 
     // (Stage 5) the two simultaneous P1 triggers are the player's to ORDER — the window opens a choice rather
     // than draining them in a fixed order. Drive the agent picking the mandatory first, then accepting the
     // optional at its yes/no confirm; both fire, in the chosen order.
-    await new GameFlowProcessor().RunToStableAsync(context);
+    await FireEndTurnWindowAsync(context);
     AssertTrue(context.ChoiceController.Current.IsPending, "the window opened an order choice for the two simultaneous triggers");
 
-    await processor.ProcessAsync(HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("fx-mand"))), context);
-    await processor.ProcessAsync(HeadlessActionFactory.ResolveChoice(P1, ChoiceResult.Select(new HeadlessEntityId("fx-opt"))), context);
+    await ResolveWindowChoiceAsync(context, PickCandidateContaining(context, "fx-mand"));
+    for (int i = 0; i < 6 && context.ChoiceController.Current.IsPending; i++)
+    {
+        // The remaining optional surfaces its pick / yes-no confirm — accept (non-skip candidate).
+        await ResolveWindowChoiceAsync(context, FirstNonSkipCandidate(context));
+    }
 
     AssertOrder("fx-mand", "fx-opt");
 }
 
-// --- Helpers -------------------------------------------------------------
+// --- Live-seam drive ------------------------------------------------------
+
+// The AS-IS end-of-turn window pair (EndTurnProcess → StackSkillInfos(OnEndTurn) + AutoProcessCheck). An
+// interactive pause (the Stage-5 order choice / optional confirm) parks as a pending agent choice.
+async Task FireEndTurnWindowAsync(EngineContext context)
+{
+    var autoProcessing = AutoProcessing.For(context);
+    await autoProcessing.StackSkillInfos(new Hashtable(), EffectTiming.OnEndTurn);
+    try { await autoProcessing.AutoProcessCheck(); }
+    catch (Exception ex) when (ex is WindowChoicePendingException or DeferredChoicePendingException) { /* parked */ }
+}
+
+// Resolve the pending window choice through the ACTION PROCESSOR (the agent seat) — it owns the full
+// record-answer + resume protocol for the parked MultipleSkills continuation.
+async Task ResolveWindowChoiceAsync(EngineContext context, ChoiceResult answer)
+{
+    HeadlessPlayerId chooser = context.ChoiceController.PendingRequest!.PlayerId;
+    var result = await new MetadataActionProcessor().ProcessAsync(
+        HeadlessActionFactory.ResolveChoice(chooser, answer), context);
+    if (!result.IsSuccess)
+    {
+        throw new InvalidOperationException($"ResolveChoice failed: {result.Message}");
+    }
+}
+
+ChoiceResult PickCandidateContaining(EngineContext context, string token)
+{
+    ChoiceRequest request = context.ChoiceController.PendingRequest
+        ?? throw new InvalidOperationException("no pending choice");
+    ChoiceCandidate candidate = request.Candidates.FirstOrDefault(c => c.Id.Value.Contains(token, StringComparison.Ordinal))
+        ?? throw new InvalidOperationException(
+            $"no candidate containing '{token}' among [{string.Join(", ", request.Candidates.Select(c => c.Id.Value))}]");
+    return ChoiceResult.Select(candidate.Id);
+}
+
+ChoiceResult FirstNonSkipCandidate(EngineContext context)
+{
+    ChoiceRequest request = context.ChoiceController.PendingRequest
+        ?? throw new InvalidOperationException("no pending choice");
+    ChoiceCandidate? candidate = request.Candidates.FirstOrDefault(c => !c.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
+    return candidate is null ? ChoiceResult.Skip() : ChoiceResult.Select(candidate.Id);
+}
+
+// --- Harness --------------------------------------------------------------
+
+EngineContext NewContext()
+{
+    // deferredChoice: interactive window pauses surface as agent choices (the C-Del-3C1C context shape).
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 74, deferredChoice: true);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.SetPhase(HeadlessPhase.Main);
+    return context;
+}
+
+// Place a battle-area Digimon whose CEntity_EffectController carries an order-recording OnEndTurn ActivateClass
+// (the FAILa-02 pinning idiom — a live new-model effect the GetSkillInfos field scan collects).
+void PlaceProbe(EngineContext context, HeadlessPlayerId owner, string name, bool optional)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId($"def:{name}");
+    cards.Upsert(new CardRecord(defId, name, name,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["level"] = 4 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{owner.Value}:battle:{name}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 4000, ["isSuspended"] = false }));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea))
+        .GetAwaiter().GetResult();
+
+    var card = new CardSource(context, id, owner);
+    card.cEntity_EffectController.cEntity_Effect = new D3OrderProbe(name, optional, resolveOrder);
+}
 
 void AssertOrder(params string[] expected)
 {
@@ -93,85 +175,35 @@ static void AssertTrue(bool value, string label)
     if (!value) throw new InvalidOperationException($"{label}: expected true.");
 }
 
-void Register(EngineContext context, string effectId, HeadlessPlayerId controller, string timing)
+// A dispatch-less CEntity_Effect exposing ONE OnEndTurn ActivateClass that records its resolution order.
+internal sealed class D3OrderProbe : CEntity_Effect
 {
-    var effect = new OrderRecordingEffect(effectId, resolveOrder);
-    context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId(effectId), controller, timing,
-            new EffectContext(controller, controller, new HeadlessEntityId($"src-{effectId}"),
-                triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>())),
-        effect: effect));
-}
-
-static void Emit(EngineContext context, string timing, bool optional)
-{
-    var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        [AutoProcessingTriggerCollector.TriggerTimingKey] = timing,
-    };
-    if (optional)
-    {
-        metadata[AutoProcessingTriggerCollector.TriggerKindKey] = "Optional";
-    }
-
-    context.GameEventQueue.Publish(new GameEvent(0, GameEventType.StateChanged, $"evt:{timing}", metadata));
-}
-
-async Task<DcgoMatch> MainPhaseMatchAsync()
-{
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 74);
-    CardDatabase cards = (CardDatabase)context.CardRepository;
-    for (int index = 1; index <= 12; index++)
-    {
-        cards.Upsert(Digimon($"P1-M{index:D2}"));
-        cards.Upsert(Digimon($"P2-M{index:D2}"));
-    }
-
-    DcgoMatch match = new(context);
-    MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
-    await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 74, setup: setup));
-
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
-
-    if (match.GetObservation().Turn.Phase != HeadlessPhase.Main)
-    {
-        throw new InvalidOperationException("Failed to reach Main phase.");
-    }
-
-    return match;
-}
-
-static CardRecord Digimon(string id) =>
-    new(new HeadlessEntityId(id), id, $"{id} Card", new Dictionary<string, object?>(), CardType: "Digimon");
-
-static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
-    new(playerId,
-        Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
-        Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
-
-internal sealed class OrderRecordingEffect : IHeadlessCardEffect
-{
+    private readonly string _name;
+    private readonly bool _optional;
     private readonly List<string> _order;
 
-    public OrderRecordingEffect(string effectId, List<string> order)
+    public D3OrderProbe(string name, bool optional, List<string> order)
     {
-        Definition = new CardEffectDefinition(new HeadlessEntityId(effectId), new HeadlessEntityId($"src-{effectId}"), name: effectId, timing: "any");
+        _name = name;
+        _optional = optional;
         _order = order;
     }
 
-    public CardEffectDefinition Definition { get; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(CardEffectResolveContext context, IEffectMutationSink mutations, CancellationToken cancellationToken = default)
+    public override List<ICardEffect> CardEffects(EffectTiming timing, CardSource card)
     {
-        _order.Add(Definition.EffectId.Value);
-        return ValueTask.FromResult(EffectResult.Success());
+        var cardEffects = new List<ICardEffect>();
+        if (timing == EffectTiming.OnEndTurn)
+        {
+            var activateClass = new ActivateClass();
+            activateClass.SetUpICardEffect(_name, _ => true, card);
+            activateClass.SetUpActivateClass(
+                _ => true,
+                _ => { _order.Add(_name); return Task.CompletedTask; },
+                -1, _optional, _name);
+            activateClass.SetIsInheritedEffect(false);
+            cardEffects.Add(activateClass);
+        }
+
+        return cardEffects;
     }
 }
