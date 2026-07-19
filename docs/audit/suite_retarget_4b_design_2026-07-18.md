@@ -275,3 +275,61 @@ c1(red 20 실측)·c2(green 전반 21)·**c3(green 후반 풀)** 를 합산해 �
 **P0 0**(단언 감소 4건 전부 커밋 명시 — 은폐 없음). 렌즈 5종: 은닉 실룰 소실 없음·번역 충실(음성 단언 비-vacuous 확인)·항진 probe 미발견·픽스처 전제 이상 2건만·처분 오분류 미발견(양방향).
 **P1-1(B4 편입)**: W-EoTFIX(a)/A4의 once-per-turn 재발화 가드가 행동검증→구조검증 강등 — 단일 펌프 turn-end는 재수집이 없어 캡 분기 미실행(커밋의 등가 근거 일부 부정확). 상환=B4에서 **2-턴 재발화 witness** 신설(P1 연속 두 turn-end로 캡 E2E 복원)+해당 주석 정정.
 **P2**: ①F62 잔존 dormant-guard=준-항진(기록) ②α4 수집-카운트의 BT1_028-inert 숨은 전제(주석 권고) ③P1r legality 검증기 소실 미기재(무해·기록).
+
+## §3.1f B5-c4 실행 기록 — 라이브-전투 재구축 실증 + ④ bare + ⑤ 판별 (B5 마감, 2026-07-19, main HEAD=52169578, 메인 워킹트리·미커밋)
+
+스코프: ③ 이월 6(G3.5-005·C12·R2-1·W5·G9-062·F68) + ④ bare 7(FAILd-03·G3.5-004·G3.5-A3·G3.5-D6·G2G-002/003/004) + ⑤ 잔여 판별 11(E3-Witness·C910·R2-DeletionPipeline·NewTimingsFire·C5-SecurityPreWindow·C5-Witness·G3.5-007·W4·D1-BatchId·D2-Witness+N2) + D3 라벨 미스터리. **코드 변경 = 0**(라이브-재구축 실증은 G3.5-005에서 시도→red→`git checkout HEAD --` 원복; 순 워킹트리 무변). **flip = 0.**
+
+### (0) 선행 조사 — AttackProcess 선언-경계 force-end 정확한 게이트 (c3 권고 완료)
+- 게이트: `AttackProcess.cs:246`(및 :316 else-arm) `Commons.IsPermanentExistsOnBattleAreaDigimon(attacker)` = false → **"Attacker not a battle-area Digimon at declaration."** force-end(Resolved 직행).
+- 요건 분해: `CardEffectCommons.cs:3712` `IsPermanentExistsOnBattleAreaDigimon = IsPermanentExistsOnBattleArea(p) && p.IsDigimon`. `IsPermanentExistsOnBattleArea`(`:3627-3642`) = **`ZoneMover.GetCards(OwnerId, BattleArea).Contains(InstanceId)`**(SnapshotZone override 외) ∧ `p.IsDigimon`(TopCard.CardType=="Digimon"). ⇒ 합성-metadata permanent(`new Permanent` metadata만·존 미등록 or 비-Digimon def)는 선언 즉시 force-end.
+- **라이브-Permanent 최소 레시피**(F68 `PlaceRealCard`, tests/G3.5-F68…:435): 실 인스턴스 Upsert(DefinitionId=Digimon def) → `ZoneMover.MoveAsync(→BattleArea)`(존 등록) → (키워드 수집 시) `CardEffectRegistrar.RegisterCard`. 펌프에선 hand 0(`NormalizeForPump`)이므로 `None→BattleArea` 스테이징(G3.5-008 c3 판례).
+
+### (1) ③ 이월 6 — 라이브-전투 재구축 실증 결과: **6 전원 R1/R6-게이트 확정(재조준 불가)**
+- **실증(G3.5-005 대표)**: F68/G3.5-008 판례대로 `new(context)`→`CreatePumpDriven`+`DriveUntil(AtMainWaitOf)`, 공격자/방어자/블로커를 실-Digimon 인스턴스로 `None→BattleArea` 스테이징, 펌프 legal `DeclareAttack` 레인으로 선언. **선언 성공(DeclareAttack 레인 비-vacuous 확증)** — force-end은 해소됨. 그러나 펌프 드라이브의 **전투 결과가 재현 안 됨**: (a) target attack — attack은 clear(Phase→None)되나 defender가 Trash 미착지(삭제 outcome 상이), (b) direct attack — 시큐리티 Trash 미착지, (c/d) blocked/skipped — **블록 창 자체가 pending으로 안 뜸**(HasPendingChoice=false). 4/7 red(선언은 뜸=RD-R3-02 조용한-스킵 아님, 실제 outcome 갭).
+- **근원**: 전투 DP는 `BattleResolver.cs:759` = `Permanent(...).DP`(printed BaseDP+연속 IChangeDPEffect fold, `Permanent.cs:376`); metadata `dp`는 **presence-gate만**(`:750` 읽고 `:758` `_ = baseDp;`로 폐기). 펌프 캐이던스 하 DP-fold(`GameContext.Players_ForTurnPlayer` 스캔·AmbientMatchContext 스코프)가 OLD 직구동과 상이 outcome을 냄 + 블록 후보 창은 metadata `HasBlockerKey`가 아닌 실-Blocker 키워드를 요구. ⇒ **c3 "이중해소 = 삭제-outcome 상이" 독립 재확인**. metadata-라이브만으론 불충분; 실-printed-DP def + 실-키워드(R6 카드층) + 연속-DP fold 펌프-정합(R1)이 선행돼야 함.
+- **처분**: 6 전원 **OLD-ctor 통화 존치 → B6-블로킹, R1/R6까지 재조준 불가**. `red화=원복` 규율대로 G3.5-005 원복(7/7 green 복원). C12·R2-1·W5·G9-062·F68은 동일 근원(전투/시큐리티 outcome이 metadata 아닌 Permanent.DP/키워드 fold에 종속)이라 재시도=동일-결론 churn으로 판단, 미시도 마킹.
+
+### (2) ④ bare 7 — 처분
+| 픽스처 | 現 | 통화 | 처분 |
+|--------|----|------|------|
+| FAILd-03.CanNotMove | green | `new HeadlessLegalActionDispatcher()`(OLD arm, §1.3 항11) | 존치·B6 펌프-dispatch re-point(red 아님) |
+| G3.5-004.GameFlowProcessor | green(6) | RunToStable(retained)+`new HeadlessGameLoop(context)` 1 subtest | **GameLoop subtest B6-삭제대상 검증=은퇴-마킹**(나머지 RunToStable subtest 존치·retained) |
+| G3.5-A3.BlockerSuspend | **red**(NRE) | `new(context)`+AdvancePhase | 실부채: bare BlockTiming resolve NRE(블록-창 회귀, C5/Sonnet 도메인 인접). 재조준 불가·정밀마킹 |
+| G3.5-D6.BreedingChoice | green(3) | `AdvancePhase`를 breeding-decline로 **단언**(:45) | 통화=검증대상 → B5 assertion 재작성 몫(cutover 후 `ResolveChoice(skip)`); 코드 재작성은 펌프 breeding-decline 표면 확정 후 |
+| G2G-002/003/004 | **red** | `new(context)`+AdvancePhase | ⑤ 교집합 실부채(block NRE·battle DP delete·strike count). 구조 무변·red판별 기록(선재 회귀) |
+
+### (3) ⑤ 잔여 판별 11(+N2) — red 원인 판별(OLD-artifact→flip vs 실부채→정밀마킹)
+전원 **실부채(엔진 갭)** — 펌프 재구축이 same-engine이라 driver-swap으로 안 사라짐(G3.5-005 실증이 전투/DP-fold 갭을 독립 입증). flip 가능분 = **0**.
+| 픽스처 | 現 | red 근원(무엇이 고쳐져야 green) |
+|--------|----|-------------------------------|
+| E3-Witness | red(1) | `HeadlessEarlyPhaseFlow.AdvanceAsync`(항6 DORMANT)의 natural-unsuspend가 opp-top-security-trash 효과 미발화(2→1 안 됨). EarlyPhaseFlow=B6-삭제대상 → 효과 타처 커버 시 B6-은퇴 후보, 아니면 unsuspend 트리거 배선 |
+| C910(ExecuteCollision) | red(2) | Collision 키워드-granted 강제블록 NRE + per-defender CanNotAffected 가드(plain defender 강제 안 됨). Collision 키워드 창 회귀 |
+| R2-DeletionPipeline | red(2) | 2-카드 배치삭제 PRE 창(A) 미개설·batch-defer 파킹 갭(field-seam 삭제-PRE) |
+| PRIM-P0.NewTimingsFire | red(3) | OnEndBattle·WhenRemoveField·OnDigivolutionCardDiscarded 신 timing 미배선(효과 0 memory). task-지정 red |
+| C5-SecurityPreWindow | red(3+) | 시큐리티 would-be-deleted PRE 창 미개설(§3.1d 회귀 실증: 키워드창-재하우징/sink 변경) |
+| C5-Witness | red | Barrier/Evade grant가 시큐리티-전투 패배 시 미발동(C5 동일 도메인) |
+| G3.5-007 | red(NRE) | continuous cannot-block이 블로커 후보 제거 시 NRE(연속-제한 블록 도메인, A3와 동종) |
+| G3.5-W4(SecurityEffectWiring) | red(2) | OnSecurityCheck 창이 revealed 카드에 미발화(시큐리티 창 회귀, C5 도메인) |
+| N2(ContinuousBattleDp) | red(3) | 연속 +/−DP가 전투 outcome 미반전(field-seam continuous-DP fold 갭 — c3 판별 재확인·G3.5-005 실증 corroborate) |
+| **D1-BatchId** | **green** | RunToStable-only = **retained substrate, 삭제-블로커 아님**(6-표면 소비 0) → red-기지 오분류·통화=0 |
+| **D2-Witness** | **green** | 동상 RunToStable-only(8×) = **삭제-블로커 아님**·통화=0 |
+
+**'D3' 라벨 미스터리 해소**: D-정상화 시리즈는 D1-BatchId/D2-Witness **2개뿐**(D-3 witness 부재 — memory: D-1 delete batch-id·D-2 leave-field collapse만 존재). §3.1e(2) red-기지 9의 "D3"는 **팬텀 라벨**; 유일 D3-명 픽스처 = `G3.5-D3.TriggerOrdering`(G3.5 시리즈, 트리거 순서). 이것은 `new(context)`+AdvancePhase 통화 소비 = **실 B5 블로커**(red: turn-player-first + mandatory-before-optional 순서 미구현/회귀). ⇒ **c1 "실디렉터리 미발견"의 정체 = red-기지 9가 D1·D2(green 非-블로커) 2 + D3(팬텀→G3.5-D3.TriggerOrdering) 로 오구성됨**. 실 red 블로커 red-기지 = 7(C5-SecurityPreWindow·C5-Witness·G3.5-007·A3·G3.5-D3·N2·W4), 非-블로커 2(D1·D2).
+
+### (4) 37 전원 terminal 처분 갱신 (c4 반영) — B6-Da 입력
+| 처분 | c3(§3.1e) | **c4 갱신** | 통화 상태 |
+|------|----------:|-----------|-----------|
+| 재조준 완료(currency=0) | 21 | 21 (c4 flip 0) | B6 비블로킹 |
+| **비-블로커 재분류(RunToStable-only)** | — | **+2**(D1-BatchId·D2-Witness) | 애초 통화 0(retained substrate)=B6 비블로킹 |
+| B6-은퇴 | 2 | 2 (+G3.5-004 GameLoop subtest·E3-Witness EarlyPhaseFlow=은퇴 후보) | 존치→B6 |
+| B4(EndTurn seam) | 4 | 4 | 존치→B4 |
+| B3(RL 스키마) | 9 | 9 | 존치→B3 |
+| B5(per-fixture) | 37 | **35 실블로커**(37 − D1·D2 비블로커 2) 중: **R1/R6-게이트 combat 6**(005·C12·R2-1·W5·G9-062·F68) + **실부채 red**(A3·G2G-002/003/004·C910·R2-Del·NewTimingsFire·C5-SecurityPreWindow·C5-Witness·G3.5-007·W4·N2·G3.5-D3·E3) + **기계적**(FAILd-03 re-point·G3.5-004 subtest·D6 재작성) + c3-원복 잔여(G2E계열·G3.5-B1b·G3E-002·G12-002)+c2-B5(C2·N9·GR-004) | 존치→B5(단, combat 6은 R1/R6 선행) |
+
+**B6-Da 귀결(c4)**: c4는 **통화 소진 0**(flip 0). 그러나 **삭제-블로커 모집단 −2**(D1·D2 = RunToStable-only 非-블로커로 확정). **결정적 발견 = B5 잔여의 재조준 불가성**: ③ combat 6은 R1(연속-DP fold 펌프-정합)/R6(실-DP·실-키워드 카드) 선행 없이 펌프 재조준 불가(라이브-Permanent metadata만으론 outcome 미재현 실증); ⑤ red 12는 전부 실 엔진 갭(block/security/키워드 창·field-seam DP-fold·신 timing 배선)로 병행 키워드/보안 트랙(C5 회귀 동근원) 상환에 종속. ⇒ **B6 물리삭제는 driver-swap 재조준만으론 도달 불가** — combat 6은 R1/R6 게이트, red 12는 포팅/키워드 부채 게이트. 근-미래 통화 감소분 = D1/D2(비블로커 확정)·G3.5-004 GameLoop subtest 은퇴·FAILd-03/D6 기계적 re-point 뿐.
+
+### (5) 게이트 실측
+- **build**: 엔진 0오류(경고 1771 무증가). 워킹트리 순변경 0(G3.5-005 실증 원복 완료·`git checkout HEAD --`).
+- **회귀 재확인**: G3.5-005 원복 후 7/7 green. c1~c3 재조준 대표(§3.1e c3 회귀 27 중 EXEMPLAR-T1/GLINK 등) 무영향(코드 무변).
+- **리스크 갱신**: (a) B5 combat 6 = R1/R6 강결합(4b driver-swap 스코프 밖) — B6 게이트가 B5 완주가 아니라 R1/R6 완료에 종속(트라젝토리 §3.3 하한 재고 필요). (b) ⑤ red 12 = C5-SecurityPreWindow 회귀와 공통 근원(키워드 창-재하우징/sink)일 가능성 — 병행 Sonnet 보안/전투 트랙과 교차 상환 권고. (c) '이월 6' 라이브-재구축은 F68 관용구로 **선언은 뚫리나 outcome 미재현**이 확정 — 향후 시도는 R1 DP-fold 펌프-정합 실증을 먼저 게이트로.
