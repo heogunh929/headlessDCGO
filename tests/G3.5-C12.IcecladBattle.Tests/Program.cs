@@ -4,9 +4,18 @@
 // GrantIceclad -> hasIceclad (MatchStateMutationSink.KindToFlag). No new subsystem — a comparison branch
 // plus a source count. This suite drives a real battle and asserts who is deleted under each branch,
 // including the regression that with no Iceclad source counts are ignored (DP still governs).
+//
+// (4b A-1) RE-TARGETED to the pump (G3.5-005 c5 F68 idiom): the OLD-ctor `new DcgoMatch` + AdvanceToMain
+// (AdvancePhase currency) + blocker-parked `new BattleResolver().ResolveAsync` manual seam is replaced by
+// CreatePumpDriven + the pump DeclareAttack legal target-attack lane, driven to auto-resolution. The
+// deletion result is re-sourced from a RESULT-OBJECT (BattleResolutionResult.AttackerDeleted/DefenderDeleted)
+// to the equivalent, stronger ZONE OBSERVATION (loser landed in Trash) — the assertions themselves are
+// preserved verbatim. AdvancePhase/EndTurn action currency removed (currency = 0).
+using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -14,7 +23,6 @@ HeadlessPlayerId Player = new(1);
 HeadlessPlayerId Opponent = new(2);
 HeadlessEntityId AttackerId = new("p1:main:001:P1-M01");
 HeadlessEntityId TargetId = new("p2:main:001:P2-M01");
-HeadlessEntityId BlockerId = new("p2:main:002:P2-M02");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
@@ -44,7 +52,7 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 // Iceclad switches the comparison to sources (3 > 1) so the defender is deleted instead.
 async Task IcecladAttackerWinsBySources()
 {
-    BattleResolutionResult result = await ResolveBattle(
+    BattleOutcome result = await ResolveBattle(
         attackerDp: 1000, attackerSources: 3, attackerIceclad: true,
         targetDp: 9000, targetSources: 1, targetIceclad: false);
 
@@ -55,7 +63,7 @@ async Task IcecladAttackerWinsBySources()
 // Either combatant having Iceclad triggers the source comparison: here the defender carries it.
 async Task IcecladDefenderWinsBySources()
 {
-    BattleResolutionResult result = await ResolveBattle(
+    BattleOutcome result = await ResolveBattle(
         attackerDp: 9000, attackerSources: 1, attackerIceclad: false,
         targetDp: 1000, targetSources: 3, targetIceclad: true);
 
@@ -66,7 +74,7 @@ async Task IcecladDefenderWinsBySources()
 // Equal sources => clamp(0) tie => both deleted, even though DP differs (DP is not consulted).
 async Task IcecladEqualSourcesTie()
 {
-    BattleResolutionResult result = await ResolveBattle(
+    BattleOutcome result = await ResolveBattle(
         attackerDp: 9000, attackerSources: 2, attackerIceclad: true,
         targetDp: 1000, targetSources: 2, targetIceclad: false);
 
@@ -77,7 +85,7 @@ async Task IcecladEqualSourcesTie()
 // Iceclad does not guarantee a win — fewer sources still loses regardless of DP advantage.
 async Task IcecladFewerSourcesLoses()
 {
-    BattleResolutionResult result = await ResolveBattle(
+    BattleOutcome result = await ResolveBattle(
         attackerDp: 9000, attackerSources: 0, attackerIceclad: true,
         targetDp: 1000, targetSources: 2, targetIceclad: false);
 
@@ -88,7 +96,7 @@ async Task IcecladFewerSourcesLoses()
 // Regression: with neither combatant Iceclad, source counts are irrelevant and DP decides.
 async Task NoIcecladUsesDp()
 {
-    BattleResolutionResult result = await ResolveBattle(
+    BattleOutcome result = await ResolveBattle(
         attackerDp: 1000, attackerSources: 5, attackerIceclad: false,
         targetDp: 9000, targetSources: 0, targetIceclad: false);
 
@@ -96,11 +104,27 @@ async Task NoIcecladUsesDp()
     AssertFalse(result.DefenderDeleted, "higher-DP defender survives");
 }
 
-// --- Harness -------------------------------------------------------------
+// --- Harness (pump, G3.5-005 F68 idiom) ----------------------------------
 
-async Task<BattleResolutionResult> ResolveBattle(
+// The persistent outcome: who ended up in Trash (deleted) after the pump auto-resolved the battle. This is
+// the ZONE observation that replaces the OLD manual BattleResolutionResult.AttackerDeleted/DefenderDeleted.
+async Task<BattleOutcome> ResolveBattle(
     int attackerDp, int attackerSources, bool attackerIceclad,
     int targetDp, int targetSources, bool targetIceclad)
+{
+    DcgoMatch match = await CreateMatchAsync();
+    StageCombatant(match, Player, AttackerId, attackerDp, attackerSources, attackerIceclad, suspended: false);
+    StageCombatant(match, Opponent, TargetId, targetDp, targetSources, targetIceclad, suspended: true);
+
+    await ExpApply(match, TargetAttackLane(match, AttackerId, TargetId));
+    await ExpDriveUntil(match, m => m.Context.AttackController.Current.Phase == AttackPhase.None || m.IsTerminal());
+
+    return new BattleOutcome(
+        AttackerDeleted: InZone(match, Player, ChoiceZone.Trash, AttackerId),
+        DefenderDeleted: InZone(match, Opponent, ChoiceZone.Trash, TargetId));
+}
+
+async Task<DcgoMatch> CreateMatchAsync()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
     CardDatabase cards = (CardDatabase)context.CardRepository;
@@ -110,72 +134,107 @@ async Task<BattleResolutionResult> ResolveBattle(
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(Player, "P1"), Deck(Opponent, "P2") },
-        firstPlayerId: Player, shuffleDecks: false, shuffleDigitamaDecks: false);
+        firstPlayerId: Player, initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { Player, Opponent }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, Player);
-
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, TargetId, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, BlockerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
-
-    SetMetadata(match, AttackerId, BattleMetadata(attackerDp, attackerSources, attackerIceclad, suspended: false));
-    SetMetadata(match, TargetId, BattleMetadata(targetDp, targetSources, targetIceclad, suspended: true));
-    // A blocker keeps the block window open after the attack is declared, so the attack stays pending for
-    // the manual BattleResolver.ResolveAsync (mirrors G2G-003); the block itself is never selected.
-    SetMetadata(match, BlockerId, new Dictionary<string, object?>(StringComparer.Ordinal)
-    {
-        ["isSuspended"] = false,
-        [BattleResolver.DpKey] = 5000,
-        [BlockTiming.HasBlockerKey] = true,
-    });
-
-    LegalAction declare = match.GetLegalActions(Player).Single(a =>
-        a.ActionType == HeadlessActionTypes.DeclareAttack &&
-        (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackTargetId, out object? raw) ? raw?.ToString() : null) == TargetId.Value);
-    await match.ApplyActionAsync(declare);
-    await match.StepAsync();
-
-    return await new BattleResolver().ResolveAsync(match.Context);
+    await ExpStepOnce(match);
+    await ExpDriveUntil(match, m => ExpAtMainWait(m, Player));
+    return match;
 }
 
-Dictionary<string, object?> BattleMetadata(int dp, int sources, bool iceclad, bool suspended)
+// Stage a live battle-area synthetic Digimon (F68 PlaceRealCard idiom): synthetic Digimon def with a def-level
+// dp, instance carrying dp + Iceclad source ids/flag, moved None->BattleArea and registered.
+void StageCombatant(DcgoMatch match, HeadlessPlayerId owner, HeadlessEntityId id, int dp, int sources, bool iceclad, bool suspended)
 {
-    var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+    EngineContext ctx = match.Context;
+    var defId = new HeadlessEntityId($"DEF:{id.Value}");
+    var defMeta = new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 5, ["dp"] = dp };
+    ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(defId, id.Value, id.Value, defMeta, CardType: "Digimon"));
+
+    var instMeta = new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["isSuspended"] = suspended,
         [BattleResolver.DpKey] = dp,
         [BattleResolver.SourceIdsKey] = Enumerable.Range(1, sources).Select(i => $"src{i:D2}").ToArray(),
     };
-    if (iceclad)
-    {
-        metadata[BattleResolver.HasIcecladKey] = true;
-    }
-
-    return metadata;
+    if (iceclad) instMeta[BattleResolver.HasIcecladKey] = true;
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner, Metadata: instMeta));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
+    CardEffectRegistrar.RegisterCard(ctx, id, owner);
 }
 
-void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
+LegalAction TargetAttackLane(DcgoMatch match, HeadlessEntityId attacker, HeadlessEntityId target) =>
+    ExpLegal(match, Player)
+        .Where(a => a.ActionType == HeadlessActionTypes.DeclareAttack)
+        .Where(a => ExpParamId(a, HeadlessActionParameterKeys.AttackerId) == attacker)
+        .FirstOrDefault(a => ExpParamId(a, HeadlessActionParameterKeys.AttackTargetId) == target)
+        ?? throw new InvalidOperationException("no target-attack lane for " + attacker.Value + " -> " + target.Value);
+
+bool InZone(DcgoMatch match, HeadlessPlayerId player, ChoiceZone zone, HeadlessEntityId cardId) =>
+    ((IZoneStateReader)match.Context.ZoneMover).GetCards(player, zone).Contains(cardId);
+
+static IReadOnlyList<LegalAction> ExpLegal(DcgoMatch match, HeadlessPlayerId player)
 {
-    if (!match.Context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) || record is null)
-        throw new InvalidOperationException($"Missing card instance '{cardId}'.");
-    Dictionary<string, object?> metadata = new(record.Metadata, StringComparer.Ordinal);
-    foreach (KeyValuePair<string, object?> pair in values) metadata[pair.Key] = pair.Value;
-    match.Context.CardInstanceRepository.Upsert(record with { Metadata = metadata });
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    return match.GetLegalActions(player);
 }
 
-async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
+static HeadlessEntityId? ExpParamId(LegalAction action, string key) =>
+    action.Parameters.TryGetValue(key, out object? raw) && raw is HeadlessEntityId id ? id : null;
+
+static bool ExpAtMainWait(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice()
+    && !match.IsTerminal();
+
+static async Task ExpStepOnce(DcgoMatch match)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+async Task ExpApply(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+async Task ExpDriveUntil(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
     {
-        LegalAction advance = match.GetLegalActions(playerId).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
+        if (match.HasPendingChoice())
+        {
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? resolve;
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                resolve = match.GetLegalActions(chooser)
+                    .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                    ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+            if (resolve is null) { await ExpStepOnce(match); }
+            else { await ExpApply(match, resolve); }
+        }
+        else
+        {
+            await ExpStepOnce(match);
+        }
     }
 
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"EXP drive did not reach state — phase:{t.Phase}/{t.StepCursor} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"attackPhase:{match.Context.AttackController.Current.Phase} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
 }
 
 static CardRecord Digimon(string id) =>
@@ -188,7 +247,5 @@ static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
 
 static void AssertTrue(bool value, string label) { if (!value) throw new InvalidOperationException($"{label}: expected true."); }
 static void AssertFalse(bool value, string label) { if (value) throw new InvalidOperationException($"{label}: expected false."); }
-static void AssertEqual<T>(T expected, T actual, string label)
-{
-    if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{label}: expected '{expected}', actual '{actual}'.");
-}
+
+readonly record struct BattleOutcome(bool AttackerDeleted, bool DefenderDeleted);

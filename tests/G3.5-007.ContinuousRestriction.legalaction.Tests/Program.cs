@@ -110,6 +110,9 @@ async Task ContinuousBlockRestrictionRemovesBlocker()
     DcgoMatch match = await CreateMatchAsync(withBlocker: true);
     match.Context.AttackController.DeclareAttack(Player, AttackerId, Opponent, TargetId, isDirectAttack: false);
 
+    // (4b A-1, A3 precedent) bare BlockTiming.GetBlockerCandidates reads Permanent.HasCollision -> GManager.instance
+    // and NREs outside a match scope; landing the c5-proven ambient wrap flips the base-red. Assertions unchanged.
+    using var _ambient = AmbientMatchContext.Enter(match.Context);
     var blockTiming = new BlockTiming();
     bool baselineHasBlocker = blockTiming.GetBlockerCandidates(match.Context)
         .Any(candidate => candidate.BlockerId == BlockerId);

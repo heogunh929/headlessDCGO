@@ -394,3 +394,65 @@ c1(red 20 실측)·c2(green 전반 21)·**c3(green 후반 풀)** 를 합산해 �
 | **B5 합계** | | | | **−11** | c5 net 0 → 총계 불변; 제거분 전량 "검증대상 소멸(은퇴)+대체 커버" 또는 "통화-불변식 은퇴" |
 
 **감사 결론**: B5 전체 단언 net −11의 제거분은 (a) 발명물/OLD-표면 검증대상 소멸(은퇴, 대체 witness 실재) 또는 (b) OLD 통화-불변식(AdvancePhase count 등) 은퇴 — 실룰 검증 소실 0. c5는 오히려 +3/-3 = net 0(guard 강화·은퇴 상쇄).
+
+## §3.4d 배치 A-1 실행 기록 — 기계 잔여 소탕 (2026-07-19, main HEAD=99fb71e4 파생, 메인 워킹트리·미커밋)
+
+**엔진/src 변경 = 0**(전부 테스트-파일 재조준·re-point). build 엔진 0오류(경고 무증가). shadow 무영향(src 무변경). c5의 결정 실험 판례(§3.4c: G3.5-005 펌프 legal-lane)를 남은 combat·NRE·기계 좌석에 확산.
+
+### (1) ③ 잔여 4 재조준 완료 — c5 G3.5-005 판례 적용, 통화=0
+c5가 "manual BattleResolver/SecurityResolver.ResolveAsync 패턴·result-object 대 zone 충돌"로 미룬 4종을, F68 관용구(`CreatePumpDriven`+`StagePermanent`(합성 Digimon def·인스턴스 dp·None→BattleArea·`CardEffectRegistrar.RegisterCard`)+펌프 DeclareAttack legal-lane)로 완전 재조준. **전원 green→green**(base green 유지), OLD-ctor(`new DcgoMatch`)·AdvancePhase 통화 제거.
+| 픽스처 | 前 | 後 | 재조준 방식 | 단언 처리 |
+|--------|----|----|-------------|-----------|
+| **G3.5-C12**(Iceclad) | green 5/5 | **green 5/5** | 펌프 target-attack auto-drive; StagePermanent에 `SourceIdsKey`·`HasIcecladKey` 확장 | `BattleResolutionResult.AttackerDeleted/DefenderDeleted` → **동일 단언 텍스트 보존**, 부울 소스만 result-object→zone(패자 Trash 착지) 재조준. Iceclad source-count 비교가 펌프 하 재현 확증 |
+| **G3.5-R2-1** | green 3/3 | **green 3/3** | field=펌프 target-attack, security=펌프 direct-attack; `ContinuousRestrictionGate` prevent-deletion 등록 무변 | zone 단언(BattleArea/Trash) 이미 관측형 → **전량 보존 verbatim** |
+| **G3.5-W5** | green 7/7 | **green 7/7** | 펌프 direct-attack; 딜된 security clear 후 N장 스테이징(top-down) | `SecurityResolutionResult.*` 진단 result-object 은퇴 → zone/metadata 관측 재소싱(각 inline 명시). strike-stop·non-Digimon-no-battle·sources-trashed·Jamming 생존 전원 펌프 재현 |
+| **G9-062** | green 3/3 | **green 3/3** | battle 2 subtest=펌프 target-attack(삭제 outcome-or-OnDestroyedAnyone 창까지 드라이브); sweep subtest=RunToStable(retained 존치·무변) | zone/DP-scan/창 단언 verbatim; Ascension 창 pending 관측 위해 pending-or-cleared 드라이브 |
+
+**결정 실험 판례 확대 검증**: c5는 G3.5-005 1종으로 combat 재조준 가능성을 실증했으나, A-1은 **field battle·security battle·continuous-DP fold(G9-062 buff-drop)·Iceclad source-count·prevent-deletion replacement·strike-stop·비-Digimon security** 전 축을 펌프 하 재현 — §3.1f "combat 6 = R1/R6-게이트" 결론이 **driver-mechanical 오진이었음을 6종째 독립 확증**(F68 6번째 confirm).
+
+### (2) NRE wrap 3 착지 — base-red flip(A3 판례), 통화 존치
+c5가 probe 후 원복한 3종의 `AmbientMatchContext.Enter` wrap을 실제 착지. bare BlockTiming/GetBlockerCandidates가 `Permanent.HasCollision → GManager.instance`를 ambient scope 밖 호출 → NRE, wrap이 해소. **단언 무변(A3 판례)·통화 존치**(BlockTiming/BattleResolver API 단위 테스트 = ③-형, AdvancePhase-to-main preamble 유지).
+| 픽스처 | 前 | 後 | flip |
+|--------|----|----|------|
+| **G2G-002** | red(6 NRE)/4 green | **green 10/10** | +6 base-red subtest flip |
+| **G2G-003** | red(1 NRE)/9 green | **green 10/10** | +1 |
+| **G3.5-007** | red(1 NRE)/6 green | **green 7/7** | +1 |
+
+**잔여 red 정밀 마킹**: 세 스위트 모두 **잔여 red 0**(wrap이 전량 해소). G2G-002 collision subtest는 metadata `HasCollisionKey`(BlockTiming:271) 소비 = wrap만으로 green(§3.4c C910 K3의 keyword-granted Collision 실부채와 별개 — metadata 경로는 정상). base fail-set: **3 프로젝트 red→green**(G2G-002·G2G-003·G3.5-007).
+
+### (3) FAILd-03·G3.5-D6 re-point — 펌프-dispatch 좌석, 통화=0
+c5가 "펌프 breeding-decline 표면 확정 후"로 미룬 2종을, 확정된 펌프 breeding 좌석(TurnStateMachine.BreedingPhaseAsync:333 `ChoiceType.BreedingDecision` choice-pause, minCount0/maxCount1/canSkip)으로 re-point.
+- **G3.5-D6**(green 3/3 → **green 3/3**): CreateValidated+AdvancePhase → CreatePumpDriven; breeding=BreedingDecision 펌프 choice. **"AdvancePhase=decline" 검증대상 단언 = 번역(검증 의도 보존)**: decline은 이제 choice의 SKIP 레인(canSkip), hatch는 `breeding:act` ResolveChoice candidate. 핵심 검증("breeding은 auto-hatch 아닌 player DECISION")은 BreedingDecision pending choice로 정확 보존. AdvancePhase 통화 제거.
+- **FAILd-03**(green 2/2 → **green 2/2**): `new HeadlessLegalActionDispatcher()`(디스패처 OLD arm) → 펌프. Mulligan pause에서 B(movable breeding Digimon) 스테이징 후, breeding 점유(CanHatch=false)이므로 BreedingDecision은 MOVE 합법 시에만 개설 → "move offered"=BreedingDecision candidate label "move" 개설, "move NOT offered"=펌프가 breeding 자동통과해 main-wait 도달. CanNotMove 게이트는 펌프 `Player.CanMove → Permanent.CanMove`(AS-IS ICanNotMoveEffect scan)가 그대로 존중. **디스패처 OLD arm 소비자 1→0(청산)**.
+
+### (4) §3.1e 총괄표 최종 갱신 — A-1 후 통화 소비자 잔존
+A-1은 재조준 완료 21(§3.1e) 위에 **+6 통화 소비자 제거**(currency=0 도달): C12·R2-1·W5·G9-062·D6(AdvancePhase 5) + FAILd-03(디스패처 OLD arm 1). 통화 소비자 잔존 = **재조준 완료 27**(21 + A-1 6). B6-은퇴 2·B4 4·B3 9·B5 잔여는 §3.1e(2) 처분 유지(단, B5에서 A-1 6 차감). **G2G-002·G2G-003·G3.5-007은 green이나 통화 존치**(wrap-only, ③-형 API 단위 테스트) — B5 잔여 중 "green·통화 존치" 하위군으로 재분류(red 부채 아님, 그러나 소비자-0 게이트 계속 블로킹).
+
+### (5) B6-부분 삭제 입력 — 6 삭제-표면 소비자-0 최종 판정표
+grep 소비자(`tests/**/Program.cs`, 주석/소스-sniff 문자열 제외, 워크트리 제외):
+| # | 삭제-표면 파일 | grep 시그니처 | A-1 前 | A-1 後 | 소비자-0? |
+|---|----------------|--------------|-------:|-------:|-----------|
+| 1 | `HeadlessGameLoop.cs` OLD ctor/step | `new HeadlessGameLoop(` | 0 | **0** | ✅ **YES** (c5 §3.4c 청산 유지) |
+| 2 | `MetadataActionProcessor` AdvancePhase/EndTurn body | `HeadlessActionTypes.(AdvancePhase\|EndTurn)` | 26 | **21** | ❌ NO (A-1 −5: C12·R2-1·W5·G9-062·D6) |
+| 3 | `HeadlessMainPhaseFlow` invented eval | `new HeadlessMainPhaseFlow(`·`.ResolveTurnEndMinMemory`·`.DefaultMemoryPassValue` | 2 | **2** | ❌ NO (FAILd-07=B4·G2E-005=DefaultMemoryPassValue 상수 read; §1.3 항5 승격 후 처리) |
+| 4 | `HeadlessEarlyPhaseFlow` Unsuspend/Draw/Breeding | `new HeadlessEarlyPhaseFlow(` | 1 | **1** | ❌ NO (E3-Witness=DORMANT 항6·baseline-RED; B5/은퇴 후보) |
+| 5 | 디스패처 OLD arm | `new HeadlessLegalActionDispatcher(` | 1 | **0** | ✅ **YES** (A-1 청산 — FAILd-03 펌프 re-point) |
+| 6 | `EndOfTurnDrainedTurn` 마커 | `EndOfTurnDrainedTurn` | 0 | **0** | ✅ **YES** (엔진 내부 전용, 설계 §1.3 항4) |
+
+**B6-Da 귀결(A-1)**: 6 삭제-표면 중 **3(항1·항5·항6)이 소비자-0 도달** — 이 셋은 B6 물리삭제 가능(항5=디스패처 OLD arm은 A-1 신규 청산). 잔여 블로킹 3(항2·항3·항4)은 실부채/타-배치 게이트에 종속:
+- **항2(AdvancePhase/EndTurn body) 21 잔존**: 진짜 부채 게이트 소속 검증 — 21 = **B6-은퇴 2**(G2A-006·R4S3c-ShadowOldNew=존재이유 소멸) + **green·통화 존치 4**(G2G-002/003·G3.5-007·A3=③-형 wrap-only 단위 테스트) + **B4/B3/B5 미스코프 6**(G12-002·G3.5-C2·N9·D1·D2·F68) + **실부채 red 9**(C5-SecurityPreWindow·C5-Witness·G3.5-C910·W4·N2·D3·NewTimingsFire·R2-Del·G2G-004 = 키워드/보안 창·신timing 부채 = §3.4b P1 "창/배선 부채 유지"·병행 Sonnet 트랙 몫). ⇒ **21 중 재조준-가능 잔여 0**: green 4는 API-단위(재조준 불가·존치), 실부채 9는 엔진 갭(driver-swap 무효), 나머지는 B3/B4/은퇴 배치 몫. A-1 스코프의 "기계 잔여"는 소진.
+- **항3·항4(EndTurn drain·마커)**: 항2와 원자(§3.3 리스크 3) — 항2 잔존이 이 둘을 동반 블로킹.
+
+## §3.1g A-1 P2 상환 — per-file 제거 단언→대체 관측 원장 (리뷰2 P2 연장)
+A-1 재조준·re-point per-file 원장(§3.1g c1~c5 연장):
+| 배치 | 파일 | 제거 단언 | 대체 관측 | net | 근거 |
+|------|------|----------|----------|----:|------|
+| A-1 | G3.5-C12 | (0 제거) | 0(단언 텍스트 verbatim; result-object 부울 소스만 zone 재소싱) | **0** | 10 combat 단언 전량 보존; 패자 Trash 착지=would-be-deleted flag보다 강한 관측 |
+| A-1 | G3.5-R2-1 | (0 제거) | 0(zone 단언 이미 관측형·verbatim) | **0** | field/security 재조준·단언 무변 |
+| A-1 | G3.5-W5 | -9(SecurityResolutionResult 진단 read: IsSuccess·SecurityDigimonBattles·CheckedCardIds.Count·AttackerDeletedBySecurity) | AttackCleared(펌프 None 도달)·security card Trash·attacker BattleArea/Trash·2nd-security Security·DeletedByBattleKey — 제거된 result-object 진단마다 동치(실삭제) zone/metadata 관측 명시 | **-9** | 진단 result-object 은퇴(실삭제 zone이 대체); **영속 룰 검증 소실 0**(would-be-deleted → 실제 zone 착지) |
+| A-1 | G9-062 | (0 제거) | 0(zone/DP-scan/창 단언 verbatim) | **0** | battle 2=펌프 드라이브·단언 무변; sweep=retained 무변 |
+| A-1 | G3.5-D6 | -3(OLD 액션-통화 assert: types.Contains(HatchDigitama)·Contains(AdvancePhase)·!Contains(MoveBreedingToBattle)) | +7(펌프 choice-model: IsPending·Type==BreedingDecision·PlayerId·hatch-ResolveChoice·CanSkip·skip-lane·candidate=="hatch") | **+4** | "AdvancePhase=decline" 검증대상 번역(canSkip으로); "breeding=DECISION" 검증 의도 보존·강화 |
+| A-1 | FAILd-03 | (0 제거) | 0(2 test 부울 true/false shape 보존; 내부 관측만 dispatcher→펌프 BreedingDecision) | **0** | CanNotMove 게이트 검증 동일; 관측 좌석만 펌프-dispatch로 이동 |
+| **A-1 소계** | | -12 | +11 (+ result-object→zone 등가 재소싱) | **-5** | 제거 12 전량 (a)result-object 진단 은퇴(동치 zone 대체) 또는 (b)OLD 액션-통화 assert 은퇴(펌프 choice-model 번역); 실룰 검증 소실 0 |
+
+**A-1 감사 결론**: net −5의 제거분(W5 −9 result-object 진단 + D6 −3 OLD 액션-통화)은 전량 **검증대상(발명 result-object 진단·OLD 통화)이 펌프 등가 관측(실 zone 착지·choice-model)으로 대체**된 것 — c5 원칙(제거=은퇴+대체 커버 실재) 준수, 영속 게임-룰 검증 소실 0. C12/R2-1/G9-062/FAILd-03은 net 0(단언 verbatim); D6는 +4(choice-model 강화).

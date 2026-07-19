@@ -97,6 +97,10 @@ async Task BlockTimingExposesLegalBlockersOnly()
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
 
+    // (4b A-1, A3 precedent) The bare BlockTiming API reads Permanent.HasCollision/CanBlock -> GManager.instance,
+    // so it must run under an ambient match scope; without it the call NREs. Landing the c5-proven wrap flips the
+    // base-red. Assertions are unchanged.
+    using var _ambient = AmbientMatchContext.Enter(match.Context);
     BlockerCandidate[] candidates = new BlockTiming().GetBlockerCandidates(match.Context).ToArray();
 
     AssertEqual(1, candidates.Length, "candidate count");
@@ -110,6 +114,7 @@ async Task BlockTimingOpensSkippableChoice()
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
 
+    using var _ambient = AmbientMatchContext.Enter(match.Context); // (4b A-1) ambient wrap — flips base-red NRE
     BlockTimingResult result = new BlockTiming().RequestBlockChoice(match.Context);
 
     AssertTrue(result.IsSuccess, "request success");
@@ -144,6 +149,7 @@ async Task ResolvingBlockChoiceSelectsBlocker()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
+    using var _ambient = AmbientMatchContext.Enter(match.Context); // (4b A-1) ambient wrap — flips base-red NRE
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
 
@@ -166,6 +172,7 @@ async Task SkippingBlockChoiceLeavesAttackTargetUnchanged()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
+    using var _ambient = AmbientMatchContext.Enter(match.Context); // (4b A-1) ambient wrap — flips base-red NRE
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
 
@@ -196,6 +203,7 @@ async Task InvalidBlockerSelectionFailsWithoutMutation()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
+    using var _ambient = AmbientMatchContext.Enter(match.Context); // (4b A-1) ambient wrap — flips base-red NRE
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
     string before = SnapshotAttack(match);
@@ -339,6 +347,7 @@ static void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDicti
 
 string SnapshotCandidates(DcgoMatch match)
 {
+    using var _ambient = AmbientMatchContext.Enter(match.Context); // (4b A-1) ambient wrap — flips base-red NRE
     return string.Join(
         ",",
         new BlockTiming()

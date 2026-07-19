@@ -146,6 +146,9 @@ async Task BlockedAttackUsesSelectedBlocker()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync(attackerDp: 9000, targetDp: 3000, blockerDp: 12000);
     await DeclareDirectAttackAsync(match);
+    // (4b A-1, A3 precedent) bare BlockTiming reads Permanent.HasCollision/CanBlock -> GManager.instance and NREs
+    // outside a match scope; landing the c5-proven ambient wrap flips the base-red. Assertions are unchanged.
+    using var _ambient = AmbientMatchContext.Enter(match.Context);
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
     BlockTimingResult block = timing.ResolveBlockChoice(match.Context, ChoiceResult.Select(BlockerId));

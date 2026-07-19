@@ -6,11 +6,18 @@ using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
 // G3.5-D6: the breeding step is a player DECISION, not auto-resolved. The turn player may hatch a
-// digitama, move a breeding Digimon, or decline (AdvancePhase). The decision is surfaced as agent
-// legal actions, accepted by the A1 legality boundary, and reachable through the factored action space.
+// digitama, move a breeding Digimon, or decline. The decision is surfaced as agent legal actions and is
+// reachable through the factored action space.
+//
+// (4b A-1) RE-POINTED to the pump-dispatch seat (§3.1f/§3.4c c4 judgment). Under the cutover pump the
+// breeding step is the AS-IS ChoiceType.BreedingDecision choice-pause (TurnStateMachine.BreedingPhaseAsync
+// :333) — the invented AdvancePhase step-cadence surface is retired. The OLD "decline == AdvancePhase"
+// assertion is TRANSLATED, intent preserved: decline is now the choice's SKIP lane (canSkip: true), hatch
+// is the "breeding:act" ResolveChoice candidate. No AdvancePhase/EndTurn action currency.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
+HeadlessEntityId BreedingAct = new("breeding:act");
 
 var tests = new (string Name, Func<Task> Body)[]
 {
@@ -40,10 +47,22 @@ async Task BreedingOffersHatchAndDecline()
 {
     DcgoMatch match = await BreedingPhaseAsync();
 
-    string[] types = match.GetLegalActions(P1).Select(a => a.ActionType).Distinct().ToArray();
-    AssertTrue(types.Contains(HeadlessActionTypes.HatchDigitama), "hatch offered");
-    AssertTrue(types.Contains(HeadlessActionTypes.AdvancePhase), "decline (AdvancePhase) offered");
-    AssertFalse(types.Contains(HeadlessActionTypes.MoveBreedingToBattle), "no move offered (breeding area empty)");
+    // The breeding decision is a pending choice owned by the turn player (NOT auto-resolved).
+    HeadlessChoiceState choice = match.Context.ChoiceController.Current;
+    AssertTrue(choice.IsPending, "breeding decision is pending (a player choice, not auto-resolved)");
+    AssertEqual(ChoiceType.BreedingDecision, choice.Type, "breeding decision type");
+    AssertEqual(P1, choice.PlayerId!.Value, "turn player owns the breeding decision");
+
+    LegalAction[] legal = Legal(match, P1);
+    // Hatch offered: the "breeding:act" ResolveChoice candidate (label "hatch" while the breeding area is empty).
+    AssertTrue(legal.Any(a => a.ActionType == HeadlessActionTypes.ResolveChoice && Selects(a, BreedingAct)),
+        "hatch offered (breeding:act ResolveChoice candidate)");
+    // Decline offered: TRANSLATION of the OLD "AdvancePhase decline" — the choice's SKIP lane (canSkip: true).
+    AssertTrue(choice.CanSkip, "decline offered (the breeding choice can be skipped)");
+    AssertTrue(legal.Any(a => a.ActionType == HeadlessActionTypes.ResolveChoice && IsSkip(a)),
+        "decline is the ResolveChoice skip lane");
+    // No move offered: with an empty breeding area the sole candidate is a HATCH (there is nothing to move).
+    AssertEqual("hatch", match.Context.ChoiceController.PendingRequest!.Candidates.Single().Label, "sole candidate is hatch, not move");
     // Breeding did NOT auto-hatch on entry.
     AssertEqual(0, Count(match, ChoiceZone.BreedingArea), "breeding area still empty (no auto-hatch)");
 }
@@ -53,9 +72,11 @@ async Task DeclineLeavesDigitamaUnhatched()
     DcgoMatch match = await BreedingPhaseAsync();
     int digitamaBefore = Count(match, ChoiceZone.DigitamaLibrary);
 
-    StepResult declined = await Apply(match, HeadlessActionFactory.AdvancePhase(P1));
+    // Decline = skip the breeding decision (was: AdvancePhase). The pump auto-flows on to the main phase.
+    await ExpApply(match, SkipAction(match, P1));
+    await ExpDriveUntil(match, m => ExpAtMainWait(m, P1));
 
-    AssertEqual(HeadlessPhase.Main, declined.Observation.Turn.Phase, "declining advances to Main");
+    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "declining advances to Main");
     AssertEqual(digitamaBefore, Count(match, ChoiceZone.DigitamaLibrary), "digitama unchanged when declined");
     AssertEqual(0, Count(match, ChoiceZone.BreedingArea), "breeding area empty when declined");
 }
@@ -65,25 +86,21 @@ async Task HatchReachableViaFactored()
     DcgoMatch match = await BreedingPhaseAsync();
 
     FactoredActionMask mask = match.EncodeFactoredActionMask();
-    FactoredAction? hatch = mask.Actions.FirstOrDefault(a => a.Action.ActionType == HeadlessActionTypes.HatchDigitama);
+    FactoredAction? hatch = mask.Actions.FirstOrDefault(a =>
+        a.Action.ActionType == HeadlessActionTypes.ResolveChoice && Selects(a.Action, BreedingAct));
     AssertTrue(hatch is not null, "hatch is a placed factored action (RL-reachable)");
     AssertTrue(mask.ToMaskVector()[hatch!.Index] == 1d, "hatch's factored index is legal in the mask");
 
-    await Apply(match, hatch.Action);
+    await ExpApply(match, hatch.Action);
     AssertEqual(1, Count(match, ChoiceZone.BreedingArea), "hatch via factored action produced a breeding Digimon");
 }
 
-// --- Harness -------------------------------------------------------------
+// --- Harness (pump) ------------------------------------------------------
 
 int Count(DcgoMatch match, ChoiceZone zone) =>
     ((IZoneStateReader)match.Context.ZoneMover).GetCards(P1, zone).Count;
 
-static async Task<StepResult> Apply(DcgoMatch match, LegalAction action)
-{
-    await match.ApplyActionAsync(action);
-    return await match.StepAsync();
-}
-
+// Drive the pump from StartGame until it parks at the breeding decision choice (turn 1, first player).
 async Task<DcgoMatch> BreedingPhaseAsync()
 {
     EngineContext context = EngineContext.CreateDefault(randomSeed: 74);
@@ -94,22 +111,85 @@ async Task<DcgoMatch> BreedingPhaseAsync()
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = DcgoMatch.CreateValidated(context, new EngineTrace());
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
-        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
+        new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1,
+        initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 74, setup: setup));
+    await ExpStepOnce(match);
 
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Breeding; attempt++)
+    // Drive the pump to the breeding decision, auto-skipping any prior pump choice (e.g. the StartGame Mulligan).
+    for (int i = 0; i < 64 && !(match.HasPendingChoice()
+        && match.Context.ChoiceController.Current.Type == ChoiceType.BreedingDecision); i++)
     {
-        await Apply(match, HeadlessActionFactory.AdvancePhase(P1));
+        if (match.HasPendingChoice())
+        {
+            await ExpApply(match, SkipAction(match, match.Context.ChoiceController.PendingRequest!.PlayerId));
+        }
+        else
+        {
+            await ExpStepOnce(match);
+        }
     }
 
-    if (match.GetObservation().Turn.Phase != HeadlessPhase.Breeding)
+    if (!(match.HasPendingChoice() && match.Context.ChoiceController.Current.Type == ChoiceType.BreedingDecision))
     {
-        throw new InvalidOperationException("Failed to reach the breeding phase.");
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"Failed to reach the breeding decision — phase:{t.Phase}/{t.StepCursor} pending:{match.HasPendingChoice()} " +
+            $"type:{match.Context.ChoiceController.Current.Type}");
     }
 
     return match;
+}
+
+LegalAction[] Legal(DcgoMatch match, HeadlessPlayerId player)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    return match.GetLegalActions(player).ToArray();
+}
+
+LegalAction SkipAction(DcgoMatch match, HeadlessPlayerId player) =>
+    Legal(match, player).First(a => a.ActionType == HeadlessActionTypes.ResolveChoice && IsSkip(a));
+
+static bool Selects(LegalAction action, HeadlessEntityId id) =>
+    action.Parameters.TryGetValue(HeadlessActionParameterKeys.ChoiceSelectedIds, out object? raw)
+    && raw is IEnumerable<HeadlessEntityId> ids && ids.Contains(id);
+
+static bool IsSkip(LegalAction action) =>
+    action.Id.Value.EndsWith(":skip", StringComparison.Ordinal);
+
+static bool ExpAtMainWait(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice()
+    && !match.IsTerminal();
+
+static async Task ExpStepOnce(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+async Task ExpApply(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+async Task ExpDriveUntil(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        await ExpStepOnce(match);
+    }
+
+    if (!condition(match))
+    {
+        throw new InvalidOperationException("EXP drive did not reach the main wait.");
+    }
 }
 
 static CardRecord Digimon(string id) =>
@@ -131,9 +211,4 @@ static void AssertEqual<T>(T expected, T actual, string label)
 static void AssertTrue(bool value, string label)
 {
     if (!value) throw new InvalidOperationException($"{label}: expected true.");
-}
-
-static void AssertFalse(bool value, string label)
-{
-    if (value) throw new InvalidOperationException($"{label}: expected false.");
 }
