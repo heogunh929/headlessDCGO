@@ -31,6 +31,13 @@ var tests = new (string Name, Func<Task> Body)[]
     ("option sub-effect: with an enemy Option in play, AD1_025 destroys the Option AND trashes top security", OptionDestroyAndSecurity),
     ("[collapse witness] an UNCAPPED reactor fires EXACTLY ONCE for a 3-card leave batch (-1 memory, not -3)", UncappedBatchCollapse),
     ("[On Play] D2w-25 revive: mass deck-bottom-bounce every enemy Digimon with <= sources, THEN delete 1 of the POST-bounce survivors", OnPlayBounceThenConditionalDelete),
+    // (RDW-01-BOUNCE-SNAPSHOT-TRANSPORT) the sink leave-path: a BOUNCE (field->Hand / ->Library / ->Security) opens
+    // the pre-move OnLeaveFieldAnyone (+ OnPermamemtReturnedToHand for a hand bounce) window, like a deletion.
+    ("[RDW-01] hand-bounce fires the uncapped OnLeaveFieldAnyone reactor (memory -1)", BounceHandFiresLeave),
+    ("[RDW-01] a 2-card hand-bounce batch fires the uncapped OnLeaveFieldAnyone reactor ONCE (-1, not -2)", BounceHandLeaveCollapses),
+    ("[RDW-01] hand-bounce fires the uncapped OnPermamemtReturnedToHand reactor (memory -1)", BounceHandFiresReturned),
+    ("[RDW-01] deck-bounce fires OnLeaveFieldAnyone but NOT OnPermamemtReturnedToHand (deck != hand)", BounceDeckFiresLeaveNotReturned),
+    ("[RDW-01] negative: a NON-field ReturnToHand (card already in trash) fires no leave window", NonFieldReturnDoesNotFire),
 };
 
 var failures = new List<string>();
@@ -194,6 +201,131 @@ async Task OnPlayBounceThenConditionalDelete()
         "conditional delete over the POST-bounce survivors: the selected higher-source Digimon was deleted (trash)");
     AssertTrue(InBattle(ctx, P2, high2),
         "the non-selected higher-source survivor stayed in the battle area (bounce did not touch it, delete picked only 1)");
+}
+
+// (RDW-01-BOUNCE-SNAPSHOT-TRANSPORT) --- sink bounce/put leave-window witnesses -------------------------
+// A field DEPARTURE via the sink (ReturnToHand / ReturnToDeck* / a field-origin AddToSecurity) must open the
+// AS-IS OnLeaveFieldAnyone (+ OnPermamemtReturnedToHand for a hand bounce) trigger window pre-move — the same
+// window the deletion path opens, but from the un-ported HandBounceClaass / DeckBounceClass / IPutSecurityPermanent
+// routines, now opened at the sink. Uncapped reactors (Tfx*Counter) so firing (window opened at all — was a GAP)
+// and collapse (one window per bounce class) are both observable. P1 is the turn player, so -1 reads as -1.
+
+async Task BounceHandFiresLeave()
+{
+    EngineContext ctx = await LeaveReactorCtx("TfxOnLeaveFieldCounter", 41);
+    HeadlessEntityId foe = await Foe(ctx, "BH1");
+    await BounceViaSink(ctx, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.ReturnToHandKind, foe);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    AssertTrue(InHand(ctx, P2, foe), "the bounced Digimon reached the opponent's hand");
+    AssertEqual(-1, ctx.MemoryController.Current.Current,
+        "the uncapped OnLeaveFieldAnyone reactor fired on the field->hand bounce (memory -1; was 0 = window not opened)");
+}
+
+async Task BounceHandLeaveCollapses()
+{
+    EngineContext ctx = await LeaveReactorCtx("TfxOnLeaveFieldCounter", 42);
+    HeadlessEntityId f1 = await Foe(ctx, "BC1");
+    HeadlessEntityId f2 = await Foe(ctx, "BC2");
+    // Both bounced in ONE sink flush == one AS-IS HandBounceClaass over the list == one StackSkillInfos.
+    await BounceViaSink(ctx, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.ReturnToHandKind, f1, f2);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    AssertEqual(-1, ctx.MemoryController.Current.Current,
+        "the uncapped reactor fired ONCE for the 2-card hand-bounce batch (memory -1); a per-card window would be -2");
+}
+
+async Task BounceHandFiresReturned()
+{
+    EngineContext ctx = await LeaveReactorCtx("TfxOnReturnToHandCounter", 43);
+    HeadlessEntityId foe = await Foe(ctx, "BR1");
+    await BounceViaSink(ctx, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.ReturnToHandKind, foe);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    AssertEqual(-1, ctx.MemoryController.Current.Current,
+        "the uncapped OnPermamemtReturnedToHand reactor fired on the field->hand bounce (memory -1)");
+}
+
+async Task BounceDeckFiresLeaveNotReturned()
+{
+    // A DECK bounce opens OnLeaveFieldAnyone (AS-IS DeckBottomBounceClass :2374) ...
+    EngineContext leaveCtx = await LeaveReactorCtx("TfxOnLeaveFieldCounter", 44);
+    HeadlessEntityId foeA = await Foe(leaveCtx, "BD1");
+    await BounceViaSink(leaveCtx, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.ReturnToDeckBottomKind, foeA);
+    await new GameFlowProcessor().RunToStableAsync(leaveCtx);
+    AssertTrue(InLibrary(leaveCtx, P2, foeA), "the deck-bounced Digimon reached the opponent's library");
+    AssertEqual(-1, leaveCtx.MemoryController.Current.Current, "deck bounce opened OnLeaveFieldAnyone (memory -1)");
+
+    // ... but NOT OnPermamemtReturnedToHand (that timing is hand-bounce only — AS-IS DeckBounceClass never opens it).
+    EngineContext returnCtx = await LeaveReactorCtx("TfxOnReturnToHandCounter", 45);
+    HeadlessEntityId foeB = await Foe(returnCtx, "BD2");
+    await BounceViaSink(returnCtx, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.ReturnToDeckBottomKind, foeB);
+    await new GameFlowProcessor().RunToStableAsync(returnCtx);
+    AssertEqual(0, returnCtx.MemoryController.Current.Current,
+        "a deck bounce did NOT open OnPermamemtReturnedToHand (memory unchanged — hand-only timing)");
+}
+
+async Task NonFieldReturnDoesNotFire()
+{
+    // The field-origin gate: a ReturnToHand of a card NOT on the battle field (already in the trash) is not a
+    // field departure, so NO leave window opens (AS-IS bounce routines only take battle-area Permanents).
+    EngineContext ctx = await LeaveReactorCtx("TfxOnLeaveFieldCounter", 46);
+    HeadlessEntityId trashed = await FoeInZone(ctx, "NF1", ChoiceZone.Trash);
+    await BounceViaSink(ctx, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.ReturnToHandKind, trashed);
+    await new GameFlowProcessor().RunToStableAsync(ctx);
+
+    AssertTrue(InHand(ctx, P2, trashed), "the trash card was moved to hand (the move itself still runs)");
+    AssertEqual(0, ctx.MemoryController.Current.Current,
+        "a non-field ReturnToHand opened NO OnLeaveFieldAnyone window (memory unchanged — field-origin gate)");
+}
+
+async Task<EngineContext> LeaveReactorCtx(string fixtureNumber, int seed)
+{
+    EngineContext ctx = EngineContext.CreateDefault(randomSeed: seed);
+    ctx.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ctx.TurnController.SetPhase(HeadlessPhase.Main); // DoneStartGame gate (new-model ActivateClass fires past Setup)
+    ctx.MemoryController.Set(0);
+    var cards = (CardDatabase)ctx.CardRepository;
+    cards.Upsert(new CardRecord(new HeadlessEntityId(fixtureNumber), fixtureNumber, "Reactor",
+        new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var reactor = new HeadlessEntityId($"1:battle:{fixtureNumber}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(reactor, new HeadlessEntityId(fixtureNumber), P1, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, reactor, ChoiceZone.None, ChoiceZone.BattleArea));
+    ctx.RegisterEnteredCardEffects(reactor, P1);
+    return ctx;
+}
+
+async Task BounceViaSink(EngineContext ctx, string kind, params HeadlessEntityId[] targets)
+{
+    var sink = new HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink(
+        ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
+        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+    foreach (HeadlessEntityId target in targets)
+    {
+        sink.Apply(new HeadlessDCGO.Engine.Headless.Effects.EffectMutation(
+            kind,
+            new HeadlessEntityId("effect:bouncer"),
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.TargetEntityIdKey] = target.Value,
+            }));
+    }
+
+    await sink.FlushAsync();
+}
+
+bool InHand(EngineContext ctx, HeadlessPlayerId owner, HeadlessEntityId id) =>
+    ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, ChoiceZone.Hand).Contains(id);
+
+async Task<HeadlessEntityId> FoeInZone(EngineContext ctx, string tag, ChoiceZone zone)
+{
+    var cards = (CardDatabase)ctx.CardRepository;
+    var def = new HeadlessEntityId($"DEF:{tag}");
+    cards.Upsert(new CardRecord(def, tag, tag, new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+    var id = new HeadlessEntityId($"{P2.Value}:{tag}");
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, def, P2, Metadata: new Dictionary<string, object?>()));
+    await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, id, ChoiceZone.None, zone));
+    return id;
 }
 
 // --- Helpers -------------------------------------------------------------

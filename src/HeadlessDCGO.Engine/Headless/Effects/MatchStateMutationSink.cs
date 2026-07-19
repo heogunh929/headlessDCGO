@@ -366,6 +366,31 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
 
     private sealed record StagedDelete(EffectMutation Mutation, HeadlessEntityId TargetId);
 
+    // (RDW-01-BOUNCE-SNAPSHOT-TRANSPORT) The per-flush field-DEPARTURE window batch. AS-IS opens the "permanent
+    // leaves the battle area" / "returned to hand" trigger window inside the bounce/put routines that this port does
+    // NOT mirror (HandBounceClaass.Bounce CardController.cs:2692/:2705, DeckBottom/TopBounceClass.DeckBounce
+    // :2374/:2540, IPutSecurityPermanent.PutSecurity :3599) — the sink is the port's substitute for those routines,
+    // so the window is opened HERE, pre-move, over the whole flush's leaving list (one StackSkillInfos per AS-IS
+    // bounce CLASS, so an anyone-reactor collapses once per class). See StageLeaveWindow.
+    private LeaveBatch? _currentLeaveBatch;
+
+    private enum LeaveClass { HandBounce, DeckBounce, SecurityPut }
+
+    private sealed record LeaveEntry(LeaveClass LeaveClass, HeadlessEntityId TargetId, HeadlessPlayerId OwnerId);
+
+    private sealed class LeaveBatch
+    {
+        public List<LeaveEntry> Entries { get; } = new();
+
+        /// <summary>The causing effect's source id (AS-IS bounce is always effect-driven — every routine is called
+        /// with a cardEffect); first non-empty cause of the flush (one flush == one effect fire).</summary>
+        public HeadlessEntityId Cause;
+
+        /// <summary>Set once the opener thunk has stacked this batch's leave windows, so <see cref="FlushAsync"/>
+        /// drains them once when no enclosing window pick will (parity with the delete batch's OnDeletionWindowOpened).</summary>
+        public bool WindowOpened;
+    }
+
     public MatchStateMutationSink(
         ICardInstanceRepository repository,
         ILogSink? log = null,
@@ -607,6 +632,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // ONE cached id, mirroring the single AddHandCards call.
                 long returnHandBatchId = ResolveAddHandBatchId();
                 HeadlessEntityId returnHandCause = mutation.SourceEntityId;
+                // (RDW-01) field bounce -> AS-IS HandBounceClaass OnPermamemtReturnedToHand + OnLeaveFieldAnyone.
+                StageLeaveWindow(mutation, record, targetId, LeaveClass.HandBounce);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToHandAsync(
                     owner, id, returnHandBatchId, returnHandCause.IsEmpty ? null : returnHandCause, ct));
                 break;
@@ -619,6 +646,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 }
 
                 ApplyAceOverflowOnLeave(record, targetId, mutation);
+                // (RDW-01) field deck-bounce -> AS-IS DeckTopBounceClass OnLeaveFieldAnyone.
+                StageLeaveWindow(mutation, record, targetId, LeaveClass.DeckBounce);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.MoveToDeckTopAsync(owner, id, ct));
                 break;
             case ReturnToDeckBottomKind:
@@ -632,6 +661,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 }
 
                 ApplyAceOverflowOnLeave(record, targetId, mutation);
+                // (RDW-01) field deck-bounce -> AS-IS DeckBottomBounceClass OnLeaveFieldAnyone.
+                StageLeaveWindow(mutation, record, targetId, LeaveClass.DeckBounce);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.MoveToDeckBottomAsync(owner, id, ct));
                 break;
             case AddToSecurityKind:
@@ -651,6 +682,9 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 // (F1-Tier1 OnAddSecurity P2-1) one added card == one AS-IS IAddSecurity == one per-card
                 // OnAddSecurity: allocate a distinct shared-counter id (a context-less bare sink leaves it null).
                 long? addSecurityBatchId = _context?.NextSecurityAddBatchId();
+                // (RDW-01) a FIELD permanent placed to security (AS-IS IPutSecurityPermanent) -> OnLeaveFieldAnyone.
+                // StageLeaveWindow's battle-area gate no-ops for a non-field security add (hand/library -> security).
+                StageLeaveWindow(mutation, record, targetId, LeaveClass.SecurityPut);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToSecurityAsync(owner, id, faceUp, toTop, addSecurityBatchId, ct));
                 // (faceup security) persist the AS-IS SetFace/SetReverse face state so the continuous-source
                 // scan can find a face-up security card (Runtime.SecurityFaceState).
@@ -743,6 +777,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // opens a NEW batch (a reused sink = a new resolution step) instead of extending the executed one.
         DeleteBatch? flushedDeleteBatch = _currentDeleteBatch;
         _currentDeleteBatch = null;
+        // (RDW-01) same detach for the field-departure window batch: a reused sink (a new resolution step) opens a
+        // fresh leave batch rather than extending the executed one.
+        LeaveBatch? flushedLeaveBatch = _currentLeaveBatch;
+        _currentLeaveBatch = null;
         // (F1-Tier1) the staged discard thunks captured their batch id by value; clear the cache so a reused sink
         // (a new resolution step) opens a FRESH discard batch rather than collapsing into the flushed one.
         _cachedDiscardBatchId = null;
@@ -791,7 +829,8 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // a deletion window and NO enclosing window drain will run it (executingMultipleSkills == null — a nested
         // flush inside a window pick defers to that pick's PassTail, the AS-IS position), drain it here, once,
         // before returning to the caller. A choice suspension propagates as the normal pause contract.
-        if (flushedDeleteBatch is { OnDeletionWindowOpened: true } && _context is not null)
+        if ((flushedDeleteBatch is { OnDeletionWindowOpened: true } || flushedLeaveBatch is { WindowOpened: true })
+            && _context is not null)
         {
             using AmbientMatchContext.Scope _drainScope = AmbientMatchContext.Enter(_context);
             var drainAutoProcessing = Assets.Scripts.Script.AutoProcessing.For(_context);
@@ -1102,6 +1141,87 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
         // mutation staged in the SAME batch evaluates restrictions with this card's protections already gone.
         _effectRegistry?.RemoveWhere(binding => binding.Request.Context.SourceEntityId == targetId);
         _applied.Add(new AppliedMutation(mutation.Kind, targetId, "pendingMove"));
+    }
+
+    // (RDW-01-BOUNCE-SNAPSHOT-TRANSPORT) Record a field permanent's DEPARTURE so the flush opens the AS-IS
+    // OnLeaveFieldAnyone (+ OnPermamemtReturnedToHand for a hand bounce) trigger window over the pre-removal
+    // snapshot, exactly as the un-ported AS-IS bounce/put routines do (HandBounceClaass CardController.cs:2692/:2705,
+    // DeckBottom/TopBounceClass :2374/:2540, IPutSecurityPermanent :3599 — each a single StackSkillInfos over its
+    // willBeRemoveField list). The supply converter cannot rebuild that payload from the POST-move CardMoved (it
+    // needs the on-field TopCard/cardSources/DigivolutionCards; design item RDW-01), so it is opened HERE where the
+    // card is still on the field. ONLY a card currently in the battle area leaves it — a non-field ReturnToHand /
+    // AddToSecurity (a trash->hand recovery, a hand/library->security add) is NOT a field departure and opens nothing
+    // (the AS-IS bounce/put routines only take battle-area Permanents). Called BEFORE ApplyZoneMove, so the opener
+    // thunk is staged ahead of the MOVE thunk and runs while the leaving cards are still on the field. N leaves of
+    // one flush share ONE window per class (collapse: an uncapped anyone-reactor fires once, AS-IS single-list stack).
+    private void StageLeaveWindow(EffectMutation mutation, CardInstanceRecord record, HeadlessEntityId targetId, LeaveClass leaveClass)
+    {
+        if (_context is null || _zoneMover is not IZoneStateReader zones
+            || !zones.GetCards(record.OwnerId, ChoiceZone.BattleArea).Contains(targetId))
+        {
+            return;
+        }
+
+        if (_currentLeaveBatch is null)
+        {
+            var batch = new LeaveBatch();
+            _currentLeaveBatch = batch;
+            EngineContext ctx = _context;
+            // Runs BEFORE the staged bounce MOVE thunks (staged after this call), so every entry's Permanent view is
+            // still on the field — collect-before-removal, exactly as AS-IS builds OnDeletionHashtable pre-move.
+            _pendingAsync.Add(_ => OpenLeaveWindowsAsync(ctx, batch));
+        }
+
+        LeaveBatch current = _currentLeaveBatch;
+        if (current.Cause.IsEmpty && !mutation.SourceEntityId.IsEmpty)
+        {
+            current.Cause = mutation.SourceEntityId;
+        }
+
+        current.Entries.Add(new LeaveEntry(leaveClass, targetId, record.OwnerId));
+    }
+
+    /// <summary>(RDW-01-BOUNCE-SNAPSHOT-TRANSPORT) Stack the flush's field-departure windows on the mirror
+    /// AutoProcessing, ONE StackSkillInfos per AS-IS bounce CLASS over that class's pre-move Permanent list — a hand
+    /// bounce opens OnPermamemtReturnedToHand FIRST then OnLeaveFieldAnyone (AS-IS HandBounceClaass :2692 then :2705),
+    /// a deck bounce / security put opens OnLeaveFieldAnyone alone. cardEffect/battle are absent (the sink holds only
+    /// the cause id, not the live ICardEffect — RD-C1-CARDEFFECT-IDTHREAD): the boolean-cause OnDeletionHashtable
+    /// overload carries byEffectCause (a bounce is effect-driven) so IsByEffect reads true exactly as AS-IS's non-null
+    /// cardEffect, byBattle=false/isDPZero=false. The OnLeaveFieldAnyone / OnPermamemtReturnedToHand reactor gates
+    /// (CanTriggerOnPermanentLeave/Deleted) read only the per-permanent snapshot, never the live effect. AS-IS builds
+    /// a FRESH OnDeletionHashtable per StackSkillInfos.</summary>
+    private static async Task OpenLeaveWindowsAsync(EngineContext context, LeaveBatch batch)
+    {
+        using Bridge.AmbientMatchContext.Scope _scope = Bridge.AmbientMatchContext.Enter(context);
+        var autoProcessing = Assets.Scripts.Script.AutoProcessing.For(context);
+        bool byEffectCause = !batch.Cause.IsEmpty;
+
+        foreach (LeaveClass leaveClass in new[] { LeaveClass.HandBounce, LeaveClass.DeckBounce, LeaveClass.SecurityPut })
+        {
+            List<Assets.Scripts.Script.CardEffectCommons.Permanent> permanents = batch.Entries
+                .Where(entry => entry.LeaveClass == leaveClass)
+                .Select(entry => new Assets.Scripts.Script.CardEffectCommons.Permanent(context, entry.TargetId, entry.OwnerId))
+                .ToList();
+            if (permanents.Count == 0)
+            {
+                continue;
+            }
+
+            batch.WindowOpened = true;
+
+            if (leaveClass == LeaveClass.HandBounce)
+            {
+                await autoProcessing.StackSkillInfos(
+                    Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                        permanents, byEffectCause, byBattleCause: false, isDPZero: false),
+                    Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnPermamemtReturnedToHand).ConfigureAwait(false);
+            }
+
+            await autoProcessing.StackSkillInfos(
+                Assets.Scripts.Script.CardEffectCommons.CardEffectCommons.OnDeletionHashtable(
+                    permanents, byEffectCause, byBattleCause: false, isDPZero: false),
+                Assets.Scripts.Script.CardEffectCommons.EffectTiming.OnLeaveFieldAnyone).ConfigureAwait(false);
+        }
     }
 
     // (F1-Tier1 OnDiscard*) Trash a card to the trash while PRESERVING its source zone (so Hand->Trash /

@@ -123,14 +123,21 @@ public static class SkillWindowSupply
     //          turn emits ALREADY go through TriggerEventEmitter.Emit (MetadataActionProcessor.cs:872/:910/:1022),
     //          which stamps the explicit TriggerTimingKey — so TriggerTimingMap.Derive ALREADY returns these
     //          strings (no new emit key was required; the worksheet's "don't derive" premise was stale).
-    //   RDW-01 STILL OPEN — design item RDW-01-BOUNCE-SNAPSHOT-TRANSPORT: the OnLeaveFieldAnyone /
-    //          OnPermamemtReturnedToHand payload (OnDeletionHashtable, PRE-removal snapshot) rides the field->Hand
-    //          CardMoved, but a bounce's move (MatchStateMutationSink ReturnToHandKind -> IZoneMover.AddToHandAsync)
-    //          is minted INSIDE InMemoryZoneMover, whose CardMoved metadata (BuildAddHandMetadata) is OUTSIDE this
-    //          batch's file ownership and cannot carry a caller snapshot. The pre-move Permanent IS in scope at the
-    //          sink, but there is no sink-owned event carrying those timings to enrich. The C2 flip (re-position
-    //          StackSkillInfos to the sink's pre-move point) closes it. (The field->Trash DELETION timings stay at
-    //          the mirror DestroyPermanentsClass, which already calls StackSkillInfos — not this layer's concern.)
+    //   RDW-01 CLOSED — design item RDW-01-BOUNCE-SNAPSHOT-TRANSPORT: NOT closed HERE (still no supply conversion —
+    //          the OnDeletionHashtable PRE-removal snapshot is unreconstructable from the POST-move CardMoved), but
+    //          NO LONGER a live gap. The OnLeaveFieldAnyone (+ OnPermamemtReturnedToHand for a hand bounce) window is
+    //          opened INLINE at the sink pre-move point exactly as the un-ported AS-IS bounce/put routines do
+    //          (HandBounceClaass.Bounce CardController.cs:2692/:2705, DeckBottom/TopBounceClass.DeckBounce
+    //          :2374/:2540, IPutSecurityPermanent.PutSecurity :3599): MatchStateMutationSink.StageLeaveWindow records
+    //          each field-area departure (ReturnToHand -> HandBounce, ReturnToDeckTop/Bottom -> DeckBounce, a
+    //          FIELD-origin AddToSecurity -> SecurityPut) into a per-flush batch, and OpenLeaveWindowsAsync stacks ONE
+    //          StackSkillInfos per bounce class over the pre-move Permanent list (collect-before-removal; anyone-
+    //          reactor collapses once per class, AS-IS single-list stack). Payload = the boolean-cause
+    //          OnDeletionHashtable overload (byEffectCause from the mutation cause id, battle=null, isDPZero=false) —
+    //          the leave/return reactor gates (CanTriggerOnPermanentLeave/Deleted) read only the per-permanent
+    //          snapshot, never the live effect (RD-C1-CARDEFFECT-IDTHREAD residual). These raw bounce timings stay a
+    //          no-op for THIS layer (dropped below). (The field->Trash DELETION timings stay at the mirror
+    //          DestroyPermanentsClass / the deferred deletion opener, which already call StackSkillInfos.)
 
     private const string AttackCauseEffectIdKey = "attackCauseEffectId";
 
