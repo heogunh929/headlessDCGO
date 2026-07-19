@@ -506,6 +506,11 @@ public static class ActivatedEffectResolver
         var coordinator = context.ChoiceProvider as IDeferredChoiceCoordinator;
         coordinator?.BeginResolution();
         bool cycleOwner = context.OnceFlags.BeginUniformCycle();
+        // (RD-C5W-ACTIVATEBODY) the SAME register-before-body transaction for the AS-IS CEntity_EffectController
+        // per-turn use list (the ported-card [Once Per Turn] cap — ICardEffect.CanActivate/isOverMaxCountPerTurn),
+        // driven in lockstep with OnceFlags so a deferred-choice REPLAY-resume of a capped optional/interactive
+        // effect does not re-gate on its own in-flight use (proof: the UNCAPPED [On Deletion] already resumes fine).
+        bool ceCycleOwner = CEntityUseCycle.For(context).Begin();
 
         int resolved;
         try
@@ -515,6 +520,7 @@ public static class ActivatedEffectResolver
         catch (Exception ex) when (ex is DeferredChoicePendingException or WindowChoicePendingException)
         {
             context.OnceFlags.SuspendUniformCycle(cycleOwner);
+            CEntityUseCycle.For(context).Suspend(ceCycleOwner);
             // (C-Del 3c-2b nested cycles) park this cycle's replay frame — a NESTED cycle's suspension must not
             // leave the coordinator's active depth pointing at the parent's frame (see DeferredChoiceProvider).
             coordinator?.SuspendResolution();
@@ -523,12 +529,14 @@ public static class ActivatedEffectResolver
         catch
         {
             context.OnceFlags.AbortUniformCycle(cycleOwner);
+            CEntityUseCycle.For(context).Abort(ceCycleOwner);
             // The cycle is dead — discard its replay frame (positional, like completion).
             coordinator?.CompleteResolution();
             throw;
         }
 
         context.OnceFlags.CompleteUniformCycle(cycleOwner);
+        CEntityUseCycle.For(context).Complete(ceCycleOwner);
         await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
         coordinator?.CompleteResolution();
         return resolved;

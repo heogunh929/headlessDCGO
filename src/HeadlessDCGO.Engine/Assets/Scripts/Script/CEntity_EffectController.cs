@@ -21,6 +21,7 @@
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -32,6 +33,13 @@ public class CEntity_EffectController
 {
     // AS-IS CEntity_EffectController.cs:8: "Number of skills used this turn (referenced by use limit)".
     List<ICardEffect> UseEffectsThisTurn = new List<ICardEffect>();
+
+    // (RD-C5W-ACTIVATEBODY, substrate) The live match this controller belongs to, set by
+    // CEntity_EffectControllerStore.Create. Used only to reach the match-scoped register-before-body transaction
+    // (CEntityUseCycle) so the per-turn use list becomes suspend/resume-cycle-aware for the deferred-choice
+    // REPLAY-resume of a [Once Per Turn] optional/interactive effect (see CEntityUseCycle). Null when a controller
+    // is constructed outside the store — then the register/gate degrade to the plain AS-IS immediate list ops.
+    internal EngineContext Context { get; set; }
 
     #region CEntity_Effect
 
@@ -256,6 +264,16 @@ public class CEntity_EffectController
             }
         }
 
+        // (RD-C5W-ACTIVATEBODY) add uses REGISTERED-before-body but still STAGED in the open resolution cycle
+        // (not yet committed to UseEffectsThisTurn) so the cap view matches AS-IS's single-coroutine mid-body view:
+        // while executing, the resolving effect's own gate re-check reads only what it saw the first time (staged
+        // uses replayed so far), so the REPLAY-resume of its body is NOT capped-out by its own in-flight use; while
+        // suspended, an outside observer reads the staged use as consumed. No cycle open -> extra is 0 (AS-IS).
+        if (Context != null)
+        {
+            useCount += CEntityUseCycle.For(Context).StagedCount(cardEffect);
+        }
+
         return useCount;
     }
 
@@ -276,6 +294,14 @@ public class CEntity_EffectController
     // AS-IS CEntity_EffectController.cs:269-272.
     public void RegisterUseEffectThisTurn(ICardEffect cardEffect)
     {
+        // (RD-C5W-ACTIVATEBODY) register-before-body: inside an open resolution cycle STAGE the use (committed on
+        // cycle completion, kept across a deferred-choice suspend) so a REPLAY-resume neither double-registers nor
+        // reads its own in-flight use as capped-out; outside a cycle commit directly (AS-IS immediate list add).
+        if (Context != null && CEntityUseCycle.For(Context).TryStage(cardEffect, () => UseEffectsThisTurn.Add(cardEffect)))
+        {
+            return;
+        }
+
         UseEffectsThisTurn.Add(cardEffect);
     }
 
@@ -286,6 +312,14 @@ public class CEntity_EffectController
     // AS-IS CEntity_EffectController.cs:276-279.
     public void RemoveUseEffectThisTurn(ICardEffect cardEffect)
     {
+        // (RD-C5W-ACTIVATEBODY) RemoveUse (AS-IS card body's `if (!executed) RemoveUse()`): inside the open cycle
+        // the paired register is only STAGED, so refund the staged use (net zero commit); outside a cycle remove
+        // the committed list entry (AS-IS).
+        if (Context != null && CEntityUseCycle.For(Context).TryRefund(cardEffect))
+        {
+            return;
+        }
+
         UseEffectsThisTurn.Remove(cardEffect);
     }
 
@@ -339,6 +373,9 @@ public static class CEntity_EffectControllerStore
     private static CEntity_EffectController Create(EngineContext context, HeadlessEntityId instanceId)
     {
         var controller = new CEntity_EffectController();
+        // (RD-C5W-ACTIVATEBODY) anchor the controller to its match so the per-turn use list can participate in the
+        // match-scoped register-before-body transaction (CEntityUseCycle).
+        controller.Context = context;
         if (!instanceId.IsEmpty
             && context.CardInstanceRepository.TryGetInstance(instanceId, out CardInstanceRecord? instance)
             && instance is not null
@@ -360,5 +397,207 @@ public static class CEntity_EffectControllerStore
         }
 
         return controller;
+    }
+}
+
+/// <summary>(RD-C5W-ACTIVATEBODY, substrate — not AS-IS) Match-scoped register-before-body TRANSACTION for the
+/// AS-IS <see cref="CEntity_EffectController"/> per-turn use list — the ported-card <c>[Once Per Turn]</c> cap path
+/// (<c>ICardEffect.CanActivate</c>/<c>CanUse</c> → <c>isOverMaxCountPerTurn</c>). It mirrors the verified
+/// <see cref="Headless.Effects.OnceFlagController"/> uniform-cycle (the substrate <c>ActivatedEffect</c> cap path),
+/// applied to the EXTERNAL <see cref="CEntity_EffectController.UseEffectsThisTurn"/> store instead of an internal
+/// key/count.
+///
+/// <para>AS-IS is a SINGLE coroutine: <c>CanActivate</c> is checked ONCE at activation start, the use is registered
+/// BEFORE the body (register-before-body), and the interactive-select SUSPEND resumes the SAME coroutine mid-body —
+/// the cap gate is never re-evaluated. The headless resume model REPLAYS the whole body from the top on each
+/// deferred-choice answer (<c>MultipleSkills.RunPickBodyAsync</c> / <c>AutoProcessing.ActivateEffectProcess</c>),
+/// which re-runs <c>CanActivate</c>; without this transaction the already-registered use makes the re-check read
+/// <c>isOverMaxCountPerTurn = true</c> and the body is wrongly skipped (RD-C5W-ACTIVATEBODY).</para>
+///
+/// <para>The transaction is driven by the ONE resolution lifecycle seam,
+/// <c>ActivatedEffectResolver.ResolveWithinCycleAsync</c>, alongside the <c>OnceFlags</c> calls:
+/// <list type="bullet">
+/// <item>a <c>Register</c> during an open, actively-executing cycle STAGES the use (per-cycle <c>_pending</c>) with
+///   a deferred commit thunk, instead of committing to the list;</item>
+/// <item>a re-invocation (<see cref="Begin"/> resume) resets the positional <c>_cursor</c>; a <c>Register</c> whose
+///   cursor lags the staged count is a REPLAY of an earlier register (cursor advances, nothing staged);</item>
+/// <item><see cref="StagedCount"/> reads staged-up-to-cursor while executing (the gate sees exactly what it saw the
+///   first time) and the full staged set while SUSPENDED (outside observers see the cap consumed — AS-IS mid-body
+///   view);</item>
+/// <item>the owning invocation COMMITS every staged use on <see cref="Complete"/> (before the sink flush, so windows
+///   opened by the flushed events read committed caps) or keeps them staged across a <see cref="Suspend"/>; a
+///   non-choice failure <see cref="Abort"/>s the stage (nothing consumed).</list></para></summary>
+public sealed class CEntityUseCycle
+{
+    private static readonly ConditionalWeakTable<EngineContext, CEntityUseCycle> ByContext = new();
+
+    public static CEntityUseCycle For(EngineContext context) => ByContext.GetValue(context, _ => new CEntityUseCycle());
+
+    private readonly List<StagedUse> _pending = new();
+    private int _cursor;
+    private bool _cycleOpen;
+    private bool _cycleSuspended;
+    private bool _invocationActive;
+
+    private sealed class StagedUse
+    {
+        public StagedUse(ICardEffect effect, Action commit)
+        {
+            Effect = effect;
+            Commit = commit;
+        }
+
+        public ICardEffect Effect { get; }
+
+        public Action Commit { get; }
+    }
+
+    /// <summary>Open (or resume) the transaction. Returns <c>true</c> when this invocation OWNS the cycle — a fresh
+    /// open, or the re-invocation resuming a suspended cycle (the positional cursor is reset so staged registers
+    /// replay in order); <c>false</c> for a nested resolution inside an already-executing cycle. Mirrors
+    /// <c>OnceFlagController.BeginUniformCycle</c>.</summary>
+    public bool Begin()
+    {
+        if (!_cycleOpen)
+        {
+            _cycleOpen = true;
+            _cycleSuspended = false;
+            _pending.Clear();
+            _cursor = 0;
+            _invocationActive = true;
+            return true;
+        }
+
+        if (_cycleSuspended)
+        {
+            _cycleSuspended = false;
+            _cursor = 0;
+            _invocationActive = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Mark the owning invocation suspended (an agent choice is pending). Staged registers stay staged;
+    /// outside observers now read them as consumed (<see cref="StagedCount"/>'s suspended view).</summary>
+    public void Suspend(bool owner)
+    {
+        if (!owner)
+        {
+            return;
+        }
+
+        _cycleSuspended = true;
+        _invocationActive = false;
+    }
+
+    /// <summary>Commit every staged register to the real per-turn use lists and close the transaction. Call before
+    /// the sink flush so any window the flushed events open reads committed caps.</summary>
+    public void Complete(bool owner)
+    {
+        if (!owner)
+        {
+            return;
+        }
+
+        foreach (StagedUse staged in _pending)
+        {
+            staged.Commit();
+        }
+
+        Close();
+    }
+
+    /// <summary>Abandon the transaction WITHOUT committing (a non-choice failure aborted the resolution — nothing
+    /// was applied, so nothing is consumed).</summary>
+    public void Abort(bool owner)
+    {
+        if (!owner)
+        {
+            return;
+        }
+
+        Close();
+    }
+
+    private void Close()
+    {
+        _pending.Clear();
+        _cursor = 0;
+        _cycleOpen = false;
+        _cycleSuspended = false;
+        _invocationActive = false;
+    }
+
+    /// <summary>Register-before-body. Returns <c>true</c> when the use was STAGED (the caller must NOT commit to its
+    /// list); <c>false</c> when there is no active cycle and the caller should commit immediately (AS-IS).</summary>
+    public bool TryStage(ICardEffect effect, Action commit)
+    {
+        if (!_cycleOpen || !_invocationActive)
+        {
+            return false;
+        }
+
+        if (_cursor < _pending.Count)
+        {
+            // Replay of a register the suspended run already staged — advance the cursor, stage nothing.
+            _cursor++;
+            return true;
+        }
+
+        _pending.Add(new StagedUse(effect, commit));
+        _cursor++;
+        return true;
+    }
+
+    /// <summary>Staged uses of the same effect (AS-IS <c>IsSameEffect</c>) this open cycle to count ON TOP of the
+    /// committed list: the cursor-limited prefix while executing, the full staged set while suspended / for outside
+    /// observers.</summary>
+    public int StagedCount(ICardEffect effect)
+    {
+        if (!_cycleOpen)
+        {
+            return 0;
+        }
+
+        int limit = _invocationActive ? _cursor : _pending.Count;
+        int count = 0;
+        for (int i = 0; i < limit; i++)
+        {
+            if (_pending[i].Effect.IsSameEffect(effect))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Refund the most-recent staged register of the same effect (AS-IS <c>RemoveUse</c> paired with a
+    /// staged register). Returns <c>true</c> when a staged use was removed; <c>false</c> when nothing is staged and
+    /// the caller should remove a committed list entry.</summary>
+    public bool TryRefund(ICardEffect effect)
+    {
+        if (!_cycleOpen || !_invocationActive)
+        {
+            return false;
+        }
+
+        for (int i = _pending.Count - 1; i >= 0; i--)
+        {
+            if (_pending[i].Effect.IsSameEffect(effect))
+            {
+                _pending.RemoveAt(i);
+                if (_cursor > _pending.Count)
+                {
+                    _cursor = _pending.Count;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 }

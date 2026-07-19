@@ -450,8 +450,6 @@ public sealed class MultipleSkills
 
         if (cardEffect is ActivateICardEffect)
         {
-            if (cardEffect.CanActivate(hashtable))
-            {
                 var sink = new MatchStateMutationSink(
                     _context.CardInstanceRepository, _context.LogSink, _context.ZoneMover, _context.MemoryController,
                     _context.EffectRegistry, _context.GameEventQueue, context: _context);
@@ -463,6 +461,18 @@ public sealed class MultipleSkills
                         sink,
                         async () =>
                         {
+                            // (RD-C5W-ACTIVATEBODY) AS-IS :366 `CanActivate` gate — INSIDE the resolution cycle (after
+                            // BeginUniformCycle) so a deferred-choice REPLAY-resume reads the register-before-body
+                            // once-use through the executing (cursor) view, not the suspended (full-pending) view.
+                            // AS-IS checks CanActivate ONCE at the fresh start and the single coroutine never re-gates
+                            // on continuation; the mirror's per-replay re-check must therefore not read THIS
+                            // activation's own in-flight use as capped-out (was: checked before Begin, so the resume
+                            // saw the suspended view and wrongly skipped a [Once Per Turn] optional/interactive body).
+                            if (!cardEffect.CanActivate(hashtable))
+                            {
+                                return 0;
+                            }
+
                             // For interrupt processing
                             if (IsCutinEffect(_continuation.CheckNewTriggeredSkillMainStack))
                             {
@@ -496,7 +506,6 @@ public sealed class MultipleSkills
                     _continuation.InFlightIsCheckOptional = isCheckOptional;
                     throw;
                 }
-            }
         }
 
         // AS-IS :390-392 securityBreakGlass ShowBlueMatarial = UI (stripped).
