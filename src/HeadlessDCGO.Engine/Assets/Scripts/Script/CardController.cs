@@ -3570,14 +3570,13 @@ public class PlayCardClass
 
                 if (new Player(card.Context, card.Owner).HandCards.Contains(card))
                 {
-                    // AS-IS :795-797: `yield return ... CardObjectController.RemoveFromAllArea(card);` +
-                    // `yield return ... CardObjectController.AddHandCards(new List<CardSource>() { card },
-                    // false, null);` — the failed-play hand restore; the AS-IS static zone-move helper class
-                    // has no mirror: STOP RD-P6C1-8 (== cluster-2 design item RD-P6C2-1).
-                    throw new NotSupportedException(
-                        "STOP: failed-play hand restore needs CardObjectController.RemoveFromAllArea/" +
-                        "AddHandCards — no mirror zone-move statics (design item RD-P6C1-8, " +
-                        "docs/audit/rebuild_p6_cluster1_notes.md).");
+                    // AS-IS :913-915 (RD-P6C1-8 / RD-P6C2-1 RESOLVED): the failed-play hand restore.
+                    // The mirror zone-move statics now exist (CardObjectController.RemoveFromAllArea +
+                    // AddHandCards, ported R6-P / RD-R6-03), so the STOP re-points to the 1:1 AS-IS calls:
+                    // `RemoveFromAllArea(card)` then `AddHandCards(new List<CardSource>() { card }, false, null)`.
+                    await CardObjectController.RemoveFromAllArea(card).ConfigureAwait(false);
+
+                    await CardObjectController.AddHandCards(new List<CardSource>() { card }, false, null).ConfigureAwait(false);
                 }
 
                 // AS-IS :801 fire-and-forget OffMemoryPredictionLine() = UI, stripped (adaptation (4)).
@@ -3602,12 +3601,10 @@ public class PlayCardClass
                     {
                         if (!CardEffectCommons.IsExistOnTrash(cardSource))
                         {
-                            // AS-IS :843: `yield return ... CardObjectController.AddTrashCard(cardSource);` —
-                            // the failed-play trash restore; STOP RD-P6C1-8.
-                            throw new NotSupportedException(
-                                "STOP: failed-play trash restore needs CardObjectController.AddTrashCard — no " +
-                                "mirror zone-move statics (design item RD-P6C1-8, " +
-                                "docs/audit/rebuild_p6_cluster1_notes.md).");
+                            // AS-IS :953 (RD-P6C1-8 / RD-P6C2-1 RESOLVED): the failed-play trash restore.
+                            // The mirror zone-move static now exists (CardObjectController.AddTrashCard,
+                            // ported R3-A), so the STOP re-points to the 1:1 AS-IS call.
+                            await CardObjectController.AddTrashCard(cardSource).ConfigureAwait(false);
                         }
                     }
                 }

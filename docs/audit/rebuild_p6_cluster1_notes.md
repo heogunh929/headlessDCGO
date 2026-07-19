@@ -104,8 +104,13 @@ real-card backlog).
   the tamer bounce / link re-source are game state): call-site STOPs, unreachable today (RD-P6C1-1 gates them).
 * **RD-P6C1-7 — `SelectHandEffect`** (942-line Select* component, no mirror): BlastDNA hand-material pick STOP.
 * **RD-P6C1-8 — `CardObjectController` zone-move statics** (RemoveFromAllArea/AddHandCards/AddTrashCard here;
-  CreateNewPermanent/AddHandCard in the BlastDNA commented region) — same gap cluster 2 logged as RD-P6C2-1;
-  no CardObjectController.cs type was created (avoiding a two-cluster collision), STOPs live at the call sites.
+  CreateNewPermanent/AddHandCard in the BlastDNA commented region) — same gap cluster 2 logged as RD-P6C2-1.
+  RESOLVED (수리 배치 5): the `CardObjectController` mirror type now exists with all these statics (RemoveFromAllArea
+  R3-A, AddTrashCard R3-A, AddHandCards/AddHandCard R6-P/RD-R6-03, CreateNewPermanent R4-S3b). The failed-play
+  restore call sites in `CardController.PlayCard` (was CardController.cs:3577/3606 STOP) now re-point to the 1:1
+  AS-IS calls (AS-IS CardController.cs:913/915/953) — L4-001.MatchEventLog honest-red flipped green. RESIDUAL: the
+  BlastDNA hand-material STOP (BlastDNADigivolution.cs) stays STOP — blocked ALSO on RD-P6C1-7/-1/-2 (SelectHandEffect
+  / field-frame model / CanPlayJogress), not solely on the zone-move statics.
 * **RD-P6C1-9 — relocation**: `CardSourceAsIsPlayAccessors` members belong in the mirror `CardSource` once
   CardSource.cs is free. (Instance members will silently win over the extensions when they land — remove the
   bridge then.)
