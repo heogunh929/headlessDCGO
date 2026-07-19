@@ -648,3 +648,9 @@ grep(`tests/**/Program.cs`, 주석/sniff 포함 상한, 본 배치 후):
 1. **preamble-only-drainable 실측 5 (§3.4g 투영 13 정정)**: 통화 드레인의 게이트 = 본문 구동 방식. `ApplyActionAsync`-gameplay/env/Setup-staging 본문 8은 B6 원자 flip에서 legal-lane 재핀과 동시에만 드레인. 사전-드레인 가능분은 sink/sweep 5로 소진 완료.
 2. **RD-R4B6-P1-2 실갭**: SecurityResolver↔BattleResolver finisher departure 트리거-큐 대조 = 병행 보안 트랙, 소형-초과(B6 비블로킹).
 3. **§3.4f ①9 키워드/보안 창 red**: 병행 Sonnet 트랙 = 실 B6 게이트, 본 배치 무접촉·무변.
+
+## §3.4i B6 최종 cut-plan (정본 — 코디네이터 확정, pre-flight 2회 반영)
+**판정**: (a) DcgoMatch 기본 ctor+`?? new MetadataActionProcessor()` 폴백=**존치** — AdvancePhase/EndTurn body 삭제 후 MetaAP=순수 retained substrate(OLD-성은 body와 함께 소멸), 턴-흐름 구동 소비자 12만 flip. (b) DefaultMemoryPassValue=**MetaAP 잔류**(클래스 존치, AS-IS 잠프-3 미러 참조 주석).
+**멤버-단위 삭제 지도**(소스 검증 완료): MetaAP=AdvancePhase/EndTurn body(:969-1155)+dispatch arm(:66-67→Illegal)+memory-arm eval 호출(:1170/1194/1229)+EoT-마커 write — 클래스·RequestChoice/ClearChoice·memory arm 자체·시스템/존 arm=존치 / MainPhaseFlow.cs 318L 전체(참조 소멸 경로: GameLoop:107 !pump 블록·OLD PassAction:19·MetaAP :989/:1080/:1100/:1170/:1194/:1228) / EarlyPhaseFlow.cs 277L 전체(MetaAP:977+E3) / OLD PassAction.cs+MetaAP:27 dispatch / GameLoop !pump 블록(:93-109)+EoT 마커(WindowResolutionController:25/29) / 디스패처 OLD arm(:70-104+BuildBreedingActions — 펌프 분기 :53-68 존치).
+**소비자 최종**: 항2 통화 4(G2A-006·C2·G12-002·R4S3c=은퇴/재핀 대상)·E3 2·G2E-005 const 1(잔류로 해소)·basic-ctor flip 12(R4RL-02/03/04·G1E-005·R4P4·M2-001·L4-001·G1A-004·GPT4·G12-002·G1A-002·G1C-001 — 계약 테스트는 존치 ctor라 flip 불요 재확인, 턴-흐름 구동분만).
+**witness 클러스터 4 처분 기준**: 발명-단언(memory-pass phase·EndTurn 제안·스텝 경계·flow 소스-sniff)=은퇴 / 실룰 기커버 대조(TurnEndMinMemory=FAILd-07·memory-cross=GR-001·breeding=GR-002/D6·unsuspend=N9·sickness=N1) / 미커버 실룰만 이식 — 단언별 3분류 표 필수.
