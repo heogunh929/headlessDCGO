@@ -44,6 +44,7 @@ async Task BlockingSuspendsBlocker()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
+    using var _probe = AmbientMatchContext.Enter(match.Context);
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
 
@@ -59,6 +60,7 @@ async Task BlockingEmitsScopedOnBlock()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
+    using var _probe = AmbientMatchContext.Enter(match.Context);
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
 
@@ -82,6 +84,7 @@ async Task SkippingDoesNotSuspendOrEmit()
 {
     DcgoMatch match = await CreateConfiguredMatchAsync();
     await DeclareDirectAttackAsync(match);
+    using var _probe = AmbientMatchContext.Enter(match.Context);
     var timing = new BlockTiming();
     timing.RequestBlockChoice(match.Context);
 
@@ -106,6 +109,7 @@ async Task OnBlockEffectFires()
     context.EffectRegistry.Register(new EffectBinding(CreateRequest("blk-fx", BlockerId.Value, TriggerTimings.OnBlock), effect: unrelated));
 
     await DeclareDirectAttackAsync(match);
+    using var _probe = AmbientMatchContext.Enter(context);
     var timing = new BlockTiming();
     timing.RequestBlockChoice(context);
     timing.ResolveBlockChoice(context, ChoiceResult.Select(BlockerId));

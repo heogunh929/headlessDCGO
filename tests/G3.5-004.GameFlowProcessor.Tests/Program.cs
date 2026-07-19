@@ -11,7 +11,11 @@ var tests = new (string Name, Func<Task> Body)[]
     ("Empty context reaches stable without progress", EmptyContextReachesStable),
     ("Loop resolves queued effects until stable", LoopResolvesQueuedEffects),
     ("Loop pauses when a choice is pending and resolves nothing", LoopPausesForPendingChoice),
-    ("HeadlessGameLoop drains effects through the flow processor", GameLoopDrainsThroughFlowProcessor),
+    // (4b B5-c5) RETIRED: GameLoopDrainsThroughFlowProcessor was the sole live consumer of the OLD
+    // HeadlessGameLoop step-ctor surface (§3.1d), a B6 physical-delete target. What it verified — the
+    // flow processor draining a queued effect to stable — is covered by the retained RunToStableAsync subtests
+    // above (LoopResolvesQueuedEffects / LoopPausesForPendingChoice / EmptyContextReachesStable). The GameLoop
+    // ctor surface has no other consumer, so the subtest is retired rather than re-pointed.
     ("FlowProcessResult factories report status correctly", FlowProcessResultFactories),
     ("Flow processor source has no placeholder or Unity dependency", FlowProcessorSourceIsClean),
 };
@@ -91,22 +95,6 @@ async Task LoopPausesForPendingChoice()
     AssertEqual(0, result.ResolvedEffectCount, "nothing resolved while paused");
     AssertEqual(0, effect.ResolveCalls, "effect not invoked while paused");
     AssertEqual(1, context.EffectScheduler.PendingCount, "effect stays pending");
-}
-
-async Task GameLoopDrainsThroughFlowProcessor()
-{
-    EngineContext context = EngineContext.CreateDefault();
-    var gameLoop = new HeadlessGameLoop(context);
-    var effect = new RecordingFakeEffect("fx-step", "src-step");
-    EffectRequest request = CreateRequest("fx-step", "src-step");
-    context.EffectRegistry.Register(new EffectBinding(request, effect: effect));
-    context.EffectScheduler.Enqueue(request, EffectResolutionMode.MainStack);
-
-    HeadlessGameLoopStep step = await gameLoop.StepAsync();
-
-    AssertTrue(step.HadPendingEffects, "had pending effects");
-    AssertEqual(1, step.ResolvedEffectCount, "resolved through flow processor");
-    AssertEqual(1, effect.ResolveCalls, "effect invoked via game loop");
 }
 
 Task FlowProcessResultFactories()

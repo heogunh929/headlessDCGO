@@ -340,3 +340,57 @@ c1(red 20 실측)·c2(green 전반 21)·**c3(green 후반 풀)** 를 합산해 �
 - **P1**: ⑤ NRE 클러스터 6(A3·C910·007·G2G×3)의 "실부채 확정"은 반증된 방법 상속 — "미해결(F68 differential 대기)"로 강등. 창/배선 계열(C5×2·N2·W4·NewTimings·R2-Del·E3)은 부채 유지(단 미분화 주기).
 - **P2**: B5 누적 단언 net -11의 개별 정당성은 확인되나 총계 원장 미비 — per-file 제거→대체 원장 요구; RD6 t1/t2 서술 긴장 1건.
 **B6 도달 경로(확정)**: ①G3.5-005를 F68 관용구로 재실험(최저비용 결정 실험) ②NRE 6 differential ③기계 잔여(D1/D2 재분류·G3.5-004 subtest 은퇴·FAILd-03/D6 re-point) ④잔여 진짜 부채=키워드/보안 트랙 몫(그것이 실 B6 게이트).
+
+## §3.4c B5-c5 실행 기록 — 결정 실험 GO + NRE differential 판별 (2026-07-19, main HEAD=b84c5ce0 파생, 메인 워킹트리·미커밋)
+
+**엔진/src 변경 = 0**(전부 테스트-파일 재조준). build 엔진 0오류. shadow 무영향 실증(아래).
+
+### (1) 결정 실험 — G3.5-005 target-attack을 F68 관용구로: **재현 성공 → GO**
+§3.4b P0 재실험. `CreatePumpDriven` + F68 `PlaceRealCard` 관용구(합성 Digimon def의 def-레벨 dp·CardType:Digimon·인스턴스 dp·None→BattleArea·`CardEffectRegistrar.RegisterCard`) + **펌프 DeclareAttack 리걸 레인**(직접 `AttackController.DeclareAttack` 아님)으로 재조준. **결과: 패자(defender 7000)가 실 Trash 착지 + `BattleResolver.DeletedByBattleKey=true`**. c4 실패의 정체 = **driver-mechanical**: c4는 직접-컨트롤러 seam(또는 mis-staging)으로 구동했고, 펌프 리걸-레인 seam이 정답. §3.1f "combat 6 = R1/R6 게이트·재조준 불가" 결론 **철회 확정**(P0 반증 실측).
+- **false-green 자가감사(비-vacuous 증명)**: 삭제-가능 control 신설 — 약공격자(5000) vs 강 suspended target(9000)은 **공격자가 죽고 target 생존·Trash 미착지**. 펌프 전투가 실제 DP를 읽음을 실증(항진 아님). + `DeletedByBattleKey` 메타(삭제=전투에 의함, rule-sweep 아님).
+
+### (2) G3.5-005 전체 재조준 완료 (8/8 green, 통화=0)
+4 combat subtest(target/direct/blocked/skipped) 전원 OLD-ctor(`new DcgoMatch`)+`AdvanceToMainAsync`(AdvancePhase 통화) → `CreatePumpDriven`+펌프 main-대기 도달+펌프 DeclareAttack 레인으로 재조준. **AdvancePhase/EndTurn 액션 통화 제거(currency=0)**. 단언 전량 보존 + control subtest 1 신설. 잔여 `AttackController.DeclareAttack` 1건은 `AttackPipelineAdvancesPhaseByPhase`(bare AttackPipeline 유닛 테스트 = ③, 액션-통화 비소비)뿐 — 삭제-블로커 아님. 발견: 펌프 StartGame이 시큐리티 5장을 자체 딜(NormalizeForPump 무관, EXEMPLAR 판례 재확인) → direct-attack 픽스처는 딜된 시큐리티 clear 후 staged 1장만 남겨야 정확.
+
+### (3) NRE 6 differential 판별표 (artifact→flip vs 실부채)
+동일 관용구/원인 렌즈 = `DcgoMatch.StepAsync`(:227-235) 문서화된 NRE: bare 소비자가 `BlockTiming.GetBlockerCandidates → Permanent.HasCollision → …GManager.instance`를 **ambient scope 밖**에서 호출 → null NRE. 처방 = 호출부를 `AmbientMatchContext.Enter`로 감쌈(펌프는 StepAsync가 self-scope). §3.4b P1 실증 확정:
+
+| 픽스처 | base | 실패 성격 | **판별** | 1줄 처방 |
+|--------|------|----------|---------|---------|
+| **G3.5-A3** | red 4/4 | NRE(block-timing) | **artifact→FLIP** (실증: 4/4 green, **완전 재조준 유지**=base-red green 복원) | bare BlockTiming 호출부를 `AmbientMatchContext.Enter`로 감쌈 |
+| **G2G-002** | red 6 | NRE(block-timing)×6 | **artifact→FLIP** (probe 실증: 1 subtest wrap→green, 원복) | 동상 ambient wrap |
+| **G3.5-007** | red 1 | NRE(GetBlockerCandidates) | **artifact→FLIP** (probe 실증: wrap→7/7 green, 원복) | 동상 ambient wrap |
+| **G2G-003** | red 1 | NRE(block-timing) | **artifact→FLIP** (probe 실증: wrap→10/10 green, 원복) | 동상 ambient wrap |
+| **G3.5-C910** | red 2 | NRE(S4 keyword-collision) + **logic assert(K3)** | **MIXED=실부채(Collision 키워드)**: K3 subtest는 **이미 ambient wrap 보유**(:213-216)에도 "plain defender 강제 실패" — keyword-granted Collision(new-model `CollisionClass`, EffectRegistry 브릿지 無=stage-B RED)이 강제블록 미발동 | NRE 반쪽은 wrap로 flip 가능하나 load-bearing 단언은 **Collision 키워드 rehousing 실상환** 필요(driver-swap 무효) |
+| **G2G-004** | red 2 | **strike-count logic(비-NRE)** | **실부채(SecurityResolver)**: `StrikeKey` 메타 무시하고 항상 1장 체크(strike:2→1·strike:0→1). block/collision NRE 아님 | SecurityResolver가 piercing/strike 수(StrikeKey 또는 live SecurityAttack 키워드)를 존중하도록 **실상환** |
+
+**differential 귀결**: NRE 6 중 **4(A3·G2G-002·007·G2G-003) = ambient-scope artifact→FLIP**(§3.1f "6 전원 실부채" 반증 — §3.4b P1 확정), **2(C910 Collision·G2G-004 strike) = 실부채**(둘 다 키워드/보안 창 도메인 = §3.4b P1 "창/배선 부채 유지"와 정합). A3는 완전 재조준 유지(green 복원); G2G-002/007/G2G-003는 probe 후 원복(HEAD 유지); C910/G2G-004 무접촉(실부채 마킹).
+
+### (4) ③ 잔여 combat 5 처분
+- **G3.5-005 = 완전 재조준(위 (2))**. ③ combat 재조준 가능성의 정본 증명.
+- **C12·R2-1(G3.5-R2-1)·W5(G3.5-W5)·G9-062 = 재조준-가능·미접촉(green-on-OLD-ctor 유지)**: 전부 통화=`new DcgoMatch`+AdvancePhase이나 **manual `BattleResolver.ResolveAsync` 직호출 패턴**(blocker로 attack pending 유지 후 수동 해소) — 펌프 auto-drive와 단언-스타일(result-object vs zone) 충돌 → "단언 보존" 원칙상 zone-단언 재작성 없이는 churn. G3.5-005(펌프 auto-drive 완주형)와 NRE-substrate flip(block/battle/security가 펌프-ambient 하 정상)이 이미 재조준 가능성을 실증하므로, 이들은 **currency-only 기계 follow-on(NOT R1/R6-게이트)**로 마킹. red화=원복 준수(무접촉=green 유지).
+
+### (5) 기계 잔여 (Step 3)
+- **G3.5-004 GameLoop subtest 은퇴 완료**: `GameLoopDrainsThroughFlowProcessor`(유일 live `new HeadlessGameLoop(` 소비, §3.1d) 물리 삭제 — RunToStable subtest(EmptyContext/LoopResolves/LoopPauses)가 flow-drain 커버 유지. **5/5 green**. `grep -rl "new HeadlessGameLoop(" tests` = **0**(HeadlessGameLoop ctor B6 delete-gate 청산).
+- **D1-BatchId·D2-Witness = 비블로커 재확정**(§3.1f(3) 재확인): RunToStable-only 소비 = retained substrate, 삭제-표면 6파일 소비 0 → **통화=0(애초 비블로커)**. §3.1e(2) red-기지 오분류 정정 유지.
+- **FAILd-03(new HeadlessLegalActionDispatcher OLD arm)·G3.5-D6(AdvancePhase breeding-decline 단언)** = B6 펌프-dispatch re-point / cutover 후 `ResolveChoice(skip)` 재작성 몫으로 존치(펌프 breeding-decline 표면 확정 후) — 이번 배치 미변경.
+
+### (6) 게이트 실측
+- **build**: 엔진 0오류(src 무변경). 워킹트리 수정 = 테스트 3파일(G3.5-005 재조준·A3 green복원·G3.5-004 subtest 은퇴)만.
+- **회귀**: G3.5-005 8/8·A3 4/4·G3.5-004 5/5·C1-Witness 4/4·G2G-001 10/10·G3.5-W6 4/4·P1r(양)·EXEMPLAR-T1 18/18·EXEMPLAR-GLINK 5/5 = 전원 green.
+- **shadow**: R4P4-ShadowRun **bit-identical**(2 OLD-vs-OLD)·R4S3c-ShadowOldNew **2/2 IDENTICAL**·**secwin IDENTICAL**(seed 404 winner 1/1·sec 0/0·동일 digest). src 무변경이므로 엔진-행동 shadow 자명 무영향 실증.
+
+## §3.1g B5 P2 상환 — per-file 제거 단언→대체 관측 원장 (리뷰2 P2)
+
+리뷰2 P2 요구(B5 누적 단언 net 총계 감사 가능화). c1~c4 개별 정당성은 각 커밋/기록에서 확인(§3.4b P2: net -11, 개별 정당). c5(본 배치) per-file 원장 + c1~c4 요약:
+
+| 배치 | 파일 | 제거 단언 | 대체 관측 | net | 근거 |
+|------|------|----------|----------|----:|------|
+| c5 | G3.5-005 | (0 제거) | +3 신설(control: 약공격자 死·강target 生·target Trash 미착지) + DeletedByBattleKey(기존) | **+3** | false-green guard 강화; 4 combat 단언 전량 보존 |
+| c5 | G3.5-A3 | (0 제거) | 0(ambient wrap만; 4 subtest 단언 무변) | **0** | base-red green 복원 |
+| c5 | G3.5-004 | -3(GameLoopDrains: HadPendingEffects·ResolvedEffectCount·ResolveCalls) | RunToStable subtest 3종이 flow-drain 등가 커버(EmptyContext/LoopResolves/LoopPauses) | **-3** | 검증대상=HeadlessGameLoop ctor(B6 삭제-표면) 소멸 → 은퇴; 관측은 retained RunToStable에 존치 |
+| **c5 소계** | | -3 | +3 | **0** | 제거=은퇴(대체 커버 실재)·추가=guard |
+| c1~c4 | (기록: §3.1b~§3.1f) | (누적 net −11) | 각 커밋 명시(W6 −1 통화-불변식 은퇴·재조준 12 단언보존·c4 순변경 0 등) | **−11** | §3.4a 리뷰1 P0=0(은폐 없음)·§3.4b P2 개별 정당 확인 |
+| **B5 합계** | | | | **−11** | c5 net 0 → 총계 불변; 제거분 전량 "검증대상 소멸(은퇴)+대체 커버" 또는 "통화-불변식 은퇴" |
+
+**감사 결론**: B5 전체 단언 net −11의 제거분은 (a) 발명물/OLD-표면 검증대상 소멸(은퇴, 대체 witness 실재) 또는 (b) OLD 통화-불변식(AdvancePhase count 등) 은퇴 — 실룰 검증 소실 0. c5는 오히려 +3/-3 = net 0(guard 강화·은퇴 상쇄).
