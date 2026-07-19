@@ -716,3 +716,7 @@ grep(`tests/**/Program.cs`, 주석/sniff 포함 상한, 본 배치 후):
 
 ## §3.4k B6-fix (최종 게이트 여파 4건, 2026-07-19)
 G2Z-001=G2A-006 은퇴 재핀(RetiredTestProject 역단언, G3Z 판례)·RL-A5/RL-V=누락 legacy-ctor 소비자 2 펌프 flip(재핀 불요 — 펌프가 단언 전량 재현)·G8-006=**선재 갭 노출**(RD-R4B6-P2-1: 펌프 디스패처 SpecialPlay 미제안(STOP RD-P6C1-5/R5-04) vs validator AgentFacingTypes 등재 불일치 — pre-B6에도 펌프-매치엔 존재, 비-펌프 폴백이 가림막이었음; SpecialPlay 클러스터 포팅 시 동시 해소)·L4-001=정직 red 확인(RD-P6C1-8 failed-play hand restore). 최종 모수: E3 flip-out, G8-006·L4-001 정직-red 등재.
+
+## §3.6 최종 적대 리뷰(리뷰 지점 3, 2026-07-19): GO — 4b 완주 확정
+P0/P1 0. 렌즈 5 전부 확인: 삭제 잔재 0(라이브 참조 전량 묘비/부정단언/미러-sniff)·과잉 삭제 없음(EvaluateAfterMemoryMutation=발명 확증, AS-IS 실기제 EndTurnCheck는 펌프 전 페이즈 배선 실증·CheatActionGuard verbatim)·처분 정직(표본 10+ 실룰 소실 0, E3/S1 등은 오히려 강화)·정직-red 2=커밋-계보로 선재 실증·flip 표본 5 전부 실재조준. P2 3(문서 정밀도): ①§3.5 keeper 집합에 R4S3b 부재-단언 추가 기술 ②fail-set 107 수치=코디네이터 게이트 실측으로 확인됨(리뷰는 read-only 한계) ③MetaAP :995 주석 보편 주장 완화 — poke-트리거 의존 witness 0이라 행동 무노출.
+**4b 종점 도달**: 발명 턴 드라이버 물리 소멸·소비자 0·원장 폐쇄 전항·인계 원장(수리 잔여/B군/Sonnet 트랙) 정합.
