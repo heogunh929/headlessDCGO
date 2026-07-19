@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
@@ -126,18 +127,24 @@ async Task DirectAttackOnEmptySecurityEndsMatch()
 {
     DcgoMatch match = await CreateMatchAsync();
 
-    // A direct attack against a player whose security stack is empty hits the player directly.
-    match.Context.AttackController.DeclareAttack(
-        Player,
-        AttackerId,
-        Opponent,
-        targetId: null,
-        isDirectAttack: true);
+    // (4b B5-c3) Fire through the real pump attack seam: a direct attack against a player whose security
+    // stack is empty hits the player directly. The OLD manual AttackController.DeclareAttack + single
+    // StepAsync is retired for the pump auto-resolution (DriveUntil the terminal landing).
+    LegalAction attack;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        attack = match.GetLegalActions(Player).Single(a =>
+            a.ActionType == HeadlessActionTypes.DeclareAttack &&
+            a.Parameters.TryGetValue(HeadlessActionParameterKeys.IsDirectAttack, out object? d) && d is true &&
+            (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackerId, out object? at) ? at?.ToString() : null) == AttackerId.Value);
+    }
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        await match.ApplyActionAsync(attack);
+        for (int i = 0; i < 12 && !match.IsTerminal(); i++) await match.StepAsync();
+    }
 
-    StepResult step = await match.StepAsync();
-
-    AssertTrue(step.IsTerminal, "match is terminal after the lethal direct attack");
-    AssertTrue(match.IsTerminal(), "match reports terminal");
+    AssertTrue(match.IsTerminal(), "match reports terminal after the lethal direct attack");
 
     MatchResult result = match.GetResult();
     AssertEqual(Player, result.WinnerId, "attacker is the winner");
@@ -178,7 +185,7 @@ async Task<DcgoMatch> CreateMatchAsync()
         cards.Upsert(CreateDefinition($"P2-M{index:D2}", "Digimon"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(Player, "P1"), BuildDeck(Opponent, "P2") },
         firstPlayerId: Player,
@@ -187,7 +194,18 @@ async Task<DcgoMatch> CreateMatchAsync()
     await match.InitializeAsync(MatchConfig.Create(new[] { Player, Opponent }, randomSeed: 91, setup: setup));
     await AdvanceToMainAsync(match, Player);
 
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    // (4b B5-c3) The pump deals the standard 5-card security stack during StartGame; this fixture needs an
+    // EMPTY opponent security so the direct attack is lethal. Clear the pump-dealt security to the trash.
+    var zones = (IZoneStateReader)context.ZoneMover;
+    foreach (HeadlessEntityId sec in zones.GetCards(Opponent, ChoiceZone.Security).ToArray())
+    {
+        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, sec, ChoiceZone.Security, ChoiceZone.Trash));
+    }
+
+    // Stage the attacker from None (not Hand): the pump normalizes the opening hand to 0 (NormalizeForPump),
+    // so a synthetic hand card would not exist — fresh Upsert + None->BattleArea.
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(AttackerId, new HeadlessEntityId("P1-M01"), Player));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.None, ChoiceZone.BattleArea));
     SetMetadata(match, AttackerId, new Dictionary<string, object?> { ["isSuspended"] = false });
 
     return match;
@@ -219,25 +237,61 @@ static PlayerDeckSetup BuildDeck(
             .ToArray());
 }
 
+// (4b B5-c3) Drive the pump's natural Active->Draw->Breeding->Main auto-flow to the player's main wait;
+// the OLD AdvancePhase step currency is retired (F62/GR-004 precedent). Breeding/Mulligan are declined.
 async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = SingleLegalAction(match, playerId, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
-
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, playerId));
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
 }
 
-LegalAction SingleLegalAction(DcgoMatch match, HeadlessPlayerId playerId, string actionType)
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
 {
-    LegalAction[] actions = match.GetLegalActions(playerId)
-        .Where(action => action.ActionType == actionType)
-        .ToArray();
-    AssertEqual(1, actions.Length, $"{actionType} count");
-    return actions[0];
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
