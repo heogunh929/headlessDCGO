@@ -210,7 +210,7 @@ async Task<DcgoMatch> FieldDigimonAsync(string cardType, int? dp, int? dpDelta)
     }
     cards.Upsert(Digimon("P2-M01"));
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context);
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 74, setup: setup));
@@ -249,19 +249,64 @@ static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
         Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
-// (currency-drain deferred) The DP<=0 deletion pipeline / would-be-deleted window require the match to be past
-// the early phases at Main — dropping this AdvancePhase preamble regresses the sweep. Full currency drain
-// (reach-Main via CreatePumpDriven + DriveUntil(AtMainWait)) is B3/B5-style pump-harness work, tracked separately.
+// (B6-Dc currency-drain) Reach Main via the pump's natural Active->Draw->Breeding->Main auto-flow; the OLD
+// AdvancePhase step currency is retired. The DP<=0 deletion pipeline / would-be-deleted window still require
+// the match past the early phases at Main (dropping reach-Main regresses the sweep, D2/B6-Db proof) — observed
+// Main arrival is asserted (assertion strength unchanged). Breeding/Mulligan decisions are declined.
 async Task AdvanceToMainAsync(DcgoMatch match)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = match.GetLegalActions(P1).Single(x => x.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
+    await StepOnceAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P1));
 
     AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+}
+
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type is ChoiceType.BreedingDecision or ChoiceType.Mulligan;
+            await ResolvePendingAsync(match, skip: decline);
+        }
+        else await StepOnceAsync(match);
+    }
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)

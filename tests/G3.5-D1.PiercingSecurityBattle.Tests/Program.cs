@@ -65,17 +65,20 @@ async Task PiercingIntoWeakerSecuritySurvives()
 async Task PiercingFiresSecurityEffect()
 {
     DcgoMatch match = await Setup(attackerDp: 5000, targetDp: 3000, topSecurityDp: 2000, piercing: true);
-    HeadlessEntityId topSecurity = TopSecurity(match, P2);
 
-    var securityEffect = new RecordingFakeEffect("sec-fx", topSecurity.Value, TriggerTimings.OnSecurityCheck);
-    match.Context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId("sec-fx"), P2, TriggerTimings.OnSecurityCheck,
-            new EffectContext(P2, P2, topSecurity, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>())),
-        effect: securityEffect));
+    // (B6-Dc D1 re-target — W4 stale-probe removed) The invented `EffectRegistry.Register(new EffectBinding(
+    // RecordingFakeEffect))` probe is gone: the live OnSecurityCheck window reads card-registered ActivateClasses
+    // through AutoProcessing.GetSkillInfos, NEVER the registry binding (the same W4 finding). Witness the window
+    // with a SURVIVING P2 battle-area reactor (TfxOnSecurityCheckDraw, owner-scoped): when piercing checks P2's
+    // security, the reactor's [When your security is checked] draws 1. A live surface, no invented logic.
+    await AddSecurityCheckReactorAsync(match.Context, P2);
+    int p2HandBefore = ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Hand).Count;
 
     await DeclareTargetAttackAsync(match);
 
-    AssertEqual(1, securityEffect.ResolveCalls, "the revealed security card's OnSecurityCheck effect fired via piercing");
+    int p2HandAfter = ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Hand).Count;
+    AssertEqual(p2HandBefore + 1, p2HandAfter,
+        "the revealed security card's OnSecurityCheck window fired via piercing (the P2 field reactor drew 1)");
 }
 
 // (A1) AS-IS CanActivatePierce: Pierce fires only with >= 1 security; with 0 security nothing happens.
@@ -103,16 +106,20 @@ async Task TriggerKillsAttackerBeforePiercing()
     DcgoMatch match = await Setup(attackerDp: 5000, targetDp: 3000, topSecurityDp: 1000, piercing: true);
     int before = ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Security).Count;
 
-    var killer = new AttackerKillingEffect("ko-fx", TargetId.Value, TriggerTimings.OnKnockOut, AttackerId);
-    match.Context.EffectRegistry.Register(new EffectBinding(
-        new EffectRequest(new HeadlessEntityId("ko-fx"), P2, TriggerTimings.OnKnockOut,
-            new EffectContext(P2, P2, TargetId, triggerEntityId: null, targetEntityIds: Array.Empty<HeadlessEntityId>())),
-        effect: killer));
+    // (B6-Dc D1 re-target — W4 stale-probe removed) The invented `EffectRegistry.Register(new EffectBinding(
+    // AttackerKillingEffect))` probe is gone: the live BattleResolver OnKnockOut window reads card-registered
+    // ActivateClasses via GetSkillInfos(OnKnockOut), NEVER a registry binding. Retype the (about-to-be-knocked-out)
+    // target to a card-registered OnKnockOut reactor (TfxOnKnockOutDeleteOpponent: [When knocked out] delete all
+    // opponent battle-area Digimon, via the same DestroyPermanentsClass primitive real cards use). It stacks at the
+    // KO window (BattleResolver:248) and drains at the shared main-loop AutoProcessCheck BEFORE PierceProcess flips
+    // DoSecurityCheck (BattleResolver:262-267) — so the attacker dies and Piercing is cancelled. The attacker's
+    // deletion + the unchanged security count ARE the witness the KO trigger drained pre-check.
+    GiveKnockOutDeleteReactor(match.Context, TargetId, P2);
 
     await DeclareTargetAttackAsync(match);
 
-    AssertEqual(1, killer.ResolveCalls, "the knock-out trigger resolved");
-    AssertInZone(match, P1, ChoiceZone.Trash, AttackerId, "the attacker was deleted by the drained trigger");
+    AssertInZone(match, P1, ChoiceZone.Trash, AttackerId, "the attacker was deleted by the drained OnKnockOut trigger");
+    AssertFalse(InZone(match, P1, ChoiceZone.BattleArea, AttackerId), "the attacker left the battle area");
     AssertEqual(before, ((IZoneStateReader)match.Context.ZoneMover).GetCards(P2, ChoiceZone.Security).Count,
         "NO security was checked — Piercing was cancelled by the pre-check survival test");
 }
@@ -158,6 +165,42 @@ void GivePierce(EngineContext context, HeadlessEntityId card, HeadlessPlayerId o
     var defId = new HeadlessEntityId("def:BT1_022");
     cards.Upsert(new CardRecord(defId, "BT1_022", "BT1_022",
         new Dictionary<string, object?>(StringComparer.Ordinal) { ["colors"] = new[] { "Red" }, ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, card, owner);
+}
+
+// (B6-Dc D1 re-target) Stage a SURVIVING battle-area reactor for `owner` carrying the live OnSecurityCheck
+// ActivateClass (TfxOnSecurityCheckDraw fixture: [When your security is checked] Draw 1, owner-scoped). Retype to
+// the fixture def + register through CardEffectRegistrar so the ActivateClass surfaces in AutoProcessing
+// .GetSkillInfos — the surface the SecurityResolver window reads (mirrors W4.RegisterReactor).
+async Task<HeadlessEntityId> AddSecurityCheckReactorAsync(EngineContext context, HeadlessPlayerId owner)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:TfxOnSecurityCheckDraw");
+    cards.Upsert(new CardRecord(defId, "TfxOnSecurityCheckDraw", "TfxOnSecurityCheckDraw",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon"));
+    var reactorId = new HeadlessEntityId($"{owner.Value}:battle:SECREACTOR");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(reactorId, defId, owner,
+        Metadata: new Dictionary<string, object?>(StringComparer.Ordinal) { ["isSuspended"] = false, ["dp"] = 1000 }));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, reactorId, ChoiceZone.None, ChoiceZone.BattleArea));
+    HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(context, reactorId, owner);
+    return reactorId;
+}
+
+// (B6-Dc D1 re-target) Retype `card` to the live OnKnockOut reactor fixture (TfxOnKnockOutDeleteOpponent) and
+// register through CardEffectRegistrar, so its OnKnockOut ActivateClass surfaces in GetSkillInfos(OnKnockOut) —
+// the surface the BattleResolver KO window reads (NOT the retired EffectRegistry binding). Keeps the instance's
+// battle metadata (dp/isSuspended) via the def-only retype (mirrors GivePierce).
+void GiveKnockOutDeleteReactor(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:TfxOnKnockOutDeleteOpponent");
+    cards.Upsert(new CardRecord(defId, "TfxOnKnockOutDeleteOpponent", "TfxOnKnockOutDeleteOpponent",
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon"));
     if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
     {
         context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
@@ -237,61 +280,6 @@ static void AssertFalse(bool value, string label)
     if (value) throw new InvalidOperationException($"{label}: expected false.");
 }
 
-// (B2) a knock-out trigger that deletes the attacker via the mutation sink.
-internal sealed class AttackerKillingEffect : IHeadlessCardEffect
-{
-    private readonly HeadlessEntityId _attackerId;
-
-    public AttackerKillingEffect(string effectId, string sourceId, string timing, HeadlessEntityId attackerId)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-        _attackerId = attackerId;
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        mutations.Apply(new EffectMutation(
-            MatchStateMutationSink.DeleteKind,
-            Definition.SourceEntityId,
-            new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                [MatchStateMutationSink.TargetEntityIdKey] = _attackerId.Value,
-            }));
-        return ValueTask.FromResult(EffectResult.Success("attacker deleted"));
-    }
-}
-
-internal sealed class RecordingFakeEffect : IHeadlessCardEffect
-{
-    public RecordingFakeEffect(string effectId, string sourceId, string timing)
-    {
-        Definition = new CardEffectDefinition(
-            new HeadlessEntityId(effectId), new HeadlessEntityId(sourceId), name: effectId, timing: timing);
-    }
-
-    public CardEffectDefinition Definition { get; }
-
-    public int ResolveCalls { get; private set; }
-
-    public CardEffectCanResolveResult CanResolve(CardEffectResolveContext context) => CardEffectCanResolveResult.Success();
-
-    public ValueTask<EffectResult> ResolveAsync(
-        CardEffectResolveContext context,
-        IEffectMutationSink mutations,
-        CancellationToken cancellationToken = default)
-    {
-        ResolveCalls++;
-        return ValueTask.FromResult(EffectResult.Success("fake resolved"));
-    }
-}
+// (B6-Dc D1 re-target) The former test-local IHeadlessCardEffect probes (AttackerKillingEffect / RecordingFakeEffect,
+// registered through the invented EffectRegistry.Register(EffectBinding) surface) are RETIRED — both subtests now
+// witness the live card-registered windows (TfxOnSecurityCheckDraw / TfxOnKnockOutDeleteOpponent).
