@@ -459,3 +459,82 @@ A-1 재조준·re-point per-file 원장(§3.1g c1~c5 연장):
 
 ## §3.4e A-2 결과 (2026-07-19): 삭제 0 — 소비자-0 판정표 정정(직접-시그니처 grep 아티팩트)
 6표면 전원 라이브-도달 재확증(삭제 시 build 깨짐/라이브-green 회귀): OLD ctor=17파일 라이브(GR-002/GR-003 등 green 포함, CreatePumpDriven이 파라미터 ctor 내부 의존)·GameLoop=DcgoMatch:52 전 매치 인스턴스화(펌프-공유)·디스패처 OLD arm=GetLegalActions 경유 라이브(GR-002 실증)·EoT 마커=항2 body 소비(원자)·shadow 2=OLD 존속 중 차분 가드 유효(조기 은퇴=secwin 유일-witness 소실 위험)·G2A-006=검증대상 존속. **결론: 4b 물리 삭제는 부분-불가, 원자적 종점** — 선행=잔여 OLD-ctor/통화 소비자(green 포함 ~25±) 재조준·은퇴 + 실부채 9 상환. 안전-삭제 가능 표면=∅. §3.4d(5) 판정표 폐기, 본 절이 대체.
+
+## §3.4f A′-2 실행 기록 + A′ 총괄 — B6 사전 조건 확정판 (2026-07-19, main HEAD=7e139321 파생, 메인 워킹트리·미커밋)
+
+**엔진/src 변경 = 0**(전부 테스트-파일). build 엔진 0오류(경고 1771 무증가). shadow 무영향(src 무변경). A′-1(7e139321) 위에 펌프-네이티브 재작성 2 + 계약-테스트 군 6 판정 + L4-001 진단.
+
+### (1) 항목 1 — 펌프-네이티브 재작성 2 (전후 표, 단언 의도 전량 보존)
+
+**G2G-003.Battle.DP.deletion (10/10 green→green, currency=0·OLD-ctor=0·SetPhase=0)**: 배틀-outcome 4종(HigherAttacker/HigherDefender/Equal/Blocked)은 `new DcgoMatch`+AdvanceToMain(AdvancePhase 통화)+수동 `new BattleResolver().ResolveAsync` result-object 진단 → `CreatePumpDriven`+F68 `StagePermanent`(합성 Digimon def·인스턴스 dp·None→BattleArea·`CardEffectRegistrar.RegisterCard`)+펌프 DeclareAttack legal-lane **자동해소**로 재작성. result-object → **zone 등가 재소싱**(A-1 C12/W5 판례):
+
+| subtest | OLD result-object 단언 | 펌프 zone/메타 재소싱 |
+|---------|------------------------|----------------------|
+| HigherAttacker(9000v7000) | IsSuccess·AttackerDp·DefenderDp·!AttackerDeleted·DefenderDeleted·DeletedCardIds=[Tgt]·attack Resolved | Tgt→Trash·Atk→BattleArea·**!Atk in Trash(非-vacuous)**·DeletedByBattleKey(Tgt)·DpBeforeBattleKey=7000·AttackPhase.None |
+| HigherDefender(5000v8000) | AttackerDeleted·!DefenderDeleted·DeletedCardIds=[Atk] | Atk→Trash·Tgt→BattleArea·!Tgt in Trash·DeletedByBattleKey(Atk)·DpBeforeBattleKey=5000 (=HigherAttacker의 非-vacuous 대조쌍) |
+| Equal(6000v6000) | AttackerDeleted·DefenderDeleted·MovementResults.Count=2 | Atk·Tgt 둘 다 Trash |
+| Blocked(atk9000·tgt3000·blk12000) | (수동 BlockTiming)+result AttackerDeleted·!DefenderDeleted·target unaffected | 펌프 target-attack→**block 창 pending**(AttackPhase.Blocking)→ExpResolveSelecting(blk)→Atk→Trash·blk→BattleArea·tgt→BattleArea. (원본=direct-attack+수동 BlockTiming; G3.5-005 판례로 펌프 block-창 target-attack 경유 — "선택 blocker가 전투 인수" 의도 보존) |
+
+BattleResolver **방어-가드/결정론 4종**(DirectAttack-rejected·MissingDp-rejected·NonDigimon-rejected·Deterministic+source-sniff)은 **retained substrate 직접-호출 유지**(BattleResolver=삭제-표면 아님, 펌프 자체가 호출; 펌프는 direct-attack을 security로 라우팅해 rejection 경로를 절대 resolver에 안 태움 → 펌프 auto-해소 등가 부재). 단, 매치=CreatePumpDriven·선언=retained `AttackController.DeclareAttack` 직접(AdvancePhase 통화 0) → 가드 계약 verbatim 보존 + B6 통화 제거. 단언 net 0(제거 0·재소싱만).
+
+**GR-002.BreedingMove (2/2 green→green, currency=0·OLD-ctor=0·SetPhase=0·MoveBreedingToBattle=0)**: `new DcgoMatch`+`TurnController.SetPhase(Breeding)` 강제+discrete `MoveBreedingToBattle` 액션 → `CreatePumpDriven`+**자연 순환**(Active→Draw→Breeding auto-flow)로 breeding 도달(GR-004 c2 `:breeding:act` 판례). 펌프는 breeding-move를 **BreedingDecision 창의 `:breeding:act` candidate**로 표면화(movable Digimon일 때만 개설=GR-002 gate):
+
+| subtest | OLD 단언 | 펌프 재소싱 |
+|---------|---------|-----------|
+| DigimonCanMove(Lv3·dp3000) | MoveBreedingToBattle 리걸·apply·BreedingArea→BattleArea | 자연 순환→P1 차턴 breeding→`:breeding:act` candidate **개설(=리걸-등재)**·resolve→Rookie BreedingArea→BattleArea·no DigiEgg in battle |
+| DigiEggCannotMove(Lv2·dp0·음성) | !MoveBreedingToBattle·!Hatch(occupied) | 자연 순환→비-movable egg이라 펌프가 **breeding move 미개설·auto-pass to main**(FAILd-03 판례: BreedingDecision은 MOVE 합법시만 개설)·moveOffered=false·egg는 BreedingArea 잔류·BattleArea=∅ (gate held) |
+
+### (2) 항목 2 — 계약-테스트 군 6 판정 (멤버-단위 삭제-표면 vs 존치-표면)
+
+기준(task ①): default-ctor의 `actionProcessor:null→MetadataActionProcessor` **폴백 구동**이 삭제-표면; 파라미터 ctor·CreateValidated·명시 actionProcessor 주입·비-구동 property-read는 존치. 실측: `RequestChoice`/`ClearChoice`/`"Choice resolve failed."`/`ResolveChoiceAsync`는 **MetadataActionProcessor 전용**(TurnFlowDriver=0); `TerminalActionProcessor`=G1A-002 내부 테스트-더블(주입).
+
+| 계약 테스트 | 검증 대상 | 삭제 vs 존치 | 처분 |
+|------------|----------|-------------|------|
+| **G3.5-GPT4**(unguarded profile) | `EnforcesActionLegality`(GPT-#4 legality boundary)·CreateValidated·strict effect-gate profile(신1) | **전량 존치**(OLD 구동 0·property-read only; "unguarded"=actionLegality:null 존치 property, OLD actionProcessor 아님) | **retained 재분류**(D1/D2 판례·B6 비블로커·무접촉) |
+| **G1C-001**(null-guard) | 파라미터-ctor `ThrowIfNull(context)`·EngineContext service-locator/CurrentMatch attach·track·clear·observation propagation | **존치**(파라미터-ctor 가드 + EngineContext 추적 계약=driver-agnostic; `new DcgoMatch(context)`+단일 StepAsync는 incidental·통화 0) | **retained 재분류**(B6서 default→pump ctor-swap 사소·단언 무영향) |
+| **G1A-004**(inert-init) | ObservationSnapshot·ActionMask·GetLegalActions query 계약(init inert, StepAsync 없음→OLD processor **미발화**) | **존치**(parameterless `new DcgoMatch()`는 inert 컨테이너뿐·OLD 구동 0) | **retained 재분류**(B6 ctor-swap 사소) |
+| **G1A-002**(lifecycle) | Initialize/Reset/Step/Result 순서·상태전이 계약 | **혼합**: 2 subtest=명시 `TerminalActionProcessor` 주입(존치)·`RejectsLifecycleApisBeforeInitialize`=pre-init 가드 driver-agnostic(존치); **`InitializeEstablishesFirstStepSnapshot`=OLD-driver 최소 step 시맨틱(init 이벤트·StepIndex non-auto-flow) 결합** | 대부분 retained; 1 subtest=**B6-동시 re-pin 초안**(펌프 등가 존재—first-step 이벤트 단언을 펌프 lifecycle 이벤트로 적응) |
+| **M2-001**(real-match subtest) | 대부분 SyntheticSnapshot 관측-인코딩(존치); **1 실-매치 subtest**=`new DcgoMatch(…,LegalActionSetValidator)` 랜덤 legal-action 루프(AdvancePhase 통화)로 factored-action-schema↔observation-slot **정렬** 검증 | synth=존치; 실-매치 subtest=삭제-표면 소비(통화) | synth=**retained 재분류**; 실-매치 subtest=**B6-동시 re-pin 초안**(B3-인접: 펌프 매치 랜덤-드라이브로 동일 slot-정렬 계약) |
+| **G1E-005**(bare pause) | pending-choice pause/resume 계약을 `RequestChoice`/`ResolveChoice`/`ClearChoice` **agent-action**(MetadataActionProcessor 처리)+StepAsync로 구동; +직접 `InMemoryHeadlessChoiceController` subtest(존치)·MetadataActionProcessor.cs sniff(삭제-파일 결합) | pending-choice **STATE** 계약=존치(펌프 ChoiceController 동일 기제); RequestChoice-agent-action 구동=삭제-표면 | ④ **throw-계약 은퇴 계열 대조 처분**: RequestChoice-agent-pause = 은퇴된 throw-replay 계약(§3.1b B1)의 **await-mode 대응물**(둘 다 OLD-driver choice-injection affordance)→MetadataActionProcessor와 함께 **B6-동시 은퇴**. STATE 계약은 펌프 choice 테스트(EXEMPLAR/W1b/DeferredChoice)+retained 직접 ChoiceController subtest가 커버. **실부채 아님** |
+
+**계약군 귀결**: 6 중 **실부채 0**(전부 발명물/OLD-affordance 검증 or driver-agnostic 존치). 3(G3.5-GPT4·G1C-001·G1A-004)=완전 retained 재분류(무접촉); 3(G1A-002·M2-001·G1E-005)=혼합(retained 다수 + B6-동시 re-pin/은퇴 소수, 펌프 등가 실재).
+
+### (3) 항목 3 — L4-001 단독-hang 진단
+
+**증상 확정**: `L4-001.MatchEventLog` 단독 실행 = **무한 hang**(60s timeout kill). 프로세스 상태 R(running)·main utime 10.3 CPU-s/10s = **busy CPU 스핀**(deadlock 아님). 계측(스텝별 로그): OLD-driver(`new DcgoMatch(context, LegalActionSetValidator, eventLog)`) 랜덤-정책 풀-매치가 mid/late-board(turn ~19–25)에서 단일 ApplyAction/StepAsync 내부 무한루프.
+
+**근원 특정**: 스텝-드레인 상위 루프(`GameFlowProcessor.RunToStableAsync`)는 `MaxIterations=256` 캡 보유(초과시 throw) → hang은 그 **아래 inner 무한 sub-루프**(단일 `ProcessNextState`/트리거-창/select iteration이 종료조건 미충족). hang 지점이 프로세스마다 상이(step 46/140/191·PlayCard/DeclareAttack 교차) = **프로세스-비결정**: .NET per-process 문자열-해시 랜덤화가 엔진 legal-action **순서**를 재배열 → 고정 정책-seed(`new Random(41)`)가 매 프로세스 다른 액션 선택 → 다른 trajectory → 일부가 루프 상태 도달. **이것이 "단독/스위트 green 차이"의 기제**(스위트 프로세스는 루프 trajectory 회피·단독은 적중; task 힌트 확증). MatchEventLog 자체는 순수 관측자(bounded 루프·상태 무변경)—무관 확인.
+
+**처분**: **정밀 마킹**(수리 아님). 이유: (a) 深-엔진 트리거/전투/effect 드레인의 unbounded inner 루프=소형 수정 아님; (b) L4-001=OLD MetadataActionProcessor(B6 삭제-표면) 풀-랜덤 소비자 → B6서 CreatePumpDriven re-pin 대상; 펌프 캐이던스 하 동일 루프 재현 여부는 미검(펌프 캡/흐름이 회피 가능성 or retained 드레인 공유부채). **원장 등재**: `RD-R4A′-01` — OLD-driver 풀-랜덤 late-board hang(inner-drain unbounded loop, 프로세스-비결정 trajectory 노출; RunToStable MaxIterations 아래 sub-루프). L4-001 재-핀 시 펌프 하 재검 게이트. (L4 계측은 원복 완료·워킹트리 무변.)
+
+### (4) A′ 총괄 — 통화·OLD-default 소비자 최종 잔존표 = **B6 사전 조건 확정판**
+
+grep 실측(현 HEAD 파생 워킹트리, `tests/*/Program.cs`, 주석/sniff 제외): **AdvancePhase/EndTurn 통화 소비자 = 17**(A-1 21 −A′-1 3[A3·G2G-002·G3.5-007] −A′-2 1[G2G-003]); **OLD `new DcgoMatch(` 소비자 = 12**(§3.4e ~17 −A′-2 GR-002·G2G-003 등, 나머지 재조준분 CreatePumpDriven 전환).
+
+**17 통화 소비자 3분류**:
+| 분류 | 수 | 프로젝트 | B6 처분 |
+|------|---:|---------|---------|
+| **실부채 red(엔진 갭)** | **9** | C5-SecurityPreWindow·C5-Witness·G2G-004·G3.5-C910·G3.5-N2·G3.5-W4·PRIM-P0.NewTimingsFire·R2-DeletionPipeline·G3.5-D3(TriggerOrdering) | **키워드/보안 창·신-timing·트리거-순서 상환**(병행 Sonnet 트랙·driver-swap 무효)=**진짜 B6 게이트** |
+| **B6-은퇴** | 2 | G2A-006(OLD 디스패처 시퀀스)·R4S3c-ShadowOldNew(shadow) | 검증대상 소멸→삭제 |
+| **타-배치 re-point(통화 존치)** | 6 | G12-002·G3.5-C2·G3.5-N9·G3.5-F68·G3.5-D1(Piercing)·G3.5-D2(DpZero) | B3/B4/B5 per-fixture 펌프 재조준(펌프 등가 실재) |
+
+**12 OLD-ctor 소비자 4분류**:
+| 분류 | 프로젝트 | B6 처분 |
+|------|---------|---------|
+| **retained 재분류(무접촉)** | G3.5-GPT4·G1C-001·G1A-004 (+ G1A-002·M2-001·G1E-005 존치부) | B6 비블로커; default→pump ctor-swap 사소(단언 driver-agnostic) |
+| **B6-동시 re-pin/은퇴** | G1A-002(1 subtest)·M2-001(실-매치 subtest, B3-인접)·G1E-005(RequestChoice-pause+MetaAP sniff, 은퇴) | 펌프 등가 실재; 실부채 아님 |
+| **RL(B3)** | R4RL-02·R4RL-03·R4RL-04(FactoredSchemaV2) | B3 스키마 재조준 |
+| **shadow/은퇴 + L4** | R4P4-ShadowRun(B6-은퇴)·L4-001(B6 re-pin + RD-R4A′-01 latent hang) | shadow 은퇴·L4 펌프 재-핀 |
+
+**B6 사전 조건 확정판**: 물리 삭제(default→pump flip + 표면 삭제) 게이트 = **① 실부채 9 상환**(키워드/보안 창·신-timing·트리거-순서 = 병행 Sonnet 트랙 = 실 B6 게이트) + **② 은퇴 4**(G2A-006·R4S3c·R4P4·G1E-005 RequestChoice-pause/MetaAP-sniff) + **③ 타-배치 re-point 소진**(통화 6 = B3/B4/B5·RL 3 = B3·M2/G1A 혼합 subtest) + **④ retained 재분류 무접촉**(G3.5-GPT4·G1C-001·G1A-004 등=비블로커, 삭제와 무관). **retained 재분류·B6-동시 re-pin·은퇴는 실부채 아님**(펌프 등가 or 검증대상 소멸); **유일 실-잔부채=①의 9**(+ latent RD-R4A′-01은 L4 재-핀 게이트, B6 직결 아님). §3.4e 원자적-종점 결론 불변: 안전-삭제 표면 여전히 ∅, 종점=①9 + ②–④ 소진 후 원자적 flip.
+
+### (5) 게이트 실측
+- **build**: 엔진 0오류(경고 1771 무증가·src 무변경). 워킹트리 수정=**테스트 2파일**(G2G-003·GR-002)만.
+- **재작성 2 green**: G2G-003 10/10·GR-002 2/2(전후 단언 의도 보존, 위 표).
+- **회귀 green**: A′-1 5(G3.5-A3 4·G2G-002 10·G3.5-007 7·GR-003 pass·G1C-002 6) + A-1 대표(G3.5-C12 5·W5 7·G3.5-005 8) + EXEMPLAR-T1 18·GLINK 5 = 전원 green.
+- **shadow**: R4P4-ShadowRun **bit-identical**(2 OLD-vs-OLD)·R4S3c-ShadowOldNew **2/2 IDENTICAL** + **secwin IDENTICAL**(seed 404 winner 1/1·sec 0/0·동일 digest). src 무변경→자명 무영향 실증.
+
+### (6) 남는 리스크
+1. **실부채 9가 유일 실-B6 게이트**: 전부 키워드/보안 창-재하우징·신-timing·트리거-순서 = 병행 Sonnet 트랙 몫(§3.4b/§3.4d P1 정합). 4b driver-swap 스코프 밖 확정—B6는 이 트랙 완료에 종속.
+2. **RD-R4A′-01(L4 latent hang)**: OLD-driver 풀-랜덤 late-board inner-drain unbounded 루프. 펌프 하 재현 여부 미검=retained 드레인 공유부채일 위험. L4-001 B6 re-pin 시 펌프 풀-랜덤 스모크로 재검 게이트 권고(현재 B6 비블로킹—OLD-only 노출).
+3. **계약군 B6-동시 subtest 3(G1A-002·M2-001·G1E-005)**: 펌프 등가 실재하나 first-step 이벤트/slot-정렬/choice-model 적응 필요—B6-Db 컷오버 배치에 편입(재조준 아님·기계적).
