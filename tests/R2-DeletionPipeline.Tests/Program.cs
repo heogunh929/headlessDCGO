@@ -58,7 +58,7 @@ async Task BatchDeferHoldsOptionlessMate()
 
     // The window is open for A; B (no option) must WAIT parked — not be trashed in a separate drain.
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window open for A");
-    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+    AssertEqual(ChoiceType.OptionalEffect, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
     AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, b), "B parked on the field while A decides (batch-atomic defer)");
     AssertTrue(ReadFlag(match, b, GameFlowProcessor.PendingDeletionKey), "B pendingDeletion");
     AssertEqual(0, match.Context.MemoryController.Current.Current, "no reactor fired before the batch finalized");
@@ -78,12 +78,12 @@ async Task BatchDeferSavedMate()
 {
     (DcgoMatch match, HeadlessEntityId a, HeadlessEntityId b) = await SetupTwoCardDelete(aHasEvade: true);
 
-    LegalAction activate = ResolveActions(match, P2).Single(x => x.Id.Value.Contains("#evade", StringComparison.Ordinal));
+    LegalAction activate = AcceptWindow(match, P2, a);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, a), "A survives via Evade");
-    AssertTrue(ReadFlag(match, a, DeletionReplacementGate.IsSuspendedKey), "A suspended as the Evade cost");
+    AssertTrue(InZone(match, P2, ChoiceZone.BattleArea, a), "A survives via the accepted replacement");
+    AssertFalse(ReadFlag(match, a, GameFlowProcessor.PendingDeletionKey), "A's pendingDeletion cleared (survived)");
     AssertTrue(InZone(match, P2, ChoiceZone.Trash, b), "B still deleted (its own deletion was never replaced)");
     AssertEqual(-1, match.Context.MemoryController.Current.Current, "leave reactor fired ONCE (B only)");
 }
@@ -130,7 +130,11 @@ async Task SecurityBattleDeletionStampsBatch()
     AssertTrue(move.Metadata.TryGetValue(MatchStateMutationSink.DeletionBatchIdKey, out object? raw) && raw is long id && id != 0,
         "security-battle deletion move stamped with a non-zero delete-batch id");
 
-    // And the marked move derives the deletion timings: the uncapped leave reactor fires once.
+    // (B6-Db item 3 — RD-R4B6-P1-2 REAL GAP, marking preserved) The batch-id is stamped (assertion above
+    // passes), but the security-battle finisher's departure does NOT feed RunToStable's OnLeaveFieldAnyone
+    // collection the way the sink/field-battle finishers do — so the uncapped leave reactor stays silent.
+    // Fixing the security-check drain's trigger dispatch to parity is beyond a small re-pin (needs AS-IS
+    // trigger-queue analysis of the SecurityResolver finisher vs BattleResolver); left marked, not repaired.
     await new GameFlowProcessor().RunToStableAsync(ctx);
     AssertEqual(-1, ctx.MemoryController.Current.Current, "leave reactor fired once for the security-battle deletion");
     _ = reactor;
@@ -144,7 +148,8 @@ async Task ArmorPurgeTopSwapNoDeletionFire()
     (DcgoMatch match, HeadlessEntityId a, HeadlessEntityId source) = await SetupArmorPurgeDelete();
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window open (Armor Purge offer)");
-    LegalAction activate = ResolveActions(match, P2).Single(x => x.Id.Value.Contains("#armorpurge", StringComparison.Ordinal));
+    AssertEqual(ChoiceType.OptionalEffect, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+    LegalAction activate = AcceptWindow(match, P2, a);
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
@@ -261,26 +266,36 @@ async Task<(DcgoMatch Match, HeadlessEntityId A, HeadlessEntityId B)> SetupTwoCa
     HeadlessEntityId b = HandCard(match, P2, 2);
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, a, ChoiceZone.Hand, ChoiceZone.BattleArea));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, b, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    var aMeta = new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.IsSuspendedKey] = false };
+    // (B6-Db item 3 re-pin — 수리-2 C5 판례) The retired HasEvadeKey metadata gate-key is replaced by the
+    // current-model canon: a card-registered OPTIONAL [WhenPermanentWouldBeDeleted] survival replacement
+    // (TfxWouldBeDeletedInteractive — the window form of the "you may" Evade keyword), surfaced through
+    // RegisterCard, NOT a metadata flag. The batch-atomic DEFER / single-reactor-collapse rule assertions are
+    // preserved; the invented DeletionReplacement gate type + '#evade' id + Evade suspend-cost are dropped.
+    SetMetadata(match, a, new Dictionary<string, object?>(StringComparer.Ordinal) { [DeletionReplacementGate.IsSuspendedKey] = false, ["dp"] = 4000 });
     if (aHasEvade)
     {
-        aMeta[DeletionReplacementGate.HasEvadeKey] = true;
+        GiveWouldBeDeleted(ctx, a, P2, "TfxWouldBeDeletedInteractive");
     }
 
-    SetMetadata(match, a, aMeta);
     ctx.MemoryController.Set(0);
 
-    // ONE effect resolution (one sink with the context => one real batch id) deletes BOTH cards.
-    var sink = new MatchStateMutationSink(
-        ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
-    foreach (HeadlessEntityId target in new[] { a, b })
+    // ONE effect resolution (one sink with the context => one real batch id) deletes BOTH cards. The card-
+    // registered [WhenPermanentWouldBeDeleted] discovery (TfxWouldBeDeletedInteractive.CanUseCondition reads
+    // CardEffectCommons) requires the ambient match scope (C-Del-3C1 substrate pattern).
+    using (AmbientMatchContext.Enter(ctx))
     {
-        sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
-            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
+        var sink = new MatchStateMutationSink(
+            ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
+            ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        foreach (HeadlessEntityId target in new[] { a, b })
+        {
+            sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
+                new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = target.Value }));
+        }
+
+        await sink.FlushAsync();
     }
 
-    await sink.FlushAsync();
     if (step)
     {
         await match.StepAsync();
@@ -300,27 +315,39 @@ async Task<(DcgoMatch Match, HeadlessEntityId A, HeadlessEntityId Source)> Setup
     // The source sits under A (out of every zone list, referenced by sourceIds).
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, source, ChoiceZone.Hand, ChoiceZone.Trash));
     await ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, source, ChoiceZone.Trash, ChoiceZone.None));
+    // (B6-Db item 3 re-pin — 수리-2 C5 판례) The retired HasArmorPurgeKey metadata gate-key is replaced by the
+    // current-model canon: a card-registered OPTIONAL [WhenPermanentWouldBeDeleted] Armor-Purge top-swap
+    // replacement (TfxArmorPurgeWouldBeDeleted composing the real DeDigivolveHelpers.ArmorPurgeTopAsync),
+    // surfaced through RegisterCard. The invented '#armorpurge' gate id is dropped; the top-swap / no-departure-
+    // reactor rule assertions are preserved.
     SetMetadata(match, a, new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         [DeletionReplacementGate.IsSuspendedKey] = false,
-        [DeletionReplacementGate.HasArmorPurgeKey] = true,
+        ["dp"] = 4000,
         ["sourceIds"] = new[] { source.Value },
     });
+    GiveWouldBeDeleted(ctx, a, P2, "TfxArmorPurgeWouldBeDeleted");
     ctx.MemoryController.Set(0);
 
-    var sink = new MatchStateMutationSink(
-        ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
-        ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
-    sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
-        new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = a.Value }));
-    await sink.FlushAsync();
+    using (AmbientMatchContext.Enter(ctx))
+    {
+        var sink = new MatchStateMutationSink(
+            ctx.CardInstanceRepository, log: null, ctx.ZoneMover, ctx.MemoryController,
+            ctx.EffectRegistry, ctx.GameEventQueue, context: ctx);
+        sink.Apply(new EffectMutation(MatchStateMutationSink.DeleteKind, new HeadlessEntityId("effect:deleter"),
+            new Dictionary<string, object?>(StringComparer.Ordinal) { [MatchStateMutationSink.TargetEntityIdKey] = a.Value }));
+        await sink.FlushAsync();
+    }
+
     await match.StepAsync();
     return (match, a, source);
 }
 
 async Task<DcgoMatch> CreateMatchAsync()
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 73);
+    // deferredChoice: the interactive [WhenPermanentWouldBeDeleted] PRE cut-in surfaces its "will you use it?"
+    // pause through the deferred-choice provider (C-Del-3C1 substrate pattern).
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 73, deferredChoice: true);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     for (int index = 1; index <= 12; index++)
     {
@@ -368,6 +395,32 @@ async Task<HeadlessEntityId> AddFieldDigimon(EngineContext ctx, HeadlessPlayerId
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
     match.GetLegalActions(player).Where(x => x.ActionType == HeadlessActionTypes.ResolveChoice);
+
+// (B6-Db item 3 — 수리-2 C5 판례) Give a card a card-registered [WhenPermanentWouldBeDeleted] survival
+// replacement — the current-model canon for the retired HasEvadeKey metadata gate-key. The effect surfaces
+// through RegisterCard (dispatch-discoverable TestFixtures ActivateClass), NOT through a metadata flag; the
+// instance metadata (IsSuspended etc.) is preserved via the def-only retype.
+void GiveWouldBeDeleted(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner, string tfxNumber)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:" + tfxNumber);
+    cards.Upsert(new CardRecord(defId, tfxNumber, tfxNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    CardEffectRegistrar.RegisterCard(context, card, owner);
+}
+
+// (B6-Db item 3 — 수리-2 C5 판례) Accept the OptionalEffect PRE would-be-deleted window: the non-skip
+// candidate keyed by the replacement holder's own instance id (the Candidates[0].Id convention the green
+// sibling C-Del-3C1C resolves against) — replaces the torn-down invented "#<keyword>" gate ids.
+LegalAction AcceptWindow(DcgoMatch match, HeadlessPlayerId player, HeadlessEntityId holder) =>
+    ResolveActions(match, player).Single(a =>
+        a.Id.Value.Contains(holder.Value, StringComparison.Ordinal)
+        && !a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
 
 HeadlessEntityId HandCard(DcgoMatch match, HeadlessPlayerId player, int index)
 {

@@ -24,6 +24,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("(S3b-2①) AddCardSource: the new card becomes the zone-resident top, the old top threads into sourceIds, sickness inherits", AddCardSourceOp),
     ("(S3b-2②) just-after bookkeeping: view-stable writes, PERSISTS across the top swap (re-key), DIES on field leave (reset)", BookkeepingLifetime),
     ("(S3b-2 몸통) a PLAY-agent full game: real ST1/ST2 plays + [On Play] windows + attacks on the pump stack, to a terminal, deterministically", PlayAgentFullGame),
+    ("(리뷰3 P2-⑦ 이식·B6-Db) SECURITY-0 WIN witness (pump-only): the asymmetric-DP security race ends by a direct attack on empty security — a winner is marked, the loser holds 0 security, its library is non-empty (not a deck-out). Grafted off the retiring R4S3c OLD-vs-NEW [secwin] shadow so the terminal seam survives B6.", SecurityWinPumpWitness),
     ("(S3c-b) the pump legal-action table: main wait exposes Pass+plays (no AdvancePhase/EndTurn), auto-flow phases expose nothing, choices expose ResolveChoice only", PumpLegalTable),
     ("(S3c-c repro) an EVOLVED permanent's death trashes its WHOLE stack (top + digivolution sources)", EvolvedDeathTrashesStack),
     ("(S3c-d1) CreatePumpDriven promotion: pump installed at init (setup normalized), first step opens the mulligan, no step-cadence actions", PumpFactoryPromotion),
@@ -564,6 +565,111 @@ async Task<DcgoMatch> DriveFullPlayGameAsync(int seed)
     AssertTrue(match.IsTerminal(), "the play-agent game reached a terminal within the drive bound");
     return match;
 }
+
+// (리뷰3 P2-⑦ graft — B6-Db item 2) The security-0 direct-attack WIN terminal, as a PUMP-ONLY witness so it
+// survives the B6 retirement of the R4S3c OLD-vs-NEW shadow (§A-2: the shadow was the sole witness of this
+// terminal seam). Vanilla-only asymmetric-DP decks — P1 = 50x BT4_065 (Gotsumon 6000 DP, survives every
+// security battle); P2 = 50x BT1_028 (Elecmon 3000 DP, cheaper, more attacks) — with NO digitama, so the game
+// ends on security 0 by a direct attack well before a deck-out. Assertions preserved verbatim in intent from
+// R4S3c's [secwin] block: a winner is marked (not a draw), the LOSER holds 0 security (the security-0 ending),
+// and the loser's library is non-empty (a direct-attack win, NOT a deck-out).
+async Task SecurityWinPumpWitness()
+{
+    DcgoMatch match = await DriveSecurityRaceToTerminalAsync(seed: 404);
+
+    AssertTrue(match.IsTerminal(), "the security-race game reached a terminal");
+    AssertTrue(!match.GetResult().IsDraw, "the game was decided, not a draw");
+    int? winnerRaw = match.GetResult().WinnerId?.Value;
+    AssertTrue(winnerRaw is not null, "a winner was marked");
+    int winner = winnerRaw!.Value;
+
+    HeadlessPlayerId loser = winner == 1 ? P2 : P1;
+    AssertEqual(0, Count(match, loser, ChoiceZone.Security), "the loser holds 0 security (the security-0 ending)");
+    AssertTrue(Count(match, loser, ChoiceZone.Library) > 0, "the loser's library is non-empty (a direct-attack win, not a deck-out)");
+}
+
+async Task<DcgoMatch> DriveSecurityRaceToTerminalAsync(int seed)
+{
+    DcgoMatch match = await NewPumpMatchWithDecksAsync(seed, FixtureSecurityRaceDecks());
+    await StepAsync(match);
+    for (int i = 0; i < 2; i++)
+    {
+        await ResolvePendingAsync(match, skip: true);   // keep both opening hands
+    }
+
+    // Attack-first agent (the game ends by security depletion, not deck-out) with a small board cap, mirroring
+    // DriveFullPlayGameAsync. Breeding decisions decline (no digitama in the fixture decks).
+    for (int i = 0; i < 4000 && !match.IsTerminal(); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type == ChoiceType.BreedingDecision;
+            await ResolvePendingAsync(match, skip: decline);
+            continue;
+        }
+
+        if (!AtMainWait(match))
+        {
+            await StepAsync(match);
+            continue;
+        }
+
+        HeadlessPlayerId turnPlayer = match.Context.TurnController.Current.TurnPlayerId!.Value;
+        using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+        var player = new Cec.Player(match.Context, turnPlayer);
+
+        Cec.Permanent? attacker = player.GetFieldPermanents().FirstOrDefault(p => p.CanAttack(null));
+        Cec.CardSource? playable = player.GetFieldPermanents().Count >= 4
+            ? null
+            : player.HandCards
+                .Where(c => c.IsDigimon && c.CanPlayFromHandDuringMainPhase
+                    && new Cec.Player(match.Context, turnPlayer).MaxMemoryCost >= c.PayingCost(HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect.Root.Hand, null, checkAvailability: true))
+                .OrderBy(c => c.PayingCost(HeadlessDCGO.Engine.Assets.Scripts.Script.SelectCardEffect.Root.Hand, null, checkAvailability: true))
+                .FirstOrDefault();
+
+        if (attacker is not null)
+        {
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.DeclareAttack,
+                new Dictionary<string, object?> { [HeadlessActionParameterKeys.AttackerId] = attacker.InstanceId.Value });
+        }
+        else if (playable is not null)
+        {
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.PlayCard,
+                new Dictionary<string, object?> { [HeadlessActionParameterKeys.CardId] = playable.InstanceId.Value });
+        }
+        else
+        {
+            await SendAsync(match, turnPlayer, HeadlessActionTypes.Pass, new Dictionary<string, object?>());
+        }
+    }
+
+    return match;
+}
+
+async Task<DcgoMatch> NewPumpMatchWithDecksAsync(int seed, PlayerDeckSetup[] decks)
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: seed);
+    var db = (CardDatabase)context.CardRepository;
+    CardBaseEntityLoader.LoadInto(db);
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        decks,
+        firstPlayerId: P1,
+        initialHandSize: 0,
+        initialSecuritySize: 0,
+        enableMulligan: false);
+    MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
+
+    DcgoMatch match = new(context, new EngineTrace(), actionProcessor: new TurnFlowDriver());
+    await match.InitializeAsync(config);
+    TurnFlowPumpHost.Install(context);
+    return match;
+}
+
+PlayerDeckSetup[] FixtureSecurityRaceDecks() => new[]
+{
+    new PlayerDeckSetup(P1, Enumerable.Repeat(new HeadlessEntityId("BT4_065"), 50).ToArray()),   // Gotsumon 6000 DP / cost 4
+    new PlayerDeckSetup(P2, Enumerable.Repeat(new HeadlessEntityId("BT1_028"), 50).ToArray()),   // Elecmon 3000 DP / cost 2
+};
 
 static string Digest(DcgoMatch match)
 {

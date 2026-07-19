@@ -1,9 +1,11 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 using HeadlessDCGO.Engine.Headless.State;
+using Cec = HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 
 // G3.5-D2: a field Digimon whose effective DP drops to 0 or below is destroyed as a state-based action
 // (AS-IS DigimonLackDPProcess / TrashNoDPPermanentProcess / CutInProcess: DP<=0 && IsDigimon). Only
@@ -47,7 +49,7 @@ Console.WriteLine($"\n{tests.Length} test(s) passed.");
 async Task DpZeroDeleted()
 {
     DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
-        modifiers: new[] { DpModifier.Relative(-3000) }); // effective 0
+        dpDelta: -3000); // effective 0
     await RuleProcessAsync(match);
     AssertInTrash(match, "DP 0 Digimon destroyed");
 }
@@ -55,28 +57,28 @@ async Task DpZeroDeleted()
 async Task DpNegativeDeleted()
 {
     DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 5000,
-        modifiers: new[] { DpModifier.Relative(-6000) }); // effective -1000
+        dpDelta: -6000); // effective -1000
     await RuleProcessAsync(match);
     AssertInTrash(match, "negative-DP Digimon destroyed");
 }
 
 async Task DpPositiveSurvives()
 {
-    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000, modifiers: null);
+    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000, dpDelta: null);
     await RuleProcessAsync(match);
     AssertOnField(match, "positive-DP Digimon survives");
 }
 
 async Task NoDpSurvives()
 {
-    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: null, modifiers: null);
+    DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: null, dpDelta: null);
     await RuleProcessAsync(match);
     AssertOnField(match, "DP-less Digimon is not swept (guard)");
 }
 
 async Task NonDigimonSurvives()
 {
-    DcgoMatch match = await FieldDigimonAsync(cardType: "Tamer", dp: 0, modifiers: null);
+    DcgoMatch match = await FieldDigimonAsync(cardType: "Tamer", dp: 0, dpDelta: null);
     await RuleProcessAsync(match);
     AssertOnField(match, "non-Digimon at DP 0 is not deleted by the Digimon rule");
 }
@@ -87,7 +89,7 @@ async Task NonDigimonSurvives()
 async Task DpZeroFortitudeReplays()
 {
     DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
-        modifiers: new[] { DpModifier.Relative(-3000) });
+        dpDelta: -3000);
     var source = new HeadlessEntityId("P1-FortSrc");
     match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId("P1-M02"), P1));
     SetMetadata(match, Card, new Dictionary<string, object?>
@@ -112,19 +114,36 @@ bool HasSourceIds(DcgoMatch match, HeadlessEntityId cardId) =>
 async Task DpZeroOpensPreWindow()
 {
     DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
-        modifiers: new[] { DpModifier.Relative(-3000) });
-    SetMetadata(match, Card, new Dictionary<string, object?> { [DeletionReplacementGate.HasEvadeKey] = true });
+        dpDelta: -3000);
+    // (B6-Db item 1 re-pin — 수리-2 C5 판례) The retired HasEvadeKey metadata gate-key is replaced by the
+    // current-model canon: a card-registered OPTIONAL [WhenPermanentWouldBeDeleted] survival replacement
+    // (TfxWouldBeDeletedInteractive). The DP<=0 sweep now opens its "will you use it?" PRE cut-in.
+    GiveWouldBeDeleted(match.Context, Card, P1, "TfxWouldBeDeletedInteractive");
 
     await RuleProcessAsync(match);
     AssertOnField(match, "the card is not swept while the Evade window is open");
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "a would-be-deleted (PRE) choice is open");
-    AssertEqual(ChoiceType.DeletionReplacement, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+    AssertEqual(ChoiceType.OptionalEffect, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
+}
+
+void GiveWouldBeDeleted(EngineContext context, HeadlessEntityId card, HeadlessPlayerId owner, string tfxNumber)
+{
+    var cards = (CardDatabase)context.CardRepository;
+    var defId = new HeadlessEntityId("def:" + tfxNumber);
+    cards.Upsert(new CardRecord(defId, tfxNumber, tfxNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 4 }, CardType: "Digimon"));
+    if (context.CardInstanceRepository.TryGetInstance(card, out CardInstanceRecord? record) && record is not null)
+    {
+        context.CardInstanceRepository.Upsert(record with { DefinitionId = defId });
+    }
+
+    Cec.CardEffectRegistrar.RegisterCard(context, card, owner);
 }
 
 async Task DpZeroFlagStamped()
 {
     DcgoMatch match = await FieldDigimonAsync(cardType: "Digimon", dp: 3000,
-        modifiers: new[] { DpModifier.Relative(-3000) });
+        dpDelta: -3000);
     await RuleProcessAsync(match);
     AssertInTrash(match, "DP-zero Digimon deleted");
     AssertTrue(ReadFlag(match, Card, HeadlessDCGO.Engine.Headless.Effects.MatchStateMutationSink.IsDpZeroKey),
@@ -139,7 +158,7 @@ bool ReadFlag(DcgoMatch match, HeadlessEntityId cardId, string key) =>
 // DIRECTLY (DiscardEvoRoots + RemoveField + AddTrash — not a destroy).
 async Task NoDpEggTrashed()
 {
-    DcgoMatch match = await FieldDigimonAsync(cardType: "DigiEgg", dp: null, modifiers: null);
+    DcgoMatch match = await FieldDigimonAsync(cardType: "DigiEgg", dp: null, dpDelta: null);
     // Give it a source and a POST keyword flag — a direct trash must fire NO deletion windows.
     var source = new HeadlessEntityId("P1-EggSrc");
     match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(source, new HeadlessEntityId("P1-M02"), P1));
@@ -159,11 +178,11 @@ async Task NoDpEggTrashed()
 
 async Task NoDpOptionRules()
 {
-    DcgoMatch trashed = await FieldDigimonAsync(cardType: "Option", dp: null, modifiers: null);
+    DcgoMatch trashed = await FieldDigimonAsync(cardType: "Option", dp: null, dpDelta: null);
     await RuleProcessAsync(trashed);
     AssertInTrash(trashed, "an un-played no-DP Option is trashed");
 
-    DcgoMatch kept = await FieldDigimonAsync(cardType: "Option", dp: null, modifiers: null);
+    DcgoMatch kept = await FieldDigimonAsync(cardType: "Option", dp: null, dpDelta: null);
     SetMetadata(kept, Card, new Dictionary<string, object?> { [GameFlowProcessor.IsPlayedOptionPermanentKey] = true });
     await RuleProcessAsync(kept);
     AssertOnField(kept, "a played-option permanent is exempt (AS-IS IsPlayedOptionPermanent)");
@@ -171,12 +190,17 @@ async Task NoDpOptionRules()
 
 // --- Harness -------------------------------------------------------------
 
-static async Task RuleProcessAsync(DcgoMatch match) =>
-    await new GameFlowProcessor().RunToStableAsync(match.Context);
-
-async Task<DcgoMatch> FieldDigimonAsync(string cardType, int? dp, DpModifier[]? modifiers)
+// The rule sweep reads Permanent.DP (GameFlowProcessor.cs:671), which folds live continuous ChangeDigimonDP
+// effects — that fold requires the ambient match scope.
+static async Task RuleProcessAsync(DcgoMatch match)
 {
-    EngineContext context = EngineContext.CreateDefault(randomSeed: 74);
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await new GameFlowProcessor().RunToStableAsync(match.Context);
+}
+
+async Task<DcgoMatch> FieldDigimonAsync(string cardType, int? dp, int? dpDelta)
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 74, deferredChoice: true);
     CardDatabase cards = (CardDatabase)context.CardRepository;
     cards.Upsert(new CardRecord(new HeadlessEntityId("P1-M01"), "P1-M01", "Subject", new Dictionary<string, object?>(), CardType: cardType));
     for (int index = 2; index <= 12; index++)
@@ -196,8 +220,24 @@ async Task<DcgoMatch> FieldDigimonAsync(string cardType, int? dp, DpModifier[]? 
 
     var meta = new Dictionary<string, object?> { ["isSuspended"] = false };
     if (dp.HasValue) meta["dp"] = dp.Value;
-    if (modifiers is not null) meta["dpModifiers"] = modifiers;
     SetMetadata(match, Card, meta);
+
+    // (B6-Db item 1 re-target — 수리-2 N2 판례) The dead `dpModifiers` metadata array was only read by
+    // CardObservation, never folded by Permanent.DP (the seat the DP<=0 rule sweep reads) — so it never
+    // materialised. Reconstructed with the LIVE canon: a ChangeDigimonDP continuous ±DP effect (ChangeDPClass /
+    // IChangeDPEffect) which Permanent.DP folds live, the same mechanism N2's field battle reads.
+    if (dpDelta is int delta)
+    {
+        using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(context);
+        var srcDef = new HeadlessEntityId("SRC-DPMOD");
+        cards.Upsert(new CardRecord(srcDef, "SRC-DPMOD", "dp source", new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        var srcId = new HeadlessEntityId($"src:{Card.Value}:{delta}");
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(srcId, srcDef, P1));
+        var source = new Cec.CardSource(context, srcId, P1);
+        var target = new Cec.Permanent(context, Card, P1);
+        Cec.CardEffectCommons.ChangeDigimonDP(target, delta, EffectDuration.UntilEachTurnEnd, source);
+    }
+
     return match;
 }
 
@@ -209,11 +249,14 @@ static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
         Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
+// (currency-drain deferred) The DP<=0 deletion pipeline / would-be-deleted window require the match to be past
+// the early phases at Main — dropping this AdvancePhase preamble regresses the sweep. Full currency drain
+// (reach-Main via CreatePumpDriven + DriveUntil(AtMainWait)) is B3/B5-style pump-harness work, tracked separately.
 async Task AdvanceToMainAsync(DcgoMatch match)
 {
     for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
     {
-        LegalAction advance = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
+        LegalAction advance = match.GetLegalActions(P1).Single(x => x.ActionType == HeadlessActionTypes.AdvancePhase);
         await match.ApplyActionAsync(advance);
         await match.StepAsync();
     }

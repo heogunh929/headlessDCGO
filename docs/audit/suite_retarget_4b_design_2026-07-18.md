@@ -538,3 +538,55 @@ grep 실측(현 HEAD 파생 워킹트리, `tests/*/Program.cs`, 주석/sniff 제
 1. **실부채 9가 유일 실-B6 게이트**: 전부 키워드/보안 창-재하우징·신-timing·트리거-순서 = 병행 Sonnet 트랙 몫(§3.4b/§3.4d P1 정합). 4b driver-swap 스코프 밖 확정—B6는 이 트랙 완료에 종속.
 2. **RD-R4A′-01(L4 latent hang)**: OLD-driver 풀-랜덤 late-board inner-drain unbounded 루프. 펌프 하 재현 여부 미검=retained 드레인 공유부채일 위험. L4-001 B6 re-pin 시 펌프 풀-랜덤 스모크로 재검 게이트 권고(현재 B6 비블로킹—OLD-only 노출).
 3. **계약군 B6-동시 subtest 3(G1A-002·M2-001·G1E-005)**: 펌프 등가 실재하나 first-step 이벤트/slot-정렬/choice-model 적응 필요—B6-Db 컷오버 배치에 편입(재조준 아님·기계적).
+
+## §3.4g B6-Db 실행 기록 — 컷오버 준비 배치(잔여 소비자 최종 소진) + B6 원자 삭제 직전 상태 (2026-07-19, main HEAD=9966c6ec 파생, 메인 워킹트리·미커밋)
+
+엔진/src 변경 = **1 파일 신설**(`TfxArmorPurgeWouldBeDeleted.cs` 테스트 픽스처, 실플레이 inert). build 엔진 0오류. shadow 무영향 실증(아래 (4)). 수리-1/2 판례(ecf18f0d·9966c6ec) 위에 §3.4f B6 사전조건의 ③타-배치 re-point·②은퇴 이식·항목3 재핀을 소진.
+
+### (1) 항목 2 — 은퇴 준비(이식만; 실은퇴는 B6)
+- **secwin 이식 완료**: R4S3c `[secwin]` 시큐리티-0 승리 종국 witness(§A-2 판정=유일-witness)를 **펌프-단독** witness로 R4S3b에 이식(`SecurityWinPumpWitness`). FixtureSecurityRaceDecks(P1=50×BT4_065 6000DP·P2=50×BT1_028 3000DP·무-digitama)를 `NewPumpMatchWithDecksAsync`+attack-first 드라이브로 종국까지 구동. 단언 보존: **승자 마킹·loser 시큐리티 0·loser 라이브러리>0(비-덱아웃)**. R4S3b **14/14 green**. ⇒ R4S3c(shadow 2)를 B6-은퇴해도 시큐리티-승 종국 seam 유실 없음(비-vacuous: 약공격 대조 없이도 zone-종국 3중 단언).
+- **R4P4 결정론 sanity 판정=중복(이식 불요)**: R4P4의 OLD-vs-OLD "펌프에도 유효한 단언"=엔진 결정론(동seed→동trajectory). **RLB1-01(ParallelDeterminism) 헤더가 명시적으로 "the pump-era replacement"**(dormant OLD-cadence 결정론 verifier 대체)이며 serial+parallel 동seed digest 항등 + cross-seed 발산(discriminative)을 **펌프 드라이버**에서 단언 = R4P4 OLD-sanity의 상위집합. ⇒ 펌프-유효 단언은 RLB1-01이 커버(초과). 이식 불요, 판정만.
+
+### (2) 항목 3 — R2-Del 발명-표현 3 재조준 + P1-2 판별 (코디네이터 승인, 수리-2 C5 판례)
+`R2-DeletionPipeline.Tests` (base 4-red → **1-red**):
+- **P1-1 ×2 (Evade) = 재핀 GREEN**: 철거된 `HasEvadeKey` 메타 게이트키 → card-registered OPTIONAL `[WhenPermanentWouldBeDeleted]`(`TfxWouldBeDeletedInteractive`, C5 판례). 창 타입 `DeletionReplacement`→`OptionalEffect`, `#evade` id→AcceptWindow(holder-id candidate), Evade suspend-cost 단언 폐기(발명-키워드 표현)→pendingDeletion-cleared 생존 단언으로 대체. **배치-원자 defer(mate B park)·단일-reactor collapse(-1)** load-bearing 룰 전량 보존. **하네스 정합 필수 발견**: 순수 sink 하네스가 (a)ambient scope 미진입 (b)`deferredChoice` 미설정 → 인터랙티브 PRE cut-in 미개설. C-Del-3C1 substrate 패턴대로 `AmbientMatchContext.Enter`+`CreateDefault(deferredChoice:true)` 배선 후 flip(HasEvadeKey 원본도 red였음=계약 미완결 상태를 재핀으로 완결).
+- **P1-4 (Armor Purge) = 재핀 GREEN**: `HasArmorPurgeKey` → **신설 `TfxArmorPurgeWouldBeDeleted`**(OPTIONAL `[WhenPermanentWouldBeDeleted]`가 실 프리미티브 `DeDigivolveHelpers.ArmorPurgeTopAsync` 합성: top-trash+source-promote+willBeRemoveField=false). 창 개설(OptionalEffect)·top A→Trash·source→BattleArea·**leave-reactor 미발화(memory 0)** 전량 보존(비-vacuous: reactor 상주하나 top-swap=비-departure라 미발화). 프리미티브 신설 아님(ArmorPurgeTopAsync 기존)·실플레이 inert.
+- **P1-2 (실갭) = 마킹 유지 (RD-R4B6-P1-2)**: 엔진은 배틀-id를 이미 스탬프(SecurityResolver.cs:822, 첫 단언 통과)하나, **시큐리티-전투 finisher의 departure가 RunToStable의 OnLeaveFieldAnyone 수집에 sink/field-battle finisher처럼 급전되지 않아** uncapped leave reactor 미발화. ambient wrap로도 미해소=하네스 아닌 실-엔진 갭. SecurityResolver finisher↔BattleResolver 트리거-큐 AS-IS 대조 필요=소형 재핀 초과 → 마킹(수리 아님).
+
+### (3) 항목 1 — 타-배치 re-point 재실측 + 소진
+- **G3.5-D2 (DpZero) = RED→GREEN 완전 재조준 (10/10)**: red 근원 재판별 = **죽은 표현 2중**. ① DP-fold: `dpModifiers`(`DpModifier.Relative`) 메타는 CardObservation만 읽고 `Permanent.DP`(DP<=0 sweep가 읽는 좌석, GameFlowProcessor.cs:671)가 미-fold → **N2 판례**로 live `CardEffectCommons.ChangeDigimonDP`(IChangeDPEffect) 재배선(sweep가 effective DP<=0 인식→삭제). ② Evade 창: DpZeroOpensPreWindow의 `HasEvadeKey` → **C5 판례** `TfxWouldBeDeletedInteractive`+OptionalEffect(deferredChoice+ambient). ⇒ strike-시드/Collision/N2 수리 이후 재실측 결과 D2는 **엔진 갭 아닌 죽은-표현 재타깃**(N2 동종)으로 확정, flip.
+- **G3.5-D1 (Piercing) = W4 stale-probe 확정(재타깃 pending)**: 2 red subtest 전부 발명 `EffectRegistry.Register(new EffectBinding(RecordingFakeEffect))` 소비 — 라이브 security-check 창은 `AutoProcessing.GetSkillInfos`(card-registered)만 읽고 EffectRegistry 바인딩 미참조(W4 판례 동일). `PiercingFiresSecurityEffect`(OnSecurityCheck)→live `TfxOnSecurityCheckDraw` 필드-reactor로 재타깃 가능(단 생존 P2 필드-reactor staging 필요); `TriggerKillsAttackerBeforePiercing`(OnKnockOut)→live OnKnockOut-delete 픽스처 신설 필요(부재). 성격=W4 stale-probe 확정, 이번 배치 미실행(픽스처 staging 미완, 보수 원칙).
+- **currency-4 (G12-002·G3.5-C2·G3.5-N9·G3.5-F68) = green·통화 존치(드레인 미완)**: 전원 green(재실측 무변)이나 `AdvanceToMainAsync`의 `AdvancePhase` 통화 보유. **결정적 발견**: D2에서 실증 — 삭제-파이프/would-be-deleted 창은 **Main 페이즈 도달을 요구**(AdvanceToMain 제거 시 sweep 회귀 5-red). ⇒ AdvancePhase 통화의 사소-제거 불가; 드레인=`CreatePumpDriven`+`DriveUntil(AtMainWait)` reach-Main 재핀(=B3/B5 per-fixture 펌프-하네스 재구축)에 게이트. §3.4e "원자적 종점" 재확증.
+- **RL 3 (R4RL-02/03/04) = OLD-ctor 존치(드레인 미완)**: `PendingHandChoiceMatchAsync`의 `new DcgoMatch(...actionLegality:LegalActionSetValidator)` → `CreatePumpDriven` 스왑은 **비-사소**: CreatePumpDriven이 딜을 StartGame으로 정규화(hand 0 until StepAsync)→헬퍼의 `hand.Count>=3` 즉시-단언 회귀. 펌프-딜 드라이브(StepAsync+mulligan) 배선=B3 스키마 재조준. 계약(관측 인코딩) 무변 확인·미실행.
+- **mixed-3 (G1A-002·M2-001·G1E-005) = B6-동시 처분 마킹**(§3.4f 일치): G1A-002 first-step·M2-001 실-매치 slot-정렬=B6-동시 re-pin(펌프 lifecycle 이벤트/랜덤-드라이브 적응, 기계적); G1E-005 RequestChoice-pause+MetaAP-sniff=B6-동시 은퇴. 실행 아닌 마킹(실은퇴/re-pin은 B6 원자 배치).
+
+### (4) B6 원자 삭제 직전 상태 최종표 (삭제-표면별 잔존 소비자)
+grep(`tests/**/Program.cs`, 근사; 주석/sniff 포함 상한):
+| # | 삭제-표면 | 시그니처 | 소비자 | 소비자-0? | B6-동시 처분 |
+|---|-----------|----------|-------:|-----------|--------------|
+| 1 | `HeadlessGameLoop` OLD ctor/step | `new HeadlessGameLoop(` | **0** | ✅ | 삭제 가능 |
+| 4 | `EndOfTurnDrainedTurn` 마커 | `EndOfTurnDrainedTurn` | **0** | ✅ | 삭제 가능(항2 원자) |
+| 5 | 디스패처 OLD arm | `new HeadlessLegalActionDispatcher(` | **0** | ✅ | 삭제 가능(A-1 청산 유지) |
+| 2 | `MetadataActionProcessor` AdvancePhase/EndTurn body | `HeadlessActionTypes.(AdvancePhase\|EndTurn)` | **16** | ❌ | 아래 분해 |
+| 3 | `HeadlessMainPhaseFlow` invented eval | `new HeadlessMainPhaseFlow(` | **1** | ❌ | FAILd-07=B4(항5 승격 선행) |
+| 6 | `HeadlessEarlyPhaseFlow` Unsuspend/Draw/Breeding | `new HeadlessEarlyPhaseFlow(` | **1** | ❌ | E3-Witness=B5/은퇴(DORMANT) |
+
+**항2 잔존 16 분해** (B6-동시 처분 목록):
+- **B6-은퇴 2**: G2A-006(OLD 디스패처 시퀀스=검증대상 소멸)·R4S3c-ShadowOldNew(shadow; **secwin 이식 완료로 유일-witness 유실 위험 해소** → 은퇴 안전).
+- **green·통화-preamble 존치 13**(드레인=reach-Main 펌프 재핀): currency-4(G12-002·C2·N9·F68) + 수리-flip 유지 9(C5-SecurityPreWindow·C5-Witness·G2G-004·C910·**D2(본 배치 flip)**·N2·W4·PRIM-P0.NewTimings·R2-Del[7/8]). 전원 green/부분-green이나 `AdvanceToMain` preamble 통화 보유. 실룰 검증은 완결; 통화만 잔존.
+- **실부채 red 1**: G3.5-D1(W4 stale-probe, 재타깃 pending).
+
+**실부채 잔여(§3.4f ①9 대비 갱신)**: 본 배치가 D2 flip·R2-Del P1-1/P1-4 재핀으로 **red 감소**(D2 5-red·R2-Del P1-1×2+P1-4=3-red 해소); 잔여 실부채 = **RD-R4B6-P1-2**(신규 등재: 시큐리티 finisher departure 트리거 미급전) + **D1 W4-probe**(재타깃 pending) + §3.4f ①의 키워드/보안 창 red(병행 Sonnet 트랙, 무변). latent RD-R4A′-01(L4 hang)=B6 비블로킹 유지.
+
+**B6-Da 귀결(B6-Db)**: 삭제-표면 6 중 **3(항1·4·5)=소비자-0 확정**(원자 삭제 가능). **잔여 블로킹 3**(항2=16·항3=1·항6=1)의 실체 = ① reach-Main preamble 통화 13(green, 드레인=B3/B5 펌프-하네스 재핀) ② B6-은퇴 2(secwin 이식으로 안전) ③ 실부채 red 1(D1)+FAILd-07(B4)+E3(B5) + P1-2 실갭. **§3.4e 원자적-종점 결론 불변**: 안전-삭제 표면 여전히 ∅; 종점 = preamble-통화 13 펌프 reach-Main 재핀 + 은퇴 2 + 실부채(D1·P1-2·§3.4f①9) 상환 후 원자 flip.
+
+### (5) 게이트 실측 (코디네이터 detached 게이트용)
+- **build**: 엔진 0오류(픽스처 1 신설 반영). 워킹트리 수정 = 테스트 3파일(R4S3b·R2-Del·G3.5-D2) + 엔진 픽스처 1(TfxArmorPurgeWouldBeDeleted).
+- **실행분 green/판별**: R4S3b **14/14**(secwin 이식 포함)·R2-Del **7/8**(P1-2 마킹 red)·G3.5-D2 **10/10**.
+- **회귀 green**: 수리-2 flip 5(C5-SecurityPreWindow 5·W4 5·C910 7·D3 2·N2 7) · A′ 대표(C12 5·W5 7·G3.5-005 8·G2G-003 10·GR-002 2) · EXEMPLAR-T1 18·GLINK 5 · currency-4(G12-002·C2 6·N9 2·F68 13) 전원 green.
+- **shadow(엔진 픽스처 신설 무영향 실증)**: R4S3c-ShadowOldNew OLD-vs-NEW **2/2 IDENTICAL** + **secwin IDENTICAL**(seed 404 winner 1·sec 0/0·동일 digest)·R4P4-ShadowRun **bit-identical**(2 OLD-vs-OLD). (RLB2-01 profile 게이트는 장시간 실행; 픽스처 inert·shadow bit-identical이므로 엔진-행동 무영향 자명.)
+
+### (6) 남는 리스크
+1. **preamble-통화 13 드레인 = B3/B5 펌프-하네스 재구축**: 본 배치의 핵심 발견 — currency 소진은 sink/sweep 픽스처의 reach-Main을 `CreatePumpDriven`+`DriveUntil(AtMainWait)`로 재핀해야 하며(D2 실증: Main-도달 필수), per-fixture 노동. B6은 이 13(+RL 3)의 펌프 reach-Main 재핀에 강결합.
+2. **RD-R4B6-P1-2 실갭**: 시큐리티-전투 finisher departure 트리거 미급전(배틀-id는 스탬프됨). SecurityResolver↔BattleResolver 트리거-큐 대조 = 병행 보안 트랙 인접, 소형-초과.
+3. **D1 W4-probe 재타깃 미완**: `PiercingFiresSecurityEffect`=TfxOnSecurityCheckDraw 필드-reactor staging 필요; `TriggerKillsAttackerBeforePiercing`=OnKnockOut-delete 픽스처 부재(신설 필요). 성격 확정, 실행 이월.
