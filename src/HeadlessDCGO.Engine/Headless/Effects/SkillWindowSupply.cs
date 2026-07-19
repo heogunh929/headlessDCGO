@@ -111,6 +111,14 @@ public static class SkillWindowSupply
     //          F1-ADDDIGI-FROMFLAGS). Residual VALUE gap: the "CardEffect" member is null (the port threads the
     //          causing effect's SOURCE id, not the live ICardEffect — RD-C1-CARDEFFECT-IDTHREAD). The other RDW-02
     //          timings (discards / add-hand / tap / top-trash / …) stay UNHANDLED per the notes above.
+    //   RDW-02 OnDigivolutionCardDiscarded — NOT closed HERE (still no supply conversion), but NO LONGER a live gap:
+    //          the window is opened INLINE at the effect-trash seat exactly as AS-IS ITrashDigivolutionCards does
+    //          (CardController.cs:5202-5215). The ITrashDigivolutionCards port opens it via its caller
+    //          (CardController.cs:1197 → GManager.instance.autoProcessing.StackSkillInfos over TrashSpecificSourcesAsync);
+    //          the SINK positional + Commons effect-trash callers open it in the shared substrate
+    //          DigivolutionStackHelpers.RemoveSourcesAsync (RD-C5W-ESSTRASHSCAN), pre-move so the payload
+    //          {CardEffect(BareCauseEffect carrier), Permanent(pre-removal host), DiscardedCards} matches AS-IS.
+    //          The raw OnDigivolutionCardDiscarded emit here stays a no-op for THIS layer (dropped below).
     //   RDW-07 CLOSED: OnStartTurn / OnStartMainPhase / OnEndTurn build the AS-IS null payload. FINDING: the port's
     //          turn emits ALREADY go through TriggerEventEmitter.Emit (MetadataActionProcessor.cs:872/:910/:1022),
     //          which stamps the explicit TriggerTimingKey — so TriggerTimingMap.Derive ALREADY returns these

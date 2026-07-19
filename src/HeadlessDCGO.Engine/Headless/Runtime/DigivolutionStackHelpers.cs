@@ -442,6 +442,39 @@ public static class DigivolutionStackHelpers
             : window;
         List<string> remaining = sources.Where(value => !removed.Contains(value)).ToList();
 
+        // (RD-C5W-ESSTRASHSCAN) AS-IS ITrashDigivolutionCards.TrashDigivolutionCards opens the
+        // OnDigivolutionCardDiscarded trigger window INLINE (CardController.cs:5202-5215) with the payload
+        // {"CardEffect", _cardEffect}, {"Permanent", permanentTarget_Fixed}, {"DiscardedCards",
+        // trashDigivolutionCards_Fixed} — COLLECTED BEFORE the sources leave the host's stack (:5219-5234 physical
+        // removal follows). This shared helper is the sink-side substrate for that emit; the sibling
+        // ITrashDigivolutionCards path (TrashSpecificSourcesAsync) opens the same window via its caller
+        // CardController.cs:1197, but the positional / Commons effect-trash callers reach the window ONLY here, so
+        // it must open UNIFORMLY for every effect-trash path (F-6.8 no-call-site-is-not-a-skip). Gated exactly like
+        // the raw emit below (Trash dest, non-null queue, something removed) PLUS a live context: the DELETION path
+        // (DeletionSourceTrash) passes context:null and must NOT fire it (AS-IS DiscardEvoRoots is a direct trash,
+        // no window), and ActivatedEffects' self-trash passes gameEventQueue:null to suppress it — both already
+        // excluded. Opened BEFORE the Upsert so Permanent.DigivolutionCards STILL contains the removed sources: the
+        // trash-resident ESS (EX8_051) is collected via the host permanent's inherited-effect EffectList scan and
+        // its CanTriggerOnTrashSelfDigivolutionCard membership gate (DigivolutionCards.Contains(card)) passes; the
+        // later drain activates once the cards are trash-resident (CanActivate IsExistOnTrash). CardEffect = the
+        // causing effect collapsed to a BareCauseEffect carrier — every ported OnDigivolutionCardDiscarded reactor
+        // (EX8_051 / BT2_085 / EX10_045) gates on `cardEffect != null` only (RD-C1-CARDEFFECT-IDTHREAD residual).
+        if (context is not null && gameEventQueue is not null && destination == ChoiceZone.Trash && removed.Count > 0)
+        {
+            using Bridge.AmbientMatchContext.Scope _discardScope = Bridge.AmbientMatchContext.Enter(context);
+            List<CardSource> discardedCards = removed
+                .Select(value => new CardSource(context, new HeadlessEntityId(value), host.OwnerId, host.OwnerId))
+                .ToList();
+            var discardHashtable = new System.Collections.Hashtable
+            {
+                { "CardEffect", BareCauseEffect.For(context, causingEffectSourceId) },
+                { "Permanent", new Permanent(context, hostId, host.OwnerId) },
+                { "DiscardedCards", discardedCards },
+            };
+            await HeadlessDCGO.Engine.Assets.Scripts.Script.AutoProcessing.For(context)
+                .StackSkillInfos(discardHashtable, EffectTiming.OnDigivolutionCardDiscarded).ConfigureAwait(false);
+        }
+
         repository.Upsert(host with { Metadata = WithSources(host.Metadata, remaining) });
 
         // (PRIM-P0-timing) AS-IS ITrashDigivolutionCards fires OnDigivolutionCardDiscarded just BEFORE the source

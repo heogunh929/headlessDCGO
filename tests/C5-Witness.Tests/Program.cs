@@ -92,6 +92,18 @@ using HeadlessDCGO.Engine.Headless.Services;
 // PRE-window에 causing source id → RD-BCE-01 cause carrier 스레딩. Scapegoat_OwnEffect_NoOffer RED→GREEN,
 // 양성대조 Scapegoat_NestedAllyOnDeletion(상대-효과 삭제엔 오퍼) 유지. 잔여 RED 2건은 위 #3/#4(RD-C5W-ESSTRASHSCAN
 // ·RD-C5W-ACTIVATEBODY) 그대로 = 별도 구조골. Root D 상세는 위 블록 참조.
+//
+// ── 수리 원장 배치3b: RD-C5W-ESSTRASHSCAN 상환 GREEN (2026-07-20) ─────────────────────────────────────────
+// AS-IS ITrashDigivolutionCards:5215의 인라인 StackSkillInfos({CardEffect, Permanent, DiscardedCards},
+// OnDigivolutionCardDiscarded)를 sink-측 공유 substrate DigivolutionStackHelpers.RemoveSourcesAsync에 이식
+// (metadata upsert 前 = AS-IS collect-before-removal). host permanent가 아직 소스를 보유한 시점에 창이 열려
+// GetSkillInfos의 field-permanent inherited-effect 스캔이 trash-resident ESS(EX8_051)를 수집, CanUse의
+// DigivolutionCards.Contains(card) membership 통과 → 이후 drain에서 CanActivate(IsExistOnTrash)로 활성.
+// CardEffect=BareCauseEffect carrier(reactor 3종 EX8_051/BT2_085/EX10_045 모두 `cardEffect != null`만 게이트).
+// 게이트=raw emit과 동일(Trash·queue·removed>0)+context非null → 삭제경로(DeletionSourceTrash, context:null)·
+// ActivatedEffects 자기-트래시(queue:null)는 AS-IS대로 미발화. TrashSourceEss_DeDigivolve RED→GREEN,
+// 음성대조 TrashSourceEss_TraitGate([Mineral]/[Rock] 없으면 미발화) 유지. 잔여 RED 1건=WhenAttacking_TrashPlay_
+// GateAndCap(RD-C5W-ACTIVATEBODY, 코어 resume-cap 아키텍처 = 별도 구조골) 그대로.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
