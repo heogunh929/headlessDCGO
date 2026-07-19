@@ -1,4 +1,5 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -85,7 +86,7 @@ async Task BridgeExposesCurrentMatchAndState()
     AssertSame(ObservationSnapshot.Empty, bridge.State, "initial state");
     AssertSame(ObservationSnapshot.Empty, bridge.GetCurrentState(), "initial state alias");
 
-    var match = new DcgoMatch(context);
+    var match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     await match.InitializeAsync(MatchConfig.Create(
         new[] { new HeadlessPlayerId(1), new HeadlessPlayerId(2) },
         randomSeed: 31));

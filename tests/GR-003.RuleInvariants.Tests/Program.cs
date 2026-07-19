@@ -53,7 +53,12 @@ async Task<int> RunAsync(string aSet, string bSet, int seed, int cap)
             new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
             new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions),
         }, firstPlayerId: P1);
-    var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    // (4b A′-1) OLD default ctor (MetadataActionProcessor step cadence) → TurnFlowPump self-play. The random-
+    // legal self-play now drives the pump (phase auto-flow; AdvancePhase/EndTurn retired → Pass), and every
+    // asserted invariant is a pure game-state predicate (memory range, breeding, attack legality, turn player,
+    // option cleanup) that must hold identically under either driver. CreatePumpDriven keeps the agent legality
+    // boundary (LegalActionSetValidator) on by default.
+    var match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     var env = new HeadlessRlEnvironment(match);
     await env.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup));
 

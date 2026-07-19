@@ -2,6 +2,7 @@ using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -192,7 +193,10 @@ async Task<DcgoMatch> CreateMatchAsync(bool withBlocker)
         cards.Upsert(CreateDefinition($"P2-M{index:D2}", "Digimon"));
     }
 
-    DcgoMatch match = new(context);
+    // (4b A′-1) OLD default ctor (MetadataActionProcessor step cadence) → TurnFlowPump. Setup normalized for
+    // pump ownership (hand 0 / security 0 / mulligan off) at InitializeAsync, so the synthetic board is staged
+    // From=None (RemoveFromAllZones→BattleArea) — robust to the deck-resident (not Hand) start.
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(Player, "P1"), BuildDeck(Opponent, "P2") },
         firstPlayerId: Player,
@@ -201,11 +205,11 @@ async Task<DcgoMatch> CreateMatchAsync(bool withBlocker)
     await match.InitializeAsync(MatchConfig.Create(new[] { Player, Opponent }, randomSeed: 73, setup: setup));
     await AdvanceToMainAsync(match, Player);
 
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, TargetId, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.None, ChoiceZone.BattleArea));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, TargetId, ChoiceZone.None, ChoiceZone.BattleArea));
     if (withBlocker)
     {
-        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, BlockerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
+        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, BlockerId, ChoiceZone.None, ChoiceZone.BattleArea));
     }
 
     SetMetadata(match, AttackerId, new Dictionary<string, object?> { ["isSuspended"] = false, [BattleResolver.DpKey] = 9000 });
@@ -249,25 +253,46 @@ static PlayerDeckSetup BuildDeck(
             .ToArray());
 }
 
+// (4b A′-1) pump drive-to-main preamble (EXEMPLAR DriveUntil(AtMainWaitOf) idiom). The OLD AdvancePhase
+// step-cadence action retired; the TurnFlowPump auto-flows Active→Draw→Breeding→Main and pauses at the turn
+// player's Main wait. Breeding/mulligan pauses are declined (skip). The OLD per-step "advance phase count"
+// step-currency invariant is retired (§2.1 P-A); the "advance to main" reach is preserved by the loop-cap
+// throw + the terminal AtMainWaitOf assertion.
 async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
+    await StepOnceAsync(match);
+    for (var attempt = 0; attempt < 96 && !AtMainWaitOf(match, playerId); attempt++)
     {
-        LegalAction advance = SingleLegalAction(match, playerId, HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
+        if (match.HasPendingChoice()) await ResolveSkipAsync(match);
+        else await StepOnceAsync(match);
     }
 
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+    AssertTrue(AtMainWaitOf(match, playerId), "advance to main");
 }
 
-LegalAction SingleLegalAction(DcgoMatch match, HeadlessPlayerId playerId, string actionType)
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task StepOnceAsync(DcgoMatch match)
 {
-    LegalAction[] actions = match.GetLegalActions(playerId)
-        .Where(action => action.ActionType == actionType)
-        .ToArray();
-    AssertEqual(1, actions.Length, $"{actionType} count");
-    return actions[0];
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+static async Task ResolveSkipAsync(DcgoMatch match)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    LegalAction resolve = match.GetLegalActions(chooser)
+        .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+            && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+        ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice)
+        ?? throw new InvalidOperationException("no ResolveChoice lane for pending pump pause");
+    await match.ApplyActionAsync(resolve);
+    await match.StepAsync();
+    await match.StepAsync();
 }
 
 void SetMetadata(DcgoMatch match, HeadlessEntityId cardId, IReadOnlyDictionary<string, object?> values)
