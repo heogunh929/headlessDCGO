@@ -3884,6 +3884,19 @@ public sealed class Permanent
             return;
         }
 
+        // (MIG4-DETACH-LIVE-TOP) AS-IS RemoveFromAllArea strips THIS permanent's OWN live top out of its stack
+        // when the top card itself is in the added batch (App-Fusion: SelectAppFusionEffect.AddToSources issues
+        // AddDigivolutionCardsTop({link, TopCard}), Permanent.cs:234). The per-card cardSources.Insert(1, ...)
+        // then RE-ROOTS the stack — a different card ends up at index 0 (the new top) and the old top folds under
+        // it. The mirror's identity model (permanent id == top instance) expresses that as a top swap, so the
+        // batch takes the dedicated re-root arm; a batch that does NOT contain the host's own top keeps the plain
+        // place-under path below (identity unchanged).
+        if (addedDigivolutionCards.Any(card => card.InstanceId == InstanceId))
+        {
+            await ReRootAddDigivolutionCardsTopAsync(addedDigivolutionCards, causeEffectSourceId, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         bool hostIsToken = this.IsToken;
         var attachable = new List<HeadlessEntityId>();
         foreach (CardSource card in addedDigivolutionCards)
@@ -3916,6 +3929,199 @@ public sealed class Permanent
                 causeSourceId: causeEffectSourceId ?? default).ConfigureAwait(false);
         }
     }
+
+    /// <summary>(MIG4-DETACH-LIVE-TOP resolved) The RE-ROOT arm of AS-IS <c>AddDigivolutionCardsTop</c>
+    /// (Permanent.cs:1064-1122) for the batch that contains THIS permanent's own live top — the App-Fusion fold
+    /// <c>SelectAppFusionEffect.AddToSources</c> issues as <c>AddDigivolutionCardsTop({link, TopCard})</c>. It
+    /// REPRODUCES the AS-IS list algorithm on a VIRTUAL stack (per-card RemoveFromAllArea + <c>cardSources.Insert
+    /// (1, ...)</c>) to derive the final ordered stack, then TRANSLATES that to the mirror identity model: the
+    /// final first element becomes the new top; the rest become its ordered digivolution sources (the
+    /// <see cref="Headless.Runtime.DigivolveAction.AttachTargetAsSource"/> stack shape — reconstructed on this
+    /// dedicated path, WITHOUT touching AttachTargetAsSource itself). The old top physically leaves the field
+    /// (→ None, a buried source) and the new top enters it (→ BattleArea, face-up); both moves carry
+    /// <see cref="PermanentBookkeepingStore.PermanentContinuityKey"/> so the zone-mover lifetime chokepoint
+    /// leaves the PERSISTING permanent's just-after bookkeeping alone, and this op owns the
+    /// <see cref="PermanentBookkeepingStore.ReKey"/> (the digivolve / de-digivolve top-swap seat convention). The
+    /// new top re-registers its ported effects (<see cref="CardEffectRegistrar.RegisterCard"/>, as
+    /// <see cref="AddCardSource"/> does), and the persisting permanent fires ONE OnAddDigivolutionCards for the
+    /// whole batch (AS-IS :1119). A batch folding ANOTHER permanent's live top (AS-IS
+    /// <c>IPlacePermanentToDigivolutionCards</c>) is a DISTINCT re-parenting primitive and still STOPs in
+    /// <see cref="DetachEmbeddedSourceOrLinkAsync"/> (design item MIG4-DETACH-LIVE-TOP, other-host arm).</summary>
+    private async Task ReRootAddDigivolutionCardsTopAsync(
+        IReadOnlyList<CardSource> addedDigivolutionCards,
+        HeadlessEntityId? causeEffectSourceId,
+        CancellationToken cancellationToken)
+    {
+        HeadlessEntityId oldTopId = InstanceId;
+        bool hostIsToken = this.IsToken;
+
+        // The AS-IS virtual cardSources list: top at index 0, then the digivolution sources TOP-MOST first
+        // (DigivolutionCards is bottom→top, so reverse — same mapping as the cardSources getter, :1866-1879).
+        var virtualStack = new List<HeadlessEntityId> { oldTopId };
+        IReadOnlyList<CardSource> currentSources = DigivolutionCards;
+        for (int i = currentSources.Count - 1; i >= 0; i--)
+        {
+            virtualStack.Add(currentSources[i].InstanceId);
+        }
+
+        var addedCards = new List<HeadlessEntityId>();
+        bool isFromSameDigimon = false;
+        bool isFromDigimon = false;
+
+        foreach (CardSource card in addedDigivolutionCards)
+        {
+            HeadlessEntityId cardId = card.InstanceId;
+
+            // AS-IS :1073 — an added card already in THIS stack (top OR source).
+            if (virtualStack.Contains(cardId))
+            {
+                isFromSameDigimon = true;
+            }
+
+            // AS-IS :1078-1084 — the added card is part of a battle-area permanent that carries >=1 sources; for
+            // THIS permanent the live count is the (in-progress) virtual stack, matching the AS-IS in-place list
+            // mutation the loop reads back.
+            if (CardEffectCommons.IsExistOnBattleArea(card))
+            {
+                PermanentView cardPermanent = card.PermanentOfThisCard();
+                int sourceCount = cardPermanent.TopInstanceId == oldTopId
+                    ? virtualStack.Count - 1
+                    : cardPermanent.DigivolutionCards.Count;
+                if (sourceCount >= 1)
+                {
+                    isFromDigimon = true;
+                }
+            }
+
+            // AS-IS :1086 RemoveFromAllArea. A card embedded in ANOTHER permanent / the hand physically detaches
+            // here (if it is that other permanent's OWN live top, DetachEmbeddedSourceOrLinkAsync STILL STOPs —
+            // decision-2: IPlacePermanentToDigivolutionCards is out of scope). One of THIS permanent's own cards
+            // (its top or an existing source) is only removed from the virtual stack — the final source rewrite
+            // below is authoritative for its new position.
+            bool ownStackMember = virtualStack.Contains(cardId);
+            virtualStack.Remove(cardId);
+            if (cardId != oldTopId && !ownStackMember)
+            {
+                await DetachEmbeddedSourceOrLinkAsync(card, cancellationToken).ConfigureAwait(false);
+            }
+
+            // AS-IS :1088-1096 token guard + cardSources.Insert(1, ...).
+            if (!hostIsToken && !card.IsToken)
+            {
+                virtualStack.Insert(Math.Min(1, virtualStack.Count), cardId);
+                addedCards.Add(cardId);
+            }
+            else if (cardId != oldTopId)
+            {
+                // AS-IS still pulled the token card off its zone (RemoveFromAllArea) but never attaches it.
+                await WithdrawToNoneAsync(card, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        HeadlessEntityId newTopId = virtualStack.Count > 0 ? virtualStack[0] : oldTopId;
+        List<HeadlessEntityId> newSourceIds = virtualStack.Skip(1).ToList();
+
+        if (newTopId != oldTopId)
+        {
+            // Old top → None (now a buried source). Continuity: the AS-IS Permanent object PERSISTS across the
+            // swap, so the lifetime chokepoint must not Reset the bookkeeping — this op ReKeys below.
+            await _context.ZoneMover.MoveAsync(
+                new ZoneMoveRequest(OwnerId, oldTopId, CurrentZoneOf(OwnerId, oldTopId), Headless.Choices.ChoiceZone.None,
+                    Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+                cancellationToken).ConfigureAwait(false);
+
+            // New top → BattleArea (from wherever it sits: a de-linked card in None, or a hand card). Continuity
+            // + face-up, mirroring the digivolve top swap.
+            HeadlessPlayerId newTopOwner = OwnerOfCard(newTopId) ?? OwnerId;
+            await _context.ZoneMover.MoveAsync(
+                new ZoneMoveRequest(newTopOwner, newTopId, CurrentZoneOf(newTopOwner, newTopId), Headless.Choices.ChoiceZone.BattleArea,
+                    FaceUp: true, Metadata: PermanentBookkeepingStore.ContinuityMoveMetadata),
+                cancellationToken).ConfigureAwait(false);
+
+            // Any remaining source still sitting in a real zone (a loose hand card folded under) moves off-field.
+            foreach (HeadlessEntityId sourceId in newSourceIds)
+            {
+                if (sourceId == oldTopId)
+                {
+                    continue;
+                }
+
+                HeadlessPlayerId sourceOwner = OwnerOfCard(sourceId) ?? OwnerId;
+                Headless.Choices.ChoiceZone sourceZone = CurrentZoneOf(sourceOwner, sourceId);
+                if (sourceZone != Headless.Choices.ChoiceZone.None)
+                {
+                    await _context.ZoneMover.MoveAsync(
+                        new ZoneMoveRequest(sourceOwner, sourceId, sourceZone, Headless.Choices.ChoiceZone.None),
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            WriteReRootedStack(newTopId, oldTopId, newSourceIds);
+            PermanentBookkeepingStore.ReKey(_context.CardInstanceRepository, oldTopId, newTopId);
+            CardEffectRegistrar.RegisterCard(_context, newTopId, OwnerId);
+        }
+        else
+        {
+            // Degenerate: the top did not actually change (e.g. only the top itself was added and there was no
+            // other card to promote to index 0). Just write the sources back onto the same top.
+            WriteReRootedStack(newTopId, oldTopId, newSourceIds);
+        }
+
+        // AS-IS :1099-1119 — ONE OnAddDigivolutionCards for the whole batch (subject = the persisting permanent,
+        // now topped by newTopId). Same window/metadata as the plain place-under path.
+        DigivolutionStackHelpers.EmitAddDigivolutionCards(
+            _context.GameEventQueue,
+            OwnerId,
+            newTopId,
+            addedCards.Select(id => id.Value).ToArray(),
+            causeEffectSourceId ?? default,
+            skip: false,
+            isFromSameDigimon,
+            isFromDigimon);
+    }
+
+    /// <summary>(MIG4-DETACH-LIVE-TOP) Write the re-rooted stack onto <paramref name="newTopId"/>: its
+    /// <c>sourceIds</c> become <paramref name="newSourceIds"/> (top→bottom, the AttachTargetAsSource shape) and it
+    /// INHERITS the persisting permanent's tap / summoning-sickness state from <paramref name="oldTopId"/> — the
+    /// AS-IS Permanent object survives the swap (EnterFieldTurnCount / suspend are permanent-level), the same
+    /// carry the de-digivolve promote makes (<c>DeDigivolveHelpers</c>). A demoted old top keeps its now-stale
+    /// <c>sourceIds</c> untouched, exactly as <c>AttachTargetAsSource</c> leaves a digivolved-under target.</summary>
+    private void WriteReRootedStack(HeadlessEntityId newTopId, HeadlessEntityId oldTopId, IReadOnlyList<HeadlessEntityId> newSourceIds)
+    {
+        if (!_context.CardInstanceRepository.TryGetInstance(newTopId, out CardInstanceRecord? newTop) || newTop is null)
+        {
+            return;
+        }
+
+        bool inheritedEnteredThisTurn = false;
+        bool inheritedSuspended = false;
+        if (_context.CardInstanceRepository.TryGetInstance(oldTopId, out CardInstanceRecord? oldTop) && oldTop is not null)
+        {
+            inheritedEnteredThisTurn = oldTop.Metadata.TryGetValue("enteredThisTurn", out object? entered) && entered is bool e && e;
+            inheritedSuspended = oldTop.Metadata.TryGetValue("isSuspended", out object? susp) && susp is bool s && s;
+        }
+
+        var metadata = new Dictionary<string, object?>(newTop.Metadata, StringComparer.Ordinal);
+        if (newSourceIds.Count > 0)
+        {
+            metadata["sourceIds"] = newSourceIds.Select(id => id.Value).ToArray();
+        }
+        else
+        {
+            metadata.Remove("sourceIds");
+        }
+
+        metadata["enteredThisTurn"] = inheritedEnteredThisTurn;
+        metadata["isSuspended"] = inheritedSuspended;
+        _context.CardInstanceRepository.Upsert(newTop with { Metadata = metadata });
+    }
+
+    /// <summary>The owner of <paramref name="cardId"/> per the instance repository (null when unknown) — the
+    /// controller a re-root zone move for a folded card needs.</summary>
+    private HeadlessPlayerId? OwnerOfCard(HeadlessEntityId cardId) =>
+        _context.CardInstanceRepository.TryGetInstance(cardId, out CardInstanceRecord? record) && record is not null
+            ? record.OwnerId
+            : null;
 
     /// <summary>(MIG4) AS-IS <c>Permanent.AddDigivolutionCardsBottom(added, cardEffect, skipEffectAndActivateSkill,
     /// isFacedown)</c> (Permanent.cs:1133-1227): move each card off its current zone and append it to the bottom
@@ -4202,8 +4408,13 @@ public sealed class Permanent
     /// add-methods' shared pre-step: scan every permanent, and if the card is embedded there detach it (a link
     /// via RemoveLinkedCard(trashCard:false), a buried source via the bare RemoveCardSource) BEFORE the physical
     /// zone move the helper performs. AS-IS also strips a permanent's OWN live top out of its stack (re-parent /
-    /// demote) when the added card is currently some permanent's battling top — an identity-corrupting edge the
-    /// headless model (permanent id == top identity) cannot express — design item MIG4-DETACH-LIVE-TOP (throws).</summary>
+    /// demote) when the added card is currently some permanent's battling top — an identity-corrupting edge for the
+    /// headless model (permanent id == top identity). The one shape that folds the HOST's OWN live top into its own
+    /// stack (App-Fusion: <c>AddDigivolutionCardsTop({link, TopCard})</c>) is now RESOLVED — it is handled as a top
+    /// swap by <see cref="ReRootAddDigivolutionCardsTopAsync"/> and never reaches this pre-step. What STILL STOPs
+    /// here (design item MIG4-DETACH-LIVE-TOP, remaining arms) is folding ANOTHER permanent's live top under this
+    /// one (AS-IS <c>IPlacePermanentToDigivolutionCards</c> — its own re-parenting primitive) and the
+    /// AddDigivolutionCardsBottom / AddLinkCard self-top paths (AS-IS RemoveDigivolveRootEffect, out of scope).</summary>
     private async Task DetachEmbeddedSourceOrLinkAsync(CardSource card, CancellationToken cancellationToken)
     {
         PermanentView host = card.PermanentOfThisCard();
@@ -4216,8 +4427,9 @@ public sealed class Permanent
         {
             throw new NotSupportedException(
                 $"'{card.InstanceId.Value}' is currently a permanent's own live top card — no headless primitive " +
-                "re-parents/demotes it (AS-IS IPlacePermanentToDigivolutionCards / RemoveDigivolveRootEffect) — " +
-                "design item MIG4-DETACH-LIVE-TOP.");
+                "re-parents/demotes another permanent's top under this one (AS-IS IPlacePermanentToDigivolutionCards " +
+                "/ RemoveDigivolveRootEffect); the host's OWN live top fold is handled by the AddDigivolutionCardsTop " +
+                "re-root arm — design item MIG4-DETACH-LIVE-TOP (remaining arms).");
         }
 
         if (_context.CardInstanceRepository.TryGetInstance(host.TopInstanceId, out CardInstanceRecord? hostRecord) && hostRecord is not null

@@ -38,7 +38,7 @@ var tests = new (string Name, Func<Task> Body)[]
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
     ("BT25_089 W2 FLIP(RD-EXT3-01/G-Link 배치2): [Main] link 실행 — suspend cost → 영역 선택 → 손패 Appmon 선택 → 호스트 선택 → -2 감면 코스트 0 지불 → attach", BT25089_LinkFlip),
-    ("BT25_089 W3 FLIP(RD-EXT3-02/G-AppF): [End of Turn] AppFusion 요구/코스트/프레임 실단언 — CanAppFusionFromTargetPermanent(Mediamon top+Dreammon link) 양·음 + FrameID 해소; RESOLUTION이 RD-EXT3-02 STOP 대신 하류 MIG4-DETACH-LIVE-TOP(라이브-톱 강등 프리미티브, 범위 밖)까지 구동", BT25089_AppFusionResolveFlip),
+    ("BT25_089 W3 FLIP(RD-EXT3-02/G-AppF + MIG4-DETACH-LIVE-TOP): [End of Turn] AppFusion 요구/코스트/프레임 실단언 — CanAppFusionFromTargetPermanent(Mediamon top+Dreammon link) 양·음 + FrameID 해소; RESOLUTION이 STOP 없이 완주 — AddDigivolutionCardsTop({link,TopCard}) 재루팅으로 link=새 top·Mediamon 강등(최상위 소스)·정체성 re-key(bookkeeping 이관)·음성 대조(비-self-top 플레인 경로)", BT25089_AppFusionResolveFlip),
     // EX7_072 — Seventh Fascination (AddSkill nested-grant) — 전부 포팅(예측 BUSTED)
     ("EX7_072 W1 [Security] delete: 효과 등재 + CanActivate ON(상대 미서스펜드 Digimon) / OFF(부재) 양·음", EX7072_SecurityDeleteGate),
     ("EX7_072 W2 등재: [Main](OptionSkill AddSkill nested-grant)·[Trash](WhenDigivolving OptionMain) — AddSkillClass STOP 예측 BUSTED", EX7072_MainAndTrashPresent),
@@ -453,25 +453,66 @@ async Task BT25089_AppFusionResolveFlip()
     }
 
     // === RESOLUTION drives real play logic THROUGH RD-EXT3-02 into the link-sourcing step
-    //     (SelectAppFusionEffect.AddToSources) and STOPs only at the DISTINCT downstream substrate primitive
-    //     MIG4-DETACH-LIVE-TOP: AS-IS AddToSources folds the host's own LIVE TOP under the fusion card, which the
-    //     mirror's permanent-identity model (id == top) cannot re-parent. This is OUT OF SCOPE for RD-EXT3-02
-    //     (a Permanent re-parenting primitive), and crucially it is NOT the old RD-EXT3-02 STOP — proving the
-    //     app-fusion requirement/cost/frame subsystem is ported. ===
+    //     (SelectAppFusionEffect.AddToSources) and now COMPLETES the fold: AS-IS AddToSources issues
+    //     AddDigivolutionCardsTop({link, TopCard}) whose per-card cardSources.Insert(1,...) RE-ROOTS the stack —
+    //     the Dreammon link material becomes the new top and the host's own live top Mediamon folds under it. The
+    //     mirror expresses that as a top swap (MIG4-DETACH-LIVE-TOP host-own-top arm RESOLVED). ===
     policy.On(req => req.Type == ChoiceType.Permanent && req.Message.Contains("app fuse"), _ => ChoiceResult.Select(host));
     policy.On(req => req.Message.Contains("app fuse into"), _ => ChoiceResult.Select(entermon));
 
-    string? stopMsg = null;
+    // bookkeeping re-key witness: a sentinel on the OLD top (the persisting AS-IS Permanent object) must follow
+    // the swap to the NEW top, and the old key must fall back to AS-IS field defaults (ReKey moves, not copies).
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        new Cec.Permanent(match.Context, host, P1).LevelJustAfterPlayed = 7;
+    }
+
+    string? unexpected = null;
     using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
     {
         try { await ((Cec.ActivateICardEffect)fuse!).Activate(new Hashtable()); }
-        catch (NotSupportedException ex) { stopMsg = ex.Message; }
+        catch (Exception ex) { unexpected = $"{ex.GetType().Name}: {ex.Message}"; }
     }
-    AssertTrue(stopMsg is not null && stopMsg.Contains("MIG4-DETACH-LIVE-TOP"),
-        "RD-EXT3-02 PORTED: the AppFusion RESOLUTION drove CanAppFusion + frame lookups + SelectAppFusionEffect.AddToSources " +
-        "and STOPped at the DISTINCT downstream primitive MIG4-DETACH-LIVE-TOP (live-top demotion), out of RD-EXT3-02 scope");
-    AssertTrue(!(stopMsg?.Contains("RD-EXT3-02") ?? false) && !(stopMsg?.Contains("RD-P6C1-2") ?? false),
-        "the resolution no longer hits the RD-EXT3-02 (CanAppFusionFromTargetPermanent / PermanentFrame.FrameID) STOP");
+    AssertTrue(unexpected is null,
+        $"the AppFusion RESOLUTION completes with no STOP/throw (RD-EXT3-02 ported + MIG4-DETACH-LIVE-TOP host-own-top arm resolved) — got: {unexpected}");
+
+    var zrPost = (IZoneStateReader)match.Context.ZoneMover;
+    // (1) top flip — the link material is the battling top; the old top left the battle area (folded under).
+    AssertTrue(zrPost.GetCards(P1, ChoiceZone.BattleArea).Contains(link),
+        "re-root: the Dreammon link material is now the permanent's live top (resident on the battle area)");
+    AssertTrue(!zrPost.GetCards(P1, ChoiceZone.BattleArea).Contains(host),
+        "re-root: the old top Mediamon left the battle area (it is now a buried digivolution source)");
+
+    var fusedPerm = new Cec.Permanent(match.Context, link, P1);
+    // (2) old top buried at the IMMEDIATE under-top position (AS-IS Insert(1,...) placed it directly under the
+    //     new top — top-most source = DigivolutionCards[^1], since the mirror view is bottom→top).
+    AssertTrue(fusedPerm.DigivolutionCards.Any(c => c.InstanceId == host),
+        "re-root: the old top Mediamon is now a digivolution source of the re-rooted permanent");
+    AssertTrue(fusedPerm.DigivolutionCards.Count >= 1 && fusedPerm.DigivolutionCards[^1].InstanceId == host,
+        "re-root: Mediamon sits at the top-most source position (sourceIds[0] — directly under the new top)");
+    // (3) the Dreammon link was CONSUMED into the stack (RemoveLinkedCard ran) — it is no longer a link card.
+    AssertTrue(!fusedPerm.LinkedCards.Any(x => x.InstanceId == link) && !LinkedCardsOf(match, link).Contains(link),
+        "re-root: the Dreammon link was consumed into the digivolution stack (no longer a link card)");
+
+    // (4) bookkeeping re-key: the sentinel followed the persisting permanent to the new top; old key defaults.
+    AssertTrue(Cec.PermanentBookkeepingStore.Get(match.Context.CardInstanceRepository, link).LevelJustAfterPlayed == 7,
+        "re-root: the persisting permanent's just-after bookkeeping re-keyed from the old top to the new top (ReKey)");
+    AssertTrue(Cec.PermanentBookkeepingStore.Get(match.Context.CardInstanceRepository, host).LevelJustAfterPlayed == -1,
+        "re-root: the old top key falls back to AS-IS field defaults (bookkeeping was moved, not copied)");
+
+    // === NEGATIVE CONTROL: a batch that does NOT contain the host's own top keeps the PLAIN place-under path
+    //     (identity unchanged) — the re-root arm is gated strictly on host-own-top membership. ===
+    HeadlessEntityId nctop = StageSynthetic(match, P1, "NCTOP", dp: 6000, level: 5, "1:battle:nctop", name: "NControlTop");
+    HeadlessEntityId nloose = StageSynthetic(match, P1, "NLOOSE", dp: 3000, level: 3, "1:hand:nloose", name: "NLoose", zone: ChoiceZone.Hand);
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        await new Cec.Permanent(match.Context, nctop, P1)
+            .AddDigivolutionCardsTop(new List<Cec.CardSource> { new Cec.CardSource(match.Context, nloose, P1) }, null);
+    }
+    AssertTrue(zrPost.GetCards(P1, ChoiceZone.BattleArea).Contains(nctop),
+        "negative control: a non-self-top place-under leaves the top identity UNCHANGED (plain path, no re-root)");
+    AssertTrue(new Cec.Permanent(match.Context, nctop, P1).DigivolutionCards.Any(c => c.InstanceId == nloose),
+        "negative control: the loose hand card became a plain digivolution source under the unchanged top");
 }
 
 // ═══════════════════════════════════ EX7_072 ═══════════════════════════════════

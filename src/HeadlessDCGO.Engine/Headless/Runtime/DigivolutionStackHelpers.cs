@@ -603,7 +603,10 @@ public static class DigivolutionStackHelpers
     // sources — Permanent.cs:1071-1085). They gate 3 AS-IS reactors (BT22_006 / EX5_065 / EX5_001, unported today).
     // Computed PRE-move by the caller (post-move the flags read wrong: the card is now under the host / off-field)
     // and threaded here into the emit so the DORMANT SkillWindowSupply can build the full AS-IS key set.
-    private static void EmitAddDigivolutionCards(
+    // (MIG4-DETACH-LIVE-TOP) internal so Permanent.AddDigivolutionCardsTop's re-root arm (App-Fusion fold of the
+    // host's own live top) can fire the SAME single batch OnAddDigivolutionCards window as the plain place-under
+    // path — AS-IS both arms are the one StackSkillInfos call at Permanent.cs:1119.
+    internal static void EmitAddDigivolutionCards(
         GameEventQueue? gameEventQueue,
         HeadlessPlayerId hostOwner,
         HeadlessEntityId hostId,
