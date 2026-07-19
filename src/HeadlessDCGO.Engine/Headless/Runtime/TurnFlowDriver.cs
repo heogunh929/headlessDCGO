@@ -163,17 +163,18 @@ public sealed class TurnFlowDriver : IActionProcessor
             }
 
             case HeadlessActionTypes.NormalizedSpecialPlay:
-                // (S3c-b; marking per RD-R4B6-P2-1) The pump's special-play EXECUTION is the mirror interactive
-                // pre-play selection (SelectDigiXrosClass.Select / SelectAssemblyClass — Assembly / DigiXros
-                // parameterized fusion plays), still the registered component STOPs. This is a SEPARATE gap from
-                // the dispatcher↔validator contract: the dispatcher does NOT offer SpecialPlay on a pump match
-                // (HeadlessLegalActionDispatcher), so the validator boundary rejects a pump-match SpecialPlay
-                // BEFORE it reaches here — this seat is unreachable via the legal set today. It stays an honest
-                // rejection (routing to the live SpecialPlayAction path would bypass the mirror packet loop)
-                // until RD-P6C1-5 / RD-R5-04 port and SpecialPlay returns to the pump table (RD-RLENV-05).
+                // (RD-RLENV-05 — Option A landed, batch 7b) A pump-match SpecialPlay is DELIBERATELY not a pump
+                // action. The DigiXros/Assembly cluster is fully ported (RD-P6C1-5 / RD-R5-04 상환), and its pump
+                // EXECUTION is the mirror interactive pre-play selection reached through the ORDINARY PlayCard
+                // packet: a HasDigiXros / HasAssembly card is offered by PlayCardAction.GetLegalActions and this
+                // Queue()s Cec.PlayCardAction, whose PlayCardClass.PlayCard runs SelectDigiXros/SelectAssembly
+                // (CardController.cs:3387-3404). So the dispatcher does NOT offer SpecialPlay on a pump match
+                // (HeadlessLegalActionDispatcher) — routing a SpecialPlay packet through the live SpecialPlayAction
+                // path would be a REDUNDANT invented shortcut for the same play. The seat is unreachable via the
+                // legal set (validator boundary rejects it first); it stays an honest rejection here as a backstop.
                 return ActionProcessResult.Illegal(
                     action,
-                    "SpecialPlay is not available on a pump match yet (Assembly/DigiXros component cluster — design items RD-P6C1-5 / RD-R5-04).",
+                    "SpecialPlay is not a pump-match action (Option A: a DigiXros/Assembly play is the ordinary PlayCard entry, which routes through the mirror interactive SelectDigiXros/SelectAssembly).",
                     Base(action));
 
             case HeadlessActionTypes.NormalizedAdvancePhase:

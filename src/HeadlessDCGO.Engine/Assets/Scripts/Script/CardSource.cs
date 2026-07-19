@@ -1200,13 +1200,41 @@ public sealed class CardSource
             }
         }
 
-        // ===== Assembly (AS-IS CardSource.cs:705-737) — STOP (design item RD-R2C-ASSEMBLY) =====
-        // The AS-IS Assembly cost-reduction region reads `GManager.GetComponent<SelectAssemblyClass>()`'s
-        // playCard / selectedAssemblyCards interactive-selection state. The mirror SelectAssemblyClass is a
-        // STATIC feasibility helper (no component/playCard state — the interactive Assembly selection is a
-        // parameterized SpecialPlayAction that computes its own paid cost), so this sub-region has no 1:1 mirror.
-        // It never fired on this generic pay path (no live selection sets playCard == this), so its absence is
-        // behaviour-invariant.
+        // ===== Assembly (AS-IS CardSource.cs:705-737) — LIVE-PAY discount landed (RD-R2C-ASSEMBLY) =====
+        // Symmetric to the DigiXros region above's LIVE-PAY half: the mirror SelectAssemblyClass is now the
+        // interactive Assembly pre-play selection component (its playCard / selectedAssemblyCards instance state is
+        // filled DURING the pump play — PlayCardClass.PlayCard -> SelectAssemblyClass.Select,
+        // CardController.cs:3397-3404), so the FULL-set discount is applied here whenever a live selection sets
+        // playCard == this AND selectedAssemblyCards.Count == elementCount (AS-IS :729-730); otherwise no-op.
+        // ADAPTATION vs the DigiXros region: the AS-IS `if (checkAvailability) return 0;` early-return is NOT taken
+        // for Assembly. Unlike DigiXros (whose availability projection IS the blanket 0), the mirror's Assembly
+        // AVAILABILITY projection lives in the enumeration helper Runtime/PlayCardAction.CreateAssemblyActionIfPlayable,
+        // which offers a dedicated Assembly variant at the PRECISE (base - reduceCost) and therefore requires this
+        // pipeline to return the FULL base cost under checkAvailability (its STATIC feasibility half
+        // TryMatchMaterials / ValidateMaterials computes the material set). Taking the return-0 here would collapse
+        // that projection to 0 and break the variant. The LIVE logic (the interactive discount) is mirrored 1:1;
+        // only the availability-projection VENUE differs (architecture translation, not a simplification).
+        if (!isEvolution && !checkAvailability)
+        {
+            if (HasAssembly)
+            {
+                if (ownerPlayer.CanReduceCost(null, this))
+                {
+                    SelectAssemblyClass selectAssemblyClass = GManager.instance.GetComponent<SelectAssemblyClass>();
+
+                    if (selectAssemblyClass != null)
+                    {
+                        if (selectAssemblyClass.playCard == this)
+                        {
+                            if (selectAssemblyClass.selectedAssemblyCards.Count == AssemblyConditionOf()!.elementCount)
+                            {
+                                Cost -= AssemblyConditionOf()!.reduceCost;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // ===== (UNION substrate) legacy continuous cost bindings — mirror mid-migration only =====
         // `canReduce` is the live CannotReduceCost veto (Player.CanReduceCost), the SAME signal the new-model

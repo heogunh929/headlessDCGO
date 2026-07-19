@@ -34,7 +34,7 @@
 - [ ] **B2. Select* 컴포넌트군** — **재하우징(저위험)**
   - `SelectAttackEffect` (RD-P6C2-5/8/9): 있는것=`Headless/Runtime/OverclockEffect.cs`+`AttackProcess`(goal-1). 처리=공격선택을 AS-IS `SelectAttackEffect` thin wrapper로. → Overclock/Vortex/Execute Process가 호출.
   - `SelectHandEffect` (RD-P6C1-7 / **RD-P8-01 BT1_039**): 현재 7줄 스켈레톤. 있는것=`SelectCardEffect`(Root.Hand) 인프라. 처리=그 위에 AS-IS 별개 클래스로 실구현(치환 아님 — BT9_109 선례가 치환 거부).
-  - `SelectDigiXros.Select` interactive(RD-P6C1-5)·`selectBurst/AppFusion`(RD-P6C1-6): 특수플레이 auto-match는 있음, **interactive select만 신규**.
+  - `SelectDigiXros.Select` interactive(RD-P6C1-5)·`selectBurst/AppFusion`(RD-P6C1-6): 특수플레이 auto-match는 있음, **interactive select만 신규**. **[RD-P6C1-5 / RD-R5-04 상환 — 배치 7b(옵션 A)]**: `SelectDigiXrosClass.Select`·`SelectAssemblyClass.Select` 완전 포팅(STOP 0), `Permanent.CanSubstituteForDigiXrosCondition`(Permanent.cs:3644)+`SelectHandEffect` 미러 실착지. 소비=**일반 PlayCard 펌프 경로**(`PlayCardClass.PlayCard`→Select, CardController.cs:3387-3404); SpecialPlay 펌프 표 복귀 불요(옵션 A, RD-RLENV-05 재해석). 실증=`tests/RD-BATCH7B.Witness`(BT18_065 펌프 DigiXros 빈-프레임 플레이 완주). `selectBurst`(RD-P6C1-6)만 잔존.
 - [ ] **B3. 프레임 모델** (RD-P6C1-1/8, C2-1) — **분리(중위험)**
   - AS-IS frame=카드 위치/슬롯 상태. Headless는 zone-store+metadata로 대체(substrate 이탈, 등가 없음).
   - 처리: **게임로직 프레임 read만**(`CanPlayCardTargetFrame`·`PermanentFrame` 진화 타겟팅) zone/metadata로 재하우징. **UI 프레임(위치/렌더)은 substrate-strip 유지**. 케이스 분석 필요. `CardObjectController` zone-move는 기존 zone 헬퍼로 재하우징.

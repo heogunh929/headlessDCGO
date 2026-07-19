@@ -18,10 +18,12 @@
 //      팩토리 SaveEffect(Save.cs:18)+SaveProcess 실존 — 포팅 성공. 예상 빗나감 → 원장 정정.
 //    * P:TrashDigivolutionCardsAndProcessAccordingToResult — 공유 몸통(AS-IS :219). 미러
 //      DigivolveAndTrashBridge.cs:108 실존 — 포팅 성공(감사 ❌미커버 정정).
-//    * X:DigiXros — DigiXros 재료 조건 등록(AS-IS :34). ★수확: None-타이밍 등록(AddDigiXrosConditionClass)은
-//      데이터-홀더로 착지(AD1_025 Assembly 판례와 동형)하나, 이 조건을 소비하는 인터랙티브 DigiXros 플레이
-//      (SelectDigiXrosClass.Select)는 STOP(RD-R5-04): Permanent.CanSubstituteForDigiXrosCondition(R1) 부재 +
-//      SelectHandEffect 미러 스텁(R5). 즉 등록 팔은 실착지·소비 팔은 잠복 STOP(RD-EXT3-01).
+//    * X:DigiXros — DigiXros 재료 조건 등록(AS-IS :34). None-타이밍 등록(AddDigiXrosConditionClass)은
+//      데이터-홀더로 착지(AD1_025 Assembly 판례와 동형)하며, 이 조건을 소비하는 인터랙티브 DigiXros 플레이
+//      (SelectDigiXrosClass.Select)도 착지(RD-R5-04/RD-EXT3-01 상환 — 배치 7b): Permanent.
+//      CanSubstituteForDigiXrosCondition(Permanent.cs:3644) + SelectHandEffect 미러 실착지, Select에 STOP 없음.
+//      펌프 플레이 경로(PlayCardClass.PlayCard → SelectDigiXrosClass.Select, CardController.cs:3387-3390)로 소비
+//      실증(RD-BATCH7B.Witness). 즉 등록·소비 두 팔 모두 실착지.
 //    * (+K:Rush(RushSelfStaticEffect)·K:Collision(CollisionSelfStaticEffect)·K:Blocker/Retaliation(GainBlocker/
 //       GainRetaliation)·P:AddSelfDigivolutionRequirementStaticEffect·P:DrawClass, S:SelectPermanentEffect/
 //       SelectCardEffect(Root.Custom 진화원), T:OnDestroyedAnyone/OnDigivolutionCardDiscarded/OnCounterTiming)

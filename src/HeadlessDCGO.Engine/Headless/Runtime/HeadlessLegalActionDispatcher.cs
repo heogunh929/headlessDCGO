@@ -74,13 +74,18 @@ public sealed class HeadlessLegalActionDispatcher
             return Array.Empty<LegalAction>();
         }
 
-        // (RD-P6C1-5 Assembly / RD-R5-04 DigiXros — SEPARATE gap, marking per RD-R4B6-P2-1) SpecialPlay is
-        // OMITTED from the pump table: its pump EXECUTION is the mirror interactive pre-play selection
-        // (SelectDigiXrosClass.Select / SelectAssemblyClass), still the registered component STOPs — routing it
-        // through the live path would BYPASS the mirror packet loop (an invented shortcut). Until that cluster
-        // ports (then it returns to this table, RD-RLENV-05), a pump-match SpecialPlay is REJECTED at the
-        // boundary (NormalizedSpecialPlay ∈ AgentFacingTypes, absent from this set) rather than deferred into
-        // the STOP.
+        // (RD-RLENV-05 — Option A landed, batch 7b) SpecialPlay is DELIBERATELY OMITTED from the pump table.
+        // The DigiXros/Assembly component cluster (SelectDigiXrosClass.Select / SelectAssemblyClass.Select) is now
+        // fully ported (RD-P6C1-5 / RD-R5-04 상환: Permanent.CanSubstituteForDigiXrosCondition + SelectHandEffect
+        // 미러 실착지), so its pump EXECUTION IS the mirror interactive pre-play selection reached through the
+        // ORDINARY PlayCard entry below: a HasDigiXros / HasAssembly card is already offered by
+        // PlayCardAction.GetLegalActions (availability-projected cost), and the pump play routes it through
+        // Cec.PlayCardAction → PlayCardClass.PlayCard → SelectDigiXros/SelectAssembly (CardController.cs:3387-3404),
+        // which tucks the materials and applies the live cost subtraction (CardSource.cs:1173-1233). Adding a
+        // separate SpecialPlay packet to this table would be a REDUNDANT invented shortcut for the same play, so it
+        // stays out (Option A); a crafted pump-match SpecialPlay is REJECTED at the boundary
+        // (NormalizedSpecialPlay ∈ AgentFacingTypes, absent from this set). The invented SpecialPlayAction path is
+        // retained for the NON-PUMP lane above (G8-006 pin — unchanged by Option A). Witness: RD-BATCH7B.Witness.
         return new[] { HeadlessActionFactory.Pass(playerId) }
             .Concat(new PlayCardAction().GetLegalActions(context, playerId))
             .Concat(new DigivolveAction().GetLegalActions(context, playerId))
