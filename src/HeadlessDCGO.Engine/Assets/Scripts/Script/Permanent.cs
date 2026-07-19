@@ -2584,7 +2584,14 @@ public sealed class Permanent
     {
         get
         {
-            int Strike = 1;
+            // (RD-R4P-STRIKESEED substrate adaptation) AS-IS seeds a literal `int Strike = 1` — a real Digimon has
+            // no printed strike, so the check-count is always the constant 1 folded with live IChangeSAttackEffect.
+            // The mirror substrate stamps an attacker's resolved check-count as the "strike" instance metadata
+            // (SecurityResolver.StrikeKey) — e.g. a Piercing/multi-strike attacker whose extra checks were resolved
+            // upstream. Seed the fold from that substrate base (default 1, the AS-IS constant) exactly as the mirror
+            // LinkMax/DP readers fold live effects onto a substrate-resolved base. Production never writes the key, so
+            // a real game seeds the AS-IS 1 — behaviour-identical (shadow IDENTICAL).
+            int Strike = ReadSubstrateStrikeSeed();
 
             #region Effect of changing the number of sheets to undergo security check
 
@@ -2715,6 +2722,32 @@ public sealed class Permanent
 
             return Strike;
         }
+    }
+
+    /// <summary>(RD-R4P-STRIKESEED) The substrate base for <see cref="Strike_AllowMinus"/>: the attacker's resolved
+    /// security-check count stamped as the <c>"strike"</c> instance metadata (SecurityResolver.StrikeKey), clamped at
+    /// 0. Defaults to the AS-IS literal-1 seed when absent (every production attacker, which never carries the key).</summary>
+    private int ReadSubstrateStrikeSeed()
+    {
+        if (_context.CardInstanceRepository.TryGetInstance(InstanceId, out CardInstanceRecord? record)
+            && record is not null
+            && record.Metadata.TryGetValue("strike", out object? raw)
+            && raw is not null)
+        {
+            switch (raw)
+            {
+                case int i:
+                    return Math.Max(0, i);
+                case long l when l >= int.MinValue && l <= int.MaxValue:
+                    return Math.Max(0, (int)l);
+                case double d when d >= int.MinValue && d <= int.MaxValue && d % 1 == 0:
+                    return Math.Max(0, (int)d);
+                case string s when int.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsed):
+                    return Math.Max(0, parsed);
+            }
+        }
+
+        return 1;
     }
     #endregion
 
