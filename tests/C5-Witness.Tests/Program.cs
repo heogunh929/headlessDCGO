@@ -61,6 +61,28 @@ using HeadlessDCGO.Engine.Headless.Services;
 // ESS)의 select-이후 본체 tail이 이 통합 하네스(raw AttackDeclarationCommons.Declare + bare StepAsync + deferredChoice)
 // 에서 드레인되지 않음. 교체-Process 경로(Scapegoat/Fragment)는 정상. RD-C5W-ACTIVATEBODY / RD-C5W-ESSTRASHSCAN =
 // 별도 구조골 스코프. 이 3건은 truthful RED로 유지(강제 green 금지, 수리 규율 rule 2/3).
+//
+// ── 수리 원장 배치2: 위 "공통 근원 가설(select-이후 본체 tail 미드레인)"이 전면 반증됨 (2026-07-19) ──────────
+// 프로덕션 노출 판정 + 전구간 엔진 프로브(StackSkillInfos/GetSkillInfos/TriggeredSkillProcess/RunPickBody/
+// CanActivate 계측) 결과: "본체 tail 미드레인" 가설은 4건 중 0건에서 성립. 재분류 —
+//   [위트니스 오조준·엔진 AS-IS 정합] WhenAttacking_TrashBottom (BT13_023) / OnDeletion_TrashPlay (EX8_061):
+//     둘 다 INHERITED 효과(SetIsInheritedEffect(true))인데 위트니스가 카드를 TOP에 배치. AS-IS
+//     Permanent.EffectList_ForCard(Permanent.cs:2126-2145)는 계승효과를 SOURCE일 때만(`!isTopCard`) 수집 —
+//     top-카드 자기 계승효과는 결코 수집 안 함(대조: MAIN 효과인 BT2_034 [On Deletion]은 top으로 발화=green).
+//     프로브로 카드를 SOURCE로 재배치 시 동일 raw 하네스에서 본체 완주 실증. → 위트니스 재조준(둘 다 GREEN).
+//     드레인 갭 아님, 엔진 정합.
+//   [진짜 엔진 갭·별도 구조골] TrashSourceEss_DeDigivolve (RD-C5W-ESSTRASHSCAN 재분류): 본체 미드레인이 아니라
+//     OnDigivolutionCardDiscarded 트리거 창 자체가 미개방(sink trash helper가 raw 이벤트만 emit; SkillWindowSupply
+//     RDW-02 드롭; AS-IS ITrashDigivolutionCards:5215 인라인 StackSkillInfos 미이식). 미배선 timing = 트리거-수집
+//     구조골. 본체창 마킹 참조.
+//   [진짜 엔진 갭·별도 구조골] WhenAttacking_TrashPlay_GateAndCap (RD-C5W-ACTIVATEBODY 재분류): 본체 드레인이 아니라
+//     [Once Per Turn] 캡이 deferred-choice REPLAY-resume에서 재게이트(RunPickBody + ActivateEffectProcess:1560의
+//     CanActivate 재검사가 register-before-body로 이미 등록된 use를 isOverMaxCountPerTurn로 읽어 false). AS-IS는
+//     단일 코루틴으로 CanActivate 1회 검사 후 재검사 없이 continue. 증명: UNCAPPED [On Deletion] 재조준은 동일
+//     interactive-select resume로 green. 수리=OLD RegisterUseEffectThisTurn 캡을 suspend/resume-cycle-aware화(코어
+//     resume 아키텍처) = 배치 초과. 본체창 마킹 참조.
+// 결론: #1/#2 = 위트니스 재조준 GREEN; #3/#4 = 진짜 갭이나 각각 "미배선 timing"·"코어 resume 캡 아키텍처"로 배치
+// 초과 → 정밀 재마킹 후 truthful RED 유지·STOP. Root D(RD-C1-CARDEFFECT-IDTHREAD)는 별도 배치 유지.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -166,45 +188,36 @@ async Task Evade_SecurityBattle_Resume()
 
 async Task WhenAttacking_TrashBottom()
 {
-    // The defender SURVIVES the battle (9000 vs the attacker's 500), so the only thing that can put a
-    // digivolution source in the trash is the [When Attacking] bottom-trash itself — the assert is not
-    // masked by a defender deletion sweeping its whole stack.
+    // ── 수리-3(배치2) RE-AIM (reverses the 수리-3 "RD-C5W-ACTIVATEBODY drain gap" verdict) ──────────────
+    // The prior fixture placed BT13_023 as the TOP attacker and expected its [When Attacking] to fire. That is
+    // AS-IS-IMPOSSIBLE: BT13_023's [When Attacking] is an INHERITED effect (BT13_023.cs:39 SetIsInheritedEffect
+    // (true) — AS-IS BT13_023.cs:23), and AS-IS `Permanent.EffectList_ForCard` (Permanent.cs:2126-2145) collects
+    // a card's inherited effects ONLY when it is a digivolution SOURCE (`IsInheritedEffect && !isTopCard`); a
+    // TOP card's own inherited effect is never surfaced. So GetSkillInfos(OnAllyAttack) legitimately returned
+    // ZERO for the old fixture (traced: `StackSkillInfos OnAllyAttack collected=0`) — no drain gap, the engine
+    // is AS-IS-correct. Re-aim so BT13_023 is a SOURCE under an ordinary attacker: the inherited [When Attacking]
+    // is then collected, the forced single-candidate SelectPermanentEffect (pool==maxCount, no window,
+    // SelectPermanentEffect.cs:531) auto-selects the defender, and the body (TrashDigivolutionCardsFromTopOrBottom,
+    // BT13_023.cs:108-115) runs to completion IN THIS SAME raw harness — proven by probe. The defender SURVIVES
+    // (9000 vs the attacker's 500), so the trashed BOTTOM source can only be the [When Attacking] bottom-trash.
     DcgoMatch match = await CreateMatchAsync();
-    HeadlessEntityId attacker = await PlaceWitness(match, P1, "BT13_023", ChoiceZone.BattleArea,
+    HeadlessEntityId attacker = await Place(match, P1, "PLAIN", "p1atk", ChoiceZone.BattleArea,
         new Dictionary<string, object?> { ["dp"] = 500, ["isSuspended"] = false, [SecurityResolver.StrikeKey] = 1 });
+    // BT13_023 as a digivolution SOURCE of the attacker (never top) — the AS-IS home of an inherited effect.
+    HeadlessEntityId inheritedSrc = await PlaceWitness(match, P1, "BT13_023", ChoiceZone.None);
+    SetMetadata(match, attacker, new Dictionary<string, object?> { ["sourceIds"] = new[] { inheritedSrc.Value } });
     HeadlessEntityId defender = await Place(match, P2, "PLAIN", "p2def", ChoiceZone.BattleArea,
         new Dictionary<string, object?> { ["dp"] = 9000, ["isSuspended"] = true });
     HeadlessEntityId srcTop = await Place(match, P2, "SRC", "p2src0", ChoiceZone.None);
     HeadlessEntityId srcBottom = await Place(match, P2, "SRC", "p2src1", ChoiceZone.None);
     SetMetadata(match, defender, new Dictionary<string, object?> { ["sourceIds"] = new[] { srcTop.Value, srcBottom.Value } });
 
-    // (MIG1) withoutTap so the losing attacker can still pay Evade's suspend cost (see the note above).
-    AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: defender, isDirectAttack: false, withoutTap: true);
-    await match.StepAsync();   // [When Attacking] forced single-candidate select (1 opponent Digimon, pool==maxCount)
-                               // SHOULD auto-trash the bottom source, then the battle resolves: the 500 attacker
-                               // loses -> its own <Evade> PRE would-be-deleted window opens.
+    AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: defender, isDirectAttack: false);
+    await match.StepAsync();   // [When Attacking] forced single-candidate select auto-trashes the bottom source.
 
-    // (수리-3 RE-AIM + REAL-GAP, reverses 수리-2 Root A) The stale per-pick "select 1 opponent Digimon" window is
-    // dropped (forced-select opens no window; SelectPermanentEffect.cs:531). BUT the trash-bottom BODY never runs:
-    // BT13_023's [When Attacking] is an ActivateClass triggered effect (OnAllyAttack) whose ActivateCoroutine
-    // post-select body (TrashDigivolutionCardsFromTopOrBottom, BT13_023.cs:108-115) is not drained — the defender
-    // keeps BOTH sources. Probe: srcBottom never leaves the stack for withoutTap true OR false, across extra step
-    // drains; after one step we are already at the attacker's Evade PRE window (battle resolved) with the sources
-    // intact. Metadata-source trashing itself works (the Fragment session below trashes 3 such sources green), so
-    // this is specifically the ActivateClass-body drain. design item RD-C5W-ACTIVATEBODY. Truthful RED; NOT forced
-    // green (수리 규율 rule 2). Assertions below (BOTTOM trashed, TOP kept, defender survives, then Evade decline)
-    // are the preserved rule witness and now read the forced-select outcome directly.
     AssertInZone(match, P2, ChoiceZone.Trash, srcBottom, "the BOTTOM digivolution card was trashed");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, srcTop), "the TOP digivolution card stays (bottom-only)");
     AssertInZone(match, P2, ChoiceZone.BattleArea, defender, "the defender survived the battle");
-
-    // The losing attacker's own <Evade> PRE window opened; decline it and the deletion finalizes.
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the attacker's Evade PRE window is open");
-    LegalAction decline = ResolveActions(match, P1).Single(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
-    await match.ApplyActionAsync(decline);
-    await match.StepAsync();
-
-    AssertInZone(match, P1, ChoiceZone.Trash, attacker, "the declined attacker was deleted by the battle");
 }
 
 // --- EX8_051 <Fragment <3>> + trash-source ESS -----------------------------
@@ -289,15 +302,24 @@ async Task TrashSourceEss_DeDigivolve()
 {
     DcgoMatch match = await DriveTrashSourceEss(hostDefinition: "MINERAL");
 
-    // (수리-3 RE-AIM + REAL-GAP, reverses 수리-2 Root A) The stale per-pick ESS window wait is dropped: the
-    // De-Digivolve targets P1's single victim (forced-select opens no window). BUT the ESS body never fires at
-    // all — EX8_051's trash-source "<De-Digivolve 1>" is an ActivateClass triggered on OnDigivolutionCardDiscarded
-    // and resolved from the TRASH via the unregistered-source dispatch scan (EX8_051.cs:60-134); that reactor is
-    // never collected/drained. Probe: the victim is untouched (keeps its source, still able to attack) and NO
-    // choice ever surfaces, across CompleteResolution + 6 extra steps. This is the SAME collect-before-removal
-    // drain class as the marking's Root E (OnDeletion). design item RD-C5W-ESSTRASHSCAN. Truthful RED; NOT forced
-    // green. Assertions below are the preserved De-Digivolve rule witness (victim's top card → trash, under-source
-    // promoted).
+    // ── 수리-3(배치2) REGURGE — RD-C5W-ESSTRASHSCAN reclassified: the ESS body does not "fail to drain", the
+    //    OnDigivolutionCardDiscarded trigger WINDOW is never OPENED (larger structural, unwired timing) ─────────
+    // Root cause (traced): DriveTrashSourceEss trashes EX8_051 off a [Mineral] host via the sink's
+    // TrashDigivolutionCardsKind -> DigivolutionStackHelpers.RemoveSourcesAsync, which EMITS the raw
+    // OnDigivolutionCardDiscarded event (DigivolutionStackHelpers.cs:452) but NEVER opens the window:
+    // SkillWindowSupply drops that timing as UNHANDLED (SkillWindowSupply.cs:73-84, RDW-02 — the AS-IS inline
+    // hashtable {CardEffect, Permanent, DiscardedCards} is not event-reconstructable), and unlike AS-IS
+    // ITrashDigivolutionCards.TrashDigivolutionCards — which opens it INLINE via StackSkillInfos(…,
+    // OnDigivolutionCardDiscarded) at CardController.cs:5215 — the mirror trash helper adds NO inline
+    // StackSkillInfos. So GetSkillInfos(OnDigivolutionCardDiscarded) is never even reached and the trash-resident
+    // ESS is never collected (traced: no OnDigivolutionCardDiscarded StackSkillInfos anywhere; the ActivateClass
+    // Activate never runs). This is NOT the "ActivateClass-body drain" of the 수리-3 note — the body drains fine
+    // once collected (proven by the BT13_023 / EX8_061 re-aims). Wiring the whole timing (an inline insert at the
+    // sink's effect-trash seat that builds the AS-IS hashtable, AND supplying a non-null {CardEffect} for the ESS
+    // CanUse's `cardEffect => cardEffect != null` gate — the RD-C1-CARDEFFECT-IDTHREAD live-effect residual) is a
+    // trigger-collection structural goal beyond this repair batch. design item RD-C5W-ESSTRASHSCAN (RECLASSIFIED:
+    // unwired OnDigivolutionCardDiscarded window, not a body drain). Truthful RED; NOT forced green (수리 규율 rule 2/3).
+    // Assertions below are the preserved De-Digivolve rule witness (victim's top card → trash, under-source promoted).
     HeadlessEntityId victim = new("wit:victim");
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "forced single-victim De-Digivolve: no per-pick window");
     AssertInZone(match, P1, ChoiceZone.Trash, victim, "the victim's top card was de-digivolved to the trash");
@@ -442,14 +464,26 @@ async Task WhenAttacking_TrashPlay_GateAndCap()
     LegalAction pick = ResolveActions(match, P1).Single(a => a.Id.Value.Contains(dsPlay.Value, StringComparison.Ordinal));
     await match.ApplyActionAsync(pick);
     await match.StepAsync();
-    // (수리-3 RE-AIM + REAL-GAP, reverses 수리-2 Root C) The prompt+select surface ABOVE is the correct current shape
-    // and drives clean (optional prompt opens → accepted → body SelectCard opens with only trait/level-matching
-    // candidates, noMatch excluded → the dsPlay pick is accepted). BUT the post-select PLAY body never runs: the
-    // [When Attacking] is an ActivateClass whose ActivateCoroutine tail (PlayPermanentCards from Trash, after
-    // `await selectCardEffect.Activate()`, EX8_061.cs:141-150) is not drained — dsPlay stays in the trash (probe:
-    // pending=False, dsPlay in Trash, unchanged across CompleteResolution + 5 extra steps). Same ActivateClass-body
-    // drain gap as WhenAttacking_TrashBottom and the ESS. design item RD-C5W-ACTIVATEBODY. Truthful RED at the rule
-    // assertion below; NOT forced green (수리 규율 rule 2).
+    // ── 수리-3(배치2) REGURGE — RD-C5W-ACTIVATEBODY reclassified: NOT a generic "post-select body drain", it is
+    //    a [Once Per Turn] cap re-gate on the deferred-choice REPLAY-resume (core resume-architecture) ──────────
+    // The prompt+select surface ABOVE drives clean (optional prompt → accept → body SelectCard opens with only
+    // trait/level-matching candidates, noMatch excluded → dsPlay pick accepted). Root cause of the stranded play
+    // (traced): EX8_061's [When Attacking] is [Once Per Turn] (SetUpActivateClass(…, maxCountPerTurn:1, …),
+    // EX8_061.cs:72). Its once-use is registered "register-before-body" (Activate_Execute, ICardEffect.cs:1136,
+    // AS-IS :1116-1126) on the ACCEPT step — BEFORE the interactive SelectCard suspends. The mirror resume model
+    // REPLAYS the whole body via RunPickBodyAsync(freshPick:false); that replay RE-CHECKS CanActivate at TWO seats
+    // (MultipleSkills.RunPickBodyAsync + AutoProcessing.ActivateEffectProcess:1560), and CanActivate now returns
+    // false because isOverMaxCountPerTurn (ICardEffect.cs:433) reads the already-registered use — so the body is
+    // skipped and PlayPermanentCards never runs (probe: on the pick step RunPickBody freshPick=False
+    // CanActivate=False; dsPlay stays in Trash). AS-IS is a SINGLE coroutine that checks CanActivate ONCE
+    // (MultipleSkills.cs:366) and CONTINUES on resume without re-checking. Proof this is the [Once Per Turn]
+    // re-gate and NOT a body-drain: the interactive-select resume completes fine for the UNCAPPED [On Deletion]
+    // (OnDeletion_TrashPlay, now GREEN). Faithful repair = make the OLD RegisterUseEffectThisTurn/
+    // isOverMaxCountPerTurn per-turn cap suspend/resume-cycle-aware (like the OnceFlags uniform cycle,
+    // ActivatedEffectResolver.cs:508) OR bypass the CanActivate re-gate at every replay seat — a core resume
+    // change affecting every [Once Per Turn] optional/interactive effect, beyond this repair batch. design item
+    // RD-C5W-ACTIVATEBODY (RECLASSIFIED: once-per-turn resume re-gate, not a body drain). Truthful RED; NOT forced
+    // green (수리 규율 rule 2/3).
     AssertInZone(match, P1, ChoiceZone.BattleArea, dsPlay, "the selected [DS] Digimon was played from the trash");
 
     // (3) same turn, third attack -> [Once Per Turn] (capHash PlayDigimon_EX8_061) suppresses the window.
@@ -464,19 +498,39 @@ async Task WhenAttacking_TrashPlay_GateAndCap()
 
 async Task OnDeletion_TrashPlay()
 {
+    // ── 수리-3(배치2) RE-AIM (reverses the marking's "Root E collect-before-removal drain gap" verdict) ──
+    // EX8_061's [On Deletion] is an INHERITED effect (EX8_061.cs:161 SetIsInheritedEffect(true) — AS-IS :144),
+    // so, exactly like BT13_023's [When Attacking] above, it is AS-IS-only collected while EX8_061 is a
+    // digivolution SOURCE (Permanent.EffectList_ForCard, Permanent.cs:2126-2145 `IsInheritedEffect && !isTopCard`).
+    // The prior fixture deleted EX8_061 AS THE TOP and expected its own inherited [On Deletion] to fire — which
+    // AS-IS never collects (traced: no OnDestroyedAnyone window for it), so it was not a drain gap. Contrast the
+    // GREEN Scapegoat_NestedAllyOnDeletion, where BT2_034's [On Deletion] is a MAIN effect (no SetIsInheritedEffect,
+    // BT2_034.cs:29-34) and so fires as the deleted TOP. Re-aim: EX8_061 is a SOURCE under an ordinary top holder;
+    // deleting the holder trashes the whole stack, the [On Deletion] is collected (source, !isTopCard), fires its
+    // optional prompt + interactive trash-play select, and plays the level-4 [DS] from trash — proven by probe in
+    // this same raw ApplyDelete + bare-StepAsync harness (the "collect-before-removal" deletion drain works).
     DcgoMatch match = await CreateMatchAsync();
-    HeadlessEntityId holder = await PlaceWitness(match, P2, "EX8_061", ChoiceZone.BattleArea,
+    HeadlessEntityId holder = await Place(match, P2, "PLAIN", "holder", ChoiceZone.BattleArea,
         new Dictionary<string, object?> { ["isSuspended"] = false });
+    // EX8_061 as a digivolution SOURCE of the holder (never top) — the AS-IS home of its inherited [On Deletion].
+    HeadlessEntityId inheritedSrc = await PlaceWitness(match, P2, "EX8_061", ChoiceZone.None);
+    SetMetadata(match, holder, new Dictionary<string, object?> { ["sourceIds"] = new[] { inheritedSrc.Value } });
     HeadlessEntityId dsPlay = await Place(match, P2, "DS4", "ds4", ChoiceZone.Trash);
     HeadlessEntityId deleter = await Place(match, P1, "PLAIN", "deleter", ChoiceZone.BattleArea);
 
-    // No other P2 Digimon -> no Scapegoat candidates -> the opponent-effect deletion resolves outright,
-    // then the [On Deletion] trash-play window opens for the now-trashed EX8_061.
+    // The holder (PLAIN, no Scapegoat) is deleted outright; the whole stack goes to trash and EX8_061's
+    // inherited [On Deletion] fires from the deletion window.
     ApplyDelete(match, source: deleter, target: holder);
     await match.StepAsync();
 
-    AssertInZone(match, P2, ChoiceZone.Trash, holder, "EX8_061 was deleted (no sacrifice available)");
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "[On Deletion] trash-play select is open");
+    AssertInZone(match, P2, ChoiceZone.Trash, holder, "the holder was deleted (no sacrifice available)");
+    // [On Deletion] is isOptional=true (EX8_061.cs:160): the "will you use?" prompt opens first — accept it.
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "[On Deletion] optional prompt is open");
+    LegalAction accept = AcceptWindow(match, P2, inheritedSrc);
+    await match.ApplyActionAsync(accept);
+    await match.StepAsync();
+
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "after accepting: the trash-play select is open");
     LegalAction pick = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(dsPlay.Value, StringComparison.Ordinal));
     await match.ApplyActionAsync(pick);
     await match.StepAsync();
