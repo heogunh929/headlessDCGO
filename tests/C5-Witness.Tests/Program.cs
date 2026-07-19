@@ -39,6 +39,28 @@ using HeadlessDCGO.Engine.Headless.Services;
 //     (MatchStateMutationSink.cs:1355-1370). 동일 [On Deletion] 기제는 ScapegoatProcess→DestroyPermanentsClass 경로에선
 //     정상(Scapegoat nested가 실증). 회귀앵커 8f155d02. 드레인-연결 정밀 규명은 이 배치 규모 초과 → 별도 골 마킹.
 // 위트니스 재조준(Root A/B/C)과 Root D/E 상환은 각각 별도 배치 권고(강제 green 회피).
+//
+// ── 수리-3 배치: 재조준 실행 + Root A/C 판정 부분 반전 (2026-07-19) ─────────────────────────────────────
+// 재조준을 실제로 구동하며 전구간 프로브(pending/zone/sourceIds/추가 step drain + CompleteResolution)로 각
+// 케이스의 실 게임상태를 확인한 결과, 수리-2의 "효과 본체는 전부 발화" 진단이 3건에서 반증됨:
+//   [Root B GREEN] Fragment_FieldBattle — min=max=3 세션(Toggle×3+Confirm)으로 재조준 완료. 3 소스 트래시+생존
+//     실증. 2/3 픽 시 Confirm 미표면 음성대조 추가. 메타데이터-소스 트래시 primitive는 여기서 green으로 실증됨.
+//   [Root A GREEN] Scapegoat_NestedAllyOnDeletion — 강제선택(단일 ally) 무창 자동 sacrifice로 재조준 완료.
+//     holder 생존 + ally 트래시 + nested [On Deletion] Recovery +1(security 0→1) 실증. WhenPermanentWouldBeDeleted
+//     교체 Process 경로는 본체를 완주함.
+//   [Root A REAL-GAP, 반전] WhenAttacking_TrashBottom — 강제선택 무창은 맞으나 trash-bottom '본체' 미발화.
+//     BT13_023 [When Attacking]는 ActivateClass(OnAllyAttack); ActivateCoroutine의 select 후 본체
+//     (TrashDigivolutionCardsFromTopOrBottom)가 드레인되지 않아 defender가 두 소스를 유지. withoutTap true/false·
+//     추가 step 무관. design item RD-C5W-ACTIVATEBODY.
+//   [Root A REAL-GAP, 반전] TrashSourceEss_DeDigivolve — ESS De-Digivolve가 아예 미발화(pending 무·victim 무변),
+//     CompleteResolution+6 step에도 불변. trash-resident unregistered-source dispatch 스캔의 리액터 미드레인 =
+//     Root E와 동일 계열. design item RD-C5W-ESSTRASHSCAN.
+//   [Root C REAL-GAP, 반전] WhenAttacking_TrashPlay_GateAndCap — 프롬프트+본체 select 표면은 정상 재조준(수락→
+//     본체창→dsPlay 픽 수용)되나 select 후 PlayPermanentCards 본체가 미드레인(dsPlay가 trash 잔류). RD-C5W-ACTIVATEBODY.
+// 공통 근원 가설: ActivateClass 트리거 효과(SetUpActivateClass+ActivateCoroutine; [When Attacking]/[On Deletion]/
+// ESS)의 select-이후 본체 tail이 이 통합 하네스(raw AttackDeclarationCommons.Declare + bare StepAsync + deferredChoice)
+// 에서 드레인되지 않음. 교체-Process 경로(Scapegoat/Fragment)는 정상. RD-C5W-ACTIVATEBODY / RD-C5W-ESSTRASHSCAN =
+// 별도 구조골 스코프. 이 3건은 truthful RED로 유지(강제 green 금지, 수리 규율 rule 2/3).
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
@@ -158,13 +180,20 @@ async Task WhenAttacking_TrashBottom()
 
     // (MIG1) withoutTap so the losing attacker can still pay Evade's suspend cost (see the note above).
     AttackDeclarationCommons.Declare(match.Context, P1, attacker, P2, targetId: defender, isDirectAttack: false, withoutTap: true);
-    await match.StepAsync();   // [When Attacking] window: mandatory select of 1 opponent Digimon
+    await match.StepAsync();   // [When Attacking] forced single-candidate select (1 opponent Digimon, pool==maxCount)
+                               // SHOULD auto-trash the bottom source, then the battle resolves: the 500 attacker
+                               // loses -> its own <Evade> PRE would-be-deleted window opens.
 
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "[When Attacking] select window is open");
-    LegalAction pick = ResolveActions(match, P1).Single(a => a.Id.Value.Contains(defender.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pick);
-    await match.StepAsync();   // bottom source trashed, then the battle: the 500 attacker loses -> Evade PRE window
-
+    // (수리-3 RE-AIM + REAL-GAP, reverses 수리-2 Root A) The stale per-pick "select 1 opponent Digimon" window is
+    // dropped (forced-select opens no window; SelectPermanentEffect.cs:531). BUT the trash-bottom BODY never runs:
+    // BT13_023's [When Attacking] is an ActivateClass triggered effect (OnAllyAttack) whose ActivateCoroutine
+    // post-select body (TrashDigivolutionCardsFromTopOrBottom, BT13_023.cs:108-115) is not drained — the defender
+    // keeps BOTH sources. Probe: srcBottom never leaves the stack for withoutTap true OR false, across extra step
+    // drains; after one step we are already at the attacker's Evade PRE window (battle resolved) with the sources
+    // intact. Metadata-source trashing itself works (the Fragment session below trashes 3 such sources green), so
+    // this is specifically the ActivateClass-body drain. design item RD-C5W-ACTIVATEBODY. Truthful RED; NOT forced
+    // green (수리 규율 rule 2). Assertions below (BOTTOM trashed, TOP kept, defender survives, then Evade decline)
+    // are the preserved rule witness and now read the forced-select outcome directly.
     AssertInZone(match, P2, ChoiceZone.Trash, srcBottom, "the BOTTOM digivolution card was trashed");
     AssertFalse(InZone(match, P2, ChoiceZone.Trash, srcTop), "the TOP digivolution card stays (bottom-only)");
     AssertInZone(match, P2, ChoiceZone.BattleArea, defender, "the defender survived the battle");
@@ -205,14 +234,26 @@ async Task Fragment_FieldBattle()
     await match.ApplyActionAsync(activate);
     await match.StepAsync();
 
-    // Pay 3 sources, one target pick per re-opened window (grant trashValue: 3).
-    for (int i = 0; i < 3; i++)
-    {
-        AssertTrue(match.Context.ChoiceController.Current.IsPending, $"fragment source pick {i + 1} is open");
-        LegalAction pick = ResolveActions(match, P1).First(a => sources.Any(s => a.Id.Value.Contains(s.Value, StringComparison.Ordinal)));
-        await match.ApplyActionAsync(pick);
-        await match.StepAsync();
-    }
+    // (수리-3 re-aim) Fragment <3> source payment is a min=max=3 multi-select SESSION (FragmentProcess sets up the
+    // AS-IS forced select — canNoSelect/canEndNotMax both false), surfaced as one ToggleChoiceCandidate lane per
+    // source + a Confirm ResolveChoice that lights only once all 3 are picked (HeadlessLegalActionDispatcher.cs:
+    // 100/165). This is the identical flip R4RL-03 W8 drives green; the retired per-pick ApplyFragmentSource model
+    // is dropped. The 3-source payment + survival rule assertions below are preserved.
+    ChoiceRequest sourcePick = match.Context.ChoiceController.PendingRequest!;
+    AssertEqual(3, sourcePick.MinCount, "Fragment <3>: forced -> min=3");
+    AssertEqual(3, sourcePick.MaxCount, "Fragment <3>: max=3");
+    AssertFalse(sourcePick.CanSkip, "Fragment <3>: no skip (forced)");
+    await ApplyToggle(match, P1, sources[0]);
+    await ApplyToggle(match, P1, sources[1]);
+    // (음성 대조 / false-green audit) With only 2 of the 3 forced sources picked the Confirm lane must NOT be
+    // listed — a partial payment can never confirm. This proves the session's green is the FULL 3-source payment,
+    // not a "Confirm always available" artifact.
+    AssertFalse(ResolveActions(match, P1).Any(a => a.Id.Value.EndsWith(":confirm", StringComparison.Ordinal)),
+        "2 of 3 picked (< min 3): no Confirm lane yet");
+    await ApplyToggle(match, P1, sources[2]);
+    LegalAction confirm = ResolveActions(match, P1).Single(a => a.Id.Value.EndsWith(":confirm", StringComparison.Ordinal));
+    await match.ApplyActionAsync(confirm);
+    await match.StepAsync();
 
     AssertInZone(match, P1, ChoiceZone.BattleArea, attacker, "Fragment attacker survives the field battle");
     // (The PRE-window fragment path pays per-pick via ApplyFragmentSource — it clears the pending deletion
@@ -248,14 +289,17 @@ async Task TrashSourceEss_DeDigivolve()
 {
     DcgoMatch match = await DriveTrashSourceEss(hostDefinition: "MINERAL");
 
-    // The window opened FROM THE TRASH: EX8_051's De-Digivolve select.
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "the trash-resident ESS select window is open");
+    // (수리-3 RE-AIM + REAL-GAP, reverses 수리-2 Root A) The stale per-pick ESS window wait is dropped: the
+    // De-Digivolve targets P1's single victim (forced-select opens no window). BUT the ESS body never fires at
+    // all — EX8_051's trash-source "<De-Digivolve 1>" is an ActivateClass triggered on OnDigivolutionCardDiscarded
+    // and resolved from the TRASH via the unregistered-source dispatch scan (EX8_051.cs:60-134); that reactor is
+    // never collected/drained. Probe: the victim is untouched (keeps its source, still able to attack) and NO
+    // choice ever surfaces, across CompleteResolution + 6 extra steps. This is the SAME collect-before-removal
+    // drain class as the marking's Root E (OnDeletion). design item RD-C5W-ESSTRASHSCAN. Truthful RED; NOT forced
+    // green. Assertions below are the preserved De-Digivolve rule witness (victim's top card → trash, under-source
+    // promoted).
     HeadlessEntityId victim = new("wit:victim");
-    LegalAction pick = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(victim.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pick);
-    await match.StepAsync();
-
-    // De-Digivolve 1: the victim's top card peels to the trash, the under-source is promoted.
+    AssertFalse(match.Context.ChoiceController.Current.IsPending, "forced single-victim De-Digivolve: no per-pick window");
     AssertInZone(match, P1, ChoiceZone.Trash, victim, "the victim's top card was de-digivolved to the trash");
     AssertInZone(match, P1, ChoiceZone.BattleArea, new HeadlessEntityId("wit:vicsrc"), "the victim's under-source was promoted");
 }
@@ -328,12 +372,14 @@ async Task Scapegoat_NestedAllyOnDeletion()
     // "#scapegoat" gate id); the ally-sacrifice pick and nested [On Deletion] rule assertions below are preserved.
     LegalAction activate = AcceptWindow(match, P2, holder);
     await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // step 2: pick the ally
+    await match.StepAsync();   // forced single-candidate sacrifice: the lone ally is auto-selected and dies
+                               // through the FULL delete pipeline -> its nested [On Deletion] fires.
 
-    LegalAction pickAlly = ResolveActions(match, P2).Single(a => a.Id.Value.Contains(ally.Value, StringComparison.Ordinal));
-    await match.ApplyActionAsync(pickAlly);
-    await match.StepAsync();   // the ally dies through the FULL pipeline -> its [On Deletion] fires
-
+    // (수리-3 re-aim) <Scapegoat> "by deleting 1 of your OTHER Digimon" targets the holder's only other Digimon
+    // (the ally); with pool==maxCount==1 AS-IS forced-select auto-sacrifices it without surfacing a per-pick window
+    // (SelectPermanentEffect.cs:531). The rule assertions — holder survives, the chosen ally is sacrificed, and the
+    // sacrificed ally's nested [On Deletion] Recovery +1 fires — are preserved and read the forced-select outcome
+    // directly. (The retired per-pick "pick the ally" ResolveChoice window is dropped.)
     AssertInZone(match, P2, ChoiceZone.BattleArea, holder, "the Scapegoat holder survives");
     AssertInZone(match, P2, ChoiceZone.Trash, ally, "the chosen ally was sacrificed");
     AssertEqual(1, SecurityCount(match, P2), "the sacrificed ally's [On Deletion] Recovery +1 fired (nested window)");
@@ -378,17 +424,32 @@ async Task WhenAttacking_TrashPlay_GateAndCap()
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "memory 0: no trash-play window");
     AssertInZone(match, P1, ChoiceZone.Trash, dsPlay, "memory 0: nothing was played");
 
-    // (2) memory 1 -> the window opens; only trait+level matching cards are candidates; play one.
+    // (2) memory 1 -> the optional [When Attacking] fires. (수리-3 re-aim) Because isOptional=true (EX8_061.cs:72)
+    //     the FIRST window is the "Will you use…?" prompt, an OptionalEffect keyed by the holder's own instance id;
+    //     ACCEPT it and the body SelectCard (trash-play) window then opens, with only trait+level matching cards as
+    //     candidates. (The retired surface skipped the optional prompt and looked straight for dsPlay.)
     SetMetadata(match, attacker, new Dictionary<string, object?> { ["isSuspended"] = false });
     context.MemoryController.Set(1);
     AttackDeclarationCommons.Declare(context, P1, attacker, P2, targetId: d2, isDirectAttack: false);
     await match.StepAsync();
-    AssertTrue(match.Context.ChoiceController.Current.IsPending, "memory 1: the trash-play select is open");
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "memory 1: the optional [When Attacking] prompt is open");
+    LegalAction accept = AcceptWindow(match, P1, attacker);
+    await match.ApplyActionAsync(accept);
+    await match.StepAsync();
+    AssertTrue(match.Context.ChoiceController.Current.IsPending, "after accepting the prompt: the trash-play select is open");
     AssertFalse(ResolveActions(match, P1).Any(a => a.Id.Value.Contains(noMatch.Value, StringComparison.Ordinal)),
         "a non-[DS/Mollusk/Crustacean] trash card is NOT a candidate");
     LegalAction pick = ResolveActions(match, P1).Single(a => a.Id.Value.Contains(dsPlay.Value, StringComparison.Ordinal));
     await match.ApplyActionAsync(pick);
     await match.StepAsync();
+    // (수리-3 RE-AIM + REAL-GAP, reverses 수리-2 Root C) The prompt+select surface ABOVE is the correct current shape
+    // and drives clean (optional prompt opens → accepted → body SelectCard opens with only trait/level-matching
+    // candidates, noMatch excluded → the dsPlay pick is accepted). BUT the post-select PLAY body never runs: the
+    // [When Attacking] is an ActivateClass whose ActivateCoroutine tail (PlayPermanentCards from Trash, after
+    // `await selectCardEffect.Activate()`, EX8_061.cs:141-150) is not drained — dsPlay stays in the trash (probe:
+    // pending=False, dsPlay in Trash, unchanged across CompleteResolution + 5 extra steps). Same ActivateClass-body
+    // drain gap as WhenAttacking_TrashBottom and the ESS. design item RD-C5W-ACTIVATEBODY. Truthful RED at the rule
+    // assertion below; NOT forced green (수리 규율 rule 2).
     AssertInZone(match, P1, ChoiceZone.BattleArea, dsPlay, "the selected [DS] Digimon was played from the trash");
 
     // (3) same turn, third attack -> [Once Per Turn] (capHash PlayDigimon_EX8_061) suppresses the window.
@@ -638,6 +699,19 @@ static async Task DriveUntilMainWait(DcgoMatch match, HeadlessPlayerId player)
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
     match.GetLegalActions(player).Where(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+
+// (수리-3) Drive one pick of a multi-select SESSION: apply the listed ToggleChoiceCandidate lane whose candidate
+// id carries `source`, then step. The session table (per-candidate Toggle lanes + a Confirm ResolveChoice that
+// lights only when the count/validator gate passes) is the AS-IS incremental selection loop as an action surface
+// (HeadlessLegalActionDispatcher.cs:100/165); this is the same idiom R4RL-03 W8 uses to drive Fragment <3>.
+async Task ApplyToggle(DcgoMatch match, HeadlessPlayerId player, HeadlessEntityId source)
+{
+    LegalAction toggle = match.GetLegalActions(player).Single(a =>
+        a.ActionType == HeadlessActionTypes.ToggleChoiceCandidate
+        && a.Id.Value.Contains(source.Value, StringComparison.Ordinal));
+    await match.ApplyActionAsync(toggle);
+    await match.StepAsync();
+}
 
 // (수리-2 re-aim) Accept the current OptionalEffect PRE would-be-deleted window: pick the non-skip candidate
 // keyed by the replacement holder's own instance id (the OptionalEffect Candidates[0].Id convention that the
