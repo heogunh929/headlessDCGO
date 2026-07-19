@@ -163,8 +163,14 @@ public sealed class TurnFlowDriver : IActionProcessor
             }
 
             case HeadlessActionTypes.NormalizedSpecialPlay:
-                // (S3c-b) The pump's special-play seams (Assembly / DigiXros parameterized fusion plays) are
-                // the registered component STOPs — honest rejection until RD-P6C1-5 / RD-R5-04 port.
+                // (S3c-b; marking per RD-R4B6-P2-1) The pump's special-play EXECUTION is the mirror interactive
+                // pre-play selection (SelectDigiXrosClass.Select / SelectAssemblyClass — Assembly / DigiXros
+                // parameterized fusion plays), still the registered component STOPs. This is a SEPARATE gap from
+                // the dispatcher↔validator contract: the dispatcher does NOT offer SpecialPlay on a pump match
+                // (HeadlessLegalActionDispatcher), so the validator boundary rejects a pump-match SpecialPlay
+                // BEFORE it reaches here — this seat is unreachable via the legal set today. It stays an honest
+                // rejection (routing to the live SpecialPlayAction path would bypass the mirror packet loop)
+                // until RD-P6C1-5 / RD-R5-04 port and SpecialPlay returns to the pump table (RD-RLENV-05).
                 return ActionProcessResult.Illegal(
                     action,
                     "SpecialPlay is not available on a pump match yet (Assembly/DigiXros component cluster — design items RD-P6C1-5 / RD-R5-04).",

@@ -48,20 +48,39 @@ public sealed class HeadlessLegalActionDispatcher
         // (AdvancePhase / EndTurn / breeding actions) is physically retired — phases auto-flow in the
         // TurnFlowPump, breeding is a CHOICE (covered by the pending-choice branch above), the memory-pass
         // "awaiting" step does not exist (EndTurnCheck auto-ends), and the ONLY action surface is the MAIN
-        // selection wait: Pass + the main-phase plays. A non-pump (scripting) match exposes NO dispatched
-        // phase actions — system/zone/choice actions are applied directly in the unguarded profile.
-        // SpecialPlay is omitted: the pump's special-play seams are the registered component STOPs
-        // (RD-P6C1-5 Assembly / RD-R5-04 DigiXros) until that cluster ports.
+        // selection wait: Pass + the main-phase plays.
+        bool mainSelectionWait =
+            turn.Phase == HeadlessPhase.Main && turn.StepCursor == TurnStepCursor.PhaseStart;
+
+        // (RD-R4B6-P2-1) A non-pump (OLD/scripting) match dispatches NO step-cadence / phase-flow actions —
+        // system/zone/choice actions are applied directly in the unguarded profile — EXCEPT SpecialPlay.
+        // SpecialPlay is an agent-facing action (LegalActionSetValidator.AgentFacingTypes) whose availability is
+        // a pure BOARD-STATE query (recipe/materials/memory/CanEnterField — the AS-IS empty-frame
+        // CardSource.CanPlayCardTargetFrame arm, :1163-1170), and it is EXECUTED by the live SpecialPlayAction
+        // path (MetadataActionProcessor → SpecialPlayAction.ProcessAsync), NOT the mirror main-phase packet
+        // loop. So its legal set MUST be enumerable here for the validator boundary to check (not defer) it —
+        // the masking pre-B6 non-pump fallback that used to carry it was deleted with the OLD driver (4b B6).
         if (TurnFlowPumpHost.Find(context) is null)
         {
-            return Array.Empty<LegalAction>();
+            return mainSelectionWait
+                ? new SpecialPlayAction().GetLegalActions(context, playerId)
+                    .Where(action => !CheatActionGuard.IsCheatOrDebugAction(action.ActionType))
+                    .ToArray()
+                : Array.Empty<LegalAction>();
         }
 
-        if (turn.Phase != HeadlessPhase.Main || turn.StepCursor != TurnStepCursor.PhaseStart)
+        if (!mainSelectionWait)
         {
             return Array.Empty<LegalAction>();
         }
 
+        // (RD-P6C1-5 Assembly / RD-R5-04 DigiXros — SEPARATE gap, marking per RD-R4B6-P2-1) SpecialPlay is
+        // OMITTED from the pump table: its pump EXECUTION is the mirror interactive pre-play selection
+        // (SelectDigiXrosClass.Select / SelectAssemblyClass), still the registered component STOPs — routing it
+        // through the live path would BYPASS the mirror packet loop (an invented shortcut). Until that cluster
+        // ports (then it returns to this table, RD-RLENV-05), a pump-match SpecialPlay is REJECTED at the
+        // boundary (NormalizedSpecialPlay ∈ AgentFacingTypes, absent from this set) rather than deferred into
+        // the STOP.
         return new[] { HeadlessActionFactory.Pass(playerId) }
             .Concat(new PlayCardAction().GetLegalActions(context, playerId))
             .Concat(new DigivolveAction().GetLegalActions(context, playerId))
