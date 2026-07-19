@@ -1243,6 +1243,11 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             using AmbientMatchContext.Scope _preScope = AmbientMatchContext.Enter(_context);
             batch.PreWindowOpened = true;
             var toDelete = new List<Permanent>();
+            // (RD-C1-CARDEFFECT-IDTHREAD) The batch's causing source id. AS-IS Destroy() is called with ONE
+            // cardEffect over its whole willBeRemoveField list (CardController.cs:3684 — one DestroyPermanentsClass
+            // per effect fire); the sink's batch is one flush = one effect, so every staged entry carries the same
+            // causing source. Captured here to thread the cause carrier into the PRE-window hashtable below.
+            HeadlessEntityId causeSourceId = default;
             if (_zoneMover is IZoneStateReader preFieldZones)
             {
                 foreach (StagedDelete staged in batch.Entries)
@@ -1256,6 +1261,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                             willBeRemoveField = true,   // AS-IS Destroy() :3448 — mark ALL targets before the cut-in
                         };
                         toDelete.Add(perm);
+                        if (causeSourceId.IsEmpty && !staged.Mutation.SourceEntityId.IsEmpty)
+                        {
+                            causeSourceId = staged.Mutation.SourceEntityId;
+                        }
                     }
                 }
             }
@@ -1264,23 +1273,33 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
             {
                 var cutIn = Assets.Scripts.Script.AutoProcessing.ForCutIn(_context);
                 // AS-IS builds a FRESH WhenPermanentWouldRemoveFieldCheckHashtable per StackSkillInfos
-                // (CardController.cs:3454-3469) — two builder calls. cardEffect=null (the sink threads only the
-                // causing source id, RD-C1-CARDEFFECT-IDTHREAD); battle=null (the effect-delete path is never a
+                // (CardController.cs:3454-3469) — two builder calls. battle=null (the effect-delete path is never a
                 // battle deletion — that is BattleResolver's IBattle path).
-                // (design item RD-3C2B-02) IsByEffect-gated PRE keywords: AS-IS Destroy() threads the LIVE causing
-                // cardEffect onto this pair (CardController.cs:3691-3705); with cardEffect=null here, a POSITIVE
-                // IsByEffect gate (Decoy — "would be deleted by an opponent's effect") reads false and does NOT
-                // collect via this sink window (it still fires via the faithful mirror DestroyPermanentsClass
-                // path, which threads the live cardEffect). A boolean ByEffectCauseKey marker canNOT stand in:
-                // IsByEffect's marker fallback ignores the per-card condition, which would break the NEGATED
-                // owner-conditioned gate (Partition: !IsByEffect(IsOwnerEffect) — live-witnessed) — and payload
-                // synthesis (a stand-in ICardEffect) is forbidden (the C-Btl IBattle precedent). Blocked on the
-                // live-cardEffect thread (RD-C1-CARDEFFECT-IDTHREAD).
+                // (RD-C1-CARDEFFECT-IDTHREAD RESOLVED / design item RD-3C2B-02) IsByEffect-gated PRE keywords: AS-IS
+                // Destroy() threads the LIVE causing cardEffect onto this pair (CardController.cs:3691-3705) and every
+                // by-cause gate reduces it to its EffectSourceCard(.Owner) — Scapegoat/Decoy/Partition are ALL
+                // owner-conditioned (IsOwnerEffect / IsOpponentEffect; Scapegoat.cs:81, Decoy.cs:70, Partition.cs:68).
+                // The sink holds no live ICardEffect (every delete producer collapses the cause to sourceCard.InstanceId
+                // at the mutation boundary — there is no live-effect object to thread short of overhauling the whole
+                // EffectMutation model), so thread the RD-BCE-01-sanctioned cause CARRIER built from that source id:
+                // BareCauseEffect.For(context, causeSourceId) carries the real EffectSourceCard (owner read from the
+                // repo). For every by-cause gate — each of which reduces the cause to EffectSourceCard.Owner — this is
+                // byte-identical to the live effect (same reduction the sink already makes threading BareCauseEffect
+                // into TopCard.CanNotBeAffected at :537 / ImmuneFromStackTrashing at :2006). This is NOT the rejected
+                // boolean ByEffectCauseKey marker (which ignores the per-card condition, breaking Partition's negated
+                // gate) NOR forbidden payload SYNTHESIS (no fabricated CanUse/condition behavior — only the real source
+                // card is carried; the C-Btl IBattle case genuinely cannot be reconstructed from an id, a cardEffect's
+                // EffectSourceCard can). An empty/unresolvable causeSourceId collapses to a source-LESS BareCauseEffect
+                // (IsByEffect then reads false — an unknown cause matches no owner-conditioned gate, AS-IS-consistent).
+                // NOTE (RD-C5W-ESSTRASHSCAN precondition): a future gate that inspects the causing effect's own
+                // BEHAVIOR (CanUse over the live effect, not just its source owner) would NOT be satisfied by this
+                // source-carrier; every live consumer today is owner-only, so this seat meets their requirement in full.
+                var causeEffect = Assets.Scripts.Script.CardEffectCommons.BareCauseEffect.For(_context, causeSourceId);
                 await cutIn.StackSkillInfos(
-                    CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: null, battle: null),
+                    CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: causeEffect, battle: null),
                     EffectTiming.WhenPermanentWouldBeDeleted).ConfigureAwait(false);
                 await cutIn.StackSkillInfos(
-                    CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: null, battle: null),
+                    CardEffectCommons.WhenPermanentWouldRemoveFieldCheckHashtable(toDelete, cardEffect: causeEffect, battle: null),
                     EffectTiming.WhenRemoveField).ConfigureAwait(false);
 
                 if (cutIn.HasAwaitingActivateEffects())   // AS-IS Destroy() :3471 gate

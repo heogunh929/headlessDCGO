@@ -31,9 +31,13 @@ using HeadlessDCGO.Engine.Headless.Services;
 //     구동. 회귀앵커 c5ff6ede(B5-2 다중선택 디스패처 flip). 위트니스는 per-pick ResolveChoice(retired ApplyFragmentSource)를 인코딩.
 //   [Root C · AS-IS 충실, 위트니스 노후] WhenAttacking_TrashPlay_GateAndCap — [When Attacking] isOptional=true라
 //     "Will you use…?" 프롬프트가 본체 SelectCard 앞에 선다(EX8_061.cs:72). 위트니스는 프롬프트를 수락하지 않고 곧장 dsPlay를 찾음.
-//   [Root D · 문서화된 구조 블록, 강제 금지] Scapegoat_OwnEffect_NoOffer — PRE 컷인이 cardEffect=null로 열려
-//     IsByEffect(IsOwnerEffect) by-cause 억제가 발화 불가(MatchStateMutationSink.cs:1270-1281, design item RD-3C2B-02 /
-//     RD-C1-CARDEFFECT-IDTHREAD). 노트가 marker/합성 stand-in을 명시적으로 금지하고 live-cardEffect 스레딩에 블록. 회귀앵커 f7356fe7.
+//   [Root D · GREEN, 수리 원장 배치3 상환 RD-C1-CARDEFFECT-IDTHREAD] Scapegoat_OwnEffect_NoOffer — PRE 컷인이 이제
+//     causing source id에서 재구성한 RD-BCE-01 cause CARRIER(BareCauseEffect.For(context, causeSourceId))를 스레드해
+//     열린다(MatchStateMutationSink.cs PRE-window). IsByEffect(IsOwnerEffect)가 real EffectSourceCard.Owner를 읽어
+//     자기-효과 삭제에 Scapegoat 오퍼 억제. 아키텍처상 sink 경계엔 live ICardEffect가 없고(모든 delete 생산자가
+//     cause를 sourceCard.InstanceId로 붕괴), 모든 by-cause 게이트(Scapegoat/Decoy/Partition)는 owner-only 환원이라
+//     source-carrier가 live effect와 byte-identical — sink이 이미 :537 CanNotBeAffected 등 4좌석에서 쓰는 동일 seam.
+//     marker(per-card 조건 무시)도 payload SYNTHESIS(가짜 CanUse behavior)도 아님. 회귀앵커 f7356fe7.
 //   [Root E · 진짜 갭, 별도 스코프] OnDeletion_TrashPlay — raw MatchStateMutationSink DeleteKind 경로(ApplyDelete가
 //     스텝 밖에서 동기 Flush)의 collect-before-removal OnDestroyedAnyone 리액터가 후속 bare StepAsync에 드레인되지 않음
 //     (MatchStateMutationSink.cs:1355-1370). 동일 [On Deletion] 기제는 ScapegoatProcess→DestroyPermanentsClass 경로에선
@@ -83,6 +87,11 @@ using HeadlessDCGO.Engine.Headless.Services;
 //     resume 아키텍처) = 배치 초과. 본체창 마킹 참조.
 // 결론: #1/#2 = 위트니스 재조준 GREEN; #3/#4 = 진짜 갭이나 각각 "미배선 timing"·"코어 resume 캡 아키텍처"로 배치
 // 초과 → 정밀 재마킹 후 truthful RED 유지·STOP. Root D(RD-C1-CARDEFFECT-IDTHREAD)는 별도 배치 유지.
+//
+// ── 수리 원장 배치3: Root D(RD-C1-CARDEFFECT-IDTHREAD) 상환 GREEN (2026-07-20) ─────────────────────────────
+// PRE-window에 causing source id → RD-BCE-01 cause carrier 스레딩. Scapegoat_OwnEffect_NoOffer RED→GREEN,
+// 양성대조 Scapegoat_NestedAllyOnDeletion(상대-효과 삭제엔 오퍼) 유지. 잔여 RED 2건은 위 #3/#4(RD-C5W-ESSTRASHSCAN
+// ·RD-C5W-ACTIVATEBODY) 그대로 = 별도 구조골. Root D 상세는 위 블록 참조.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);
