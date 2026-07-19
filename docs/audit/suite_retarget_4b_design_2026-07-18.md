@@ -333,3 +333,10 @@ c1(red 20 실측)·c2(green 전반 21)·**c3(green 후반 풀)** 를 합산해 �
 - **build**: 엔진 0오류(경고 1771 무증가). 워킹트리 순변경 0(G3.5-005 실증 원복 완료·`git checkout HEAD --`).
 - **회귀 재확인**: G3.5-005 원복 후 7/7 green. c1~c3 재조준 대표(§3.1e c3 회귀 27 중 EXEMPLAR-T1/GLINK 등) 무영향(코드 무변).
 - **리스크 갱신**: (a) B5 combat 6 = R1/R6 강결합(4b driver-swap 스코프 밖) — B6 게이트가 B5 완주가 아니라 R1/R6 완료에 종속(트라젝토리 §3.3 하한 재고 필요). (b) ⑤ red 12 = C5-SecurityPreWindow 회귀와 공통 근원(키워드 창-재하우징/sink)일 가능성 — 병행 Sonnet 보안/전투 트랙과 교차 상환 권고. (c) '이월 6' 라이브-재구축은 F68 관용구로 **선언은 뚫리나 outcome 미재현**이 확정 — 향후 시도는 R1 DP-fold 펌프-정합 실증을 먼저 게이트로.
+
+## §3.4b 리뷰 지점 2 결과 (2026-07-19): GO-with-P1 — c4 구조 판정 반증(P0)
+**B3/B4=clean GO**(A1 probe 존치·GR-001 등가 번역·RD6 정직 마킹 전부 타당). B5 재조준 역학=건전. **반증된 것=c4의 로드맵 추론**:
+- **P0**: "combat 6=R1/R6 게이트·재조준 불가"는 오진 — Permanent.HasDP(:142)는 printed-DP 미참조(Digimon-타입이면 true), BaseCardDP(:1005)는 인스턴스 metadata dp 우선 → 합성-def 전투가 실 BattleResolver로 정상 해소(증거 3: 현행 green G3.5-005 자체·F68 PlaceRealCard 합성-def 풀전투 판례·BlockTiming:271 metadata 키). c4 실패는 driver-mechanical이지 DP/코퍼스 의존 아님. §3.1f 해당 결론 철회, F68 관용구 재실험이 결정 실험.
+- **P1**: ⑤ NRE 클러스터 6(A3·C910·007·G2G×3)의 "실부채 확정"은 반증된 방법 상속 — "미해결(F68 differential 대기)"로 강등. 창/배선 계열(C5×2·N2·W4·NewTimings·R2-Del·E3)은 부채 유지(단 미분화 주기).
+- **P2**: B5 누적 단언 net -11의 개별 정당성은 확인되나 총계 원장 미비 — per-file 제거→대체 원장 요구; RD6 t1/t2 서술 긴장 1건.
+**B6 도달 경로(확정)**: ①G3.5-005를 F68 관용구로 재실험(최저비용 결정 실험) ②NRE 6 differential ③기계 잔여(D1/D2 재분류·G3.5-004 subtest 은퇴·FAILd-03/D6 re-point) ④잔여 진짜 부채=키워드/보안 트랙 몫(그것이 실 B6 게이트).
