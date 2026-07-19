@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
 
@@ -70,8 +71,7 @@ async Task EvadeOfferAcceptResumesCheck()
         strike: 2);
     GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxWouldBeDeletedInteractive");
 
-    DeclareDirectAttack(match);
-    await match.StepAsync();   // pipeline → Combat → security battle loss → park → PRE window opens
+    await DriveDirectAttack(match);
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE would-be-deleted window is open");
     // (수리-2 re-aim) the current PRE cut-in surfaces as the OptionalEffect "will you use it?" ForCutIn choice
@@ -82,8 +82,7 @@ async Task EvadeOfferAcceptResumesCheck()
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "attacker still on the field while parked");
 
     LegalAction activate = AcceptWindow(match, P1, AttackerId);
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();   // survives → the remaining check resumes → attack ends
+    await ResolveAndDrive(match, activate);
 
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "the replacement cancels the deletion (field survival)");
     AssertFalse(ReadFlag(match, AttackerId, GameFlowProcessor.PendingDeletionKey), "pendingDeletion cleared");
@@ -113,13 +112,11 @@ async Task DeclineFinalizesDeletionAndStopsCheck()
     match.Context.CardInstanceRepository.Upsert(new CardInstanceRecord(src1, new HeadlessEntityId("SRCDEF"), P1));
     SetMetadata(match, AttackerId, new Dictionary<string, object?> { ["sourceIds"] = new[] { src0.Value, src1.Value } });
 
-    DeclareDirectAttack(match);
-    await match.StepAsync();
+    await DriveDirectAttack(match);
 
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window is open");
     LegalAction decline = ResolveActions(match, P1).Single(a => a.Id.Value.EndsWith(":skip", StringComparison.Ordinal));
-    await match.ApplyActionAsync(decline);
-    await match.StepAsync();   // declined → finalize (cleanup → source trash → top trash → Fortitude) → attack ends
+    await ResolveAndDrive(match, decline);
 
     AssertInZone(match, P1, ChoiceZone.Trash, AttackerId, "declined attacker is deleted to the trash");
     AssertFalse(InZone(match, P1, ChoiceZone.BattleArea, AttackerId), "attacker left the field");
@@ -150,8 +147,7 @@ async Task BarrierSurvivesSecurityBattle()
         strike: 2);
     GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxWouldBeDeletedByBattle");
 
-    DeclareDirectAttack(match);
-    await match.StepAsync();
+    await DriveDirectAttack(match);
 
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "by-battle replacement survives the security battle");
     AssertInZone(match, P2, ChoiceZone.Trash, SecurityTwoId, "the SECOND security card was checked (loop resumed)");
@@ -169,8 +165,7 @@ async Task SuspendedEvadeNoOffer()
         securityDps: new int?[] { 9000, 1000 },
         strike: 2);
 
-    DeclareDirectAttack(match);
-    await match.StepAsync();
+    await DriveDirectAttack(match);
 
     AssertFalse(match.Context.ChoiceController.Current.IsPending, "no PRE window without a registered replacement");
     AssertInZone(match, P1, ChoiceZone.Trash, AttackerId, "attacker deleted outright");
@@ -194,8 +189,7 @@ async Task PiercingDeferAndResume()
     // interactive survival, so a single card drives the piercing follow-up check AND parks on its loss.
     GiveWouldBeDeleted(match.Context, AttackerId, P1, "TfxPierceWouldBeDeletedInteractive");
 
-    match.Context.AttackController.DeclareAttack(P1, AttackerId, P2, targetId: DefenderId, isDirectAttack: false);
-    await match.StepAsync();   // battle (defender dies) → piercing check → security battle loss → window
+    await DriveTargetedAttack(match, DefenderId);
 
     AssertInZone(match, P2, ChoiceZone.Trash, DefenderId, "the field-battle defender was deleted");
     AssertTrue(match.Context.ChoiceController.Current.IsPending, "PRE window opened from the piercing check");
@@ -203,8 +197,7 @@ async Task PiercingDeferAndResume()
     AssertEqual(ChoiceType.OptionalEffect, match.Context.ChoiceController.PendingRequest!.Type, "choice type");
 
     LegalAction activate = AcceptWindow(match, P1, AttackerId);
-    await match.ApplyActionAsync(activate);
-    await match.StepAsync();
+    await ResolveAndDrive(match, activate);
 
     AssertInZone(match, P1, ChoiceZone.BattleArea, AttackerId, "the replacement survives the piercing security battle");
     AssertInZone(match, P2, ChoiceZone.Trash, SecurityOneId, "the checked security card is in the trash");
@@ -214,8 +207,52 @@ async Task PiercingDeferAndResume()
 
 // --- Harness (adapted from G3.5-W5 / G3.5-F68) ----------------------------
 
-void DeclareDirectAttack(DcgoMatch match) =>
-    match.Context.AttackController.DeclareAttack(P1, AttackerId, P2, targetId: null, isDirectAttack: true);
+// (4b B6 re-pin) The OLD `new DcgoMatch(context)` + AdvanceToMain (AdvancePhase currency) driver is replaced by
+// CreatePumpDriven + the pump reach-main + DeclareAttack legal-lane (G3.5-W5 / G3.5-005 idiom). The direct
+// AttackController.DeclareAttack seam is replaced by the pump's DeclareAttack legal lane driven to the PRE window
+// (or resolution). The pump owns the security deal, so the pump-dealt security is cleared before the fixture's own
+// security is staged. Assertions are unchanged.
+
+async Task DriveDirectAttack(DcgoMatch match)
+{
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        match.Context.AttackController.DeclareAttack(P1, AttackerId, P2, targetId: null, isDirectAttack: true);
+    }
+    await DriveToChoiceOrAttackEnd(match);
+}
+
+async Task DriveTargetedAttack(DcgoMatch match, HeadlessEntityId target)
+{
+    using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+    {
+        match.Context.AttackController.DeclareAttack(P1, AttackerId, P2, targetId: target, isDirectAttack: false);
+    }
+    await DriveToChoiceOrAttackEnd(match);
+}
+
+async Task ResolveAndDrive(DcgoMatch match, LegalAction action)
+{
+    await ApplyAndStep(match, action);
+    await DriveToChoiceOrAttackEnd(match);
+}
+
+async Task DriveToChoiceOrAttackEnd(DcgoMatch match)
+{
+    for (int i = 0; i < 96; i++)
+    {
+        if (match.HasPendingChoice() || match.IsTerminal())
+        {
+            return;
+        }
+        HeadlessAttackState attack = match.Context.AttackController.Current;
+        if (attack.Phase == AttackPhase.None && !attack.IsPending)
+        {
+            return;
+        }
+        await StepOnce(match);
+    }
+}
 
 async Task<DcgoMatch> CreateMatchAsync(
     int attackerDp,
@@ -236,37 +273,27 @@ async Task<DcgoMatch> CreateMatchAsync(
         cards.Upsert(Definition($"P2-M{index:D2}", "Digimon"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(P1, "P1"), BuildDeck(P2, "P2") },
         firstPlayerId: P1,
         initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 75, setup: setup));
-    await AdvanceToMainAsync(match, P1);
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, AttackerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    await StepOnce(match);
+    await DriveUntilMainWait(match, P1);
 
-    if (defenderOnField)
+    // Clear the pump-dealt security stack for both players, then stage exactly the test's cards.
+    var reader = (IZoneStateReader)context.ZoneMover;
+    foreach (HeadlessPlayerId owner in new[] { P1, P2 })
     {
-        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, DefenderId, ChoiceZone.Hand, ChoiceZone.BattleArea));
-        SetMetadata(match, DefenderId, new Dictionary<string, object?> { ["dp"] = 1000, ["isSuspended"] = true });
-    }
-
-    for (int index = 0; index < securityDps.Length; index++)
-    {
-        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, Security[index], ChoiceZone.None, ChoiceZone.Security));
-        if (securityDps[index] is int dp)
+        foreach (HeadlessEntityId dealt in reader.GetCards(owner, ChoiceZone.Security).ToArray())
         {
-            SetMetadata(match, Security[index], new Dictionary<string, object?> { ["dp"] = dp });
+            await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, dealt, ChoiceZone.Security, ChoiceZone.Library));
         }
     }
 
-    if (ownSecurity)
-    {
-        await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, OwnSecurityId, ChoiceZone.None, ChoiceZone.Security));
-    }
-
-    var attackerMeta = new Dictionary<string, object?>
+    var attackerMeta = new Dictionary<string, object?>(StringComparer.Ordinal)
     {
         ["isSuspended"] = false,
         [SecurityResolver.StrikeKey] = strike,
@@ -280,8 +307,95 @@ async Task<DcgoMatch> CreateMatchAsync(
         }
     }
 
-    SetMetadata(match, AttackerId, attackerMeta);
+    StageInstance(match, P1, AttackerId, dpDef: attackerDp, cardType: "Digimon", attackerMeta, ChoiceZone.BattleArea, register: false);
+
+    if (defenderOnField)
+    {
+        StageInstance(match, P2, DefenderId, dpDef: 1000, cardType: "Digimon",
+            new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 1000, ["isSuspended"] = true },
+            ChoiceZone.BattleArea, register: false);
+    }
+
+    for (int index = 0; index < securityDps.Length; index++)
+    {
+        var meta = securityDps[index] is int dp
+            ? new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = dp }
+            : new Dictionary<string, object?>(StringComparer.Ordinal);
+        StageInstance(match, P2, Security[index], dpDef: securityDps[index] ?? 0, cardType: "Digimon", meta, ChoiceZone.Security, register: false);
+    }
+
+    if (ownSecurity)
+    {
+        StageInstance(match, P1, OwnSecurityId, dpDef: 0, cardType: "Digimon",
+            new Dictionary<string, object?>(StringComparer.Ordinal), ChoiceZone.Security, register: false);
+    }
+
     return match;
+}
+
+void StageInstance(DcgoMatch match, HeadlessPlayerId owner, HeadlessEntityId id, int dpDef, string cardType,
+    IReadOnlyDictionary<string, object?> instMeta, ChoiceZone zone, bool register)
+{
+    EngineContext ctx = match.Context;
+    var defId = new HeadlessEntityId($"DEF:{id.Value}");
+    ((CardDatabase)ctx.CardRepository).Upsert(new CardRecord(defId, id.Value, id.Value,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["level"] = 5, ["dp"] = dpDef }, CardType: cardType));
+    ctx.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner,
+        Metadata: new Dictionary<string, object?>(instMeta, StringComparer.Ordinal)));
+    ctx.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, zone)).GetAwaiter().GetResult();
+    if (register) HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons.CardEffectRegistrar.RegisterCard(ctx, id, owner);
+}
+
+static async Task StepOnce(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+static async Task ApplyAndStep(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+}
+
+static bool AtMainWait(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice()
+    && !match.IsTerminal();
+
+static async Task DriveUntilMainWait(DcgoMatch match, HeadlessPlayerId player)
+{
+    for (int i = 0; i < 96 && !AtMainWait(match, player); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            // Resolve pump start-of-game choices (mulligan etc.) via the skip lane so reach-main can proceed.
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? resolve;
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                resolve = match.GetLegalActions(chooser)
+                    .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                    ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+            if (resolve is null) { await StepOnce(match); }
+            else { await ApplyAndStep(match, resolve); }
+        }
+        else
+        {
+            await StepOnce(match);
+        }
+    }
+
+    if (!AtMainWait(match, player))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump did not reach {player.Value}'s main wait — phase:{t.Phase}/{t.StepCursor} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
 }
 
 static CardRecord Definition(string id, string cardType) =>
@@ -310,20 +424,6 @@ static PlayerDeckSetup BuildDeck(HeadlessPlayerId playerId, string prefix) =>
     new(playerId,
         Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
-
-static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
-{
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction[] advance = match.GetLegalActions(playerId)
-            .Where(a => a.ActionType == HeadlessActionTypes.AdvancePhase).ToArray();
-        AssertEqual(1, advance.Length, "advance phase count");
-        await match.ApplyActionAsync(advance[0]);
-        await match.StepAsync();
-    }
-
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
-}
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
     match.GetLegalActions(player).Where(a => a.ActionType == HeadlessActionTypes.ResolveChoice);

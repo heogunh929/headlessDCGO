@@ -13,6 +13,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.DataLoading;
 using HeadlessDCGO.Engine.Headless.Runtime;
@@ -64,9 +65,7 @@ async Task OnAllyAttack_Control()
     LegalAction declare = match.GetLegalActions(Player).Single(a =>
         a.ActionType == HeadlessActionTypes.DeclareAttack &&
         (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackTargetId, out object? raw) ? raw?.ToString() : null) == TargetId.Value);
-    await match.ApplyActionAsync(declare);
-    await match.StepAsync();
-    await new GameFlowProcessor().RunToStableAsync(context);
+    await DriveAttack(match, declare, context);
 
     AssertEqual(1, context.MemoryController.Current.Current, "CONTROL: known-good OnAllyAttack probe gained 1 memory");
 }
@@ -86,9 +85,7 @@ async Task OnDeclaration_NotFiredByAttack()
     LegalAction declare = match.GetLegalActions(Player).Single(a =>
         a.ActionType == HeadlessActionTypes.DeclareAttack &&
         (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackTargetId, out object? raw) ? raw?.ToString() : null) == TargetId.Value);
-    await match.ApplyActionAsync(declare);
-    await match.StepAsync();
-    await new GameFlowProcessor().RunToStableAsync(context);
+    await DriveAttack(match, declare, context);
 
     AssertEqual(0, context.MemoryController.Current.Current, "attacking does NOT fire the attacker's OnDeclaration effect (proxy removed)");
 }
@@ -105,9 +102,7 @@ async Task OnEndBattle_Fires()
     LegalAction declare = match.GetLegalActions(Player).Single(a =>
         a.ActionType == HeadlessActionTypes.DeclareAttack &&
         (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackTargetId, out object? raw) ? raw?.ToString() : null) == TargetId.Value);
-    await match.ApplyActionAsync(declare);
-    await match.StepAsync();                             // resolves the battle -> emits OnEndBattle
-    await new GameFlowProcessor().RunToStableAsync(context);
+    await DriveAttack(match, declare, context);
 
     AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnEndBattle effect gained 1 memory when the battle resolved");
 }
@@ -215,9 +210,7 @@ async Task OnEndAttack_Fires()
     LegalAction declare = match.GetLegalActions(Player).Single(a =>
         a.ActionType == HeadlessActionTypes.DeclareAttack &&
         (a.Parameters.TryGetValue(HeadlessActionParameterKeys.AttackTargetId, out object? raw) ? raw?.ToString() : null) == TargetId.Value);
-    await match.ApplyActionAsync(declare);
-    await match.StepAsync();                             // advances the attack through resolution -> end-attack hook
-    await new GameFlowProcessor().RunToStableAsync(context);
+    await DriveAttack(match, declare, context);
 
     AssertEqual(1, context.MemoryController.Current.Current, "attacker's OnEndAttack effect gained 1 memory when the attack ended");
 }
@@ -257,15 +250,37 @@ async Task<(DcgoMatch, EngineContext)> BuildMatchInMain()
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    // (4b B6 re-pin) OLD `new DcgoMatch(context)` + AdvanceToMain (AdvancePhase currency) -> CreatePumpDriven +
+    // pump reach-main. The pump owns the deal, so its dealt hand/security are cleared and the attacker/target are
+    // staged explicitly (the OLD dealt-hand instance ids do not exist on a pump match). Driver-only change; every
+    // assertion (incl. the OnEndBattle / WhenRemoveField real-debt reds) is unchanged.
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(Player, "P1"), Deck(Opponent, "P2") },
         firstPlayerId: Player, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { Player, Opponent }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match, Player);
+    await DriveUntilMainWait(match, Player);
 
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
-    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, TargetId, ChoiceZone.Hand, ChoiceZone.BattleArea));
+    var reader = (IZoneStateReader)context.ZoneMover;
+    foreach (HeadlessPlayerId owner in new[] { Player, Opponent })
+    {
+        foreach (ChoiceZone dealtZone in new[] { ChoiceZone.Security, ChoiceZone.Hand })
+        {
+            foreach (HeadlessEntityId dealt in reader.GetCards(owner, dealtZone).ToArray())
+            {
+                await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, dealt, dealtZone, ChoiceZone.Library));
+            }
+        }
+    }
+
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(AttackerId, new HeadlessEntityId("P1-M01"), Player));
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(TargetId, new HeadlessEntityId("P2-M01"), Opponent));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Player, AttackerId, ChoiceZone.None, ChoiceZone.BattleArea));
+    await context.ZoneMover.MoveAsync(new ZoneMoveRequest(Opponent, TargetId, ChoiceZone.None, ChoiceZone.BattleArea));
+    // Register the staged synthetics as live permanents so the pump's DeclareAttack legal lane (Cec field-permanent
+    // index resolution) recognises them (G3.5-W5 staging idiom).
+    CardEffectRegistrar.RegisterCard(context, AttackerId, Player);
+    CardEffectRegistrar.RegisterCard(context, TargetId, Opponent);
 
     // Attacker unsuspended (can declare); target suspended (a legal attack target).
     SetMetadata(match, AttackerId, new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -279,16 +294,91 @@ async Task<(DcgoMatch, EngineContext)> BuildMatchInMain()
     return (match, context);
 }
 
-async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
+static async Task StepOnce(DcgoMatch match)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+static async Task ApplyAndStep(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+}
+
+static bool AtMainWait(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice()
+    && !match.IsTerminal();
+
+static async Task DriveUntilMainWait(DcgoMatch match, HeadlessPlayerId player)
+{
+    for (int i = 0; i < 96 && !AtMainWait(match, player); i++)
     {
-        LegalAction advance = match.GetLegalActions(playerId).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
+        if (match.HasPendingChoice())
+        {
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? resolve;
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                resolve = match.GetLegalActions(chooser)
+                    .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                    ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+            if (resolve is null) { await StepOnce(match); }
+            else { await ApplyAndStep(match, resolve); }
+        }
+        else
+        {
+            await StepOnce(match);
+        }
     }
 
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+    if (!AtMainWait(match, player))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump did not reach {player.Value}'s main wait — phase:{t.Phase}/{t.StepCursor} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+// Apply the DeclareAttack packet and drive the pump until the battle resolves. Unlike the OLD driver (where a
+// single StepAsync applied + resolved), the pump defers the main-phase packet to a later pump step, so the attack
+// must be driven to AttackPhase.None before the external flow drain observes the timing.
+async Task DriveAttack(DcgoMatch match, LegalAction declare, EngineContext context)
+{
+    // Declaration-time triggers (OnAllyAttack / OnAttack) are emitted by the retained AttackDeclarationCommons.Declare
+    // seam (AttackDeclarationCommons.cs:48), not by AttackController.DeclareAttack — so declare through it (the same
+    // retained seam C5-Witness uses), then drive the pump to resolve the battle. `declare`'s existence is already
+    // asserted by the caller's Single(...) lane selection.
+    using (AmbientMatchContext.Scope _decl = AmbientMatchContext.Enter(match.Context))
+    {
+        AttackDeclarationCommons.Declare(match.Context, Player, AttackerId, Opponent, targetId: TargetId, isDirectAttack: false);
+    }
+    bool sawAttack = false;
+    for (int i = 0; i < 96; i++)
+    {
+        if (match.HasPendingChoice() || match.IsTerminal())
+        {
+            break;
+        }
+        HeadlessAttackState attack = match.Context.AttackController.Current;
+        if (attack.Phase != AttackPhase.None || attack.IsPending)
+        {
+            sawAttack = true;
+        }
+        else if (sawAttack)
+        {
+            break;
+        }
+        await StepOnce(match);
+    }
+
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(context);
+    await new GameFlowProcessor().RunToStableAsync(context);
 }
 
 void Register(EngineContext context, CEntity_Effect effect, string number, HeadlessEntityId source) =>

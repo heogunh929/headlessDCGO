@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -136,11 +137,12 @@ async Task<DcgoMatch> Setup(int attackerDp, int targetDp, int topSecurityDp, boo
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1, shuffleDecks: false, shuffleDigitamaDecks: false);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
-    await AdvanceToMainAsync(match);
+    await ExpStepOnce(match);
+    await ExpDriveUntil(match, m => ExpAtMainWait(m, P1));
 
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P1, AttackerId, ChoiceZone.Hand, ChoiceZone.BattleArea));
     await context.ZoneMover.MoveAsync(new ZoneMoveRequest(P2, TargetId, ChoiceZone.Hand, ChoiceZone.BattleArea));
@@ -217,25 +219,76 @@ static PlayerDeckSetup Deck(HeadlessPlayerId playerId, string prefix) =>
         Enumerable.Range(1, 12).Select(i => new HeadlessEntityId($"{prefix}-M{i:D2}")).ToArray(),
         Enumerable.Range(1, 3).Select(i => new HeadlessEntityId($"{prefix}-D{i:D2}")).ToArray());
 
-async Task AdvanceToMainAsync(DcgoMatch match)
-{
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        LegalAction advance = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.AdvancePhase);
-        await match.ApplyActionAsync(advance);
-        await match.StepAsync();
-    }
-
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
-}
-
 async Task DeclareTargetAttackAsync(DcgoMatch match)
 {
-    LegalAction attack = match.GetLegalActions(P1)
+    // (pump re-pin) The targeted (piercing) DeclareAttack legal lane — keep AttackTargetId (targeted, non-direct
+    // attack). Drive via ExpApply + ExpDriveUntil to the attack's resolution as the assertions require.
+    LegalAction attack = ExpLegal(match, P1)
         .Single(a => a.ActionType == HeadlessActionTypes.DeclareAttack &&
             ReadId(a.Parameters, HeadlessActionParameterKeys.AttackTargetId) == TargetId.Value);
-    await match.ApplyActionAsync(attack);
+    await ExpApply(match, attack);
+    await ExpDriveUntil(match, m => m.Context.AttackController.Current.Phase == AttackPhase.None || m.IsTerminal());
+}
+
+// --- Pump harness (Exp* helpers copied verbatim from G3.5-W5) -------------
+
+static IReadOnlyList<LegalAction> ExpLegal(DcgoMatch match, HeadlessPlayerId player)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    return match.GetLegalActions(player);
+}
+
+static bool ExpAtMainWait(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice()
+    && !match.IsTerminal();
+
+static async Task ExpStepOnce(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
     await match.StepAsync();
+}
+
+async Task ExpApply(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+async Task ExpDriveUntil(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? resolve;
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                resolve = match.GetLegalActions(chooser)
+                    .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                    ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+            if (resolve is null) { await ExpStepOnce(match); }
+            else { await ExpApply(match, resolve); }
+        }
+        else
+        {
+            await ExpStepOnce(match);
+        }
+    }
+
+    if (!condition(match))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"EXP drive did not reach state — phase:{t.Phase}/{t.StepCursor} attackPhase:{match.Context.AttackController.Current.Phase} " +
+            $"pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
 }
 
 static string? ReadId(IReadOnlyDictionary<string, object?> parameters, string key)

@@ -1,6 +1,7 @@
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.DataLoading;
+using HeadlessDCGO.Engine.Headless.Diagnostics;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Runtime;
 using HeadlessDCGO.Engine.Headless.Services;
@@ -456,14 +457,32 @@ async Task<DcgoMatch> CreateMatchAsync()
     cards.Upsert(Definition("DS4", level: 4, traits: new[] { "DS" }));
     cards.Upsert(Definition("NOMATCH", level: 3, traits: new[] { "Machine" }));
 
-    DcgoMatch match = new(context);
+    // (4b B6 re-pin) OLD `new DcgoMatch(context)` + AdvanceToMain (AdvancePhase currency) -> CreatePumpDriven +
+    // pump reach-main. The pump owns the security deal, so the pump-dealt security/hand are cleared before the
+    // test stages its own witness cards (all fixtures place their instances explicitly via Place()). This moves
+    // the DRIVER off the retired step currency; every assertion (incl. the real-debt reds) is unchanged.
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { BuildDeck(P1, "P1"), BuildDeck(P2, "P2") },
         firstPlayerId: P1,
         initialSecuritySize: 0, shuffleDecks: false, shuffleDigitamaDecks: false);
 
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 75, setup: setup));
-    await AdvanceToMainAsync(match, P1);
+    await DriveUntilMainWait(match, P1);
+
+    var reader = (IZoneStateReader)context.ZoneMover;
+    foreach (HeadlessPlayerId owner in new[] { P1, P2 })
+    {
+        foreach (HeadlessEntityId dealt in reader.GetCards(owner, ChoiceZone.Security).ToArray())
+        {
+            await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, dealt, ChoiceZone.Security, ChoiceZone.Library));
+        }
+        foreach (HeadlessEntityId dealt in reader.GetCards(owner, ChoiceZone.Hand).ToArray())
+        {
+            await context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, dealt, ChoiceZone.Hand, ChoiceZone.Library));
+        }
+    }
+
     return match;
 }
 
@@ -542,18 +561,55 @@ void ApplyDelete(DcgoMatch match, HeadlessEntityId source, HeadlessEntityId targ
     sink.FlushAsync().GetAwaiter().GetResult();
 }
 
-static async Task AdvanceToMainAsync(DcgoMatch match, HeadlessPlayerId playerId)
+static async Task StepOnce(DcgoMatch match)
 {
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
+}
+
+static async Task ApplyAndStep(DcgoMatch match, LegalAction action)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+}
+
+static bool AtMainWait(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice()
+    && !match.IsTerminal();
+
+static async Task DriveUntilMainWait(DcgoMatch match, HeadlessPlayerId player)
+{
+    for (int i = 0; i < 96 && !AtMainWait(match, player); i++)
     {
-        LegalAction[] advance = match.GetLegalActions(playerId)
-            .Where(a => a.ActionType == HeadlessActionTypes.AdvancePhase).ToArray();
-        AssertEqual(1, advance.Length, "advance phase count");
-        await match.ApplyActionAsync(advance[0]);
-        await match.StepAsync();
+        if (match.HasPendingChoice())
+        {
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? resolve;
+            using (AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context))
+            {
+                resolve = match.GetLegalActions(chooser)
+                    .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                        && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                    ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            }
+            if (resolve is null) { await StepOnce(match); }
+            else { await ApplyAndStep(match, resolve); }
+        }
+        else
+        {
+            await StepOnce(match);
+        }
     }
 
-    AssertEqual(HeadlessPhase.Main, match.GetObservation().Turn.Phase, "advance to main");
+    if (!AtMainWait(match, player))
+    {
+        HeadlessTurnState t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump did not reach {player.Value}'s main wait — phase:{t.Phase}/{t.StepCursor} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
 }
 
 IEnumerable<LegalAction> ResolveActions(DcgoMatch match, HeadlessPlayerId player) =>
