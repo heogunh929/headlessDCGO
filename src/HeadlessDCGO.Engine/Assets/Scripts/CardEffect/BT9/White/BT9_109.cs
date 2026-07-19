@@ -13,7 +13,8 @@
 //                 (the ported kind-class, SetIsInheritedEffect(true), verbatim — the C-3 witnessed half, incl.
 //                 the AS-IS `CardEffectCondition(ICardEffect) = cardEffect != null` at its true signature).
 //   [When Attacking] (inherited) this Digimon may digivolve into an [X Antibody] Digimon card in hand for its
-//                 digivolution cost (SelectHandEffect + PlayCardClass — see UNRESOLVED below; was C3-04 STOP).
+//                 digivolution cost (SelectHandEffect + PlayCardClass — REHABBED 수리-9, was C3-04 STOP /
+//                 RD-P6C3-D1+D2; all deps now live, see below).
 // Replaces the PREVIOUS pass's invented `CanNotTrashFromDigivolutionCardsStaticEffect` /
 // `CardEffectFactory.UseRequirements` factory calls and old-model `ActivatedMemoryEffect`/
 // `AddThisCardToHandEffect` composites with the literal AS-IS structure.
@@ -32,15 +33,14 @@
 // AS-IS CardSource.cs:1975. UI strip (anchor in-body): `card.Owner.brainStormObject.CloseBrainstrorm(card)`
 // (the brainstorm hand-widget overlay, BrainStormObject.cs — pure gameObject.SetActive UI).
 //
-// UNRESOLVED MEMBERS (kept verbatim per the no-fallback rule, NOT simplified; logged in
-// docs/audit/rebuild_bridge_w5_notes.md):
-//   1. `SelectHandEffect` — the mirror Script/SelectHandEffect.cs declares no type at all (skeleton file), so
-//      `GetComponent<SelectHandEffect>()`/its AS-IS SetUp/Activate are CS0246 under the shim (masked in the
-//      plain build, body-only reference — the batch-2 SelectionElement precedent).
-//   2. `cardSource.CanPlayCardTargetFrame(...)` — declared NOWHERE on the mirror CardSource (the pre-existing
-//      masked-verbatim precedent: PlayCardClass.cs calls it too); CS1061 under the shim.
-//   3. `card.PermanentOfThisCard().PermanentFrame` — no frame/slot model on the mirror (MIG5-FRAME-MODEL);
-//      CS1061 under the shim.
+// FORMERLY-UNRESOLVED MEMBERS — ALL RESOLVED (수리-9 rehab; the three CS errors below are stale). The whole
+// [When Attacking] block is now live AS-IS (design items RD-P6C3-D1 + RD-P6C3-D2 CLOSED):
+//   1. `SelectHandEffect` — the mirror Script/SelectHandEffect.cs is now a full 550-line 1:1 component
+//      (R5-A commit 00552dbf); `GetComponent<SelectHandEffect>()`/SetUp/Activate compile and run (RD-P6C3-D2).
+//   2. `cardSource.CanPlayCardTargetFrame(...)` — now declared on the mirror CardSource (CardSource.cs:475),
+//      proven live by BT25_092/ArtsDigivolve (RD-P6C3-D1).
+//   3. `card.PermanentOfThisCard().PermanentFrame` — Permanent.PermanentFrame (Permanent.cs:118) now
+//      materialises the frame on demand (field-list-index adaptation), consumed live by [Arts]/[App Fusion].
 namespace HeadlessDCGO.Engine.Assets.Scripts.CardEffect.BT9.White;
 
 using System;
@@ -236,17 +236,24 @@ public sealed class BT9_109 : CEntity_Effect
 
             bool CanSelectCardCondition(CardSource cardSource)
             {
-                // STOP (design item RD-P6C3-D1, cites the pre-existing MIG5-FRAME-MODEL gap): AS-IS
-                // `cardSource.CanPlayCardTargetFrame(card.PermanentOfThisCard().PermanentFrame, true,
-                // activateClass, root: SelectCardEffect.Root.Hand)` — `CanPlayCardTargetFrame` is declared
-                // nowhere on the mirror CardSource and `PermanentFrame` has no mirror (no frame/slot model).
-                // Only reachable once ActivateCoroutine actually resolves (CanUseCondition/CanActivateCondition
-                // above do not call this predicate), so the declaration-time legality gates stay real.
-                if (cardSource.HasXAntibodyTraits && cardSource.IsDigimon && CardEffectCommons.IsExistOnBattleArea(card))
+                // (수리-9 REHAB, design item RD-P6C3-D1 CLOSED): AS-IS `cardSource.CanPlayCardTargetFrame(
+                // card.PermanentOfThisCard().PermanentFrame, true, activateClass, root: Root.Hand)`. Both
+                // members now exist on the mirror (CardSource.CanPlayCardTargetFrame CardSource.cs:475,
+                // Permanent.PermanentFrame Permanent.cs:118 — materialised on demand; proven live by BT25_092),
+                // so the earlier MIG5-FRAME-MODEL STOP is stale. `card.PermanentOfThisCard()` ->
+                // `ICardEffect.ResolvePermanentOfThisCard(card)` (the standard mirror translation).
+                if (cardSource.HasXAntibodyTraits)
                 {
-                    throw new NotSupportedException(
-                        "BT9_109 [When Attacking] CanSelectCardCondition needs CardSource.CanPlayCardTargetFrame " +
-                        "+ Permanent.PermanentFrame (MIG5-FRAME-MODEL) — unported substrate, design item RD-P6C3-D1.");
+                    if (cardSource.IsDigimon)
+                    {
+                        if (CardEffectCommons.IsExistOnBattleArea(card))
+                        {
+                            if (cardSource.CanPlayCardTargetFrame(ICardEffect.ResolvePermanentOfThisCard(card).PermanentFrame, true, activateClass, root: SelectCardEffect.Root.Hand))
+                            {
+                                return true;
+                            }
+                        }
+                    }
                 }
 
                 return false;
@@ -272,34 +279,64 @@ public sealed class BT9_109 : CEntity_Effect
 
             async Task ActivateCoroutine(Hashtable _hashtable)
             {
+                // (수리-9 REHAB, design item RD-P6C3-D2 CLOSED): the mirror SelectHandEffect is now a full
+                // 1:1 component (Script/SelectHandEffect.cs, 550 lines — R5-A commit 00552dbf), so the AS-IS
+                // select-1-hand-card + PlayCardClass digivolve block is restored verbatim. Substrate only:
+                // `card.Owner.HandCards` -> new Player(ctx, owner).HandCards; IEnumerator SelectCardCoroutine
+                // (`yield return null`) -> `Task SelectCardCoroutine` returning Task.CompletedTask (BT22_035
+                // convention); `yield return StartCoroutine(X)` -> `await X`; `card.PermanentOfThisCard()` ->
+                // ICardEffect.ResolvePermanentOfThisCard(card).
                 if (new Player(card.Context, card.Owner).HandCards.Count(CanSelectCardCondition) >= 1)
                 {
-                    // STOP (design item RD-P6C3-D2): AS-IS constructs `GManager.instance.GetComponent<
-                    // SelectHandEffect>()` here — the mirror Script/SelectHandEffect.cs declares no type at all
-                    // (skeleton file, no hand-select subsystem ported), so the whole AS-IS select-1-hand-card
-                    // block (SetUp/SetUpCustomMessage/Activate, then PlayCardClass on the selection) has no
-                    // compilable mirror surface. Kept as an AS-IS-named comment below (standard
-                    // IEnumerator->Task translation only) for the eventual hand-select-subsystem port:
-                    //
-                    // SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
-                    // selectHandEffect.SetUp(selectPlayer: card.Owner, canTargetCondition: CanSelectCardCondition,
-                    //     canTargetCondition_ByPreSelecetedList: null, canEndSelectCondition: null, maxCount: 1,
-                    //     canNoSelect: true, canEndNotMax: false, isShowOpponent: true,
-                    //     selectCardCoroutine: SelectCardCoroutine, afterSelectCardCoroutine: null,
-                    //     mode: SelectHandEffect.Mode.Custom, cardEffect: activateClass);
-                    // selectHandEffect.SetUpCustomMessage("Select 1 card to digivolve.", "The opponent is
-                    //     selecting 1 card to digivolve.");
-                    // selectHandEffect.SetUpCustomMessage_ShowCard("Played Card");
-                    // await selectHandEffect.Activate();
-                    // (selected card) -> new PlayCardClass(cardSources: [selectedCard], payCost: true,
-                    //     targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card), root: Root.Hand,
-                    //     activateETB: true).PlayCard();
-                    throw new NotSupportedException(
-                        "BT9_109 [When Attacking] needs SelectHandEffect (0-type skeleton, no hand-select " +
-                        "subsystem ported) — unported substrate, design item RD-P6C3-D2.");
-                }
+                    List<CardSource> selectedCards = new List<CardSource>();
 
-                await Task.CompletedTask;
+                    int maxCount = 1;
+
+                    SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
+
+                    selectHandEffect.SetUp(
+                        selectPlayer: card.Owner,
+                        canTargetCondition: CanSelectCardCondition,
+                        canTargetCondition_ByPreSelecetedList: null,
+                        canEndSelectCondition: null,
+                        maxCount: maxCount,
+                        canNoSelect: true,
+                        canEndNotMax: false,
+                        isShowOpponent: true,
+                        selectCardCoroutine: SelectCardCoroutine,
+                        afterSelectCardCoroutine: null,
+                        mode: SelectHandEffect.Mode.Custom,
+                        cardEffect: activateClass);
+
+                    selectHandEffect.SetUpCustomMessage("Select 1 card to digivolve.", "The opponent is selecting 1 card to digivolve.");
+                    selectHandEffect.SetUpCustomMessage_ShowCard("Played Card");
+
+                    await selectHandEffect.Activate();
+
+                    Task SelectCardCoroutine(CardSource cardSource)
+                    {
+                        selectedCards.Add(cardSource);
+
+                        return Task.CompletedTask;
+                    }
+
+                    if (selectedCards.Count >= 1)
+                    {
+                        CardSource selectedCard = selectedCards[0];
+
+                        if (CardEffectCommons.IsExistOnBattleArea(card))
+                        {
+                            await new PlayCardClass(
+                                cardSources: new List<CardSource>() { selectedCard },
+                                hashtable: CardEffectCommons.CardEffectHashtable(activateClass),
+                                payCost: true,
+                                targetPermanent: ICardEffect.ResolvePermanentOfThisCard(card),
+                                isTapped: false,
+                                root: SelectCardEffect.Root.Hand,
+                                activateETB: true).PlayCard();
+                        }
+                    }
+                }
             }
         }
 

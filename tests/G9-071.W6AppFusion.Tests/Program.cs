@@ -10,6 +10,16 @@ using HeadlessDCGO.Engine.Headless.State;
 // AppFusionCondition{digimonCondition, linkedCondition, cost}: fuse onto an owner Digimon whose TOP matches
 // one named material and one of whose LINK cards matches a DIFFERENT material (i != j); executed as an
 // EVOLUTION with the chosen link card consumed into the fused sources (CardController.cs:400/786).
+//
+// (수리-9 DISPOSITION — STALE FIXTURE, not an engine gap) The 2 red cases (Enumeration/Execution) use the
+// SYNTHETIC CardEffectFactory.AddAppfuseMethodByName registration, which the rebuilt engine cannot observe:
+// the gate (CardSource.AppFusionConditionOf) scans only a DISPATCHED CEntity_Effect, populated solely by
+// CardEffectDispatch.TryCreateForCard for a REAL corpus card — never by a synthetic factory call (the
+// MIGRATION-NOTEs below). 7b/option-A did NOT change this observability gap. The real AppFusion cards
+// (AD1_025/BT21_059/BT22_035/BT24_062) exist but their interactive fusion play is itself STOP-ported, so
+// re-targeting to a dispatched real card is a separate porting+witness task (witness-selection-card-level),
+// NOT a marking. Engine consumption of fusion select is proven for the analogous DigiXros pump path
+// (tests/RD-BATCH7B.Witness, BT18_065). Classification: FIXTURE OBSOLESCENCE, retain red + tracked.
 
 HeadlessPlayerId P1 = new(1);
 HeadlessPlayerId P2 = new(2);

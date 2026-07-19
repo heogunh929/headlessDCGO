@@ -16,11 +16,12 @@
 //   * (P6C1) the W4 SelectPermanentEffect.SetUp canTargetCondition is the established
 //     Func<HeadlessEntityId,bool> id idiom — `CanSelectPermanentById` adapts the VERBATIM AS-IS
 //     Permanent predicate (the BT2_097 pattern).
-//   * (P6C1) STOP (design items RD-P6C1-7/-1/-8/-2, docs/audit/rebuild_p6_cluster1_notes.md): the
-//     hand-material pick + jogress-frame play inside SelectPermanentCoroutine — SelectHandEffect (942-line
-//     component, no mirror), the field-frame model (PreferredFrame/fieldCardFrames/PermanentFrame),
-//     CardObjectController.CreateNewPermanent/AddHandCard zone statics, and CardSource.CanPlayJogress (the
-//     play-cost/requirement engine) are all unported; the AS-IS remainder is preserved as comments at the STOP.
+//   * (P6C1) STOP — the jogress-frame play inside SelectPermanentCoroutine. (수리-9 재판정: RD-P6C1-7
+//     SelectHandEffect and RD-P6C1-2 CanPlayJogress are now CLOSED/available; the block now stands ONLY on
+//     design items RD-P6C1-1 (field-frame SLOT model — Player.fieldCardFrames / PreferredFrame /
+//     `new Permanent(List<CardSource>)` ctor / frame-indexed CreateNewPermanent, live STOPs at
+//     CardController.cs:2820/2936/3078) + RD-P6C1-8 (its zone statics). docs/audit/rebuild_p6_cluster1_notes.md.
+//     The AS-IS remainder is preserved as comments at the STOP.
 // Replaces the monolith's invented BlastDNADigivolveEffect.
 // (P6C1 FINDING, logged in the notes doc: tests/G9-048.SpecialPlay.Tests expects this factory to register a
 // SpecialPlayRecipe (the pre-P4 monolith behavior); the AS-IS-verbatim factory returns an ActivateClass and
@@ -198,11 +199,17 @@ public partial class CardEffectFactory
                 _ = (Func<CardSource, bool>)CanSelectHandSource;
 
                 // (P6C1) STOP — the AS-IS remainder (:173-254) is the hand-material pick + the jogress-frame
-                // play, four unported subsystems deep: SelectHandEffect (942-line component — RD-P6C1-7), the
-                // field-frame model (PreferredFrame/fieldCardFrames/PermanentFrame — RD-P6C1-1),
-                // CardObjectController.CreateNewPermanent/AddHandCard + the `new Permanent(List<CardSource>)`
-                // ctor (zone-move statics — RD-P6C1-8), and CardSource.CanPlayJogress (the play-cost/
-                // requirement engine — RD-P6C1-2). AS-IS body preserved verbatim:
+                // play. (수리-9 재판정) TWO of the four original blockers have since LANDED and are struck:
+                //   - RD-P6C1-7 SelectHandEffect — CLOSED (Script/SelectHandEffect.cs, 550-line 1:1, R5-A 00552dbf).
+                //   - RD-P6C1-2 CardSource.CanPlayJogress — CLOSED (CardSource.cs:549, live).
+                // TWO REMAIN and still hard-block this specific jogress-FRAME play:
+                //   - RD-P6C1-1 field-frame SLOT model — Player.fieldCardFrames + PreferredFrame() +
+                //     `new Permanent(List<CardSource>)` ctor + CardObjectController.CreateNewPermanent(perm,
+                //     frameID) are absent (live STOPs remain at CardController.cs:2820/2936/3078); PermanentFrame
+                //     READ exists but the writable slot ARRAY does not.
+                //   - RD-P6C1-8 zone statics — CardObjectController.AddHandCard(cardSource,false) is private and
+                //     the frame-indexed CreateNewPermanent overload is tied to the missing slot model.
+                // So the block stands on RD-P6C1-1/-8 (NOT -7/-2). AS-IS body preserved verbatim:
                 //
                 //     SelectHandEffect selectHandEffect = GManager.instance.GetComponent<SelectHandEffect>();
                 //
@@ -285,10 +292,11 @@ public partial class CardEffectFactory
                 //     }
                 // }
                 throw new NotSupportedException(
-                    "STOP: [Blast DNA Digivolve] hand-material pick + jogress-frame play — " +
-                    "SelectHandEffect / field-frame model / CardObjectController zone statics / " +
-                    "CardSource.CanPlayJogress are unported (design items RD-P6C1-7/-1/-8/-2, " +
-                    "docs/audit/rebuild_p6_cluster1_notes.md).");
+                    "STOP: [Blast DNA Digivolve] jogress-FRAME play — the field-frame SLOT model " +
+                    "(Player.fieldCardFrames / PreferredFrame / new Permanent(List) / frame-indexed " +
+                    "CreateNewPermanent) and its zone statics are unported (design items RD-P6C1-1/-8). " +
+                    "NOTE (수리-9): RD-P6C1-7 SelectHandEffect and RD-P6C1-2 CanPlayJogress are now CLOSED " +
+                    "(available), so only -1/-8 remain. docs/audit/rebuild_p6_cluster1_notes.md.");
             }
         }
 

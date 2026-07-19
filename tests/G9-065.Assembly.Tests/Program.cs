@@ -9,6 +9,15 @@ using HeadlessDCGO.Engine.Headless.State;
 // (R4 S3b) the mirror Script/MainPhaseAction classes share the AS-IS names — pin the Runtime one.
 using PlayCardAction = HeadlessDCGO.Engine.Headless.Runtime.PlayCardAction;
 
+// (수리-9 DISPOSITION — STALE FIXTURE, not an engine gap) The 2 red cases use the SYNTHETIC
+// AddAssemblyConditionClass registration, which the rebuilt engine cannot observe: the gate
+// (CardSource.AssemblyConditionOf) scans only a DISPATCHED CEntity_Effect, populated solely by
+// CardEffectDispatch.TryCreateForCard for a REAL corpus card — never by a synthetic factory call (the
+// MIGRATION-NOTE below). 7b/option-A did NOT change this observability gap. The real Assembly cards
+// (AD1_025/BT24_062) exist but their interactive Assembly pre-play is itself STOP-ported (RD-P6C1-5), so
+// re-targeting to a dispatched real card is a separate porting+witness task (witness-selection-card-level),
+// NOT a marking. Classification: FIXTURE OBSOLESCENCE, retain red + tracked.
+//
 // (AD1-A) Assembly special play — AS-IS: a rider on the ORDINARY play (CardController.cs:753-761, NOT a
 // fusion): the card declares an AssemblyCondition (AddAssemblyConditionClass at timing None, AD1_025 shape);
 // when the owner's TRASH can fill the full material set, the play costs (base - reduceCost) and, after

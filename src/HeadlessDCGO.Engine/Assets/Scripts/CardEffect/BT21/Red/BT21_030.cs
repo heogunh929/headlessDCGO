@@ -13,12 +13,14 @@
 //    * X:DigiXros / P:AddDigiXrosConditionClass / P:AddMaxTrashCountDigiXrosClass / P:SelectDigiXrosClass /
 //      S:SelectDigiXrosClass — ★수확: None-타이밍 AddDigiXrosConditionClass 등록과 BeforePayCost 특수 팔의
 //      비용-머신(SelectPermanent→AddDigivolutionCardInfos→ChangeCost -1→AddMaxTrashCount)은 모두 데이터-홀더/
-//      플레이어-버킷 등록으로 실착지(surfaces 실존)하나, 이들을 소비하는 인터랙티브 DigiXros 플레이
-//      (SelectDigiXrosClass.Select, SelectDigiXrosClass.cs:368 STOP)는 잠복 STOP(RD-R5-04, 상위 RD-P6C1-5):
-//      Permanent.CanSubstituteForDigiXrosCondition(R1) 부재 + SelectHandEffect 미러 스텁(R5). 즉 등록·버킷 팔은
-//      실착지·DigiXros 플레이 소비는 잠복 STOP(RD-EXT3-01). BeforePayCost 창 자체는 펌프에서 개방되나
-//      (G9-006), 이 카드의 BeforePayCost 게이트 CanTriggerWhenPermanentWouldPlay는 DigiXros 플레이 경로에서만
-//      hashtable을 채우므로 펌프 표면에서 불발(잠복).
+//      플레이어-버킷 등록으로 실착지(surfaces 실존). 이들을 소비하는 인터랙티브 DigiXros 플레이
+//      (SelectDigiXrosClass.Select)는 **7b(옵션 A)에서 완전 포팅됨 — STOP 0**: SelectDigiXrosClass는
+//      Script/SelectDigiXrosClass.cs로 실착지(throw 없음), Permanent.CanSubstituteForDigiXrosCondition은
+//      Permanent.cs:3644에 실존(RD-EXT3-01/RD-R5-04 상환), SelectHandEffect는 550줄 실구현(R5-A 00552dbf).
+//      소비 경로=일반 PlayCard 펌프(PlayCardClass.PlayCard→Select, 실증 tests/RD-BATCH7B.Witness). 즉
+//      **구 "잠복 STOP(RD-R5-04/RD-P6C1-5)" 주석은 stale — 수리-9에서 정정**. BeforePayCost 창 자체는 펌프에서
+//      개방되나(G9-006), 이 카드의 BeforePayCost 게이트 CanTriggerWhenPermanentWouldPlay는 DigiXros 플레이
+//      경로에서만 hashtable을 채우므로 펌프 표면에서 불발(정상 — 게이트 semantics, STOP 아님).
 //    * P:DeckBottomBounceClass — When Attacking 덱밑(AS-IS :543). 미러는 SelectPermanentEffect Mode.PutLibraryBottom
 //      로 select+bounce 융합(EX5_055 판례). ★수확 예상 정정: 감사 §5는 🟡stop-only(AD1_025)로 표기했으나
 //      미러 Mode.PutLibraryBottom 실존 — 포팅 성공.
