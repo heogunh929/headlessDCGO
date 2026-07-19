@@ -600,7 +600,7 @@ public static partial class CardEffectFactory
     /// must reach for the turn to auto-end (default 1) to <paramref name="minMemory"/> (BT14_081/BT17_069 set it
     /// to 3, AS-IS <c>SetUpChangeEndTurnMinMemoryClass(minMemory =&gt; 3)</c>). Returns the new-model kind-class
     /// <see cref="CardEffects.ChangeEndTurnMinMemoryClass"/> (an <c>IChangeEndTurnMinMemoryEffect</c>, no
-    /// <c>ToBinding</c>) consumed by the AS-IS-literal live scan in <see cref="Headless.Runtime.HeadlessMainPhaseFlow"/>;
+    /// <c>ToBinding</c>) consumed by the AS-IS-literal live scan <c>AutoProcessing.TurnEndMinMemory</c>;
     /// no registry binding.</summary>
     public static ICardEffect ChangeEndTurnMinMemoryStaticEffect(int minMemory, bool isInheritedEffect, CardSource card, Func<bool>? condition)
     {

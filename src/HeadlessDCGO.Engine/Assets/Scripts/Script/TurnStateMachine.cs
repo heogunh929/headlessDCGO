@@ -71,9 +71,9 @@ public sealed class TurnStateMachine
     #region (R4 P2a→S3a) Turn-flow phase bodies — AS-IS-region mirror (pump-driven when TurnFlowPump is installed)
 
     // (R4 batch P2a, design docs/audit/r4_tsm_s1_design_2026-07-16.md + r4_tsm_investigation_2026-07-16.md)
-    // AS-IS-region 1:1 mirror of the TurnStateMachine phase bodies, assembled DORMANT: the live turn drivers
-    // (MetadataActionProcessor / HeadlessGameLoop / HeadlessEarlyPhaseFlow / HeadlessMainPhaseFlow) are UNTOUCHED
-    // and NOTHING calls these six methods (grep-verified 0 callers) — the driver flip is S3. Established
+    // AS-IS-region 1:1 mirror of the TurnStateMachine phase bodies. (4b B6: the OLD step drivers —
+    // MetadataActionProcessor AdvancePhase/EndTurn bodies, HeadlessEarlyPhaseFlow, HeadlessMainPhaseFlow —
+    // are physically retired; these bodies are the LIVE turn cadence under the TurnFlowPump.) Established
     // adaptations applied throughout: coroutine → async Task, `GManager.instance.X` → EngineContext services /
     // `.For(_context)` singletons, Unity/Photon/UI (commandText / selectCardPanel / ShowPhase / outlines / SE /
     // FirstObject / draggables) stripped, `WaitUntil`/`WaitWhile` interactive stops delegated to the established

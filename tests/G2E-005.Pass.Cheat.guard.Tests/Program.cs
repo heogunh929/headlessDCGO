@@ -127,7 +127,7 @@ async Task LegalPassMovesToMemoryPass()
     // assertion read the same magnitude as -3 from P1's still-active turn (the intermediate memory-pass
     // phase); the pump reads it as +3 once the turn has flipped, the same "3 passed to the opponent".
     AssertEqual(Opponent, match.Context.TurnController.Current.TurnPlayerId, "pass ended P1's turn (memory pass concluded)");
-    AssertEqual(HeadlessMainPhaseFlow.DefaultMemoryPassValue, match.Context.MemoryController.Current.Current, "memory after pass (opponent received 3)");
+    AssertEqual(MetadataActionProcessor.DefaultMemoryPassValue, match.Context.MemoryController.Current.Current, "memory after pass (opponent received 3)");
 
     // The pump records the pass as a queued main-phase action; its ActionProcessed carries success +
     // actionType + the queued marker + an actionId embedding the Pass. The rich previous/after memory +
@@ -145,17 +145,19 @@ async Task LegalPassMovesToMemoryPass()
         "the queued Pass action references the Pass action type");
 }
 
+// (4b B6 re-pin) The OLD Runtime PassAction processor is retired with the OLD step driver; the pass GUARD
+// rules (only the turn player, only during their Main wait) are enforced at the pump's authoritative
+// legality boundary — an out-of-set Pass is rejected at apply time and mutates nothing.
+
 async Task PassRejectsNonTurnPlayerWithoutMutation()
 {
     DcgoMatch match = await CreateMainPhaseMatchAsync();
     LegalAction pass = HeadlessActionFactory.Pass(Opponent);
     string before = SnapshotTurnAndMemory(match);
 
-    ActionProcessResult result = new PassAction().Process(pass, match.Context);
+    StepResult step = await match.ApplyActionAsync(pass);
 
-    AssertFalse(result.IsSuccess, "result success");
-    AssertTrue(result.IsIllegal, "result illegal");
-    AssertContains(result.Message, "current turn player", "illegal reason");
+    AssertTrue(step.Events.Any(e => e.Type == GameEventType.InvalidAction), "non-turn-player pass rejected at the legality boundary");
     AssertEqual(before, SnapshotTurnAndMemory(match), "state unchanged");
 }
 
@@ -165,11 +167,9 @@ async Task PassRejectsNonMainPhaseWithoutMutation()
     LegalAction pass = HeadlessActionFactory.Pass(Player);
     string before = SnapshotTurnAndMemory(match);
 
-    ActionProcessResult result = new PassAction().Process(pass, match.Context);
+    StepResult step = await match.ApplyActionAsync(pass);
 
-    AssertFalse(result.IsSuccess, "result success");
-    AssertTrue(result.IsIllegal, "result illegal");
-    AssertContains(result.Message, "Main phase", "illegal reason");
+    AssertTrue(step.Events.Any(e => e.Type == GameEventType.InvalidAction), "pass outside the Main wait rejected at the legality boundary");
     AssertEqual(before, SnapshotTurnAndMemory(match), "state unchanged");
 }
 
@@ -223,9 +223,12 @@ Task PassCheatGuardFilesHaveNoPlaceholderMarkers()
     // Pass/Cheat guard verification. The survivors stay: MetadataActionProcessor.cs (hosts the cheat guard;
     // B6 removes only its AdvancePhase/EndTurn method bodies, §1.3 item 2, the file survives) and
     // HeadlessLegalActionDispatcher.cs (B6 removes only the OLD phase-table arm, §1.3 item 11, file survives).
+    // (4b B6) The OLD Runtime/PassAction.cs is physically deleted (the pass seat is the mirror
+    // MainPhaseAction/PassAction.cs via TurnFlowDriver); the cheat guard was rehomed to CheatActionGuard.cs.
     var scopedFiles = new[]
     {
-        Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "PassAction.cs"),
+        Path.Combine(root, "src", "HeadlessDCGO.Engine", "Assets", "Scripts", "Script", "MainPhaseAction", "PassAction.cs"),
+        Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "CheatActionGuard.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessActionTypes.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessActionParameterKeys.cs"),
         Path.Combine(root, "src", "HeadlessDCGO.Engine", "Headless", "Runtime", "HeadlessActionFactory.cs"),

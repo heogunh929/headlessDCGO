@@ -6,7 +6,12 @@ var root = FindRepositoryRoot();
 
 var phase2Goals = new Phase2Goal[]
 {
-    new("G2A-006", "Flow", "G2A-006_legal_action_dispatch_unit_test_results.md", "G2A-006.Legal.action.dispatch.hook.Tests"),
+    // (4b B6, 2026-07-19) G2A-006's verification target was the OLD legal-action dispatch sequence
+    // (the invented (phase,cursor) step-cadence table). That table was physically retired when the OLD
+    // step-cadence driver was deleted (suite_retarget_4b_design §3.4i/j), so its dedicated test project
+    // is retired. The historical result document stays as the Phase-2 ledger; only the live-project
+    // existence assertion is waived for this entry (same convention as the G2F-004 / G3Z-001 updates).
+    new("G2A-006", "Flow", "G2A-006_legal_action_dispatch_unit_test_results.md", "G2A-006.Legal.action.dispatch.hook.Tests", RetiredTestProject: true),
     new("G2B-002", "Context", "G2B-002_visibility_view_unit_test_results.md", "G2B-002.Visibility.view.Tests"),
     new("G2C-002", "Player", "G2C-002_player_terminal_checks_unit_test_results.md", "G2C-002.Memory.security.deck.loss.check.Tests"),
     new("G2D-004", "Card", "G2D-004_digivolution_source_attach_unit_test_results.md", "G2D-004.Digivolution.source.attach.Tests"),

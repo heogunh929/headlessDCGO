@@ -85,32 +85,49 @@ void ConstantsDefined()
 
 // --- E2E -----------------------------------------------------------------
 
+// (4b B6 re-pin) The OLD EndTurn ACTION seam is retired: the pump's real turn boundary is driven by the
+// legal Pass lane (AS-IS PassTurn -> EndTurnProcess fires the OnEndTurn window pre-flip, AutoProcessing
+// :1511; the next ActivePhase fires OnStartTurn, TurnStateMachine :199). Counts are asserted as DELTAS
+// across the boundary because the pump's own first-turn start ALSO legitimately opens OnStartTurn.
+
 async Task EndTurnFiresOnEndTurn()
 {
     (DcgoMatch match, TurnBoundaryProbe effect) = await CreateMatchAsync(EffectTiming.OnEndTurn);
-    await EndTurnAsync(match);
-    AssertEqual(1, effect.ResolveCalls, "OnEndTurn effect fired exactly once when the turn ended");
+    int before = effect.ResolveCalls;
+    AssertEqual(0, before, "OnEndTurn effect dormant before any turn end");
+    await PassToNextMainAsync(match);
+    AssertEqual(before + 1, effect.ResolveCalls, "OnEndTurn effect fired exactly once when the turn ended");
 }
 
 async Task EndTurnFiresOnStartTurn()
 {
     (DcgoMatch match, TurnBoundaryProbe effect) = await CreateMatchAsync(EffectTiming.OnStartTurn);
-    await EndTurnAsync(match);
-    AssertEqual(1, effect.ResolveCalls, "OnStartTurn effect fired when the next turn started");
+    int before = effect.ResolveCalls; // the pump's own first-turn start may already have opened OnStartTurn
+    await PassToNextMainAsync(match);
+    AssertEqual(before + 1, effect.ResolveCalls, "OnStartTurn effect fired exactly once when the next turn started");
 }
 
 async Task UnrelatedTimingDoesNotFire()
 {
     (DcgoMatch match, TurnBoundaryProbe effect) = await CreateMatchAsync(EffectTiming.WhenDigivolving);
-    await EndTurnAsync(match);
+    await PassToNextMainAsync(match);
     AssertEqual(0, effect.ResolveCalls, "an effect bound to an unrelated timing does not fire on end turn");
 }
 
-async Task EndTurnAsync(DcgoMatch match)
+async Task PassToNextMainAsync(DcgoMatch match)
 {
-    match.Context.TurnController.SetPhase(HeadlessPhase.End);
-    await match.ApplyActionAsync(HeadlessActionFactory.EndTurn(P1));
-    await match.StepAsync();
+    LegalAction pass;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        pass = match.GetLegalActions(P1).Single(a => a.ActionType == HeadlessActionTypes.Pass);
+    }
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        await match.ApplyActionAsync(pass);
+        await match.StepAsync();
+        await match.StepAsync();
+    }
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P2));
 }
 
 // --- Harness -------------------------------------------------------------
@@ -125,7 +142,7 @@ async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateMatchAsync(EffectT
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context);
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new HeadlessDCGO.Engine.Headless.Diagnostics.EngineTrace());
     MatchSetupConfig setup = MatchSetupConfig.Create(
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 73, setup: setup));
@@ -139,7 +156,63 @@ async Task<(DcgoMatch Match, TurnBoundaryProbe Effect)> CreateMatchAsync(EffectT
 
     var effect = new TurnBoundaryProbe(timing);
     CardEffectRegistrar.RegisterOnEnterPlay(context, effect, "FX", new CardSource(context, fxId, P1));
+
+    // (4b B6) drive the pump's natural auto-flow to P1's main wait (F62/EXEMPLAR precedent) — the probe is
+    // registered BEFORE the drive, so a first-turn OnStartTurn opening is a legitimate pre-boundary count.
+    await StepOnceDriveAsync(match);
+    await DriveUntilAsync(match, m => AtMainWaitOf(m, P1));
     return (match, effect);
+}
+
+// --- Phase driving (pump auto-flow, F62/EXEMPLAR-T1 precedent, 4b B6) -----
+static bool AtMainWaitOf(DcgoMatch match, HeadlessPlayerId player) =>
+    match.Context.TurnController.Current.Phase == HeadlessPhase.Main
+    && match.Context.TurnController.Current.TurnPlayerId == player
+    && !match.HasPendingChoice() && !match.IsTerminal();
+
+static async Task DriveUntilAsync(DcgoMatch match, Func<DcgoMatch, bool> condition)
+{
+    for (int i = 0; i < 96 && !condition(match); i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            bool decline = match.Context.ChoiceController.PendingRequest!.Type
+                is HeadlessDCGO.Engine.Headless.Choices.ChoiceType.BreedingDecision
+                or HeadlessDCGO.Engine.Headless.Choices.ChoiceType.Mulligan;
+            await ResolvePendingDriveAsync(match, skip: decline);
+        }
+        else await StepOnceDriveAsync(match);
+    }
+    if (!condition(match))
+    {
+        var t = match.Context.TurnController.Current;
+        throw new InvalidOperationException(
+            $"pump drive did not reach the expected state - phase:{t.Phase} turn:{t.TurnNumber} player:{t.TurnPlayerId} " +
+            $"choice:{match.Context.ChoiceController.PendingRequest?.Type.ToString() ?? "<none>"} pending:{match.HasPendingChoice()} terminal:{match.IsTerminal()}");
+    }
+}
+
+static async Task ResolvePendingDriveAsync(DcgoMatch match, bool skip)
+{
+    HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+    LegalAction? action;
+    using (AmbientMatchContext.Enter(match.Context))
+    {
+        action = match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal) == skip)
+            ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+    }
+    if (action is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.ApplyActionAsync(action);
+    await match.StepAsync();
+    await match.StepAsync();
+}
+
+static async Task StepOnceDriveAsync(DcgoMatch match)
+{
+    using AmbientMatchContext.Scope _ = AmbientMatchContext.Enter(match.Context);
+    await match.StepAsync();
 }
 
 static CardRecord Digimon(string id) =>

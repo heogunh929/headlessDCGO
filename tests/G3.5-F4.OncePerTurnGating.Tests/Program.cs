@@ -101,8 +101,11 @@ async Task FireTimingAsync(DcgoMatch match)
 
 async Task EndTurnAsync(DcgoMatch match)
 {
-    match.Context.TurnController.SetPhase(HeadlessPhase.End);
-    await match.ApplyActionAsync(HeadlessActionFactory.EndTurn(P1));
+    // (4b B6) The OLD EndTurn ACTION is retired; the turn-boundary once-flag reset is RETAINED SUBSTRATE —
+    // the pump (TurnFlowPump :311) and the OLD driver both called OnceFlags.ResetForTurn at the flip, so this
+    // synth unit crosses the boundary on the substrate directly (assertion strength unchanged).
+    var turn = match.Context.TurnController.EndTurn();
+    match.Context.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId);
     await match.StepAsync();
 }
 

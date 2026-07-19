@@ -20,6 +20,9 @@ HeadlessPlayerId P2 = new(2);
 var tests = new (string Name, Func<Task> Body)[]
 {
     ("ActivePhaseAsync runs reset -> start-turn window -> unsuspend -> bucket reset (TurnCount views substrate)", ActiveOrder),
+    ("ActivePhaseAsync unsuspends the opponent's <Reboot> permanent but not a plain one (AS-IS :226)", ActiveRebootUnsuspend),
+    ("DrawPhaseAsync skips the draw on the first turn (AS-IS :669 TurnCount == 1)", DrawFirstTurnSkips),
+    ("DrawPhaseAsync draws exactly one card on a later turn (AS-IS :669-682)", DrawLaterTurnDrawsOne),
     ("DrawPhaseAsync judges deck-out as a loss for the empty-library turn player", DrawDeckOut),
     ("EndPhaseAsync clears the full end-of-turn reset list", EndResetList),
 };
@@ -72,6 +75,67 @@ async Task ActiveOrder()
         "UntilOwnerActivePhaseEffects reset (AS-IS :644)");
     AssertEqual(0, new Permanent(context, permA.InstanceId, P1).UntilNextUntapEffects.Count,
         "UntilNextUntapEffects reset (AS-IS :646)");
+}
+
+// (4b B6 이식, ex-G2A-003 UnsuspendPhaseClearsEligibleCards의 Reboot 축) The pump unsuspend seat
+// (ActivePhaseAsync :218-241) includes the OPPONENT's permanents iff they carry a live <Reboot>
+// (`permanent.HasReboot`, AS-IS :226). Registered live card = BT2_063 (plain RebootSelfStaticEffect).
+async Task ActiveRebootUnsuspend()
+{
+    EngineContext context = Board(turnPlayer: P1, phase: HeadlessPhase.Active);
+    using var scope = AmbientMatchContext.Enter(context);
+
+    // P2 (non-turn player): one live-<Reboot> permanent, one plain permanent — both suspended.
+    var reboot = PlaceNumbered(context, P2, "BT2_063", "reboot");
+    reboot.IsSuspended = true;
+    var plain = Place(context, P2, "PLAIN");
+    plain.IsSuspended = true;
+
+    var tsm = TurnStateMachine.For(context);
+    await tsm.ActivePhaseAsync();
+
+    AssertTrue(!new Permanent(context, reboot.InstanceId, P2).IsSuspended,
+        "opponent <Reboot> permanent unsuspended on P1's turn (AS-IS :226 HasReboot arm)");
+    AssertTrue(new Permanent(context, plain.InstanceId, P2).IsSuspended,
+        "opponent plain permanent stays suspended (negative control)");
+}
+
+// (4b B6 이식, ex-G2A-003 FirstTurnDrawPhaseSkipsDraw) AS-IS :669: the turn-1 draw is skipped.
+async Task DrawFirstTurnSkips()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 6163);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    ((InMemoryHeadlessTurnController)context.TurnController).SetPhase(HeadlessPhase.Draw);
+    using var scope = AmbientMatchContext.Enter(context);
+    SeedLibrary(context, P1, 3);
+
+    var tsm = TurnStateMachine.For(context);
+    AssertEqual(1, tsm.TurnCount, "TurnCount == 1 (first turn)");
+
+    await tsm.DrawPhaseAsync();
+
+    AssertEqual(0, ZoneCount(context, P1, ChoiceZone.Hand), "no card drawn on the first turn (AS-IS :669)");
+    AssertEqual(3, ZoneCount(context, P1, ChoiceZone.Library), "library untouched on the first turn");
+    AssertTrue(!tsm.endGame, "no deck-out judgment on the skipped first-turn draw");
+}
+
+// (4b B6 이식, ex-G2A-003 SecondTurnDrawPhaseDrawsOneCard) AS-IS :669-682: a later-turn draw is exactly one.
+async Task DrawLaterTurnDrawsOne()
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: 6164);
+    context.TurnController.Initialize(new[] { P1, P2 }, P1);
+    context.TurnController.EndTurn();   // turn 2, P2
+    context.TurnController.EndTurn();   // turn 3, P1
+    ((InMemoryHeadlessTurnController)context.TurnController).SetPhase(HeadlessPhase.Draw);
+    using var scope = AmbientMatchContext.Enter(context);
+    SeedLibrary(context, P1, 3);
+
+    var tsm = TurnStateMachine.For(context);
+    await tsm.DrawPhaseAsync();
+
+    AssertEqual(1, ZoneCount(context, P1, ChoiceZone.Hand), "exactly one card drawn (AS-IS :682 DrawClass 1)");
+    AssertEqual(2, ZoneCount(context, P1, ChoiceZone.Library), "library decremented by one");
+    AssertTrue(!tsm.endGame, "no deck-out with cards remaining");
 }
 
 async Task DrawDeckOut()
@@ -152,6 +216,35 @@ Permanent Place(EngineContext context, HeadlessPlayerId owner, string tag)
     context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
     return new Permanent(context, id, owner);
 }
+
+// (4b B6) Place a battle-area permanent whose DEFINITION id is a real card number and REGISTER its live
+// effect class (F68 StagePermanent 관용구) — used for the keyword scan (Permanent.HasReboot).
+Permanent PlaceNumbered(EngineContext context, HeadlessPlayerId owner, string cardNumber, string tag)
+{
+    ((CardDatabase)context.CardRepository).Upsert(new CardRecord(new HeadlessEntityId(cardNumber), cardNumber, cardNumber,
+        new Dictionary<string, object?>(StringComparer.Ordinal) { ["dp"] = 3000, ["level"] = 3 }, CardType: "Digimon"));
+    var id = new HeadlessEntityId($"card:{tag}");
+    context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, new HeadlessEntityId(cardNumber), owner));
+    context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.BattleArea)).GetAwaiter().GetResult();
+    CardEffectRegistrar.RegisterCard(context, id, owner);
+    return new Permanent(context, id, owner);
+}
+
+void SeedLibrary(EngineContext context, HeadlessPlayerId owner, int count)
+{
+    for (int i = 1; i <= count; i++)
+    {
+        var defId = new HeadlessEntityId($"LIB:{owner.Value}:{i}");
+        ((CardDatabase)context.CardRepository).Upsert(new CardRecord(defId, defId.Value, defId.Value,
+            new Dictionary<string, object?>(StringComparer.Ordinal), CardType: "Digimon"));
+        var id = new HeadlessEntityId($"lib:{owner.Value}:{i}");
+        context.CardInstanceRepository.Upsert(new CardInstanceRecord(id, defId, owner));
+        context.ZoneMover.MoveAsync(new ZoneMoveRequest(owner, id, ChoiceZone.None, ChoiceZone.Library)).GetAwaiter().GetResult();
+    }
+}
+
+int ZoneCount(EngineContext context, HeadlessPlayerId owner, ChoiceZone zone) =>
+    ((IZoneStateReader)context.ZoneMover).GetCards(owner, zone).Count;
 
 static List<Func<EffectTiming, ICardEffect>> OneEffect() =>
     new() { _ => null! };

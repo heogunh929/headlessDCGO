@@ -103,11 +103,10 @@ async Task<Harness> TriggeredMatchAsync()
         new[] { Deck(P1, "P1"), Deck(P2, "P2") }, firstPlayerId: P1);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: 74, setup: setup));
 
-    // Advance to Main so a turn player is established (P1).
-    for (var attempt = 0; attempt < 8 && match.GetObservation().Turn.Phase != HeadlessPhase.Main; attempt++)
-    {
-        await Apply(match, HeadlessActionFactory.AdvancePhase(P1));
-    }
+    // Establish P1's Main directly on the substrate turn controller (W1b/G7-005 idiom) — the OLD
+    // AdvancePhase step currency is retired (4b B6); this synth registry fixture only needs a turn
+    // player and a Main phase, not the OLD step driver.
+    context.TurnController.SetPhase(HeadlessPhase.Main);
 
     var mandatory = new RecordingEffect("mand-fx", isOptional: false);
     var optional = new RecordingEffect("opt-fx", isOptional: true);

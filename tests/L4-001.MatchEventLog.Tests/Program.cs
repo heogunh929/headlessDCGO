@@ -101,20 +101,31 @@ async Task RunLeveledMatch(MatchLogLevel level, Action<List<JsonObject>> assert,
         },
         firstPlayerId: P1);
 
-    var match = new DcgoMatch(
+    // (4b B6 re-pin) L4's full random match is driven on the PUMP (CreatePumpDriven; the same
+    // LegalActionSetValidator boundary is installed by default). This run doubles as the RD-R4A′-01
+    // re-check gate: the OLD-driver full-random late-board hang (inner-drain unbounded loop) must not
+    // reproduce under the pump cadence — the walk is bounded and the suite would time out if it did.
+    var match = DcgoMatch.CreatePumpDriven(
         context,
-        actionLegality: new LegalActionSetValidator(),
         eventLog: log);
     await match.InitializeAsync(MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup));
+    await match.StepAsync();
 
     var rng = new Random(seed);
     var players = new[] { P1, P2 };
     for (int step = 0; step < 1200 && !match.IsTerminal(); step++)
     {
-        HeadlessPlayerId? mover = players.FirstOrDefault(p => match.GetLegalActions(p).Count > 0);
-        if (mover is not { } current || match.GetLegalActions(current).Count == 0)
+        HeadlessPlayerId? mover = null;
+        foreach (HeadlessPlayerId p in players)
         {
-            break;
+            if (match.GetLegalActions(p).Count > 0) { mover = p; break; }
+        }
+
+        if (mover is not { } current)
+        {
+            // pump auto-flow: no lanes between action waits — step the pump forward.
+            await match.StepAsync();
+            continue;
         }
 
         IReadOnlyList<LegalAction> legal = match.GetLegalActions(current);

@@ -5,13 +5,18 @@ using HeadlessDCGO.Engine.Headless.Choices;
 using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
-// LEGACY TEST SCAFFOLD (R4 S3c-d1): as the DcgoMatch default processor this is the OLD step-cadence
-// turn driver (AdvancePhase/EndTurn + HeadlessEarlyPhaseFlow/HeadlessMainPhaseFlow). The OLD driver
-// survives ONLY for the pre-R4 test corpus; new/RL matches use the TurnFlowPump (DcgoMatch.CreatePumpDriven),
-// whose TurnFlowDriver still delegates its system/choice/zone arms here (that seam is NOT legacy).
-// Physical retirement gate = the suite re-targeting goal (design doc S3c-d ledger).
+// (4b B6, S3c-d retirement complete) RETAINED SUBSTRATE: the system/choice/zone action arms the pump's
+// TurnFlowDriver delegates to (plus the unguarded scripting profile's direct applies). The OLD step-cadence
+// turn driver that used to live here (AdvancePhase/EndTurn bodies + HeadlessEarlyPhaseFlow/
+// HeadlessMainPhaseFlow) is physically deleted — those arms now answer Illegal, phases auto-flow in the
+// TurnFlowPump, and the turn ends via the mirror PassTurn/EndTurnCheck.
 public sealed class MetadataActionProcessor : IActionProcessor
 {
+    /// <summary>(4b B6, §3.4i (b)) AS-IS voluntary-pass gauge jump — the opponent starts with exactly 3
+    /// (AutoProcessing.cs `gameContext.Memory = 3` / `= -3`). Rehomed from the retired
+    /// <c>HeadlessMainPhaseFlow</c>; the live pass seat is the mirror <c>PassTurn → EndTurnProcess</c>.</summary>
+    public const int DefaultMemoryPassValue = 3;
+
     public async Task<ActionProcessResult> ProcessAsync(
         LegalAction action,
         EngineContext context,
@@ -24,7 +29,11 @@ public sealed class MetadataActionProcessor : IActionProcessor
         return HeadlessActionTypes.Normalize(action.ActionType) switch
         {
             HeadlessActionTypes.NormalizedNoOp => NoOp(action),
-            HeadlessActionTypes.NormalizedPass => new PassAction().Process(action, context),
+            // (4b B6) The OLD Runtime PassAction processor is retired — the canonical pass is the pump's
+            // TurnFlowDriver -> mirror PassAction -> TurnStateMachine.PassTurn -> EndTurnProcess (GR-001
+            // re-aim). A Pass reaching THIS processor is a non-pump (scripting) match: illegal.
+            HeadlessActionTypes.NormalizedPass => ActionProcessResult.Illegal(
+                action, "Pass is pump-only: it routes through TurnFlowDriver to the mirror PassTurn.", BaseMetadata(action)),
             HeadlessActionTypes.NormalizedCheat => CheatActionGuard.Reject(action),
             HeadlessActionTypes.NormalizedPlayCard => await new PlayCardAction()
                 .ProcessAsync(action, context, cancellationToken)
@@ -63,8 +72,12 @@ public sealed class MetadataActionProcessor : IActionProcessor
             HeadlessActionTypes.NormalizedClearChoice => ClearChoice(action, context),
             HeadlessActionTypes.NormalizedShuffleDeck => await ShuffleDeckAsync(action, context, cancellationToken).ConfigureAwait(false),
             HeadlessActionTypes.NormalizedEnqueueEffect => EnqueueEffect(action, context),
-            HeadlessActionTypes.NormalizedAdvancePhase => await AdvancePhaseAsync(action, context, cancellationToken).ConfigureAwait(false),
-            HeadlessActionTypes.NormalizedEndTurn => await EndTurnAsync(action, context, cancellationToken).ConfigureAwait(false),
+            // (4b B6) The OLD step cadence is physically retired: AdvancePhase/EndTurn were the invented
+            // step-driver currency (phases auto-flow in the TurnFlowPump; the turn ends via Pass/EndTurnCheck).
+            HeadlessActionTypes.NormalizedAdvancePhase => ActionProcessResult.Illegal(
+                action, "AdvancePhase is retired: phases auto-flow (TurnFlowPump).", BaseMetadata(action)),
+            HeadlessActionTypes.NormalizedEndTurn => ActionProcessResult.Illegal(
+                action, "EndTurn is retired: the turn ends via Pass or the EndTurnCheck auto-flow.", BaseMetadata(action)),
             HeadlessActionTypes.NormalizedSetMemory => SetMemory(action, context),
             HeadlessActionTypes.NormalizedAddMemory => AddMemory(action, context),
             HeadlessActionTypes.NormalizedPayMemory => PayMemory(action, context),
@@ -966,194 +979,6 @@ public sealed class MetadataActionProcessor : IActionProcessor
         return ActionProcessResult.Success("Effect enqueued.", metadata);
     }
 
-    private static async Task<ActionProcessResult> AdvancePhaseAsync(
-        LegalAction action,
-        EngineContext context,
-        CancellationToken cancellationToken)
-    {
-        PhaseTransitionResult transition;
-        try
-        {
-            transition = await new HeadlessEarlyPhaseFlow()
-                .AdvanceAsync(context, action, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return ActionProcessResult.Illegal(action, ex.Message, BaseMetadata(action));
-        }
-
-        MainPhaseMemoryResult mainPhase;
-        try
-        {
-            mainPhase = new HeadlessMainPhaseFlow()
-                .EvaluateMainPhaseEntry(context, action, transition);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return ActionProcessResult.Illegal(action, ex.Message, BaseMetadata(action));
-        }
-
-        Dictionary<string, object?> metadata = MetadataWithPhaseTransition(action, transition);
-        AddMainPhaseMetadata(metadata, mainPhase);
-
-        // F-6.2: open the start-of-main-phase window when this advance entered the main phase (the
-        // original fires EffectTiming.OnStartMainPhase here). Global — each bound effect self-gates.
-        if (mainPhase.MainPhaseEntered)
-        {
-            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartMainPhase, actor: mainPhase.CurrentTurn.TurnPlayerId);
-        }
-
-        return ActionProcessResult.Success(
-            $"Phase advanced to {mainPhase.CurrentTurn.Phase}.",
-            metadata);
-    }
-
-    private static async Task<ActionProcessResult> EndTurnAsync(
-        LegalAction action,
-        EngineContext context,
-        CancellationToken cancellationToken)
-    {
-        HeadlessTurnState previousTurn = context.TurnController.Current;
-
-        // (A-2 / RD-6, task 7) AS-IS resolves the [End of your turn] EFFECT window (AutoProcessing.cs:699) BEFORE the
-        // attack loop (:705). The end-of-turn effect-driven attack of <Vortex>/<Overclock>/<Execute> is now a member
-        // of that OnEndTurn window (rehoused from the invented gate), so it is declared during the drain below,
-        // matching AS-IS's window-then-attack order (a memory [End of Your Turn] effect resolves before the attack).
-
-        // (A-2 / RD-6) The [End of Your Turn] effect window (AutoProcessing.cs:699 "step 3") — resolve it in the
-        // ENDING player's STILL-LIVE frame, BEFORE cleanup and the turn flip. Emitting OnEndTurn and draining it
-        // HERE (not enqueue-only for the post-return caller) is load-bearing: a [End of Your Turn] body gates on
-        // `TurnPlayerId == Owner` (e.g. TriggeredGainMemoryEffect, BT1_021 EoTLose3Memory) — drained AFTER the flip
-        // it no-ops entirely (the new turn player owns the frame), silently dropping the effect. Draining pre-flip
-        // fires it against the correct owner/memory-coordinate.
-        if (previousTurn.TurnPlayerId is HeadlessPlayerId endingPlayerForWindow)
-        {
-            // (task 6) emit + drain the window ONCE per turn-end. On the first EndTurn it drains in the old frame; if
-            // a resolution SUSPENDS — an interactive [End of Your Turn] body, OR an order choice among two-or-more
-            // mandatory activated [End of Your Turn] effects (WindowResolver offers order when a side has >1 active
-            // trigger) — park it (WindowResolution already holds the continuation) and return WITHOUT flipping. The
-            // agent resolves the choice (the normal WindowChoice resume drives THIS same window, still in the old
-            // frame), then re-applies EndTurn. The per-turn drained marker makes that re-application skip re-emitting
-            // OnEndTurn (a double-fire) and fall through to the threshold re-check + flip — the attack-window pattern.
-            if (context.WindowResolution.EndOfTurnDrainedTurn != previousTurn.TurnNumber)
-            {
-                context.WindowResolution.EndOfTurnDrainedTurn = previousTurn.TurnNumber;
-                TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnEndTurn, actor: endingPlayerForWindow);
-                if (await DrainEndOfTurnWindowAsync(context, cancellationToken).ConfigureAwait(false))
-                {
-                    Dictionary<string, object?> pendingMetadata = MetadataWithTurn(action, previousTurn);
-                    pendingMetadata["endOfTurnEffectWindow"] = true;
-                    return ActionProcessResult.Success(
-                        "End-of-turn effect window opened; resolve the pending choice, then re-apply EndTurn.", pendingMetadata);
-                }
-            }
-            else if (context.WindowResolution.HasPending)
-            {
-                // Re-applied while the resumed window is STILL resolving (defensive — a pending choice normally
-                // blocks EndTurn from being offered). Leave the turn un-ended until the window exhausts.
-                Dictionary<string, object?> pendingMetadata = MetadataWithTurn(action, previousTurn);
-                pendingMetadata["endOfTurnEffectWindow"] = true;
-                return ActionProcessResult.Success(
-                    "End-of-turn effect window still resolving; re-apply EndTurn once it completes.", pendingMetadata);
-            }
-            // else: already drained (synchronously, or resumed-and-completed) → fall through to the re-check + flip.
-        }
-
-        // (A-2 task 7 / C-EoT-2 + A군 4단계) End-of-turn <Vortex>/<Overclock>/<Execute> now fire as OnEndTurn window
-        // MEMBERS (AutoProcessing.cs:699 StackSkillInfos → one MultipleSkills order-choice), so their attack is
-        // DECLARED during the DrainEndOfTurnWindowAsync above — a peer of every other [End of Your Turn] effect (e.g.
-        // BT1_021's -3 memory), with the player picking the order (AS-IS EndTurnProcess :699). The BATTLE steps of a
-        // declared attack run in the post-window `while (attackProcess.ActiveAttack())` loop (GameFlowProcessor
-        // RunToStableAsync, a separate step from AutoProcessAsync), matching AS-IS's window-then-attack order (:705).
-        // The invented fixed post-drain offer (EndOfTurnEffectAttack.TryOpen, which scanned a continuous keyword
-        // marker) that used to sit here is gone — its firing-half was retired when the three keywords were rehoused to
-        // the window (C-EoT-2 / A군 4단계 Execute).
-
-        // (A-2 part2 / RD-6) threshold RE-CHECK (AS-IS EndTurnProcess:714): the [End of Your Turn] effects just
-        // drained may have changed memory. If the opponent is now BELOW TurnEndMinMemory the turn does NOT end —
-        // revert to Main and keep the ending player's turn going (AS-IS SetMainPhase), with NO cleanup / flip. Only
-        // relevant from the MemoryPass ending flow; the common case (no memory change, or a LOSS effect) still ends
-        // (memory stays <= -threshold). The EoT effects already fired this frame; if the player later passes again
-        // they re-fire (AS-IS re-runs the window each EndTurnProcess), bounded by their own once-per-turn caps.
-        if (previousTurn.IsMemoryPassPhase
-            && !new HeadlessMainPhaseFlow().ShouldTurnEndAfterEndOfTurnWindow(context, previousTurn.TurnPlayerId))
-        {
-            // (task 6) the turn continues — allow the [End of Your Turn] window to re-fire the NEXT time this player
-            // ends the turn (AS-IS re-runs it each EndTurnProcess), so clear the drained marker for this turn number.
-            context.WindowResolution.EndOfTurnDrainedTurn = null;
-            // (R4 S2) revert to the interactive main-play step (Main, PhaseStart).
-            HeadlessTurnState continuedTurn = context.TurnController.SetPhase(HeadlessPhase.Main, TurnStepCursor.PhaseStart);
-            Dictionary<string, object?> continueMetadata = MetadataWithTurn(action, continuedTurn);
-            continueMetadata["turnContinued"] = true;
-            return ActionProcessResult.Success(
-                "End-of-turn effects lifted the opponent below the turn-end threshold; the turn continues.", continueMetadata);
-        }
-
-        // (task 6) the turn actually ends — clear the pre-flip [End of Your Turn] drained marker at the boundary.
-        context.WindowResolution.EndOfTurnDrainedTurn = null;
-        HeadlessMemoryState previousMemory = context.MemoryController.Current;
-        OnPlayReactivation.ClearAll(context); // LA-3: reset the [All Turns] once-per-turn guard for both players.
-        EndTurnCleanupResult cleanup = new HeadlessEndTurnCleanupFlow()
-            .Cleanup(context, previousTurn);
-        HeadlessTurnState turn = context.TurnController.EndTurn();
-        MainPhaseMemoryResult mainPhase = new HeadlessMainPhaseFlow()
-            .CompleteMemoryPassTurn(context, previousTurn, turn, previousMemory);
-        Dictionary<string, object?> metadata = MetadataWithTurn(action, turn);
-        AddMainPhaseMetadata(metadata, mainPhase);
-        AddEndTurnCleanupMetadata(metadata, cleanup);
-
-        // (RD-6) W1: the [End of Your Turn] window already drained ABOVE in the ending player's frame; here only
-        // the [Start of Turn] window is emitted for the NEW turn player (drained by the caller's RunToStable).
-        // F-4: a new turn begins — reset the once-per-turn use counts (original InitUseCountThisTurn).
-        context.OnceFlags.ResetForTurn(turn.TurnNumber, turn.TurnPlayerId);
-        // (C2) AS-IS TurnStateMachine.cs:3204-3208 — reset every card's NEW-model per-turn use counts
-        // (cEntity_EffectController.UseEffectsThisTurn) alongside the legacy OnceFlags reset.
-        Assets.Scripts.Script.CardEffectCommons.CEntity_EffectControllerStore.ResetUseCountsForTurn(context);
-        // Reset player-scoped per-turn counters (AS-IS TurnStateMachine resets Player.DigivolveCount_ThisTurn etc.).
-        context.PlayerTurnCounters.ResetForTurn();
-        // F-1.7: any leftover one-shot "until cost is calculated" modifiers expire at the turn boundary
-        // (AS-IS TurnStateMachine clears Player.UntilCalculateFixedCostEffect).
-        EffectDurationExpiry.ExpireFixedCostCalc(context.EffectRegistry);
-
-        if (turn.TurnPlayerId is HeadlessPlayerId startingPlayer)
-        {
-            TriggerEventEmitter.Emit(context.GameEventQueue, TriggerTimings.OnStartTurn, actor: startingPlayer);
-        }
-
-        return ActionProcessResult.Success(
-            $"Turn advanced to player {turn.TurnPlayerId?.Value.ToString() ?? "<none>"} {turn.Phase}.",
-            metadata);
-    }
-
-    /// <summary>(A-2 / RD-6) Drain the just-emitted [End of Your Turn] window to completion in the ENDING player's
-    /// frame — looping <see cref="GameFlowProcessor.AutoProcessAsync"/> (the same unified-seed window drive the main
-    /// RunToStable loop uses) WITHOUT re-entering RunToStable, so a [End of Your Turn] body resolves against the
-    /// still-live turn player. A pass that neither resolves nor collects means the queue is empty (fully drained).
-    /// Returns true if a resolution SUSPENDED for an agent choice (parked in WindowResolution / a pending choice) —
-    /// the caller treats an interactive [End of Your Turn] effect as not-yet-supported.</summary>
-    private static async Task<bool> DrainEndOfTurnWindowAsync(EngineContext context, CancellationToken cancellationToken)
-    {
-        const int maxDrainPasses = 256; // runaway bound; a real end-of-turn window settles in a handful of passes.
-        for (int pass = 0; pass < maxDrainPasses; pass++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (context.ChoiceController.Current.IsPending || context.WindowResolution.HasPending)
-            {
-                return true;
-            }
-
-            (int resolved, int collected) =
-                await GameFlowProcessor.AutoProcessAsync(context, cancellationToken).ConfigureAwait(false);
-            if (resolved == 0 && collected == 0)
-            {
-                return false;
-            }
-        }
-
-        return context.ChoiceController.Current.IsPending || context.WindowResolution.HasPending;
-    }
-
     private static ActionProcessResult SetMemory(
         LegalAction action,
         EngineContext context)
@@ -1165,12 +990,11 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 BaseMetadata(action));
         }
 
-        HeadlessMemoryState previous = context.MemoryController.Current;
+        // (4b B6) Substrate poke only: the OLD driver's inline memory-pass evaluation
+        // (HeadlessMainPhaseFlow.EvaluateAfterMemoryMutation) is retired — the pump runs the real AS-IS
+        // EndTurnCheck at every pump point, so a mutation that crosses the threshold auto-ends the turn there.
         HeadlessMemoryState state = context.MemoryController.Set(memory);
-        MainPhaseMemoryResult mainPhase = new HeadlessMainPhaseFlow()
-            .EvaluateAfterMemoryMutation(context, action, previous, state, "SetMemory");
         Dictionary<string, object?> metadata = MetadataWithMemory(action, state);
-        AddMainPhaseMetadata(metadata, mainPhase);
         return ActionProcessResult.Success(
             $"Memory set to {state.Current}.",
             metadata);
@@ -1187,13 +1011,10 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 BaseMetadata(action));
         }
 
-        HeadlessMemoryState previous = context.MemoryController.Current;
+        // (4b B6) Substrate poke only — see SetMemory: the inline memory-pass evaluation is retired.
         HeadlessMemoryState state = context.MemoryController.Add(amount);
         Dictionary<string, object?> metadata = MetadataWithMemory(action, state);
         metadata[HeadlessActionParameterKeys.MemoryAmount] = amount;
-        MainPhaseMemoryResult mainPhase = new HeadlessMainPhaseFlow()
-            .EvaluateAfterMemoryMutation(context, action, previous, state, "AddMemory");
-        AddMainPhaseMetadata(metadata, mainPhase);
         return ActionProcessResult.Success(
             $"Memory changed by {amount} to {state.Current}.",
             metadata);
@@ -1221,13 +1042,10 @@ public sealed class MetadataActionProcessor : IActionProcessor
                 failureMetadata);
         }
 
-        HeadlessMemoryState previous = context.MemoryController.Current;
+        // (4b B6) Substrate poke only — see SetMemory: the inline memory-pass evaluation is retired.
         HeadlessMemoryState state = context.MemoryController.Pay(cost);
         Dictionary<string, object?> metadata = MetadataWithMemory(action, state);
         metadata[HeadlessActionParameterKeys.MemoryCost] = cost;
-        MainPhaseMemoryResult mainPhase = new HeadlessMainPhaseFlow()
-            .EvaluateAfterMemoryMutation(context, action, previous, state, "MemoryThreshold");
-        AddMainPhaseMetadata(metadata, mainPhase);
         return ActionProcessResult.Success(
             $"Paid memory cost {cost}; memory is {state.Current}.",
             metadata);
@@ -1252,38 +1070,6 @@ public sealed class MetadataActionProcessor : IActionProcessor
         return metadata;
     }
 
-    private static Dictionary<string, object?> MetadataWithTurn(
-        LegalAction action,
-        HeadlessTurnState turn)
-    {
-        Dictionary<string, object?> metadata = BaseMetadata(action);
-        metadata[HeadlessActionParameterKeys.TurnNumber] = turn.TurnNumber;
-        metadata[HeadlessActionParameterKeys.Phase] = turn.Phase.ToString();
-        metadata[HeadlessActionParameterKeys.StepCursor] = turn.StepCursor.ToString();
-        metadata[HeadlessActionParameterKeys.TurnPlayerId] = turn.TurnPlayerId?.Value;
-        metadata[HeadlessActionParameterKeys.NonTurnPlayerId] = turn.NonTurnPlayerId?.Value;
-        metadata[HeadlessActionParameterKeys.IsFirstTurn] = turn.IsFirstTurn;
-        return metadata;
-    }
-
-    private static Dictionary<string, object?> MetadataWithPhaseTransition(
-        LegalAction action,
-        PhaseTransitionResult transition)
-    {
-        Dictionary<string, object?> metadata = MetadataWithTurn(action, transition.Current);
-        metadata[HeadlessActionParameterKeys.PreviousPhase] = transition.Previous.Phase.ToString();
-        metadata[HeadlessActionParameterKeys.PreviousStepCursor] = transition.Previous.StepCursor.ToString();
-        metadata[HeadlessActionParameterKeys.PhaseOperations] = transition.Operations.ToArray();
-        metadata[HeadlessActionParameterKeys.DrawnCardIds] = transition.DrawnCardIds.Select(id => id.Value).ToArray();
-        metadata[HeadlessActionParameterKeys.DrawSkipped] = transition.DrawSkipped;
-        metadata[HeadlessActionParameterKeys.DeckOut] = transition.DeckOut;
-        metadata[HeadlessActionParameterKeys.UnsuspendedCardIds] = transition.UnsuspendedCardIds.Select(id => id.Value).ToArray();
-        metadata[HeadlessActionParameterKeys.BreedingAction] = transition.BreedingAction;
-        metadata[HeadlessActionParameterKeys.HatchedCardId] = transition.HatchedCardId?.Value;
-        metadata[HeadlessActionParameterKeys.MovedBreedingCardIds] = transition.MovedBreedingCardIds.Select(id => id.Value).ToArray();
-        return metadata;
-    }
-
     private static Dictionary<string, object?> MetadataWithMemory(
         LegalAction action,
         HeadlessMemoryState state)
@@ -1293,29 +1079,6 @@ public sealed class MetadataActionProcessor : IActionProcessor
         metadata[HeadlessActionParameterKeys.MemoryMinimum] = state.Minimum;
         metadata[HeadlessActionParameterKeys.MemoryMaximum] = state.Maximum;
         return metadata;
-    }
-
-    private static void AddMainPhaseMetadata(
-        Dictionary<string, object?> metadata,
-        MainPhaseMemoryResult result)
-    {
-        metadata[HeadlessActionParameterKeys.Phase] = result.CurrentTurn.Phase.ToString();
-        metadata[HeadlessActionParameterKeys.TurnNumber] = result.CurrentTurn.TurnNumber;
-        metadata[HeadlessActionParameterKeys.TurnPlayerId] = result.CurrentTurn.TurnPlayerId?.Value;
-        metadata[HeadlessActionParameterKeys.NonTurnPlayerId] = result.CurrentTurn.NonTurnPlayerId?.Value;
-        metadata[HeadlessActionParameterKeys.IsFirstTurn] = result.CurrentTurn.IsFirstTurn;
-        metadata[HeadlessActionParameterKeys.PreviousMemory] = result.PreviousMemory.Current;
-        metadata[HeadlessActionParameterKeys.Memory] = result.CurrentMemory.Current;
-        metadata[HeadlessActionParameterKeys.MemoryMinimum] = result.CurrentMemory.Minimum;
-        metadata[HeadlessActionParameterKeys.MemoryMaximum] = result.CurrentMemory.Maximum;
-        metadata[HeadlessActionParameterKeys.MainPhaseEntered] = result.MainPhaseEntered;
-        metadata[HeadlessActionParameterKeys.MemoryPassTriggered] = result.MemoryPassTriggered;
-        metadata[HeadlessActionParameterKeys.MemoryPassCompleted] = result.MemoryPassCompleted;
-        metadata[HeadlessActionParameterKeys.MemoryPassReason] = result.Reason;
-        metadata[HeadlessActionParameterKeys.MemoryPassThreshold] = result.MemoryPassThreshold;
-        metadata[HeadlessActionParameterKeys.PassedMemory] = result.MemoryPassTriggered
-            ? Math.Abs(result.CurrentMemory.Current)
-            : null;
     }
 
     private static void AddEndTurnCleanupMetadata(

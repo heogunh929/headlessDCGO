@@ -246,6 +246,9 @@ void ControllerExposesCandidateIds()
 async Task ChoicePerspectiveStripInMatch()
 {
     (DcgoMatch match, _) = await CreateStarterMatchAsync(seed: 11);
+    // (4b B6) the pump's own start-of-game choice (mulligan) is pending right after the first step —
+    // drive to the quiet main wait first, THEN stage the synthetic strip probe on the retained controller.
+    await DriveToQuietLanesAsync(match);
 
     IZoneStateReader zones = (IZoneStateReader)match.Context.ZoneMover;
     IReadOnlyList<HeadlessEntityId> hand = zones.GetCards(P1, ChoiceZone.Hand);
@@ -283,10 +286,18 @@ async Task HandLaneAlignmentInLiveMatch()
     int handChecks = 0, fieldChecks = 0;
     for (int step = 0; step < 400 && !match.IsTerminal(); step++)
     {
-        HeadlessPlayerId? mover = players.FirstOrDefault(p => match.GetLegalActions(p).Count > 0);
-        if (mover is not { } current || match.GetLegalActions(current).Count == 0)
+        HeadlessPlayerId? mover = null;
+        foreach (HeadlessPlayerId p in players)
         {
-            break;
+            if (match.GetLegalActions(p).Count > 0) { mover = p; break; }
+        }
+
+        if (mover is not { } current)
+        {
+            // (4b B6) pump auto-flow: phases between action waits expose no lanes — step the pump
+            // forward instead of ending the walk (the OLD per-step lane table is retired).
+            await match.StepAsync();
+            continue;
         }
 
         FactoredActionMask mask = match.EncodeFactoredActionMask(schema);
@@ -364,9 +375,44 @@ async Task<(DcgoMatch Match, EngineContext Context)> CreateStarterMatchAsync(int
         firstPlayerId: P1);
     MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
 
-    var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
+    // (4b B6 re-pin) The live-match alignment loop now drives the PUMP surface (CreatePumpDriven installs
+    // the same LegalActionSetValidator boundary by default): the OLD dispatcher's step-action lanes are
+    // retired, so the random walk exercises the pump lanes (Pass/PlayCard/Digivolve/Attack/ResolveChoice).
+    // The slot-alignment assertions are unchanged.
+    var match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     await match.InitializeAsync(config);
+    await match.StepAsync();
     return (match, context);
+}
+
+// (4b B6) Drive the pump past its start-of-game choices (mulligan declined) to a quiet action wait.
+async Task DriveToQuietLanesAsync(DcgoMatch match)
+{
+    for (int i = 0; i < 96; i++)
+    {
+        if (match.HasPendingChoice())
+        {
+            HeadlessPlayerId chooser = match.Context.ChoiceController.PendingRequest!.PlayerId;
+            LegalAction? resolve = match.GetLegalActions(chooser)
+                .FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice
+                    && a.Id.Value.EndsWith(":skip", StringComparison.Ordinal))
+                ?? match.GetLegalActions(chooser).FirstOrDefault(a => a.ActionType == HeadlessActionTypes.ResolveChoice);
+            if (resolve is null) throw new InvalidOperationException("no ResolveChoice lane for the pending request");
+            await match.ApplyActionAsync(resolve);
+            await match.StepAsync();
+            continue;
+        }
+
+        var turn = match.Context.TurnController.Current;
+        if (turn.Phase == HeadlessPhase.Main && !match.IsTerminal())
+        {
+            return;
+        }
+
+        await match.StepAsync();
+    }
+
+    throw new InvalidOperationException("pump drive did not reach a quiet main wait");
 }
 
 ObservationEncodingOptions InfoSetOptions(CardVocabulary vocab)

@@ -89,6 +89,13 @@ HeadlessEntityId PlaceInZone(EngineContext ctx, HeadlessPlayerId owner, string c
 int SecurityCount(EngineContext ctx, HeadlessPlayerId owner) =>
     ((IZoneStateReader)ctx.ZoneMover).GetCards(owner, ChoiceZone.Security).Count;
 
+bool ReadSuspended(EngineContext ctx, string instanceId) =>
+    ctx.CardInstanceRepository.TryGetInstance(new HeadlessEntityId(instanceId), out CardInstanceRecord? rec)
+    && rec is not null
+    && rec.Metadata.TryGetValue("isSuspended", out object? raw)
+    && raw is bool suspended
+    && suspended;
+
 // =========================================================================================================
 // (1) BT8_057 [None] FIELD static — region ②
 // =========================================================================================================
@@ -241,30 +248,33 @@ int SecurityCount(EngineContext ctx, HeadlessPlayerId owner) =>
 
 // =========================================================================================================
 // (5) BT8_057 [Your Turn] (E3-P1-2) — OnUnTappedAnyone: on the natural unsuspend, trash opponent top security.
-//     Drives the real phase flow (HeadlessEarlyPhaseFlow unsuspends + emits OnUntapped) then RunToStable.
+//     (4b B6 re-pin) The OLD HeadlessEarlyPhaseFlow drive is retired; the PUMP unsuspend seat is the mirror
+//     TurnStateMachine.ActivePhaseAsync (:586-624 unsuspend -> IUnsuspendPermanents.Unsuspend fires the
+//     OnUnTappedAnyone window, AS-IS CardController.cs:5754 -> AutoProcessCheck drains it in-body).
+//     Baseline note: this witness was RED on the OLD drive (the phase-flow unsuspend bypassed the window
+//     collection); the green under the pump seat is the OLD-artifact red resolving with the driver swap.
 // =========================================================================================================
 
-// (5a) treatment: P1's turn, BT8_057 suspended on P1 field, P2 has 2 security -> after the unsuspend phase the
-//      opponent's top security is trashed (2 -> 1).
+// (5a) treatment: P1's turn, BT8_057 suspended on P1 field, P2 has 2 security -> after the pump active-phase
+//      body (natural unsuspend) the opponent's top security is trashed (2 -> 1).
 {
     EngineContext ctx = NewCtx(turnPlayer: P1, seed: 8578);
-    ctx.TurnController.SetPhase(HeadlessPhase.Active); // AdvancePhase -> Unsuspend
+    ctx.TurnController.SetPhase(HeadlessPhase.Active);
     PlaceDigimon(ctx, P1, "BT8_057", suspended: true, "yt-host");
     PlaceInZone(ctx, P2, "Digimon", ChoiceZone.Security, "yt-sec1");
     PlaceInZone(ctx, P2, "Digimon", ChoiceZone.Security, "yt-sec2");
     Check(SecurityCount(ctx, P2) == 2, "BT8_057 [Your Turn]: (pre) opponent has 2 security");
 
-    var advance = new LegalAction(new HeadlessEntityId("advance-8578"), P1, "AdvancePhase", new Dictionary<string, object?>());
-    PhaseTransitionResult transition = new HeadlessEarlyPhaseFlow().AdvanceAsync(ctx, advance).GetAwaiter().GetResult();
-    Check(transition.Current.IsUnsuspendPhase, "BT8_057 [Your Turn]: advanced into the unsuspend phase");
-    new GameFlowProcessor().RunToStableAsync(ctx).GetAwaiter().GetResult();
+    TurnStateMachine.For(ctx).ActivePhaseAsync().GetAwaiter().GetResult();
 
+    Check(!ReadSuspended(ctx, $"{P1.Value}:BT8_057:yt-host"),
+        "BT8_057 [Your Turn]: the host unsuspended on the natural unsuspend (pump active-phase body)");
     Check(SecurityCount(ctx, P2) == 1,
         "BT8_057 [Your Turn]: opponent top security trashed on the natural unsuspend (2 -> 1)");
 }
 
 // (5b) control (own-turn gate): it is P2's turn, so P1's BT8_057 does NOT unsuspend (not the turn player) and
-//      the [Your Turn] gate (IsOwnerTurn + IsUnsuspendPhase) fails -> opponent security untouched.
+//      the [Your Turn] gate fails -> opponent security untouched.
 {
     EngineContext ctx = NewCtx(turnPlayer: P2, seed: 8579);
     ctx.TurnController.SetPhase(HeadlessPhase.Active);
@@ -272,10 +282,10 @@ int SecurityCount(EngineContext ctx, HeadlessPlayerId owner) =>
     PlaceInZone(ctx, P1, "Digimon", ChoiceZone.Security, "yt2-p1sec"); // P1 (caster) security untouched too
     PlaceInZone(ctx, P1, "Digimon", ChoiceZone.Security, "yt2-p1sec2");
 
-    var advance = new LegalAction(new HeadlessEntityId("advance-8579"), P2, "AdvancePhase", new Dictionary<string, object?>());
-    new HeadlessEarlyPhaseFlow().AdvanceAsync(ctx, advance).GetAwaiter().GetResult();
-    new GameFlowProcessor().RunToStableAsync(ctx).GetAwaiter().GetResult();
+    TurnStateMachine.For(ctx).ActivePhaseAsync().GetAwaiter().GetResult();
 
+    Check(ReadSuspended(ctx, $"{P1.Value}:BT8_057:yt-host2"),
+        "BT8_057 [Your Turn]: the host stays suspended on the opponent's turn (not the turn player, no Reboot)");
     Check(SecurityCount(ctx, P1) == 2,
         "BT8_057 [Your Turn]: does NOT fire on the opponent's turn (host does not unsuspend / gate requires owner's turn)");
 }

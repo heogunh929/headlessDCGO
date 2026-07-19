@@ -48,7 +48,7 @@
 // window unit at the R3-C2 window-SkillInfo cutover (MultipleSkills is the drain; GameFlowProcessor.
 // AutoProcessAsync is the outer drive). The TURN-END trio (EndTurnCheck / TurnEndMinMemory /
 // EndTurnProcess) landed at R4 P2b as the AS-IS-position mirror, DORMANT until the R4 S3 driver flip
-// (the live turn-end evaluation until then = HeadlessMainPhaseFlow + MetadataActionProcessor.EndTurnAsync).
+// (4b B6: that flip is complete — the OLD flow/EndTurnAsync evaluation is deleted; this trio is the live owner).
 //
 // DoRuleProcess() carries ONE substrate extension beyond the AS-IS seven checks: "a decided deferred
 // deletion awaits finalize" (GameFlowProcessor.HasStateBasedSweepWork). AS-IS Destroy() completes its
@@ -1422,8 +1422,8 @@ public sealed class AutoProcessing
     // (TurnStateMachine :579/:641/:655/:696/:704/:831/:880/:950): outside the End phase, with no attack mid-flight,
     // the NON-turn player having reached the (effect-adjustable) turn-end memory threshold starts EndTurnProcess —
     // clearing `Passed` first so the threshold-triggered run skips the explicit-pass gauge jump (:681-694 arm).
-    // DORMANT until the S3 driver flip (callers = the dormant phase bodies only); the live turn-end evaluation
-    // stays HeadlessMainPhaseFlow.EvaluateMemoryPass / MetadataActionProcessor.EndTurnAsync until S3 retires it.
+    // (4b B6) LIVE: the phase bodies pumping this ARE the turn drivers — the OLD evaluation
+    // (HeadlessMainPhaseFlow.EvaluateMemoryPass / MetadataActionProcessor.EndTurnAsync) is deleted.
     public async Task EndTurnCheck(CancellationToken cancellationToken = default)
     {
         if (GManager.instance.turnStateMachine.gameContext.TurnPhase != GameContext.phase.End && !GManager.instance.attackProcess.ActiveAttack())
@@ -1442,9 +1442,9 @@ public sealed class AutoProcessing
 
     // (R4 P2b) AS-IS AutoProcessing.cs:645-672 — verbatim fold (seed 1) over every usable
     // IChangeEndTurnMinMemoryEffect on (1) the players' own effect lists then (2) the players' field permanents'
-    // effect lists, Players_ForTurnPlayer order (BOTH players, turn player first). Same scan the live
-    // HeadlessMainPhaseFlow.ResolveTurnEndMinMemory carries today (rehoused there at W3c-4b B2); this is the
-    // AS-IS-position owner — S3 re-points the flow's copy here when the invented evaluation retires.
+    // effect lists, Players_ForTurnPlayer order (BOTH players, turn player first). (4b B6) The
+    // AS-IS-position SOLE owner — the invented flow copy (HeadlessMainPhaseFlow.ResolveTurnEndMinMemory)
+    // retired with the OLD driver.
     static int TurnEndMinMemory
     {
         get
@@ -1497,8 +1497,8 @@ public sealed class AutoProcessing
                 // AS-IS :683-693 seat-absolute gauge write (TurnPlayer.PlayerID==0 ⇒ Memory=3 / else Memory=-3):
                 // both arms SET the shared gauge so the NON-turn player reads +3. The mirror gauge is
                 // turn-player-relative (see Player.MemoryForPlayer / AddMemory), so both AS-IS arms reduce to the
-                // single Set(-3) — the same value the live explicit-pass seam writes
-                // (HeadlessMainPhaseFlow.PassTurn, -DefaultMemoryPassValue). Applied directly on the controller,
+                // single Set(-3) — the AS-IS voluntary-pass gauge jump (the rehomed
+                // MetadataActionProcessor.DefaultMemoryPassValue constant). Applied directly on the controller,
                 // as the AS-IS body writes the gauge directly (Player.AddMemory precedent). ADAPTATION.
                 _context.MemoryController.Set(-3);
 

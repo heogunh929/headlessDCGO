@@ -74,8 +74,12 @@ S3 사전조사(드라이버 층 정독)에서 S1 설계 내부의 **비정합**
 **FuseAsync ReKey 폐쇄**: Blast/Arts 단일-material D-6=AS-IS 동일 Permanent 지속(CardController.cs:1372-1376)→ReKey+연속 마커 배선(FusionDigivolveHelpers/FreeDigivolveHelpers); Jogress=신규 객체(:1497)→chokepoint Reset 정답, 미변경. witness: Fuse 진화 후 9필드 보존 7/7.
 **P2-② 폐쇄(브릿지 이중발화)**: 판정=조용한 dedup은 발명(AS-IS는 키 1개라 이중 등록 불가) → 이중-키 등록(동일 소스+동일 서술) 검출 시 명시 STOP 표면화. 픽스처 witness+shadow 오탐 0.
 **P2-⑧ 폐쇄**: 리스크④ spot-audit 완료 근거 기입(해당 절 참조). **리뷰3 P2 잔여=⑥(Install 풋건, ④ 스위트 재조준 때) 단 1건.**
+**P2-⑥ 폐쇄(4b B6-최종2, 2026-07-19)**: 프로덕션 경로=전부 `CreatePumpDriven`→`Reinstall`(안전); 수동 `Install` 잔존=R4S3a/R4S3b 하네스 3사이트(단발 Install·`Reset` 미사용=교착 전제조건 불성립, grep 실증). **리뷰3 P2 전항 폐쇄.**
+**RD-S3C-01/RD-S3C-02 소멸 확정(4b B6-최종2)**: OLD 드라이버(이중발화 창·ST1_15 throw의 유일 발화 경로) 물리 삭제로 두 latent 원장 소멸.
+**RD-R4A′-01 폐쇄(4b B6-최종2)**: OLD-only 노출 표면 소멸 + L4-001 펌프 재핀 풀-랜덤 스모크(5매치×2회) hang 비재현 실증.
 
 ## S3c-d 은퇴 원장 (2026-07-17, 사용자 컷오버 승인 후 — 소비자 전수 감사 완료)
+> **[전 항 폐쇄 — 4b B6-최종2, 2026-07-19]** OLD 스텝-케이던스 드라이버 물리 소멸 완료(suite_retarget_4b_design §3.4j/§3.5): 항2/3 MetaAP AdvancePhase/EndTurn body+drain 삭제(arm=Illegal, 클래스=retained substrate 존치·기본 ctor 폴백 존치=§3.4i (a))·항4 EoT 마커 삭제·항5 AutoProcessing.TurnEndMinMemory 정본 승격 확정(invented flow 사본 삭제)·항6 HeadlessEarlyPhaseFlow.cs 파일 삭제·항8 OLD choice-injection affordance 은퇴(G1E-005; out-of-pump throw 경로=retained 확정 유지)·항11 디스패처 OLD arm 삭제·항1 GameLoop=펌프-공유 존치(!pump 메모리-패스 블록만 삭제) + OLD Runtime/PassAction.cs 삭제(CheatActionGuard 재홈). 항9는 별도 좌석-병합 골 유지.
 **총판정: 즉시 삭제 0항** — 물리 은퇴는 단계적(B군 registry 물리삭제 게이트 패턴).
 - **근본 게이트 G1(항1~5·8 연동)**: HeadlessGameLoop 기본 프로세서(MetadataActionProcessor)를 pump로 플립+디스패처의 AdvancePhase/EndTurn 발행 중단 — 그 전까지 프로덕션 기본 매치가 소비. 차단=OLD 스텝-액션 위 테스트 코퍼스(항3 실질 광범위·항8 throw 계약 15스위트: W1b-Resume·C-Del 계열·C-Atk 계열·C-EoT2·A4·GR-006·G3.5-F68·P1r-Sec·W-EoTFIX).
 - **경량 즉시 가능 2건 [4b B0 완료 2026-07-18]**: 항7 CanEnterFieldByEffect 브리지 사본(내부 2호출부→실물 CanEnterField 재배선; ICanNotPutFieldEffect 생산자 0=동작 no-op) — **완료**: PlayCardsBridge.cs 2호출부(PlayPermanentCards Where 절·PlaceDelayOptionCards 가드)를 `cardSource.CanEnterField(...)` 직호출로 재배선, 래퍼 메서드+doc 삭제, CardSource.cs doc cref 갱신(엔진 0오류·경고 무증가·CS1574 0). · 항1 부속 ResolveBreedingAsync(호출부 0=死코드) — **선-완료**: S3c-d 커밋에서 이미 물리 삭제(툼스톤 주석만 잔존; 4b B0 재grep 소비자 0 재확증).

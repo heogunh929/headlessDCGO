@@ -654,3 +654,65 @@ grep(`tests/**/Program.cs`, 주석/sniff 포함 상한, 본 배치 후):
 **멤버-단위 삭제 지도**(소스 검증 완료): MetaAP=AdvancePhase/EndTurn body(:969-1155)+dispatch arm(:66-67→Illegal)+memory-arm eval 호출(:1170/1194/1229)+EoT-마커 write — 클래스·RequestChoice/ClearChoice·memory arm 자체·시스템/존 arm=존치 / MainPhaseFlow.cs 318L 전체(참조 소멸 경로: GameLoop:107 !pump 블록·OLD PassAction:19·MetaAP :989/:1080/:1100/:1170/:1194/:1228) / EarlyPhaseFlow.cs 277L 전체(MetaAP:977+E3) / OLD PassAction.cs+MetaAP:27 dispatch / GameLoop !pump 블록(:93-109)+EoT 마커(WindowResolutionController:25/29) / 디스패처 OLD arm(:70-104+BuildBreedingActions — 펌프 분기 :53-68 존치).
 **소비자 최종**: 항2 통화 4(G2A-006·C2·G12-002·R4S3c=은퇴/재핀 대상)·E3 2·G2E-005 const 1(잔류로 해소)·basic-ctor flip 12(R4RL-02/03/04·G1E-005·R4P4·M2-001·L4-001·G1A-004·GPT4·G12-002·G1A-002·G1C-001 — 계약 테스트는 존치 ctor라 flip 불요 재확인, 턴-흐름 구동분만).
 **witness 클러스터 4 처분 기준**: 발명-단언(memory-pass phase·EndTurn 제안·스텝 경계·flow 소스-sniff)=은퇴 / 실룰 기커버 대조(TurnEndMinMemory=FAILd-07·memory-cross=GR-001·breeding=GR-002/D6·unsuspend=N9·sickness=N1) / 미커버 실룰만 이식 — 단언별 3분류 표 필수.
+
+## §3.4j B6-최종2 실행 기록 — 확장 스코프 원자 삭제 착지 (2026-07-19, main HEAD=7f20f763 파생, 메인 워킹트리·미커밋)
+
+§3.4i 정본 cut-plan대로 원자 실행 완료. **OLD 스텝-케이던스 드라이버 = 물리 소멸.** build 클린(엔진 0오류·0경고 + 전 테스트 프로젝트 454/454 빌드 클린).
+
+### (1) 물리 삭제 목록 (파일·멤버·줄수)
+| 표면 | 처분 | 줄수 |
+|------|------|-----:|
+| `Headless/Runtime/HeadlessMainPhaseFlow.cs` | 파일 삭제(invented eval 전체 + MainPhaseMemoryResult) | −318 |
+| `Headless/Runtime/HeadlessEarlyPhaseFlow.cs` | 파일 삭제(Unsuspend/Draw/Breeding 블록 + PhaseTransitionResult) | −277 |
+| `Headless/Runtime/PassAction.cs` (OLD) | 파일 삭제(GR-001 재조준 실증: 정본=TurnFlowDriver→미러 PassTurn→EndTurnProcess). 동거 `CheatActionGuard`(retained)는 `CheatActionGuard.cs`로 verbatim 재홈(+56) | −134 |
+| `MetadataActionProcessor.cs` | AdvancePhaseAsync/EndTurnAsync body+drain(:969-1155)+EoT-마커 write+MetadataWithTurn/MetadataWithPhaseTransition/AddMainPhaseMetadata 삭제; AdvancePhase/EndTurn/Pass arm→Illegal; SetMemory/AddMemory/PayMemory arm=존치 substrate poke(`EvaluateAfterMemoryMutation` 호출 제거); `DefaultMemoryPassValue` 상수 재홈(§3.4i (b)); 클래스=순수 retained | −263/+26 |
+| `HeadlessLegalActionDispatcher.cs` | OLD (phase,cursor) 표+BuildBreedingActions+IsMovableBreedingDigimon+ReadDp 삭제 — 펌프 분기=유일 표(비-펌프=∅) | −157/+18 |
+| `HeadlessGameLoop.cs` | !pump memory-pass 블록(:93-109, EvaluateAfterMemoryMutation 좌석) 삭제 — GameLoop 본체=펌프-공유 존치(§3.4i) | −17/+3 |
+| `WindowResolutionController.cs` | `EndOfTurnDrainedTurn` 마커 삭제(AS-IS=효과별 캡; 셸=EngineContext 플럼빙 존치) | −17/+9 |
+| **src 합계** | | **−1,211/+140 (순 −1,071)** |
+
+기본 `DcgoMatch` ctor+`?? new MetadataActionProcessor()` 폴백=**존치**(§3.4i (a) — body 삭제 후 MetaAP=순수 retained substrate; 계약 테스트 flip 불요 실증: G1A-002/G1A-004/G1C-001/GPT4/G2A-001/G2A-002 전원 무접촉 green).
+
+### (2) 스위트 은퇴 (디렉터리 4 + subtest)
+`G2A-006`(OLD 디스패처 시퀀스=검증대상 소멸)·`R4S3c-ShadowOldNew`(shadow, secwin은 R4S3b 이식 완료분이 계승)·`R4P4-ShadowRun`(OLD-vs-OLD sanity=RLB1-01 상위집합)·`G2A-003`·`G2A-004`(아래 처분 표) + `G1E-005` RequestChoice-pause 5 subtest/goal-row/sniff(直 ChoiceController 계약 1건만 존치). tests 순변경 −3,796/+768.
+
+### (3) witness 클러스터 4 처분 표 (단언별 3분류 — §3.4i 기준)
+**G2A-004 (11) — 전량 은퇴/기커버, 프로젝트 삭제**: goal-row·AS-IS sniff·TODO sniff=은퇴(발명 test-infra) / AdvancePhase→Main 스텝 단언=은퇴(펌프 자동흐름·도달은 EXEMPLAR DriveUntil 계열 커버) / ExplicitPass 메모리-패스 phase+메타=은퇴, 실룰 "pass=상대 3"=**기커버 G3.5-S1.MemoryEquivalence 재핀**(P1/P2 대칭) / EndTurn 핸드오프 +3=기커버 GR-001+MemoryEquivalence / Pay·Set 임계=기커버 GR-001(auto-flip) / AddMemory 양수 유지=기커버 MemoryEquivalence(spend-to-0·partial) / Pass 위상·소유 가드=기커버 G2E-005 재핀(펌프 legality 경계 InvalidAction).
+**G2A-003 (11) — 은퇴 8 + 이식 3, 프로젝트 삭제**: goal-row·sniff·스텝-순서·비-턴-AdvancePhase 가드=은퇴(검증대상=OLD 스텝) / breeding hatch·move=기커버 GR-002·G3.5-D6 / deck-out=기커버 R4P2a DrawDeckOut·RL-C1 / **이식 3(→R4P2a-PhaseBodies, 펌프 미러 유닛)**: 첫턴 드로 스킵(AS-IS :669)·후속턴 1드로(:682)·**상대 <Reboot> 언서스펜드 행동**(:226, 실카드 BT2_063 등록 + plain 음성 대조 — T2A는 등록만 커버했던 미커버 실룰).
+**G2A-005 (9) — 은퇴 4 + 재핀 5(파일 존치)**: goal-row·AS-IS sniff·TODO sniff=은퇴 / memory-pass-EndTurn 변형=기커버(펌프 단일 무조건 cleanup 좌석 TurnStateMachine :670 + R4P2a EndResetList) / **cleanup 스코핑 매트릭스 5(each/owner/opponent/persistent/hand-untouched/attack-reset)=retained-substrate 직접 `HeadlessEndTurnCleanupFlow.Cleanup` 유닛 재핀**(C-Del 판례; OLD 액션-메타 읽기→동일 관측 EndTurnCleanupResult 읽기, 5/5 green).
+**G3.5-S1.MemoryEquivalence (7) — 전량 펌프 재핀(파일 존치, 7/7 green)**: GR-001 패턴(실코스트 플레이+Pass 레인+auto-flip). 실룰 전량 보존: overshoot K 핸드오프·**2nd-플레이어 대칭**·voluntary pass=3(양측)·spend-to-0 유지·partial 유지·multi-turn 체인 — GR-001 미커버분(대칭·pass=3·체인)의 유일 witness로 존속.
+
+### (4) 선행 소진·재핀 결과 (전후 verdict)
+| 스위트 | 처분 | 결과 |
+|--------|------|------|
+| G3.5-C2 | memory-pass 3 은퇴 + main 3 재핀(#6=비-자기-Main 수동공격 거부로 번역) | 3/3 green |
+| G12-002 | G12-004 패턴 재핀 + TfxMultiSelect를 uniform ActivateClass(ST1_16 관용구)로 재표현(실 UseOptionClass 경로 구동) + 생존자 대조 C 신설 | 1/1 green(단언 강화) |
+| E3-Witness (5a/5b) | EarlyPhaseFlow 드라이브→펌프 미러 ActivePhaseAsync 좌석 재핀 | base-red(5a)→**green**(OLD-artifact red: OLD 플로우가 창 수집 우회; 펌프 IUnsuspendPermanents 좌석=AS-IS 발화) |
+| 미등재 클러스터 3 | G3.5-F4(EndTurn→substrate OnceFlags.ResetForTurn)·G3.5-OPT2(AdvancePhase preamble→SetPhase(Main))·G3.5-W1b(EndTurn 액션→펌프 Pass 턴-경계, delta 단언) | F4/OPT2=**verdict 항등 실증**(diff 동일; 잔red=선재 stale registry-probe 직교부채)·W1b 5/5 green |
+| G2E-005 | DefaultMemoryPassValue→MetaAP 상수 re-point + PassAction.Process 가드 2건→펌프 legality 경계 재핀 + sniff 목록 갱신 | 10/10 green |
+| M2-001 | 실-매치 slot-정렬 subtest 펌프 재핀(무-레인 스텝-포워드; hand 292·attack 189 체크 실측) + strip probe 펌프 정합 | 11/11 green |
+| L4-001 | CreatePumpDriven 재핀 + **RD-R4A′-01 펌프 재검**: 풀-랜덤 5매치×2회 완주, hang 비재현 | 4/5(잔red 1=RD-P6C1-8 STOP 정직 red — failed-play hand restore 미포팅, 트래젝토리가 STOP 경계 도달) |
+| R4RL-03 | Phase-2 풀게임 워크=턴-흐름 구동 적발(미등재) → PendingHandChoicePumpMatchAsync 재핀 | 12/12 green(seed-replay 지문 포함) |
+| G1A-002/G1A-004/G1C-001/GPT4/G2A-001/G2A-002/RL-A1/RL-A2/RL-A4a | 존치-ctor 계약=무접촉 재확인(§3.4i) | 전원 green |
+
+### (5) 게이트 실측
+- **build**: 엔진 0오류·0경고(풀 리빌드) + **테스트 454 프로젝트 전부 빌드 클린**(삭제 표면 잔존 참조 0 실증).
+- **회귀 대표 60+**: EXEMPLAR-T1/T2A/T2B/T3A/T3B·GLINK·PILOT-S1~S4·R4S3a·R4S3b(**secwin 이식분 포함**)·R4R3-01/02·R4RL-01/02/03/04·RLB1-01·F62·GR-001/002/004/006·C-EoT2·W-EoTFIX·A4·G7-005·G12-004·N1·N9·D6·FAILd-03/07·전투/보안 클러스터(G2G-001~004·G3.5-005/007/A3/C910/C12/D1/D2/D3/N2/W4/W5/F68·G9-062·C5-SecurityPreWindow) 전원 green.
+- **RLB2-01 다이제스트**: PASS(profile 게이트 완주).
+- **red-보존(선재 직교부채, verdict 항등 실증)**: C5-Witness 8(diff 항등 확인)·PRIM-P0.NewTimings 2·R2-Del 1(RD-R4B6-P1-2)·RD6 2(RD-R4B4-RD6a/b 정직 red)·F4 1·OPT2 3(stale registry-probe).
+- **줄수**: 전체 **−5,007/+908 (순 −4,099)**; src 순 −1,071.
+
+### (6) 원장 폐쇄
+- **S3c-d 은퇴 원장 전 항 폐쇄**(r4_tsm_s1_design §S3c-d 갱신): 항1(GameLoop=펌프-공유 존치·!pump 블록만)·항2/3(MetaAP body)·항4(마커)·항5(TurnEndMinMemory=AutoProcessing 정본 승격 확정)·항6(EarlyPhaseFlow)·항8(OLD choice-injection affordance=G1E-005 은퇴; out-of-pump throw 경로=§3.1c retained 확정 유지)·항11(디스패처 OLD arm) — **물리 소멸 완료**.
+- **RD-S3C-01**(OLD [When Digivolving] 이중발화)·**RD-S3C-02**(OLD ST1_15 throw): OLD 드라이버 물리 삭제로 **소멸 확정 폐쇄**.
+- **P2-⑥**(수동 Install 풋건): 폐쇄 — 프로덕션 경로 전부 Reinstall(DcgoMatch)·수동 Install 잔존=R4S3a/S3b 하네스 3사이트(단발 Install·Reset 미사용=교착 전제조건 무), grep 실증.
+- **RD-R4A′-01**(L4 latent hang): 폐쇄 — OLD-only 노출 표면 소멸 + 펌프 풀-랜덤 재검 비재현(L4 재핀 게이트 통과).
+- **RD-R4B6-P1-2**·**RD-P6C1-8**·키워드/보안 창 직교부채(C5-Witness 8·NewTimings 2)·stale registry-probe(F4/OPT2)=**존치 원장**(B6 스코프 밖, 병행 트랙 몫).
+
+## §3.5 완료 선언 — 4b 골 종점 도달 (2026-07-19)
+
+**소비자 0 → 물리 삭제 → 검증 green: 4b의 종점 조건 충족.** OLD 스텝-케이던스 드라이버(발명물)는 엔진에서 물리적으로 소멸했고, 턴 케이던스의 유일 소유자는 AS-IS 미러 TurnFlowPump(TurnStateMachine 페이즈 바디)다. AdvancePhase/EndTurn 액션 통화 소비자 = 0(RL-A1의 펌프-illegal 거부 단언만 잔존 = 정당 keeper). 기본 ctor=존치 스크립팅 프로파일(MetaAP=순수 retained substrate). 구조 지표: 발명 드라이버 파일 3 삭제·발명 페이즈 표/마커/메모리-패스 모델 0·미러 위반 신규 0.
+**남는 리스크**: ①키워드/보안 창 직교부채(C5-Witness 8 등)=병행 Sonnet 트랙 ②RD-P6C1-8(L4 잔red 1) ③RD-R4B6-P1-2 ④metadata `hasReboot` 소비자=OLD-전용이었으므로 사망(GR-007 sink 계약은 존치 green; 라이브 Reboot=R4P2a 신설 witness가 커버) — 키워드 grant 경로가 metadata 카서를 쓸 경우 라이브-클래스 grant로의 재하우징은 키워드 트랙 몫.
+
+## §3.4k B6-fix (최종 게이트 여파 4건, 2026-07-19)
+G2Z-001=G2A-006 은퇴 재핀(RetiredTestProject 역단언, G3Z 판례)·RL-A5/RL-V=누락 legacy-ctor 소비자 2 펌프 flip(재핀 불요 — 펌프가 단언 전량 재현)·G8-006=**선재 갭 노출**(RD-R4B6-P2-1: 펌프 디스패처 SpecialPlay 미제안(STOP RD-P6C1-5/R5-04) vs validator AgentFacingTypes 등재 불일치 — pre-B6에도 펌프-매치엔 존재, 비-펌프 폴백이 가림막이었음; SpecialPlay 클러스터 포팅 시 동시 해소)·L4-001=정직 red 확인(RD-P6C1-8 failed-play hand restore). 최종 모수: E3 flip-out, G8-006·L4-001 정직-red 등재.

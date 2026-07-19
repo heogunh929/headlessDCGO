@@ -30,11 +30,11 @@ public sealed class DcgoMatch
     /// <see cref="LegalActionSetValidator"/> (or use <see cref="CreateValidated"/>) so out-of-set
     /// actions are rejected at apply time (G3.5-RL-A1).
     /// <para>
-    /// LEGACY TEST SCAFFOLD (R4 S3c-d1): the default <c>actionProcessor: null</c> resolves to
-    /// <see cref="MetadataActionProcessor"/> — the OLD step-cadence turn driver (AdvancePhase/EndTurn
-    /// model). That default survives ONLY for the pre-R4 test corpus; new/RL matches are pump-driven
-    /// (<see cref="CreatePumpDriven"/> — the AS-IS TurnFlowPump). Physical retirement gate = the suite
-    /// re-targeting goal (design doc S3c-d ledger).
+    /// (4b B6, S3c-d retirement complete) the default <c>actionProcessor: null</c> resolves to
+    /// <see cref="MetadataActionProcessor"/> — now pure RETAINED SUBSTRATE (system/choice/zone arms; the
+    /// OLD step-cadence bodies are deleted and their arms answer Illegal). An unguarded default match is
+    /// the engine-internal SCRIPTING profile; turn-flow-driven matches are pump-driven
+    /// (<see cref="CreatePumpDriven"/> — the AS-IS TurnFlowPump).
     /// </para>
     /// </summary>
     public DcgoMatch(

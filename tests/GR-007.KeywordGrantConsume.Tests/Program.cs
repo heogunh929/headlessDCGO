@@ -34,7 +34,7 @@ void RebootGrantSetsConsumerFlag()
     var (repo, sink) = Setup("r1");
     sink.Apply(new EffectMutation("ScheduleRebootUnsuspend", new HeadlessEntityId("src"),
         new Dictionary<string, object?> { ["targetEntityId"] = "r1" }));
-    AssertTrue(Flag(repo, "r1", "hasReboot"), "hasReboot (the flag HeadlessEarlyPhaseFlow reads) is set");
+    AssertTrue(Flag(repo, "r1", "hasReboot"), "hasReboot presence flag is set (4b B6: the OLD phase-flow reader retired; the live unsuspend seat reads the keyword scan — see R4P2a ActiveRebootUnsuspend)");
 }
 
 void PiercingGrantSetsConsumerFlag()

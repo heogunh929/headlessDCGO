@@ -159,7 +159,11 @@ HeadlessRlEnvironment BuildEnv(int envSeed)
         cards.Upsert(Digimon($"P2-M{index:D2}"));
     }
 
-    DcgoMatch match = new(context, new EngineTrace(), actionProcessor: null, actionLegality: new LegalActionSetValidator());
+    // (4b B6 re-pin) The RL env's default match is PUMP-DRIVEN; a supplied external match must be too,
+    // otherwise the non-pump dispatch table is now empty (the OLD (phase,cursor) table was physically
+    // retired) and DrivePumpToDecisionAsync is a no-op, leaving reset with zero legal actions. The pump
+    // installs the same LegalActionSetValidator boundary by default.
+    DcgoMatch match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
     var options = HeadlessRlEnvironmentOptions.Default with { PerspectivePlayerId = P1 };
     return new HeadlessRlEnvironment(match, options);
 }

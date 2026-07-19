@@ -362,7 +362,10 @@ async Task RandomAgentFullGameSmoke()
 
     async Task<string> RunSessionGameAsync(int policySeed)
     {
-        (DcgoMatch match, HeadlessEntityId[] hand) = await PendingHandChoiceMatchAsync(
+        // (4b B6 re-pin) Phase 2's full-game walk is TURN-FLOW-driven, so this smoke runs on the PUMP:
+        // the OLD AdvancePhase micro-step driver is physically retired. The synthetic forced-pair session
+        // is staged at P1's first main wait (hand dealt by the pump's own StartGame).
+        (DcgoMatch match, HeadlessEntityId[] hand) = await PendingHandChoicePumpMatchAsync(
             seed: 113, minCount: 2, maxCount: 2, canSkip: false,
             validatorFactory: _ => set => set.Count == 2);
 
@@ -387,7 +390,7 @@ async Task RandomAgentFullGameSmoke()
             "the forced pair resolved with two picks (only exit — no skip existed)");
 
         // Phase 2 — the game continues to a NATURAL end under random legal play (the session did not wedge
-        // the match). Legacy driver: AdvancePhase micro-steps, generous cap.
+        // the match). Pump driver: no lanes between action waits — step the auto-flow forward; generous cap.
         int steps = 0;
         while (!match.IsTerminal() && steps < 4000)
         {
@@ -682,6 +685,52 @@ async Task<(DcgoMatch Match, HeadlessEntityId[] Hand)> PendingHandChoiceMatchAsy
 
     var match = new DcgoMatch(context, new EngineTrace(), actionLegality: new LegalActionSetValidator());
     await match.InitializeAsync(config);
+
+    IReadOnlyList<HeadlessEntityId> handZone = ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Hand);
+    AssertTrue(handZone.Count >= 4, "P1 has enough hand cards to choose from");
+    HeadlessEntityId[] candidates = handZone.Take(4).ToArray();
+
+    ChoiceRequest request = new(
+        ChoiceType.HandCard, P1, "pick cards", minCount, maxCount, canSkip, ChoiceZone.Hand,
+        candidates.Select(id => new ChoiceCandidate(id, id.Value, ChoiceZone.Hand, IsSelectable: true)).ToArray())
+    {
+        SelectionValidator = validatorFactory?.Invoke(candidates),
+        PartialPickGate = gateFactory?.Invoke(candidates),
+    };
+    context.ChoiceController.RequestChoice(request, new HeadlessEntityId("r4rl03:test-choice"));
+    return (match, candidates);
+}
+
+// (4b B6) Pump twin of the fixture above for the TURN-FLOW smoke: CreatePumpDriven owns the deal
+// (hand 0 until StartGame), so the match is driven to P1's first main wait (mulligan declined —
+// deterministic for the seed-replay fingerprint) BEFORE the synthetic forced-pair session is staged.
+async Task<(DcgoMatch Match, HeadlessEntityId[] Hand)> PendingHandChoicePumpMatchAsync(
+    int seed,
+    int minCount,
+    int maxCount,
+    bool canSkip,
+    Func<HeadlessEntityId[], Func<IReadOnlyList<HeadlessEntityId>, bool>>? validatorFactory = null,
+    Func<HeadlessEntityId[], Func<IReadOnlyList<HeadlessEntityId>, HeadlessEntityId, bool>>? gateFactory = null)
+{
+    EngineContext context = EngineContext.CreateDefault(randomSeed: seed);
+    var db = (CardDatabase)context.CardRepository;
+    CardBaseEntityLoader.LoadInto(db);
+
+    StarterDecks.StarterDeck d1 = StarterDecks.Get("ST1");
+    StarterDecks.StarterDeck d2 = StarterDecks.Get("ST2");
+    MatchSetupConfig setup = MatchSetupConfig.Create(
+        new[]
+        {
+            new PlayerDeckSetup(P1, d1.MainDefinitions, d1.DigitamaDefinitions),
+            new PlayerDeckSetup(P2, d2.MainDefinitions, d2.DigitamaDefinitions)
+        },
+        firstPlayerId: P1);
+    MatchConfig config = MatchConfig.Create(new[] { P1, P2 }, randomSeed: seed, setup: setup);
+
+    var match = DcgoMatch.CreatePumpDriven(context, new EngineTrace());
+    await match.InitializeAsync(config);
+    await match.StepAsync();
+    await AdvanceToMainAsync(match, P1);
 
     IReadOnlyList<HeadlessEntityId> handZone = ((IZoneStateReader)context.ZoneMover).GetCards(P1, ChoiceZone.Hand);
     AssertTrue(handZone.Count >= 4, "P1 has enough hand cards to choose from");

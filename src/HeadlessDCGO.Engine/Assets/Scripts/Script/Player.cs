@@ -747,7 +747,7 @@ public sealed class Player
 
     /// <summary>(bridge W4) AS-IS <c>Player.MemoryForPlayer</c> — the shared memory gauge read from THIS
     /// player's perspective. The headless gauge is single-signed and turn-player-relative (positive favors
-    /// the turn player; <c>HeadlessMainPhaseFlow</c> re-signs <c>|memory|</c> at turn switch), so it is
+    /// the turn player; the turn-end seam re-signs the gauge at the flip — AS-IS EndTurnProcess mirror), so it is
     /// negated for the non-turn player — the same mapping <c>CardEffectCommons.MemoryForPlayer(card)</c>
     /// and <c>AceOverflowGate.MemoryDelta</c> already use.</summary>
     public int MemoryForPlayer

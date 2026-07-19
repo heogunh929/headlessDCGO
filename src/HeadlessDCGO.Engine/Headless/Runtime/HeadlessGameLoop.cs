@@ -90,23 +90,9 @@ public sealed class HeadlessGameLoop(
             .ConfigureAwait(false);
         int resolvedEffectCount = flow.ResolvedEffectCount;
 
-        // GR-001: enforce the memory turn-end rule AFTER the action and all of its triggered effects have
-        // settled (so the final memory — including any [On Play] memory gain — is the one tested). The
-        // dedicated memory actions (PayMemory/SetMemory/AddMemory) evaluate this inline, but the play paths
-        // (PlayCard/Digivolve/ActivateOption/SpecialPlay) pay memory directly; without this loop-level check
-        // the turn player could keep acting after their memory crossed into the negative. EvaluateAfter-
-        // MemoryMutation is idempotent (no-op unless phase==Main, the actor is the turn player, and memory
-        // <= -1), so re-evaluating each step is safe.
-        // (R4 S3b) PUMP matches skip this: it is the OLD driver's seat of the AS-IS EndTurnCheck — the pump
-        // runs the real EndTurnCheck at every AS-IS pump point (TurnStateMachine :939-950 etc.), and the OLD
-        // eval's (Main, AwaitingMemoryPassEnd) cursor write would fight the pump's phase ownership.
-        if (consumedAction is not null && !Context.RuleQueryService.IsTerminal()
-            && TurnFlowPumpHost.Find(Context) is null)
-        {
-            HeadlessMemoryState settledMemory = Context.MemoryController.Current;
-            new HeadlessMainPhaseFlow().EvaluateAfterMemoryMutation(
-                Context, consumedAction, settledMemory, settledMemory, "PostActionMemorySettle");
-        }
+        // (4b B6) The OLD loop-level memory-pass evaluation (HeadlessMainPhaseFlow.EvaluateAfterMemoryMutation,
+        // the GR-001 seat of the OLD step driver) is physically retired: the pump runs the real AS-IS
+        // EndTurnCheck at every pump point (TurnStateMachine :939-950 etc.), which owns the memory turn-end rule.
 
         bool isTerminal = Context.RuleQueryService.IsTerminal();
         _stepIndex++;
