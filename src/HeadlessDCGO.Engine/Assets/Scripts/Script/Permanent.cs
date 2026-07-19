@@ -4120,6 +4120,15 @@ public sealed class Permanent
         set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsAppFusion = value;
     }
 
+    /// <summary>(RD-R5-02) AS-IS <c>Permanent.IsReturnedToHandByBurstDigivolution</c> (Permanent.cs:3930) — the
+    /// burst-bounce marker HandBounceClaass.Bounce (:2789) stamps and <see cref="SelectBurstDigivolutionEffect"/>
+    /// .BounceTamer reads back to gate TamerBounced. Backed by the bookkeeping store (sibling of IsBurstDigivolved).</summary>
+    public bool IsReturnedToHandByBurstDigivolution
+    {
+        get => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsReturnedToHandByBurstDigivolution;
+        set => PermanentBookkeepingStore.Get(_context.CardInstanceRepository, InstanceId).IsReturnedToHandByBurstDigivolution = value;
+    }
+
     /// <summary>(R4 S3b-2①) AS-IS <c>Permanent.AddCardSource(cardSource)</c> (Permanent.cs:1045-1053): the new
     /// card becomes this permanent's stack TOP (AS-IS <c>cardSources.Insert(0, cardSource)</c>; face handling =
     /// the zone move's face stamp). SUBSTRATE MAPPING: the mirror permanent's identity IS its top card's zone

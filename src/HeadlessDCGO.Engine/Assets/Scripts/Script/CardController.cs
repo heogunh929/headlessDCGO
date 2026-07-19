@@ -3413,12 +3413,16 @@ public class PlayCardClass
             {
                 // AS-IS :770-786: `yield return ... GManager.instance.selectBurstDigivolutionEffect.BounceTamer(
                 // BurstTamer(card));` then the `!TamerBounced` retry (`_burstTamerFrameID = -1; SelectCost();`)
-                // else `burstDigivolved = true;` — SelectBurstDigivolutionEffect (a 345-line component: the
-                // tamer bounce is GAME STATE) has no mirror: STOP RD-P6C1-6. Unreachable today — IsBurst()
-                // needs a burst frame id and SetBurst/BurstTamer STOP first (RD-P6C1-1).
+                // else `burstDigivolved = true;`. The bounce METHOD itself is now mirrored 1:1
+                // (SelectBurstDigivolutionEffect.BounceTamer, RD-R5-02 landed 2026-07-20; SelectTamer RD-R5-01 /
+                // AddTrashTopCardAtTurnEnd RD-R5-03 also landed). The REMAINING blocker of THIS play-flow caller is
+                // RD-P6C1-6: the burst frame resolver `BurstTamer(card)` (needs SetBurst/burst-frame-id, RD-P6C1-1)
+                // and the `!TamerBounced` retry -> SelectCost re-entry are not wired. Unreachable today — IsBurst()
+                // needs a burst frame id that SetBurst/BurstTamer STOP first (RD-P6C1-1). Multi-block seat KEPT.
                 throw new NotSupportedException(
-                    "STOP: Burst digivolution tamer bounce (AS-IS GManager.selectBurstDigivolutionEffect) has " +
-                    "no mirror — design item RD-P6C1-6, docs/audit/rebuild_p6_cluster1_notes.md.");
+                    "STOP: Burst digivolution play-flow caller (AS-IS CardController.cs:770-786 BurstTamer frame " +
+                    "resolver + !TamerBounced retry) — design item RD-P6C1-6, docs/audit/rebuild_p6_cluster1_notes.md. " +
+                    "(SelectBurstDigivolutionEffect.BounceTamer/SelectTamer are mirrored; RD-P6C1-1 SetBurst is the gate.)");
             }
 
             #endregion

@@ -34,7 +34,7 @@ var tests = new (string Name, Func<Task> Body)[]
     ("BT25_104 W2 [Raid](OnAllyAttack)·Option [Main](OptionSkill) 등재 + Arts RESOLUTION 실행 flip(RD-P6C2-10): frame 모델(PermanentFrame/FrameID)·CanPlayCardTargetFrame·CanResolve·진화 실행", BT25104_RaidMainArtsResolve),
     ("BT25_104 W3 Burst tamerCondition FLIP(RD-EXT3-04): [Marcus Damon] burst-tamer 술어가 STOP 없이 실평가 — Permanent.CannotReturnToHand aggregate 스캔(제약 부재=false→후보 적격) 양·음, digimonCondition [ShineGreymon] 양·음", BT25104_BurstConditionFlip),
     ("BT25_104 W4 Burst turn-end trash 등록 FLIP(RD-R5-03): SelectBurstDigivolutionEffect.AddTrashTopCardAtTurnEnd가 permanent.UntilEachTurnEndEffects에 OnEndTurn ActivateClass 등록 — GetCardEffect(OnEndTurn) 반환·CanUse/CanActivate 게이트", BT25104_BurstTurnEndTrashRegistration),
-    ("BT25_104 W5 Burst SelectTamer FLIP(RD-R5-01): CardSource.CanPlayBurst affordability 게이트 실평가(config 양·음 + memory cost 게이트) → SelectBurstDigivolutionEffect.SelectTamer가 [Marcus Damon] tamer 선택 창 개방·pick 라우팅(STOP 해제); 풀 burst 플레이는 하류 BounceTamer(RD-R5-02) STOP", BT25104_BurstSelectTamerOpens),
+    ("BT25_104 W5 Burst SelectTamer+BounceTamer FLIP(RD-R5-01/RD-R5-02): CardSource.CanPlayBurst affordability 게이트 실평가(config 양·음 + memory cost 게이트) → SelectBurstDigivolutionEffect.SelectTamer가 [Marcus Damon] tamer 선택 창 개방·pick 라우팅 → BounceTamer가 픽 tamer를 손으로 바운스(sink ReturnToHand carrier)·IsReturnedToHandByBurstDigivolution 스탬프·TamerBounced=true (전체 burst 완주, STOP 해제)", BT25104_BurstSelectTamerOpens),
     // BT25_089 — Kazuki & Itsuki (Link·AppFusion STOP; Gain-memory·Security 포팅)
     ("BT25_089 W1 포팅 팔: [Start of Main](Gain1Memory)·[Security](PlaySelfTamer) 효과 등재", BT25089_PortableArms),
     ("BT25_089 W2 FLIP(RD-EXT3-01/G-Link 배치2): [Main] link 실행 — suspend cost → 영역 선택 → 손패 Appmon 선택 → 호스트 선택 → -2 감면 코스트 0 지불 → attach", BT25089_LinkFlip),
@@ -325,8 +325,29 @@ async Task BT25104_BurstSelectTamerOpens()
         "RD-R5-01 FLIP: SelectTamer OPENED a permanent selection over the [Marcus Damon] tamer (no STOP)");
     AssertTrue(pickedTamer is not null && pickedTamer.InstanceId == marcus,
         "SelectTamer resolved the tamer pick and routed the selected [Marcus Damon] to the burst follow-up");
-    // NOTE: a FULL burst play continues past this pick into BounceTamer (AS-IS bounce of the picked tamer with the
-    // IsBurst flag) — that remains STOP (RD-R5-02: standalone HandBounceClaass + IsReturnedToHandByBurstDigivolution).
+
+    // === FLIP RD-R5-02: a FULL burst play continues past the pick into BounceTamer — the AS-IS bounce of the
+    //     picked tamer with the IsBurst hashtable (HandBounceClaass) + Permanent.IsReturnedToHandByBurstDigivolution
+    //     read-back are landed (no NotSupportedException). Drive it and observe the real state change. ===
+    AssertTrue(!pickedTamer!.IsReturnedToHandByBurstDigivolution,
+        "negative (pre-bounce): the picked tamer carries no burst-return mark yet (bookkeeping-store default false)");
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(marcus),
+        "pre-bounce: the picked [Marcus Damon] is still on the battle area");
+
+    await sbde.BounceTamer(pickedTamer);
+
+    AssertTrue(sbde.TamerBounced,
+        "RD-R5-02 FLIP: BounceTamer bounced the burst Tamer and set TamerBounced (AS-IS :239 gate satisfied)");
+    AssertTrue(!ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(marcus),
+        "the burst Tamer left the battle area (the bounce removed it — AS-IS `tamer.TopCard == null`)");
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.Hand).Contains(marcus),
+        "the burst Tamer was returned to its owner's hand (HandBounceClaass -> sink ReturnToHand carrier)");
+    AssertTrue(pickedTamer.IsReturnedToHandByBurstDigivolution,
+        "the burst-return mark was stamped on the bounced Tamer (Permanent.IsReturnedToHandByBurstDigivolution, RD-R5-02)");
+
+    // Negative: the OTHER battle-area control permanent was NOT touched by the tamer bounce.
+    AssertTrue(ZoneCards(match, P1, ChoiceZone.BattleArea).Contains(other),
+        "negative: the unrelated control permanent stayed on the battle area (only the picked Tamer bounced)");
 }
 
 // ═══════════════════════════════════ BT25_089 ═══════════════════════════════════

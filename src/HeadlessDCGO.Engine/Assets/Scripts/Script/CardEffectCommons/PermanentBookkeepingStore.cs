@@ -68,6 +68,14 @@ public sealed class PermanentBookkeepingEntry
 
     /// <summary>AS-IS <c>Permanent.IsAppFusion</c> (Permanent.cs, sibling of IsBurstDigivolved).</summary>
     public bool IsAppFusion;
+
+    /// <summary>AS-IS <c>Permanent.IsReturnedToHandByBurstDigivolution</c> (Permanent.cs:3930) — set by the bounce
+    /// process (HandBounceClaass.Bounce :2789 = <c>CardEffectCommons.IsBurst(hashtable)</c>) when a Tamer leaves the
+    /// field as the burst-digivolution cost, read once by <c>SelectBurstDigivolutionEffect.BounceTamer</c> :239 to set
+    /// TamerBounced. (RD-R5-02) The mirror carrier (the sink's ReturnToHand burst bounce) stamps this AFTER the zone
+    /// move, so the RD-R3-02 field-leave lifetime Reset — the substrate stand-in for AS-IS dropping the leaving
+    /// Permanent object — does not wipe the flag the AS-IS object keeps.</summary>
+    public bool IsReturnedToHandByBurstDigivolution;
 }
 
 public static class PermanentBookkeepingStore

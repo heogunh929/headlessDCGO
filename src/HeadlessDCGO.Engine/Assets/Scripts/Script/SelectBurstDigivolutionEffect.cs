@@ -4,16 +4,16 @@
 // (bigbang §5): IEnumerator -> Task, StartCoroutine(x) -> await x; UI/Photon stripped. STATE fields + SetUp are
 // AS-IS verbatim; the two-option method panel is the same ModeChoice ADAPTATION as SelectAppFusionEffect.
 //
-// PARTIAL (design item RD-R5-02): AddTrashTopCardAtTurnEnd (RD-R5-03) is landed 1:1 (Permanent
-// .UntilEachTurnEndEffects + AceOverflowClass + CardObjectController zone statics all present; UI stripped).
-// SelectTamer (RD-R5-01) is now RESTORED 1:1 (2026-07-18): its head guard CardSource.CanPlayBurst(bool) is ported
-// (CardSource.cs), riding the R2-C burst cost engine GetChangedCostItselef, and the SelectPermanent(Mode.Custom)
-// tamer-selection body is a straight substrate port. The ONE remaining STOP is BounceTamer (RD-R5-02), blocked on
-// the standalone HandBounceClaass bounce process (no mirror type) + Permanent.IsReturnedToHandByBurstDigivolution
-// (no mirror). A FULL burst play still reaches that STOP downstream of SelectTamer (the caller's
-// _endSelectCoroutine_SelectTamer routes the picked tamer into the bounce) — SelectTamer itself opens and resolves
-// the tamer selection (with the live CanPlayBurst affordability gate); the bounce is where the burst play stops.
-// Permanent.CannotReturnToHand (RD-EXT3-04) is available. See the per-method notes.
+// FULLY LANDED (2026-07-20): AddTrashTopCardAtTurnEnd (RD-R5-03) is 1:1 (Permanent.UntilEachTurnEndEffects +
+// AceOverflowClass + CardObjectController zone statics all present; UI stripped). SelectTamer (RD-R5-01) is
+// RESTORED 1:1 (2026-07-18): its head guard CardSource.CanPlayBurst(bool) is ported (CardSource.cs), riding the
+// R2-C burst cost engine GetChangedCostItselef, and the SelectPermanent(Mode.Custom) tamer-selection body is a
+// straight substrate port. BounceTamer (RD-R5-02) is RESTORED 1:1 (2026-07-20): the AS-IS HandBounceClaass bounce
+// process maps to the MatchStateMutationSink ReturnToHand carrier (its established mirror; RDW-01 leave windows +
+// centralised CannotReturnToHand/immunity gates) driven by a causeless burst-marked mutation, and
+// Permanent.IsReturnedToHandByBurstDigivolution is now landed (bookkeeping-store sibling of IsBurstDigivolved).
+// A FULL burst play now resolves the tamer selection AND the burst bounce end to end. Permanent.CannotReturnToHand
+// (RD-EXT3-04) is available. See the per-method notes.
 
 namespace HeadlessDCGO.Engine.Assets.Scripts.Script;
 
@@ -23,6 +23,7 @@ using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffectCommons;
 using HeadlessDCGO.Engine.Assets.Scripts.Script.CardEffects;
 using HeadlessDCGO.Engine.Headless.Bridge;
 using HeadlessDCGO.Engine.Headless.Choices;
+using HeadlessDCGO.Engine.Headless.Effects;
 using HeadlessDCGO.Engine.Headless.Services;
 
 public class SelectBurstDigivolutionEffect
@@ -276,21 +277,65 @@ public class SelectBurstDigivolutionEffect
         }
     }
 
-    // AS-IS :222-247 `IEnumerator BounceTamer(Permanent tamer)` — bounce the selected tamer to hand with the
-    // IsBurst hashtable, then set TamerBounced from `tamer.IsReturnedToHandByBurstDigivolution`. STOP (design
-    // item RD-R5-02): the AS-IS `HandBounceClaass` (CardController.cs:2603) is a ~200-line standalone bounce
-    // PROCESS with its own leave-field cut-in windows — the mirror has no standalone HandBounceClaass type (the
-    // bounce is centralised in the MatchStateMutationSink for SelectPermanentEffect's Mode.Bounce, not a
-    // reusable raw-permanent-list-with-IsBurst-hashtable entry), and `Permanent.IsReturnedToHandByBurstDigivolution`
-    // has no mirror. (`Permanent.CannotReturnToHand` is now landed — no longer a blocker.) Unreachable today
-    // (SelectTamer STOPs upstream on CanPlayBurst). No guess.
-    public Task BounceTamer(Permanent tamer)
+    // AS-IS :222-247 `IEnumerator BounceTamer(Permanent tamer)` (RD-R5-02 RESTORED) — bounce the selected tamer to
+    // hand with the IsBurst hashtable, then set TamerBounced from the burst-return flag. SUBSTRATE: IEnumerator→Task,
+    // StartCoroutine(X)→await X. The AS-IS `new HandBounceClaass([tamer], hashtable).Bounce()` (CardController.cs:2603,
+    // a standalone bounce PROCESS) has no mirror class — the port's established mirror for HandBounceClaass IS the
+    // MatchStateMutationSink ReturnToHand carrier (SelectPermanentEffect.cs:574-590; RDW-01 opens the AS-IS
+    // OnPermamemtReturnedToHand + OnLeaveFieldAnyone leave windows, and the CannotReturnToHand / CanNotBeAffected
+    // immunity gates are centralised there). The AS-IS `hashtable["IsBurst"]=true` (with NO CardEffect key →
+    // cardEffect null) maps to the sink's IsBurstKey on a CAUSELESS ReturnToHand: the mutation source is the
+    // carrier-seam sentinel `new HeadlessEntityId("select")` (SelectPermanentEffect.cs:113 verbatim — the
+    // effect-less-flush convention), so the leave windows fire un-caused exactly as AS-IS's null cardEffect. The
+    // burst mark is stamped by the sink after the move (Permanent.IsReturnedToHandByBurstDigivolution, RD-R5-02).
+    // NOTE: like every mirror bounce, this inherits the sink's RDW-01 POST windows only — the AS-IS PRE cut-in
+    // windows (WhenReturntoHandAnyone/WhenRemoveField, CardController.cs:2644-2660) are the separately-tracked
+    // R2-P2-2 deferral, not a BounceTamer-specific gap.
+    public async Task BounceTamer(Permanent tamer)
     {
-        _ = tamer;
-        throw new NotSupportedException(
-            "STOP: SelectBurstDigivolutionEffect.BounceTamer (AS-IS SelectBurstDigivolutionEffect.cs:222-247) — " +
-            "requires the standalone HandBounceClaass bounce process (no mirror type) and " +
-            "Permanent.IsReturnedToHandByBurstDigivolution (design item RD-R5-02). Permanent.CannotReturnToHand is now available.");
+        TamerBounced = false;
+
+        if (tamer != null)
+        {
+            if (tamer.TopCard != null) // mirror TopCard is never null — kept 1:1 for shape (AS-IS :228).
+            {
+                EngineContext context = RequireContext();
+
+                if (new Player(context, tamer.TopCard.Owner).GetBattleAreaPermanents().Contains(tamer))
+                {
+                    if (!tamer.CannotReturnToHand(null))
+                    {
+                        // AS-IS :234-237 — `new HandBounceClaass([tamer], {"IsBurst":true}).Bounce()` over the sink
+                        // carrier (the established HandBounceClaass mirror). One flush = one AS-IS bounce call.
+                        var sink = new MatchStateMutationSink(
+                            context.CardInstanceRepository, log: null, context.ZoneMover,
+                            memory: context.MemoryController, context.EffectRegistry, context.GameEventQueue,
+                            context: context);
+
+                        sink.Apply(new EffectMutation(
+                            MatchStateMutationSink.ReturnToHandKind,
+                            new HeadlessEntityId("select"),
+                            new Dictionary<string, object?>(StringComparer.Ordinal)
+                            {
+                                [MatchStateMutationSink.TargetEntityIdKey] = tamer.InstanceId.Value,
+                                [MatchStateMutationSink.IsBurstKey] = true,
+                            }));
+
+                        await sink.FlushAsync().ConfigureAwait(false);
+
+                        // AS-IS :239 `tamer.TopCard == null && tamer.IsReturnedToHandByBurstDigivolution`. SUBSTRATE:
+                        // the id-keyed mirror Permanent.TopCard view is never null (CardController.cs:498 precedent),
+                        // so the AS-IS "top card gone" truth is the field departure the bounce performed — the tamer
+                        // is no longer on its owner's battle area (the same field-membership read the head guard uses).
+                        if (!new Player(context, tamer.TopCard.Owner).GetBattleAreaPermanents().Contains(tamer)
+                            && tamer.IsReturnedToHandByBurstDigivolution)
+                        {
+                            TamerBounced = true;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // AS-IS :249-344 `void AddTrashTopCardAtTurnEnd(Permanent permanent)` (RD-R5-03 landed) — registers an

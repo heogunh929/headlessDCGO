@@ -173,6 +173,10 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
     // W2-follow: async / controller-backed kinds (applied on flush or via the memory controller).
     public const string TrashCardKind = "TrashCard";
     public const string ReturnToHandKind = "ReturnToHand";
+    // (RD-R5-02) marks a ReturnToHand as the Burst-Digivolution Tamer bounce — the substrate translation of AS-IS
+    // HandBounceClaass's <c>hashtable["IsBurst"]=true</c> (CardController.cs:2789 stamps
+    // Permanent.IsReturnedToHandByBurstDigivolution from it). Set only by SelectBurstDigivolutionEffect.BounceTamer.
+    public const string IsBurstKey = "isBurst";
     public const string ReturnToDeckTopKind = "ReturnToDeckTop";
     public const string ReturnToDeckBottomKind = "ReturnToDeckBottom";
     public const string AddToSecurityKind = "AddToSecurity";
@@ -636,6 +640,24 @@ public sealed class MatchStateMutationSink : IEffectMutationSink
                 StageLeaveWindow(mutation, record, targetId, LeaveClass.HandBounce);
                 ApplyZoneMove(mutation, record, targetId, (zm, owner, id, ct) => zm.AddToHandAsync(
                     owner, id, returnHandBatchId, returnHandCause.IsEmpty ? null : returnHandCause, ct));
+                // (RD-R5-02) AS-IS HandBounceClaass :2789 `permanent.IsReturnedToHandByBurstDigivolution =
+                // CardEffectCommons.IsBurst(_hashtable)` — the Burst-Digivolution Tamer bounce marks the leaving
+                // permanent so BounceTamer's read-back sees the burst return. AS-IS sets it BEFORE the field removal
+                // (the Permanent object persists); the mirror stamps it as a thunk staged AFTER the AddToHand move
+                // thunk, so the RD-R3-02 field-leave lifetime Reset (which runs inside that move — the substrate
+                // stand-in for AS-IS dropping the leaving object) does not wipe it. A non-burst bounce carries no
+                // IsBurst flag and its store entry is Reset to the AS-IS default false, so no stamp is needed.
+                if (ReadBool(mutation.Values, IsBurstKey))
+                {
+                    HeadlessEntityId burstTargetId = targetId;
+                    _pendingAsync.Add(_ =>
+                    {
+                        Assets.Scripts.Script.CardEffectCommons.PermanentBookkeepingStore
+                            .Get(_repository, burstTargetId).IsReturnedToHandByBurstDigivolution = true;
+                        return Task.CompletedTask;
+                    });
+                }
+
                 break;
             case ReturnToDeckTopKind:
                 if (IsRestrictedFromCause(targetId, Assets.Scripts.Script.CardEffectCommons.RestrictionHelpers.CannotReturnToDeckKey, mutation.SourceEntityId) || IsRemovalBlockedByScan(targetId))
