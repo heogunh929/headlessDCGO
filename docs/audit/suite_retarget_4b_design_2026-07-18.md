@@ -456,3 +456,6 @@ A-1 재조준·re-point per-file 원장(§3.1g c1~c5 연장):
 | **A-1 소계** | | -12 | +11 (+ result-object→zone 등가 재소싱) | **-5** | 제거 12 전량 (a)result-object 진단 은퇴(동치 zone 대체) 또는 (b)OLD 액션-통화 assert 은퇴(펌프 choice-model 번역); 실룰 검증 소실 0 |
 
 **A-1 감사 결론**: net −5의 제거분(W5 −9 result-object 진단 + D6 −3 OLD 액션-통화)은 전량 **검증대상(발명 result-object 진단·OLD 통화)이 펌프 등가 관측(실 zone 착지·choice-model)으로 대체**된 것 — c5 원칙(제거=은퇴+대체 커버 실재) 준수, 영속 게임-룰 검증 소실 0. C12/R2-1/G9-062/FAILd-03은 net 0(단언 verbatim); D6는 +4(choice-model 강화).
+
+## §3.4e A-2 결과 (2026-07-19): 삭제 0 — 소비자-0 판정표 정정(직접-시그니처 grep 아티팩트)
+6표면 전원 라이브-도달 재확증(삭제 시 build 깨짐/라이브-green 회귀): OLD ctor=17파일 라이브(GR-002/GR-003 등 green 포함, CreatePumpDriven이 파라미터 ctor 내부 의존)·GameLoop=DcgoMatch:52 전 매치 인스턴스화(펌프-공유)·디스패처 OLD arm=GetLegalActions 경유 라이브(GR-002 실증)·EoT 마커=항2 body 소비(원자)·shadow 2=OLD 존속 중 차분 가드 유효(조기 은퇴=secwin 유일-witness 소실 위험)·G2A-006=검증대상 존속. **결론: 4b 물리 삭제는 부분-불가, 원자적 종점** — 선행=잔여 OLD-ctor/통화 소비자(green 포함 ~25±) 재조준·은퇴 + 실부채 9 상환. 안전-삭제 가능 표면=∅. §3.4d(5) 판정표 폐기, 본 절이 대체.
